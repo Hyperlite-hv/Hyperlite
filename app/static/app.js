@@ -430,23 +430,50 @@ async function loadVMInfoTab(name) {
   } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
 }
 
+function nextScsiDev(disks) {
+  // Un nom de device doit etre unique sur la VM quel que soit son type (disque ou
+  // cdrom) : on prend donc toutes les cibles sdX deja occupees, cdrom inclus.
+  const used = new Set(disks.filter((d) => /^sd[a-z]$/.test(d.cible)).map((d) => d.cible));
+  for (const letter of "abcdefghijklmnopqrstuvwxyz") {
+    if (!used.has("sd" + letter)) return "sd" + letter;
+  }
+  return null;
+}
+
 async function loadVMDisksTab(name) {
   const el = document.getElementById("tab-disks");
   try {
     const disks = await api("GET", `/vms/${encodeURIComponent(name)}/disks`);
+    let volumes = [];
+    try { volumes = await api("GET", "/storage/default/volumes"); } catch (e) { /* ignore */ }
+    const freeVolumes = volumes.filter((v) => !v.utilise);
+    const nextDev = nextScsiDev(disks);
+
     const rows = disks.map((d) => `
       <li>
         <span>${d.cible} (${d.bus || "?"}) ${d.type === "cdrom" ? "— cloud-init" : ""}</span>
-        ${d.type !== "cdrom" && d.cible !== "vda" ? `<button class="btn-small btn-danger admin-only" data-dev="${d.cible}">Detacher</button>` : ""}
+        ${d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" ? `<button class="btn-small btn-danger admin-only" data-dev="${d.cible}">Detacher</button>` : ""}
       </li>`).join("");
+
+    const volOptions = freeVolumes.map((v) => `<option value="${v.nom}">${v.nom} (${v.capacite_go} Go)</option>`).join("");
     el.innerHTML = `
       <ul class="inline-list">${rows || "<li>Aucun disque.</li>"}</ul>
-      <div class="form-row admin-only" style="margin-top:14px">
-        <label>Attacher un volume existant</label>
-        <div style="display:flex; gap:6px">
-          <input type="text" id="attach-vol-name" placeholder="nom-du-volume.qcow2" style="flex:1">
-          <input type="text" id="attach-vol-dev" placeholder="vdb" style="width:80px">
-          <button class="btn-secondary" id="attach-vol-btn">Attacher</button>
+      <div class="form-row admin-only" style="margin-top:14px;align-items:flex-start">
+        <label>Ajouter un peripherique</label>
+        <div style="flex:1">
+          <select id="attach-source" style="width:100%;margin-bottom:6px">
+            <option value="__new__">+ Nouveau disque...</option>
+            ${volOptions}
+          </select>
+          <div id="attach-new-row" style="display:flex;gap:6px;margin-bottom:6px">
+            <input type="text" id="attach-new-name" placeholder="nom du volume" value="${name}-disk-${Date.now().toString().slice(-5)}" style="flex:1">
+            <input type="number" id="attach-new-size" min="1" max="500" value="5" style="width:70px">
+            <span style="align-self:center">Go</span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${nextDev ? `<span style="font-family:monospace">sera attache en tant que <b>${nextDev}</b></span>` : `<span class="error">Plus de lettre disponible (26 disques max)</span>`}
+            <button class="btn-secondary" id="attach-vol-btn" style="margin-left:auto" ${nextDev ? "" : "disabled"}>Attacher</button>
+          </div>
         </div>
       </div>
     `;
@@ -458,14 +485,29 @@ async function loadVMDisksTab(name) {
         loadVMDisksTab(name);
       } catch (e) { toast(e.message, "error"); }
     }));
+
+    const sourceSelect = document.getElementById("attach-source");
+    const newRow = document.getElementById("attach-new-row");
+    if (sourceSelect) {
+      const syncNewRow = () => { newRow.style.display = sourceSelect.value === "__new__" ? "flex" : "none"; };
+      sourceSelect.addEventListener("change", syncNewRow);
+      syncNewRow();
+    }
+
     const attachBtn = document.getElementById("attach-vol-btn");
     if (attachBtn) attachBtn.addEventListener("click", async () => {
-      const volName = document.getElementById("attach-vol-name").value.trim();
-      const dev = document.getElementById("attach-vol-dev").value.trim() || "vdb";
-      if (!volName) return;
+      if (!nextDev) return;
       try {
-        await api("POST", `/vms/${encodeURIComponent(name)}/disks`, { volume_name: volName, pool: "default", target_dev: dev });
-        toast("Volume attache.", "success");
+        let volName = sourceSelect.value;
+        if (volName === "__new__") {
+          const newName = document.getElementById("attach-new-name").value.trim();
+          const sizeGb = parseInt(document.getElementById("attach-new-size").value, 10);
+          if (!newName) { toast("Indiquez un nom de volume.", "error"); return; }
+          const created = await api("POST", "/storage/default/volumes", { name: newName, size_gb: sizeGb });
+          volName = created.nom;
+        }
+        await api("POST", `/vms/${encodeURIComponent(name)}/disks`, { volume_name: volName, pool: "default", target_dev: nextDev });
+        toast(`Disque '${volName}' attache en tant que ${nextDev}.`, "success");
         loadVMDisksTab(name);
       } catch (e) { toast(e.message, "error"); }
     });
