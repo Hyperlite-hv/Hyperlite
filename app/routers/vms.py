@@ -485,6 +485,96 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         conn.close()
 
 
+MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+
+
+class InterfaceAttach(BaseModel):
+    network: str
+
+
+@router.post("/{name}/interfaces", status_code=201)
+def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "attach_interface", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        try:
+            conn.networkLookupByName(payload.network)
+        except libvirt.libvirtError:
+            log_action(user["username"], "attach_interface", name, "echec", "Reseau introuvable")
+            raise HTTPException(status_code=404, detail=f"Reseau '{payload.network}' introuvable")
+
+        iface_xml = f"""
+        <interface type='network'>
+          <source network='{payload.network}'/>
+          <model type='virtio'/>
+        </interface>
+        """
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+        try:
+            domain.attachDeviceFlags(iface_xml, flags)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "attach_interface", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur d'attachement de l'interface : {e}")
+
+        log_action(user["username"], "attach_interface", name, "succes")
+        return {"message": f"Interface ajoutee sur le reseau '{payload.network}' pour '{name}'"}
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}/interfaces/{mac}")
+def detach_interface(name: str, mac: str, user: dict = Depends(require_role("admin"))):
+    if not MAC_RE.match(mac):
+        log_action(user["username"], "detach_interface", name, "echec", "MAC invalide")
+        raise HTTPException(status_code=422, detail="Adresse MAC invalide")
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "detach_interface", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        xml_desc = domain.XMLDesc(0)
+        root = ET.fromstring(xml_desc)
+        interfaces = root.findall(".//devices/interface")
+        if len(interfaces) <= 1:
+            log_action(user["username"], "detach_interface", name, "echec", "Derniere interface")
+            raise HTTPException(status_code=422, detail="Impossible de detacher la derniere interface reseau d'une VM")
+
+        iface_elem = None
+        for iface in interfaces:
+            mac_elem = iface.find("mac")
+            if mac_elem is not None and mac_elem.get("address", "").lower() == mac.lower():
+                iface_elem = iface
+                break
+        if iface_elem is None:
+            log_action(user["username"], "detach_interface", name, "echec", f"Interface {mac} introuvable")
+            raise HTTPException(status_code=404, detail=f"Interface '{mac}' introuvable sur la VM '{name}'")
+
+        iface_xml = ET.tostring(iface_elem, encoding="unicode")
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+        try:
+            domain.detachDeviceFlags(iface_xml, flags)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "detach_interface", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur de detachement : {e}")
+
+        log_action(user["username"], "detach_interface", name, "succes")
+        return {"message": f"Interface '{mac}' detachee de '{name}'"}
+    finally:
+        conn.close()
+
+
 # --- Snapshots (10.8) ---
 # Un snapshot capture l'etat d'une VM (disque, et memoire si elle tourne) a un
 # instant T, stocke DANS le fichier qcow2 lui-meme : c'est rapide a creer/restaurer
