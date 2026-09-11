@@ -7,13 +7,44 @@ IMAGES_DIR = Path("/var/lib/libvirt/images")
 BASE_IMAGE = IMAGES_DIR / "base" / "debian-12-generic-amd64.qcow2"
 BASE_IMAGE_URL = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
 
+# Repertoire racine du projet (app/core/vm_builder.py -> app/core -> app -> racine),
+# calcule dynamiquement pour fonctionner quel que soit le chemin d'installation.
+PROJDIR = Path(__file__).resolve().parents[2]
+SSH_KEY_DIR = PROJDIR / "data" / "ssh"
+
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$")
+USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+# sd(a), sd(b), sd(c)... utilise pour nommer les disques virtio-scsi d'une VM
+SCSI_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
 
 def validate_name(name):
     if not NAME_RE.match(name):
         return "Nom de VM invalide (lettres/chiffres/tirets, 2-63 caracteres, doit commencer par une lettre ou un chiffre)"
     return None
+
+
+def validate_username(username):
+    if not USERNAME_RE.match(username):
+        return "Nom d'utilisateur invalide (minuscules/chiffres/tirets/underscore, doit commencer par une lettre minuscule ou _, 32 caracteres max)"
+    return None
+
+
+def get_or_create_automation_pubkey():
+    """Cle SSH dediee a Hyperlite (generee une seule fois sur le serveur), injectee
+    dans le cloud-init de chaque nouvelle VM pour permettre un futur terminal web
+    SSH sans mot de passe stocke cote serveur."""
+    SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    priv = SSH_KEY_DIR / "hyperlite_automation"
+    pub = SSH_KEY_DIR / "hyperlite_automation.pub"
+    if not priv.exists():
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", "hyperlite-automation"],
+            check=True, capture_output=True, text=True,
+        )
+        priv.chmod(0o600)
+    return pub.read_text().strip()
 
 
 def ensure_base_image():
@@ -26,42 +57,56 @@ def ensure_base_image():
     return BASE_IMAGE
 
 
-def create_disk(vm_name, disk_gb):
-    ensure_base_image()
-    disk_path = IMAGES_DIR / f"{vm_name}.qcow2"
-    subprocess.run(
-        [
-            "qemu-img", "create", "-f", "qcow2",
-            "-F", "qcow2", "-b", str(BASE_IMAGE),
-            str(disk_path), f"{disk_gb}G",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+def create_disk(vm_name, disk_gb, index=0):
+    """Cree un disque qcow2 pour la VM. Le disque d'index 0 (systeme) est base sur
+    l'image cloud Debian ; les disques suivants sont vierges (stockage supplementaire)."""
+    disk_path = IMAGES_DIR / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
+    if index == 0:
+        ensure_base_image()
+        subprocess.run(
+            [
+                "qemu-img", "create", "-f", "qcow2",
+                "-F", "qcow2", "-b", str(BASE_IMAGE),
+                str(disk_path), f"{disk_gb}G",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        subprocess.run(
+            ["qemu-img", "create", "-f", "qcow2", str(disk_path), f"{disk_gb}G"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     return disk_path
 
 
-def create_cloudinit_iso(vm_name, password=None):
+def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
     workdir = Path(f"/tmp/hyperlite-cloudinit-{vm_name}")
     workdir.mkdir(exist_ok=True)
     user_data = workdir / "user-data"
     meta_data = workdir / "meta-data"
 
-    pwd = password or "hyperlite"
-    if any(c in pwd for c in ("\n", "\r")):
+    if any(c in password for c in ("\n", "\r")):
         raise ValueError("Le mot de passe ne doit pas contenir de retour a la ligne")
-    pwd_quoted = "'" + pwd.replace("'", "''") + "'"
+    pwd_quoted = "'" + password.replace("'", "''") + "'"
     ud = [
         "#cloud-config",
         f"hostname: {vm_name}",
         "manage_etc_hosts: true",
         "users:",
-        "  - name: hyperlite",
+        f"  - name: {username}",
         "    sudo: ALL=(ALL) NOPASSWD:ALL",
         "    shell: /bin/bash",
         f"    plain_text_passwd: {pwd_quoted}",
         "    lock_passwd: false",
+    ]
+    if ssh_pubkey:
+        ud.append("    ssh_authorized_keys:")
+        ud.append(f"      - {ssh_pubkey}")
+    ud += [
         "chpasswd:",
         "  expire: false",
         "ssh_pwauth: true",
@@ -79,7 +124,27 @@ def create_cloudinit_iso(vm_name, password=None):
     return iso_path
 
 
-def build_domain_xml(vm_name, vcpu, memory_mb, disk_path, cloudinit_path, network="default"):
+def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None):
+    disks_xml = ""
+    for i, disk_path in enumerate(disk_paths):
+        dev = f"sd{SCSI_LETTERS[i]}"
+        disks_xml += f"""
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='{disk_path}'/>
+      <target dev='{dev}' bus='scsi'/>
+    </disk>"""
+
+    iso_xml = ""
+    if iso_path:
+        iso_xml = f"""
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{iso_path}'/>
+      <target dev='hdd' bus='ide'/>
+      <readonly/>
+    </disk>"""
+
     return f"""
 <domain type='kvm'>
   <name>{vm_name}</name>
@@ -101,15 +166,11 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_path, cloudinit_path, networ
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='qcow2'/>
-      <source file='{disk_path}'/>
-      <target dev='vda' bus='virtio'/>
-    </disk>
+    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{cloudinit_path}'/>
-      <target dev='sda' bus='sata'/>
+      <target dev='hdc' bus='ide'/>
       <readonly/>
     </disk>
     <interface type='network'>
