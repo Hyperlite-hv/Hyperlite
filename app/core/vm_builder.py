@@ -49,6 +49,9 @@ def create_cloudinit_iso(vm_name, password=None):
     meta_data = workdir / "meta-data"
 
     pwd = password or "hyperlite"
+    if any(c in pwd for c in ("\n", "\r")):
+        raise ValueError("Le mot de passe ne doit pas contenir de retour a la ligne")
+    pwd_quoted = "'" + pwd.replace("'", "''") + "'"
     ud = [
         "#cloud-config",
         f"hostname: {vm_name}",
@@ -57,7 +60,7 @@ def create_cloudinit_iso(vm_name, password=None):
         "  - name: hyperlite",
         "    sudo: ALL=(ALL) NOPASSWD:ALL",
         "    shell: /bin/bash",
-        f"    plain_text_passwd: '{pwd}'",
+        f"    plain_text_passwd: {pwd_quoted}",
         "    lock_passwd: false",
         "chpasswd:",
         "  expire: false",
