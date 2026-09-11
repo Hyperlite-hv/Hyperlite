@@ -193,6 +193,7 @@ async function loadVMs() {
           <button class="btn-small btn-secondary admin-only" data-action="start" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Demarrer</button>
           <button class="btn-small btn-secondary admin-only" data-action="stop" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Arreter</button>
           <button class="btn-small btn-secondary admin-only" data-action="restart" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Redemarrer</button>
+          <button class="btn-small btn-secondary admin-only" data-action="clone" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Cloner</button>
           <button class="btn-small btn-danger admin-only" data-action="delete" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Supprimer</button>
         </td>
       </tr>
@@ -223,6 +224,11 @@ async function handleVMAction(action, name) {
       if (!confirm(`Supprimer definitivement la VM '${name}' et son disque ? Cette action est irreversible.`)) return;
       await api("DELETE", `/vms/${encodeURIComponent(name)}?confirm=true`);
       toast(`VM '${name}' supprimee.`, "success");
+    } else if (action === "clone") {
+      const newName = prompt(`Nom de la copie de '${name}' :`, `${name}-clone`);
+      if (!newName || !newName.trim()) return;
+      await api("POST", `/vms/${encodeURIComponent(name)}/clone`, { new_name: newName.trim() });
+      toast(`VM '${name}' clonee vers '${newName.trim()}' (arretee).`, "success");
     }
     loadVMs();
     loadDashboard();

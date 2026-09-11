@@ -587,3 +587,100 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
         return {"message": f"Snapshot '{snapshot_name}' supprime"}
     finally:
         conn.close()
+
+
+class CloneRequest(BaseModel):
+    new_name: str
+
+
+@router.post("/{name}/clone", status_code=201)
+def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "clone_vm", name, "echec", "VM source introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        try:
+            validate_name(payload.new_name)
+        except ValueError as exc:
+            log_action(user["username"], "clone_vm", name, "echec", f"nom invalide : {payload.new_name}")
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        try:
+            conn.lookupByName(payload.new_name)
+            log_action(user["username"], "clone_vm", name, "echec", f"'{payload.new_name}' existe deja")
+            raise HTTPException(status_code=409, detail=f"Une VM '{payload.new_name}' existe deja")
+        except libvirt.libvirtError:
+            pass
+
+        if domain.isActive():
+            log_action(user["username"], "clone_vm", name, "echec", "VM active")
+            raise HTTPException(status_code=409, detail="Arretez la VM avant de la cloner")
+
+        root = ET.fromstring(domain.XMLDesc(0))
+
+        disk_el = None
+        for disk in root.findall(".//devices/disk"):
+            if disk.get("device") == "disk":
+                disk_el = disk
+                break
+        if disk_el is None:
+            log_action(user["username"], "clone_vm", name, "echec", "disque source introuvable")
+            raise HTTPException(status_code=500, detail="Disque source introuvable")
+        source_el = disk_el.find("source")
+        source_path = source_el.get("file") if source_el is not None else None
+        if not source_path:
+            raise HTTPException(status_code=500, detail="Chemin du disque source introuvable")
+
+        new_disk_path = IMAGES_DIR / f"{payload.new_name}.qcow2"
+        if new_disk_path.exists():
+            raise HTTPException(status_code=409, detail="Un fichier disque porte deja ce nom")
+
+        try:
+            subprocess.run(
+                ["qemu-img", "convert", "-O", "qcow2", source_path, str(new_disk_path)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            log_action(user["username"], "clone_vm", name, "echec", f"copie disque : {exc.stderr}")
+            raise HTTPException(status_code=500, detail="Echec de la copie du disque")
+
+        name_el = root.find("name")
+        if name_el is not None:
+            name_el.text = payload.new_name
+
+        uuid_el = root.find("uuid")
+        if uuid_el is not None:
+            root.remove(uuid_el)
+
+        source_el.set("file", str(new_disk_path))
+
+        devices_el = root.find(".//devices")
+        if devices_el is not None:
+            for disk in list(devices_el.findall("disk")):
+                if disk.get("device") == "cdrom":
+                    devices_el.remove(disk)
+
+        for iface in root.findall(".//devices/interface"):
+            mac = iface.find("mac")
+            if mac is not None:
+                iface.remove(mac)
+
+        new_xml = ET.tostring(root, encoding="unicode")
+
+        try:
+            new_domain = conn.defineXML(new_xml)
+        except libvirt.libvirtError as exc:
+            new_disk_path.unlink(missing_ok=True)
+            log_action(user["username"], "clone_vm", name, "echec", str(exc))
+            raise HTTPException(status_code=500, detail=f"Echec de la definition du clone : {exc}")
+
+        log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}")
+        return {"source": name, "clone": new_domain.name(), "etat": "arretee"}
+    finally:
+        conn.close()
