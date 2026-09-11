@@ -5,49 +5,29 @@ import { useInfraStore } from "../store/useInfraStore";
 const FILTERS = [
   { id: "server", label: "Serveur" },
   { id: "pool", label: "Pool" },
-  { id: "tag", label: "Tag" },
 ];
 
 function vmNode(v) {
   return { key: `vm-${v.nom}`, label: v.nom, type: "vm", id: v.nom, etat: v.etat };
 }
-function containerNode(c) {
-  return { key: `ct-${c.nom}`, label: c.nom, type: "container", id: c.nom, etat: c.etat };
-}
 function storageNode(p) {
   return { key: `st-${p.nom}`, label: p.nom, type: "storage", id: p.nom, etat: p.etat };
 }
 
-function buildByServer(nodes, vms, containers, storagePools) {
+function buildByServer(nodes, vms, storagePools) {
   return nodes.map((n) => ({
     key: `node-${n.id}`, label: n.nom, type: "node", id: n.id, etat: n.etat,
     children: [
       ...storagePools.filter((p) => p.node === n.id).map(storageNode),
       ...vms.filter((v) => v.node === n.id).map(vmNode),
-      ...containers.filter((c) => c.node === n.id).map(containerNode),
     ],
   }));
 }
 
-function buildByTag(vms, containers) {
-  const tags = new Set();
-  [...vms, ...containers].forEach((r) => (r.tags || []).forEach((t) => tags.add(t)));
-  return [...tags].sort().map((tag) => ({
-    key: `tag-${tag}`, label: tag, type: "group", id: null,
-    children: [
-      ...vms.filter((v) => (v.tags || []).includes(tag)).map(vmNode),
-      ...containers.filter((c) => (c.tags || []).includes(tag)).map(containerNode),
-    ],
-  }));
-}
-
-function buildByPool(vms, containers, storagePools) {
+function buildByPool(vms, storagePools) {
   return storagePools.map((p) => ({
     key: `poolgroup-${p.nom}`, label: `${p.nom} (${p.node})`, type: "group", id: null,
-    children: [
-      ...vms.filter((v) => v.node === p.node).map(vmNode),
-      ...containers.filter((c) => c.node === p.node).map(containerNode),
-    ],
+    children: vms.filter((v) => v.node === p.node).map(vmNode),
   }));
 }
 
@@ -62,20 +42,16 @@ function filterTree(node, query) {
 }
 
 export default function ResourceTree() {
-  const { nodes, vms, containers, storagePools, treeFilter, setTreeFilter, searchQuery } = useInfraStore((s) => ({
-    nodes: s.nodes, vms: s.vms, containers: s.containers, storagePools: s.storagePools,
+  const { nodes, vms, storagePools, treeFilter, setTreeFilter, searchQuery } = useInfraStore((s) => ({
+    nodes: s.nodes, vms: s.vms, storagePools: s.storagePools,
     treeFilter: s.treeFilter, setTreeFilter: s.setTreeFilter, searchQuery: s.searchQuery,
   }));
 
   const tree = useMemo(() => {
-    let children;
-    if (treeFilter === "tag") children = buildByTag(vms, containers);
-    else if (treeFilter === "pool") children = buildByPool(vms, containers, storagePools);
-    else children = buildByServer(nodes, vms, containers, storagePools);
-
+    const children = treeFilter === "pool" ? buildByPool(vms, storagePools) : buildByServer(nodes, vms, storagePools);
     const root = { key: "dc", label: "Datacenter", type: "datacenter", id: null, children };
     return filterTree(root, searchQuery) || { ...root, children: [] };
-  }, [nodes, vms, containers, storagePools, treeFilter, searchQuery]);
+  }, [nodes, vms, storagePools, treeFilter, searchQuery]);
 
   return (
     <div className="flex h-full flex-col bg-anthracite-800 border-r border-anthracite-600">

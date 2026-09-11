@@ -93,6 +93,50 @@ def get_vm(name: str, user: dict = Depends(get_current_user)):
     return result
 
 
+class VMUpdate(BaseModel):
+    vcpu: int | None = Field(default=None, ge=1, le=2)
+    memory_mb: int | None = Field(default=None, ge=256, le=2048)
+
+
+@router.patch("/{name}")
+def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_role("admin"))):
+    if payload.vcpu is None and payload.memory_mb is None:
+        raise HTTPException(status_code=422, detail="Aucune modification demandee (vcpu ou memory_mb requis)")
+
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "update_vm", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        if domain.isActive():
+            log_action(user["username"], "update_vm", name, "echec", "VM active")
+            raise HTTPException(status_code=409, detail="Arretez la VM avant de modifier ses ressources")
+
+        try:
+            if payload.vcpu is not None:
+                # Le max doit etre ajuste avant (ou en meme temps que) le courant,
+                # sinon libvirt refuse un "courant" superieur a l'ancien max.
+                domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_VCPU_MAXIMUM)
+                domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
+            if payload.memory_mb is not None:
+                kib = payload.memory_mb * 1024
+                domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_MEM_MAXIMUM)
+                domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "update_vm", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur de mise a jour des ressources : {e}")
+
+        domain = conn.lookupByName(name)
+        result = _domain_summary(domain)
+        log_action(user["username"], "update_vm", name, "succes")
+        return result
+    finally:
+        conn.close()
+
+
 class DiskSpec(BaseModel):
     size_gb: int = Field(ge=1, le=500)
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Server, Plus, Bell, Sun, Moon, User, Box, LogOut } from "lucide-react";
+import { Server, Plus, Bell, Sun, Moon, User, LogOut } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import VMWizard from "../wizard/VMWizard";
 import { useInfraStore } from "../store/useInfraStore";
@@ -12,7 +12,6 @@ export default function Header() {
   const theme = useInfraStore((s) => s.theme);
   const toggleTheme = useInfraStore((s) => s.toggleTheme);
   const tasks = useInfraStore((s) => s.tasks);
-  const pushToast = useInfraStore((s) => s.pushToast);
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore(selectIsAdmin);
   const logout = useAuthStore((s) => s.logout);
@@ -37,14 +36,6 @@ export default function Header() {
         {isAdmin && (
           <button className="btn-primary" onClick={() => setWizardOpen(true)}>
             <Plus size={15} /> Creer VM
-          </button>
-        )}
-        {isAdmin && (
-          <button
-            className="btn-secondary"
-            onClick={() => pushToast({ kind: "error", title: "Non disponible", message: "Les conteneurs LXC ne sont pas geres par le backend Hyperlite pour le moment." })}
-          >
-            <Box size={15} /> Creer conteneur
           </button>
         )}
 

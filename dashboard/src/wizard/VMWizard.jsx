@@ -6,7 +6,6 @@ import StepResources from "./steps/StepResources";
 import StepNetwork from "./steps/StepNetwork";
 import StepReview from "./steps/StepReview";
 import { useInfraStore } from "../store/useInfraStore";
-import { useTaskSimulator } from "../hooks/useTaskSimulator";
 import { createVM } from "../api/client";
 
 const STEPS = [
@@ -35,9 +34,9 @@ export default function VMWizard({ open, onClose }) {
   const nodes = useInfraStore((s) => s.nodes);
   const networks = useInfraStore((s) => s.networks);
   const addTask = useInfraStore((s) => s.addTask);
-  const addVM = useInfraStore((s) => s.addVM);
+  const completeTask = useInfraStore((s) => s.completeTask);
+  const loadAll = useInfraStore((s) => s.loadAll);
   const pushToast = useInfraStore((s) => s.pushToast);
-  const { simulateTask } = useTaskSimulator();
 
   const [stepIndex, setStepIndex] = useState(0);
   const [form, setForm] = useState(() => initialForm(nodes, networks));
@@ -61,21 +60,15 @@ export default function VMWizard({ open, onClose }) {
       disks: form.disks, network: form.network, username: form.username,
       password: form.password, iso: form.iso || null,
     };
+    const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
     try {
       await createVM(payload);
-      const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
-      simulateTask(taskId, { durationMs: 3500, failChance: 0.1 });
-      addVM({
-        nom: form.name, node: form.node, type: "vm", etat: "arrete",
-        vcpu: form.vcpu, memoire_mo: form.memory_mb, memoire_utilisee_mo: 0,
-        disque_go: form.disks.reduce((a, d) => a + d.size_gb, 0), disque_utilise_go: 0,
-        ip: null, utilisateur_ssh: form.username, uuid: crypto.randomUUID(),
-        os: "Debian 12", uptime_s: 0, tags: [],
-      });
+      completeTask(taskId, "termine");
+      await loadAll(); // recharge depuis le backend plutot que de deviner l'etat cree
       onClose();
       reset();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de creation", message: e.message });
+      completeTask(taskId, "echec", e.message);
     }
   }
 
