@@ -17,6 +17,9 @@ let token = null;
 export function setAuthToken(t) {
   token = t;
 }
+export function getAuthToken() {
+  return token;
+}
 
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
@@ -103,6 +106,9 @@ export async function fetchNetworks() {
 
 export async function fetchIsoTemplates() {
   return realFetch("/isos");
+}
+export async function deleteIso(filename) {
+  return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true`, { method: "DELETE" });
 }
 
 export async function fetchTasks() {
