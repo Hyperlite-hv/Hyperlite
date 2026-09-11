@@ -80,10 +80,14 @@
 
       <section id="view-isos" class="view">
         <div class="view-header"><h2>Images ISO</h2></div>
-        <form id="iso-upload-form" class="admin-only" style="display:flex; gap:8px; align-items:center; margin-bottom:16px">
+        <form id="iso-upload-form" class="admin-only" style="display:flex; gap:8px; align-items:center; margin-bottom:8px">
           <input type="file" id="iso-file-input" accept=".iso" required>
           <button type="submit" class="btn-primary">Televerser</button>
         </form>
+        <div class="upload-progress admin-only" id="iso-upload-progress" style="display:none">
+          <div class="upload-progress-bar" id="iso-upload-progress-bar"></div>
+          <span class="upload-progress-label" id="iso-upload-progress-label">0%</span>
+        </div>
         <p class="form-error" id="iso-upload-error"></p>
         <table class="data-table">
           <thead><tr><th>Nom</th><th>Taille</th><th>Actions</th></tr></thead>

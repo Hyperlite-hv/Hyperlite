@@ -880,25 +880,46 @@ if (isoUploadForm) isoUploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const fileInput = document.getElementById("iso-file-input");
   const errEl = document.getElementById("iso-upload-error");
+  const progressWrap = document.getElementById("iso-upload-progress");
+  const progressBar = document.getElementById("iso-upload-progress-bar");
+  const progressLabel = document.getElementById("iso-upload-progress-label");
+  const submitBtn = isoUploadForm.querySelector("button[type=submit]");
   errEl.textContent = "";
   if (!fileInput.files.length) return;
   const fd = new FormData();
   fd.append("file", fileInput.files[0]);
+  submitBtn.disabled = true;
+  progressBar.style.width = "0%";
+  progressLabel.textContent = "0%";
+  progressWrap.style.display = "block";
   try {
-    toast("Televersement en cours (peut prendre un moment)...");
-    const res = await fetch("/isos", {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + state.token },
-      body: fd,
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/isos");
+      xhr.setRequestHeader("Authorization", "Bearer " + state.token);
+      xhr.upload.addEventListener("progress", (ev) => {
+        if (!ev.lengthComputable) return;
+        const pct = Math.round((ev.loaded / ev.total) * 100);
+        progressBar.style.width = pct + "%";
+        progressLabel.textContent = pct + "%";
+      });
+      xhr.addEventListener("load", () => {
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch (e2) { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error((data && data.detail) || `Erreur televersement (HTTP ${xhr.status})`));
+      });
+      xhr.addEventListener("error", () => reject(new Error("Erreur reseau pendant le televersement")));
+      xhr.send(fd);
     });
-    let data = null;
-    try { data = await res.json(); } catch (e2) { data = null; }
-    if (!res.ok) throw new Error((data && data.detail) || "Erreur inconnue");
     toast("ISO televersee.", "success");
     fileInput.value = "";
     loadIsos();
   } catch (err) {
     errEl.textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
+    progressWrap.style.display = "none";
   }
 });
 

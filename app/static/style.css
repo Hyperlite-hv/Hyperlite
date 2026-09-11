@@ -147,6 +147,17 @@ main { padding: 28px 32px; max-width: 1200px; margin: 0 auto; }
 .net-card h3 { margin: 0 0 6px; font-size: 15px; color: var(--navy); }
 .net-card .meta { font-size: 12px; color: var(--grey); }
 
+/* --- Upload progress --- */
+.upload-progress {
+  position: relative; height: 18px; max-width: 320px; margin-bottom: 12px;
+  background: var(--border); border-radius: 4px; overflow: hidden;
+}
+.upload-progress-bar { height: 100%; width: 0%; background: var(--accent); transition: width .15s ease; }
+.upload-progress-label {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: var(--navy);
+}
+
 /* --- Modal --- */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(15, 20, 35, 0.55);
