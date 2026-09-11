@@ -15,7 +15,10 @@ import xml.etree.ElementTree as ET
 from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
-from app.core.vm_builder import validate_name, create_disk, create_cloudinit_iso, build_domain_xml, IMAGES_DIR
+from app.core.vm_builder import (
+    validate_name, validate_username, create_disk, create_cloudinit_iso,
+    build_domain_xml, get_or_create_automation_pubkey, IMAGES_DIR,
+)
 from xml.sax.saxutils import escape
 
 router = APIRouter(prefix="/vms", tags=["vms"])
@@ -86,13 +89,19 @@ def get_vm(name: str, user: dict = Depends(get_current_user)):
     return result
 
 
+class DiskSpec(BaseModel):
+    size_gb: int = Field(ge=1, le=500)
+
+
 class VMCreate(BaseModel):
     name: str
     vcpu: int = Field(ge=1, le=2)
     memory_mb: int = Field(ge=256, le=2048)
-    disk_gb: int = Field(ge=1, le=20)
+    disks: list[DiskSpec] = Field(min_length=1, max_length=8)
     network: str = "default"
-    password: str | None = None
+    username: str
+    password: str
+    iso: str | None = None
 
 
 @router.post("", status_code=201)
@@ -101,6 +110,21 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     name_error = validate_name(payload.name)
     if name_error:
         errors.append(name_error)
+
+    username_error = validate_username(payload.username)
+    if username_error:
+        errors.append(username_error)
+
+    if len(payload.password) < 4:
+        errors.append("Le mot de passe doit contenir au moins 4 caracteres")
+
+    iso_path = None
+    if payload.iso:
+        candidate = ISOS_DIR / payload.iso
+        if not candidate.exists():
+            errors.append(f"ISO '{payload.iso}' introuvable")
+        else:
+            iso_path = candidate
 
     conn = open_conn()
     try:
@@ -120,8 +144,15 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             raise HTTPException(status_code=422, detail=errors)
 
         try:
-            disk_path = create_disk(payload.name, payload.disk_gb)
-            cloudinit_path = create_cloudinit_iso(payload.name, password=payload.password)
+            disk_paths = [
+                create_disk(payload.name, disk.size_gb, index=i)
+                for i, disk in enumerate(payload.disks)
+            ]
+            ssh_pubkey = get_or_create_automation_pubkey()
+            cloudinit_path = create_cloudinit_iso(
+                payload.name, username=payload.username,
+                password=payload.password, ssh_pubkey=ssh_pubkey,
+            )
         except subprocess.CalledProcessError as e:
             msg = f"Erreur lors de la preparation du disque/cloud-init : {e.stderr or e}"
             log_action(user["username"], "create_vm", payload.name, "echec", msg)
@@ -132,7 +163,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 
         xml = build_domain_xml(
             payload.name, payload.vcpu, payload.memory_mb,
-            disk_path, cloudinit_path, payload.network,
+            disk_paths, cloudinit_path, payload.network, iso_path=iso_path,
         )
         domain = conn.defineXML(xml)
         log_action(user["username"], "create_vm", payload.name, "succes")
