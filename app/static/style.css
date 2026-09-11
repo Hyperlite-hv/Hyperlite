@@ -192,3 +192,20 @@ main { padding: 28px 32px; max-width: 1200px; margin: 0 auto; }
 .toast.show { display: block; }
 .toast.error { background: var(--red); }
 .toast.success { background: var(--green); }
+
+/* --- Console VNC --- */
+.console-overlay {
+  position: fixed; inset: 0; background: #000; z-index: 300;
+  display: flex; flex-direction: column;
+}
+.console-bar {
+  background: var(--navy); color: #fff; padding: 10px 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 14px; flex-shrink: 0;
+}
+.console-bar button {
+  background: rgba(255,255,255,0.15); color: #fff; border: none;
+  padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.console-bar button:hover { background: rgba(255,255,255,0.3); }
+#console-screen { flex: 1; overflow: auto; background: #111; }
