@@ -128,6 +128,8 @@ function switchView(name) {
   if (name === "vms") loadVMs();
   if (name === "storage") loadStorage();
   if (name === "network") loadNetworks();
+  if (name === "templates") loadTemplates();
+  if (name === "isos") loadIsos();
 }
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => switchView(btn.dataset.view));
@@ -190,10 +192,12 @@ async function loadVMs() {
         <td>${Math.round(vm.memoire_mo)} Mo</td>
         <td>${vm.ip || "—"}</td>
         <td>
+          <button class="btn-small btn-secondary" data-action="ssh" data-name="${vm.nom}">SSH</button>
           <button class="btn-small btn-secondary admin-only" data-action="start" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Demarrer</button>
           <button class="btn-small btn-secondary admin-only" data-action="stop" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Arreter</button>
           <button class="btn-small btn-secondary admin-only" data-action="restart" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Redemarrer</button>
           <button class="btn-small btn-secondary admin-only" data-action="clone" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Cloner</button>
+          <button class="btn-small btn-secondary admin-only" data-action="totemplate" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Vers template</button>
           <button class="btn-small btn-danger admin-only" data-action="delete" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Supprimer</button>
         </td>
       </tr>
@@ -208,7 +212,22 @@ async function loadVMs() {
   }
 }
 
+async function copySSHCommand(name) {
+  try {
+    const vm = await api("GET", `/vms/${encodeURIComponent(name)}`);
+    if (!vm.ip) { toast("Aucune adresse IP connue (la VM est-elle demarree ?).", "error"); return; }
+    const cmd = `ssh hyperlite@${vm.ip}`;
+    try {
+      await navigator.clipboard.writeText(cmd);
+      toast(`Commande copiee : ${cmd}`, "success");
+    } catch (e) {
+      toast(`Commande SSH : ${cmd}`, "success");
+    }
+  } catch (e) { toast(e.message, "error"); }
+}
+
 async function handleVMAction(action, name) {
+  if (action === "ssh") { await copySSHCommand(name); return; }
   try {
     if (action === "start") {
       await api("POST", `/vms/${encodeURIComponent(name)}/start`);
@@ -229,6 +248,12 @@ async function handleVMAction(action, name) {
       if (!newName || !newName.trim()) return;
       await api("POST", `/vms/${encodeURIComponent(name)}/clone`, { new_name: newName.trim() });
       toast(`VM '${name}' clonee vers '${newName.trim()}' (arretee).`, "success");
+    } else if (action === "totemplate") {
+      const tplName = prompt(`Nom du template a creer a partir de '${name}' :`, name);
+      if (!tplName || !tplName.trim()) return;
+      if (!confirm(`'${name}' sera convertie en template '${tplName.trim()}' et disparaitra de la liste des VMs. Continuer ?`)) return;
+      await api("POST", `/templates/from-vm/${encodeURIComponent(name)}`, { template_name: tplName.trim() });
+      toast(`Template '${tplName.trim()}' cree a partir de '${name}'.`, "success");
     }
     loadVMs();
     loadDashboard();
@@ -292,23 +317,55 @@ async function openVMDetails(name) {
     <div class="tabs">
       <button class="tab-btn active" data-tab="info">Info</button>
       <button class="tab-btn" data-tab="disks">Disques</button>
+      <button class="tab-btn" data-tab="cdrom">CD-ROM</button>
       <button class="tab-btn" data-tab="net">Reseau</button>
+      <button class="tab-btn" data-tab="metrics">Metriques</button>
       <button class="tab-btn" data-tab="snap">Snapshots</button>
     </div>
     <div class="tab-pane active" id="tab-info"><p>Chargement...</p></div>
     <div class="tab-pane" id="tab-disks"><p>Chargement...</p></div>
+    <div class="tab-pane" id="tab-cdrom"><p>Chargement...</p></div>
     <div class="tab-pane" id="tab-net"><p>Chargement...</p></div>
+    <div class="tab-pane" id="tab-metrics"><p>Cliquez sur cet onglet pour mesurer.</p></div>
     <div class="tab-pane" id="tab-snap"><p>Chargement...</p></div>
   `);
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
     document.querySelectorAll(".tab-pane").forEach((p) => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
+    if (btn.dataset.tab === "metrics") loadVMMetricsTab(name);
   }));
 
   loadVMInfoTab(name);
   loadVMDisksTab(name);
+  loadVMCdromTab(name);
   loadVMNetTab(name);
   loadVMSnapTab(name);
+}
+
+async function loadVMMetricsTab(name) {
+  const el = document.getElementById("tab-metrics");
+  el.innerHTML = "<p>Mesure en cours (~0.5s)...</p>";
+  try {
+    const m = await api("GET", `/vms/${encodeURIComponent(name)}/metrics`);
+    if (m.etat !== "actif") {
+      el.innerHTML = `<p>VM arretee — pas de metriques en direct.</p>`;
+      return;
+    }
+    const disksRows = (m.disques || []).map((d) => `<li><span>${d.cible}</span><span>lecture ${d.lecture_ko_s} Ko/s · ecriture ${d.ecriture_ko_s} Ko/s</span></li>`).join("");
+    const netRows = (m.reseaux || []).map((n) => `<li><span>${n.interface}</span><span>reception ${n.reception_ko_s} Ko/s · emission ${n.emission_ko_s} Ko/s</span></li>`).join("");
+    el.innerHTML = `
+      <ul class="inline-list">
+        <li><span>CPU</span><span>${m.cpu_pourcent}%</span></li>
+        <li><span>Memoire</span><span>${m.memoire_utilisee_mo != null ? m.memoire_utilisee_mo + " Mo utilises" : "n/a"} / ${m.memoire_allouee_mo} Mo allouee</span></li>
+      </ul>
+      <h3 style="font-size:13px;color:var(--navy);margin-top:14px">Disques</h3>
+      <ul class="inline-list">${disksRows || "<li>Aucun.</li>"}</ul>
+      <h3 style="font-size:13px;color:var(--navy);margin-top:14px">Reseau</h3>
+      <ul class="inline-list">${netRows || "<li>Aucun.</li>"}</ul>
+      <div class="form-actions"><button class="btn-secondary" id="metrics-refresh-btn">Actualiser</button></div>
+    `;
+    document.getElementById("metrics-refresh-btn").addEventListener("click", () => loadVMMetricsTab(name));
+  } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
 }
 
 async function loadVMInfoTab(name) {
@@ -323,7 +380,9 @@ async function loadVMInfoTab(name) {
         <li><span>IP</span><span>${vm.ip || "—"}</span></li>
         <li><span>UUID</span><span style="font-size:11px">${vm.uuid}</span></li>
       </ul>
+      <div class="form-actions"><button class="btn-secondary" id="info-ssh-btn">Copier la commande SSH</button></div>
     `;
+    document.getElementById("info-ssh-btn").addEventListener("click", () => copySSHCommand(name));
   } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
 }
 
@@ -363,6 +422,51 @@ async function loadVMDisksTab(name) {
       try {
         await api("POST", `/vms/${encodeURIComponent(name)}/disks`, { volume_name: volName, pool: "default", target_dev: dev });
         toast("Volume attache.", "success");
+        loadVMDisksTab(name);
+      } catch (e) { toast(e.message, "error"); }
+    });
+  } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
+}
+
+async function loadVMCdromTab(name) {
+  const el = document.getElementById("tab-cdrom");
+  try {
+    const disks = await api("GET", `/vms/${encodeURIComponent(name)}/disks`);
+    const isos = await api("GET", "/isos");
+    const cdrom = disks.find((d) => d.type === "cdrom");
+    const current = cdrom && cdrom.source ? cdrom.source.split("/").pop() : null;
+    const options = isos.map((i) => `<option value="${i.nom}">${i.nom} (${i.taille_mo} Mo)</option>`).join("");
+    el.innerHTML = `
+      <ul class="inline-list">
+        <li><span>ISO montee</span><span>${current || "aucune"}</span></li>
+      </ul>
+      <div class="form-row admin-only" style="margin-top:14px">
+        <label>Monter une ISO</label>
+        <div style="display:flex; gap:6px">
+          <select id="cdrom-select" style="flex:1">${options || '<option value="">Aucune ISO disponible</option>'}</select>
+          <button class="btn-secondary" id="cdrom-mount-btn">Monter</button>
+          ${current ? '<button class="btn-danger" id="cdrom-eject-btn">Ejecter</button>' : ""}
+        </div>
+      </div>
+    `;
+    applyRoleVisibility();
+    const mountBtn = document.getElementById("cdrom-mount-btn");
+    if (mountBtn) mountBtn.addEventListener("click", async () => {
+      const iso = document.getElementById("cdrom-select").value;
+      if (!iso) return;
+      try {
+        await api("PUT", `/vms/${encodeURIComponent(name)}/cdrom`, { iso });
+        toast("ISO montee.", "success");
+        loadVMCdromTab(name);
+        loadVMDisksTab(name);
+      } catch (e) { toast(e.message, "error"); }
+    });
+    const ejectBtn = document.getElementById("cdrom-eject-btn");
+    if (ejectBtn) ejectBtn.addEventListener("click", async () => {
+      try {
+        await api("DELETE", `/vms/${encodeURIComponent(name)}/cdrom`);
+        toast("ISO ejectee.", "success");
+        loadVMCdromTab(name);
         loadVMDisksTab(name);
       } catch (e) { toast(e.message, "error"); }
     });
@@ -578,6 +682,112 @@ async function openNetworkDetails(name) {
     document.getElementById("modal-content").innerHTML = `<button class="close-x" onclick="closeModal()">&times;</button><p class="error">${e.message}</p>`;
   }
 }
+
+// ---------- Templates ----------
+async function loadTemplates() {
+  const tbody = document.getElementById("templates-tbody");
+  tbody.innerHTML = `<tr class="empty-row"><td colspan="6">Chargement...</td></tr>`;
+  try {
+    const tpls = await api("GET", "/templates");
+    if (!tpls.length) {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="6">Aucun template. Convertissez une VM arretee depuis l'onglet "Machines virtuelles".</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = tpls.map((t) => `
+      <tr>
+        <td>${t.nom}</td>
+        <td>${t.vm_source}</td>
+        <td>${t.vcpu}</td>
+        <td>${Math.round(t.memoire_mo)} Mo</td>
+        <td>${t.cree_le || "—"}</td>
+        <td>
+          <button class="btn-small btn-secondary admin-only" data-deploy="${t.nom}">Deployer</button>
+          <button class="btn-small btn-danger admin-only" data-deltpl="${t.nom}">Supprimer</button>
+        </td>
+      </tr>
+    `).join("");
+    applyRoleVisibility();
+    tbody.querySelectorAll("button[data-deploy]").forEach((btn) => btn.addEventListener("click", async () => {
+      const tplName = btn.dataset.deploy;
+      const newName = prompt(`Nom de la nouvelle VM a deployer depuis le template '${tplName}' :`, `${tplName}-01`);
+      if (!newName || !newName.trim()) return;
+      try {
+        await api("POST", `/templates/${encodeURIComponent(tplName)}/deploy`, { new_name: newName.trim() });
+        toast(`VM '${newName.trim()}' deployee depuis le template '${tplName}' (arretee).`, "success");
+        loadDashboard();
+      } catch (e) { toast(e.message, "error"); }
+    }));
+    tbody.querySelectorAll("button[data-deltpl]").forEach((btn) => btn.addEventListener("click", async () => {
+      const tplName = btn.dataset.deltpl;
+      if (!confirm(`Supprimer definitivement le template '${tplName}' et son disque ?`)) return;
+      try {
+        await api("DELETE", `/templates/${encodeURIComponent(tplName)}?confirm=true`);
+        toast(`Template '${tplName}' supprime.`, "success");
+        loadTemplates();
+      } catch (e) { toast(e.message, "error"); }
+    }));
+  } catch (e) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">Erreur : ${e.message}</td></tr>`;
+  }
+}
+
+// ---------- ISO ----------
+async function loadIsos() {
+  const tbody = document.getElementById("isos-tbody");
+  tbody.innerHTML = `<tr class="empty-row"><td colspan="3">Chargement...</td></tr>`;
+  try {
+    const isos = await api("GET", "/isos");
+    if (!isos.length) {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="3">Aucune image ISO.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = isos.map((i) => `
+      <tr>
+        <td>${i.nom}</td>
+        <td>${i.taille_mo} Mo</td>
+        <td><button class="btn-small btn-danger admin-only" data-deliso="${i.nom}">Supprimer</button></td>
+      </tr>
+    `).join("");
+    applyRoleVisibility();
+    tbody.querySelectorAll("button[data-deliso]").forEach((btn) => btn.addEventListener("click", async () => {
+      if (!confirm(`Supprimer l'ISO '${btn.dataset.deliso}' ?`)) return;
+      try {
+        await api("DELETE", `/isos/${encodeURIComponent(btn.dataset.deliso)}?confirm=true`);
+        toast("ISO supprimee.", "success");
+        loadIsos();
+      } catch (e) { toast(e.message, "error"); }
+    }));
+  } catch (e) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="3">Erreur : ${e.message}</td></tr>`;
+  }
+}
+
+const isoUploadForm = document.getElementById("iso-upload-form");
+if (isoUploadForm) isoUploadForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById("iso-file-input");
+  const errEl = document.getElementById("iso-upload-error");
+  errEl.textContent = "";
+  if (!fileInput.files.length) return;
+  const fd = new FormData();
+  fd.append("file", fileInput.files[0]);
+  try {
+    toast("Televersement en cours (peut prendre un moment)...");
+    const res = await fetch("/isos", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + state.token },
+      body: fd,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e2) { data = null; }
+    if (!res.ok) throw new Error((data && data.detail) || "Erreur inconnue");
+    toast("ISO televersee.", "success");
+    fileInput.value = "";
+    loadIsos();
+  } catch (err) {
+    errEl.textContent = err.message;
+  }
+});
 
 // ---------- Init ----------
 tryRestoreSession();
