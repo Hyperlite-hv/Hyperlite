@@ -309,3 +309,85 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_role("a
         return {"message": f"Disque '{target_dev}' detache de '{name}'"}
     finally:
         conn.close()
+
+
+def _get_interfaces(domain):
+    xml_desc = domain.XMLDesc(0)
+    root = ET.fromstring(xml_desc)
+    result = []
+    for iface in root.findall(".//devices/interface"):
+        mac_elem = iface.find("mac")
+        source_elem = iface.find("source")
+        result.append({
+            "mac": mac_elem.get("address") if mac_elem is not None else None,
+            "reseau": source_elem.get("network") if source_elem is not None else None,
+            "type_source": iface.get("type"),
+        })
+    return result
+
+
+@router.get("/{name}/network")
+def get_vm_network(name: str, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "get_vm_network", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        interfaces = _get_interfaces(domain)
+        ip = _get_ip(domain) if domain.isActive() else None
+        log_action(user["username"], "get_vm_network", name, "succes")
+        return {"interfaces": interfaces, "ip": ip}
+    finally:
+        conn.close()
+
+
+class NetworkUpdate(BaseModel):
+    network: str
+
+
+@router.put("/{name}/network")
+def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_vm_network", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        try:
+            conn.networkLookupByName(payload.network)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_vm_network", name, "echec", "Reseau introuvable")
+            raise HTTPException(status_code=404, detail=f"Reseau '{payload.network}' introuvable")
+
+        xml_desc = domain.XMLDesc(0)
+        root = ET.fromstring(xml_desc)
+        iface = root.find(".//devices/interface")
+        if iface is None:
+            log_action(user["username"], "set_vm_network", name, "echec", "Aucune interface")
+            raise HTTPException(status_code=404, detail="Aucune interface reseau trouvee sur cette VM")
+
+        source = iface.find("source")
+        if source is None:
+            source = ET.SubElement(iface, "source")
+        for k in list(source.attrib):
+            del source.attrib[k]
+        source.set("network", payload.network)
+
+        iface_xml = ET.tostring(iface, encoding="unicode")
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+        try:
+            domain.updateDeviceFlags(iface_xml, flags)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "set_vm_network", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur de mise a jour du reseau : {e}")
+
+        log_action(user["username"], "set_vm_network", name, "succes")
+        return {"message": f"VM '{name}' associee au reseau '{payload.network}'"}
+    finally:
+        conn.close()
