@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.seed import seed_admin
 from app.core.libvirt_utils import open_conn
@@ -15,6 +16,13 @@ app.include_router(dashboard_router)
 app.include_router(vms_router)
 app.include_router(storage_router)
 app.include_router(network_router)
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def serve_ui():
+    return FileResponse("app/static/index.html")
 
 
 @app.exception_handler(Exception)
