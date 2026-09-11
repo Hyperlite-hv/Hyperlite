@@ -75,3 +75,30 @@ def ensure_isolated_network(conn):
         net.create()
     net.setAutostart(True)
     return net
+
+
+def ensure_vnc_graphics(conn, domain):
+    # S'assure qu'un domaine dispose d'un peripherique graphique VNC.
+    # Si absent et que le domaine est arrete, l'ajoute et redefinit le domaine.
+    # Renvoie True si une modification a ete faite, False sinon (deja present,
+    # ou domaine actif -> impossible a ajouter a chaud de maniere fiable).
+    root = ET.fromstring(domain.XMLDesc(0))
+    devices_el = root.find(".//devices")
+    if devices_el is None:
+        return False
+    existing = devices_el.find("graphics[@type='vnc']")
+    if existing is not None:
+        return False
+    if domain.isActive():
+        return False
+    graphics_el = ET.SubElement(devices_el, "graphics")
+    graphics_el.set("type", "vnc")
+    graphics_el.set("port", "-1")
+    graphics_el.set("autoport", "yes")
+    graphics_el.set("listen", "127.0.0.1")
+    listen_el = ET.SubElement(graphics_el, "listen")
+    listen_el.set("type", "address")
+    listen_el.set("address", "127.0.0.1")
+    new_xml = ET.tostring(root, encoding="unicode")
+    conn.defineXML(new_xml)
+    return True

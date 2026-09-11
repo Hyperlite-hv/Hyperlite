@@ -196,6 +196,7 @@ async function loadVMs() {
           <button class="btn-small btn-secondary admin-only" data-action="start" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Demarrer</button>
           <button class="btn-small btn-secondary admin-only" data-action="stop" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Arreter</button>
           <button class="btn-small btn-secondary admin-only" data-action="restart" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Redemarrer</button>
+          <button class="btn-small btn-secondary admin-only" data-action="console" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Console</button>
           <button class="btn-small btn-secondary admin-only" data-action="clone" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Cloner</button>
           <button class="btn-small btn-secondary admin-only" data-action="totemplate" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Vers template</button>
           <button class="btn-small btn-danger admin-only" data-action="delete" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Supprimer</button>
@@ -228,6 +229,7 @@ async function copySSHCommand(name) {
 
 async function handleVMAction(action, name) {
   if (action === "ssh") { await copySSHCommand(name); return; }
+  if (action === "console") { await openConsole(name); return; }
   try {
     if (action === "start") {
       await api("POST", `/vms/${encodeURIComponent(name)}/start`);
@@ -380,9 +382,14 @@ async function loadVMInfoTab(name) {
         <li><span>IP</span><span>${vm.ip || "—"}</span></li>
         <li><span>UUID</span><span style="font-size:11px">${vm.uuid}</span></li>
       </ul>
-      <div class="form-actions"><button class="btn-secondary" id="info-ssh-btn">Copier la commande SSH</button></div>
+      <div class="form-actions">
+        <button class="btn-secondary" id="info-ssh-btn">Copier la commande SSH</button>
+        <button class="btn-primary admin-only" id="info-console-btn" ${vm.etat !== "actif" ? "disabled" : ""}>Ouvrir la console</button>
+      </div>
     `;
+    applyRoleVisibility();
     document.getElementById("info-ssh-btn").addEventListener("click", () => copySSHCommand(name));
+    document.getElementById("info-console-btn").addEventListener("click", () => openConsole(name));
   } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
 }
 
@@ -788,6 +795,49 @@ if (isoUploadForm) isoUploadForm.addEventListener("submit", async (e) => {
     errEl.textContent = err.message;
   }
 });
+
+// ---------- Console VNC ----------
+let currentRFB = null;
+
+async function openConsole(name) {
+  try {
+    const ticketResp = await api("POST", `/vms/${encodeURIComponent(name)}/console-ticket`);
+    const wsProto = window.location.protocol === "https:" ? "wss" : "ws";
+    const wsUrl = `${wsProto}://${window.location.host}/vms/${encodeURIComponent(name)}/console?ticket=${encodeURIComponent(ticketResp.ticket)}`;
+
+    document.getElementById("console-title").textContent = "Console — " + name;
+    document.getElementById("console-screen").innerHTML = "";
+    document.getElementById("console-overlay").style.display = "flex";
+
+    const mod = await import("/static/novnc/core/rfb.js");
+    const RFB = mod.default;
+    currentRFB = new RFB(document.getElementById("console-screen"), wsUrl);
+    currentRFB.addEventListener("disconnect", () => {
+      toast(`Console fermee pour '${name}'.`);
+    });
+    currentRFB.addEventListener("credentialsrequired", () => {
+      toast("Cette VM demande des identifiants VNC non geres par Hyperlite.", "error");
+      closeConsole();
+    });
+  } catch (e) {
+    toast(e.message, "error");
+    closeConsole();
+  }
+}
+
+function closeConsole() {
+  if (currentRFB) {
+    try { currentRFB.disconnect(); } catch (e) { /* ignore */ }
+    currentRFB = null;
+  }
+  const overlay = document.getElementById("console-overlay");
+  if (overlay) overlay.style.display = "none";
+  const screen = document.getElementById("console-screen");
+  if (screen) screen.innerHTML = "";
+}
+
+const consoleCloseBtn = document.getElementById("console-close-btn");
+if (consoleCloseBtn) consoleCloseBtn.addEventListener("click", closeConsole);
 
 // ---------- Init ----------
 tryRestoreSession();
