@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,23 +25,14 @@ app.include_router(isos_router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-
-@app.get("/", include_in_schema=False)
-def serve_ui():
-    return FileResponse("app/static/index.html")
-
-
-@app.exception_handler(Exception)
-async def generic_exception_handler(request: Request, exc: Exception):
-    print(f"ERREUR NON GEREE sur {request.method} {request.url.path} : {exc!r}", flush=True)
-    return JSONResponse(status_code=500, content={"detail": "Erreur interne du serveur"})
-
-
-@app.on_event("startup")
-def on_startup():
-    pwd = seed_admin()
-    if pwd:
-        print(f"=== Compte admin cree : admin / {pwd} (notez ce mot de passe) ===", flush=True)
+# Nouveau front (React/Vite, dashboard/) : devient l'interface servie a la
+# racine. L'ancien front vanilla-JS reste accessible a /legacy en secours
+# (memes routes API pour les deux, /static/* n'a pas bouge).
+DASHBOARD_DIST = "dashboard/dist"
+if os.path.isdir(DASHBOARD_DIST):
+    app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")
+    app.mount("/novnc", StaticFiles(directory=f"{DASHBOARD_DIST}/novnc"), name="dashboard-novnc")
+    app.mount("/xterm", StaticFiles(directory=f"{DASHBOARD_DIST}/xterm"), name="dashboard-xterm")
 
 
 @app.get("/health")
@@ -54,3 +47,35 @@ def health():
         }
     finally:
         conn.close()
+
+
+@app.get("/legacy", include_in_schema=False)
+@app.get("/legacy/{path:path}", include_in_schema=False)
+def serve_legacy_ui(path: str = ""):
+    return FileResponse("app/static/index.html")
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/{path:path}", include_in_schema=False)
+def serve_ui(path: str = ""):
+    # Catch-all SPA : toute URL cote client (react-router) renvoie index.html,
+    # le routing se fait dans le navigateur. Doit rester la DERNIERE route
+    # declaree pour ne jamais intercepter les vraies routes API/WebSocket
+    # enregistrees au-dessus (elles sont essayees en premier).
+    dashboard_index = f"{DASHBOARD_DIST}/index.html"
+    if os.path.isfile(dashboard_index):
+        return FileResponse(dashboard_index)
+    return FileResponse("app/static/index.html")
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    print(f"ERREUR NON GEREE sur {request.method} {request.url.path} : {exc!r}", flush=True)
+    return JSONResponse(status_code=500, content={"detail": "Erreur interne du serveur"})
+
+
+@app.on_event("startup")
+def on_startup():
+    pwd = seed_admin()
+    if pwd:
+        print(f"=== Compte admin cree : admin / {pwd} (notez ce mot de passe) ===", flush=True)
