@@ -17,9 +17,12 @@ from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 from app.core.vm_builder import (
     validate_name, validate_username, create_disk, create_cloudinit_iso,
-    build_domain_xml, get_or_create_automation_pubkey, IMAGES_DIR,
+    build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
 )
+from app.core.vm_meta import set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user
 from xml.sax.saxutils import escape
+import json
+import asyncssh
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -59,6 +62,7 @@ def _domain_summary(domain):
         "vcpu": nvcpu,
         "memoire_mo": round(maxmem / 1024, 1),
         "ip": _get_ip(domain) if domain.isActive() else None,
+        "utilisateur_ssh": get_vm_ssh_user(domain.name()),
     }
 
 
@@ -166,6 +170,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             disk_paths, cloudinit_path, payload.network, iso_path=iso_path,
         )
         domain = conn.defineXML(xml)
+        set_vm_ssh_user(payload.name, payload.username)
         log_action(user["username"], "create_vm", payload.name, "succes")
         return _domain_summary(domain)
     finally:
@@ -274,6 +279,7 @@ def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_rol
         cloudinit_path = IMAGES_DIR / f"{name}-cloudinit.iso"
         disk_path.unlink(missing_ok=True)
         cloudinit_path.unlink(missing_ok=True)
+        delete_vm_ssh_user(name)
 
         log_action(user["username"], "delete_vm", name, "succes")
         return {"message": f"VM '{name}' supprimee"}
@@ -814,6 +820,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(get_current_
             log_action(user["username"], "clone_vm", name, "echec", str(exc))
             raise HTTPException(status_code=500, detail=f"Echec de la definition du clone : {exc}")
 
+        rename_vm_ssh_user(name, payload.new_name)
         log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}")
         return {"source": name, "clone": new_domain.name(), "etat": "arretee"}
     finally:
@@ -1134,4 +1141,137 @@ async def vm_console(websocket: WebSocket, name: str):
     try:
         await websocket.close()
     except RuntimeError:
+        pass
+
+
+# --- Terminal SSH web (xterm.js + shell distant via la cle d'automatisation) ---
+# Reserve au role admin : la cle d'automatisation se connecte a l'utilisateur cloud-init
+# de la VM, qui a un sudo NOPASSWD complet - ouvrir ce terminal equivaut a un acces root.
+
+TERMINAL_TICKETS = {}
+TERMINAL_TICKET_TTL = 30
+
+
+@router.post("/{name}/terminal-ticket")
+def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        if not domain.isActive():
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM arretee")
+            raise HTTPException(status_code=409, detail="La VM doit etre demarree pour ouvrir un terminal")
+
+        ip = _get_ip(domain)
+        if not ip:
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "IP inconnue")
+            raise HTTPException(status_code=409, detail="Adresse IP de la VM inconnue pour le moment (pas encore de bail DHCP ?)")
+
+        ssh_user = get_vm_ssh_user(name)
+        if not ssh_user:
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "utilisateur SSH inconnu")
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Aucun utilisateur SSH connu pour '{name}' (VM creee avant cette fonctionnalite). "
+                    "Deployez la cle d'automatisation avec un ssh-copy-id manuel puis reessayez."
+                ),
+            )
+
+        now = time.time()
+        for old_ticket, (old_vm, old_ip, old_user, old_expiry) in list(TERMINAL_TICKETS.items()):
+            if old_expiry < now:
+                TERMINAL_TICKETS.pop(old_ticket, None)
+
+        ticket = secrets.token_urlsafe(24)
+        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL)
+        log_action(user["username"], "create_terminal_ticket", name, "succes")
+        return {"ticket": ticket, "utilisateur": ssh_user, "expire_dans_s": TERMINAL_TICKET_TTL}
+    finally:
+        conn.close()
+
+
+@router.websocket("/{name}/terminal")
+async def vm_terminal(websocket: WebSocket, name: str):
+    ticket = websocket.query_params.get("ticket")
+    entry = TERMINAL_TICKETS.pop(ticket, None) if ticket else None
+    if entry is None:
+        await websocket.close(code=4401)
+        return
+
+    vm_name, ip, ssh_user, expiry = entry
+    if vm_name != name or time.time() > expiry:
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+
+    private_key = get_automation_private_key_path()
+    try:
+        ssh_conn = await asyncssh.connect(
+            ip, username=ssh_user, client_keys=[str(private_key)],
+            known_hosts=None, connect_timeout=10,
+        )
+    except (asyncssh.Error, OSError) as e:
+        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Echec de connexion SSH a {ip} : {e}\x1b[0m\r\n")
+        await websocket.close(code=1011)
+        return
+
+    try:
+        process = await ssh_conn.create_process(term_type="xterm-256color", term_size=(80, 24))
+    except asyncssh.Error as e:
+        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Echec d'ouverture du shell : {e}\x1b[0m\r\n")
+        ssh_conn.close()
+        await websocket.close(code=1011)
+        return
+
+    async def ws_to_ssh():
+        try:
+            while True:
+                msg = await websocket.receive_text()
+                if msg.startswith("\x00"):
+                    try:
+                        dims = json.loads(msg[1:])
+                        process.change_terminal_size(int(dims["cols"]), int(dims["rows"]))
+                    except (ValueError, KeyError, TypeError):
+                        pass
+                else:
+                    process.stdin.write(msg)
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        except Exception:
+            pass
+        finally:
+            try:
+                process.stdin.write_eof()
+            except Exception:
+                pass
+
+    async def ssh_to_ws():
+        try:
+            while True:
+                data = await process.stdout.read(65536)
+                if not data:
+                    break
+                await websocket.send_text(data)
+        except Exception:
+            pass
+
+    task1 = asyncio.ensure_future(ws_to_ssh())
+    task2 = asyncio.ensure_future(ssh_to_ws())
+    done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+    try:
+        process.close()
+    except Exception:
+        pass
+    ssh_conn.close()
+    try:
+        await websocket.close()
+    except (RuntimeError, WebSocketDisconnect):
         pass
