@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.core.seed import seed_admin
 from app.core.libvirt_utils import open_conn
@@ -14,6 +15,12 @@ app.include_router(dashboard_router)
 app.include_router(vms_router)
 app.include_router(storage_router)
 app.include_router(network_router)
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    print(f"ERREUR NON GEREE sur {request.method} {request.url.path} : {exc!r}", flush=True)
+    return JSONResponse(status_code=500, content={"detail": "Erreur interne du serveur"})
 
 
 @app.on_event("startup")
