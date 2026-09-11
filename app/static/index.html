@@ -29,6 +29,8 @@
         <button class="nav-btn" data-view="vms">Machines virtuelles</button>
         <button class="nav-btn" data-view="storage">Stockage</button>
         <button class="nav-btn" data-view="network">Reseau</button>
+        <button class="nav-btn" data-view="templates">Templates</button>
+        <button class="nav-btn" data-view="isos">ISO</button>
       </nav>
       <div class="user-info">
         <span id="user-label"></span>
@@ -64,6 +66,29 @@
       <section id="view-network" class="view">
         <div class="view-header"><h2>Reseaux virtuels</h2></div>
         <div id="networks-list"></div>
+      </section>
+
+      <section id="view-templates" class="view">
+        <div class="view-header"><h2>Templates</h2></div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Nom</th><th>VM source</th><th>vCPU</th><th>Memoire</th><th>Cree le</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="templates-tbody"></tbody>
+        </table>
+      </section>
+
+      <section id="view-isos" class="view">
+        <div class="view-header"><h2>Images ISO</h2></div>
+        <form id="iso-upload-form" class="admin-only" style="display:flex; gap:8px; align-items:center; margin-bottom:16px">
+          <input type="file" id="iso-file-input" accept=".iso" required>
+          <button type="submit" class="btn-primary">Televerser</button>
+        </form>
+        <p class="form-error" id="iso-upload-error"></p>
+        <table class="data-table">
+          <thead><tr><th>Nom</th><th>Taille</th><th>Actions</th></tr></thead>
+          <tbody id="isos-tbody"></tbody>
+        </table>
       </section>
     </main>
   </div>

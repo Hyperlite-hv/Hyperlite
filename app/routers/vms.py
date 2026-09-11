@@ -2,6 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 import libvirt
 import re
+import time
+from pathlib import Path
+from app.routers.isos import ISOS_DIR
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -682,5 +685,216 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(get_current_
 
         log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}")
         return {"source": name, "clone": new_domain.name(), "etat": "arretee"}
+    finally:
+        conn.close()
+
+
+class CdromRequest(BaseModel):
+    iso: str
+
+
+@router.put("/{name}/cdrom")
+def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_vm_cdrom", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        iso_filename = Path(payload.iso).name
+        if not iso_filename.lower().endswith(".iso"):
+            raise HTTPException(status_code=422, detail="Nom d'ISO invalide")
+        iso_path = ISOS_DIR / iso_filename
+        if not iso_path.exists():
+            raise HTTPException(status_code=404, detail=f"ISO '{iso_filename}' introuvable")
+
+        root = ET.fromstring(domain.XMLDesc(0))
+        devices_el = root.find(".//devices")
+        cdrom = None
+        if devices_el is not None:
+            for disk in devices_el.findall("disk"):
+                if disk.get("device") == "cdrom":
+                    cdrom = disk
+                    break
+
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+
+        try:
+            if cdrom is not None:
+                source = cdrom.find("source")
+                if source is None:
+                    source = ET.SubElement(cdrom, "source")
+                source.set("file", str(iso_path))
+                new_xml = ET.tostring(cdrom, encoding="unicode")
+                domain.updateDeviceFlags(new_xml, flags)
+            else:
+                new_cdrom_xml = (
+                    '<disk type="file" device="cdrom">'
+                    '<driver name="qemu" type="raw"/>'
+                    f'<source file="{escape(str(iso_path))}"/>'
+                    '<target dev="hdc" bus="ide"/>'
+                    '<readonly/>'
+                    '</disk>'
+                )
+                domain.attachDeviceFlags(new_cdrom_xml, flags)
+        except libvirt.libvirtError as exc:
+            log_action(user["username"], "set_vm_cdrom", name, "echec", str(exc))
+            raise HTTPException(status_code=500, detail=f"Echec du montage : {exc}")
+
+        log_action(user["username"], "set_vm_cdrom", name, "succes", iso_filename)
+        return {"vm": name, "iso": iso_filename}
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}/cdrom")
+def eject_vm_cdrom(name: str, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "eject_vm_cdrom", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        root = ET.fromstring(domain.XMLDesc(0))
+        devices_el = root.find(".//devices")
+        cdrom = None
+        if devices_el is not None:
+            for disk in devices_el.findall("disk"):
+                if disk.get("device") == "cdrom":
+                    cdrom = disk
+                    break
+        if cdrom is None:
+            raise HTTPException(status_code=404, detail="Aucun lecteur CD sur cette VM")
+
+        source = cdrom.find("source")
+        if source is not None:
+            cdrom.remove(source)
+
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+
+        try:
+            new_xml = ET.tostring(cdrom, encoding="unicode")
+            domain.updateDeviceFlags(new_xml, flags)
+        except libvirt.libvirtError as exc:
+            log_action(user["username"], "eject_vm_cdrom", name, "echec", str(exc))
+            raise HTTPException(status_code=500, detail=f"Echec de l'ejection : {exc}")
+
+        log_action(user["username"], "eject_vm_cdrom", name, "succes")
+        return {"vm": name, "ejecte": True}
+    finally:
+        conn.close()
+
+
+@router.get("/{name}/metrics")
+def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "get_vm_metrics", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        if not domain.isActive():
+            return {
+                "etat": "arrete",
+                "cpu_pourcent": None,
+                "memoire_allouee_mo": None,
+                "memoire_utilisee_mo": None,
+                "disques": [],
+                "reseaux": [],
+            }
+
+        root = ET.fromstring(domain.XMLDesc(0))
+        disk_devs = []
+        for disk in root.findall(".//devices/disk"):
+            if disk.get("device") != "disk":
+                continue
+            target = disk.find("target")
+            if target is not None and target.get("dev"):
+                disk_devs.append(target.get("dev"))
+        iface_devs = []
+        for iface in root.findall(".//devices/interface"):
+            target = iface.find("target")
+            if target is not None and target.get("dev"):
+                iface_devs.append(target.get("dev"))
+
+        def sample():
+            cpu_time = domain.getCPUStats(True)[0]["cpu_time"]
+            disk_samples = {}
+            for dev in disk_devs:
+                try:
+                    disk_samples[dev] = domain.blockStats(dev)
+                except libvirt.libvirtError:
+                    pass
+            net_samples = {}
+            for dev in iface_devs:
+                try:
+                    net_samples[dev] = domain.interfaceStats(dev)
+                except libvirt.libvirtError:
+                    pass
+            return cpu_time, disk_samples, net_samples
+
+        cpu1, disk1, net1 = sample()
+        t1 = time.time()
+        time.sleep(0.4)
+        cpu2, disk2, net2 = sample()
+        t2 = time.time()
+        elapsed = max(t2 - t1, 0.001)
+
+        info = domain.info()
+        nvcpu = info[3] or 1
+        cpu_pourcent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
+        memoire_allouee_mo = round(info[2] / 1024, 1)
+
+        memoire_utilisee_mo = None
+        try:
+            mem_stats = domain.memoryStats()
+            if "available" in mem_stats and "unused" in mem_stats:
+                memoire_utilisee_mo = round((mem_stats["available"] - mem_stats["unused"]) / 1024, 1)
+            elif "rss" in mem_stats:
+                memoire_utilisee_mo = round(mem_stats["rss"] / 1024, 1)
+        except libvirt.libvirtError:
+            pass
+
+        disques = []
+        for dev in disk_devs:
+            if dev in disk1 and dev in disk2:
+                rd_rate = max(0, (disk2[dev][1] - disk1[dev][1]) / elapsed)
+                wr_rate = max(0, (disk2[dev][3] - disk1[dev][3]) / elapsed)
+                disques.append({
+                    "cible": dev,
+                    "lecture_ko_s": round(rd_rate / 1024, 1),
+                    "ecriture_ko_s": round(wr_rate / 1024, 1),
+                })
+
+        reseaux = []
+        for dev in iface_devs:
+            if dev in net1 and dev in net2:
+                rx_rate = max(0, (net2[dev][0] - net1[dev][0]) / elapsed)
+                tx_rate = max(0, (net2[dev][4] - net1[dev][4]) / elapsed)
+                reseaux.append({
+                    "interface": dev,
+                    "reception_ko_s": round(rx_rate / 1024, 1),
+                    "emission_ko_s": round(tx_rate / 1024, 1),
+                })
+
+        log_action(user["username"], "get_vm_metrics", name, "succes")
+        return {
+            "etat": "actif",
+            "cpu_pourcent": cpu_pourcent,
+            "memoire_allouee_mo": memoire_allouee_mo,
+            "memoire_utilisee_mo": memoire_utilisee_mo,
+            "disques": disques,
+            "reseaux": reseaux,
+        }
     finally:
         conn.close()
