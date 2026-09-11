@@ -1,5 +1,7 @@
 import re
+import shutil
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -94,44 +96,49 @@ def create_disk(vm_name, disk_gb, index=0):
 
 
 def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
-    workdir = Path(f"/tmp/hyperlite-cloudinit-{vm_name}")
-    workdir.mkdir(exist_ok=True)
-    user_data = workdir / "user-data"
-    meta_data = workdir / "meta-data"
+    # Repertoire temporaire a permissions restreintes (0700, cree par mkdtemp),
+    # toujours nettoye ensuite : user-data contient le mot de passe en clair de
+    # la VM et ne doit pas survivre sur le disque hote au-dela de cette fonction.
+    workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-"))
+    try:
+        user_data = workdir / "user-data"
+        meta_data = workdir / "meta-data"
 
-    if any(c in password for c in ("\n", "\r")):
-        raise ValueError("Le mot de passe ne doit pas contenir de retour a la ligne")
-    pwd_quoted = "'" + password.replace("'", "''") + "'"
-    ud = [
-        "#cloud-config",
-        f"hostname: {vm_name}",
-        "manage_etc_hosts: true",
-        "users:",
-        f"  - name: {username}",
-        "    sudo: ALL=(ALL) NOPASSWD:ALL",
-        "    shell: /bin/bash",
-        f"    plain_text_passwd: {pwd_quoted}",
-        "    lock_passwd: false",
-    ]
-    if ssh_pubkey:
-        ud.append("    ssh_authorized_keys:")
-        ud.append(f"      - {ssh_pubkey}")
-    ud += [
-        "chpasswd:",
-        "  expire: false",
-        "ssh_pwauth: true",
-    ]
-    user_data.write_text("\n".join(ud) + "\n")
-    meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
+        if any(c in password for c in ("\n", "\r")):
+            raise ValueError("Le mot de passe ne doit pas contenir de retour a la ligne")
+        pwd_quoted = "'" + password.replace("'", "''") + "'"
+        ud = [
+            "#cloud-config",
+            f"hostname: {vm_name}",
+            "manage_etc_hosts: true",
+            "users:",
+            f"  - name: {username}",
+            "    sudo: ALL=(ALL) NOPASSWD:ALL",
+            "    shell: /bin/bash",
+            f"    plain_text_passwd: {pwd_quoted}",
+            "    lock_passwd: false",
+        ]
+        if ssh_pubkey:
+            ud.append("    ssh_authorized_keys:")
+            ud.append(f"      - {ssh_pubkey}")
+        ud += [
+            "chpasswd:",
+            "  expire: false",
+            "ssh_pwauth: true",
+        ]
+        user_data.write_text("\n".join(ud) + "\n")
+        meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
 
-    iso_path = IMAGES_DIR / f"{vm_name}-cloudinit.iso"
-    subprocess.run(
-        ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return iso_path
+        iso_path = IMAGES_DIR / f"{vm_name}-cloudinit.iso"
+        subprocess.run(
+            ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return iso_path
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None):

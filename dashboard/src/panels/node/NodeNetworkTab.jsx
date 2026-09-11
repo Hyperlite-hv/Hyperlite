@@ -6,10 +6,6 @@ export default function NodeNetworkTab({ resource: node }) {
   const networks = useInfraStore((s) => s.networks);
   if (!node) return null;
 
-  if (!node.reel) {
-    return <p className="text-sm text-anthracite-400">Noeud fictif -- pas de reseaux libvirt reels associes.</p>;
-  }
-
   return (
     <div className="card divide-y divide-anthracite-600">
       <div className="grid grid-cols-4 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">

@@ -15,13 +15,7 @@ export default function NodeSummaryTab({ resource: node }) {
 
   return (
     <div className="space-y-5">
-      {!node.reel && (
-        <div className="rounded-md border border-accent-orange/40 bg-accent-orange/10 px-3 py-2 text-xs text-accent-orange">
-          Noeud fictif -- illustre le multi-node vise par la structure Proxmox. Seul <code>kvm-lab</code> correspond a un vrai serveur Hyperlite aujourd'hui.
-        </div>
-      )}
-
-      {node.reel && node.cpu_coeurs == null && (
+      {node.cpu_coeurs == null && (
         <div className="rounded-md border border-anthracite-500 bg-anthracite-700/50 px-3 py-2 text-xs text-anthracite-300">
           CPU/RAM total et historique pas encore exposes par le backend (GET /dashboard) -- seuls le stockage et le compte de VMs sont reels ici.
         </div>

@@ -13,6 +13,7 @@ from app.routers.storage import router as storage_router
 from app.routers.network import router as network_router
 from app.routers.templates import router as templates_router
 from app.routers.isos import router as isos_router
+from app.routers.audit import router as audit_router
 
 app = FastAPI(title="Hyperlite API")
 app.include_router(auth_router)
@@ -22,6 +23,7 @@ app.include_router(storage_router)
 app.include_router(network_router)
 app.include_router(templates_router)
 app.include_router(isos_router)
+app.include_router(audit_router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

@@ -10,7 +10,7 @@ function sumDefined(items, key) {
 }
 
 export default function DatacenterSummaryTab() {
-  const { nodes, vms, containers } = useInfraStore((s) => ({ nodes: s.nodes, vms: s.vms, containers: s.containers }));
+  const { nodes, vms } = useInfraStore((s) => ({ nodes: s.nodes, vms: s.vms }));
 
   const totalRamMo = sumDefined(nodes, "memoire_totale_mo");
   const usedRamMo = sumDefined(nodes, "memoire_utilisee_mo");
@@ -19,12 +19,11 @@ export default function DatacenterSummaryTab() {
   const cpuNodes = nodes.filter((n) => n.cpu_utilisation != null);
   const avgCpu = cpuNodes.length ? cpuNodes.reduce((a, n) => a + n.cpu_utilisation, 0) / cpuNodes.length : null;
 
-  const allResources = [...vms, ...containers];
   const counts = {
-    actif: allResources.filter((r) => r.etat === "actif").length,
-    arrete: allResources.filter((r) => r.etat === "arrete").length,
-    avertissement: allResources.filter((r) => r.etat === "avertissement").length,
-    erreur: allResources.filter((r) => r.etat === "erreur").length,
+    actif: vms.filter((r) => r.etat === "actif").length,
+    arrete: vms.filter((r) => r.etat === "arrete").length,
+    avertissement: vms.filter((r) => r.etat === "avertissement").length,
+    erreur: vms.filter((r) => r.etat === "erreur").length,
   };
 
   return (
@@ -57,7 +56,6 @@ export default function DatacenterSummaryTab() {
             <div key={n.id} className="flex items-center gap-3 py-2 text-sm">
               <StatusBadge etat={n.etat} showLabel={false} />
               <span className="text-anthracite-100 flex-1">{n.nom}</span>
-              {!n.reel && <span className="text-[10px] text-accent-orange border border-accent-orange/40 rounded px-1.5 py-0.5">fictif</span>}
               <span className="text-anthracite-400 text-xs">{n.cpu_utilisation != null ? `${Math.round(n.cpu_utilisation * 100)}% CPU` : "CPU n/a"}</span>
               <span className="text-anthracite-400 text-xs">{n.memoire_totale_mo != null ? `${formatMo(n.memoire_utilisee_mo)} / ${formatMo(n.memoire_totale_mo)}` : "RAM n/a"}</span>
             </div>

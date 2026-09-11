@@ -1,30 +1,18 @@
-import { Save } from "lucide-react";
-import { useInfraStore } from "../../store/useInfraStore";
-import { useTaskSimulator } from "../../hooks/useTaskSimulator";
+import { CalendarClock } from "lucide-react";
 
-// Mock uniquement : pas de sauvegarde planifiee cote backend Hyperlite (seuls
-// les snapshots qcow2 existent, voir VMSnapshotsTab -- ceux-la sont reels).
-export default function VMBackupTab({ resource: vm }) {
-  const addTask = useInfraStore((s) => s.addTask);
-  const { simulateTask } = useTaskSimulator();
-
-  function runBackupNow() {
-    const taskId = addTask({ type: "create_snapshot", cible: `${vm.nom} (sauvegarde complete)`, node: vm.node });
-    simulateTask(taskId, { durationMs: 4000 });
-  }
-
+// Pas de sauvegarde planifiee ni de sauvegarde independante cote backend
+// Hyperlite aujourd'hui -- seuls les snapshots qcow2 existent (voir
+// VMSnapshotsTab, reels), et ils ne survivent pas a la perte du disque
+// source. Vue purement informative, pas d'action factice ici.
+export default function VMBackupTab() {
   return (
-    <div className="space-y-4">
-      <div className="card p-4">
-        <p className="text-sm text-anthracite-300">Aucune sauvegarde planifiee configuree pour cette VM.</p>
-        <button className="btn-primary mt-3" onClick={runBackupNow}>
-          <Save size={14} /> Sauvegarder maintenant
-        </button>
-      </div>
-      <div className="card p-4">
-        <h3 className="text-sm font-semibold text-anthracite-100 mb-2">Planification</h3>
-        <p className="text-sm text-anthracite-400">Aucune regle. (mock -- non branche sur un backend reel)</p>
-      </div>
+    <div className="card flex flex-col items-center gap-2 p-8 text-center">
+      <CalendarClock size={26} className="text-anthracite-400" />
+      <p className="text-sm text-anthracite-300">Aucune sauvegarde planifiee.</p>
+      <p className="text-xs text-anthracite-500 max-w-sm">
+        Non implemente cote backend Hyperlite. Les snapshots (onglet Snapshots) restent sur le meme
+        disque et ne remplacent pas une sauvegarde independante.
+      </p>
     </div>
   );
 }

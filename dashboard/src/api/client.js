@@ -1,17 +1,14 @@
-// Point d'entree unique pour toutes les donnees de l'app.
-//
-// USE_MOCK=false : la majorite des donnees vient desormais du vrai backend
-// Hyperlite (memes chemins que les routes FastAPI reelles, voir vite.config.js
-// pour le proxy de dev). Ce qui reste mock, faute d'equivalent backend :
-//   - fetchNodes() : Hyperlite ne gere qu'un seul host (pas de route /nodes) --
-//     on construit un noeud "reel" a partir de GET /dashboard, + on garde le
-//     2e noeud fictif de mockData.js pour illustrer le multi-node.
-//   - fetchContainers() : pas de conteneurs LXC cote backend.
-//   - fetchTasks() : pas de route exposant l'audit_log SQLite existant.
+// Point d'entree unique pour toutes les donnees de l'app. Tout vient du vrai
+// backend Hyperlite (memes chemins que les routes FastAPI reelles, voir
+// vite.config.js pour le proxy de dev). Hyperlite ne gere qu'un seul host
+// (pas de cluster) et aucun conteneur LXC : fetchNodes() renvoie donc toujours
+// un seul noeud reel, construit a partir de GET /dashboard.
 
-import { nodes as mockNodes, containers as mockContainers, initialTasks, makeTaskId } from "./mockData";
-
-const USE_MOCK = false;
+let taskIdCounter = 0;
+export function makeTaskId() {
+  taskIdCounter += 1;
+  return `task-${Date.now()}-${taskIdCounter}`;
+}
 
 let token = null;
 export function setAuthToken(t) {
@@ -43,55 +40,43 @@ export async function fetchDashboardSummary() {
 }
 
 export async function fetchNodes() {
-  const fictifNode = mockNodes.find((n) => !n.reel);
-  try {
-    const d = await fetchDashboardSummary();
-    const realNode = {
-      id: "kvm-lab",
-      nom: d.hyperviseur.nom,
-      reel: true,
-      etat: d.hyperviseur.connecte ? "online" : "erreur",
-      // CPU/RAM totale non exposees par GET /dashboard aujourd'hui -- valeurs
-      // approximatives pour que les jauges restent utilisables en attendant
-      // un enrichissement cote backend (voir NodeSummaryTab pour le rendu degrade).
-      cpu_coeurs: null,
-      cpu_utilisation: null,
-      memoire_totale_mo: null,
-      memoire_utilisee_mo: null,
-      memoire_disponible_mo: d.memoire_disponible_mo,
-      stockage_total_go: d.stockage.capacite_go,
-      stockage_utilise_go: d.stockage.capacite_go != null && d.stockage.disponible_go != null
-        ? Math.round((d.stockage.capacite_go - d.stockage.disponible_go) * 100) / 100 : null,
-      uptime_s: null,
-      ip: null,
-      version: `Hyperlite (${d.hyperviseur.type})`,
-      os: null,
-      vms_actives: d.vms.actives,
-      vms_arretees: d.vms.arretees,
-    };
-    return [realNode, fictifNode];
-  } catch (e) {
-    return [fictifNode];
-  }
+  const d = await fetchDashboardSummary();
+  const node = {
+    id: "kvm-lab",
+    nom: d.hyperviseur.nom,
+    etat: d.hyperviseur.connecte ? "online" : "erreur",
+    // CPU/RAM totale non exposees par GET /dashboard aujourd'hui -- valeurs
+    // laissees a null, affichees en degrade (voir NodeSummaryTab).
+    cpu_coeurs: null,
+    cpu_utilisation: null,
+    memoire_totale_mo: null,
+    memoire_utilisee_mo: null,
+    memoire_disponible_mo: d.memoire_disponible_mo,
+    stockage_total_go: d.stockage.capacite_go,
+    stockage_utilise_go: d.stockage.capacite_go != null && d.stockage.disponible_go != null
+      ? Math.round((d.stockage.capacite_go - d.stockage.disponible_go) * 100) / 100 : null,
+    uptime_s: null,
+    ip: null,
+    version: `Hyperlite (${d.hyperviseur.type})`,
+    os: null,
+    vms_actives: d.vms.actives,
+    vms_arretees: d.vms.arretees,
+  };
+  return [node];
 }
 
 export async function fetchVMs() {
-  if (USE_MOCK) return [];
   const vms = await realFetch("/vms");
   // GET /vms ne renvoie pas encore toutes les stats affichees par ce dashboard
-  // (disque/vcpu detailles, tags...) -- completees par des valeurs par defaut
-  // en attendant un GET /vms plus riche, ou un second appel par VM si besoin.
+  // (disque detaille, tags...) -- completees par des valeurs par defaut en
+  // attendant un GET /vms plus riche.
   return vms.map((v) => ({
     nom: v.nom, node: "kvm-lab", type: "vm", etat: v.etat,
     vcpu: v.vcpu, memoire_mo: v.memoire_mo, memoire_utilisee_mo: null,
     disque_go: null, disque_utilise_go: null,
     ip: v.ip, utilisateur_ssh: v.utilisateur_ssh, uuid: v.uuid,
-    os: null, uptime_s: null, tags: [],
+    os: null, uptime_s: null,
   }));
-}
-
-export async function fetchContainers() {
-  return mockContainers;
 }
 
 export async function fetchStoragePools() {
@@ -111,8 +96,14 @@ export async function deleteIso(filename) {
   return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true`, { method: "DELETE" });
 }
 
-export async function fetchTasks() {
-  return initialTasks;
+// ---- Journal d'audit (reel : table audit_log, alimentee par chaque action) ----
+export async function fetchAuditLog(limit = 200) {
+  return realFetch(`/audit?limit=${limit}`);
+}
+
+// ---- Utilisateurs (reels) ----
+export async function fetchUsers() {
+  return realFetch("/auth/users");
 }
 
 // ---- Actions VM (endpoints reels) ----
@@ -133,6 +124,9 @@ export async function cloneVM(name, newName) {
 }
 export async function createVM(payload) {
   return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateVM(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
 }
 export async function fetchVM(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}`);
@@ -187,4 +181,16 @@ export async function deleteSnapshot(name, snapName) {
   return realFetch(`/vms/${encodeURIComponent(name)}/snapshots/${encodeURIComponent(snapName)}`, { method: "DELETE" });
 }
 
-export { makeTaskId };
+// ---- Templates (reels) ----
+export async function fetchTemplates() {
+  return realFetch("/templates");
+}
+export async function createTemplateFromVM(vmName, templateName) {
+  return realFetch(`/templates/from-vm/${encodeURIComponent(vmName)}`, { method: "POST", ...jsonBody({ template_name: templateName || null }) });
+}
+export async function deployTemplate(templateName, newName, network) {
+  return realFetch(`/templates/${encodeURIComponent(templateName)}/deploy`, { method: "POST", ...jsonBody({ new_name: newName, network: network || null }) });
+}
+export async function deleteTemplate(templateName) {
+  return realFetch(`/templates/${encodeURIComponent(templateName)}?confirm=true`, { method: "DELETE" });
+}

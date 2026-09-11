@@ -1,9 +1,8 @@
 import { create } from "zustand";
 import {
-  fetchNodes, fetchVMs, fetchContainers, fetchStoragePools, fetchNetworks, fetchTasks,
-  startVM, stopVM, restartVM, deleteVM,
+  fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks,
+  startVM, stopVM, restartVM, deleteVM, updateVM, makeTaskId,
 } from "../api/client";
-import { makeTaskId } from "../api/mockData";
 
 const TASK_LABELS = {
   start_vm: "Demarrage",
@@ -11,6 +10,7 @@ const TASK_LABELS = {
   restart_vm: "Redemarrage",
   delete_vm: "Suppression",
   create_vm: "Creation VM",
+  update_vm: "Modification des ressources",
   create_snapshot: "Creation snapshot",
   upload_iso: "Televersement ISO",
 };
@@ -21,18 +21,17 @@ export const useInfraStore = create((set, get) => ({
   // ---- Donnees ----
   nodes: [],
   vms: [],
-  containers: [],
   storagePools: [],
   networks: [],
   loading: true,
   error: null,
 
   // ---- Selection / navigation ----
-  selection: { type: "datacenter", id: null }, // { type: "datacenter" | "node" | "vm" | "container", id }
+  selection: { type: "datacenter", id: null }, // { type: "datacenter" | "node" | "vm", id }
   searchQuery: "",
   treeFilter: "server", // "server" | "pool" | "tag"
 
-  // ---- Taches & notifications ----
+  // ---- Taches (actions reelles de cette session) & notifications ----
   tasks: [],
   toasts: [],
   taskLogCollapsed: false,
@@ -44,10 +43,10 @@ export const useInfraStore = create((set, get) => ({
   async loadAll() {
     set({ loading: true, error: null });
     try {
-      const [nodes, vms, containers, storagePools, networks, tasks] = await Promise.all([
-        fetchNodes(), fetchVMs(), fetchContainers(), fetchStoragePools(), fetchNetworks(), fetchTasks(),
+      const [nodes, vms, storagePools, networks] = await Promise.all([
+        fetchNodes(), fetchVMs(), fetchStoragePools(), fetchNetworks(),
       ]);
-      set({ nodes, vms, containers, storagePools, networks, tasks, loading: false });
+      set({ nodes, vms, storagePools, networks, loading: false });
     } catch (e) {
       set({ error: e.message, loading: false });
     }
@@ -87,7 +86,9 @@ export const useInfraStore = create((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 
-  // ---- Taches (avec simulation de progression pour l'UX, voir hooks/useTaskSimulator.js) ----
+  // ---- Taches : reflets d'actions reelles prises dans cette session (pas
+  // d'historique persiste ici -- voir la vue "Journal", qui lit le vrai
+  // audit_log cote backend via GET /audit) ----
   addTask(task) {
     const full = {
       id: task.id ?? makeTaskId(),
@@ -149,6 +150,21 @@ export const useInfraStore = create((set, get) => ({
       }));
       get().completeTask(taskId, "termine");
       return taskId;
+    } catch (e) {
+      get().completeTask(taskId, "echec", e.message);
+      throw e;
+    }
+  },
+
+  async updateVMResources(vmName, payload) {
+    const vm = get().vms.find((v) => v.nom === vmName);
+    const taskId = get().addTask({ type: "update_vm", cible: vmName, node: vm?.node });
+    try {
+      const updated = await updateVM(vmName, payload);
+      set((s) => ({
+        vms: s.vms.map((v) => (v.nom === vmName ? { ...v, vcpu: updated.vcpu, memoire_mo: updated.memoire_mo } : v)),
+      }));
+      get().completeTask(taskId, "termine");
     } catch (e) {
       get().completeTask(taskId, "echec", e.message);
       throw e;

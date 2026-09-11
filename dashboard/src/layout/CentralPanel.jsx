@@ -4,17 +4,16 @@ import Tabs from "../components/Tabs";
 import StatusBadge from "../components/StatusBadge";
 
 import DatacenterSummaryTab from "../panels/datacenter/DatacenterSummaryTab";
-import ClusterTab from "../panels/datacenter/ClusterTab";
 import DcStorageTab from "../panels/datacenter/StorageTab";
 import BackupsTab from "../panels/datacenter/BackupsTab";
 import PermissionsTab from "../panels/datacenter/PermissionsTab";
-import DcFirewallTab from "../panels/datacenter/FirewallTab";
+import TemplatesTab from "../panels/datacenter/TemplatesTab";
+import JournalTab from "../panels/datacenter/JournalTab";
 
 import NodeSummaryTab from "../panels/node/NodeSummaryTab";
 import NodeSystemTab from "../panels/node/NodeSystemTab";
 import NodeNetworkTab from "../panels/node/NodeNetworkTab";
 import NodeDiskTab from "../panels/node/NodeDiskTab";
-import NodeFirewallTab from "../panels/node/NodeFirewallTab";
 import NodeTasksTab from "../panels/node/NodeTasksTab";
 
 import VMSummaryTab from "../panels/vm/VMSummaryTab";
@@ -26,11 +25,11 @@ import VMSnapshotsTab from "../panels/vm/VMSnapshotsTab";
 
 const DATACENTER_TABS = [
   { id: "summary", label: "Resume", Component: DatacenterSummaryTab },
-  { id: "cluster", label: "Cluster", Component: ClusterTab },
   { id: "storage", label: "Stockage", Component: DcStorageTab },
+  { id: "templates", label: "Templates", Component: TemplatesTab },
   { id: "backups", label: "Sauvegardes", Component: BackupsTab },
   { id: "permissions", label: "Permissions", Component: PermissionsTab },
-  { id: "firewall", label: "Pare-feu", Component: DcFirewallTab },
+  { id: "journal", label: "Journal", Component: JournalTab },
 ];
 
 const NODE_TABS = [
@@ -38,7 +37,6 @@ const NODE_TABS = [
   { id: "system", label: "Resume systeme", Component: NodeSystemTab },
   { id: "network", label: "Reseau", Component: NodeNetworkTab },
   { id: "disk", label: "Stockage disque", Component: NodeDiskTab },
-  { id: "firewall", label: "Pare-feu", Component: NodeFirewallTab },
   { id: "tasks", label: "Taches", Component: NodeTasksTab },
 ];
 
@@ -51,17 +49,16 @@ const VM_TABS = [
   { id: "snapshots", label: "Snapshots", Component: VMSnapshotsTab },
 ];
 
-function titleFor(selection, nodes, vms, containers) {
+function titleFor(selection, nodes, vms) {
   if (selection.type === "datacenter") return "Datacenter";
   if (selection.type === "node") return nodes.find((n) => n.id === selection.id)?.nom || selection.id;
   if (selection.type === "vm") return vms.find((v) => v.nom === selection.id)?.nom || selection.id;
-  if (selection.type === "container") return containers.find((c) => c.nom === selection.id)?.nom || selection.id;
   return selection.id;
 }
 
 export default function CentralPanel() {
-  const { selection, nodes, vms, containers } = useInfraStore((s) => ({
-    selection: s.selection, nodes: s.nodes, vms: s.vms, containers: s.containers,
+  const { selection, nodes, vms } = useInfraStore((s) => ({
+    selection: s.selection, nodes: s.nodes, vms: s.vms,
   }));
   const [activeTab, setActiveTab] = useState("summary");
 
@@ -76,9 +73,8 @@ export default function CentralPanel() {
     );
   }
 
-  const tabSet = selection.type === "node" ? NODE_TABS : (selection.type === "vm" || selection.type === "container") ? VM_TABS : DATACENTER_TABS;
+  const tabSet = selection.type === "node" ? NODE_TABS : selection.type === "vm" ? VM_TABS : DATACENTER_TABS;
   const resource = selection.type === "vm" ? vms.find((v) => v.nom === selection.id)
-    : selection.type === "container" ? containers.find((c) => c.nom === selection.id)
     : selection.type === "node" ? nodes.find((n) => n.id === selection.id)
     : null;
   const ActiveComponent = tabSet.find((t) => t.id === activeTab)?.Component || tabSet[0].Component;
@@ -86,7 +82,7 @@ export default function CentralPanel() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-anthracite-600">
-        <h2 className="text-base font-semibold text-anthracite-100">{titleFor(selection, nodes, vms, containers)}</h2>
+        <h2 className="text-base font-semibold text-anthracite-100">{titleFor(selection, nodes, vms)}</h2>
         {resource?.etat && <StatusBadge etat={resource.etat} />}
         {resource?.alerte && <span className="text-xs text-status-warning">{resource.alerte}</span>}
       </div>

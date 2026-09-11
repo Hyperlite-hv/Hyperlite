@@ -3,8 +3,8 @@ import { ChevronRight, ChevronDown, Database, Server, Box, Layers, HardDrive } f
 import { statusColor } from "../theme/colors";
 import { useInfraStore } from "../store/useInfraStore";
 
-const ICONS = { datacenter: Database, node: Server, group: Layers, vm: Box, container: Box, storage: HardDrive };
-const SELECTABLE = new Set(["datacenter", "node", "vm", "container", "storage"]);
+const ICONS = { datacenter: Database, node: Server, group: Layers, vm: Box, storage: HardDrive };
+const SELECTABLE = new Set(["datacenter", "node", "vm", "storage"]);
 
 export default function ResourceTreeNode({ node, depth = 0 }) {
   const [expanded, setExpanded] = useState(depth < 2);

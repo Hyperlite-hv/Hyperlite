@@ -7,7 +7,7 @@ import react from "@vitejs/plugin-react";
 // deja vers les bons chemins sans configuration supplementaire. websocket ("ws")
 // active le relais pour la console VNC et le terminal SSH (endpoints WS reels).
 const BACKEND = "http://127.0.0.1:8000";
-const proxied = ["/auth", "/dashboard", "/vms", "/storage", "/networks", "/templates", "/isos", "/health"];
+const proxied = ["/auth", "/dashboard", "/vms", "/storage", "/networks", "/templates", "/isos", "/audit", "/health"];
 
 export default defineConfig({
   plugins: [react()],

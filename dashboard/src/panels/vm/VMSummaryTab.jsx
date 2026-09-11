@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Square, RotateCw, Trash2 } from "lucide-react";
+import { Play, Square, RotateCw, Trash2, Copy, Layers } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricChart from "../../components/MetricChart";
 import ConfirmDialog from "../../components/ConfirmDialog";
@@ -8,10 +8,14 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { chartColors } from "../../theme/colors";
 import { formatUptime, formatMo, formatKbps } from "../../utils/format";
+import { cloneVM, createTemplateFromVM } from "../../api/client";
 
 export default function VMSummaryTab({ resource: vm }) {
   const [confirm, setConfirm] = useState(null); // "stop" | "delete" | null
   const runVMAction = useInfraStore((s) => s.runVMAction);
+  const loadAll = useInfraStore((s) => s.loadAll);
+  const select = useInfraStore((s) => s.select);
+  const pushToast = useInfraStore((s) => s.pushToast);
   const isAdmin = useAuthStore(selectIsAdmin);
   const { data, current, error } = useLiveVMMetrics(vm?.nom, vm?.etat === "actif");
 
@@ -20,8 +24,34 @@ export default function VMSummaryTab({ resource: vm }) {
   async function act(action) {
     try {
       await runVMAction(vm.nom, action);
+      if (action === "delete") select("datacenter", null);
     } catch (e) {
       // erreur deja poussee en toast par le store
+    }
+  }
+
+  async function handleClone() {
+    const newName = window.prompt(`Nom de la copie de '${vm.nom}' :`, `${vm.nom}-clone`);
+    if (!newName || !newName.trim()) return;
+    try {
+      await cloneVM(vm.nom, newName.trim());
+      pushToast({ kind: "success", title: "VM clonee", message: `${vm.nom} -> ${newName.trim()}` });
+      await loadAll();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Echec du clonage", message: e.message });
+    }
+  }
+
+  async function handleToTemplate() {
+    const tplName = window.prompt(`Nom du template a creer depuis '${vm.nom}' :`, vm.nom);
+    if (!tplName || !tplName.trim()) return;
+    try {
+      await createTemplateFromVM(vm.nom, tplName.trim());
+      pushToast({ kind: "success", title: "Template cree", message: tplName.trim() });
+      select("datacenter", null); // la VM source vient de disparaitre (convertie)
+      await loadAll();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Echec de la conversion", message: e.message });
     }
   }
 
@@ -37,6 +67,12 @@ export default function VMSummaryTab({ resource: vm }) {
           </button>
           <button className="btn-secondary" disabled={vm.etat !== "actif"} onClick={() => act("restart")}>
             <RotateCw size={14} /> Redemarrer
+          </button>
+          <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={handleClone}>
+            <Copy size={14} /> Cloner
+          </button>
+          <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={handleToTemplate}>
+            <Layers size={14} /> Vers template
           </button>
           <button className="btn-danger ml-auto" disabled={vm.etat === "actif"} onClick={() => setConfirm("delete")}>
             <Trash2 size={14} /> Supprimer
