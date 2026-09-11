@@ -267,7 +267,10 @@ async function handleVMAction(action, name) {
 document.getElementById("create-vm-btn").addEventListener("click", async () => {
   let networks = [];
   try { networks = await api("GET", "/networks"); } catch (e) { /* ignore */ }
+  let isos = [];
+  try { isos = await api("GET", "/isos"); } catch (e) { /* ignore */ }
   const options = networks.map((n) => `<option value="${n.nom}" ${n.nom === "default" ? "selected" : ""}>${n.nom} (${n.type})</option>`).join("");
+  const isoOptions = isos.map((i) => `<option value="${i.nom}">${i.nom}</option>`).join("");
   openModal(`
     <button class="close-x" onclick="closeModal()">&times;</button>
     <h2>Creer une VM</h2>
@@ -275,9 +278,17 @@ document.getElementById("create-vm-btn").addEventListener("click", async () => {
       <div class="form-row"><label>Nom</label><input type="text" id="cv-name" required pattern="[a-zA-Z0-9][a-zA-Z0-9\\-]{1,62}" placeholder="ex. web-01"></div>
       <div class="form-row"><label>vCPU (1-2)</label><input type="number" id="cv-vcpu" min="1" max="2" value="1" required></div>
       <div class="form-row"><label>Memoire (Mo, 256-2048)</label><input type="number" id="cv-mem" min="256" max="2048" value="768" required></div>
-      <div class="form-row"><label>Disque (Go, 1-20)</label><input type="number" id="cv-disk" min="1" max="20" value="5" required></div>
+      <div class="form-row"><label>Utilisateur</label><input type="text" id="cv-username" required pattern="[a-z_][a-z0-9_\\-]{0,31}" placeholder="ex. antho"></div>
+      <div class="form-row"><label>Mot de passe</label><input type="password" id="cv-password" required minlength="4"></div>
       <div class="form-row"><label>Reseau</label><select id="cv-network">${options || '<option value="default">default</option>'}</select></div>
-      <div class="form-row"><label>Mot de passe (utilisateur hyperlite)</label><input type="text" id="cv-password" placeholder="laisser vide = 'hyperlite'"></div>
+      <div class="form-row"><label>ISO au demarrage</label><select id="cv-iso"><option value="">Aucune (pas de media)</option>${isoOptions}</select></div>
+      <div class="form-row" style="align-items:flex-start">
+        <label>Disques (Go)</label>
+        <div style="flex:1">
+          <div id="cv-disks-list"></div>
+          <button type="button" id="cv-add-disk-btn" class="btn-secondary" style="margin-top:6px;padding:4px 10px;font-size:12px">+ Ajouter un disque</button>
+        </div>
+      </div>
       <p class="form-error" id="cv-error"></p>
       <div class="form-actions">
         <button type="button" class="btn-secondary" onclick="closeModal()">Annuler</button>
@@ -285,19 +296,45 @@ document.getElementById("create-vm-btn").addEventListener("click", async () => {
       </div>
     </form>
   `);
+
+  const disksList = document.getElementById("cv-disks-list");
+  function renumberDiskRows() {
+    Array.from(disksList.children).forEach((row, i) => {
+      row.querySelector(".cv-disk-letter").textContent = "sd" + String.fromCharCode(97 + i);
+    });
+  }
+  function addDiskRow(sizeValue) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px";
+    const letter = "sd" + String.fromCharCode(97 + disksList.children.length);
+    row.innerHTML = `<span class="cv-disk-letter" style="font-family:monospace;width:32px">${letter}</span><input type="number" class="cv-disk-size" min="1" max="500" value="${sizeValue}" required style="width:80px"><span>Go</span><button type="button" class="btn-secondary cv-remove-disk" style="padding:2px 8px">&times;</button>`;
+    disksList.appendChild(row);
+    row.querySelector(".cv-remove-disk").addEventListener("click", () => {
+      if (disksList.children.length <= 1) return;
+      row.remove();
+      renumberDiskRows();
+    });
+  }
+  addDiskRow(10);
+  document.getElementById("cv-add-disk-btn").addEventListener("click", () => addDiskRow(5));
+
   document.getElementById("create-vm-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const errEl = document.getElementById("cv-error");
     errEl.textContent = "";
+    const diskSizes = Array.from(document.querySelectorAll(".cv-disk-size")).map((el) => parseInt(el.value, 10));
+    if (diskSizes.length === 0) { errEl.textContent = "Ajoutez au moins un disque."; return; }
     const payload = {
       name: document.getElementById("cv-name").value.trim(),
       vcpu: parseInt(document.getElementById("cv-vcpu").value, 10),
       memory_mb: parseInt(document.getElementById("cv-mem").value, 10),
-      disk_gb: parseInt(document.getElementById("cv-disk").value, 10),
+      disks: diskSizes.map((size_gb) => ({ size_gb })),
       network: document.getElementById("cv-network").value || "default",
+      username: document.getElementById("cv-username").value.trim(),
+      password: document.getElementById("cv-password").value,
     };
-    const pwd = document.getElementById("cv-password").value;
-    if (pwd) payload.password = pwd;
+    const isoVal = document.getElementById("cv-iso").value;
+    if (isoVal) payload.iso = isoVal;
     try {
       toast("Creation en cours (peut prendre un moment)...");
       await api("POST", "/vms", payload);
