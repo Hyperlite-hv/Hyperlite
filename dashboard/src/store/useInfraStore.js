@@ -133,9 +133,11 @@ export const useInfraStore = create((set, get) => ({
 
     const apiFn = { start: startVM, stop: stopVM, restart: restartVM, delete: deleteVM }[action];
     try {
-      await apiFn(vmName);
-      // La progression "reelle" est simulee par useTaskSimulator (voir ce hook) ;
-      // ici on se contente de refleter l'etat final optimiste dans la liste des VMs.
+      // Ces endpoints repondent en une seule requete HTTP synchrone (pas de
+      // pourcentage intermediaire reel cote backend) : la tache passe donc
+      // directement de "en_cours" a "termine" une fois la reponse recue,
+      // plutot que de simuler une fausse progression.
+      await apiFn(vmName, ...(action === "stop" ? [false] : [])); // arret propre (ACPI) ; pas de choix force expose dans l'UI pour l'instant
       set((s) => ({
         vms: s.vms.map((v) => {
           if (v.nom !== vmName) return v;
@@ -145,6 +147,7 @@ export const useInfraStore = create((set, get) => ({
           return v;
         }).filter((v) => !(action === "delete" && v.nom === vmName)),
       }));
+      get().completeTask(taskId, "termine");
       return taskId;
     } catch (e) {
       get().completeTask(taskId, "echec", e.message);

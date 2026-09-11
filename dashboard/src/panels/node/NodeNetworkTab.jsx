@@ -20,7 +20,7 @@ export default function NodeNetworkTab({ resource: node }) {
           <span className="text-anthracite-100">{n.nom}</span>
           <span className="text-anthracite-300 capitalize">{n.type}</span>
           <span className="text-anthracite-300 font-mono">{n.pont}</span>
-          <span className="text-anthracite-300 font-mono">{n.reseau}</span>
+          <span className="text-anthracite-300 font-mono">{n.reseau ? `${n.reseau.adresse}/${n.reseau.masque}` : "--"}</span>
         </div>
       ))}
     </div>
