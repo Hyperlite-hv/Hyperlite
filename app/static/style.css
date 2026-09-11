@@ -220,3 +220,4 @@ main { padding: 28px 32px; max-width: 1200px; margin: 0 auto; }
 }
 .console-bar button:hover { background: rgba(255,255,255,0.3); }
 #console-screen { flex: 1; overflow: auto; background: #111; }
+#terminal-screen { flex: 1; overflow: hidden; background: #000; padding: 6px; }

@@ -31,10 +31,10 @@ def validate_username(username):
     return None
 
 
-def get_or_create_automation_pubkey():
+def _ensure_automation_keypair():
     """Cle SSH dediee a Hyperlite (generee une seule fois sur le serveur), injectee
-    dans le cloud-init de chaque nouvelle VM pour permettre un futur terminal web
-    SSH sans mot de passe stocke cote serveur."""
+    dans le cloud-init de chaque nouvelle VM pour permettre le terminal web SSH sans
+    mot de passe stocke cote serveur."""
     SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     priv = SSH_KEY_DIR / "hyperlite_automation"
     pub = SSH_KEY_DIR / "hyperlite_automation.pub"
@@ -44,7 +44,17 @@ def get_or_create_automation_pubkey():
             check=True, capture_output=True, text=True,
         )
         priv.chmod(0o600)
+    return priv, pub
+
+
+def get_or_create_automation_pubkey():
+    _, pub = _ensure_automation_keypair()
     return pub.read_text().strip()
+
+
+def get_automation_private_key_path():
+    priv, _ = _ensure_automation_keypair()
+    return priv
 
 
 def ensure_base_image():

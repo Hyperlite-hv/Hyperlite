@@ -36,4 +36,10 @@ def init_db():
                 error_message TEXT
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_ssh_users (
+                vm_name TEXT PRIMARY KEY,
+                username TEXT NOT NULL
+            )
+        """)
         conn.commit()

@@ -197,6 +197,7 @@ async function loadVMs() {
           <button class="btn-small btn-secondary admin-only" data-action="stop" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Arreter</button>
           <button class="btn-small btn-secondary admin-only" data-action="restart" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Redemarrer</button>
           <button class="btn-small btn-secondary admin-only" data-action="console" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Console</button>
+          <button class="btn-small btn-secondary admin-only" data-action="terminal" data-name="${vm.nom}" ${vm.etat !== "actif" ? "disabled" : ""}>Terminal</button>
           <button class="btn-small btn-secondary admin-only" data-action="clone" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Cloner</button>
           <button class="btn-small btn-secondary admin-only" data-action="totemplate" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Vers template</button>
           <button class="btn-small btn-danger admin-only" data-action="delete" data-name="${vm.nom}" ${vm.etat === "actif" ? "disabled" : ""}>Supprimer</button>
@@ -217,7 +218,7 @@ async function copySSHCommand(name) {
   try {
     const vm = await api("GET", `/vms/${encodeURIComponent(name)}`);
     if (!vm.ip) { toast("Aucune adresse IP connue (la VM est-elle demarree ?).", "error"); return; }
-    const cmd = `ssh hyperlite@${vm.ip}`;
+    const cmd = `ssh ${vm.utilisateur_ssh || "<utilisateur inconnu>"}@${vm.ip}`;
     try {
       await navigator.clipboard.writeText(cmd);
       toast(`Commande copiee : ${cmd}`, "success");
@@ -230,6 +231,7 @@ async function copySSHCommand(name) {
 async function handleVMAction(action, name) {
   if (action === "ssh") { await copySSHCommand(name); return; }
   if (action === "console") { await openConsole(name); return; }
+  if (action === "terminal") { await openTerminal(name); return; }
   try {
     if (action === "start") {
       await api("POST", `/vms/${encodeURIComponent(name)}/start`);
@@ -417,16 +419,19 @@ async function loadVMInfoTab(name) {
         <li><span>vCPU</span><span>${vm.vcpu}</span></li>
         <li><span>Memoire</span><span>${Math.round(vm.memoire_mo)} Mo</span></li>
         <li><span>IP</span><span>${vm.ip || "—"}</span></li>
+        <li><span>Utilisateur SSH</span><span>${vm.utilisateur_ssh || "inconnu (ssh-copy-id manuel requis)"}</span></li>
         <li><span>UUID</span><span style="font-size:11px">${vm.uuid}</span></li>
       </ul>
       <div class="form-actions">
         <button class="btn-secondary" id="info-ssh-btn">Copier la commande SSH</button>
         <button class="btn-primary admin-only" id="info-console-btn" ${vm.etat !== "actif" ? "disabled" : ""}>Ouvrir la console</button>
+        <button class="btn-primary admin-only" id="info-terminal-btn" ${vm.etat !== "actif" ? "disabled" : ""}>Ouvrir le terminal</button>
       </div>
     `;
     applyRoleVisibility();
     document.getElementById("info-ssh-btn").addEventListener("click", () => copySSHCommand(name));
     document.getElementById("info-console-btn").addEventListener("click", () => openConsole(name));
+    document.getElementById("info-terminal-btn").addEventListener("click", () => openTerminal(name));
   } catch (e) { el.innerHTML = `<p class="error">${e.message}</p>`; }
 }
 
@@ -965,6 +970,95 @@ function closeConsole() {
 
 const consoleCloseBtn = document.getElementById("console-close-btn");
 if (consoleCloseBtn) consoleCloseBtn.addEventListener("click", closeConsole);
+
+// ---------- Terminal SSH ----------
+let xtermAssetsLoaded = false;
+function ensureXtermLoaded() {
+  if (xtermAssetsLoaded) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/static/xterm/xterm.css";
+    document.head.appendChild(link);
+    const s1 = document.createElement("script");
+    s1.src = "/static/xterm/xterm.js";
+    s1.onload = () => {
+      const s2 = document.createElement("script");
+      s2.src = "/static/xterm/addon-fit.js";
+      s2.onload = () => { xtermAssetsLoaded = true; resolve(); };
+      s2.onerror = () => reject(new Error("Impossible de charger l'addon de redimensionnement du terminal."));
+      document.head.appendChild(s2);
+    };
+    s1.onerror = () => reject(new Error("Impossible de charger xterm.js."));
+    document.head.appendChild(s1);
+  });
+}
+
+let currentTerm = null;
+let currentTermWs = null;
+let currentTermResizeHandler = null;
+
+async function openTerminal(name) {
+  try {
+    await ensureXtermLoaded();
+    const ticketResp = await api("POST", `/vms/${encodeURIComponent(name)}/terminal-ticket`);
+    const wsProto = window.location.protocol === "https:" ? "wss" : "ws";
+    const wsUrl = `${wsProto}://${window.location.host}/vms/${encodeURIComponent(name)}/terminal?ticket=${encodeURIComponent(ticketResp.ticket)}`;
+
+    document.getElementById("terminal-title").textContent = `Terminal — ${name} (${ticketResp.utilisateur})`;
+    const screen = document.getElementById("terminal-screen");
+    screen.innerHTML = "";
+    document.getElementById("terminal-overlay").style.display = "flex";
+
+    const term = new Terminal({ cursorBlink: true, fontSize: 14, theme: { background: "#000000" } });
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(screen);
+    fitAddon.fit();
+    currentTerm = term;
+
+    const ws = new WebSocket(wsUrl);
+    currentTermWs = ws;
+    ws.onopen = () => {
+      fitAddon.fit();
+      ws.send("\x00" + JSON.stringify({ cols: term.cols, rows: term.rows }));
+    };
+    ws.onmessage = (ev) => term.write(ev.data);
+    ws.onclose = () => term.write("\r\n\x1b[33m[connexion terminee]\x1b[0m\r\n");
+    ws.onerror = () => toast("Erreur de connexion au terminal.", "error");
+
+    term.onData((data) => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
+    term.onResize(({ cols, rows }) => { if (ws.readyState === WebSocket.OPEN) ws.send("\x00" + JSON.stringify({ cols, rows })); });
+
+    currentTermResizeHandler = () => fitAddon.fit();
+    window.addEventListener("resize", currentTermResizeHandler);
+  } catch (e) {
+    toast(e.message, "error");
+    closeTerminal();
+  }
+}
+
+function closeTerminal() {
+  if (currentTermWs) {
+    try { currentTermWs.close(); } catch (e) { /* ignore */ }
+    currentTermWs = null;
+  }
+  if (currentTerm) {
+    try { currentTerm.dispose(); } catch (e) { /* ignore */ }
+    currentTerm = null;
+  }
+  if (currentTermResizeHandler) {
+    window.removeEventListener("resize", currentTermResizeHandler);
+    currentTermResizeHandler = null;
+  }
+  const overlay = document.getElementById("terminal-overlay");
+  if (overlay) overlay.style.display = "none";
+  const screen = document.getElementById("terminal-screen");
+  if (screen) screen.innerHTML = "";
+}
+
+const terminalCloseBtn = document.getElementById("terminal-close-btn");
+if (terminalCloseBtn) terminalCloseBtn.addEventListener("click", closeTerminal);
 
 // ---------- Init ----------
 tryRestoreSession();
