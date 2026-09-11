@@ -24,7 +24,7 @@ export default function StepTemplate({ form, patch }) {
           <input type="radio" checked={form.iso === iso.nom} onChange={() => patch({ iso: iso.nom })} className="accent-accent-blue" />
           <div>
             <div className="text-sm text-anthracite-100">{iso.nom}</div>
-            <div className="text-xs text-anthracite-400">{iso.type} -- {iso.taille_mo} Mo</div>
+            <div className="text-xs text-anthracite-400">{iso.taille_mo} Mo</div>
           </div>
         </label>
       ))}
