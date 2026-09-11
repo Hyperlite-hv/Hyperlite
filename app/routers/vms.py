@@ -6,7 +6,7 @@ import subprocess
 from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
-from app.core.vm_builder import validate_name, create_disk, create_cloudinit_iso, build_domain_xml
+from app.core.vm_builder import validate_name, create_disk, create_cloudinit_iso, build_domain_xml, IMAGES_DIR
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -117,5 +117,111 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         domain = conn.defineXML(xml)
         log_action(user["username"], "create_vm", payload.name, "succes")
         return _domain_summary(domain)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/start")
+def start_vm(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "start_vm", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        if domain.isActive():
+            log_action(user["username"], "start_vm", name, "echec", "VM deja active")
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est deja active")
+        try:
+            domain.create()
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "start_vm", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Impossible de demarrer la VM : {e}")
+        log_action(user["username"], "start_vm", name, "succes")
+        return _domain_summary(domain)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/stop")
+def stop_vm(name: str, force: bool = False, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "stop_vm", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        if not domain.isActive():
+            log_action(user["username"], "stop_vm", name, "echec", "VM deja arretee")
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est deja arretee")
+        action_name = "force_stop_vm" if force else "stop_vm"
+        try:
+            if force:
+                domain.destroy()
+            else:
+                domain.shutdown()
+        except libvirt.libvirtError as e:
+            log_action(user["username"], action_name, name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Impossible d'arreter la VM : {e}")
+        log_action(user["username"], action_name, name, "succes")
+        return _domain_summary(domain)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/restart")
+def restart_vm(name: str, force: bool = False, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "restart_vm", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        if not domain.isActive():
+            log_action(user["username"], "restart_vm", name, "echec", "VM arretee")
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est arretee, demarrez-la d'abord")
+        try:
+            if force:
+                domain.destroy()
+                domain.create()
+            else:
+                domain.reboot()
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "restart_vm", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Impossible de redemarrer la VM : {e}")
+        log_action(user["username"], "restart_vm", name, "succes")
+        return _domain_summary(domain)
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}")
+def delete_vm(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "delete_vm", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        if domain.isActive():
+            log_action(user["username"], "delete_vm", name, "echec", "VM active, arret requis")
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est active. Arretez-la avant de la supprimer")
+        try:
+            domain.undefine()
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "delete_vm", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Impossible de supprimer la VM : {e}")
+
+        disk_path = IMAGES_DIR / f"{name}.qcow2"
+        cloudinit_path = IMAGES_DIR / f"{name}-cloudinit.iso"
+        disk_path.unlink(missing_ok=True)
+        cloudinit_path.unlink(missing_ok=True)
+
+        log_action(user["username"], "delete_vm", name, "succes")
+        return {"message": f"VM '{name}' supprimee"}
     finally:
         conn.close()
