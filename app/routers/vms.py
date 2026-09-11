@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 import libvirt
 import re
+import asyncio
+from fastapi import WebSocket, WebSocketDisconnect
+from app.core.libvirt_utils import ensure_vnc_graphics
+import secrets
 import time
 from pathlib import Path
 from app.routers.isos import ISOS_DIR
@@ -898,3 +902,109 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         }
     finally:
         conn.close()
+
+
+CONSOLE_TICKETS = {}
+CONSOLE_TICKET_TTL = 30
+
+
+@router.post("/{name}/console-ticket")
+def create_console_ticket(name: str, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "create_console_ticket", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        root = ET.fromstring(domain.XMLDesc(0))
+        devices_el = root.find(".//devices")
+        graphics = devices_el.find("graphics[@type='vnc']") if devices_el is not None else None
+
+        if graphics is None:
+            if domain.isActive():
+                log_action(user["username"], "create_console_ticket", name, "echec", "pas de VNC (VM active)")
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cette VM a ete creee avant l'ajout de la console. Arretez-la puis redemarrez-la une fois pour activer la console.",
+                )
+            ensure_vnc_graphics(conn, domain)
+            log_action(user["username"], "create_console_ticket", name, "echec", "VNC ajoute, VM arretee")
+            raise HTTPException(status_code=409, detail="Console activee sur cette VM : demarrez-la puis reessayez.")
+
+        if not domain.isActive():
+            log_action(user["username"], "create_console_ticket", name, "echec", "VM arretee")
+            raise HTTPException(status_code=409, detail="La VM doit etre demarree pour ouvrir une console")
+
+        port = graphics.get("port")
+        if not port or port == "-1":
+            log_action(user["username"], "create_console_ticket", name, "echec", "port VNC indisponible")
+            raise HTTPException(status_code=500, detail="Port VNC indisponible pour le moment")
+
+        now = time.time()
+        for old_ticket, (old_vm, old_port, old_expiry) in list(CONSOLE_TICKETS.items()):
+            if old_expiry < now:
+                CONSOLE_TICKETS.pop(old_ticket, None)
+
+        ticket = secrets.token_urlsafe(24)
+        CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL)
+        log_action(user["username"], "create_console_ticket", name, "succes")
+        return {"ticket": ticket, "expire_dans_s": CONSOLE_TICKET_TTL}
+    finally:
+        conn.close()
+
+
+@router.websocket("/{name}/console")
+async def vm_console(websocket: WebSocket, name: str):
+    ticket = websocket.query_params.get("ticket")
+    entry = CONSOLE_TICKETS.pop(ticket, None) if ticket else None
+    if entry is None:
+        await websocket.close(code=4401)
+        return
+
+    vm_name, port, expiry = entry
+    if vm_name != name or time.time() > expiry:
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    except OSError:
+        await websocket.close(code=1011)
+        return
+
+    async def ws_to_tcp():
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                writer.write(data)
+                await writer.drain()
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        except Exception:
+            pass
+        finally:
+            writer.close()
+
+    async def tcp_to_ws():
+        try:
+            while True:
+                data = await reader.read(65536)
+                if not data:
+                    break
+                await websocket.send_bytes(data)
+        except Exception:
+            pass
+
+    task1 = asyncio.ensure_future(ws_to_tcp())
+    task2 = asyncio.ensure_future(tcp_to_ws())
+    done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+    try:
+        await websocket.close()
+    except RuntimeError:
+        pass
