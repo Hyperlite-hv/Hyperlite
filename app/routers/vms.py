@@ -347,6 +347,33 @@ def _get_interfaces(domain):
     return result
 
 
+@router.get("/{name}/disks")
+def get_vm_disks(name: str, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "get_vm_disks", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        xml_desc = domain.XMLDesc(0)
+        root = ET.fromstring(xml_desc)
+        disks = []
+        for disk in root.findall(".//devices/disk"):
+            target = disk.find("target")
+            source = disk.find("source")
+            disks.append({
+                "cible": target.get("dev") if target is not None else None,
+                "bus": target.get("bus") if target is not None else None,
+                "type": disk.get("device"),
+                "source": (source.get("file") if source is not None else None),
+            })
+        log_action(user["username"], "get_vm_disks", name, "succes")
+        return disks
+    finally:
+        conn.close()
+
+
 @router.get("/{name}/network")
 def get_vm_network(name: str, user: dict = Depends(get_current_user)):
     conn = open_conn()
