@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useInfraStore } from "../store/useInfraStore";
 
-const PATH_TYPES = { node: "node", vm: "vm", container: "container" };
+const PATH_TYPES = { node: "node", vm: "vm" };
 
 // Fait correspondre l'URL (react-router) et la selection dans le store Zustand,
 // dans les deux sens : cliquer dans l'arbre change l'URL (partageable, boutons
@@ -27,6 +27,10 @@ export function useSelectionToUrl() {
   const selection = useInfraStore((s) => s.selection);
 
   useEffect(() => {
+    // "storage" n'a pas de route dediee (CentralPanel l'affiche inline sans
+    // onglets) : on laisse l'URL telle quelle plutot que de naviguer vers un
+    // chemin que le routeur ne connait pas.
+    if (selection.type === "storage") return;
     const target = selection.type === "datacenter" ? "/datacenter" : `/${selection.type}/${encodeURIComponent(selection.id)}`;
     if (target !== pathname) navigate(target, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
