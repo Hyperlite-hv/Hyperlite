@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 import libvirt
 import subprocess
+import xml.etree.ElementTree as ET
 
 from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role
@@ -223,5 +224,88 @@ def delete_vm(name: str, user: dict = Depends(require_role("admin"))):
 
         log_action(user["username"], "delete_vm", name, "succes")
         return {"message": f"VM '{name}' supprimee"}
+    finally:
+        conn.close()
+
+
+class DiskAttach(BaseModel):
+    volume_name: str
+    pool: str = "default"
+    target_dev: str = "vdb"
+
+
+@router.post("/{name}/disks", status_code=201)
+def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "attach_disk", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        try:
+            pool = conn.storagePoolLookupByName(payload.pool)
+            vol = pool.storageVolLookupByName(payload.volume_name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "attach_disk", name, "echec", "Volume introuvable")
+            raise HTTPException(status_code=404, detail=f"Volume '{payload.volume_name}' introuvable dans le pool '{payload.pool}'")
+
+        disk_xml = f"""
+        <disk type='file' device='disk'>
+          <driver name='qemu' type='qcow2'/>
+          <source file='{vol.path()}'/>
+          <target dev='{payload.target_dev}' bus='virtio'/>
+        </disk>
+        """
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+        try:
+            domain.attachDeviceFlags(disk_xml, flags)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "attach_disk", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur d'attachement du disque : {e}")
+
+        log_action(user["username"], "attach_disk", name, "succes")
+        return {"message": f"Volume '{payload.volume_name}' attache a '{name}' en tant que {payload.target_dev}"}
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}/disks/{target_dev}")
+def detach_disk(name: str, target_dev: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "detach_disk", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        xml_desc = domain.XMLDesc(0)
+        root = ET.fromstring(xml_desc)
+        disk_elem = None
+        for disk in root.findall(".//devices/disk"):
+            target = disk.find("target")
+            if target is not None and target.get("dev") == target_dev:
+                disk_elem = disk
+                break
+        if disk_elem is None:
+            log_action(user["username"], "detach_disk", name, "echec", f"Disque {target_dev} introuvable")
+            raise HTTPException(status_code=404, detail=f"Disque '{target_dev}' introuvable sur la VM '{name}'")
+
+        disk_xml = ET.tostring(disk_elem, encoding="unicode")
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+        try:
+            domain.detachDeviceFlags(disk_xml, flags)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "detach_disk", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur de detachement : {e}")
+
+        log_action(user["username"], "detach_disk", name, "succes")
+        return {"message": f"Disque '{target_dev}' detache de '{name}'"}
     finally:
         conn.close()
