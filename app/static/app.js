@@ -564,29 +564,56 @@ async function loadVMNetTab(name) {
   try {
     const info = await api("GET", `/vms/${encodeURIComponent(name)}/network`);
     const networks = await api("GET", "/networks");
-    const iface = info.interfaces[0] || {};
-    const options = networks.map((n) => `<option value="${n.nom}" ${n.nom === iface.reseau ? "selected" : ""}>${n.nom} (${n.type})</option>`).join("");
+    const primary = info.interfaces[0] || {};
+    const ifaceRows = info.interfaces.map((iface) => `
+      <li>
+        <span>${iface.reseau || "—"} <span style="font-size:11px;color:var(--grey)">${iface.mac || "—"}</span></span>
+        ${info.interfaces.length > 1 ? `<button class="btn-small btn-danger admin-only" data-mac="${iface.mac}">Detacher</button>` : ""}
+      </li>`).join("");
+    const options = networks.map((n) => `<option value="${n.nom}" ${n.nom === primary.reseau ? "selected" : ""}>${n.nom} (${n.type})</option>`).join("");
+    const addOptions = networks.map((n) => `<option value="${n.nom}">${n.nom} (${n.type})</option>`).join("");
     el.innerHTML = `
-      <ul class="inline-list">
-        <li><span>Reseau actuel</span><span>${iface.reseau || "—"}</span></li>
-        <li><span>MAC</span><span>${iface.mac || "—"}</span></li>
-        <li><span>IP</span><span>${info.ip || "—"}</span></li>
-      </ul>
+      <ul class="inline-list">${ifaceRows || "<li>Aucune interface.</li>"}</ul>
+      <ul class="inline-list"><li><span>IP</span><span>${info.ip || "—"}</span></li></ul>
       <div class="form-row admin-only" style="margin-top:14px">
-        <label>Changer de reseau</label>
+        <label>Changer le reseau principal</label>
         <div style="display:flex; gap:6px">
           <select id="net-select" style="flex:1">${options}</select>
           <button class="btn-secondary" id="net-apply-btn">Associer</button>
         </div>
       </div>
+      <div class="form-row admin-only" style="margin-top:10px">
+        <label>Ajouter une interface</label>
+        <div style="display:flex; gap:6px">
+          <select id="net-add-select" style="flex:1">${addOptions}</select>
+          <button class="btn-secondary" id="net-add-btn">Ajouter</button>
+        </div>
+      </div>
     `;
     applyRoleVisibility();
+    el.querySelectorAll("button[data-mac]").forEach((btn) => btn.addEventListener("click", async () => {
+      if (!confirm("Detacher cette interface reseau ?")) return;
+      try {
+        await api("DELETE", `/vms/${encodeURIComponent(name)}/interfaces/${encodeURIComponent(btn.dataset.mac)}`);
+        toast("Interface detachee.", "success");
+        loadVMNetTab(name);
+      } catch (e) { toast(e.message, "error"); }
+    }));
     const applyBtn = document.getElementById("net-apply-btn");
     if (applyBtn) applyBtn.addEventListener("click", async () => {
       const net = document.getElementById("net-select").value;
       try {
         await api("PUT", `/vms/${encodeURIComponent(name)}/network`, { network: net });
         toast("VM associee au reseau '" + net + "'.", "success");
+        loadVMNetTab(name);
+      } catch (e) { toast(e.message, "error"); }
+    });
+    const addBtn = document.getElementById("net-add-btn");
+    if (addBtn) addBtn.addEventListener("click", async () => {
+      const net = document.getElementById("net-add-select").value;
+      try {
+        await api("POST", `/vms/${encodeURIComponent(name)}/interfaces`, { network: net });
+        toast(`Interface ajoutee sur '${net}'.`, "success");
         loadVMNetTab(name);
       } catch (e) { toast(e.message, "error"); }
     });
