@@ -391,3 +391,142 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         return {"message": f"VM '{name}' associee au reseau '{payload.network}'"}
     finally:
         conn.close()
+
+
+# --- Snapshots (10.8) ---
+# Un snapshot capture l'etat d'une VM (disque, et memoire si elle tourne) a un
+# instant T, stocke DANS le fichier qcow2 lui-meme : c'est rapide a creer/restaurer
+# mais ce n'est PAS une sauvegarde independante (si le disque qcow2 est perdu/corrompu,
+# tous ses snapshots le sont aussi). Une vraie sauvegarde (backup) est une copie
+# complete et autonome des donnees, stockee ailleurs, qui survit a la perte du disque
+# source - c'est plus lent et plus lourd, mais c'est la seule protection contre une
+# panne de stockage. Le snapshot sert a revenir en arriere rapidement (avant une mise
+# a jour risquee, par exemple) ; le backup sert a la reprise apres sinistre.
+
+def _snapshot_summary(snap):
+    xml_desc = snap.getXMLDesc()
+    root = ET.fromstring(xml_desc)
+    desc_elem = root.find("description")
+    creation_elem = root.find("creationTime")
+    state_elem = root.find("state")
+    return {
+        "nom": snap.getName(),
+        "description": desc_elem.text if desc_elem is not None else None,
+        "date_creation": creation_elem.text if creation_elem is not None else None,
+        "etat_vm": state_elem.text if state_elem is not None else None,
+        "actuel": snap.isCurrent() == 1,
+    }
+
+
+@router.get("/{name}/snapshots")
+def list_snapshots(name: str, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "list_snapshots", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        snaps = domain.listAllSnapshots()
+        result = [_snapshot_summary(s) for s in snaps]
+        log_action(user["username"], "list_snapshots", name, "succes")
+        return result
+    finally:
+        conn.close()
+
+
+class SnapshotCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+@router.post("/{name}/snapshots", status_code=201)
+def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "create_snapshot", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        try:
+            domain.snapshotLookupByName(payload.name)
+            log_action(user["username"], "create_snapshot", payload.name, "echec", "Snapshot deja existant")
+            raise HTTPException(status_code=422, detail=f"Un snapshot '{payload.name}' existe deja pour cette VM")
+        except libvirt.libvirtError:
+            pass
+
+        desc_xml = f"<description>{payload.description}</description>" if payload.description else ""
+        snap_xml = f"""
+        <domainsnapshot>
+          <name>{payload.name}</name>
+          {desc_xml}
+        </domainsnapshot>
+        """
+        try:
+            snap = domain.snapshotCreateXML(snap_xml, 0)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "create_snapshot", payload.name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur de creation du snapshot : {e}")
+
+        log_action(user["username"], "create_snapshot", payload.name, "succes")
+        return _snapshot_summary(snap)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/snapshots/{snapshot_name}/restore")
+def restore_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "restore_snapshot", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        try:
+            snap = domain.snapshotLookupByName(snapshot_name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Snapshot introuvable")
+            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
+
+        try:
+            snap.revertToSnapshot(0)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "restore_snapshot", snapshot_name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur de restauration : {e}")
+
+        log_action(user["username"], "restore_snapshot", snapshot_name, "succes")
+        return {"message": f"VM '{name}' restauree a l'etat du snapshot '{snapshot_name}'"}
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}/snapshots/{snapshot_name}")
+def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "delete_snapshot", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        try:
+            snap = domain.snapshotLookupByName(snapshot_name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "delete_snapshot", snapshot_name, "echec", "Snapshot introuvable")
+            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
+
+        try:
+            snap.delete(0)
+        except libvirt.libvirtError as e:
+            log_action(user["username"], "delete_snapshot", snapshot_name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {e}")
+
+        log_action(user["username"], "delete_snapshot", snapshot_name, "succes")
+        return {"message": f"Snapshot '{snapshot_name}' supprime"}
+    finally:
+        conn.close()
