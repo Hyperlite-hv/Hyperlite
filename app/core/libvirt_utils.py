@@ -50,3 +50,28 @@ def get_disk_paths_in_use(conn):
         except libvirt.libvirtError:
             continue
     return paths
+
+
+def ensure_isolated_network(conn):
+    """Cree et demarre un reseau isole de demonstration s'il n'existe pas deja
+    (aucune balise <forward> => pas de connectivite externe, utile pour distinguer
+    NAT / bridge / isole)."""
+    try:
+        net = conn.networkLookupByName("hyperlite-isolated")
+    except libvirt.libvirtError:
+        net_xml = """
+        <network>
+          <name>hyperlite-isolated</name>
+          <bridge name='virbr-hlisol' stp='on' delay='0'/>
+          <ip address='192.168.100.1' netmask='255.255.255.0'>
+            <dhcp>
+              <range start='192.168.100.10' end='192.168.100.100'/>
+            </dhcp>
+          </ip>
+        </network>
+        """
+        net = conn.networkDefineXML(net_xml)
+    if not net.isActive():
+        net.create()
+    net.setAutostart(True)
+    return net
