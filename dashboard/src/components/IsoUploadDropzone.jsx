@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { UploadCloud, FileText } from "lucide-react";
 import ProgressBar from "./ProgressBar";
+import { getAuthToken } from "../api/client";
 import { useInfraStore } from "../store/useInfraStore";
 
 function formatBytes(bytes) {
@@ -16,41 +17,52 @@ function formatEta(seconds) {
   return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
 }
 
-// Simule un televersement avec vitesse variable + ETA recalcule en direct.
-// A REMPLACER par un vrai XMLHttpRequest avec upload.onprogress (voir
-// app/static/app.js: la version vanilla-JS de Hyperlite fait deja ca pour /isos,
-// c'est le meme principe ici mais pilote depuis React).
-export default function IsoUploadDropzone() {
+// Vrai televersement via XMLHttpRequest (seule API avec un evenement de
+// progression fiable sur l'upload) vers le vrai POST /isos -- meme principe
+// que app/static/app.js, qui fait deja ca pour le front vanilla-JS.
+export default function IsoUploadDropzone({ onDone }) {
   const [dragOver, setDragOver] = useState(false);
   const [upload, setUpload] = useState(null); // { file, loaded, speed, etaS, statut }
   const inputRef = useRef(null);
   const addTask = useInfraStore((s) => s.addTask);
-  const completeTask = useInfraStore((s) => s.completeTask);
   const updateTaskProgress = useInfraStore((s) => s.updateTaskProgress);
+  const completeTask = useInfraStore((s) => s.completeTask);
 
   const startUpload = useCallback((file) => {
     if (!file) return;
     const taskId = addTask({ type: "upload_iso", cible: file.name, node: "kvm-lab" });
     setUpload({ file, loaded: 0, speed: 0, etaS: Infinity, statut: "en_cours" });
 
-    let loaded = 0;
-    const total = file.size || 500 * 1024 * 1024;
+    const fd = new FormData();
+    fd.append("file", file);
     const startedAt = Date.now();
-    const id = setInterval(() => {
-      const speedBps = (8 + Math.random() * 22) * 1024 * 1024; // 8-30 Mo/s simule
-      loaded = Math.min(total, loaded + speedBps * 0.4);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/isos");
+    const t = getAuthToken();
+    if (t) xhr.setRequestHeader("Authorization", `Bearer ${t}`);
+    xhr.upload.addEventListener("progress", (ev) => {
+      if (!ev.lengthComputable) return;
       const elapsedS = (Date.now() - startedAt) / 1000;
-      const avgSpeed = loaded / elapsedS;
-      const etaS = (total - loaded) / avgSpeed;
-      const pct = Math.round((loaded / total) * 100);
+      const speed = ev.loaded / Math.max(elapsedS, 0.1);
+      const etaS = (ev.total - ev.loaded) / Math.max(speed, 1);
+      const pct = Math.round((ev.loaded / ev.total) * 100);
       updateTaskProgress(taskId, pct);
-      setUpload({ file, loaded, speed: avgSpeed, etaS, statut: pct >= 100 ? "termine" : "en_cours" });
-      if (loaded >= total) {
-        clearInterval(id);
+      setUpload({ file, loaded: ev.loaded, speed, etaS, statut: pct >= 100 ? "termine" : "en_cours" });
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
         completeTask(taskId, "termine");
+        setUpload((u) => (u ? { ...u, statut: "termine" } : u));
+        onDone?.();
+      } else {
+        let msg = `Erreur HTTP ${xhr.status}`;
+        try { msg = JSON.parse(xhr.responseText).detail || msg; } catch (e) { /* ignore */ }
+        completeTask(taskId, "echec", msg);
       }
-    }, 400);
-  }, [addTask, completeTask, updateTaskProgress]);
+    });
+    xhr.addEventListener("error", () => completeTask(taskId, "echec", "Erreur reseau pendant le televersement"));
+    xhr.send(fd);
+  }, [addTask, updateTaskProgress, completeTask, onDone]);
 
   const onDrop = useCallback((e) => {
     e.preventDefault();
@@ -72,7 +84,6 @@ export default function IsoUploadDropzone() {
       >
         <UploadCloud size={28} className="text-anthracite-300" />
         <p className="text-sm text-anthracite-200">Glissez une image ISO ici, ou cliquez pour parcourir</p>
-        <p className="text-xs text-anthracite-400">Simulation locale -- aucun fichier n'est reellement envoye</p>
         <input
           ref={inputRef}
           type="file"
