@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 import libvirt
 
 from app.core.libvirt_utils import open_conn, ensure_default_pool, get_disk_paths_in_use
+from app.core.vm_builder import validate_name
 from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 
@@ -85,7 +86,12 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
             log_action(user["username"], "create_volume", payload.name, "echec", "Pool introuvable")
             raise HTTPException(status_code=404, detail=f"Pool de stockage '{pool_name}' introuvable")
 
-        filename = payload.name if payload.name.endswith(".qcow2") else f"{payload.name}.qcow2"
+        base_name = payload.name[:-len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
+        name_error = validate_name(base_name)
+        if name_error:
+            log_action(user["username"], "create_volume", payload.name, "echec", name_error)
+            raise HTTPException(status_code=422, detail=name_error)
+        filename = f"{base_name}.qcow2"
         try:
             pool.storageVolLookupByName(filename)
             log_action(user["username"], "create_volume", filename, "echec", "Volume deja existant")
@@ -121,7 +127,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
 
 
 @router.delete("/{pool_name}/volumes/{volume_name}")
-def delete_volume(pool_name: str, volume_name: str, user: dict = Depends(require_role("admin"))):
+def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
     try:
         try:
@@ -138,6 +144,10 @@ def delete_volume(pool_name: str, volume_name: str, user: dict = Depends(require
         if vol.path() in in_use:
             log_action(user["username"], "delete_volume", volume_name, "echec", "Volume utilise par une VM")
             raise HTTPException(status_code=409, detail=f"Le volume '{volume_name}' est utilise par une VM, suppression refusee")
+
+        if not confirm:
+            log_action(user["username"], "delete_volume", volume_name, "echec", "Confirmation manquante")
+            raise HTTPException(status_code=400, detail="Action irreversible : ajoutez ?confirm=true pour confirmer la suppression")
 
         try:
             vol.delete(0)

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 import libvirt
+import re
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -8,8 +9,11 @@ from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 from app.core.vm_builder import validate_name, create_disk, create_cloudinit_iso, build_domain_xml, IMAGES_DIR
+from xml.sax.saxutils import escape
 
 router = APIRouter(prefix="/vms", tags=["vms"])
+
+TARGET_DEV_RE = re.compile(r"^[a-z]{2,4}[0-9]{0,2}$")
 
 STATE_NAMES = {
     libvirt.VIR_DOMAIN_NOSTATE: "inconnu",
@@ -99,6 +103,11 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         except libvirt.libvirtError:
             pass
 
+        try:
+            conn.networkLookupByName(payload.network)
+        except libvirt.libvirtError:
+            errors.append(f"Reseau '{payload.network}' introuvable")
+
         if errors:
             log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors))
             raise HTTPException(status_code=422, detail=errors)
@@ -110,6 +119,9 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             msg = f"Erreur lors de la preparation du disque/cloud-init : {e.stderr or e}"
             log_action(user["username"], "create_vm", payload.name, "echec", msg)
             raise HTTPException(status_code=500, detail=msg)
+        except ValueError as e:
+            log_action(user["username"], "create_vm", payload.name, "echec", str(e))
+            raise HTTPException(status_code=422, detail=str(e))
 
         xml = build_domain_xml(
             payload.name, payload.vcpu, payload.memory_mb,
@@ -200,7 +212,7 @@ def restart_vm(name: str, force: bool = False, user: dict = Depends(require_role
 
 
 @router.delete("/{name}")
-def delete_vm(name: str, user: dict = Depends(require_role("admin"))):
+def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
     try:
         try:
@@ -211,6 +223,9 @@ def delete_vm(name: str, user: dict = Depends(require_role("admin"))):
         if domain.isActive():
             log_action(user["username"], "delete_vm", name, "echec", "VM active, arret requis")
             raise HTTPException(status_code=409, detail=f"VM '{name}' est active. Arretez-la avant de la supprimer")
+        if not confirm:
+            log_action(user["username"], "delete_vm", name, "echec", "Confirmation manquante")
+            raise HTTPException(status_code=400, detail="Action irreversible : ajoutez ?confirm=true pour confirmer la suppression")
         try:
             domain.undefine()
         except libvirt.libvirtError as e:
@@ -236,6 +251,9 @@ class DiskAttach(BaseModel):
 
 @router.post("/{name}/disks", status_code=201)
 def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_role("admin"))):
+    if not TARGET_DEV_RE.match(payload.target_dev):
+        log_action(user["username"], "attach_disk", name, "echec", "target_dev invalide")
+        raise HTTPException(status_code=422, detail="target_dev invalide (attendu par ex. vda, vdb, sdb)")
     conn = open_conn()
     try:
         try:
@@ -275,6 +293,9 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_rol
 
 @router.delete("/{name}/disks/{target_dev}")
 def detach_disk(name: str, target_dev: str, user: dict = Depends(require_role("admin"))):
+    if not TARGET_DEV_RE.match(target_dev):
+        log_action(user["username"], "detach_disk", name, "echec", "target_dev invalide")
+        raise HTTPException(status_code=422, detail="target_dev invalide (attendu par ex. vda, vdb, sdb)")
     conn = open_conn()
     try:
         try:
@@ -450,6 +471,11 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             log_action(user["username"], "create_snapshot", name, "echec", "VM introuvable")
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
 
+        name_error = validate_name(payload.name)
+        if name_error:
+            log_action(user["username"], "create_snapshot", payload.name, "echec", name_error)
+            raise HTTPException(status_code=422, detail=name_error)
+
         try:
             domain.snapshotLookupByName(payload.name)
             log_action(user["username"], "create_snapshot", payload.name, "echec", "Snapshot deja existant")
@@ -457,10 +483,10 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
         except libvirt.libvirtError:
             pass
 
-        desc_xml = f"<description>{payload.description}</description>" if payload.description else ""
+        desc_xml = f"<description>{escape(payload.description)}</description>" if payload.description else ""
         snap_xml = f"""
         <domainsnapshot>
-          <name>{payload.name}</name>
+          <name>{escape(payload.name)}</name>
           {desc_xml}
         </domainsnapshot>
         """
@@ -477,7 +503,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
 
 
 @router.post("/{name}/snapshots/{snapshot_name}/restore")
-def restore_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_role("admin"))):
+def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
     try:
         try:
@@ -491,6 +517,10 @@ def restore_snapshot(name: str, snapshot_name: str, user: dict = Depends(require
         except libvirt.libvirtError:
             log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Snapshot introuvable")
             raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
+
+        if not confirm:
+            log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Confirmation manquante")
+            raise HTTPException(status_code=400, detail="Action irreversible : ajoutez ?confirm=true pour confirmer la restauration")
 
         try:
             domain.revertToSnapshot(snap, 0)
