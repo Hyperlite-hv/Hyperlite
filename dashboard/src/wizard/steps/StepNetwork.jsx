@@ -7,7 +7,7 @@ export default function StepNetwork({ form, patch, networks }) {
           <input type="radio" checked={form.network === n.nom} onChange={() => patch({ network: n.nom })} className="accent-accent-blue" />
           <div>
             <div className="text-sm text-anthracite-100">{n.nom} <span className="text-xs text-anthracite-400">({n.type})</span></div>
-            <div className="text-xs text-anthracite-400 font-mono">{n.pont} -- {n.reseau}</div>
+            <div className="text-xs text-anthracite-400 font-mono">{n.pont} -- {n.reseau ? `${n.reseau.adresse}/${n.reseau.masque}` : "--"}</div>
           </div>
         </label>
       ))}

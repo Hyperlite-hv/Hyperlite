@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Server, Plus, Bell, Sun, Moon, User, Box } from "lucide-react";
+import { Server, Plus, Bell, Sun, Moon, User, Box, LogOut } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import VMWizard from "../wizard/VMWizard";
 import { useInfraStore } from "../store/useInfraStore";
+import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 
 export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -12,6 +13,9 @@ export default function Header() {
   const toggleTheme = useInfraStore((s) => s.toggleTheme);
   const tasks = useInfraStore((s) => s.tasks);
   const pushToast = useInfraStore((s) => s.pushToast);
+  const username = useAuthStore((s) => s.username);
+  const isAdmin = useAuthStore(selectIsAdmin);
+  const logout = useAuthStore((s) => s.logout);
 
   const runningCount = tasks.filter((t) => t.statut === "en_cours").length;
   const recentTasks = tasks.slice(0, 5);
@@ -30,15 +34,19 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        <button className="btn-primary" onClick={() => setWizardOpen(true)}>
-          <Plus size={15} /> Creer VM
-        </button>
-        <button
-          className="btn-secondary"
-          onClick={() => pushToast({ kind: "error", title: "Non disponible", message: "Les conteneurs LXC ne sont pas geres par le backend Hyperlite pour le moment." })}
-        >
-          <Box size={15} /> Creer conteneur
-        </button>
+        {isAdmin && (
+          <button className="btn-primary" onClick={() => setWizardOpen(true)}>
+            <Plus size={15} /> Creer VM
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            className="btn-secondary"
+            onClick={() => pushToast({ kind: "error", title: "Non disponible", message: "Les conteneurs LXC ne sont pas geres par le backend Hyperlite pour le moment." })}
+          >
+            <Box size={15} /> Creer conteneur
+          </button>
+        )}
 
         <div className="relative">
           <button className="relative rounded-md p-2 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100" onClick={() => setNotifOpen((o) => !o)}>
@@ -71,13 +79,19 @@ export default function Header() {
           </button>
           {userOpen && (
             <div className="absolute right-0 mt-1 w-48 card border border-anthracite-600 z-50 py-1" onMouseLeave={() => setUserOpen(false)}>
-              <div className="px-3 py-1.5 text-sm text-anthracite-100">admin</div>
+              <div className="px-3 py-1.5 text-sm text-anthracite-100">{username} <span className="text-xs text-anthracite-400">({isAdmin ? "admin" : "observateur"})</span></div>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
                 onClick={toggleTheme}
               >
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
                 {theme === "dark" ? "Mode clair" : "Mode sombre"}
+              </button>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
+                onClick={logout}
+              >
+                <LogOut size={14} /> Se deconnecter
               </button>
             </div>
           )}

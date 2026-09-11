@@ -3,14 +3,21 @@ import StatusBadge from "../../components/StatusBadge";
 import { useInfraStore } from "../../store/useInfraStore";
 import { formatMo, formatGo } from "../../utils/format";
 
+function sumDefined(items, key) {
+  const defined = items.filter((i) => i[key] != null);
+  if (!defined.length) return null;
+  return defined.reduce((a, i) => a + i[key], 0);
+}
+
 export default function DatacenterSummaryTab() {
   const { nodes, vms, containers } = useInfraStore((s) => ({ nodes: s.nodes, vms: s.vms, containers: s.containers }));
 
-  const totalRamMo = nodes.reduce((a, n) => a + n.memoire_totale_mo, 0);
-  const usedRamMo = nodes.reduce((a, n) => a + n.memoire_utilisee_mo, 0);
-  const totalDiskGo = nodes.reduce((a, n) => a + n.stockage_total_go, 0);
-  const usedDiskGo = nodes.reduce((a, n) => a + n.stockage_utilise_go, 0);
-  const avgCpu = nodes.length ? nodes.reduce((a, n) => a + n.cpu_utilisation, 0) / nodes.length : 0;
+  const totalRamMo = sumDefined(nodes, "memoire_totale_mo");
+  const usedRamMo = sumDefined(nodes, "memoire_utilisee_mo");
+  const totalDiskGo = sumDefined(nodes, "stockage_total_go");
+  const usedDiskGo = sumDefined(nodes, "stockage_utilise_go");
+  const cpuNodes = nodes.filter((n) => n.cpu_utilisation != null);
+  const avgCpu = cpuNodes.length ? cpuNodes.reduce((a, n) => a + n.cpu_utilisation, 0) / cpuNodes.length : null;
 
   const allResources = [...vms, ...containers];
   const counts = {
@@ -23,9 +30,15 @@ export default function DatacenterSummaryTab() {
   return (
     <div className="space-y-5">
       <div className="card grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
-        <GaugeRing label="CPU moyen" ratio={avgCpu} valueLabel={`${nodes.length} noeud(s)`} colorClass="text-accent-blue" />
-        <GaugeRing label="RAM" ratio={usedRamMo / totalRamMo} valueLabel={`${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}`} colorClass="text-accent-orange" />
-        <GaugeRing label="Stockage" ratio={usedDiskGo / totalDiskGo} valueLabel={`${formatGo(usedDiskGo)} / ${formatGo(totalDiskGo)}`} colorClass="text-accent-green" />
+        {avgCpu != null ? (
+          <GaugeRing label="CPU moyen" ratio={avgCpu} valueLabel={`${nodes.length} noeud(s)`} colorClass="text-accent-blue" />
+        ) : <div className="text-center text-sm text-anthracite-400 self-center">CPU n/a</div>}
+        {totalRamMo != null && usedRamMo != null ? (
+          <GaugeRing label="RAM" ratio={usedRamMo / totalRamMo} valueLabel={`${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}`} colorClass="text-accent-orange" />
+        ) : <div className="text-center text-sm text-anthracite-400 self-center">RAM n/a</div>}
+        {totalDiskGo != null && usedDiskGo != null ? (
+          <GaugeRing label="Stockage" ratio={usedDiskGo / totalDiskGo} valueLabel={`${formatGo(usedDiskGo)} / ${formatGo(totalDiskGo)}`} colorClass="text-accent-green" />
+        ) : <div className="text-center text-sm text-anthracite-400 self-center">Stockage n/a</div>}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -45,8 +58,8 @@ export default function DatacenterSummaryTab() {
               <StatusBadge etat={n.etat} showLabel={false} />
               <span className="text-anthracite-100 flex-1">{n.nom}</span>
               {!n.reel && <span className="text-[10px] text-accent-orange border border-accent-orange/40 rounded px-1.5 py-0.5">fictif</span>}
-              <span className="text-anthracite-400 text-xs">{Math.round(n.cpu_utilisation * 100)}% CPU</span>
-              <span className="text-anthracite-400 text-xs">{formatMo(n.memoire_utilisee_mo)} / {formatMo(n.memoire_totale_mo)}</span>
+              <span className="text-anthracite-400 text-xs">{n.cpu_utilisation != null ? `${Math.round(n.cpu_utilisation * 100)}% CPU` : "CPU n/a"}</span>
+              <span className="text-anthracite-400 text-xs">{n.memoire_totale_mo != null ? `${formatMo(n.memoire_utilisee_mo)} / ${formatMo(n.memoire_totale_mo)}` : "RAM n/a"}</span>
             </div>
           ))}
         </div>

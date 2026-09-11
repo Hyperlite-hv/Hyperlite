@@ -115,9 +115,11 @@ export const storagePools = [
   { nom: "backups", node: "kvm-lab-02", type: "dir", etat: "actif", capacite_go: 900, disponible_go: 720 },
 ];
 
+// Forme calquee sur la vraie reponse de GET /networks (reseau est un objet
+// {adresse, masque}, pas une chaine CIDR).
 export const networks = [
-  { nom: "default", type: "nat", pont: "virbr0", actif: true, reseau: "192.168.122.0/24" },
-  { nom: "hyperlite-isolated", type: "isole", pont: "virbr-hlisol", actif: true, reseau: "192.168.100.0/24" },
+  { nom: "default", type: "nat", pont: "virbr0", actif: true, reseau: { adresse: "192.168.122.1", masque: "255.255.255.0" } },
+  { nom: "hyperlite-isolated", type: "isole", pont: "virbr-hlisol", actif: true, reseau: { adresse: "192.168.100.1", masque: "255.255.255.0" } },
 ];
 
 export const isoTemplates = [
