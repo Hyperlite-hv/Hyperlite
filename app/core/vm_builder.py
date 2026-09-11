@@ -84,7 +84,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_path, cloudinit_path, networ
   <currentMemory unit='MiB'>{memory_mb}</currentMemory>
   <vcpu placement='static'>{vcpu}</vcpu>
   <os>
-    <type arch='x86_64' machine='pc-i440fx'>hvm</type>
+    <type arch='x86_64' machine='pc'>hvm</type>
     <boot dev='hd'/>
   </os>
   <features>
