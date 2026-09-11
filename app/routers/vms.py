@@ -284,7 +284,12 @@ def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_rol
 class DiskAttach(BaseModel):
     volume_name: str
     pool: str = "default"
-    target_dev: str = "vdb"
+    target_dev: str = "sdb"
+
+
+# Bus libvirt a utiliser selon le prefixe du target_dev, pour rester coherent avec le
+# controleur virtio-scsi (sd*) mis en place par build_domain_xml sur toutes les VMs.
+DEV_BUS_PREFIXES = {"sd": "scsi", "vd": "virtio", "hd": "ide"}
 
 
 @router.post("/{name}/disks", status_code=201)
@@ -292,6 +297,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_rol
     if not TARGET_DEV_RE.match(payload.target_dev):
         log_action(user["username"], "attach_disk", name, "echec", "target_dev invalide")
         raise HTTPException(status_code=422, detail="target_dev invalide (attendu par ex. vda, vdb, sdb)")
+    bus = DEV_BUS_PREFIXES.get(payload.target_dev[:2], "virtio")
     conn = open_conn()
     try:
         try:
@@ -311,7 +317,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_rol
         <disk type='file' device='disk'>
           <driver name='qemu' type='qcow2'/>
           <source file='{vol.path()}'/>
-          <target dev='{payload.target_dev}' bus='virtio'/>
+          <target dev='{payload.target_dev}' bus='{bus}'/>
         </disk>
         """
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
