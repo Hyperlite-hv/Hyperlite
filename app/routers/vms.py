@@ -493,7 +493,7 @@ def restore_snapshot(name: str, snapshot_name: str, user: dict = Depends(require
             raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
 
         try:
-            snap.revertToSnapshot(0)
+            domain.revertToSnapshot(snap, 0)
         except libvirt.libvirtError as e:
             log_action(user["username"], "restore_snapshot", snapshot_name, "echec", str(e))
             raise HTTPException(status_code=500, detail=f"Erreur de restauration : {e}")
