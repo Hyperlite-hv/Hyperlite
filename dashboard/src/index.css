@@ -88,3 +88,14 @@
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Barre de progression indeterminee (installation ISO automatisee en cours,
+   voir components/ProvisioningBar.jsx) : pas de pourcentage reel disponible,
+   juste un mouvement pour indiquer "toujours en cours". */
+.provisioning-indeterminate {
+  animation: provisioning-slide 1.4s ease-in-out infinite;
+}
+@keyframes provisioning-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
