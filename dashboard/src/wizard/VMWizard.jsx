@@ -74,7 +74,11 @@ export default function VMWizard({ open, onClose }) {
 
   const Step = STEPS[stepIndex].Component;
   const isLast = stepIndex === STEPS.length - 1;
-  const canNext = stepIndex !== 2 || (form.name && form.username && form.password.length >= 4);
+  // Etape "resources" (index 2) : nom toujours requis ; utilisateur/mot de
+  // passe seulement si aucun ISO d'installation n'est choisi (voir
+  // StepTemplate/StepResources -- en mode installation, l'OS et son compte
+  // sont crees manuellement, pas par le cloud-init de cette VM).
+  const canNext = stepIndex !== 2 || (form.name && (form.iso || (form.username && form.password.length >= 4)));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">

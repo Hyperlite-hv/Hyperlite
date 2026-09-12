@@ -1,16 +1,18 @@
 export default function StepReview({ form, nodes }) {
   const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
   const totalDisk = form.disks.reduce((a, d) => a + d.size_gb, 0);
+  const installMode = Boolean(form.iso);
 
   const rows = [
     ["Noeud", nodeName],
     ["Nom", form.name || "--"],
     ["ISO", form.iso || "Aucune"],
+    ["Disque systeme", installMode ? "Vierge (a installer)" : "Debian 12 preinstalle"],
     ["vCPU", form.vcpu],
     ["Memoire", `${form.memory_mb} Mo`],
     ["Disques", `${form.disks.map((d) => `${d.size_gb} Go`).join(" + ")} (${totalDisk} Go total)`],
     ["Reseau", form.network],
-    ["Utilisateur", form.username || "--"],
+    installMode ? ["Utilisateur", "Cree pendant l'installation"] : ["Utilisateur", form.username || "--"],
   ];
 
   return (
