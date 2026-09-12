@@ -197,3 +197,49 @@ export async function deployTemplate(templateName, newName, network) {
 export async function deleteTemplate(templateName) {
   return realFetch(`/templates/${encodeURIComponent(templateName)}?confirm=true`, { method: "DELETE" });
 }
+
+// ---- Permissions granulaires (reels) : Groupes, Pools, ACL ----
+export async function fetchGroups() {
+  return realFetch("/groups");
+}
+export async function createGroup(name) {
+  return realFetch("/groups", { method: "POST", ...jsonBody({ name }) });
+}
+export async function deleteGroup(groupId) {
+  return realFetch(`/groups/${groupId}`, { method: "DELETE" });
+}
+export async function addGroupMember(groupId, username) {
+  return realFetch(`/groups/${groupId}/members`, { method: "POST", ...jsonBody({ username }) });
+}
+export async function removeGroupMember(groupId, username) {
+  return realFetch(`/groups/${groupId}/members/${encodeURIComponent(username)}`, { method: "DELETE" });
+}
+
+export async function fetchPools() {
+  return realFetch("/pools");
+}
+export async function createPool(name, description = "") {
+  return realFetch("/pools", { method: "POST", ...jsonBody({ name, description }) });
+}
+export async function deletePool(poolId) {
+  return realFetch(`/pools/${poolId}`, { method: "DELETE" });
+}
+export async function addPoolMember(poolId, vmName) {
+  return realFetch(`/pools/${poolId}/members`, { method: "POST", ...jsonBody({ vm_name: vmName }) });
+}
+export async function removePoolMember(poolId, vmName) {
+  return realFetch(`/pools/${poolId}/members/${encodeURIComponent(vmName)}`, { method: "DELETE" });
+}
+
+export async function fetchAclRoles() {
+  return realFetch("/acl/roles");
+}
+export async function fetchAcl() {
+  return realFetch("/acl");
+}
+export async function createAcl(payload) {
+  return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteAcl(aclId) {
+  return realFetch(`/acl/${aclId}`, { method: "DELETE" });
+}
