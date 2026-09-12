@@ -105,6 +105,15 @@ export async function fetchAuditLog(limit = 200) {
 export async function fetchUsers() {
   return realFetch("/auth/users");
 }
+export async function createUser(username, password, role) {
+  return realFetch("/auth/users", { method: "POST", ...jsonBody({ username, password, role }) });
+}
+export async function updateUser(username, payload) {
+  return realFetch(`/auth/users/${encodeURIComponent(username)}`, { method: "PATCH", ...jsonBody(payload) });
+}
+export async function deleteUser(username) {
+  return realFetch(`/auth/users/${encodeURIComponent(username)}`, { method: "DELETE" });
+}
 
 // ---- Actions VM (endpoints reels) ----
 export async function startVM(name) {
