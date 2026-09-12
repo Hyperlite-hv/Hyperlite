@@ -6,3 +6,6 @@ diag*.txt
 deploy.sh
 dashboard/node_modules/
 dashboard/dist/
+data/ssh/
+data/tls/
+data/isos/
