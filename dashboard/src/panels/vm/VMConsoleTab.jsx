@@ -45,6 +45,7 @@ export default function VMConsoleTab({ resource: vm }) {
       const RFB = mod.default;
       screenRef.current.innerHTML = "";
       const rfb = new RFB(screenRef.current, url);
+      rfb.scaleViewport = true; // remplit le conteneur au lieu d'afficher la resolution native de la VM en tout petit
       rfbRef.current = rfb;
       rfb.addEventListener("connect", () => setStatus("connected"));
       rfb.addEventListener("disconnect", () => setStatus("idle"));

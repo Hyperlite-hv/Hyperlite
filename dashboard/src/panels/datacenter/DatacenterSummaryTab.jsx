@@ -29,15 +29,17 @@ export default function DatacenterSummaryTab() {
   return (
     <div className="space-y-5">
       <div className="card grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
-        {avgCpu != null ? (
-          <GaugeRing label="CPU moyen" ratio={avgCpu} valueLabel={`${nodes.length} noeud(s)`} colorClass="text-accent-blue" />
-        ) : <div className="text-center text-sm text-anthracite-400 self-center">CPU n/a</div>}
-        {totalRamMo != null && usedRamMo != null ? (
-          <GaugeRing label="RAM" ratio={usedRamMo / totalRamMo} valueLabel={`${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}`} colorClass="text-accent-orange" />
-        ) : <div className="text-center text-sm text-anthracite-400 self-center">RAM n/a</div>}
-        {totalDiskGo != null && usedDiskGo != null ? (
-          <GaugeRing label="Stockage" ratio={usedDiskGo / totalDiskGo} valueLabel={`${formatGo(usedDiskGo)} / ${formatGo(totalDiskGo)}`} colorClass="text-accent-green" />
-        ) : <div className="text-center text-sm text-anthracite-400 self-center">Stockage n/a</div>}
+        <GaugeRing label="CPU moyen" ratio={avgCpu} valueLabel={`${nodes.length} noeud(s)`} colorClass="text-accent-blue" />
+        <GaugeRing
+          label="RAM" ratio={totalRamMo != null && usedRamMo != null ? usedRamMo / totalRamMo : null}
+          valueLabel={totalRamMo != null && usedRamMo != null ? `${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}` : "Non expose par /dashboard"}
+          colorClass="text-accent-orange"
+        />
+        <GaugeRing
+          label="Stockage" ratio={totalDiskGo != null && usedDiskGo != null ? usedDiskGo / totalDiskGo : null}
+          valueLabel={totalDiskGo != null && usedDiskGo != null ? `${formatGo(usedDiskGo)} / ${formatGo(totalDiskGo)}` : undefined}
+          colorClass="text-accent-green"
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
