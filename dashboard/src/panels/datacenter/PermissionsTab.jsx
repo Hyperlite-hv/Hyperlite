@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Users, Boxes, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Users, Boxes, ShieldCheck, UserPlus } from "lucide-react";
 import {
-  fetchUsers,
+  fetchUsers, createUser, updateUser, deleteUser,
   fetchGroups, createGroup, deleteGroup, addGroupMember, removeGroupMember,
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, createAcl, deleteAcl,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
+import { useAuthStore } from "../../store/useAuthStore";
 
 // Roles globaux (app/core/database.py : role IN ('admin','observateur')) --
 // inchanges par ce systeme, qui se contente d'AJOUTER des droits scopes
@@ -50,25 +51,106 @@ export default function PermissionsTab() {
         </div>
       </div>
 
-      <div className="card p-4">
-        <h3 className="text-sm font-semibold text-anthracite-100 mb-2">Utilisateurs</h3>
-        {users == null ? (
-          <p className="text-sm text-anthracite-400">Chargement...</p>
-        ) : (
-          <div className="divide-y divide-anthracite-600">
-            {users.map((u) => (
-              <div key={u.username} className="flex justify-between py-2 text-sm">
-                <span className="text-anthracite-100">{u.username}</span>
-                <span className="text-anthracite-400">{u.role}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <UsersSection users={users} reload={reloadAll} pushToast={pushToast} />
 
       <GroupsSection groups={groups} reload={reloadAll} pushToast={pushToast} />
       <PoolsSection pools={pools} vms={vms} reload={reloadAll} pushToast={pushToast} />
       <AclSection acl={acl} roles={roles} groups={groups} pools={pools} vms={vms} users={users} reload={reloadAll} pushToast={pushToast} />
+    </div>
+  );
+}
+
+function UsersSection({ users, reload, pushToast }) {
+  const me = useAuthStore((s) => s.username);
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newRole, setNewRole] = useState("observateur");
+  const [busy, setBusy] = useState(false);
+
+  async function handleCreate() {
+    if (!newUsername.trim() || newPassword.length < 4) return;
+    setBusy(true);
+    try {
+      await createUser(newUsername.trim(), newPassword, newRole);
+      pushToast({ kind: "success", title: "Utilisateur cree", message: newUsername.trim() });
+      setNewUsername(""); setNewPassword(""); setNewRole("observateur");
+      await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Echec de creation", message: e.message });
+    } finally { setBusy(false); }
+  }
+
+  async function handleRoleChange(username, role) {
+    setBusy(true);
+    try {
+      await updateUser(username, { role });
+      await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Echec", message: e.message });
+    } finally { setBusy(false); }
+  }
+
+  async function handleDelete(username) {
+    if (!window.confirm(`Supprimer l'utilisateur '${username}' ?`)) return;
+    setBusy(true);
+    try {
+      await deleteUser(username);
+      pushToast({ kind: "success", title: "Utilisateur supprime", message: username });
+      await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Echec", message: e.message });
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <UserPlus size={15} className="text-anthracite-300" />
+        <h3 className="text-sm font-semibold text-anthracite-100">Utilisateurs</h3>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-4">
+        <input className="input" placeholder="Nom d'utilisateur" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+        <input className="input" type="password" placeholder="Mot de passe (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <select className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+          <option value="observateur">observateur</option>
+          <option value="admin">admin</option>
+        </select>
+        <button className="btn-primary" disabled={busy || !newUsername.trim() || newPassword.length < 4} onClick={handleCreate}>
+          <Plus size={14} /> Creer
+        </button>
+      </div>
+
+      {users == null ? (
+        <p className="text-sm text-anthracite-400">Chargement...</p>
+      ) : (
+        <div className="divide-y divide-anthracite-600">
+          {users.map((u) => (
+            <div key={u.username} className="flex items-center justify-between py-2 text-sm">
+              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-500"> (toi)</span>}</span>
+              <div className="flex items-center gap-2">
+                <select
+                  className="input text-xs py-1 w-auto"
+                  value={u.role}
+                  disabled={busy || u.username === me}
+                  onChange={(e) => handleRoleChange(u.username, e.target.value)}
+                >
+                  <option value="observateur">observateur</option>
+                  <option value="admin">admin</option>
+                </select>
+                <button
+                  className="text-anthracite-400 hover:text-status-error disabled:opacity-30 disabled:hover:text-anthracite-400"
+                  disabled={busy || u.username === me}
+                  title={u.username === me ? "Impossible de te supprimer toi-meme" : "Supprimer"}
+                  onClick={() => handleDelete(u.username)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
