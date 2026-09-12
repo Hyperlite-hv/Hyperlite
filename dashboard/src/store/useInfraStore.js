@@ -135,7 +135,7 @@ export const useInfraStore = create((set, get) => ({
   },
 
   // ---- Actions VM ----
-  async runVMAction(vmName, action) {
+  async runVMAction(vmName, action, { force = false } = {}) {
     const vm = get().vms.find((v) => v.nom === vmName);
     const node = vm?.node;
     const typeMap = { start: "start_vm", stop: "stop_vm", restart: "restart_vm", delete: "delete_vm" };
@@ -159,7 +159,7 @@ export const useInfraStore = create((set, get) => ({
       // qui fait ensuite echouer les actions suivantes (ex. suppression,
       // qui refuse a juste titre une VM encore active cote serveur) sans
       // que rien n'explique pourquoi a l'utilisateur.
-      const result = await apiFn(vmName, ...(action === "stop" ? [false] : []));
+      const result = await apiFn(vmName, ...(action === "stop" ? [force] : []));
       set((s) => ({
         vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: result.etat, ip: result.ip } : v))
           .filter((v) => !(action === "delete" && v.nom === vmName)),
