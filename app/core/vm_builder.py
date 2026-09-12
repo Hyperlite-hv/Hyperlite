@@ -144,15 +144,26 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None):
+def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None):
+    # Ordre de boot PAR PERIPHERIQUE (<boot order='N'/> sur chaque <disk>)
+    # plutot que la liste globale <os><boot dev=.../></os> : SeaBIOS ne fait
+    # pas de fallback fiable entre plusieurs CD-ROM IDE avec la liste globale
+    # (constate en test : il choisit le premier CD-ROM trouve, quel qu'il
+    # soit, et abandonne s'il n'est pas amorcable -- ce qui echouait des que
+    # l'ISO de reponses OEMDRV/cidata, jamais destine a etre amorce, passait
+    # avant le vrai ISO d'installation). Avec un ordre explicite par
+    # peripherique, seuls le disque systeme et l'ISO d'installation portent
+    # un <boot order>, l'ISO de reponses n'en porte aucun et n'est donc
+    # jamais tente comme peripherique de demarrage.
     disks_xml = ""
     for i, disk_path in enumerate(disk_paths):
         dev = f"sd{SCSI_LETTERS[i]}"
+        boot_order = " <boot order='1'/>" if i == 0 else ""
         disks_xml += f"""
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{disk_path}'/>
-      <target dev='{dev}' bus='scsi'/>
+      <target dev='{dev}' bus='scsi'/>{boot_order}
     </disk>"""
 
     iso_xml = ""
@@ -163,11 +174,15 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <source file='{iso_path}'/>
       <target dev='hdd' bus='ide'/>
       <readonly/>
+      <boot order='2'/>
     </disk>"""
 
     # cloudinit_path est optionnel : une VM demarree sur un ISO d'installation
     # (disque systeme vierge, voir create_vm) n'a pas de cloud-init a injecter,
-    # l'OS et son compte utilisateur sont crees manuellement par l'installeur.
+    # l'OS et son compte utilisateur sont crees manuellement par l'installeur
+    # (ou automatiquement via seed_iso_path, voir juste en dessous). Jamais de
+    # <boot order> : ce disque ne doit jamais etre tente comme peripherique
+    # d'amorçage, seulement lu par l'OS une fois demarre.
     cloudinit_xml = ""
     if cloudinit_path:
         cloudinit_xml = f"""
@@ -178,15 +193,19 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <readonly/>
     </disk>"""
 
-    # Quand un ISO est attache, on liste le CD-ROM comme repli de boot apres le
-    # disque dur : si le disque est vierge (installation), le BIOS ne trouve pas
-    # de secteur de boot et bascule automatiquement sur le CD (l'installeur
-    # demarre) ; si le disque est deja preinstalle (Debian cloud-init + ISO
-    # simplement monte a cote), le disque dur boote directement et le CD n'est
-    # jamais atteint -- donc aucun changement de comportement pour ce cas-la.
-    boot_xml = "<boot dev='hd'/>"
-    if iso_path:
-        boot_xml += "\n    <boot dev='cdrom'/>"
+    # seed_iso_path : petit ISO de reponses (OEMDRV/kickstart ou cidata/
+    # autoinstall, voir app/core/unattended_install.py) que l'installeur
+    # detecte tout seul une fois demarre -- aucun <boot order> ici non plus,
+    # ce n'est pas un media amorcable (voir note ci-dessus).
+    seed_xml = ""
+    if seed_iso_path:
+        seed_xml = f"""
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{seed_iso_path}'/>
+      <target dev='hda' bus='ide'/>
+      <readonly/>
+    </disk>"""
 
     return f"""
 <domain type='kvm'>
@@ -196,7 +215,6 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   <vcpu placement='static'>{vcpu}</vcpu>
   <os>
     <type arch='x86_64' machine='pc'>hvm</type>
-    {boot_xml}
   </os>
   <features>
     <acpi/>
@@ -209,7 +227,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}
+    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}
     <interface type='network'>
       <source network='{network}'/>
       <model type='virtio'/>
