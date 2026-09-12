@@ -97,4 +97,15 @@ def init_db():
                 resource_id TEXT NOT NULL
             )
         """)
+        # Roles personnalises : memes attributions ACL que les roles predefinis
+        # (lecteur/operateur/gestionnaire), mais l'utilisateur choisit lui-meme
+        # le sous-ensemble de privileges (voir app/core/permissions.py
+        # ALL_PRIVILEGES). Identifies dans acl.role par "custom:<id>".
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS custom_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                privileges TEXT NOT NULL
+            )
+        """)
         conn.commit()
