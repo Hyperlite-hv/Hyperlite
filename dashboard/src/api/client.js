@@ -134,6 +134,9 @@ export async function fetchVM(name) {
 export async function fetchVMMetrics(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
 }
+export async function fetchProvisioningStatus(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);
+}
 export async function fetchVMDisks(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks`);
 }
