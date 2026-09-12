@@ -69,11 +69,14 @@ def ensure_base_image():
     return BASE_IMAGE
 
 
-def create_disk(vm_name, disk_gb, index=0):
+def create_disk(vm_name, disk_gb, index=0, blank=False):
     """Cree un disque qcow2 pour la VM. Le disque d'index 0 (systeme) est base sur
-    l'image cloud Debian ; les disques suivants sont vierges (stockage supplementaire)."""
+    l'image cloud Debian par defaut ; les disques suivants sont toujours vierges
+    (stockage supplementaire). `blank=True` force un disque 0 vierge malgre tout --
+    utilise quand une VM demarre sur un ISO d'installation (voir create_vm) : il n'y
+    a alors rien a preinstaller, l'utilisateur installe son propre OS dessus."""
     disk_path = IMAGES_DIR / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
-    if index == 0:
+    if index == 0 and not blank:
         ensure_base_image()
         subprocess.run(
             [
@@ -162,6 +165,29 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <readonly/>
     </disk>"""
 
+    # cloudinit_path est optionnel : une VM demarree sur un ISO d'installation
+    # (disque systeme vierge, voir create_vm) n'a pas de cloud-init a injecter,
+    # l'OS et son compte utilisateur sont crees manuellement par l'installeur.
+    cloudinit_xml = ""
+    if cloudinit_path:
+        cloudinit_xml = f"""
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{cloudinit_path}'/>
+      <target dev='hdc' bus='ide'/>
+      <readonly/>
+    </disk>"""
+
+    # Quand un ISO est attache, on liste le CD-ROM comme repli de boot apres le
+    # disque dur : si le disque est vierge (installation), le BIOS ne trouve pas
+    # de secteur de boot et bascule automatiquement sur le CD (l'installeur
+    # demarre) ; si le disque est deja preinstalle (Debian cloud-init + ISO
+    # simplement monte a cote), le disque dur boote directement et le CD n'est
+    # jamais atteint -- donc aucun changement de comportement pour ce cas-la.
+    boot_xml = "<boot dev='hd'/>"
+    if iso_path:
+        boot_xml += "\n    <boot dev='cdrom'/>"
+
     return f"""
 <domain type='kvm'>
   <name>{vm_name}</name>
@@ -170,7 +196,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   <vcpu placement='static'>{vcpu}</vcpu>
   <os>
     <type arch='x86_64' machine='pc'>hvm</type>
-    <boot dev='hd'/>
+    {boot_xml}
   </os>
   <features>
     <acpi/>
@@ -183,13 +209,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}
-    <disk type='file' device='cdrom'>
-      <driver name='qemu' type='raw'/>
-      <source file='{cloudinit_path}'/>
-      <target dev='hdc' bus='ide'/>
-      <readonly/>
-    </disk>
+    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}
     <interface type='network'>
       <source network='{network}'/>
       <model type='virtio'/>
