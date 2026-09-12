@@ -10,7 +10,9 @@ import time
 from pathlib import Path
 from app.routers.isos import ISOS_DIR
 import subprocess
+import socket
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 
 from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role
@@ -20,7 +22,11 @@ from app.core.vm_builder import (
     build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
 )
 from app.core.unattended_install import detect_os_family, build_seed_iso
-from app.core.vm_meta import set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user
+from app.core.vm_meta import (
+    set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user,
+    mark_provisioning, get_provisioning, clear_provisioning,
+)
+from app.core.network_alloc import generate_mac, allocate_static_ip, release_static_ip
 from xml.sax.saxutils import escape
 import json
 import asyncssh
@@ -208,6 +214,18 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors))
             raise HTTPException(status_code=422, detail=errors)
 
+        # IP fixe par VM (voir app/core/network_alloc.py) : reservation DHCP
+        # cote reseau libvirt sur une MAC connue d'avance, aucun changement
+        # dans le cloud-init/kickstart/autoinstall (toujours du DHCP normal
+        # cote invite). Best-effort : un echec ici ne doit pas empecher la
+        # creation de la VM, juste la priver d'IP fixe (comportement DHCP
+        # habituel en repli).
+        mac = generate_mac(conn)
+        try:
+            allocate_static_ip(conn, payload.network, mac)
+        except libvirt.libvirtError:
+            pass
+
         try:
             disk_paths = [
                 create_disk(payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0))
@@ -237,11 +255,13 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 
         xml = build_domain_xml(
             payload.name, payload.vcpu, payload.memory_mb,
-            disk_paths, cloudinit_path, payload.network, iso_path=iso_path, seed_iso_path=seed_iso_path,
+            disk_paths, cloudinit_path, payload.network, iso_path=iso_path, seed_iso_path=seed_iso_path, mac=mac,
         )
         domain = conn.defineXML(xml)
         if needs_account:
             set_vm_ssh_user(payload.name, payload.username)
+        if automated_install:
+            mark_provisioning(payload.name, os_family)
         log_action(user["username"], "create_vm", payload.name, "succes")
         return _domain_summary(domain)
     finally:
@@ -340,17 +360,44 @@ def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_rol
         if not confirm:
             log_action(user["username"], "delete_vm", name, "echec", "Confirmation manquante")
             raise HTTPException(status_code=400, detail="Action irreversible : ajoutez ?confirm=true pour confirmer la suppression")
+
+        # Capture mac+reseau AVANT l'undefine (plus interrogeable apres) pour
+        # liberer la reservation d'IP fixe (voir network_alloc.py) -- sinon
+        # la plage DHCP se remplit d'entrees orphelines au fil des VM
+        # supprimees.
+        iface_mac, iface_network = None, None
+        try:
+            root = ET.fromstring(domain.XMLDesc())
+            iface = root.find(".//interface[@type='network']")
+            if iface is not None:
+                mac_el, source_el = iface.find("mac"), iface.find("source")
+                iface_mac = mac_el.get("address") if mac_el is not None else None
+                iface_network = source_el.get("network") if source_el is not None else None
+        except (libvirt.libvirtError, ET.ParseError):
+            pass
+
         try:
             domain.undefine()
         except libvirt.libvirtError as e:
             log_action(user["username"], "delete_vm", name, "echec", str(e))
             raise HTTPException(status_code=500, detail=f"Impossible de supprimer la VM : {e}")
 
+        if iface_mac and iface_network:
+            try:
+                release_static_ip(conn, iface_network, iface_mac)
+            except libvirt.libvirtError:
+                pass
+
         disk_path = IMAGES_DIR / f"{name}.qcow2"
         cloudinit_path = IMAGES_DIR / f"{name}-cloudinit.iso"
+        oemdrv_path = IMAGES_DIR / f"{name}-oemdrv.iso"
+        autoinstall_path = IMAGES_DIR / f"{name}-autoinstall.iso"
         disk_path.unlink(missing_ok=True)
         cloudinit_path.unlink(missing_ok=True)
+        oemdrv_path.unlink(missing_ok=True)
+        autoinstall_path.unlink(missing_ok=True)
         delete_vm_ssh_user(name)
+        clear_provisioning(name)
 
         log_action(user["username"], "delete_vm", name, "succes")
         return {"message": f"VM '{name}' supprimee"}
@@ -1105,6 +1152,47 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
             "disques": disques,
             "reseaux": reseaux,
         }
+    finally:
+        conn.close()
+
+
+@router.get("/{name}/provisioning")
+def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
+    """Etat d'une installation automatisee (Kickstart/autoinstall) en cours,
+    pour la barre de progression du dashboard. Signal utilise : port 22
+    joignable (pas une authentification SSH complete -- suffisant pour
+    detecter "l'OS installe a demarre et sshd tourne", sans le cout d'une
+    poignee de main SSH asynchrone dans une route synchrone)."""
+    prov = get_provisioning(name)
+    if not prov:
+        return {"provisioning": False}
+
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            clear_provisioning(name)
+            return {"provisioning": False}
+
+        started = datetime.fromisoformat(prov["started_at"])
+        elapsed_s = int((datetime.now(timezone.utc) - started).total_seconds())
+
+        if not domain.isActive():
+            return {"provisioning": True, "phase": "arretee", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
+
+        ip = _get_ip(domain)
+        if not ip:
+            return {"provisioning": True, "phase": "demarrage", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
+
+        try:
+            with socket.create_connection((ip, 22), timeout=2):
+                pass
+            clear_provisioning(name)
+            log_action(user["username"], "provisioning_complete", name, "succes")
+            return {"provisioning": False, "just_finished": True}
+        except OSError:
+            return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
     finally:
         conn.close()
 

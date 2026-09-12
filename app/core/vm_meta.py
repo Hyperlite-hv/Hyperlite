@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from app.core.database import get_conn
 
 
@@ -29,3 +31,29 @@ def rename_vm_ssh_user(old_name, new_name):
     username = get_vm_ssh_user(old_name)
     if username:
         set_vm_ssh_user(new_name, username)
+
+
+# ---- Suivi de progression d'une installation automatisee (ISO reconnu) ----
+
+def mark_provisioning(vm_name, os_family):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO vm_provisioning (vm_name, os_family, started_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET os_family = excluded.os_family, started_at = excluded.started_at",
+            (vm_name, os_family, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+def get_provisioning(vm_name):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT os_family, started_at FROM vm_provisioning WHERE vm_name = ?", (vm_name,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def clear_provisioning(vm_name):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM vm_provisioning WHERE vm_name = ?", (vm_name,))
+        conn.commit()

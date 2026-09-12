@@ -50,6 +50,7 @@ def build_kickstart_iso(vm_name, username, password, ssh_pubkey):
         ks = f"""#version=RHEL9
 text
 reboot
+cdrom
 lang en_US.UTF-8
 keyboard us
 timezone Etc/UTC --utc

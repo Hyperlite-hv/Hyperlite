@@ -42,4 +42,15 @@ def init_db():
                 username TEXT NOT NULL
             )
         """)
+        # Suivi d'une installation automatisee (Kickstart/autoinstall) en
+        # cours : cree a la creation de la VM, supprime des que le terminal
+        # SSH web repond -- sert uniquement a afficher une barre de
+        # progression cote dashboard (voir GET /vms/{name}/provisioning).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_provisioning (
+                vm_name TEXT PRIMARY KEY,
+                os_family TEXT NOT NULL,
+                started_at TEXT NOT NULL
+            )
+        """)
         conn.commit()

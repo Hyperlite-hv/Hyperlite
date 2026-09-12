@@ -144,7 +144,7 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None):
+def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None, mac=None):
     # Ordre de boot PAR PERIPHERIQUE (<boot order='N'/> sur chaque <disk>)
     # plutot que la liste globale <os><boot dev=.../></os> : SeaBIOS ne fait
     # pas de fallback fiable entre plusieurs CD-ROM IDE avec la liste globale
@@ -166,13 +166,21 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <target dev='{dev}' bus='scsi'/>{boot_order}
     </disk>"""
 
+    # L'ISO d'installation est place sur 'hda' (premier peripherique IDE) :
+    # la directive kickstart `cdrom` (voir unattended_install.py) installe
+    # depuis "le premier lecteur CD-ROM du systeme", sans scanner les autres
+    # -- constate en test, avec l'ISO de reponses sur 'hda' et l'ISO
+    # d'installation plus loin, Anaconda choisissait l'ISO de reponses
+    # (aucune donnee installable) et echouait avec "Installation source not
+    # set up". Le vrai media d'installation doit donc toujours occuper le
+    # premier slot.
     iso_xml = ""
     if iso_path:
         iso_xml = f"""
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{iso_path}'/>
-      <target dev='hdd' bus='ide'/>
+      <target dev='hda' bus='ide'/>
       <readonly/>
       <boot order='2'/>
     </disk>"""
@@ -194,18 +202,36 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
     </disk>"""
 
     # seed_iso_path : petit ISO de reponses (OEMDRV/kickstart ou cidata/
-    # autoinstall, voir app/core/unattended_install.py) que l'installeur
-    # detecte tout seul une fois demarre -- aucun <boot order> ici non plus,
-    # ce n'est pas un media amorcable (voir note ci-dessus).
+    # autoinstall, voir app/core/unattended_install.py). Attache comme DISQUE
+    # (device='disk'), pas comme CD-ROM : deplacer l'ISO d'installation en
+    # premiere position IDE n'a pas suffi -- constate en test, la directive
+    # kickstart `cdrom` (voir unattended_install.py) continuait a echouer
+    # avec "Installation source not set up" des que deux lecteurs CD-ROM
+    # etaient presents, quel que soit leur ordre. En le presentant comme un
+    # disque plutot qu'un CD-ROM, il ne peut plus etre confondu avec la
+    # source d'installation (Anaconda ne le considere pas comme un lecteur
+    # optique) tout en restant detectable par etiquette de volume (OEMDRV /
+    # cidata) : c'est ce scan-la, et non le type de peripherique, qui importe
+    # pour la detection du kickstart/autoinstall. Aucun <boot order> non
+    # plus : jamais un media amorcable.
+    # Pas de <readonly/> ici : libvirt refuse ce flag sur un disque IDE de
+    # type 'disk' (seuls cdrom/floppy le supportent en IDE -- "unsupported
+    # configuration: readonly ide disks are not supported", constate en
+    # test). Sans consequence : ce fichier est une donnee jetable propre a
+    # cette VM, pas un ISO partage entre plusieurs VM comme iso_path.
     seed_xml = ""
     if seed_iso_path:
         seed_xml = f"""
-    <disk type='file' device='cdrom'>
+    <disk type='file' device='disk'>
       <driver name='qemu' type='raw'/>
       <source file='{seed_iso_path}'/>
-      <target dev='hda' bus='ide'/>
-      <readonly/>
+      <target dev='hdb' bus='ide'/>
     </disk>"""
+
+    # mac explicite (voir app/core/network_alloc.py) : permet de reserver une
+    # IP fixe cote reseau libvirt avant meme de definir le domaine, plutot
+    # que de laisser libvirt en generer une aleatoire.
+    mac_xml = f"<mac address='{mac}'/>\n      " if mac else ""
 
     return f"""
 <domain type='kvm'>
@@ -230,7 +256,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
     <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}
     <interface type='network'>
       <source network='{network}'/>
-      <model type='virtio'/>
+      {mac_xml}<model type='virtio'/>
     </interface>
     <console type='pty'/>
     <channel type='unix'>
