@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Play, Square, RotateCw, Trash2, Copy, Layers } from "lucide-react";
+import { Play, Square, Power, RotateCw, Trash2, Copy, Layers } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricChart from "../../components/MetricChart";
 import ConfirmDialog from "../../components/ConfirmDialog";
@@ -13,7 +13,7 @@ import { formatUptime, formatMo, formatKbps } from "../../utils/format";
 import { cloneVM, createTemplateFromVM } from "../../api/client";
 
 export default function VMSummaryTab({ resource: vm }) {
-  const [confirm, setConfirm] = useState(null); // "stop" | "delete" | null
+  const [confirm, setConfirm] = useState(null); // "stop" | "force-stop" | "delete" | null
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const loadAll = useInfraStore((s) => s.loadAll);
   const select = useInfraStore((s) => s.select);
@@ -33,9 +33,9 @@ export default function VMSummaryTab({ resource: vm }) {
   if (!vm) return null;
   const provisioning = provStatus?.provisioning;
 
-  async function act(action) {
+  async function act(action, opts) {
     try {
-      await runVMAction(vm.nom, action);
+      await runVMAction(vm.nom, action, opts);
       if (action === "delete") select("datacenter", null);
     } catch (e) {
       // erreur deja poussee en toast par le store
@@ -76,6 +76,14 @@ export default function VMSummaryTab({ resource: vm }) {
           </button>
           <button className="btn-secondary" disabled={vm.etat !== "actif"} onClick={() => setConfirm("stop")}>
             <Square size={14} /> Arreter
+          </button>
+          <button
+            className="btn-secondary text-status-error"
+            disabled={vm.etat !== "actif"}
+            title="Coupe la VM immediatement, sans attendre l'invite (equivalent a debrancher). A utiliser si l'arret propre ne repond pas."
+            onClick={() => setConfirm("force-stop")}
+          >
+            <Power size={14} /> Forcer l'arret
           </button>
           <button className="btn-secondary" disabled={vm.etat !== "actif"} onClick={() => act("restart")}>
             <RotateCw size={14} /> Redemarrer
@@ -161,10 +169,18 @@ export default function VMSummaryTab({ resource: vm }) {
       <ConfirmDialog
         open={confirm === "stop"}
         title={`Arreter '${vm.nom}' ?`}
-        message="Un arret propre (ACPI) sera tente."
+        message="Un arret propre (ACPI) sera tente. Si l'invite ne repond pas (ex. ecran fige), la VM restera active -- utilise 'Forcer l'arret' dans ce cas."
         confirmLabel="Arreter"
         onCancel={() => setConfirm(null)}
         onConfirm={() => { setConfirm(null); act("stop"); }}
+      />
+      <ConfirmDialog
+        open={confirm === "force-stop"}
+        title={`Forcer l'arret de '${vm.nom}' ?`}
+        message="Coupe la VM immediatement, comme si on debranchait l'alimentation -- pas d'arret propre du systeme, risque de perte de donnees non enregistrees. A n'utiliser que si l'arret normal ne fonctionne pas."
+        confirmLabel="Forcer l'arret"
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => { setConfirm(null); act("stop", { force: true }); }}
       />
       <ConfirmDialog
         open={confirm === "delete"}
