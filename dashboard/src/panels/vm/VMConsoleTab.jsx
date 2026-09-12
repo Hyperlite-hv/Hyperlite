@@ -47,7 +47,14 @@ export default function VMConsoleTab({ resource: vm }) {
       const rfb = new RFB(screenRef.current, url);
       rfb.scaleViewport = true; // remplit le conteneur au lieu d'afficher la resolution native de la VM en tout petit
       rfbRef.current = rfb;
-      rfb.addEventListener("connect", () => setStatus("connected"));
+      rfb.addEventListener("connect", () => {
+        setStatus("connected");
+        // La resolution distante n'est connue qu'a la connexion etablie : re-assigner
+        // scaleViewport ici force noVNC a recalculer l'echelle avec la vraie taille
+        // (le faire seulement au moment de la construction ne suffit pas, la taille
+        // distante vaut encore 0 a cet instant-la).
+        rfb.scaleViewport = true;
+      });
       rfb.addEventListener("disconnect", () => setStatus("idle"));
       rfb.addEventListener("credentialsrequired", () => {
         setError("Cette VM demande des identifiants VNC non geres par Hyperlite.");

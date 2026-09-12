@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useInfraStore } from "../store/useInfraStore";
 
@@ -25,8 +25,16 @@ export function useSelectionToUrl() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const selection = useInfraStore((s) => s.selection);
+  // Au premier rendu, `selection` vaut encore la valeur par defaut du store
+  // ("datacenter") le temps que useUrlParamsToSelection() hydrate depuis l'URL
+  // (un set() Zustand ne re-rend pas dans le meme flush d'effets). Sans ce
+  // garde, charger directement /vm/demo-vm ecrasait un instant l'URL avec
+  // "/datacenter" avant de se re-corriger -- un vrai flash visible, pas
+  // seulement theorique (reproduit en testant).
+  const skipNext = useRef(true);
 
   useEffect(() => {
+    if (skipNext.current) { skipNext.current = false; return; }
     // "storage" n'a pas de route dediee (CentralPanel l'affiche inline sans
     // onglets) : on laisse l'URL telle quelle plutot que de naviguer vers un
     // chemin que le routeur ne connait pas.
