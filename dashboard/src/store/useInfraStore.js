@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
   fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks,
-  startVM, stopVM, restartVM, deleteVM, updateVM, makeTaskId,
+  startVM, stopVM, restartVM, deleteVM, updateVM, fetchVM, makeTaskId,
 } from "../api/client";
 
 const TASK_LABELS = {
@@ -148,17 +148,37 @@ export const useInfraStore = create((set, get) => ({
       // pourcentage intermediaire reel cote backend) : la tache passe donc
       // directement de "en_cours" a "termine" une fois la reponse recue,
       // plutot que de simuler une fausse progression.
-      await apiFn(vmName, ...(action === "stop" ? [false] : [])); // arret propre (ACPI) ; pas de choix force expose dans l'UI pour l'instant
+      //
+      // "stop" (arret propre/ACPI, cote backend domain.shutdown()) est une
+      // simple DEMANDE envoyee a l'invite : l'appel reussit des que la
+      // demande est emise, pas quand la VM s'est reellement eteinte (qui
+      // peut prendre du temps, voire ne jamais arriver si l'invite ne gere
+      // pas l'ACPI -- ex. bloque sur un ecran d'installeur). On se fie donc
+      // a l'etat reellement renvoye par l'API plutot que de supposer
+      // "arrete" par optimisme : sinon l'interface affiche un etat faux,
+      // qui fait ensuite echouer les actions suivantes (ex. suppression,
+      // qui refuse a juste titre une VM encore active cote serveur) sans
+      // que rien n'explique pourquoi a l'utilisateur.
+      const result = await apiFn(vmName, ...(action === "stop" ? [false] : []));
       set((s) => ({
-        vms: s.vms.map((v) => {
-          if (v.nom !== vmName) return v;
-          if (action === "start") return { ...v, etat: "actif" };
-          if (action === "stop") return { ...v, etat: "arrete", ip: null };
-          if (action === "restart") return { ...v, etat: "actif" };
-          return v;
-        }).filter((v) => !(action === "delete" && v.nom === vmName)),
+        vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: result.etat, ip: result.ip } : v))
+          .filter((v) => !(action === "delete" && v.nom === vmName)),
       }));
       get().completeTask(taskId, "termine");
+
+      // Arret propre encore en cours (VM toujours active juste apres la
+      // demande) : une seule revenification differee suffit a rafraichir
+      // l'affichage sans avoir a recharger la page, pour le cas courant ou
+      // l'invite finit par s'eteindre dans les secondes qui suivent.
+      if (action === "stop" && result.etat === "actif") {
+        setTimeout(async () => {
+          try {
+            const fresh = await fetchVM(vmName);
+            set((s) => ({ vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
+          } catch (e) { /* VM peut-etre supprimee entre-temps, sans consequence */ }
+        }, 4000);
+      }
+
       return taskId;
     } catch (e) {
       get().completeTask(taskId, "echec", e.message);
