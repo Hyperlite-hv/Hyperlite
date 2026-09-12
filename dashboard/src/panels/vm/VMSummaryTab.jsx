@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Play, Square, RotateCw, Trash2, Copy, Layers } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricChart from "../../components/MetricChart";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import ProvisioningBar from "../../components/ProvisioningBar";
 import { useLiveVMMetrics } from "../../hooks/useLiveVMMetrics";
+import { useProvisioningStatus } from "../../hooks/useProvisioningStatus";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { chartColors } from "../../theme/colors";
@@ -18,8 +20,18 @@ export default function VMSummaryTab({ resource: vm }) {
   const pushToast = useInfraStore((s) => s.pushToast);
   const isAdmin = useAuthStore(selectIsAdmin);
   const { data, current, error } = useLiveVMMetrics(vm?.nom, vm?.etat === "actif");
+  const { status: provStatus, justFinished } = useProvisioningStatus(vm?.nom, vm?.etat === "actif");
+
+  useEffect(() => {
+    if (justFinished) {
+      pushToast({ kind: "success", title: "Installation terminee", message: `${vm.nom} : terminal SSH web disponible` });
+      loadAll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [justFinished]);
 
   if (!vm) return null;
+  const provisioning = provStatus?.provisioning;
 
   async function act(action) {
     try {
@@ -82,6 +94,8 @@ export default function VMSummaryTab({ resource: vm }) {
 
       {vm.etat !== "actif" ? (
         <div className="card p-8 text-center text-sm text-anthracite-400">VM arretee -- pas de metriques en direct.</div>
+      ) : provisioning ? (
+        <ProvisioningBar status={provStatus} />
       ) : (
         <>
           <div className="card grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">

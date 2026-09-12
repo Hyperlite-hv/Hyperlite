@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from app.routers.isos import ISOS_DIR
 import subprocess
-import socket
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
@@ -1159,10 +1158,13 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
 @router.get("/{name}/provisioning")
 def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
     """Etat d'une installation automatisee (Kickstart/autoinstall) en cours,
-    pour la barre de progression du dashboard. Signal utilise : port 22
-    joignable (pas une authentification SSH complete -- suffisant pour
-    detecter "l'OS installe a demarre et sshd tourne", sans le cout d'une
-    poignee de main SSH asynchrone dans une route synchrone)."""
+    pour la barre de progression du dashboard. Signal utilise : une vraie
+    authentification SSH avec la cle d'automatisation Hyperlite reussit-elle
+    -- PAS juste "le port 22 repond" (constate en test sur Ubuntu : l'ISO
+    live-server fait tourner son propre sshd des le tout debut de
+    l'installation, bien avant que le systeme final n'existe, donc le port
+    est joignable tres tot sans que notre cle y soit pour autant autorisee
+    -- ca donnait un faux "termine" premature)."""
     prov = get_provisioning(name)
     if not prov:
         return {"provisioning": False}
@@ -1185,14 +1187,24 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
         if not ip:
             return {"provisioning": True, "phase": "demarrage", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
 
+        username = get_vm_ssh_user(name)
+        key_path = get_automation_private_key_path()
         try:
-            with socket.create_connection((ip, 22), timeout=2):
-                pass
+            result = subprocess.run(
+                [
+                    "ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+                    "-o", "ConnectTimeout=3", "-i", str(key_path), f"{username}@{ip}", "true",
+                ],
+                capture_output=True, timeout=6,
+            )
+        except subprocess.TimeoutExpired:
+            return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
+
+        if result.returncode == 0:
             clear_provisioning(name)
             log_action(user["username"], "provisioning_complete", name, "succes")
             return {"provisioning": False, "just_finished": True}
-        except OSError:
-            return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
+        return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
     finally:
         conn.close()
 
