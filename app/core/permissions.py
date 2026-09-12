@@ -10,10 +10,24 @@ precis -- jamais retirer de droits existants. Pas de "deny" dans ce modele.
 
 from app.core.database import get_conn
 
-# Roles scopes attribuables via une ACL (distincts des roles globaux
-# admin/observateur). Volontairement fixes (pas de constructeur de role
-# personnalise) pour rester simple : ces trois niveaux couvrent l'essentiel
-# des besoins reels sans construire un editeur de privileges a la carte.
+# Catalogue complet des privileges disponibles pour construire un role
+# personnalise (voir custom_roles ci-dessous). Ajouter un privilege ici =
+# l'exposer dans le constructeur de role cote dashboard ; le faire respecter
+# reste a cabler endpoint par endpoint via require_vm_privilege (voir
+# app/routers/vms.py).
+ALL_PRIVILEGES = {
+    "vm.view": "Consulter (etat, metriques, journal)",
+    "vm.power": "Demarrer / arreter / redemarrer",
+    "vm.console": "Console graphique (VNC) et terminal SSH",
+    "vm.snapshot": "Snapshots (creer / restaurer / supprimer)",
+    "vm.resize": "Redimensionner (CPU / RAM / disque)",
+    "vm.hardware": "Materiel (disques, interfaces reseau, lecteur CD)",
+}
+
+# Roles predefinis, scopes, attribuables via une ACL (distincts des roles
+# globaux admin/observateur) -- des raccourcis pratiques sur le meme
+# catalogue de privileges que les roles personnalises ci-dessous, pas un
+# mecanisme a part.
 ROLES = {
     "lecteur": {
         "label": "Lecteur",
@@ -31,6 +45,75 @@ ROLES = {
         "privileges": {"vm.view", "vm.power", "vm.console", "vm.snapshot", "vm.resize", "vm.hardware"},
     },
 }
+
+
+# ---- Roles personnalises ----
+# Meme principe que les roles predefinis ci-dessus, mais l'ensemble de
+# privileges est choisi librement (voir ALL_PRIVILEGES). Identifies dans
+# acl.role par la chaine "custom:<id>" pour ne jamais entrer en collision
+# avec les cles des roles predefinis.
+
+def _custom_role_key(row):
+    return f"custom:{row['id']}"
+
+
+def list_custom_roles():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT id, name, privileges FROM custom_roles ORDER BY name").fetchall()
+    return [
+        {"key": _custom_role_key(r), "id": r["id"], "label": r["name"], "description": "Role personnalise.",
+         "privileges": set(r["privileges"].split(",")) if r["privileges"] else set()}
+        for r in rows
+    ]
+
+
+def create_custom_role(name, privileges):
+    invalid = set(privileges) - set(ALL_PRIVILEGES)
+    if invalid:
+        raise ValueError(f"Privileges inconnus : {', '.join(sorted(invalid))}")
+    if not privileges:
+        raise ValueError("Choisis au moins un privilege")
+    with get_conn() as conn:
+        cur = conn.execute("INSERT INTO custom_roles (name, privileges) VALUES (?, ?)", (name, ",".join(privileges)))
+        conn.commit()
+        return cur.lastrowid
+
+
+def delete_custom_role(role_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM acl WHERE role = ?", (f"custom:{role_id}",))
+        conn.execute("DELETE FROM custom_roles WHERE id = ?", (role_id,))
+        conn.commit()
+
+
+def get_role_privileges(role_key):
+    """Resout un role predefini OU personnalise vers son ensemble de
+    privileges. Retourne un ensemble vide si le role n'existe plus (ex.
+    supprime entre-temps -- l'ACL qui le referencait devient simplement
+    inoffensive plutot que de faire planter la verification)."""
+    if role_key in ROLES:
+        return ROLES[role_key]["privileges"]
+    if role_key.startswith("custom:"):
+        try:
+            role_id = int(role_key.split(":", 1)[1])
+        except ValueError:
+            return set()
+        with get_conn() as conn:
+            row = conn.execute("SELECT privileges FROM custom_roles WHERE id = ?", (role_id,)).fetchone()
+        return set(row["privileges"].split(",")) if row and row["privileges"] else set()
+    return set()
+
+
+def role_exists(role_key):
+    if role_key in ROLES:
+        return True
+    if not role_key.startswith("custom:"):
+        return False
+    tail = role_key.split(":", 1)[1]
+    if not tail.isdigit():
+        return False
+    with get_conn() as conn:
+        return conn.execute("SELECT 1 FROM custom_roles WHERE id = ?", (int(tail),)).fetchone() is not None
 
 
 # ---- Groupes ----
@@ -158,7 +241,7 @@ def list_acl():
 
 
 def create_acl(subject_type, subject_id, role, resource_type, resource_id):
-    if role not in ROLES:
+    if not role_exists(role):
         raise ValueError(f"Role inconnu : {role}")
     with get_conn() as conn:
         cur = conn.execute(
@@ -213,6 +296,6 @@ def has_privilege(user, vm_name, privilege):
         )
         if not resource_ok:
             continue
-        if privilege in ROLES.get(row["role"], {}).get("privileges", set()):
+        if privilege in get_role_privileges(row["role"]):
             return True
     return False

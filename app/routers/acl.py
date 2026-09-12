@@ -11,16 +11,57 @@ router = APIRouter(prefix="/acl", tags=["acl"])
 class AclCreate(BaseModel):
     subject_type: str  # "user" | "group"
     subject_id: str    # username, ou id de groupe (en texte)
-    role: str           # "lecteur" | "operateur" | "gestionnaire"
+    role: str           # "lecteur" | "operateur" | "gestionnaire" | "custom:<id>"
     resource_type: str  # "vm" | "pool"
     resource_id: str    # nom de VM, ou id de pool (en texte)
 
 
+class CustomRoleCreate(BaseModel):
+    name: str
+    privileges: list[str]
+
+
 @router.get("/roles")
 def get_roles_catalog(user: dict = Depends(require_role("admin"))):
-    """Catalogue des roles scopes attribuables, pour construire le formulaire
-    d'attribution cote dashboard sans dupliquer la liste en dur."""
+    """Catalogue des roles predefinis (scopes attribuables), pour construire
+    le formulaire d'attribution cote dashboard sans dupliquer la liste en
+    dur. Les roles personnalises sont exposes separement (GET
+    /acl/custom-roles) -- le dashboard fusionne les deux pour le selecteur."""
     return perm.ROLES
+
+
+@router.get("/privileges")
+def get_privileges_catalog(user: dict = Depends(require_role("admin"))):
+    """Catalogue complet des privileges (cle -> libelle), pour construire le
+    constructeur de role personnalise (cases a cocher)."""
+    return perm.ALL_PRIVILEGES
+
+
+@router.get("/custom-roles")
+def list_custom_roles(user: dict = Depends(require_role("admin"))):
+    return perm.list_custom_roles()
+
+
+@router.post("/custom-roles", status_code=201)
+def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_role("admin"))):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Nom de role requis")
+    try:
+        role_id = perm.create_custom_role(name, payload.privileges)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=422, detail=f"Un role nomme '{name}' existe deja")
+    log_action(user["username"], "create_custom_role", f"{name} ({','.join(payload.privileges)})", "succes")
+    return {"id": role_id, "key": f"custom:{role_id}", "name": name, "privileges": payload.privileges}
+
+
+@router.delete("/custom-roles/{role_id}")
+def delete_custom_role(role_id: int, user: dict = Depends(require_role("admin"))):
+    perm.delete_custom_role(role_id)
+    log_action(user["username"], "delete_custom_role", str(role_id), "succes")
+    return {"message": "Role supprime"}
 
 
 @router.get("")
@@ -34,7 +75,7 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=422, detail="subject_type doit etre 'user' ou 'group'")
     if payload.resource_type not in ("vm", "pool"):
         raise HTTPException(status_code=422, detail="resource_type doit etre 'vm' ou 'pool'")
-    if payload.role not in perm.ROLES:
+    if not perm.role_exists(payload.role):
         raise HTTPException(status_code=422, detail=f"Role inconnu : {payload.role}")
     acl_id = perm.create_acl(
         payload.subject_type, payload.subject_id, payload.role,
