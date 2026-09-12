@@ -7,6 +7,7 @@ import StepNetwork from "./steps/StepNetwork";
 import StepReview from "./steps/StepReview";
 import { useInfraStore } from "../store/useInfraStore";
 import { createVM } from "../api/client";
+import { detectOsFamily } from "../utils/osFamily";
 
 const STEPS = [
   { id: "node", label: "Noeud", Component: StepNode },
@@ -75,10 +76,12 @@ export default function VMWizard({ open, onClose }) {
   const Step = STEPS[stepIndex].Component;
   const isLast = stepIndex === STEPS.length - 1;
   // Etape "resources" (index 2) : nom toujours requis ; utilisateur/mot de
-  // passe seulement si aucun ISO d'installation n'est choisi (voir
-  // StepTemplate/StepResources -- en mode installation, l'OS et son compte
-  // sont crees manuellement, pas par le cloud-init de cette VM).
-  const canNext = stepIndex !== 2 || (form.name && (form.iso || (form.username && form.password.length >= 4)));
+  // passe requis sauf en installation manuelle (ISO non reconnu, voir
+  // StepTemplate/StepResources/detectOsFamily) -- sans ISO (cloud-init) ou
+  // avec un ISO reconnu (installation automatisee), le compte est bien cree
+  // par Hyperlite, donc toujours requis ici.
+  const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
+  const canNext = stepIndex !== 2 || (form.name && (manualInstall || (form.username && form.password.length >= 4)));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">

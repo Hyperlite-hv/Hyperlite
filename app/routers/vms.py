@@ -19,6 +19,7 @@ from app.core.vm_builder import (
     validate_name, validate_username, create_disk, create_cloudinit_iso,
     build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
 )
+from app.core.unattended_install import detect_os_family, build_seed_iso
 from app.core.vm_meta import set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user
 from xml.sax.saxutils import escape
 import json
@@ -170,14 +171,20 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         else:
             iso_path = candidate
 
-    # Mode "installation depuis ISO" : disque systeme vierge, pas de cloud-init
-    # -- l'OS et son compte sont crees par l'utilisateur pendant l'installation
-    # manuelle (console VNC), pas de terminal SSH web automatique pour cette VM
-    # tant que l'acces n'y est pas configure a la main. Sans ISO, comportement
-    # inchange : image Debian 12 preinstallee + cloud-init (username/password
-    # requis).
+    # Mode "installation depuis ISO" : disque systeme vierge. Si l'ISO est
+    # reconnu (famille RHEL/kickstart ou Ubuntu/autoinstall, voir
+    # app/core/unattended_install.py), l'installation est automatisee : un
+    # petit ISO de reponses cree le compte utilisateur et y installe la cle
+    # SSH d'automatisation, exactement comme le cloud-init des VM Debian. Un
+    # ISO non reconnu retombe sur l'installation manuelle (l'utilisateur cree
+    # son propre compte via la console VNC, pas de terminal SSH web tant que
+    # l'acces n'y est pas configure a la main). Sans ISO, comportement
+    # inchange : image Debian 12 preinstallee + cloud-init.
     install_mode = iso_path is not None
-    if not install_mode:
+    os_family = detect_os_family(payload.iso) if install_mode else None
+    automated_install = install_mode and os_family is not None
+    needs_account = not install_mode or automated_install
+    if needs_account:
         username_error = validate_username(payload.username or "")
         if username_error:
             errors.append(username_error)
@@ -207,11 +214,18 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
                 for i, disk in enumerate(payload.disks)
             ]
             cloudinit_path = None
+            seed_iso_path = None
             if not install_mode:
                 ssh_pubkey = get_or_create_automation_pubkey()
                 cloudinit_path = create_cloudinit_iso(
                     payload.name, username=payload.username,
                     password=payload.password, ssh_pubkey=ssh_pubkey,
+                )
+            elif automated_install:
+                ssh_pubkey = get_or_create_automation_pubkey()
+                seed_iso_path = build_seed_iso(
+                    os_family, payload.name,
+                    username=payload.username, password=payload.password, ssh_pubkey=ssh_pubkey,
                 )
         except subprocess.CalledProcessError as e:
             msg = f"Erreur lors de la preparation du disque/cloud-init : {e.stderr or e}"
@@ -223,10 +237,10 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 
         xml = build_domain_xml(
             payload.name, payload.vcpu, payload.memory_mb,
-            disk_paths, cloudinit_path, payload.network, iso_path=iso_path,
+            disk_paths, cloudinit_path, payload.network, iso_path=iso_path, seed_iso_path=seed_iso_path,
         )
         domain = conn.defineXML(xml)
-        if not install_mode:
+        if needs_account:
             set_vm_ssh_user(payload.name, payload.username)
         log_action(user["username"], "create_vm", payload.name, "succes")
         return _domain_summary(domain)
