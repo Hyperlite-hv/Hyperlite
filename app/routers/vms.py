@@ -147,8 +147,11 @@ class VMCreate(BaseModel):
     memory_mb: int = Field(ge=256, le=2048)
     disks: list[DiskSpec] = Field(min_length=1, max_length=8)
     network: str = "default"
-    username: str
-    password: str
+    # Optionnels : sans objet quand un ISO d'installation est fourni (pas de
+    # cloud-init dans ce cas, voir plus bas -- l'utilisateur cree son propre
+    # compte pendant l'installation manuelle de l'OS).
+    username: str | None = None
+    password: str | None = None
     iso: str | None = None
 
 
@@ -159,13 +162,6 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     if name_error:
         errors.append(name_error)
 
-    username_error = validate_username(payload.username)
-    if username_error:
-        errors.append(username_error)
-
-    if len(payload.password) < 4:
-        errors.append("Le mot de passe doit contenir au moins 4 caracteres")
-
     iso_path = None
     if payload.iso:
         candidate = ISOS_DIR / payload.iso
@@ -173,6 +169,20 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             errors.append(f"ISO '{payload.iso}' introuvable")
         else:
             iso_path = candidate
+
+    # Mode "installation depuis ISO" : disque systeme vierge, pas de cloud-init
+    # -- l'OS et son compte sont crees par l'utilisateur pendant l'installation
+    # manuelle (console VNC), pas de terminal SSH web automatique pour cette VM
+    # tant que l'acces n'y est pas configure a la main. Sans ISO, comportement
+    # inchange : image Debian 12 preinstallee + cloud-init (username/password
+    # requis).
+    install_mode = iso_path is not None
+    if not install_mode:
+        username_error = validate_username(payload.username or "")
+        if username_error:
+            errors.append(username_error)
+        if len(payload.password or "") < 4:
+            errors.append("Le mot de passe doit contenir au moins 4 caracteres")
 
     conn = open_conn()
     try:
@@ -193,14 +203,16 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 
         try:
             disk_paths = [
-                create_disk(payload.name, disk.size_gb, index=i)
+                create_disk(payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0))
                 for i, disk in enumerate(payload.disks)
             ]
-            ssh_pubkey = get_or_create_automation_pubkey()
-            cloudinit_path = create_cloudinit_iso(
-                payload.name, username=payload.username,
-                password=payload.password, ssh_pubkey=ssh_pubkey,
-            )
+            cloudinit_path = None
+            if not install_mode:
+                ssh_pubkey = get_or_create_automation_pubkey()
+                cloudinit_path = create_cloudinit_iso(
+                    payload.name, username=payload.username,
+                    password=payload.password, ssh_pubkey=ssh_pubkey,
+                )
         except subprocess.CalledProcessError as e:
             msg = f"Erreur lors de la preparation du disque/cloud-init : {e.stderr or e}"
             log_action(user["username"], "create_vm", payload.name, "echec", msg)
@@ -214,7 +226,8 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             disk_paths, cloudinit_path, payload.network, iso_path=iso_path,
         )
         domain = conn.defineXML(xml)
-        set_vm_ssh_user(payload.name, payload.username)
+        if not install_mode:
+            set_vm_ssh_user(payload.name, payload.username)
         log_action(user["username"], "create_vm", payload.name, "succes")
         return _domain_summary(domain)
     finally:

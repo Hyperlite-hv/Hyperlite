@@ -3,6 +3,7 @@ import { Plus, X } from "lucide-react";
 // Bornes alignees sur la validation reelle du backend (app/routers/vms.py
 // VMCreate: vcpu 1-2, memory_mb 256-2048, 1 a 8 disques de 1 a 500 Go chacun).
 export default function StepResources({ form, patch }) {
+  const installMode = Boolean(form.iso);
   function updateDisk(i, size_gb) {
     const disks = form.disks.map((d, idx) => (idx === i ? { size_gb } : d));
     patch({ disks });
@@ -50,16 +51,22 @@ export default function StepResources({ form, patch }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs font-medium text-anthracite-300">Utilisateur</label>
-          <input className="input mt-1" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="ex. antho" />
+      {installMode ? (
+        <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-300">
+          Compte utilisateur non applicable : un ISO d'installation est selectionne, l'OS et son compte seront crees pendant l'installation manuelle (voir l'etape "Modele").
         </div>
-        <div>
-          <label className="text-xs font-medium text-anthracite-300">Mot de passe</label>
-          <input type="password" className="input mt-1" value={form.password} onChange={(e) => patch({ password: e.target.value })} minLength={4} />
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-anthracite-300">Utilisateur</label>
+            <input className="input mt-1" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="ex. antho" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-anthracite-300">Mot de passe</label>
+            <input type="password" className="input mt-1" value={form.password} onChange={(e) => patch({ password: e.target.value })} minLength={4} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
