@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-  /* Rampe de contenu "anthracite" : ivoire/lavande/charbon par defaut (mode
+  /* Rampe de contenu "anthracite" : blanc/lavande/charbon par defaut (mode
      clair), reprend l'ancien degrade gris fonce sous .dark (mode sombre
      inchange). Triplets R G B (sans "rgb()") pour permettre les modificateurs
      d'opacite Tailwind (bg-anthracite-700/50 etc.) via <alpha-value>. */
@@ -12,9 +12,9 @@
        les cartes au repos ("800") restent quasi blanches avec une bordure
        fine : remplir chaque carte de la page en lavande saturee ecrase tout
        en un aplat violet et pique les yeux, ce n'etait pas l'intention. */
-    --a-950: 237 234 227; /* ivoire un cran plus profond, non utilise directement aujourd'hui */
-    --a-900: 242 240 236; /* fond de page -- #F2F0EC */
-    --a-800: 252 251 254; /* cartes au repos -- quasi blanc, definies par bordure plutot que teinte */
+    --a-950: 255 255 255; /* non utilise directement aujourd'hui */
+    --a-900: 255 255 255; /* fond de page -- blanc pur */
+    --a-800: 255 255 255; /* cartes au repos -- blanc pur, definies par bordure plutot que teinte */
     --a-700: 228 224 245; /* survols / surfaces relevees -- lavande #E4E0F5, ici seulement */
     --a-600: 218 211 236; /* bordures / separateurs -- lavande-gris doux, discret sur fond ivoire */
     --a-500: 199 190 221; /* bordures secondaires, anneau de jauge "vide" -- un cran plus marque */

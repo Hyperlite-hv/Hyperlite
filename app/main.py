@@ -51,10 +51,20 @@ def health():
         conn.close()
 
 
+# index.html reference les fichiers d'assets par leur hash de build (ex.
+# index-abc123.js) : sans en-tete explicite, un navigateur peut mettre en
+# cache l'index.html lui-meme au-dela d'un rechargement simple et continuer a
+# demander un vieux couple JS/CSS apres un nouveau déploiement, ce qui a fait
+# croire a un bug visuel deja corrige. "no-cache" force une revalidation a
+# chaque chargement (pas un "ne jamais stocker") sans re-télécharger si rien
+# n'a change cote serveur.
+NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
+
+
 @app.get("/legacy", include_in_schema=False)
 @app.get("/legacy/{path:path}", include_in_schema=False)
 def serve_legacy_ui(path: str = ""):
-    return FileResponse("app/static/index.html")
+    return FileResponse("app/static/index.html", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/", include_in_schema=False)
@@ -66,8 +76,8 @@ def serve_ui(path: str = ""):
     # enregistrees au-dessus (elles sont essayees en premier).
     dashboard_index = f"{DASHBOARD_DIST}/index.html"
     if os.path.isfile(dashboard_index):
-        return FileResponse(dashboard_index)
-    return FileResponse("app/static/index.html")
+        return FileResponse(dashboard_index, headers=NO_CACHE_HEADERS)
+    return FileResponse("app/static/index.html", headers=NO_CACHE_HEADERS)
 
 
 @app.exception_handler(Exception)

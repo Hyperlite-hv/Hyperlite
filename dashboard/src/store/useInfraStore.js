@@ -83,7 +83,13 @@ export const useInfraStore = create((set, get) => ({
     toastCounter += 1;
     const id = `toast-${toastCounter}`;
     set((s) => ({ toasts: [...s.toasts, { id, ...toast }] }));
-    setTimeout(() => get().dismissToast(id), toast.duration ?? 5000);
+    // Les erreurs restent affichees jusqu'a fermeture manuelle : un message
+    // d'echec technique (ex. erreur libvirt) prend plus de 5s a lire, et le
+    // disparaitre tout seul donnait l'impression qu'aucune erreur n'etait
+    // remontee alors qu'elle l'etait (juste trop vite pour etre vue).
+    if (toast.kind !== "error") {
+      setTimeout(() => get().dismissToast(id), toast.duration ?? 5000);
+    }
     return id;
   },
   dismissToast(id) {
