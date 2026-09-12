@@ -37,7 +37,10 @@ export const useInfraStore = create((set, get) => ({
   taskLogCollapsed: false,
 
   // ---- Theme ----
-  theme: "dark",
+  // Le mode clair est le defaut de l'identite Hyperlite ; la classe .dark
+  // reelle sur <html> est deja posee avant le premier rendu par le script
+  // inline d'index.html (evite le flash), on aligne juste le state ici.
+  theme: (typeof document !== "undefined" && document.documentElement.classList.contains("dark")) ? "dark" : "light",
 
   // ---- Chargement initial ----
   async loadAll() {
@@ -67,6 +70,7 @@ export const useInfraStore = create((set, get) => ({
   toggleTheme() {
     const next = get().theme === "dark" ? "light" : "dark";
     document.documentElement.classList.toggle("dark", next === "dark");
+    try { localStorage.setItem("hyperlite-theme", next); } catch (e) {}
     set({ theme: next });
   },
 
