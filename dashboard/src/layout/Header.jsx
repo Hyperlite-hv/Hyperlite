@@ -20,12 +20,12 @@ export default function Header() {
   const recentTasks = tasks.slice(0, 5);
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-anthracite-600 bg-anthracite-800 px-4">
+    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-chrome-950 bg-chrome-900 px-4">
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-blue">
           <Server size={16} className="text-white" />
         </div>
-        <span className="text-sm font-semibold tracking-wide text-anthracite-100">HYPERLITE</span>
+        <span className="text-sm font-semibold tracking-wide text-chrome-100">HYPERLITE</span>
       </div>
 
       <div className="flex-1 flex justify-center">
@@ -40,7 +40,7 @@ export default function Header() {
         )}
 
         <div className="relative">
-          <button className="relative rounded-md p-2 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100" onClick={() => setNotifOpen((o) => !o)}>
+          <button className="relative rounded-md p-2 text-chrome-400 hover:bg-chrome-700 hover:text-chrome-100" onClick={() => setNotifOpen((o) => !o)}>
             <Bell size={17} />
             {runningCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-accent-orange text-[10px] font-bold text-white">
@@ -65,7 +65,7 @@ export default function Header() {
         </div>
 
         <div className="relative">
-          <button className="rounded-md p-2 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100" onClick={() => setUserOpen((o) => !o)}>
+          <button className="rounded-md p-2 text-chrome-400 hover:bg-chrome-700 hover:text-chrome-100" onClick={() => setUserOpen((o) => !o)}>
             <User size={17} />
           </button>
           {userOpen && (

@@ -54,14 +54,14 @@ export default function ResourceTree() {
   }, [nodes, vms, storagePools, treeFilter, searchQuery]);
 
   return (
-    <div className="flex h-full flex-col bg-anthracite-800 border-r border-anthracite-600">
-      <div className="flex gap-1 p-2 border-b border-anthracite-600">
+    <div className="flex h-full flex-col bg-chrome-800 border-r border-chrome-950">
+      <div className="flex gap-1 p-2 border-b border-chrome-950">
         {FILTERS.map((f) => (
           <button
             key={f.id}
             onClick={() => setTreeFilter(f.id)}
             className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
-              treeFilter === f.id ? "bg-accent-blue text-white" : "bg-anthracite-700 text-anthracite-300 hover:text-anthracite-100"
+              treeFilter === f.id ? "bg-accent-blue text-white" : "bg-chrome-700 text-chrome-400 hover:text-chrome-100"
             }`}
           >
             {f.label}
