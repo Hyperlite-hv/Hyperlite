@@ -5,6 +5,7 @@ import {
   fetchGroups, createGroup, deleteGroup, addGroupMember, removeGroupMember,
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, createAcl, deleteAcl,
+  fetchPrivileges, fetchCustomRoles, createCustomRole, deleteCustomRole,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -24,16 +25,27 @@ export default function PermissionsTab() {
   const [groups, setGroups] = useState(null);
   const [pools, setPools] = useState(null);
   const [roles, setRoles] = useState(null);
+  const [privileges, setPrivileges] = useState(null);
+  const [customRoles, setCustomRoles] = useState(null);
   const [acl, setAcl] = useState(null);
 
   const reloadAll = useCallback(async () => {
     try {
-      const [u, g, p, r, a] = await Promise.all([fetchUsers(), fetchGroups(), fetchPools(), fetchAclRoles(), fetchAcl()]);
-      setUsers(u); setGroups(g); setPools(p); setRoles(r); setAcl(a);
+      const [u, g, p, r, pv, cr, a] = await Promise.all([
+        fetchUsers(), fetchGroups(), fetchPools(), fetchAclRoles(), fetchPrivileges(), fetchCustomRoles(), fetchAcl(),
+      ]);
+      setUsers(u); setGroups(g); setPools(p); setRoles(r); setPrivileges(pv); setCustomRoles(cr); setAcl(a);
     } catch (e) {
       pushToast({ kind: "error", title: "Erreur permissions", message: e.message });
     }
   }, [pushToast]);
+
+  // Fusion roles predefinis + personnalises en une seule table, pour le
+  // selecteur d'attribution (AclSection) : memes clefs "custom:<id>" que
+  // cote backend, transparent pour l'utilisateur.
+  const allRoles = roles && customRoles
+    ? { ...roles, ...Object.fromEntries(customRoles.map((r) => [r.key, r])) }
+    : null;
 
   useEffect(() => { reloadAll(); }, [reloadAll]);
 
@@ -55,7 +67,95 @@ export default function PermissionsTab() {
 
       <GroupsSection groups={groups} reload={reloadAll} pushToast={pushToast} />
       <PoolsSection pools={pools} vms={vms} reload={reloadAll} pushToast={pushToast} />
-      <AclSection acl={acl} roles={roles} groups={groups} pools={pools} vms={vms} users={users} reload={reloadAll} pushToast={pushToast} />
+      <CustomRolesSection customRoles={customRoles} privileges={privileges} reload={reloadAll} pushToast={pushToast} />
+      <AclSection acl={acl} roles={allRoles} groups={groups} pools={pools} vms={vms} users={users} reload={reloadAll} pushToast={pushToast} />
+    </div>
+  );
+}
+
+function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
+  const [name, setName] = useState("");
+  const [selected, setSelected] = useState({});
+  const [busy, setBusy] = useState(false);
+
+  function toggle(key) {
+    setSelected((s) => ({ ...s, [key]: !s[key] }));
+  }
+
+  async function handleCreate() {
+    const privs = Object.entries(selected).filter(([, v]) => v).map(([k]) => k);
+    if (!name.trim() || privs.length === 0) return;
+    setBusy(true);
+    try {
+      await createCustomRole(name.trim(), privs);
+      pushToast({ kind: "success", title: "Role cree", message: name.trim() });
+      setName(""); setSelected({});
+      await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Echec de creation", message: e.message });
+    } finally { setBusy(false); }
+  }
+
+  async function handleDelete(id, roleName) {
+    setBusy(true);
+    try {
+      await deleteCustomRole(id);
+      pushToast({ kind: "success", title: "Role supprime", message: roleName });
+      await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Echec", message: e.message });
+    } finally { setBusy(false); }
+  }
+
+  const ready = customRoles && privileges;
+  const selectedCount = Object.values(selected).filter(Boolean).length;
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center gap-2 mb-1">
+        <ShieldCheck size={15} className="text-anthracite-300" />
+        <h3 className="text-sm font-semibold text-anthracite-100">Roles personnalises</h3>
+      </div>
+      <p className="text-xs text-anthracite-400 mb-3">Construis un role a la carte en choisissant exactement les actions autorisees, en plus de Lecteur/Operateur/Gestionnaire.</p>
+
+      {!ready ? (
+        <p className="text-sm text-anthracite-400">Chargement...</p>
+      ) : (
+        <>
+          <div className="rounded-md border border-anthracite-600 p-3 mb-3">
+            <input className="input mb-2" placeholder="Nom du role (ex. sauvegardes-seules)" value={name} onChange={(e) => setName(e.target.value)} />
+            <div className="grid grid-cols-1 gap-1.5 mb-2 sm:grid-cols-2">
+              {Object.entries(privileges).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 text-xs text-anthracite-200 cursor-pointer">
+                  <input type="checkbox" checked={!!selected[key]} onChange={() => toggle(key)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <button className="btn-primary" disabled={busy || !name.trim() || selectedCount === 0} onClick={handleCreate}>
+              <Plus size={14} /> Creer ({selectedCount} privilege{selectedCount > 1 ? "s" : ""})
+            </button>
+          </div>
+
+          {customRoles.length === 0 ? (
+            <p className="text-sm text-anthracite-400">Aucun role personnalise.</p>
+          ) : (
+            <div className="divide-y divide-anthracite-600">
+              {customRoles.map((r) => (
+                <div key={r.key} className="flex items-center justify-between py-2 text-sm">
+                  <div>
+                    <span className="text-anthracite-100 font-medium">{r.label}</span>
+                    <span className="text-anthracite-400"> -- {[...r.privileges].map((p) => privileges[p] || p).join(", ")}</span>
+                  </div>
+                  <button className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

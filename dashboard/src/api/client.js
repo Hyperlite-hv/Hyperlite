@@ -252,3 +252,16 @@ export async function createAcl(payload) {
 export async function deleteAcl(aclId) {
   return realFetch(`/acl/${aclId}`, { method: "DELETE" });
 }
+
+export async function fetchPrivileges() {
+  return realFetch("/acl/privileges");
+}
+export async function fetchCustomRoles() {
+  return realFetch("/acl/custom-roles");
+}
+export async function createCustomRole(name, privileges) {
+  return realFetch("/acl/custom-roles", { method: "POST", ...jsonBody({ name, privileges }) });
+}
+export async function deleteCustomRole(roleId) {
+  return realFetch(`/acl/custom-roles/${roleId}`, { method: "DELETE" });
+}
