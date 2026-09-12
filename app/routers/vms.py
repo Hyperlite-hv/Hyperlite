@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 from app.core.libvirt_utils import open_conn
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.audit import log_action
 from app.core.vm_builder import (
     validate_name, validate_username, create_disk, create_cloudinit_iso,
@@ -25,6 +25,7 @@ from app.core.vm_meta import (
     set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user,
     mark_provisioning, get_provisioning, clear_provisioning,
 )
+from app.core.permissions import delete_acl_for_vm, remove_vm_from_all_pools
 from app.core.network_alloc import generate_mac, allocate_static_ip, release_static_ip
 from xml.sax.saxutils import escape
 import json
@@ -105,7 +106,7 @@ class VMUpdate(BaseModel):
 
 
 @router.patch("/{name}")
-def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_role("admin"))):
+def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_privilege("vm.resize"))):
     if payload.vcpu is None and payload.memory_mb is None:
         raise HTTPException(status_code=422, detail="Aucune modification demandee (vcpu ou memory_mb requis)")
 
@@ -268,7 +269,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/{name}/start")
-def start_vm(name: str, user: dict = Depends(require_role("admin"))):
+def start_vm(name: str, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn()
     try:
         try:
@@ -291,7 +292,7 @@ def start_vm(name: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/{name}/stop")
-def stop_vm(name: str, force: bool = False, user: dict = Depends(require_role("admin"))):
+def stop_vm(name: str, force: bool = False, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn()
     try:
         try:
@@ -318,7 +319,7 @@ def stop_vm(name: str, force: bool = False, user: dict = Depends(require_role("a
 
 
 @router.post("/{name}/restart")
-def restart_vm(name: str, force: bool = False, user: dict = Depends(require_role("admin"))):
+def restart_vm(name: str, force: bool = False, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn()
     try:
         try:
@@ -397,6 +398,8 @@ def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_rol
         autoinstall_path.unlink(missing_ok=True)
         delete_vm_ssh_user(name)
         clear_provisioning(name)
+        delete_acl_for_vm(name)
+        remove_vm_from_all_pools(name)
 
         log_action(user["username"], "delete_vm", name, "succes")
         return {"message": f"VM '{name}' supprimee"}
@@ -416,7 +419,7 @@ DEV_BUS_PREFIXES = {"sd": "scsi", "vd": "virtio", "hd": "ide"}
 
 
 @router.post("/{name}/disks", status_code=201)
-def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_role("admin"))):
+def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not TARGET_DEV_RE.match(payload.target_dev):
         log_action(user["username"], "attach_disk", name, "echec", "target_dev invalide")
         raise HTTPException(status_code=422, detail="target_dev invalide (attendu par ex. vda, vdb, sdb)")
@@ -459,7 +462,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_rol
 
 
 @router.delete("/{name}/disks/{target_dev}")
-def detach_disk(name: str, target_dev: str, user: dict = Depends(require_role("admin"))):
+def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not TARGET_DEV_RE.match(target_dev):
         log_action(user["username"], "detach_disk", name, "echec", "target_dev invalide")
         raise HTTPException(status_code=422, detail="target_dev invalide (attendu par ex. vda, vdb, sdb)")
@@ -563,7 +566,7 @@ class NetworkUpdate(BaseModel):
 
 
 @router.put("/{name}/network")
-def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(require_role("admin"))):
+def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     conn = open_conn()
     try:
         try:
@@ -616,7 +619,7 @@ class InterfaceAttach(BaseModel):
 
 
 @router.post("/{name}/interfaces", status_code=201)
-def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(require_role("admin"))):
+def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     conn = open_conn()
     try:
         try:
@@ -653,7 +656,7 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
 
 
 @router.delete("/{name}/interfaces/{mac}")
-def detach_interface(name: str, mac: str, user: dict = Depends(require_role("admin"))):
+def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not MAC_RE.match(mac):
         log_action(user["username"], "detach_interface", name, "echec", "MAC invalide")
         raise HTTPException(status_code=422, detail="Adresse MAC invalide")
@@ -746,7 +749,7 @@ class SnapshotCreate(BaseModel):
 
 
 @router.post("/{name}/snapshots", status_code=201)
-def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(require_role("admin"))):
+def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     conn = open_conn()
     try:
         try:
@@ -787,7 +790,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
 
 
 @router.post("/{name}/snapshots/{snapshot_name}/restore")
-def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     conn = open_conn()
     try:
         try:
@@ -819,7 +822,7 @@ def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user:
 
 
 @router.delete("/{name}/snapshots/{snapshot_name}")
-def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_role("admin"))):
+def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     conn = open_conn()
     try:
         try:
@@ -1192,8 +1195,9 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
         try:
             result = subprocess.run(
                 [
-                    "ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
-                    "-o", "ConnectTimeout=3", "-i", str(key_path), f"{username}@{ip}", "true",
+                    "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                    "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+                    "-i", str(key_path), f"{username}@{ip}", "true",
                 ],
                 capture_output=True, timeout=6,
             )
@@ -1324,7 +1328,7 @@ TERMINAL_TICKET_TTL = 30
 
 
 @router.post("/{name}/terminal-ticket")
-def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin"))):
+def create_terminal_ticket(name: str, user: dict = Depends(require_vm_privilege("vm.console"))):
     conn = open_conn()
     try:
         try:

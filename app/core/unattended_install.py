@@ -124,8 +124,12 @@ autoinstall:
     password: "{pwd_hash}"
   user-data:
     disable_root: true
-    ssh_authorized_keys:
-      - "{ssh_pubkey}"
+    users:
+      - name: {username}
+        lock_passwd: false
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        ssh_authorized_keys:
+          - "{ssh_pubkey}"
   storage:
     layout:
       name: direct
