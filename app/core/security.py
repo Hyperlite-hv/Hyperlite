@@ -71,3 +71,22 @@ def require_role(*roles):
             )
         return user
     return checker
+
+
+def require_vm_privilege(privilege):
+    """Comme require_role, mais verifie un privilege scope a la VM cible (voir
+    app/core/permissions.py) plutot qu'un role global : un admin passe
+    toujours, un observateur garde son acces vm.view global, et un
+    utilisateur/groupe avec une ACL sur cette VM (ou un pool qui la contient)
+    obtient les privileges de son role scope. Le nom du parametre de chemin
+    doit etre `name` (comme sur toutes les routes /vms/{name}/...)."""
+    from app.core.permissions import has_privilege  # import tardif : evite un cycle avec permissions.py
+
+    async def checker(name: str, user: dict = Depends(get_current_user)):
+        if not has_privilege(user, name, privilege):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Droits insuffisants sur la VM '{name}' (privilege requis : {privilege})",
+            )
+        return user
+    return checker

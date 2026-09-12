@@ -53,4 +53,48 @@ def init_db():
                 started_at TEXT NOT NULL
             )
         """)
+
+        # ---- Permissions granulaires (voir app/core/permissions.py) ----
+        # Groupes d'utilisateurs, pools de VM, et attributions (ACL) : un
+        # role scope (operateur/gestionnaire/lecteur, distincts des roles
+        # globaux admin/observateur) accorde a un utilisateur OU un groupe,
+        # sur une VM OU un pool precis. Additif uniquement -- n'enleve jamais
+        # de droits aux roles globaux existants.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_members (
+                group_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                PRIMARY KEY (group_id, username)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pools (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pool_members (
+                pool_id INTEGER NOT NULL,
+                vm_name TEXT NOT NULL,
+                PRIMARY KEY (pool_id, vm_name)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS acl (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
+                subject_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool')),
+                resource_id TEXT NOT NULL
+            )
+        """)
         conn.commit()
