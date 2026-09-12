@@ -9,7 +9,7 @@ from app.core.database import get_conn
 
 SECRET_KEY = os.environ.get("HYPERLITE_SECRET_KEY", "dev-" + os.urandom(16).hex())
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+ACCESS_TOKEN_EXPIRE_MINUTES = 240  # 4h -- une session de travail/test longue faisait expirer le jeton en silence (60 min), ex. un upload ISO qui echoue a l'etape finale sans message clair
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
