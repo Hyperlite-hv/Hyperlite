@@ -3,6 +3,8 @@ __pycache__/
 .env
 diag*.sh
 diag*.txt
+diag-output.txt
+feature-*.sh
 deploy.sh
 dashboard/node_modules/
 dashboard/dist/
