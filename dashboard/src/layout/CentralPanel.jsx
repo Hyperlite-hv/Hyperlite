@@ -8,6 +8,7 @@ import DcStorageTab from "../panels/datacenter/StorageTab";
 import BackupsTab from "../panels/datacenter/BackupsTab";
 import PermissionsTab from "../panels/datacenter/PermissionsTab";
 import TemplatesTab from "../panels/datacenter/TemplatesTab";
+import NetworkOverviewTab from "../panels/datacenter/NetworkOverviewTab";
 import JournalTab from "../panels/datacenter/JournalTab";
 
 import NodeSummaryTab from "../panels/node/NodeSummaryTab";
@@ -30,6 +31,7 @@ const DATACENTER_TABS = [
   { id: "templates", label: "Templates", Component: TemplatesTab },
   { id: "backups", label: "Sauvegardes", Component: BackupsTab },
   { id: "permissions", label: "Permissions", Component: PermissionsTab },
+  { id: "reseau", label: "Réseau", Component: NetworkOverviewTab },
   { id: "journal", label: "Journal", Component: JournalTab },
 ];
 
