@@ -5,7 +5,7 @@ from pathlib import Path
 import libvirt
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
 from app.core.tasks import create_task, finish_task
@@ -42,7 +42,7 @@ def list_isos(user: dict = Depends(get_current_user)):
 
 
 @router.post("", status_code=201)
-async def upload_iso(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_role("admin"))):
     filename = Path(file.filename or "").name
     task_id = create_task("upload_iso", filename, username=user["username"])
 
@@ -76,7 +76,7 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(get_curr
 
 
 @router.delete("/{filename}")
-def delete_iso(filename: str, confirm: bool = False, user: dict = Depends(get_current_user)):
+def delete_iso(filename: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
     if not filename.lower().endswith(".iso"):
         raise HTTPException(status_code=422, detail="Nom de fichier invalide")
