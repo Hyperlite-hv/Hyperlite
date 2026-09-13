@@ -106,6 +106,34 @@ export async function setVMFirewall(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/firewall`, { method: "PUT", ...jsonBody(payload) });
 }
 
+// ---- Backups natifs (réel : GET/POST /vms/{name}/backups, DELETE /backups/{id},
+// POST /backups/{id}/restore, GET/PUT/DELETE /vms/{name}/backup-schedule --
+// voir app/routers/backups.py, chantier 13) ----
+export async function fetchAllBackups() {
+  return realFetch("/backups");
+}
+export async function fetchVMBackups(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups`);
+}
+export async function createBackup(name, targetDir = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
+}
+export async function deleteBackup(id) {
+  return realFetch(`/backups/${id}?confirm=true`, { method: "DELETE" });
+}
+export async function restoreBackup(id, mode, newName = null) {
+  return realFetch(`/backups/${id}/restore`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
+}
+export async function fetchBackupSchedule(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
+}
+export async function setBackupSchedule(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteBackupSchedule(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`, { method: "DELETE" });
+}
+
 export async function fetchIsoTemplates() {
   return realFetch("/isos");
 }
