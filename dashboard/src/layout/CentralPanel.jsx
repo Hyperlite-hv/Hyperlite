@@ -67,12 +67,21 @@ function titleFor(selection, nodes, vms) {
 }
 
 export default function CentralPanel() {
-  const { selection, nodes, vms } = useInfraStore((s) => ({
+  const { selection, nodes, vms, pendingTab, clearPendingTab } = useInfraStore((s) => ({
     selection: s.selection, nodes: s.nodes, vms: s.vms,
+    pendingTab: s.pendingTab, clearPendingTab: s.clearPendingTab,
   }));
   const [activeTab, setActiveTab] = useState("summary");
 
-  useEffect(() => setActiveTab("summary"), [selection.type, selection.id]);
+  useEffect(() => {
+    if (pendingTab) {
+      setActiveTab(pendingTab);
+      clearPendingTab();
+    } else {
+      setActiveTab("summary");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.type, selection.id]);
 
   if (selection.type === "storage") {
     return (
