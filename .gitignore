@@ -11,3 +11,8 @@ dashboard/dist/
 data/ssh/
 data/tls/
 data/isos/
+data/templates/
+data/casper-cache/
+installer/*.iso
+installer/.iso-cache/
+hyperlite.db-journal

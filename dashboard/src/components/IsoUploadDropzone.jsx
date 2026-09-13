@@ -60,7 +60,7 @@ export default function IsoUploadDropzone({ onDone }) {
         completeTask(taskId, "echec", msg);
       }
     });
-    xhr.addEventListener("error", () => completeTask(taskId, "echec", "Erreur reseau pendant le televersement"));
+    xhr.addEventListener("error", () => completeTask(taskId, "echec", "Erreur réseau pendant le téléversement"));
     xhr.send(fd);
   }, [addTask, updateTaskProgress, completeTask, onDone]);
 
@@ -104,8 +104,8 @@ export default function IsoUploadDropzone({ onDone }) {
             <ProgressBar value={(upload.loaded / (upload.file.size || 1)) * 100} statut={upload.statut} />
           </div>
           <div className="mt-1.5 flex justify-between text-xs text-anthracite-400">
-            <span>{upload.statut === "termine" ? "Televersement termine" : `${(upload.speed / 1024 / 1024).toFixed(1)} Mo/s`}</span>
-            <span>{upload.statut === "termine" ? "" : `Temps restant estime : ${formatEta(upload.etaS)}`}</span>
+            <span>{upload.statut === "termine" ? "Téléversement terminé" : `${(upload.speed / 1024 / 1024).toFixed(1)} Mo/s`}</span>
+            <span>{upload.statut === "termine" ? "" : `Temps restant estimé : ${formatEta(upload.etaS)}`}</span>
           </div>
         </div>
       )}

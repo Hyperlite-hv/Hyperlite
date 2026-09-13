@@ -6,8 +6,8 @@ export default function NodeSystemTab({ resource: node }) {
     ["Hyperviseur", "QEMU/KVM via libvirt"],
     ["Service Hyperlite", "hyperlite.service (systemd, actif)"],
     ["Python", "3.11.2 / FastAPI 0.141.1 / uvicorn 0.52.4"],
-    ["Coeurs CPU", `${node.cpu_coeurs}`],
-    ["Memoire totale", `${(node.memoire_totale_mo / 1024).toFixed(0)} Go`],
+    ["Cœurs CPU", `${node.cpu_coeurs}`],
+    ["Mémoire totale", `${(node.memoire_totale_mo / 1024).toFixed(0)} Go`],
   ];
   return (
     <div className="card divide-y divide-anthracite-600">

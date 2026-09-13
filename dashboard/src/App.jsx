@@ -3,17 +3,20 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import AppShell from "./layout/AppShell";
 import LoginScreen from "./auth/LoginScreen";
 import ConsoleWindow from "./console/ConsoleWindow";
+import HostShellWindow from "./console/HostShellWindow";
 import { useAuthStore } from "./store/useAuthStore";
 
-// /console/:name a son propre gate d'authentification (ConsoleWindow) : cette
-// page s'ouvre dans une fenetre separee (voir VMConsoleTab), independamment
-// du cycle de vie du tableau de bord principal, donc elle reste en dehors du
-// gate global ci-dessous.
+// /console/:name et /host-shell ont leur propre gate d'authentification
+// (ConsoleWindow / HostShellWindow) : ces pages s'ouvrent dans une fenetre
+// separee (voir VMConsoleTab / NodeShellTab), independamment du cycle de vie
+// du tableau de bord principal, donc elles restent en dehors du gate global
+// ci-dessous.
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/console/:name" element={<ConsoleWindow />} />
+        <Route path="/host-shell" element={<HostShellWindow />} />
         <Route path="/*" element={<MainApp />} />
       </Routes>
     </BrowserRouter>
@@ -27,7 +30,7 @@ function MainApp() {
   useEffect(() => { restoreSession(); }, [restoreSession]);
 
   if (status === "checking") {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Verification de la session...</div>;
+    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Vérification de la session...</div>;
   }
   if (status === "anonymous") {
     return <LoginScreen />;

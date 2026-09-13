@@ -29,10 +29,10 @@ export default function DatacenterSummaryTab() {
   return (
     <div className="space-y-5">
       <div className="card grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
-        <GaugeRing label="CPU moyen" ratio={avgCpu} valueLabel={`${nodes.length} noeud(s)`} colorClass="text-accent-blue" />
+        <GaugeRing label="CPU moyen" ratio={avgCpu} valueLabel={`${nodes.length} nœud(s)`} colorClass="text-accent-blue" />
         <GaugeRing
           label="RAM" ratio={totalRamMo != null && usedRamMo != null ? usedRamMo / totalRamMo : null}
-          valueLabel={totalRamMo != null && usedRamMo != null ? `${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}` : "Non expose par /dashboard"}
+          valueLabel={totalRamMo != null && usedRamMo != null ? `${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}` : "Non exposé par /dashboard"}
           colorClass="text-accent-orange"
         />
         <GaugeRing
@@ -52,7 +52,7 @@ export default function DatacenterSummaryTab() {
       </div>
 
       <div className="card p-5">
-        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Noeuds</h3>
+        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Nœuds</h3>
         <div className="divide-y divide-anthracite-600">
           {nodes.map((n) => (
             <div key={n.id} className="flex items-center gap-3 py-2 text-sm">

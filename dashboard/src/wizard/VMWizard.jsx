@@ -10,11 +10,11 @@ import { createVM } from "../api/client";
 import { detectOsFamily } from "../utils/osFamily";
 
 const STEPS = [
-  { id: "node", label: "Noeud", Component: StepNode },
-  { id: "template", label: "Modele", Component: StepTemplate },
+  { id: "node", label: "Nœud", Component: StepNode },
+  { id: "template", label: "Modèle", Component: StepTemplate },
   { id: "resources", label: "CPU / RAM / Disque", Component: StepResources },
-  { id: "network", label: "Reseau", Component: StepNetwork },
-  { id: "review", label: "Resume", Component: StepReview },
+  { id: "network", label: "Réseau", Component: StepNetwork },
+  { id: "review", label: "Résumé", Component: StepReview },
 ];
 
 function initialForm(nodes, networks) {
@@ -87,7 +87,7 @@ export default function VMWizard({ open, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="card w-full max-w-2xl overflow-hidden">
         <div className="flex items-center justify-between border-b border-anthracite-600 px-5 py-3">
-          <h2 className="text-sm font-semibold text-anthracite-100">Creer une machine virtuelle</h2>
+          <h2 className="text-sm font-semibold text-anthracite-100">Créer une machine virtuelle</h2>
           <button onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>
         </div>
 
@@ -108,11 +108,11 @@ export default function VMWizard({ open, onClose }) {
 
         <div className="flex justify-between border-t border-anthracite-600 px-5 py-3">
           <button className="btn-secondary" disabled={stepIndex === 0} onClick={() => setStepIndex((i) => i - 1)}>
-            <ChevronLeft size={14} /> Precedent
+            <ChevronLeft size={14} /> Précédent
           </button>
           {isLast ? (
             <button className="btn-primary" onClick={handleCreate}>
-              <Check size={14} /> Creer la VM
+              <Check size={14} /> Créer la VM
             </button>
           ) : (
             <button className="btn-primary" disabled={!canNext} onClick={() => setStepIndex((i) => i + 1)}>

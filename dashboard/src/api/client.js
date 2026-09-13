@@ -55,7 +55,7 @@ export async function fetchNodes() {
     stockage_total_go: d.stockage.capacite_go,
     stockage_utilise_go: d.stockage.capacite_go != null && d.stockage.disponible_go != null
       ? Math.round((d.stockage.capacite_go - d.stockage.disponible_go) * 100) / 100 : null,
-    uptime_s: null,
+    uptime_s: d.hyperviseur.uptime_s,
     ip: null,
     version: `Hyperlite (${d.hyperviseur.type})`,
     os: null,
@@ -75,7 +75,7 @@ export async function fetchVMs() {
     vcpu: v.vcpu, memoire_mo: v.memoire_mo, memoire_utilisee_mo: null,
     disque_go: null, disque_utilise_go: null,
     ip: v.ip, utilisateur_ssh: v.utilisateur_ssh, uuid: v.uuid,
-    os: null, uptime_s: null,
+    os: v.os, uptime_s: v.uptime_s,
   }));
 }
 
@@ -97,8 +97,40 @@ export async function deleteIso(filename) {
 }
 
 // ---- Journal d'audit (reel : table audit_log, alimentee par chaque action) ----
-export async function fetchAuditLog(limit = 200) {
-  return realFetch(`/audit?limit=${limit}`);
+export async function fetchAuditLog(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") params.set(k, v);
+  });
+  const qs = params.toString();
+  return realFetch(`/audit${qs ? `?${qs}` : ""}`);
+}
+export async function fetchAuditActions() {
+  return realFetch("/audit/actions");
+}
+
+// ---- Taches persistees (reel : table tasks, horodatage creation/debut/fin -
+// voir app/core/tasks.py). Remplace le fetchTasks() encore theorique referme
+// dans NodeTasksTab.jsx par un vrai GET /tasks filtrable/triable.
+export async function fetchTasks(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") params.set(k, v);
+  });
+  const qs = params.toString();
+  return realFetch(`/tasks${qs ? `?${qs}` : ""}`);
+}
+export async function fetchTaskDetail(id) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}`);
+}
+
+// ---- Mise à jour d'Hyperlite depuis Git (réel : GET/POST /update/*, voir
+// app/routers/update.py — chantier 7) ----
+export async function fetchUpdateCheck() {
+  return realFetch("/update/check");
+}
+export async function applyUpdate() {
+  return realFetch("/update/apply", { method: "POST" });
 }
 
 // ---- Utilisateurs (reels) ----
@@ -140,6 +172,15 @@ export async function updateVM(name, payload) {
 export async function fetchVM(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}`);
 }
+
+// ---- Limites/réservations de ressources (réel : GET/PUT /vms/{name}/limits,
+// cgroups via libvirt schedulerParametersFlags/memoryParameters) ----
+export async function fetchVMLimits(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/limits`);
+}
+export async function setVMLimits(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/limits`, { method: "PUT", ...jsonBody(payload) });
+}
 export async function fetchVMMetrics(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
 }
@@ -177,6 +218,11 @@ export async function createConsoleTicket(name) {
 }
 export async function createTerminalTicket(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
+}
+
+// ---- Shell interactif sur l'hôte physique (admin uniquement, voir app/routers/host.py) ----
+export async function createHostTerminalTicket() {
+  return realFetch("/host/terminal-ticket", { method: "POST" });
 }
 
 // ---- Snapshots (reels) ----
