@@ -61,6 +61,20 @@ if os.path.isdir(DASHBOARD_DIST):
     app.mount("/xterm", StaticFiles(directory=f"{DASHBOARD_DIST}/xterm"), name="dashboard-xterm")
 
 
+@app.get("/favicon.svg", include_in_schema=False)
+def serve_favicon():
+    # Vite copie dashboard/public/favicon.svg a la RACINE de dist/, pas sous
+    # /assets -- sans cette route explicite, le catch-all SPA plus bas
+    # (serve_ui, qui matche litteralement n'importe quel chemin) interceptait
+    # /favicon.svg et renvoyait index.html a la place du vrai fichier :
+    # l'onglet du navigateur n'affichait jamais l'icone (constate en testant
+    # le nouveau logo Hyperlite).
+    favicon_path = f"{DASHBOARD_DIST}/favicon.svg"
+    if os.path.isfile(favicon_path):
+        return FileResponse(favicon_path, media_type="image/svg+xml")
+    return JSONResponse(status_code=404, content={"detail": "favicon introuvable"})
+
+
 @app.get("/health")
 def health():
     import platform
