@@ -15,7 +15,7 @@ import ConfirmDialog from "../../components/ConfirmDialog";
 // conteneur cree, mise en cache cote serveur), pas de snapshots/clonage
 // pour l'instant -- a etendre plus tard si besoin, comme les autres
 // chantiers de cette liste ont ete livres par etapes.
-const DEFAULT_FORM = { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: "default" };
+const DEFAULT_FORM = { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: "default", image: "" };
 
 export default function ContainersTab() {
   const isAdmin = useAuthStore(selectIsAdmin);
@@ -99,6 +99,12 @@ export default function ContainersTab() {
             <input className="input" placeholder="Réseau" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
             <input className="input" placeholder="Utilisateur" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
             <input className="input" type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+            <input
+              className="input col-span-2"
+              placeholder="Image Docker Hub (vide = base locale Debian 12), ex. ubuntu:22.04, alpine:3.19"
+              value={form.image}
+              onChange={(e) => setForm((f) => ({ ...f, image: e.target.value }))}
+            />
           </div>
           <div className="flex justify-end gap-2">
             <button className="btn-secondary" onClick={() => setCreating(false)}>Annuler</button>

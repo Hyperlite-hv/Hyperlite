@@ -78,6 +78,10 @@ class ContainerCreate(BaseModel):
     username: str
     password: str
     network: str = "default"
+    # None/vide = base locale Debian 12 (rapide, deja en cache) ; sinon
+    # reference d'image Docker Hub (ou tout registre OCI), ex. "ubuntu:22.04",
+    # "alpine:3.19", "nginx:latest" -- voir container_builder.pull_image_rootfs.
+    image: str | None = None
 
 
 @router.get("")
@@ -130,9 +134,9 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
             raise HTTPException(status_code=422, detail=errors)
 
         try:
-            rootfs = create_container_rootfs(payload.name)
+            rootfs, family = create_container_rootfs(payload.name, image=payload.image)
             ssh_pubkey = get_or_create_automation_pubkey()
-            configure_container_rootfs(rootfs, payload.name, payload.username, payload.password, ssh_pubkey)
+            configure_container_rootfs(rootfs, payload.name, payload.username, payload.password, ssh_pubkey, family=family)
         except subprocess.CalledProcessError as e:
             msg = e.stderr or str(e)
             delete_container_rootfs(payload.name)
