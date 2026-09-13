@@ -8,22 +8,6 @@ import UpdateModal from "../components/UpdateModal";
 import { useInfraStore } from "../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 
-// Barre de navigation horizontale (refonte 2026-09-13, ecran 5a de la
-// maquette) : acces rapide aux vues les plus consultees, en plus de
-// l'arbre Serveur/Pool existant (conserve tel quel a cote -- rien n'est
-// retire, voir ResourceTree.jsx). "Machines" et "Vue d'ensemble" pointent
-// tous deux vers l'onglet "Résumé" du noeud (les VM y sont deja visibles,
-// pas d'onglet dedie "Machines" separe pour l'instant) ; les autres
-// correspondent chacun a un onglet existant de NODE_TABS (CentralPanel.jsx).
-const TOP_NAV = [
-  { id: "overview", label: "Vue d'ensemble", tab: "summary" },
-  { id: "machines", label: "Machines", tab: "summary" },
-  { id: "storage", label: "Stockage", tab: "disk" },
-  { id: "network", label: "Réseau", tab: "network" },
-  { id: "tasks", label: "Tâches", tab: "tasks" },
-  { id: "system", label: "Système", tab: "system" },
-];
-
 function initials(name) {
   if (!name) return "?";
   return name.slice(0, 2).toUpperCase();
@@ -35,24 +19,15 @@ export default function Header() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
-  const [activeNav, setActiveNav] = useState("overview");
   const theme = useInfraStore((s) => s.theme);
   const toggleTheme = useInfraStore((s) => s.toggleTheme);
   const tasks = useInfraStore((s) => s.tasks);
-  const nodes = useInfraStore((s) => s.nodes);
-  const navigateTo = useInfraStore((s) => s.navigateTo);
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore(selectIsAdmin);
   const logout = useAuthStore((s) => s.logout);
 
   const runningCount = tasks.filter((t) => t.statut === "en_cours").length;
   const recentTasks = tasks.slice(0, 5);
-  const primaryNodeId = nodes[0]?.id;
-
-  function goToNav(item) {
-    setActiveNav(item.id);
-    if (primaryNodeId) navigateTo("node", primaryNodeId, item.tab);
-  }
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-5 border-b border-chrome-950 bg-chrome-900 px-4">
@@ -60,20 +35,6 @@ export default function Header() {
         <HyperliteLogo size={26} />
         <span className="text-sm font-extrabold tracking-wide text-chrome-100">HYPERLITE</span>
       </div>
-
-      <nav className="hidden md:flex items-center gap-1 shrink-0">
-        {TOP_NAV.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => goToNav(item)}
-            className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-              activeNav === item.id ? "bg-chrome-700 text-chrome-100" : "text-chrome-400 hover:text-chrome-100"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
 
       <div className="flex-1" />
 
