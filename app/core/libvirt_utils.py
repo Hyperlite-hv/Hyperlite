@@ -4,6 +4,20 @@ import xml.etree.ElementTree as ET
 from fastapi import HTTPException
 
 LIBVIRT_URI = "qemu:///system"
+LXC_URI = "lxc:///system"
+
+
+def open_lxc_conn():
+    """Connexion dediee aux conteneurs (chantier 18) : libvirt expose LXC via
+    une URI/pilote SEPARE de qemu:///system (meme demon libvirtd, mais les
+    domaines VM et conteneur ne partagent pas la meme liste -- un
+    connexion qemu:///system ne verra jamais un conteneur, et inversement).
+    Pas de support multi-noeud pour l'instant (contrairement a open_conn) :
+    conteneurs locaux uniquement dans cette premiere version."""
+    conn = libvirt.open(LXC_URI)
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Connexion libvirt (LXC) impossible")
+    return conn
 
 
 def open_conn(node_name=None):
