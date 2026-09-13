@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { X, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, Check, Star } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
-import { createContainer } from "../api/client";
+import { createContainer, searchDockerHub } from "../api/client";
 
 // Volontairement un seul ecran (pas d'etapes comme VMWizard) : un conteneur
 // se cree avec beaucoup moins de choix qu'une VM (pas d'ISO/OS a choisir,
@@ -20,6 +20,18 @@ export default function ContainerWizard({ open, onClose }) {
 
   const [form, setForm] = useState(() => initialForm(networks));
   const [busy, setBusy] = useState(false);
+  const [dockerQuery, setDockerQuery] = useState("");
+  const [dockerResults, setDockerResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (form.image === "" || !dockerQuery.trim()) { setDockerResults([]); return; }
+    setSearching(true);
+    const id = setTimeout(() => {
+      searchDockerHub(dockerQuery).then(setDockerResults).catch(() => setDockerResults([])).finally(() => setSearching(false));
+    }, 400);
+    return () => clearTimeout(id);
+  }, [dockerQuery, form.image]);
 
   if (!open) return null;
 
@@ -87,15 +99,49 @@ export default function ContainerWizard({ open, onClose }) {
               </button>
             </div>
             {form.image !== "" && (
-              <div className="mt-2">
+              <div className="mt-2 space-y-2">
                 <input
                   className="input w-full"
-                  placeholder="ex. ubuntu:22.04, alpine:3.19, debian:12"
-                  value={form.image}
-                  onChange={(e) => patch({ image: e.target.value })}
+                  placeholder="Rechercher sur Docker Hub (ex. apache, nginx, postgres...)"
+                  value={dockerQuery}
+                  onChange={(e) => setDockerQuery(e.target.value)}
                 />
-                <p className="mt-1 text-[11px] text-anthracite-500">
-                  Référence Docker Hub (ou tout registre OCI) — l'image est tirée puis dotée de SSH/sudo automatiquement.
+                {searching && <p className="text-xs text-anthracite-500">Recherche...</p>}
+                {dockerResults.length > 0 && (
+                  <div className="max-h-44 overflow-y-auto rounded-md border border-anthracite-600 divide-y divide-anthracite-600">
+                    {dockerResults.map((r) => (
+                      <button
+                        type="button"
+                        key={r.nom}
+                        onClick={() => { patch({ image: `${r.nom}:latest` }); setDockerQuery(""); setDockerResults([]); }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-anthracite-700"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 text-sm text-anthracite-100">
+                            <span className="truncate">{r.nom}</span>
+                            {r.officielle && <span className="shrink-0 rounded bg-accent-blue/20 px-1 text-[10px] text-accent-blue">officielle</span>}
+                          </div>
+                          {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1 text-xs text-anthracite-500">
+                          <Star size={11} /> {r.etoiles}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs font-medium text-anthracite-300">Image sélectionnée</label>
+                  <input
+                    className="input mt-1 w-full"
+                    placeholder="ex. ubuntu:22.04, alpine:3.19, debian:12"
+                    value={form.image}
+                    onChange={(e) => patch({ image: e.target.value })}
+                  />
+                </div>
+                <p className="text-[11px] text-anthracite-500">
+                  Cherchez puis choisissez une image, ou saisissez directement une référence Docker Hub (ou tout
+                  registre OCI) — l'image est tirée puis dotée de SSH/sudo automatiquement.
                 </p>
               </div>
             )}

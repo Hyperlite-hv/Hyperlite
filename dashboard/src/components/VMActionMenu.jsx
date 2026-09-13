@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useInfraStore } from "../store/useInfraStore";
 import { statusColor } from "../theme/colors";
+import { exportVM } from "../api/client";
 
 // Menu d'actions ancre pres de la carte VM cliquee (ecran 6a de la refonte
 // 2026-09-13) : memes entrees que la palette ⌘K existante (SearchBar),
@@ -9,8 +10,16 @@ import { statusColor } from "../theme/colors";
 export default function VMActionMenu({ vm, anchorRect, onClose }) {
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const navigateTo = useInfraStore((s) => s.navigateTo);
+  const pushToast = useInfraStore((s) => s.pushToast);
   const menuRef = useRef(null);
   const active = vm.etat === "actif";
+
+  function doExport() {
+    exportVM(vm.nom)
+      .then(() => pushToast({ kind: "success", title: "Export lancé", message: `${vm.nom} — disponible dans Datacenter › Exports une fois terminé` }))
+      .catch((e) => pushToast({ kind: "error", title: "Échec de l'export", message: e.message }));
+    onClose();
+  }
 
   useEffect(() => {
     function onDocClick(e) {
@@ -40,6 +49,7 @@ export default function VMActionMenu({ vm, anchorRect, onClose }) {
         { label: "Créer un instantané", key: "S", onClick: () => go("snapshots") },
         { label: "Modifier le matériel", onClick: () => go("hardware") },
         { label: "Cloner", onClick: () => go("options") },
+        { label: "Exporter le disque", onClick: doExport },
         { divider: true },
         { label: "Redémarrer", onClick: () => run("restart") },
         { label: "Arrêter", danger: true, onClick: () => run("stop") },
@@ -48,6 +58,7 @@ export default function VMActionMenu({ vm, anchorRect, onClose }) {
         { label: "Démarrer", primary: true, onClick: () => run("start") },
         { label: "Modifier le matériel", onClick: () => go("hardware") },
         { label: "Cloner", onClick: () => go("options") },
+        { label: "Exporter le disque", onClick: doExport },
         { divider: true },
         { label: "Supprimer…", danger: true, onClick: () => go("summary") },
       ];

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Box, Plus, Trash2, Play, Square, TerminalSquare } from "lucide-react";
+import { Box, Plus, Trash2, Play, Square, TerminalSquare, Star } from "lucide-react";
 import {
-  fetchContainers, createContainer, startContainer, stopContainer, deleteContainer,
+  fetchContainers, createContainer, startContainer, stopContainer, deleteContainer, searchDockerHub,
 } from "../../api/client";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -25,6 +25,16 @@ export default function ContainersTab() {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [busy, setBusy] = useState(false);
   const [toDelete, setToDelete] = useState(null);
+  const [dockerQuery, setDockerQuery] = useState("");
+  const [dockerResults, setDockerResults] = useState([]);
+
+  useEffect(() => {
+    if (!dockerQuery.trim()) { setDockerResults([]); return; }
+    const id = setTimeout(() => {
+      searchDockerHub(dockerQuery).then(setDockerResults).catch(() => setDockerResults([]));
+    }, 400);
+    return () => clearTimeout(id);
+  }, [dockerQuery]);
 
   const reload = useCallback(() => {
     fetchContainers().then(setContainers).catch((e) => pushToast({ kind: "error", title: "Erreur conteneurs", message: e.message }));
@@ -99,12 +109,35 @@ export default function ContainersTab() {
             <input className="input" placeholder="Réseau" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
             <input className="input" placeholder="Utilisateur" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
             <input className="input" type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
-            <input
-              className="input col-span-2"
-              placeholder="Image Docker Hub (vide = base locale Debian 12), ex. ubuntu:22.04, alpine:3.19"
-              value={form.image}
-              onChange={(e) => setForm((f) => ({ ...f, image: e.target.value }))}
-            />
+            <div className="col-span-2 relative">
+              <input
+                className="input w-full"
+                placeholder="Image Docker Hub (vide = base locale Debian 12) — cherchez ou tapez une référence, ex. apache, ubuntu:22.04"
+                value={form.image}
+                onChange={(e) => { setForm((f) => ({ ...f, image: e.target.value })); setDockerQuery(e.target.value); }}
+              />
+              {dockerResults.length > 0 && (
+                <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-md border border-anthracite-600 bg-anthracite-800 divide-y divide-anthracite-600 shadow-lg">
+                  {dockerResults.map((r) => (
+                    <button
+                      type="button"
+                      key={r.nom}
+                      onClick={() => { setForm((f) => ({ ...f, image: `${r.nom}:latest` })); setDockerQuery(""); setDockerResults([]); }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-anthracite-700"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-sm text-anthracite-100">
+                          <span className="truncate">{r.nom}</span>
+                          {r.officielle && <span className="shrink-0 rounded bg-accent-blue/20 px-1 text-[10px] text-accent-blue">officielle</span>}
+                        </div>
+                        {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1 text-xs text-anthracite-500"><Star size={11} /> {r.etoiles}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <button className="btn-secondary" onClick={() => setCreating(false)}>Annuler</button>

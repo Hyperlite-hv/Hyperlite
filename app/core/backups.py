@@ -57,7 +57,7 @@ def _sha256_of(path):
     return h.hexdigest()
 
 
-def _domain_disk_paths(domain):
+def domain_disk_paths(domain):
     import xml.etree.ElementTree as ET
     root = ET.fromstring(domain.XMLDesc(0))
     paths = []
@@ -71,7 +71,7 @@ def _domain_disk_paths(domain):
     return paths
 
 
-def _qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
+def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
     """Copie via qemu-img convert -p, parse la progression reelle sur stdout
     et la reporte dans la tache (base_pct/span_pct permettent d'appeler ca
     plusieurs fois -- ex. plusieurs disques -- sans que chacun reparte de 0%)."""
@@ -91,36 +91,48 @@ def _qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
         raise RuntimeError(f"qemu-img convert a échoué : {stderr.strip()[:400]}")
 
 
-def _backup_cold(domain, vm_name, dest_dir, task_id):
-    disks = _domain_disk_paths(domain)
+def backup_cold(domain, vm_name, dest_dir, task_id, disks=None):
+    disks = disks if disks is not None else domain_disk_paths(domain)
     if not disks:
         raise RuntimeError("Aucun disque trouvé sur cette VM")
     dest_paths = []
     span = 90 / len(disks)
     for i, (dev, source) in enumerate(disks):
         dest = dest_dir / f"{dev}.qcow2"
-        _qemu_img_convert_with_progress(source, dest, task_id, base_pct=5 + i * span, span_pct=span)
+        qemu_img_convert_with_progress(source, dest, task_id, base_pct=5 + i * span, span_pct=span)
         dest_paths.append(dest)
     return dest_paths
 
 
-def _backup_hot(conn, domain, vm_name, dest_dir, task_id):
+def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
     """Snapshot externe transitoire par disque -> copie du fichier gele ->
     blockCommit+pivot pour re-fusionner -- la VM continue de tourner sans
     interruption pendant toute l'operation (juste un tres bref gel au
     moment de la creation du snapshot lui-meme, comme n'importe quel
-    snapshot externe QEMU)."""
-    disks = _domain_disk_paths(domain)
-    if not disks:
+    snapshot externe QEMU). `disks` : sous-ensemble optionnel (ex. un seul
+    disque pour un export, voir app/core/vm_export.py) -- toute la VM par
+    defaut."""
+    all_disks = domain_disk_paths(domain)
+    if not all_disks:
         raise RuntimeError("Aucun disque trouvé sur cette VM")
+    disks = disks if disks is not None else all_disks
+    target_devs = {dev for dev, _ in disks}
 
     import xml.etree.ElementTree as ET
     overlay_paths = {}
     disk_xml_parts = []
-    for dev, source in disks:
-        overlay = IMAGES_DIR / f"{vm_name}.backup-{int(time.time())}.{dev}.qcow2"
-        overlay_paths[dev] = overlay
-        disk_xml_parts.append(f"<disk name='{dev}' snapshot='external'><source file='{overlay}'/></disk>")
+    # Un disque APPARTENANT a la VM mais absent de `disks` (export partiel,
+    # voir app/core/vm_export.py) doit rester explicitement exclu
+    # (snapshot='no') -- sinon libvirt lui applique quand meme son
+    # comportement de snapshot par defaut (interne), qu'on ne nettoierait
+    # jamais puisque la boucle de fusion plus bas ne parcourt que `disks`.
+    for dev, source in all_disks:
+        if dev in target_devs:
+            overlay = IMAGES_DIR / f"{vm_name}.backup-{int(time.time())}.{dev}.qcow2"
+            overlay_paths[dev] = overlay
+            disk_xml_parts.append(f"<disk name='{dev}' snapshot='external'><source file='{overlay}'/></disk>")
+        else:
+            disk_xml_parts.append(f"<disk name='{dev}' snapshot='no'/>")
     snap_name = f"hyperlite-backup-{int(time.time())}"
     snap_xml = f"<domainsnapshot><name>{snap_name}</name><disks>{''.join(disk_xml_parts)}</disks></domainsnapshot>"
 
@@ -135,7 +147,7 @@ def _backup_hot(conn, domain, vm_name, dest_dir, task_id):
             # On copie la base GELEE (le fichier `source` original, plus
             # touche par la VM tant que l'overlay est actif) -- pas
             # l'overlay, qui continue de grossir avec l'activite de la VM.
-            _qemu_img_convert_with_progress(source, dest, task_id, base_pct=15 + i * span, span_pct=span)
+            qemu_img_convert_with_progress(source, dest, task_id, base_pct=15 + i * span, span_pct=span)
             dest_paths.append(dest)
     finally:
         # Fusion de l'overlay dans la base pour CHAQUE disque, meme si la
@@ -192,9 +204,9 @@ def run_backup(vm_name, target_dir=None, job_id=None, username="system"):
 
         try:
             if mode == "froid":
-                dest_paths = _backup_cold(domain, vm_name, dest_dir, task_id)
+                dest_paths = backup_cold(domain, vm_name, dest_dir, task_id)
             else:
-                dest_paths = _backup_hot(conn, domain, vm_name, dest_dir, task_id)
+                dest_paths = backup_hot(conn, domain, vm_name, dest_dir, task_id)
 
             update_task_progress(task_id, 95)
             total_size = sum(p.stat().st_size for p in dest_paths)
@@ -248,7 +260,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
                 raise RuntimeError(f"VM d'origine '{target_name}' introuvable -- utilisez la restauration vers un nouvel emplacement")
             if domain.isActive():
                 raise RuntimeError("Arrêtez la VM avant de restaurer par-dessus")
-            existing_disks = _domain_disk_paths(domain)
+            existing_disks = domain_disk_paths(domain)
             for i, (dev, dest_path) in enumerate(existing_disks):
                 src = disk_files[min(i, len(disk_files) - 1)]
                 update_task_progress(task_id, int(10 + 80 * i / max(len(existing_disks), 1)))
