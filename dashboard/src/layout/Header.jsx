@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Box, Bell, Sun, Moon, User, LogOut, RefreshCw } from "lucide-react";
+import { Plus, Box, Bell, Sun, Moon, LogOut, RefreshCw } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import HyperliteLogo from "../components/HyperliteLogo";
 import VMWizard from "../wizard/VMWizard";
@@ -8,36 +8,82 @@ import UpdateModal from "../components/UpdateModal";
 import { useInfraStore } from "../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 
+// Barre de navigation horizontale (refonte 2026-09-13, ecran 5a de la
+// maquette) : acces rapide aux vues les plus consultees, en plus de
+// l'arbre Serveur/Pool existant (conserve tel quel a cote -- rien n'est
+// retire, voir ResourceTree.jsx). "Machines" et "Vue d'ensemble" pointent
+// tous deux vers l'onglet "Résumé" du noeud (les VM y sont deja visibles,
+// pas d'onglet dedie "Machines" separe pour l'instant) ; les autres
+// correspondent chacun a un onglet existant de NODE_TABS (CentralPanel.jsx).
+const TOP_NAV = [
+  { id: "overview", label: "Vue d'ensemble", tab: "summary" },
+  { id: "machines", label: "Machines", tab: "summary" },
+  { id: "storage", label: "Stockage", tab: "disk" },
+  { id: "network", label: "Réseau", tab: "network" },
+  { id: "tasks", label: "Tâches", tab: "tasks" },
+  { id: "system", label: "Système", tab: "system" },
+];
+
+function initials(name) {
+  if (!name) return "?";
+  return name.slice(0, 2).toUpperCase();
+}
+
 export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [containerWizardOpen, setContainerWizardOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const [activeNav, setActiveNav] = useState("overview");
   const theme = useInfraStore((s) => s.theme);
   const toggleTheme = useInfraStore((s) => s.toggleTheme);
   const tasks = useInfraStore((s) => s.tasks);
+  const nodes = useInfraStore((s) => s.nodes);
+  const navigateTo = useInfraStore((s) => s.navigateTo);
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore(selectIsAdmin);
   const logout = useAuthStore((s) => s.logout);
 
   const runningCount = tasks.filter((t) => t.statut === "en_cours").length;
   const recentTasks = tasks.slice(0, 5);
+  const primaryNodeId = nodes[0]?.id;
+
+  function goToNav(item) {
+    setActiveNav(item.id);
+    if (primaryNodeId) navigateTo("node", primaryNodeId, item.tab);
+  }
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-chrome-950 bg-chrome-900 px-4">
+    <header className="flex h-14 shrink-0 items-center gap-5 border-b border-chrome-950 bg-chrome-900 px-4">
       <div className="flex items-center gap-2 shrink-0">
-        <HyperliteLogo size={28} className="rounded-md" />
-        <span className="text-sm font-semibold tracking-wide text-chrome-100">HYPERLITE</span>
+        <HyperliteLogo size={26} />
+        <span className="text-sm font-extrabold tracking-wide text-chrome-100">HYPERLITE</span>
       </div>
 
-      <div className="flex-1 flex justify-center">
-        <SearchBar />
-      </div>
+      <nav className="hidden md:flex items-center gap-1 shrink-0">
+        {TOP_NAV.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => goToNav(item)}
+            className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
+              activeNav === item.id ? "bg-chrome-700 text-chrome-100" : "text-chrome-400 hover:text-chrome-100"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="flex-1" />
 
       <div className="flex items-center gap-2 shrink-0">
+        <div className="w-[220px]">
+          <SearchBar />
+        </div>
+
         {isAdmin && (
-          <button className="btn-primary" onClick={() => setWizardOpen(true)}>
+          <button className="btn-primary !rounded-full" onClick={() => setWizardOpen(true)}>
             <Plus size={15} /> Créer VM
           </button>
         )}
@@ -73,8 +119,11 @@ export default function Header() {
         </div>
 
         <div className="relative">
-          <button className="rounded-md p-2 text-chrome-400 hover:bg-chrome-700 hover:text-chrome-100" onClick={() => setUserOpen((o) => !o)}>
-            <User size={17} />
+          <button
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-anthracite-700 border border-anthracite-500 text-xs font-semibold text-anthracite-100"
+            onClick={() => setUserOpen((o) => !o)}
+          >
+            {initials(username)}
           </button>
           {userOpen && (
             <div className="absolute right-0 mt-1 w-48 card border border-anthracite-600 z-50 py-1" onMouseLeave={() => setUserOpen(false)}>
