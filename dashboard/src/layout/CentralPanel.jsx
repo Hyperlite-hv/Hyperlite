@@ -10,6 +10,7 @@ import PermissionsTab from "../panels/datacenter/PermissionsTab";
 import TemplatesTab from "../panels/datacenter/TemplatesTab";
 import NetworkOverviewTab from "../panels/datacenter/NetworkOverviewTab";
 import AutomationTab from "../panels/datacenter/AutomationTab";
+import NodesTab from "../panels/datacenter/NodesTab";
 import JournalTab from "../panels/datacenter/JournalTab";
 
 import NodeSummaryTab from "../panels/node/NodeSummaryTab";
@@ -34,6 +35,7 @@ const DATACENTER_TABS = [
   { id: "permissions", label: "Permissions", Component: PermissionsTab },
   { id: "reseau", label: "Réseau", Component: NetworkOverviewTab },
   { id: "automation", label: "Automation", Component: AutomationTab },
+  { id: "nodes", label: "Nœuds", Component: NodesTab },
   { id: "journal", label: "Journal", Component: JournalTab },
 ];
 

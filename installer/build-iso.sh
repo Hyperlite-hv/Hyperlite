@@ -79,6 +79,32 @@ rsync -a \
     --exclude dashboard/node_modules --exclude .claude \
     "$HYPERLITE_ROOT/" "$HL_DIR/hyperlite-src/"
 
+log "=== 3.6/6 : initialisation d'un depot Git dans le code embarque ==="
+# Sans ca, le bouton "Verifier les mises a jour" (chantier 7, git fetch/pull)
+# ne fonctionne PAS sur une appliance installee depuis cet ISO : sans .git,
+# ce n'est pas un depot -- il fallait jusqu'ici reconstruire et reflasher un
+# ISO entier a chaque nouvelle version. Un `git clone` complet de
+# l'historique n'est PAS utilise ici (ISO plus volumineuse, et l'historique
+# de developpement de kvm-lab n'a pas a etre distribue avec chaque
+# appliance) : un commit UNIQUE representant l'etat exact du code embarque
+# suffit -- app/routers/update.py fait un `git reset --hard origin/<branche>`
+# a la mise a jour, qui ne depend PAS d'un historique commun avec le depot
+# distant (contrairement a un merge/rebase). Premiere mise a jour seulement :
+# le "changelog" affiche avant application peut etre vide/non significatif
+# (historique local et distant disjoints tant qu'aucune vraie mise a jour
+# n'a encore ete faite depuis cette appliance) -- limite connue, sans
+# consequence sur le mecanisme d'application lui-meme.
+(
+    cd "$HL_DIR/hyperlite-src"
+    git init -q
+    git config user.email "appliance@hyperlite.local"
+    git config user.name "Hyperlite Appliance Builder"
+    git remote add origin "https://github.com/twikles/hyperlite.git"
+    git add -A
+    git commit -q -m "Instantane embarque dans l'ISO appliance (base pour les mises a jour ulterieures via /update/check)"
+)
+log "depot Git initialise ($(cd "$HL_DIR/hyperlite-src" && git rev-parse --short HEAD))"
+
 log "=== 3.5/6 : preseed minimal embarque dans l'initrd (langue/clavier) ==="
 # Le choix de langue/pays/clavier est demande AVANT que le CD-ROM (et donc
 # preseed.cfg via /cdrom/hyperlite/preseed.cfg) ne soit accessible -- ni
