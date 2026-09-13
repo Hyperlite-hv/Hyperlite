@@ -84,7 +84,8 @@ de 16 chantiers triés par charge de travail croissante.
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
 | 17 | Onglet HA (Load Balancing, Ceph) | ⬜ pas commencé — demandé le 2026-09-13. Dépend largement du chantier 15 (multi-nœuds) pour avoir du sens |
 | 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ dans `master` — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur) **ou image Docker Hub/registre OCI au choix** (`skopeo`+`umoci`, pas de démon Docker requis ; bootstrap post-pull systemd+openssh+sudo côté apt, openrc+openssh+sudo côté apk, création des nœuds `/dev` manquants — testé réellement sur `alpine:3.19` et `debian:12`), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié + champ de sélection d'image dans les deux formulaires de création. **systemd-networkd, pas ifupdown/isc-dhcp-client** (côté apt) : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). Pas encore fait : snapshots/clonage de conteneur, ACL granulaire (réservé admin pour l'instant), galerie de templates visuelle |
-| 23 | Export/Import de VM depuis un fichier disque | 🔄 en cours (2026-09-13, demandé par Antho juste après le chantier 18) — bouton d'export d'une VM existante vers un fichier disque téléchargeable, et import/création d'une VM à partir d'un disque fourni (alternative à ISO+kickstart dans le formulaire de création). Pas encore de code, recherche d'architecture en cours (stockage qcow2 existant, upload ISO existant, wizard VM existant) avant implémentation |
+| 23 | Export/Import de VM depuis un fichier disque | ✅ dans `master` — bouton "Exporter le disque" (menu d'actions VM, disque système uniquement, chaud ou froid selon l'état, réutilise le mécanisme du chantier 13), onglet Datacenter > Exports (liste/télécharge/supprime, téléchargement par ticket à usage unique), option "Importer un disque existant" dans le formulaire de création de VM (upload + sélection). Bug réel trouvé et corrigé en testant : un disque importé garde le netplan MAC-épinglé de son tout premier démarrage (cloud-init) — nouvelle MAC = plus aucune interface ne correspond, réseau mort. Corrigé via un ISO de "reseed" cloud-init (nouvel instance-id, même mécanisme que le clonage chantier 5) qui force cloud-init à régénérer son réseau. Testé réellement de bout en bout (export à chaud + import + SSH fonctionnel) |
+| 24 | Refonte tableau de bord + barre latérale façon Proxmox VE | ✅ dans `master` — rail de navigation (`SidebarRail.jsx`) ajouté à gauche de l'arbre Datacenter/Nœud/VM existant (purement additif, l'arbre reste les raccourcis VM), calqué sur les onglets Datacenter réels seulement (pas la liste complète de Proxmox). Nouvel onglet "Activité récente" (table `tasks` existante, pas encore exposée au niveau Datacenter). "Statut des VM" devient une vraie liste sur les états réels d'un domaine libvirt. **Pas de vérification visuelle possible depuis cette session (pas de navigateur connecté) — à confirmer par Antho** |
 | 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ⬜ pas commencé — demandé le 2026-09-13 |
 | 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
 | 21 | Pare-feu réseau/cluster | ⬜ pas commencé — demandé le 2026-09-13. **Attention, existe déjà en partie** : pare-feu **par VM** (nwfilter) fonctionnel dans `app/routers/vms.py` (`FirewallConfig`/`set_vm_firewall`) + UI dans `VMHardwareTab.jsx`. Ce chantier = un niveau réseau/global, pas repartir de zéro |
@@ -96,7 +97,7 @@ terminée, de le remplacer par quelque chose de plus proche du système de
 Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 
 **Répartition en cours (2026-09-13)** : un collègue travaille depuis son
-propre clone (`/root/hyperlite-ami`, session `hyperlite-ami-cf` si tu veux
+propre clone (`/root/hyperlite-ami`, session `hyperlite-ami-5c` si tu veux
 le contacter via SendMessage/ListAgents) sur deux chantiers en parallèle :
 - **Chantier 12** (branche `chantier12-kickstart-multi-os`) : Kali (preseed
   embarqué dans l'initrd) et Alpine (apkovl) ajoutés à l'installation
@@ -105,8 +106,12 @@ le contacter via SendMessage/ListAgents) sur deux chantiers en parallèle :
   26.04 desktop restent à vérifier. **Ne retouche pas
   `app/core/unattended_install.py` ni `get_vm_provisioning` sans
   coordination** — attends sa PR plutôt que de dupliquer le travail.
-- **Chantier 18** : support conteneurs LXC + choix d'image Docker Hub,
-  terminé et mergé (PR #10 puis PR #15).
+- **Chantier 18** : support conteneurs LXC + choix d'image Docker Hub +
+  recherche Docker Hub par mot-clé, terminé et mergé (PR #10, #15, #16).
+- **Chantier 23** : export/import de VM par fichier disque, terminé et
+  mergé (PR #16), voir tableau ci-dessus.
+- **Chantier 24** : refonte tableau de bord + barre latérale, terminé et
+  mergé (PR #17), voir tableau ci-dessus.
 - **Chantier 12, dernier essai Kali (v7, 2026-09-13)** : le correctif
   base64 sur le contenu du fichier `.network` (late_command) n'a **pas**
   résolu le problème — même échec qu'avant : `Failed to process the
@@ -123,8 +128,6 @@ le contacter via SendMessage/ListAgents) sur deux chantiers en parallèle :
   Python avant injection) et le comparer octet à octet à un preseed.cfg
   Debian valide connu, plutôt que de continuer à itérer sur le
   late_command.
-- **Chantier 23** (nouveau, 2026-09-13) : export/import de VM depuis un
-  fichier disque, demandé par Antho.
 
 Tests réels en cours sur ce host (VM/conteneurs jetables, hors service
 HTTP — zéro interférence avec ce qui tourne sur `/root/hyperlite`). Prévenu
