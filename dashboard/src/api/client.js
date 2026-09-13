@@ -1,8 +1,6 @@
 // Point d'entree unique pour toutes les donnees de l'app. Tout vient du vrai
 // backend Hyperlite (memes chemins que les routes FastAPI reelles, voir
-// vite.config.js pour le proxy de dev). Hyperlite ne gere qu'un seul host
-// (pas de cluster) et aucun conteneur LXC : fetchNodes() renvoie donc toujours
-// un seul noeud reel, construit a partir de GET /dashboard.
+// vite.config.js pour le proxy de dev).
 
 let taskIdCounter = 0;
 export function makeTaskId() {
@@ -401,4 +399,27 @@ export async function createCustomRole(name, privileges) {
 }
 export async function deleteCustomRole(roleId) {
   return realFetch(`/acl/custom-roles/${roleId}`, { method: "DELETE" });
+}
+
+// ---- Conteneurs LXC (reel : GET/POST/DELETE /containers, chantier 18) ----
+export async function fetchContainers() {
+  return realFetch("/containers");
+}
+export async function fetchContainer(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}`);
+}
+export async function createContainer(payload) {
+  return realFetch("/containers", { method: "POST", ...jsonBody(payload) });
+}
+export async function startContainer(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/start`, { method: "POST" });
+}
+export async function stopContainer(name, force = false) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/stop?force=${force}`, { method: "POST" });
+}
+export async function deleteContainer(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function createContainerTerminalTicket(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }

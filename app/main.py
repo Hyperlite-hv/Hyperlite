@@ -28,6 +28,7 @@ from app.routers.metrics import router as metrics_router
 from app.routers.backups import router as backups_router
 from app.routers.jobs import router as jobs_router
 from app.routers.nodes import router as nodes_router
+from app.routers.containers import router as containers_router
 
 app = FastAPI(title="Hyperlite API")
 app.include_router(auth_router)
@@ -48,6 +49,7 @@ app.include_router(metrics_router)
 app.include_router(backups_router)
 app.include_router(jobs_router)
 app.include_router(nodes_router)
+app.include_router(containers_router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
