@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.seed import seed_admin
+from app.core.metrics import start_metrics_collector
 from app.core.libvirt_utils import open_conn
 from app.routers.auth import router as auth_router
 from app.routers.dashboard import router as dashboard_router
@@ -20,6 +21,7 @@ from app.routers.pools import router as pools_router
 from app.routers.acl import router as acl_router
 from app.routers.host import router as host_router
 from app.routers.update import router as update_router
+from app.routers.metrics import router as metrics_router
 
 app = FastAPI(title="Hyperlite API")
 app.include_router(auth_router)
@@ -36,6 +38,7 @@ app.include_router(pools_router)
 app.include_router(acl_router)
 app.include_router(host_router)
 app.include_router(update_router)
+app.include_router(metrics_router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -51,6 +54,15 @@ if os.path.isdir(DASHBOARD_DIST):
 
 @app.get("/health")
 def health():
+    import platform
+    import sys
+    import fastapi as _fastapi
+    try:
+        import uvicorn as _uvicorn
+        uvicorn_version = _uvicorn.__version__
+    except ImportError:
+        uvicorn_version = None
+
     conn = open_conn()
     try:
         return {
@@ -58,6 +70,15 @@ def health():
             "hypervisor": conn.getType(),
             "hostname": conn.getHostname(),
             "libvirt_version": conn.getLibVersion(),
+            # Introspecte pour de vrai (platform/sys/fastapi/uvicorn) plutot
+            # que des chaines figees dans le code -- ce panneau (voir
+            # NodeSystemTab.jsx) etait jusqu'ici marque "Mock uniquement"
+            # avec un noyau/une version Python codes en dur, jamais mis a
+            # jour si l'hote change. Trouve et corrige au chantier 10.
+            "kernel": platform.release(),
+            "python_version": sys.version.split()[0],
+            "fastapi_version": _fastapi.__version__,
+            "uvicorn_version": uvicorn_version,
         }
     finally:
         conn.close()
@@ -103,3 +124,4 @@ def on_startup():
     pwd = seed_admin()
     if pwd:
         print(f"=== Compte admin cree : admin / {pwd} (notez ce mot de passe) ===", flush=True)
+    start_metrics_collector()
