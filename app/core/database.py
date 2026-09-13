@@ -163,6 +163,20 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_job_run_logs_run ON job_run_logs(run_id)")
+
+        # ---- Multi-noeuds (chantier 15) ----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                hostname TEXT NOT NULL,
+                ssh_user TEXT NOT NULL DEFAULT 'root',
+                ssh_port INTEGER NOT NULL DEFAULT 22,
+                statut TEXT NOT NULL DEFAULT 'inconnu' CHECK(statut IN ('en_ligne', 'hors_ligne', 'inconnu')),
+                derniere_verification TEXT,
+                added_at TEXT NOT NULL
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_ssh_users (
                 vm_name TEXT PRIMARY KEY,
