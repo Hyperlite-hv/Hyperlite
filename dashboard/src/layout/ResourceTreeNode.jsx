@@ -19,7 +19,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
     <div>
       <div
         className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-sm cursor-pointer select-none ${
-          isSelected ? "bg-white/10 text-white" : "text-chrome-100 hover:bg-chrome-700"
+          isSelected ? "bg-chrome-700 text-chrome-100 font-semibold" : "text-chrome-100/80 hover:bg-chrome-700/60"
         }`}
         style={{ paddingLeft: 6 + depth * 14 }}
         onClick={() => {

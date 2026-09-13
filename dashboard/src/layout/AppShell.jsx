@@ -33,7 +33,7 @@ export default function AppShell() {
     <div className="flex h-screen flex-col overflow-hidden bg-anthracite-900">
       <Header />
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-[250px] shrink-0">
+        <div className="w-[236px] shrink-0">
           <ResourceTree />
         </div>
         <div className="flex-1 overflow-hidden">
