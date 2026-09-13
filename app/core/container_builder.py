@@ -32,9 +32,16 @@ DEBOOTSTRAP_MIRROR = "http://deb.debian.org/debian"
 # Variante par defaut (PAS minbase) : garantit que systemd et ses dependances
 # arrivent proprement via les priorites standard de Debian plutot que d'avoir
 # a toutes les lister a la main et risquer d'en oublier une -- seuls les
-# paquets vraiment specifiques a Hyperlite (ssh, sudo, reseau, cle SSH) sont
-# ajoutes explicitement par-dessus.
-DEBOOTSTRAP_INCLUDE = "openssh-server,sudo,ifupdown,isc-dhcp-client"
+# paquets vraiment specifiques a Hyperlite (ssh, sudo) sont ajoutes
+# explicitement par-dessus. PAS de ifupdown/isc-dhcp-client : le profil
+# AppArmor de libvirtd sur cet hote (Debian standard) interdit d'envoyer un
+# signal a dhclient (`apparmor="DENIED" ... signal=term ... peer="/sbin/
+# dhclient"`, constate en test) -- detruire un conteneur dont l'interface a
+# ete configuree par dhclient echoue silencieusement cote noyau, le
+# processus reste orphelin. systemd-networkd (deja fourni par le paquet
+# systemd, voir configure_container_rootfs) a son propre client DHCP
+# integre, sans binaire externe a confiner separement -- aucun conflit.
+DEBOOTSTRAP_INCLUDE = "openssh-server,sudo"
 
 
 def ensure_base_rootfs():
@@ -96,10 +103,17 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey)
     existing_hosts = hosts_path.read_text() if hosts_path.exists() else ""
     hosts_path.write_text(f"127.0.0.1 localhost\n127.0.1.1 {hostname}\n{existing_hosts}")
 
-    (rootfs / "etc" / "network").mkdir(parents=True, exist_ok=True)
-    (rootfs / "etc" / "network" / "interfaces").write_text(
-        "auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n"
-    )
+    # systemd-networkd (pas ifupdown/dhclient, voir DEBOOTSTRAP_INCLUDE plus
+    # haut) : DHCP integre, active explicitement (pas actif par defaut sur
+    # Debian) via le meme mecanisme de symlink que ssh.service plus bas.
+    network_dir = rootfs / "etc" / "systemd" / "network"
+    network_dir.mkdir(parents=True, exist_ok=True)
+    (network_dir / "eth0.network").write_text("[Match]\nName=eth0\n\n[Network]\nDHCP=yes\n")
+    # /etc/resolv.conf statique plutot que le stub de systemd-resolved (non
+    # active ici, inutile d'ajouter un service de plus pour ce premier jet) --
+    # resolveur public, suffisant pour un conteneur qui a besoin du reseau
+    # sortant (ex. `apt install` manuel une fois connecte).
+    (rootfs / "etc" / "resolv.conf").write_text("nameserver 1.1.1.1\nnameserver 9.9.9.9\n")
 
     subprocess.run(
         ["chroot", str(rootfs), "useradd", "-m", "-s", "/bin/bash", "-G", "sudo", username],
@@ -112,6 +126,16 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey)
     # Root verrouille -- meme posture que le kickstart RHEL (rootpw --lock) :
     # seul le compte nommement cree est utilisable.
     subprocess.run(["chroot", str(rootfs), "passwd", "-l", "root"], check=True, capture_output=True, text=True)
+
+    # sudo SANS mot de passe pour ce compte -- l'appartenance seule au
+    # groupe "sudo" ne suffit pas (politique par defaut Debian : mot de
+    # passe requis), constate en test (le terminal web pouvait se connecter
+    # en SSH mais `sudo` y restait bloque). Meme posture que l'autoinstall
+    # Ubuntu des VM (`sudo: ALL=(ALL) NOPASSWD:ALL`, voir
+    # unattended_install.py::build_autoinstall_iso).
+    sudoers_dropin = rootfs / "etc" / "sudoers.d" / "hyperlite-automation"
+    sudoers_dropin.write_text(f"{username} ALL=(ALL) NOPASSWD:ALL\n")
+    sudoers_dropin.chmod(0o440)
 
     uid = subprocess.run(["chroot", str(rootfs), "id", "-u", username], check=True, capture_output=True, text=True).stdout.strip()
     gid = subprocess.run(["chroot", str(rootfs), "id", "-g", username], check=True, capture_output=True, text=True).stdout.strip()
@@ -127,12 +151,19 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey)
     # ssh.service est normalement deja active par le postinst du paquet
     # openssh-server (comportement standard de debootstrap --include) ; ce
     # symlink direct est un filet de securite explicite plutot que de
-    # dependre silencieusement de ce comportement par defaut.
+    # dependre silencieusement de ce comportement par defaut. systemd-
+    # networkd, lui, n'est PAS active par defaut sur Debian (a la difference
+    # de ssh une fois le paquet installe) -- symlink obligatoire ici, pas
+    # juste un filet de securite.
     wants_dir = rootfs / "etc" / "systemd" / "system" / "multi-user.target.wants"
     wants_dir.mkdir(parents=True, exist_ok=True)
-    ssh_symlink = wants_dir / "ssh.service"
-    if not ssh_symlink.exists():
-        ssh_symlink.symlink_to("/lib/systemd/system/ssh.service")
+    for service, unit_path in (
+        ("ssh.service", "/lib/systemd/system/ssh.service"),
+        ("systemd-networkd.service", "/lib/systemd/system/systemd-networkd.service"),
+    ):
+        symlink = wants_dir / service
+        if not symlink.exists():
+            symlink.symlink_to(unit_path)
 
 
 def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=None):
