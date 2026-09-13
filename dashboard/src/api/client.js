@@ -201,6 +201,12 @@ export async function setVMLimits(name, payload) {
 export async function fetchVMMetrics(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
 }
+export async function fetchVMMetricsHistory(name, range = "1h") {
+  return realFetch(`/vms/${encodeURIComponent(name)}/metrics/history?range=${encodeURIComponent(range)}`);
+}
+export async function fetchHostMetricsHistory(range = "1h") {
+  return realFetch(`/host/metrics/history?range=${encodeURIComponent(range)}`);
+}
 export async function fetchProvisioningStatus(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);
 }

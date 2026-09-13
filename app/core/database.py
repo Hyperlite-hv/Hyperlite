@@ -53,6 +53,23 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_cree_le ON tasks(cree_le)")
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS metrics_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                tier TEXT NOT NULL CHECK(tier IN ('raw', 'hourly')),
+                scope TEXT NOT NULL CHECK(scope IN ('vm', 'host')),
+                cible TEXT NOT NULL,
+                cpu_pct REAL,
+                mem_used_mb REAL,
+                mem_total_mb REAL,
+                disk_read_bps REAL,
+                disk_write_bps REAL,
+                net_rx_bps REAL,
+                net_tx_bps REAL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(cible, tier, ts)")
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_ssh_users (
                 vm_name TEXT PRIMARY KEY,
                 username TEXT NOT NULL
