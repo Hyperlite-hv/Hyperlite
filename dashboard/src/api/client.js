@@ -154,6 +154,29 @@ export async function fetchAuditActions() {
   return realFetch("/audit/actions");
 }
 
+// ---- Automation : moteur de Jobs (réel : /jobs, voir app/routers/jobs.py, chantier 14) ----
+export async function fetchJobs() {
+  return realFetch("/jobs");
+}
+export async function fetchJob(id) {
+  return realFetch(`/jobs/${id}`);
+}
+export async function createJob(payload) {
+  return realFetch("/jobs", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteJob(id) {
+  return realFetch(`/jobs/${id}`, { method: "DELETE" });
+}
+export async function runJob(id, targets, dryRun) {
+  return realFetch(`/jobs/${id}/run`, { method: "POST", ...jsonBody({ targets, dry_run: dryRun }) });
+}
+export async function fetchJobRuns(id) {
+  return realFetch(`/jobs/${id}/runs`);
+}
+export async function fetchJobRun(runId) {
+  return realFetch(`/jobs/runs/${runId}`);
+}
+
 // ---- Taches persistees (reel : table tasks, horodatage creation/debut/fin -
 // voir app/core/tasks.py). Remplace le fetchTasks() encore theorique referme
 // dans NodeTasksTab.jsx par un vrai GET /tasks filtrable/triable.
