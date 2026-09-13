@@ -10,6 +10,7 @@ import secrets
 import time
 from pathlib import Path
 from app.routers.isos import ISOS_DIR
+from app.routers.vm_disks import IMPORTED_DISKS_DIR
 import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task
 from app.core.error_messages import describe_exception
 from app.core.vm_builder import (
-    validate_name, validate_username, create_disk, create_cloudinit_iso, create_cloudinit_reseed_iso,
+    validate_name, validate_username, create_disk, create_disk_from_import, create_cloudinit_iso, create_cloudinit_reseed_iso,
     build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
     strip_install_boot_override,
 )
@@ -277,6 +278,11 @@ class VMCreate(BaseModel):
     username: str | None = None
     password: str | None = None
     iso: str | None = None
+    # Nom d'un fichier deja uploade via POST /vm-disks (voir app/routers/
+    # vm_disks.py, chantier 23) : la VM demarre directement sur ce disque
+    # (deja un OS installe dessus) au lieu de l'image Debian 12 preinstallee
+    # ou d'un ISO d'installation -- mutuellement exclusif avec `iso`.
+    import_disk: str | None = None
 
 
 @router.post("", status_code=201)
@@ -294,6 +300,16 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         else:
             iso_path = candidate
 
+    import_disk_path = None
+    if payload.import_disk:
+        if payload.iso:
+            errors.append("Impossible de combiner import de disque et ISO d'installation")
+        candidate = IMPORTED_DISKS_DIR / payload.import_disk
+        if not candidate.exists():
+            errors.append(f"Disque importé '{payload.import_disk}' introuvable")
+        else:
+            import_disk_path = candidate
+
     # Mode "installation depuis ISO" : disque systeme vierge. Si l'ISO est
     # reconnu (famille RHEL/kickstart ou Ubuntu/autoinstall, voir
     # app/core/unattended_install.py), l'installation est automatisee : un
@@ -306,7 +322,13 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     install_mode = iso_path is not None
     os_family = detect_os_family(payload.iso) if install_mode else None
     automated_install = install_mode and os_family is not None
-    needs_account = not install_mode or automated_install
+    # Mode "import de disque" (chantier 23) : le disque a deja son propre OS
+    # et ses propres comptes -- ni cloud-init/kickstart, ni identifiants a
+    # demander a la creation (voir restore_backup(mode='new'),
+    # app/core/backups.py, meme principe deja en place pour la restauration
+    # de sauvegarde).
+    import_mode = import_disk_path is not None
+    needs_account = (not install_mode or automated_install) and not import_mode
     if needs_account:
         username_error = validate_username(payload.username or "")
         if username_error:
@@ -345,14 +367,38 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             pass
 
         try:
-            disk_paths = [
-                create_disk(payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0))
-                for i, disk in enumerate(payload.disks)
-            ]
+            if import_mode:
+                # Disque 0 = conversion du fichier importe (qemu-img detecte
+                # le format source tout seul) ; disques supplementaires
+                # eventuels toujours vierges comme d'habitude.
+                disk_paths = [create_disk_from_import(payload.name, import_disk_path)] + [
+                    create_disk(payload.name, disk.size_gb, index=i)
+                    for i, disk in enumerate(payload.disks[1:], start=1)
+                ]
+            else:
+                disk_paths = [
+                    create_disk(payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0))
+                    for i, disk in enumerate(payload.disks)
+                ]
             cloudinit_path = None
             seed_iso_path = None
             kernel_path = initrd_path = kernel_cmdline = None
-            if not install_mode:
+            if import_mode:
+                # Reutilise le "reseed" du clonage (chantier 5) : si le disque
+                # importe a du cloud-init dessus (cas le plus frequent -- un
+                # export Hyperlite, ou une image cloud generique), un nouvel
+                # instance-id force cloud-init a se re-executer au premier
+                # demarrage et a regenerer son reseau pour la MAC courante --
+                # sans ca, cloud-init garde la config reseau de sa toute
+                # premiere execution, qui epingle souvent l'interface par
+                # ADRESSE MAC (constate en testant : /etc/netplan/50-cloud-
+                # init.yaml avec `match: {macaddress: ...}`) : comme cette VM
+                # a forcement une nouvelle MAC (voir generate_mac plus haut),
+                # plus aucune interface ne correspond et le reseau ne demarre
+                # jamais. Inoffensif si le disque n'a pas cloud-init (l'ISO
+                # reste simplement un CD-ROM jamais lu).
+                cloudinit_path = create_cloudinit_reseed_iso(payload.name)
+            elif not install_mode:
                 ssh_pubkey = get_or_create_automation_pubkey()
                 cloudinit_path = create_cloudinit_iso(
                     payload.name, username=payload.username,
@@ -419,7 +465,11 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         # par defaut (aucune ISO, image pre-installee). Pas un vrai OS
         # "detecte" (aucun qemu-guest-agent installe dans les VM invitees
         # aujourd'hui), mais fiable : c'est Hyperlite qui a demande cet OS.
-        os_label = Path(payload.iso).stem if install_mode else "Debian 12"
+        os_label = (
+            f"Importé ({Path(payload.import_disk).stem})" if import_mode
+            else Path(payload.iso).stem if install_mode
+            else "Debian 12"
+        )
         set_vm_os_label(payload.name, os_label)
         log_action(user["username"], "create_vm", payload.name, "succes", task_id=task_id)
         return _domain_summary(domain)

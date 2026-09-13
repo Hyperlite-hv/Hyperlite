@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { fetchIsoTemplates } from "../../api/client";
+import { HardDrive } from "lucide-react";
+import { fetchIsoTemplates, fetchVmDisks } from "../../api/client";
 import { detectOsFamily } from "../../utils/osFamily";
+import VmDiskUploadDropzone from "../../components/VmDiskUploadDropzone";
 
 // Trois cas distincts cote backend reel (app/core/vm_builder.py +
 // app/core/unattended_install.py + POST /vms) :
@@ -16,11 +18,64 @@ import { detectOsFamily } from "../../utils/osFamily";
 //   que l'acces n'y est pas configure a la main).
 export default function StepTemplate({ form, patch }) {
   const [isos, setIsos] = useState([]);
+  const [disks, setDisks] = useState([]);
   useEffect(() => { fetchIsoTemplates().then(setIsos); }, []);
+  const reloadDisks = () => fetchVmDisks().then(setDisks);
+  useEffect(() => { reloadDisks(); }, []);
   const osFamily = detectOsFamily(form.iso);
+  const importMode = form.importDisk != null;
+  useEffect(() => {
+    if (importMode && !form.importDisk && disks.length > 0) patch({ importDisk: disks[0].nom });
+  }, [importMode, form.importDisk, disks]);
 
   return (
     <div className="space-y-3">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className={!importMode ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+          onClick={() => patch({ importDisk: "" })}
+        >
+          Image de base / ISO
+        </button>
+        <button
+          type="button"
+          className={importMode ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+          onClick={() => patch({ iso: "", importDisk: disks[0]?.nom || "__pending__" })}
+        >
+          Importer un disque existant
+        </button>
+      </div>
+
+      {importMode ? (
+        <div className="space-y-3">
+          <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-200">
+            Disque système : <span className="text-anthracite-100 font-medium">importé, tel quel</span>
+            <div className="text-xs text-anthracite-400 mt-0.5">
+              La VM démarre directement sur ce disque (déjà un OS et des comptes dessus) : pas de compte à définir
+              ici, pas de terminal SSH web automatique tant que la clé Hyperlite n'y est pas déjà présente.
+            </div>
+          </div>
+
+          {disks.length > 0 && (
+            <div className="space-y-1.5">
+              {disks.map((d) => (
+                <label key={d.nom} className={`flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer ${form.importDisk === d.nom ? "border-accent-blue bg-accent-blue/10" : "border-anthracite-600 hover:border-anthracite-500"}`}>
+                  <input type="radio" checked={form.importDisk === d.nom} onChange={() => patch({ importDisk: d.nom })} className="accent-accent-blue" />
+                  <HardDrive size={14} className="text-anthracite-400 shrink-0" />
+                  <div>
+                    <div className="text-sm text-anthracite-100">{d.nom}</div>
+                    <div className="text-xs text-anthracite-400">{d.taille_mo} Mo</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+
+          <VmDiskUploadDropzone onDone={() => reloadDisks().then(() => {})} />
+        </div>
+      ) : (
+      <>
       <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-200">
         {!form.iso ? (
           <>
@@ -65,6 +120,8 @@ export default function StepTemplate({ form, patch }) {
           </div>
         </label>
       ))}
+      </>
+      )}
     </div>
   );
 }

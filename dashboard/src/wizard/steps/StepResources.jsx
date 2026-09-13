@@ -8,6 +8,7 @@ import { detectOsFamily } from "../../utils/osFamily";
 // backend) -- seule l'installation manuelle (ISO non reconnu) s'en passe.
 export default function StepResources({ form, patch }) {
   const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
+  const importMode = form.importDisk != null;
   function updateDisk(i, size_gb) {
     const disks = form.disks.map((d, idx) => (idx === i ? { size_gb } : d));
     patch({ disks });
@@ -45,8 +46,12 @@ export default function StepResources({ form, patch }) {
           {form.disks.map((d, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="w-10 font-mono text-xs text-anthracite-400">sd{String.fromCharCode(97 + i)}</span>
-              <input type="number" min={1} max={500} className="input" value={d.size_gb} onChange={(e) => updateDisk(i, Number(e.target.value))} />
-              <button className="btn-secondary px-2" disabled={form.disks.length <= 1} onClick={() => removeDisk(i)}><X size={13} /></button>
+              {importMode && i === 0 ? (
+                <span className="input flex items-center text-anthracite-500">Taille du disque importé (ignoré)</span>
+              ) : (
+                <input type="number" min={1} max={500} className="input" value={d.size_gb} onChange={(e) => updateDisk(i, Number(e.target.value))} />
+              )}
+              <button className="btn-secondary px-2" disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => removeDisk(i)}><X size={13} /></button>
             </div>
           ))}
         </div>
@@ -55,7 +60,11 @@ export default function StepResources({ form, patch }) {
         </button>
       </div>
 
-      {manualInstall ? (
+      {importMode ? (
+        <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-300">
+          Compte utilisateur non applicable : le disque importé a déjà son propre OS et ses propres comptes (voir l'étape "Modèle").
+        </div>
+      ) : manualInstall ? (
         <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-300">
           Compte utilisateur non applicable : cet ISO n'est pas reconnu pour l'installation automatisée, l'OS et son compte seront créés pendant l'installation manuelle (voir l'étape "Modèle").
         </div>

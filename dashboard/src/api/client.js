@@ -139,6 +139,29 @@ export async function deleteIso(filename) {
   return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true`, { method: "DELETE" });
 }
 
+// ---- Disques importables (chantier 23 : import de VM depuis un fichier disque) ----
+export async function fetchVmDisks() {
+  return realFetch("/vm-disks");
+}
+export async function deleteVmDisk(filename) {
+  return realFetch(`/vm-disks/${encodeURIComponent(filename)}`, { method: "DELETE" });
+}
+
+// ---- Export de VM (chantier 23) ----
+export async function fetchVmExports() {
+  return realFetch("/vm-exports");
+}
+export async function exportVM(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/export`, { method: "POST" });
+}
+export async function deleteVmExport(filename) {
+  return realFetch(`/vm-exports/${encodeURIComponent(filename)}`, { method: "DELETE" });
+}
+export async function downloadVmExport(filename) {
+  const { ticket } = await realFetch(`/vm-exports/${encodeURIComponent(filename)}/download-ticket`, { method: "POST" });
+  window.open(`/vm-exports/download?ticket=${encodeURIComponent(ticket)}`, "_blank");
+}
+
 // ---- Journal d'audit (reel : table audit_log, alimentee par chaque action) ----
 export async function fetchAuditLog(filters = {}) {
   const params = new URLSearchParams();
@@ -407,6 +430,9 @@ export async function fetchContainers() {
 }
 export async function fetchContainer(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}`);
+}
+export async function searchDockerHub(query) {
+  return realFetch(`/containers/docker-hub/search?q=${encodeURIComponent(query)}`);
 }
 export async function createContainer(payload) {
   return realFetch("/containers", { method: "POST", ...jsonBody(payload) });

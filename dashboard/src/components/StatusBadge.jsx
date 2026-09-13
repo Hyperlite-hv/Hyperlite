@@ -5,6 +5,10 @@ const LABELS = {
   arrete: "Arrêté", stopped: "Arrêté",
   avertissement: "Avertissement", warning: "Avertissement",
   erreur: "Erreur", error: "Erreur",
+  // Etats reels d'un domaine libvirt (voir STATE_NAMES, app/routers/vms.py
+  // et app/routers/containers.py) au-dela du sous-ensemble actif/arrete.
+  en_pause: "En pause", suspendu: "Suspendu", bloque: "Bloqué",
+  en_arret: "Arrêt en cours", plante: "Planté", inconnu: "Inconnu",
 };
 
 export default function StatusBadge({ etat, showLabel = true, size = "sm" }) {
