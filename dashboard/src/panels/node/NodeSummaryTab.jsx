@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { LayoutGrid, Table2 } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import VMCard from "../../components/VMCard";
+import VMTable from "../../components/VMTable";
 import { fetchHostMetricsHistory } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { formatUptime, formatMo, formatGo } from "../../utils/format";
@@ -12,6 +14,7 @@ import { formatUptime, formatMo, formatGo } from "../../utils/format";
 export default function NodeSummaryTab({ resource: node }) {
   const vms = useInfraStore((s) => s.vms);
   const [latest, setLatest] = useState(null);
+  const [view, setView] = useState("cards"); // "cards" | "table"
 
   useEffect(() => {
     const load = () => fetchHostMetricsHistory("1h").then((rows) => setLatest(rows[rows.length - 1] || null)).catch(() => {});
@@ -62,9 +65,25 @@ export default function NodeSummaryTab({ resource: node }) {
         <div className="flex items-center gap-3">
           <span className="text-[15px] font-semibold text-anthracite-100">Machines virtuelles</span>
           <span className="font-mono text-xs text-anthracite-400">{nodeVms.length}</span>
+          <div className="ml-auto flex gap-0.5 rounded-md border border-anthracite-600 bg-anthracite-900 p-0.5">
+            <button
+              onClick={() => setView("cards")}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${view === "cards" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
+            >
+              <LayoutGrid size={13} /> Cartes
+            </button>
+            <button
+              onClick={() => setView("table")}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${view === "table" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
+            >
+              <Table2 size={13} /> Vue tableau
+            </button>
+          </div>
         </div>
         {nodeVms.length === 0 ? (
           <div className="card p-4 text-sm text-anthracite-400">Aucune VM sur ce nœud.</div>
+        ) : view === "table" ? (
+          <VMTable vms={nodeVms} />
         ) : (
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
             {nodeVms.map((vm) => <VMCard key={vm.nom} vm={vm} />)}
