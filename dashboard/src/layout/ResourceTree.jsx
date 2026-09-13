@@ -55,13 +55,13 @@ export default function ResourceTree() {
 
   return (
     <div className="flex h-full flex-col bg-chrome-800 border-r border-chrome-950">
-      <div className="flex gap-1 p-2 border-b border-chrome-950">
+      <div className="flex gap-0.5 m-2 p-0.5 rounded-md bg-anthracite-900 border border-chrome-950">
         {FILTERS.map((f) => (
           <button
             key={f.id}
             onClick={() => setTreeFilter(f.id)}
-            className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
-              treeFilter === f.id ? "bg-accent-blue text-white" : "bg-chrome-700 text-chrome-400 hover:text-chrome-100"
+            className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+              treeFilter === f.id ? "bg-chrome-700 text-chrome-100" : "text-chrome-400 hover:text-chrome-100"
             }`}
           >
             {f.label}
