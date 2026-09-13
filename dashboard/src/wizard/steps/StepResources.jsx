@@ -1,8 +1,13 @@
 import { Plus, X } from "lucide-react";
+import { detectOsFamily } from "../../utils/osFamily";
 
 // Bornes alignees sur la validation reelle du backend (app/routers/vms.py
 // VMCreate: vcpu 1-2, memory_mb 256-2048, 1 a 8 disques de 1 a 500 Go chacun).
+// Le compte utilisateur reste necessaire sans ISO (cloud-init) ET avec un ISO
+// reconnu (installation automatisee, meme logique que detect_os_family cote
+// backend) -- seule l'installation manuelle (ISO non reconnu) s'en passe.
 export default function StepResources({ form, patch }) {
+  const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
   function updateDisk(i, size_gb) {
     const disks = form.disks.map((d, idx) => (idx === i ? { size_gb } : d));
     patch({ disks });
@@ -29,7 +34,7 @@ export default function StepResources({ form, patch }) {
           <input type="number" min={1} max={2} className="input mt-1" value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
         </div>
         <div>
-          <label className="text-xs font-medium text-anthracite-300">Memoire (Mo, 256-2048)</label>
+          <label className="text-xs font-medium text-anthracite-300">Mémoire (Mo, 256-2048)</label>
           <input type="number" min={256} max={2048} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
         </div>
       </div>
@@ -50,16 +55,22 @@ export default function StepResources({ form, patch }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs font-medium text-anthracite-300">Utilisateur</label>
-          <input className="input mt-1" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="ex. antho" />
+      {manualInstall ? (
+        <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-300">
+          Compte utilisateur non applicable : cet ISO n'est pas reconnu pour l'installation automatisée, l'OS et son compte seront créés pendant l'installation manuelle (voir l'étape "Modèle").
         </div>
-        <div>
-          <label className="text-xs font-medium text-anthracite-300">Mot de passe</label>
-          <input type="password" className="input mt-1" value={form.password} onChange={(e) => patch({ password: e.target.value })} minLength={4} />
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-anthracite-300">Utilisateur</label>
+            <input className="input mt-1" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="ex. antho" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-anthracite-300">Mot de passe</label>
+            <input type="password" className="input mt-1" value={form.password} onChange={(e) => patch({ password: e.target.value })} minLength={4} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

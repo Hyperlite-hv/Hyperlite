@@ -3,6 +3,40 @@
 @tailwind utilities;
 
 @layer base {
+  /* Rampe de contenu "anthracite" : blanc/lavande/charbon par defaut (mode
+     clair), reprend l'ancien degrade gris fonce sous .dark (mode sombre
+     inchange). Triplets R G B (sans "rgb()") pour permettre les modificateurs
+     d'opacite Tailwind (bg-anthracite-700/50 etc.) via <alpha-value>. */
+  :root {
+    /* La lavande est reservee aux etats interactifs (survol/valeur "700") --
+       les cartes au repos ("800") restent quasi blanches avec une bordure
+       fine : remplir chaque carte de la page en lavande saturee ecrase tout
+       en un aplat violet et pique les yeux, ce n'etait pas l'intention. */
+    --a-950: 255 255 255; /* non utilise directement aujourd'hui */
+    --a-900: 255 255 255; /* fond de page -- blanc pur */
+    --a-800: 255 255 255; /* cartes au repos -- blanc pur, definies par bordure plutot que teinte */
+    --a-700: 228 224 245; /* survols / surfaces relevees -- lavande #E4E0F5, ici seulement */
+    --a-600: 218 211 236; /* bordures / separateurs -- lavande-gris doux, discret sur fond ivoire */
+    --a-500: 199 190 221; /* bordures secondaires, anneau de jauge "vide" -- un cran plus marque */
+    --a-400: 107 104 117; /* texte attenue secondaire */
+    --a-300: 139 136 148; /* texte attenue tertiaire / placeholder */
+    --a-200: 74 71 80;    /* texte secondaire plus marque */
+    --a-100: 42 42 48;    /* texte principal -- charbon #2A2A30 */
+  }
+
+  .dark {
+    --a-950: 13 15 20;
+    --a-900: 20 22 28;
+    --a-800: 28 31 38;
+    --a-700: 35 38 47;
+    --a-600: 44 48 58;
+    --a-500: 58 63 75;
+    --a-400: 86 92 107;
+    --a-300: 122 129 148;
+    --a-200: 164 170 187;
+    --a-100: 212 215 224;
+  }
+
   html,
   body,
   #root {
@@ -40,7 +74,7 @@
     @apply btn bg-status-error text-white hover:bg-red-500;
   }
   .card {
-    @apply bg-anthracite-800 rounded-lg shadow-panel;
+    @apply bg-anthracite-800 border border-anthracite-600 rounded-lg shadow-panel;
   }
   .input {
     @apply w-full rounded-md bg-anthracite-700 border border-anthracite-500 px-3 py-1.5 text-sm text-anthracite-100 placeholder-anthracite-300 focus:outline-none focus:ring-1 focus:ring-accent-blue;
@@ -53,4 +87,15 @@
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Barre de progression indeterminee (installation ISO automatisee en cours,
+   voir components/ProvisioningBar.jsx) : pas de pourcentage reel disponible,
+   juste un mouvement pour indiquer "toujours en cours". */
+.provisioning-indeterminate {
+  animation: provisioning-slide 1.4s ease-in-out infinite;
+}
+@keyframes provisioning-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
 }

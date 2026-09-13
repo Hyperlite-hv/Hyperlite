@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { Server, Plus, Bell, Sun, Moon, User, LogOut } from "lucide-react";
+import { Server, Plus, Bell, Sun, Moon, User, LogOut, RefreshCw } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import VMWizard from "../wizard/VMWizard";
+import UpdateModal from "../components/UpdateModal";
 import { useInfraStore } from "../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 
 export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const theme = useInfraStore((s) => s.theme);
@@ -20,12 +22,12 @@ export default function Header() {
   const recentTasks = tasks.slice(0, 5);
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-anthracite-600 bg-anthracite-800 px-4">
+    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-chrome-950 bg-chrome-900 px-4">
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-blue">
           <Server size={16} className="text-white" />
         </div>
-        <span className="text-sm font-semibold tracking-wide text-anthracite-100">HYPERLITE</span>
+        <span className="text-sm font-semibold tracking-wide text-chrome-100">HYPERLITE</span>
       </div>
 
       <div className="flex-1 flex justify-center">
@@ -35,12 +37,12 @@ export default function Header() {
       <div className="flex items-center gap-2 shrink-0">
         {isAdmin && (
           <button className="btn-primary" onClick={() => setWizardOpen(true)}>
-            <Plus size={15} /> Creer VM
+            <Plus size={15} /> Créer VM
           </button>
         )}
 
         <div className="relative">
-          <button className="relative rounded-md p-2 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100" onClick={() => setNotifOpen((o) => !o)}>
+          <button className="relative rounded-md p-2 text-chrome-400 hover:bg-chrome-700 hover:text-chrome-100" onClick={() => setNotifOpen((o) => !o)}>
             <Bell size={17} />
             {runningCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-accent-orange text-[10px] font-bold text-white">
@@ -50,8 +52,8 @@ export default function Header() {
           </button>
           {notifOpen && (
             <div className="absolute right-0 mt-1 w-72 card border border-anthracite-600 z-50 py-1" onMouseLeave={() => setNotifOpen(false)}>
-              <div className="px-3 py-1.5 text-xs font-semibold text-anthracite-300">Taches recentes</div>
-              {recentTasks.length === 0 && <div className="px-3 py-2 text-sm text-anthracite-400">Aucune tache.</div>}
+              <div className="px-3 py-1.5 text-xs font-semibold text-anthracite-300">Tâches récentes</div>
+              {recentTasks.length === 0 && <div className="px-3 py-2 text-sm text-anthracite-400">Aucune tâche.</div>}
               {recentTasks.map((t) => (
                 <div key={t.id} className="px-3 py-1.5 text-sm">
                   <div className="flex justify-between text-anthracite-100">
@@ -65,7 +67,7 @@ export default function Header() {
         </div>
 
         <div className="relative">
-          <button className="rounded-md p-2 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100" onClick={() => setUserOpen((o) => !o)}>
+          <button className="rounded-md p-2 text-chrome-400 hover:bg-chrome-700 hover:text-chrome-100" onClick={() => setUserOpen((o) => !o)}>
             <User size={17} />
           </button>
           {userOpen && (
@@ -78,11 +80,19 @@ export default function Header() {
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
                 {theme === "dark" ? "Mode clair" : "Mode sombre"}
               </button>
+              {isAdmin && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
+                  onClick={() => { setUpdateOpen(true); setUserOpen(false); }}
+                >
+                  <RefreshCw size={14} /> Vérifier les mises à jour
+                </button>
+              )}
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
                 onClick={logout}
               >
-                <LogOut size={14} /> Se deconnecter
+                <LogOut size={14} /> Se déconnecter
               </button>
             </div>
           )}
@@ -90,6 +100,7 @@ export default function Header() {
       </div>
 
       <VMWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} />}
     </header>
   );
 }
