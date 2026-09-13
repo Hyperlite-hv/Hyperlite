@@ -79,7 +79,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 11 | Audit de robustesse/sécurité | ✅ passe partielle dans `master` — voir findings ci-dessous, pas exhaustif |
 | 12 | Finalisation Kickstart automatisé | ✅ dans `master` — démarrage auto + timeout/tâche dédiée corrigés et testés. **Vérification de bout en bout (un vrai kickstart/autoinstall jusqu'au bout, ~15 min) pas encore faite — assignée à un collègue via son propre clone `/root/hyperlite-ami`, voir note ci-dessous.** |
 | 13 | Backup/restauration natifs des VM | ✅ dans `master` |
-| 14 | Onglet Automation (moteur de jobs) | ⬜ pas commencé |
+| 14 | Onglet Automation (moteur de jobs) | ✅ dans `master` |
 | 15 | Multi-nœuds | ⬜ pas commencé |
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
 
@@ -89,15 +89,22 @@ terminée, de le remplacer par quelque chose de plus proche du système de
 Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 
 **Répartition en cours (2026-09-13)** : un collègue a rejoint le projet via
-son propre clone (`/root/hyperlite-ami`). Il s'occupe de la **vérification
-de bout en bout du chantier 12** (lancer un vrai Kickstart/autoinstall
-jusqu'au bout, confirmer que le terminal SSH web s'ouvre tout seul à la
-fin). Si tu es cette session-là : pas besoin de retester ce point, contente-
-toi de lire son PR/ses commits une fois prêts plutôt que de dupliquer le
-travail. Si tu es une AUTRE session (ex. celle qui continue la liste des
-chantiers), ne retouche pas non plus `app/core/unattended_install.py` ni la
-logique de `get_vm_provisioning` sans coordination — c'est son terrain pour
-l'instant.
+son propre clone (`/root/hyperlite-ami`, session `hyperlite-ami-cf` si tu
+veux le contacter via SendMessage/ListAgents). Il étend le chantier 12
+au-delà de la simple vérification : ajout du support Kali (preseed embarqué
+dans l'initrd) et Alpine (apkovl) dans `app/core/unattended_install.py`,
+branche `chantier12-kickstart-multi-os`, tests réels en cours (VM
+`hltest-kali` sur ce host). Confirmé de son côté : l'ISO "Windows" déjà
+présente dans `data/isos/` n'est PAS un vrai média d'installation (ISO de
+compléments linguistiques, pas de `setup.exe`/`boot.wim`) — pas de support
+Windows tant que la bonne ISO n'est pas fournie. Sa branche
+`roadmap-2026-09-13-demandes-antho` (PR #4) est déjà rebasée sur `master` à
+jour, mergeable sans conflit. **Ne retouche pas `app/core/
+unattended_install.py` ni `get_vm_provisioning` sans coordination — c'est
+son terrain tant que sa PR n'est pas arrivée.** Il a aussi confirmé ne pas
+toucher à `systemctl restart hyperlite` sans prévenir (ses tests passent
+par libvirt-python direct depuis son clone, pas par le service HTTP —
+zéro interférence avec ce qui tourne sur `/root/hyperlite`).
 
 ### Findings du chantier 11 (audit sécurité), déjà corrigés
 - **Endpoints sans le bon niveau de privilège** trouvés et corrigés : upload/
