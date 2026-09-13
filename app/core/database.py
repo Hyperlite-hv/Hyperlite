@@ -110,6 +110,59 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, cree_le)")
+
+        # ---- Automation : moteur de jobs (chantier 14) ----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                predefined_key TEXT,
+                created_by TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_steps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL REFERENCES jobs(id),
+                ordre INTEGER NOT NULL,
+                cible_type TEXT NOT NULL CHECK(cible_type IN ('vm', 'host', 'chaque_cible')),
+                cible TEXT,
+                commande TEXT NOT NULL,
+                condition_type TEXT NOT NULL DEFAULT 'exit_code' CHECK(condition_type IN ('exit_code', 'stdout_contains')),
+                condition_valeur TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_runs (
+                id TEXT PRIMARY KEY,
+                job_id INTEGER NOT NULL REFERENCES jobs(id),
+                task_id TEXT,
+                dry_run INTEGER NOT NULL DEFAULT 0,
+                targets TEXT,
+                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'succes', 'echec')),
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                resultat TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_run_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL REFERENCES job_runs(id),
+                step_ordre INTEGER,
+                cible TEXT,
+                commande TEXT,
+                stdout TEXT,
+                stderr TEXT,
+                exit_code INTEGER,
+                reussi INTEGER,
+                horodatage TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_job_run_logs_run ON job_run_logs(run_id)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_ssh_users (
                 vm_name TEXT PRIMARY KEY,
