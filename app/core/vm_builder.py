@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 IMAGES_DIR = Path("/var/lib/libvirt/images")
@@ -23,13 +24,13 @@ SCSI_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
 def validate_name(name):
     if not NAME_RE.match(name):
-        return "Nom de VM invalide (lettres/chiffres/tirets, 2-63 caracteres, doit commencer par une lettre ou un chiffre)"
+        return "Nom de VM invalide (lettres/chiffres/tirets, 2-63 caractères, doit commencer par une lettre ou un chiffre)"
     return None
 
 
 def validate_username(username):
     if not USERNAME_RE.match(username):
-        return "Nom d'utilisateur invalide (minuscules/chiffres/tirets/underscore, doit commencer par une lettre minuscule ou _, 32 caracteres max)"
+        return "Nom d'utilisateur invalide (minuscules/chiffres/tirets/underscore, doit commencer par une lettre minuscule ou _, 32 caractères max)"
     return None
 
 
@@ -69,11 +70,14 @@ def ensure_base_image():
     return BASE_IMAGE
 
 
-def create_disk(vm_name, disk_gb, index=0):
+def create_disk(vm_name, disk_gb, index=0, blank=False):
     """Cree un disque qcow2 pour la VM. Le disque d'index 0 (systeme) est base sur
-    l'image cloud Debian ; les disques suivants sont vierges (stockage supplementaire)."""
+    l'image cloud Debian par defaut ; les disques suivants sont toujours vierges
+    (stockage supplementaire). `blank=True` force un disque 0 vierge malgre tout --
+    utilise quand une VM demarre sur un ISO d'installation (voir create_vm) : il n'y
+    a alors rien a preinstaller, l'utilisateur installe son propre OS dessus."""
     disk_path = IMAGES_DIR / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
-    if index == 0:
+    if index == 0 and not blank:
         ensure_base_image()
         subprocess.run(
             [
@@ -105,7 +109,7 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
         meta_data = workdir / "meta-data"
 
         if any(c in password for c in ("\n", "\r")):
-            raise ValueError("Le mot de passe ne doit pas contenir de retour a la ligne")
+            raise ValueError("Le mot de passe ne doit pas contenir de retour à la ligne")
         pwd_quoted = "'" + password.replace("'", "''") + "'"
         ud = [
             "#cloud-config",
@@ -141,26 +145,143 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None):
+def create_cloudinit_reseed_iso(vm_name):
+    """ISO cloud-init minimal pour un CLONE (voir clone_vm) : contrairement a
+    create_cloudinit_iso(), ne recree pas le compte utilisateur (le disque
+    clone en dispose deja -- copie du disque source -- et le mot de passe en
+    clair de la VM d'origine n'est de toute facon jamais conserve nulle part
+    par Hyperlite, impossible a reinjecter meme si on le voulait).
+    Se contente de changer le hostname et de fournir un nouvel instance-id :
+    cloud-init detecte alors une "nouvelle instance" au premier boot du clone
+    et regenere de lui-meme les cles hote SSH (module `ssh` de cloud-init,
+    comportement par defaut sur une instance jamais vue) et le hostname --
+    exactement le risque identifie a l'audit (clone qui demarre avec les
+    memes cles SSH hote et le meme hostname que l'original tant que rien ne
+    force cloud-init a se re-executer)."""
+    workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-reseed-"))
+    try:
+        user_data = workdir / "user-data"
+        meta_data = workdir / "meta-data"
+        user_data.write_text("#cloud-config\nhostname: {0}\nmanage_etc_hosts: true\n".format(vm_name))
+        meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
+
+        iso_path = IMAGES_DIR / f"{vm_name}-cloudinit.iso"
+        subprocess.run(
+            ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return iso_path
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None, mac=None, kernel_path=None, initrd_path=None, kernel_cmdline=None):
+    # Ordre de boot PAR PERIPHERIQUE (<boot order='N'/> sur chaque <disk>)
+    # plutot que la liste globale <os><boot dev=.../></os> : SeaBIOS ne fait
+    # pas de fallback fiable entre plusieurs CD-ROM IDE avec la liste globale
+    # (constate en test : il choisit le premier CD-ROM trouve, quel qu'il
+    # soit, et abandonne s'il n'est pas amorcable -- ce qui echouait des que
+    # l'ISO de reponses OEMDRV/cidata, jamais destine a etre amorce, passait
+    # avant le vrai ISO d'installation). Avec un ordre explicite par
+    # peripherique, seuls le disque systeme et l'ISO d'installation portent
+    # un <boot order>, l'ISO de reponses n'en porte aucun et n'est donc
+    # jamais tente comme peripherique de demarrage.
     disks_xml = ""
     for i, disk_path in enumerate(disk_paths):
         dev = f"sd{SCSI_LETTERS[i]}"
+        boot_order = " <boot order='1'/>" if i == 0 else ""
         disks_xml += f"""
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{disk_path}'/>
-      <target dev='{dev}' bus='scsi'/>
+      <target dev='{dev}' bus='scsi'/>{boot_order}
     </disk>"""
 
+    # L'ISO d'installation est place sur 'hda' (premier peripherique IDE) :
+    # la directive kickstart `cdrom` (voir unattended_install.py) installe
+    # depuis "le premier lecteur CD-ROM du systeme", sans scanner les autres
+    # -- constate en test, avec l'ISO de reponses sur 'hda' et l'ISO
+    # d'installation plus loin, Anaconda choisissait l'ISO de reponses
+    # (aucune donnee installable) et echouait avec "Installation source not
+    # set up". Le vrai media d'installation doit donc toujours occuper le
+    # premier slot.
     iso_xml = ""
     if iso_path:
         iso_xml = f"""
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{iso_path}'/>
-      <target dev='hdd' bus='ide'/>
+      <target dev='hda' bus='ide'/>
+      <readonly/>
+      <boot order='2'/>
+    </disk>"""
+
+    # cloudinit_path est optionnel : une VM demarree sur un ISO d'installation
+    # (disque systeme vierge, voir create_vm) n'a pas de cloud-init a injecter,
+    # l'OS et son compte utilisateur sont crees manuellement par l'installeur
+    # (ou automatiquement via seed_iso_path, voir juste en dessous). Jamais de
+    # <boot order> : ce disque ne doit jamais etre tente comme peripherique
+    # d'amorçage, seulement lu par l'OS une fois demarre.
+    cloudinit_xml = ""
+    if cloudinit_path:
+        cloudinit_xml = f"""
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{cloudinit_path}'/>
+      <target dev='hdc' bus='ide'/>
       <readonly/>
     </disk>"""
+
+    # seed_iso_path : petit ISO de reponses (OEMDRV/kickstart ou cidata/
+    # autoinstall, voir app/core/unattended_install.py). Attache comme DISQUE
+    # (device='disk'), pas comme CD-ROM : deplacer l'ISO d'installation en
+    # premiere position IDE n'a pas suffi -- constate en test, la directive
+    # kickstart `cdrom` (voir unattended_install.py) continuait a echouer
+    # avec "Installation source not set up" des que deux lecteurs CD-ROM
+    # etaient presents, quel que soit leur ordre. En le presentant comme un
+    # disque plutot qu'un CD-ROM, il ne peut plus etre confondu avec la
+    # source d'installation (Anaconda ne le considere pas comme un lecteur
+    # optique) tout en restant detectable par etiquette de volume (OEMDRV /
+    # cidata) : c'est ce scan-la, et non le type de peripherique, qui importe
+    # pour la detection du kickstart/autoinstall. Aucun <boot order> non
+    # plus : jamais un media amorcable.
+    # Pas de <readonly/> ici : libvirt refuse ce flag sur un disque IDE de
+    # type 'disk' (seuls cdrom/floppy le supportent en IDE -- "unsupported
+    # configuration: readonly ide disks are not supported", constate en
+    # test). Sans consequence : ce fichier est une donnee jetable propre a
+    # cette VM, pas un ISO partage entre plusieurs VM comme iso_path.
+    seed_xml = ""
+    if seed_iso_path:
+        seed_xml = f"""
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='{seed_iso_path}'/>
+      <target dev='hdb' bus='ide'/>
+    </disk>"""
+
+    # mac explicite (voir app/core/network_alloc.py) : permet de reserver une
+    # IP fixe cote reseau libvirt avant meme de definir le domaine, plutot
+    # que de laisser libvirt en generer une aleatoire.
+    mac_xml = f"<mac address='{mac}'/>\n      " if mac else ""
+
+    # kernel_path/initrd_path : demarrage direct d'un noyau/initrd extrait de
+    # l'ISO (voir app/core/unattended_install.py::extract_casper_kernel),
+    # utilise UNIQUEMENT pour le tout premier boot d'un autoinstall Ubuntu
+    # (seul moyen d'ajouter le mot-cle "autoinstall" sur la ligne de commande
+    # noyau et sauter la confirmation manuelle de Subiquity). IMPORTANT :
+    # cet override doit etre retire du XML PERSISTANT une fois l'installation
+    # terminee (voir vms.py::get_vm_provisioning, strip_install_boot_override
+    # ci-dessous) -- sinon la VM rebooterait indefiniment sur l'installeur
+    # live au lieu du systeme installe sur le disque, le <boot order> normal
+    # n'etant jamais consulte tant que <kernel>/<initrd> sont presents.
+    os_extra_xml = ""
+    if kernel_path:
+        cmdline_xml = f"\n    <cmdline>{kernel_cmdline}</cmdline>" if kernel_cmdline else ""
+        os_extra_xml = f"""
+    <kernel>{kernel_path}</kernel>
+    <initrd>{initrd_path}</initrd>{cmdline_xml}"""
 
     return f"""
 <domain type='kvm'>
@@ -169,8 +290,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   <currentMemory unit='MiB'>{memory_mb}</currentMemory>
   <vcpu placement='static'>{vcpu}</vcpu>
   <os>
-    <type arch='x86_64' machine='pc'>hvm</type>
-    <boot dev='hd'/>
+    <type arch='x86_64' machine='pc'>hvm</type>{os_extra_xml}
   </os>
   <features>
     <acpi/>
@@ -183,16 +303,10 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}
-    <disk type='file' device='cdrom'>
-      <driver name='qemu' type='raw'/>
-      <source file='{cloudinit_path}'/>
-      <target dev='hdc' bus='ide'/>
-      <readonly/>
-    </disk>
+    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}
     <interface type='network'>
       <source network='{network}'/>
-      <model type='virtio'/>
+      {mac_xml}<model type='virtio'/>
     </interface>
     <console type='pty'/>
     <channel type='unix'>
@@ -202,3 +316,28 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   </devices>
 </domain>
 """
+
+
+def strip_install_boot_override(domain_xml):
+    """Retire <kernel>/<initrd>/<cmdline> du XML d'un domaine, s'ils sont
+    presents -- appele une fois un autoinstall Ubuntu termine (voir
+    vms.py::get_vm_provisioning) pour que les demarrages suivants utilisent a
+    nouveau le <boot order> normal (disque systeme) plutot que de rebooter
+    indefiniment sur le noyau/initrd live extrait de l'ISO (voir
+    build_domain_xml, parametre kernel_path). Ne modifie que le XML
+    PERSISTANT (conn.defineXML) : le domaine deja demarre continue de
+    tourner avec sa configuration live actuelle jusqu'au prochain
+    redemarrage, sans interruption."""
+    root = ET.fromstring(domain_xml)
+    os_elem = root.find("os")
+    if os_elem is None:
+        return domain_xml
+    changed = False
+    for tag in ("kernel", "initrd", "cmdline"):
+        elem = os_elem.find(tag)
+        if elem is not None:
+            os_elem.remove(elem)
+            changed = True
+    if not changed:
+        return domain_xml
+    return ET.tostring(root, encoding="unicode")

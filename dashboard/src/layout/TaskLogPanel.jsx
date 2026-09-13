@@ -4,9 +4,9 @@ import ProgressBar from "../components/ProgressBar";
 import { useInfraStore } from "../store/useInfraStore";
 
 const TASK_LABELS = {
-  start_vm: "Demarrer VM", stop_vm: "Arreter VM", restart_vm: "Redemarrer VM",
-  delete_vm: "Supprimer VM", create_vm: "Creer VM", create_snapshot: "Creer snapshot",
-  upload_iso: "Televerser ISO",
+  start_vm: "Démarrer VM", stop_vm: "Arrêter VM", restart_vm: "Redémarrer VM",
+  delete_vm: "Supprimer VM", create_vm: "Créer VM", create_snapshot: "Créer snapshot",
+  upload_iso: "Téléverser ISO",
 };
 
 function formatDuration(debut, fin) {
@@ -37,14 +37,14 @@ export default function TaskLogPanel() {
         className="flex h-9 shrink-0 items-center gap-2 px-3 text-xs font-medium text-anthracite-300 hover:text-anthracite-100"
       >
         {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        Taches
+        Tâches
         {runningCount > 0 && <span className="rounded-full bg-accent-blue/20 text-accent-blue px-1.5 py-0.5 text-[11px]">{runningCount} en cours</span>}
         <span className="ml-auto text-anthracite-500">{tasks.length} au total</span>
       </button>
 
       {!collapsed && (
         <div className="flex-1 overflow-y-auto px-2 pb-2">
-          {tasks.length === 0 && <div className="px-2 py-4 text-sm text-anthracite-400">Aucune tache pour le moment.</div>}
+          {tasks.length === 0 && <div className="px-2 py-4 text-sm text-anthracite-400">Aucune tâche pour le moment.</div>}
           {tasks.map((t) => (
             <div key={t.id} className="rounded-md hover:bg-anthracite-700/60">
               <button
@@ -59,7 +59,7 @@ export default function TaskLogPanel() {
               </button>
               {openId === t.id && (
                 <div className="px-8 pb-2 text-xs text-anthracite-400 space-y-0.5">
-                  <div>Noeud : {t.node}</div>
+                  <div>Nœud : {t.node}</div>
                   <div>Utilisateur : {t.utilisateur}</div>
                   <div>Statut : {t.statut}{t.erreur ? ` -- ${t.erreur}` : ""}</div>
                 </div>

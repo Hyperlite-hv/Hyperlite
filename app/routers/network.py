@@ -62,8 +62,8 @@ def get_network(name: str, user: dict = Depends(get_current_user)):
         try:
             net = conn.networkLookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_network", name, "echec", "Reseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Reseau '{name}' introuvable")
+            log_action(user["username"], "get_network", name, "echec", "Réseau introuvable")
+            raise HTTPException(status_code=404, detail=f"Réseau '{name}' introuvable")
 
         summary = _network_summary(net)
         leases = []
