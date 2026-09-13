@@ -30,6 +30,7 @@ from app.core.container_builder import (
 )
 from app.core.container_meta import set_container_ssh_user, get_container_ssh_user, delete_container_ssh_user
 from app.core.network_alloc import generate_mac
+from app.core.docker_hub import search_images
 
 router = APIRouter(prefix="/containers", tags=["containers"])
 
@@ -91,6 +92,14 @@ def list_containers(user: dict = Depends(get_current_user)):
         return [_summary(d) for d in conn.listAllDomains()]
     finally:
         conn.close()
+
+
+@router.get("/docker-hub/search")
+def search_docker_hub(q: str = "", user: dict = Depends(get_current_user)):
+    try:
+        return search_images(q)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @router.get("/{name}")

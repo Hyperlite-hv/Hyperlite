@@ -99,6 +99,21 @@ def create_disk(vm_name, disk_gb, index=0, blank=False):
     return disk_path
 
 
+def create_disk_from_import(vm_name, source_path):
+    """Cree le disque systeme (index 0) d'une VM a partir d'un fichier
+    disque deja uploade (voir app/routers/vm_disks.py, chantier 23) plutot
+    que de l'image cloud Debian par defaut ou d'un disque vierge -- chemin
+    "importer une VM depuis un disque" du formulaire de creation, alternatif
+    a ISO+kickstart. `qemu-img convert` detecte tout seul le format source
+    (raw/vmdk/vdi/vhd/qcow2/...), rien a lui preciser."""
+    disk_path = IMAGES_DIR / f"{vm_name}.qcow2"
+    subprocess.run(
+        ["qemu-img", "convert", "-O", "qcow2", str(source_path), str(disk_path)],
+        check=True, capture_output=True, text=True,
+    )
+    return disk_path
+
+
 def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
     # Repertoire temporaire a permissions restreintes (0700, cree par mkdtemp),
     # toujours nettoye ensuite : user-data contient le mot de passe en clair de

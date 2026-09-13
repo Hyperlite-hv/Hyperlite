@@ -20,6 +20,15 @@ export const statusColors = {
   warning: "#e3a008",
   erreur: "#e5484d",
   error: "#e5484d",
+  // Etats reels d'un domaine libvirt (voir STATE_NAMES, app/routers/vms.py
+  // et app/routers/containers.py) au-dela du sous-ensemble actif/arrete
+  // deja couvert ci-dessus.
+  en_pause: "#e3a008",
+  suspendu: "#e3a008",
+  bloque: "#e5484d",
+  en_arret: "#7a8194",
+  plante: "#e5484d",
+  inconnu: "#7a8194",
 };
 
 export function statusColor(etat) {

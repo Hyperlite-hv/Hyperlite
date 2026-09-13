@@ -21,6 +21,7 @@ function initialForm(nodes, networks) {
   return {
     node: nodes[0]?.id || "",
     iso: "",
+    importDisk: null,
     name: "",
     vcpu: 1,
     memory_mb: 1024,
@@ -60,6 +61,7 @@ export default function VMWizard({ open, onClose }) {
       name: form.name, vcpu: form.vcpu, memory_mb: form.memory_mb,
       disks: form.disks, network: form.network, username: form.username,
       password: form.password, iso: form.iso || null,
+      import_disk: form.importDisk || null,
     };
     const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
     try {
@@ -81,7 +83,8 @@ export default function VMWizard({ open, onClose }) {
   // avec un ISO reconnu (installation automatisee), le compte est bien cree
   // par Hyperlite, donc toujours requis ici.
   const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
-  const canNext = stepIndex !== 2 || (form.name && (manualInstall || (form.username && form.password.length >= 4)));
+  const importMode = form.importDisk != null;
+  const canNext = stepIndex !== 2 || (form.name && (importMode ? Boolean(form.importDisk) : (manualInstall || (form.username && form.password.length >= 4))));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
