@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Play, Square, Power, RotateCw, Trash2, Copy, Layers } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricChart from "../../components/MetricChart";
+import MetricsHistoryCard from "../../components/MetricsHistoryCard";
+import { fetchVMMetricsHistory } from "../../api/client";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import ProvisioningBar from "../../components/ProvisioningBar";
 import { useLiveVMMetrics } from "../../hooks/useLiveVMMetrics";
@@ -155,6 +157,8 @@ export default function VMSummaryTab({ resource: vm }) {
           </div>
         </>
       )}
+
+      <MetricsHistoryCard title="Historique CPU (persisté)" fetcher={(range) => fetchVMMetricsHistory(vm.nom, range)} />
 
       <div className="card p-5">
         <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Statut</h3>
