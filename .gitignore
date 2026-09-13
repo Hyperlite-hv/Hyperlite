@@ -16,3 +16,4 @@ data/casper-cache/
 installer/*.iso
 installer/.iso-cache/
 hyperlite.db-journal
+hyperlite.db
