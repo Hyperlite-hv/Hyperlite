@@ -6,8 +6,21 @@ from fastapi import HTTPException
 LIBVIRT_URI = "qemu:///system"
 
 
-def open_conn():
-    conn = libvirt.open(LIBVIRT_URI)
+def open_conn(node_name=None):
+    """node_name=None (par defaut) : connexion locale inchangee, EXACTEMENT
+    comme avant le chantier 15 -- tous les appels existants (des dizaines,
+    dans tous les routers) continuent de fonctionner sans aucune
+    modification. node_name='<nom enregistre>' : connexion distante via
+    qemu+ssh:// (voir app/core/cluster.py) vers un noeud du chantier 15."""
+    if node_name and node_name != "local":
+        from app.core.cluster import build_libvirt_uri, get_node
+        node = get_node(node_name)
+        if not node:
+            raise HTTPException(status_code=404, detail=f"Nœud '{node_name}' introuvable")
+        uri = build_libvirt_uri(node)
+    else:
+        uri = LIBVIRT_URI
+    conn = libvirt.open(uri)
     if conn is None:
         raise HTTPException(status_code=500, detail="Connexion libvirt impossible")
     return conn
