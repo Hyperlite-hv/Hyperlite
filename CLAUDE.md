@@ -77,34 +77,40 @@ de 16 chantiers triés par charge de travail croissante.
 | 9 | Réseau virtuel (création, VLAN, pare-feu nwfilter) | ✅ dans `master` |
 | 10 | Métriques (collecte continue, historique, Prometheus) | ✅ dans `master` |
 | 11 | Audit de robustesse/sécurité | ✅ passe partielle dans `master` — voir findings ci-dessous, pas exhaustif |
-| 12 | Finalisation Kickstart automatisé | ✅ dans `master` — démarrage auto + timeout/tâche dédiée corrigés et testés. **Vérification de bout en bout (un vrai kickstart/autoinstall jusqu'au bout, ~15 min) pas encore faite — assignée à un collègue via son propre clone `/root/hyperlite-ami`, voir note ci-dessous.** |
+| 12 | Finalisation Kickstart automatisé | 🔄 en cours (branche `chantier12-kickstart-multi-os`, dans ce clone `/root/hyperlite-ami`) — la base RHEL (Anaconda)/Ubuntu (autoinstall) était déjà dans `master`. Ajoute Kali (Debian-installer, preseed embarqué dans l'initrd) et Alpine (apkovl) ; RHEL 10 et Ubuntu 26.04 *desktop* restent à vérifier par un vrai boot. **Windows non couvert** : l'ISO uploadée en prod (`26100...SERVER_LOF...iso`) n'est PAS un media d'installation (pas de `setup.exe`/`sources/boot.wim`, c'est un ISO de compléments de langue) — bloqué tant que la vraie ISO d'installation Windows n'est pas fournie. Voir note "Répartition en cours" ci-dessous. |
 | 13 | Backup/restauration natifs des VM | ✅ dans `master` |
 | 14 | Onglet Automation (moteur de jobs) | ✅ dans `master` |
 | 15 | Multi-nœuds (qemu+ssh://) | ✅ dans `master` — testé en boucle sur kvm-lab lui-même (pas de second hôte disponible), pas de vrai test inter-sites |
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
+| 17 | Onglet HA (Load Balancing, Ceph) | ⬜ pas commencé — demandé le 2026-09-13. Dépend largement du chantier 15 (multi-nœuds) pour avoir du sens |
+| 18 | Conteneurs (LXC) et tout l'outillage associé | 🔄 en cours (branche `chantier18-conteneurs`, dans `/root/hyperlite-ami`) — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap, terminal web SSH (même clé d'automatisation que les VM), onglet Datacenter dédié. Tests réels en cours sur ce host. Docker envisagé, pas retenu pour cette première itération (LXC colle mieux à l'architecture libvirt existante) |
+| 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ⬜ pas commencé — demandé le 2026-09-13 |
+| 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
+| 21 | Pare-feu réseau/cluster | ⬜ pas commencé — demandé le 2026-09-13. **Attention, existe déjà en partie** : pare-feu **par VM** (nwfilter) fonctionnel dans `app/routers/vms.py` (`FirewallConfig`/`set_vm_firewall`) + UI dans `VMHardwareTab.jsx`. Ce chantier = un niveau réseau/global, pas repartir de zéro |
+| 22 | Onglet "Système" sur le node | ✅ déjà fait avant cette demande — `dashboard/src/panels/node/NodeSystemTab.jsx`, branché dans `CentralPanel.jsx` (id `system`, "Résumé système"), données réelles (`/health` + historique métriques du chantier 10) |
 
 **Chantier 7, en attente d'un usage réel** : le système de mise à jour
 actuel est basé sur `git pull`. Antho a demandé, une fois la liste
 terminée, de le remplacer par quelque chose de plus proche du système de
 Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 
-**Répartition en cours (2026-09-13)** : un collègue a rejoint le projet via
-son propre clone (`/root/hyperlite-ami`, session `hyperlite-ami-cf` si tu
-veux le contacter via SendMessage/ListAgents). Il étend le chantier 12
-au-delà de la simple vérification : ajout du support Kali (preseed embarqué
-dans l'initrd) et Alpine (apkovl) dans `app/core/unattended_install.py`,
-branche `chantier12-kickstart-multi-os`, tests réels en cours (VM
-`hltest-kali` sur ce host). Confirmé de son côté : l'ISO "Windows" déjà
-présente dans `data/isos/` n'est PAS un vrai média d'installation (ISO de
-compléments linguistiques, pas de `setup.exe`/`boot.wim`) — pas de support
-Windows tant que la bonne ISO n'est pas fournie. Sa branche
-`roadmap-2026-09-13-demandes-antho` (PR #4) est déjà rebasée sur `master` à
-jour, mergeable sans conflit. **Ne retouche pas `app/core/
-unattended_install.py` ni `get_vm_provisioning` sans coordination — c'est
-son terrain tant que sa PR n'est pas arrivée.** Il a aussi confirmé ne pas
-toucher à `systemctl restart hyperlite` sans prévenir (ses tests passent
-par libvirt-python direct depuis son clone, pas par le service HTTP —
-zéro interférence avec ce qui tourne sur `/root/hyperlite`).
+**Répartition en cours (2026-09-13)** : un collègue travaille depuis son
+propre clone (`/root/hyperlite-ami`, session `hyperlite-ami-cf` si tu veux
+le contacter via SendMessage/ListAgents) sur deux chantiers en parallèle :
+- **Chantier 12** (branche `chantier12-kickstart-multi-os`) : Kali (preseed
+  embarqué dans l'initrd) et Alpine (apkovl) ajoutés à l'installation
+  automatisée. Windows bloqué (l'ISO uploadée n'est pas un média
+  d'installation valide, voir chantier 12 ci-dessus). RHEL 10 et Ubuntu
+  26.04 desktop restent à vérifier. **Ne retouche pas
+  `app/core/unattended_install.py` ni `get_vm_provisioning` sans
+  coordination** — attends sa PR plutôt que de dupliquer le travail.
+- **Chantier 18** (branche `chantier18-conteneurs`) : support conteneurs
+  LXC, voir ci-dessus. **Ne retouche pas `app/core/container_builder.py`,
+  `app/routers/containers.py` ni `open_lxc_conn` sans coordination.**
+
+Tests réels en cours sur ce host (VM/conteneurs jetables, hors service
+HTTP — zéro interférence avec ce qui tourne sur `/root/hyperlite`). Prévenu
+avant tout `systemctl restart hyperlite`.
 
 ### Findings du chantier 11 (audit sécurité), déjà corrigés
 - **Endpoints sans le bon niveau de privilège** trouvés et corrigés : upload/
