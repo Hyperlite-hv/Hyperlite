@@ -1,0 +1,111 @@
+import { useState } from "react";
+import { X, Check } from "lucide-react";
+import { useInfraStore } from "../store/useInfraStore";
+import { createContainer } from "../api/client";
+
+// Volontairement un seul ecran (pas d'etapes comme VMWizard) : un conteneur
+// se cree avec beaucoup moins de choix qu'une VM (pas d'ISO/OS a choisir,
+// une seule image de base pour l'instant -- voir app/core/
+// container_builder.py, chantier 18). Accessible directement depuis le
+// bouton "Créer conteneur" du Header, a cote de "Créer VM".
+function initialForm(networks) {
+  return { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: networks[0]?.nom || "default" };
+}
+
+export default function ContainerWizard({ open, onClose }) {
+  const networks = useInfraStore((s) => s.networks);
+  const addTask = useInfraStore((s) => s.addTask);
+  const completeTask = useInfraStore((s) => s.completeTask);
+  const pushToast = useInfraStore((s) => s.pushToast);
+
+  const [form, setForm] = useState(() => initialForm(networks));
+  const [busy, setBusy] = useState(false);
+
+  if (!open) return null;
+
+  function patch(fields) {
+    setForm((f) => ({ ...f, ...fields }));
+  }
+  function reset() {
+    setForm(initialForm(networks));
+  }
+
+  async function handleCreate() {
+    setBusy(true);
+    const taskId = addTask({ type: "create_container", cible: form.name });
+    try {
+      await createContainer(form);
+      completeTask(taskId, "termine");
+      pushToast({ kind: "success", title: "Conteneur créé", message: `${form.name} — construction du système en cours` });
+      onClose();
+      reset();
+    } catch (e) {
+      completeTask(taskId, "echec", e.message);
+      pushToast({ kind: "error", title: "Échec de création", message: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const canCreate = form.name && form.username && form.password.length >= 4 && !busy;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="card w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between border-b border-anthracite-600 px-5 py-3">
+          <h2 className="text-sm font-semibold text-anthracite-100">Créer un conteneur</h2>
+          <button onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>
+        </div>
+
+        <div className="space-y-3 px-5 py-4">
+          <p className="text-xs text-anthracite-500">
+            Conteneur LXC (Debian 12 minimal), accès terminal par clé SSH d'automatisation.
+            La toute première création prépare l'image de base (quelques minutes) ; les suivantes sont rapides.
+          </p>
+
+          <div>
+            <label className="text-xs font-medium text-anthracite-300">Nom</label>
+            <input className="input mt-1 w-full" value={form.name} onChange={(e) => patch({ name: e.target.value })} autoFocus />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-anthracite-300">vCPU</label>
+              <input className="input mt-1 w-full" type="number" min={1} max={16} value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-anthracite-300">RAM (Mo)</label>
+              <input className="input mt-1 w-full" type="number" min={128} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-anthracite-300">Réseau</label>
+            <select className="input mt-1 w-full" value={form.network} onChange={(e) => patch({ network: e.target.value })}>
+              {networks.length === 0 && <option value="default">default</option>}
+              {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom}</option>)}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-anthracite-300">Utilisateur</label>
+              <input className="input mt-1 w-full" value={form.username} onChange={(e) => patch({ username: e.target.value })} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-anthracite-300">Mot de passe</label>
+              <input className="input mt-1 w-full" type="password" value={form.password} onChange={(e) => patch({ password: e.target.value })} />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-anthracite-600 px-5 py-3">
+          <button className="btn-secondary" onClick={() => { onClose(); reset(); }}>Annuler</button>
+          <button className="btn-primary" disabled={!canCreate} onClick={handleCreate}>
+            <Check size={14} /> {busy ? "Création..." : "Créer le conteneur"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
