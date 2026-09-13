@@ -392,7 +392,28 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         if needs_account:
             set_vm_ssh_user(payload.name, payload.username)
         if automated_install:
-            mark_provisioning(payload.name, os_family)
+            # Chantier 12 : "sans aucune intervention manuelle" -- avant ce
+            # correctif, create_vm ne faisait que DEFINIR le domaine, il
+            # fallait cliquer "Demarrer" a la main pour que l'installation
+            # kickstart/autoinstall parte reellement. Demarre automatiquement
+            # ici pour de vrai. Une tache dediee ("auto_install") est creee
+            # pour ce cycle install+SSH-check complet, distincte de la tache
+            # "create_vm" (qui elle ne couvre que la definition du domaine,
+            # deja terminee au moment ou ce bloc s'execute) -- cloturee par
+            # get_vm_provisioning plus bas, succes ou echec/timeout.
+            install_task_id = create_task("auto_install", payload.name, node=conn.getHostname(), username=user["username"])
+            mark_provisioning(payload.name, os_family, task_id=install_task_id)
+            try:
+                domain.create()
+            except libvirt.libvirtError as e:
+                msg = describe_exception(e)
+                finish_task(install_task_id, "echec", f"Démarrage automatique impossible : {msg}")
+                clear_provisioning(payload.name)
+                log_action(user["username"], "auto_install", payload.name, "echec", msg)
+                # Ne fait pas echouer create_vm pour autant : le domaine est
+                # bien defini, l'admin peut le demarrer/diagnostiquer a la
+                # main -- un echec de demarrage automatique ne doit pas
+                # rendre la VM invisible/perdue.
         # Libelle d'OS "declare" (voir vm_meta.py::set_vm_os_label) : deduit
         # du nom de l'ISO montee, ou "Debian 12" pour le chemin cloud-init
         # par defaut (aucune ISO, image pre-installee). Pas un vrai OS
@@ -1439,7 +1460,7 @@ class CdromRequest(BaseModel):
 
 
 @router.put("/{name}/cdrom")
-def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(get_current_user)):
+def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     conn = open_conn()
     try:
         try:
@@ -1497,7 +1518,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(get_curr
 
 
 @router.delete("/{name}/cdrom")
-def eject_vm_cdrom(name: str, user: dict = Depends(get_current_user)):
+def eject_vm_cdrom(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     conn = open_conn()
     try:
         try:
@@ -1645,6 +1666,17 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         conn.close()
 
 
+# Chantier 12 : au-dela de ce delai sans SSH fonctionnel, on arrete de
+# poller passivement pour toujours et on declare l'installation en echec --
+# avant ce correctif, un install cassee (ISO incompatible, erreur de
+# partitionnement, panne reseau pendant l'installation...) restait "en
+# cours" indefiniment, sans jamais remonter d'erreur exploitable (constate
+# en pratique : plusieurs tentatives "ubuntu-autoinstall-fix" dans le
+# journal d'audit, jamais nettoyees). 30 minutes est large pour les familles
+# gerees (kickstart/autoinstall), meme sur un disque lent.
+PROVISIONING_TIMEOUT_S = 1800
+
+
 @router.get("/{name}/provisioning")
 def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
     """Etat d'une installation automatisee (Kickstart/autoinstall) en cours,
@@ -1659,16 +1691,27 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
     if not prov:
         return {"provisioning": False}
 
+    task_id = prov.get("task_id")
+
+    def _fail(reason):
+        clear_provisioning(name)
+        if task_id:
+            finish_task(task_id, "echec", reason)
+        log_action(user["username"], "auto_install", name, "echec", reason)
+        return {"provisioning": False, "failed": True, "erreur": reason}
+
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            clear_provisioning(name)
-            return {"provisioning": False}
+            return _fail("La VM a disparu pendant l'installation automatisée (supprimée ?)")
 
         started = datetime.fromisoformat(prov["started_at"])
         elapsed_s = int((datetime.now(timezone.utc) - started).total_seconds())
+
+        if elapsed_s > PROVISIONING_TIMEOUT_S:
+            return _fail(f"Timeout : SSH toujours inaccessible après {elapsed_s // 60} minutes")
 
         if not domain.isActive():
             return {"provisioning": True, "phase": "arretee", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
@@ -1711,6 +1754,8 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
                         conn.defineXML(new_xml)
                 except (libvirt.libvirtError, ET.ParseError):
                     pass
+            if task_id:
+                finish_task(task_id, "termine")
             log_action(user["username"], "provisioning_complete", name, "succes")
             return {"provisioning": False, "just_finished": True}
         return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
@@ -1723,7 +1768,7 @@ CONSOLE_TICKET_TTL = 30
 
 
 @router.post("/{name}/console-ticket")
-def create_console_ticket(name: str, user: dict = Depends(get_current_user)):
+def create_console_ticket(name: str, user: dict = Depends(require_vm_privilege("vm.console"))):
     conn = open_conn()
     try:
         try:
