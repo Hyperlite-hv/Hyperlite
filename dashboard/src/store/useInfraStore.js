@@ -28,6 +28,11 @@ export const useInfraStore = create((set, get) => ({
 
   // ---- Selection / navigation ----
   selection: { type: "datacenter", id: null }, // { type: "datacenter" | "node" | "vm", id }
+  // Onglet CentralPanel demande depuis l'exterieur de l'arbre (voir Header.jsx,
+  // barre de nav horizontale de la refonte 2026-09-13) : CentralPanel le lit
+  // au changement de selection puis le consomme (clearPendingTab) pour ne
+  // pas re-forcer cet onglet a chaque re-rendu.
+  pendingTab: null,
   searchQuery: "",
   treeFilter: "server", // "server" | "pool" | "tag"
 
@@ -76,6 +81,18 @@ export const useInfraStore = create((set, get) => ({
 
   select(type, id) {
     set({ selection: { type, id } });
+  },
+
+  // Selectionne une ressource ET demande un onglet CentralPanel precis en un
+  // seul appel (voir Header.jsx) -- select() seul ne peut pas cibler un
+  // onglet, CentralPanel retombe toujours sur "summary" au changement de
+  // selection.
+  navigateTo(type, id, tab) {
+    set({ selection: { type, id }, pendingTab: tab });
+  },
+
+  clearPendingTab() {
+    set({ pendingTab: null });
   },
 
   setSearchQuery(q) {
