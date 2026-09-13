@@ -176,6 +176,24 @@ avant tout `systemctl restart hyperlite`.
   finalisée du côté du second serveur au moment d'écrire cette note. Une
   fois les deux machines liées au même compte Tailscale, enregistrer le
   second serveur comme nœud via `POST /nodes` avec son adresse `100.x.x.x`.
+- **Chantier 7, premier vrai test en conditions réelles (2026-09-13) : bug
+  trouvé et corrigé.** Le bouton "Vérifier les mises à jour" échouait avec
+  `Impossible de contacter le dépôt distant : fatal: could not read
+  Username for 'https://github.com': No such device or address`. Cause :
+  `hyperlite.service` tourne en root mais **sans `User=`**, donc systemd ne
+  positionne pas `$HOME=/root` automatiquement ; le `git fetch` lancé en
+  sous-processus par `app/routers/update.py` ne trouvait donc pas
+  `~/.gitconfig` (root) où est configuré `credential.helper =
+  !gh auth git-credential` — indispensable puisque le dépôt GitHub est
+  **privé**. Corrigé en ajoutant `Environment=HOME=/root` dans
+  `/etc/systemd/system/hyperlite.service` (`systemctl daemon-reload &&
+  systemctl restart hyperlite` après modif). Reproduit et vérifié via
+  `env -i PATH=... git fetch` avec/sans `HOME` avant et après le fix.
+  **Limite connue** : ce mécanisme dépend de `gh auth login` fait à la main
+  sur la machine — sur une appliance fraîche (ISO), il faudra soit refaire
+  `gh auth login`, soit (mieux, à faire) migrer vers un token d'accès
+  dédié en lecture seule stocké hors dépôt (`.env` par ex.) pour que la
+  mise à jour marche out-of-the-box sans configuration manuelle.
 
 ## Commandes utiles
 
