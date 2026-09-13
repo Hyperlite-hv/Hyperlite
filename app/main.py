@@ -8,6 +8,7 @@ from app.core.seed import seed_admin
 from app.core.metrics import start_metrics_collector
 from app.core.backups import start_backup_scheduler
 from app.core.jobs import ensure_lb_job_exists
+from app.core.cluster import start_node_poller
 from app.core.libvirt_utils import open_conn
 from app.routers.auth import router as auth_router
 from app.routers.dashboard import router as dashboard_router
@@ -26,6 +27,7 @@ from app.routers.update import router as update_router
 from app.routers.metrics import router as metrics_router
 from app.routers.backups import router as backups_router
 from app.routers.jobs import router as jobs_router
+from app.routers.nodes import router as nodes_router
 
 app = FastAPI(title="Hyperlite API")
 app.include_router(auth_router)
@@ -45,6 +47,7 @@ app.include_router(update_router)
 app.include_router(metrics_router)
 app.include_router(backups_router)
 app.include_router(jobs_router)
+app.include_router(nodes_router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -133,3 +136,4 @@ def on_startup():
     start_metrics_collector()
     start_backup_scheduler()
     ensure_lb_job_exists()
+    start_node_poller()

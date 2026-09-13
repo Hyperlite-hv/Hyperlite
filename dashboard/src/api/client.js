@@ -177,6 +177,23 @@ export async function fetchJobRun(runId) {
   return realFetch(`/jobs/runs/${runId}`);
 }
 
+// ---- Multi-nœuds (réel : /nodes, voir app/routers/nodes.py, chantier 15) ----
+export async function fetchRemoteNodes() {
+  return realFetch("/nodes");
+}
+export async function fetchClusterPubkey() {
+  return realFetch("/nodes/cluster-pubkey");
+}
+export async function addRemoteNode(payload) {
+  return realFetch("/nodes", { method: "POST", ...jsonBody(payload) });
+}
+export async function fetchRemoteNodeSummary(name) {
+  return realFetch(`/nodes/${encodeURIComponent(name)}/summary`);
+}
+export async function deleteRemoteNode(name) {
+  return realFetch(`/nodes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
 // ---- Taches persistees (reel : table tasks, horodatage creation/debut/fin -
 // voir app/core/tasks.py). Remplace le fetchTasks() encore theorique referme
 // dans NodeTasksTab.jsx par un vrai GET /tasks filtrable/triable.
