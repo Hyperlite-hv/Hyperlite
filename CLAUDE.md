@@ -39,10 +39,10 @@ gh pr merge <numero> --merge --delete-branch=false   # apres validation
   2026-09-13 — le service y écrit en continu, ce qui rendait chaque
   `git checkout`/`merge` conflictuel). Le fichier reste sur disque, ne le
   re-commite pas.
-- **SQLite peut renvoyer `database is locked`** sous écriture concurrente
-  (le service écrit tâches/audit/métriques en permanence). Rare mais réel,
-  observé pendant les tests. Pas encore de vrai correctif (WAL mode /
-  busy_timeout) — un candidat pour un futur audit de robustesse.
+- **`database is locked` sous écriture concurrente** : rencontré à plusieurs
+  reprises, corrigé le 2026-09-13 (mode WAL + timeout 30s sur `get_conn()`).
+  Si ça revient malgré tout sous forte charge, c'est le premier endroit à
+  regarder.
 - **`git checkout <branche>` peut échouer sur `hyperlite.db`** avant sa
   suppression du suivi ; si ça arrive encore ailleurs (un clone qui n'a pas
   encore ce commit), fais `git stash push -- hyperlite.db` avant de changer
@@ -75,10 +75,10 @@ de 16 chantiers triés par charge de travail croissante.
 | 7 | Mise à jour depuis Git (backup + rollback watchdog) | ✅ dans `master` — **jamais testé en conditions réelles** (arbre toujours sale pendant le dev), à valider avant un vrai `/update/apply` |
 | 8 | Rapprochement vSphere général | ✅ analyse écrite (pas de nouveau code, l'essentiel existait déjà) |
 | 9 | Réseau virtuel (création, VLAN, pare-feu nwfilter) | ✅ dans `master` |
-| 10 | Métriques (collecte continue, historique, Prometheus) | ⏳ branche `chantier10-metriques` poussée, **PR bloquée par une panne GitHub** (500 répétés) — à mergrer dès que possible |
-| 11 | Audit de robustesse/sécurité | 🔄 en cours — voir findings ci-dessous |
-| 12 | Finalisation Kickstart automatisé | ⬜ pas commencé |
-| 13 | Backup/restauration natifs des VM | ⬜ pas commencé |
+| 10 | Métriques (collecte continue, historique, Prometheus) | ✅ dans `master` |
+| 11 | Audit de robustesse/sécurité | ✅ passe partielle dans `master` — voir findings ci-dessous, pas exhaustif |
+| 12 | Finalisation Kickstart automatisé | ✅ dans `master` — démarrage auto + timeout/tâche dédiée corrigés et testés. **Vérification de bout en bout (un vrai kickstart/autoinstall jusqu'au bout, ~15 min) pas encore faite — assignée à un collègue via son propre clone `/root/hyperlite-ami`, voir note ci-dessous.** |
+| 13 | Backup/restauration natifs des VM | ✅ dans `master` |
 | 14 | Onglet Automation (moteur de jobs) | ⬜ pas commencé |
 | 15 | Multi-nœuds | ⬜ pas commencé |
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
@@ -87,6 +87,17 @@ de 16 chantiers triés par charge de travail croissante.
 actuel est basé sur `git pull`. Antho a demandé, une fois la liste
 terminée, de le remplacer par quelque chose de plus proche du système de
 Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
+
+**Répartition en cours (2026-09-13)** : un collègue a rejoint le projet via
+son propre clone (`/root/hyperlite-ami`). Il s'occupe de la **vérification
+de bout en bout du chantier 12** (lancer un vrai Kickstart/autoinstall
+jusqu'au bout, confirmer que le terminal SSH web s'ouvre tout seul à la
+fin). Si tu es cette session-là : pas besoin de retester ce point, contente-
+toi de lire son PR/ses commits une fois prêts plutôt que de dupliquer le
+travail. Si tu es une AUTRE session (ex. celle qui continue la liste des
+chantiers), ne retouche pas non plus `app/core/unattended_install.py` ni la
+logique de `get_vm_provisioning` sans coordination — c'est son terrain pour
+l'instant.
 
 ### Findings du chantier 11 (audit sécurité), déjà corrigés
 - **Endpoints sans le bon niveau de privilège** trouvés et corrigés : upload/
@@ -104,9 +115,12 @@ Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 - **Aucune protection anti-brute-force sur `/auth/login`** — corrigé avec un
   verrou de 5 tentatives / 5 minutes par nom d'utilisateur (en mémoire, se
   réinitialise à un redémarrage du service — limite connue).
+- **Mode WAL activé sur `hyperlite.db`** (`app/core/database.py::get_conn`,
+  timeout de connexion porté à 30s) suite à un vrai `database is locked`
+  rencontré en testant le chantier 13 -- corrige la contention SQLite citée
+  plus haut comme piège connu.
 - Reste à explorer si quelqu'un reprend l'audit : rate-limiting par IP (pas
-  seulement par compte), passage de `hyperlite.db` en mode WAL pour la
-  contention SQLite, revue des autres routers (`groups.py`, `pools.py`,
+  seulement par compte), revue des autres routers (`groups.py`, `pools.py`,
   `acl.py`, `dashboard.py`) pas encore passés en revue ligne à ligne.
 
 ## Commandes utiles
