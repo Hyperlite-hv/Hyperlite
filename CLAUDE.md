@@ -83,7 +83,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 15 | Multi-nœuds (qemu+ssh://) | ✅ dans `master` — testé en boucle sur kvm-lab lui-même (pas de second hôte disponible), pas de vrai test inter-sites |
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
 | 17 | Onglet HA (Load Balancing, Ceph) | ⬜ pas commencé — demandé le 2026-09-13. Dépend largement du chantier 15 (multi-nœuds) pour avoir du sens |
-| 18 | Conteneurs (LXC) et tout l'outillage associé | 🔄 en cours (branche `chantier18-conteneurs`, dans `/root/hyperlite-ami`) — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap, terminal web SSH (même clé d'automatisation que les VM), onglet Datacenter dédié. Tests réels en cours sur ce host. Docker envisagé, pas retenu pour cette première itération (LXC colle mieux à l'architecture libvirt existante) |
+| 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ première version testée (PR en cours) — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié. **systemd-networkd, pas ifupdown/isc-dhcp-client** : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). Pas encore fait : snapshots/clonage de conteneur, ACL granulaire (réservé admin pour l'instant), galerie de templates (une seule base Debian 12). Docker envisagé, pas retenu (LXC colle mieux à l'architecture libvirt existante) |
 | 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ⬜ pas commencé — demandé le 2026-09-13 |
 | 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
 | 21 | Pare-feu réseau/cluster | ⬜ pas commencé — demandé le 2026-09-13. **Attention, existe déjà en partie** : pare-feu **par VM** (nwfilter) fonctionnel dans `app/routers/vms.py` (`FirewallConfig`/`set_vm_firewall`) + UI dans `VMHardwareTab.jsx`. Ce chantier = un niveau réseau/global, pas repartir de zéro |
@@ -104,9 +104,8 @@ le contacter via SendMessage/ListAgents) sur deux chantiers en parallèle :
   26.04 desktop restent à vérifier. **Ne retouche pas
   `app/core/unattended_install.py` ni `get_vm_provisioning` sans
   coordination** — attends sa PR plutôt que de dupliquer le travail.
-- **Chantier 18** (branche `chantier18-conteneurs`) : support conteneurs
-  LXC, voir ci-dessus. **Ne retouche pas `app/core/container_builder.py`,
-  `app/routers/containers.py` ni `open_lxc_conn` sans coordination.**
+- **Chantier 18** : support conteneurs LXC, voir ci-dessus — testé, PR en
+  cours d'ouverture.
 
 Tests réels en cours sur ce host (VM/conteneurs jetables, hors service
 HTTP — zéro interférence avec ce qui tourne sur `/root/hyperlite`). Prévenu
