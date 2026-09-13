@@ -6,10 +6,19 @@ export default function StepReview({ form, nodes }) {
   const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
   const totalDisk = form.disks.reduce((a, d) => a + d.size_gb, 0);
   const installMode = Boolean(form.iso);
+  const importMode = form.importDisk != null;
   const osFamily = detectOsFamily(form.iso);
   const manualInstall = installMode && !osFamily;
 
-  const rows = [
+  const rows = importMode ? [
+    ["Nœud", nodeName],
+    ["Nom", form.name || "--"],
+    ["Disque système", `Importé (${form.importDisk || "--"})`],
+    ["vCPU", form.vcpu],
+    ["Mémoire", `${form.memory_mb} Mo`],
+    ["Réseau", form.network],
+    ["Utilisateur", "Déjà présent sur le disque importé"],
+  ] : [
     ["Nœud", nodeName],
     ["Nom", form.name || "--"],
     ["ISO", form.iso || "Aucune"],

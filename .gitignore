@@ -13,6 +13,8 @@ data/tls/
 data/isos/
 data/templates/
 data/casper-cache/
+data/vm-exports/
+data/imported-disks/
 installer/*.iso
 installer/.iso-cache/
 hyperlite.db-journal
