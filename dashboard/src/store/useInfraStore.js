@@ -5,14 +5,14 @@ import {
 } from "../api/client";
 
 const TASK_LABELS = {
-  start_vm: "Demarrage",
-  stop_vm: "Arret",
-  restart_vm: "Redemarrage",
+  start_vm: "Démarrage",
+  stop_vm: "Arrêt",
+  restart_vm: "Redémarrage",
   delete_vm: "Suppression",
-  create_vm: "Creation VM",
+  create_vm: "Création VM",
   update_vm: "Modification des ressources",
-  create_snapshot: "Creation snapshot",
-  upload_iso: "Televersement ISO",
+  create_snapshot: "Création snapshot",
+  upload_iso: "Téléversement ISO",
 };
 
 let toastCounter = 0;
@@ -52,6 +52,25 @@ export const useInfraStore = create((set, get) => ({
       set({ nodes, vms, storagePools, networks, loading: false });
     } catch (e) {
       set({ error: e.message, loading: false });
+    }
+  },
+
+  // ---- Rafraichissement silencieux (polling en arriere-plan) ----
+  // Meme requetes que loadAll, mais sans jamais toucher `loading`/`error` : un
+  // polling qui declencherait le grand spinner plein ecran toutes les 6s (ou
+  // qui effacerait l'affichage sur un echec reseau ponctuel) serait pire que
+  // l'absence de rafraichissement. Objectif : voir les changements faits par
+  // un autre utilisateur (ou depuis un autre onglet) sans avoir a recharger
+  // la page a la main.
+  async refreshAll() {
+    try {
+      const [nodes, vms, storagePools, networks] = await Promise.all([
+        fetchNodes(), fetchVMs(), fetchStoragePools(), fetchNetworks(),
+      ]);
+      set({ nodes, vms, storagePools, networks });
+    } catch (e) {
+      // Echec silencieux : on garde le dernier etat connu plutot que de
+      // casser l'affichage pour un blip reseau ; le prochain tick reessaiera.
     }
   },
 
@@ -124,7 +143,7 @@ export const useInfraStore = create((set, get) => ({
       const label = TASK_LABELS[task.type] || task.type;
       get().pushToast({
         kind: statut === "termine" ? "success" : "error",
-        title: statut === "termine" ? `${label} terminee` : `${label} en echec`,
+        title: statut === "termine" ? `${label} terminée` : `${label} en échec`,
         message: statut === "termine" ? task.cible : (erreur || "Une erreur est survenue"),
       });
     }

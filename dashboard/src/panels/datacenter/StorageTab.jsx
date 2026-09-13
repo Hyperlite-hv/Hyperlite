@@ -23,10 +23,10 @@ export default function StorageTab() {
   async function handleDelete(nom) {
     try {
       await deleteIso(nom);
-      pushToast({ kind: "success", title: "ISO supprimee", message: nom });
+      pushToast({ kind: "success", title: "ISO supprimée", message: nom });
       reloadIsos();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de la suppression", message: e.message });
+      pushToast({ kind: "error", title: "Échec de la suppression", message: e.message });
     }
   }
 
@@ -34,7 +34,7 @@ export default function StorageTab() {
     <div className="space-y-5">
       <div className="card divide-y divide-anthracite-600">
         <div className="grid grid-cols-5 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
-          <span>Pool</span><span>Noeud</span><span>Type</span><span>Capacite</span><span>Disponible</span>
+          <span>Pool</span><span>Nœud</span><span>Type</span><span>Capacité</span><span>Disponible</span>
         </div>
         {storagePools.map((p) => (
           <div key={`${p.node}-${p.nom}`} className="grid grid-cols-5 gap-2 px-4 py-2.5 text-sm">

@@ -37,6 +37,22 @@ def init_db():
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                cible TEXT,
+                node TEXT,
+                username TEXT,
+                statut TEXT NOT NULL CHECK(statut IN ('en_attente', 'en_cours', 'termine', 'echec')),
+                progres INTEGER NOT NULL DEFAULT 0,
+                cree_le TEXT NOT NULL,
+                debut_le TEXT,
+                fin_le TEXT,
+                erreur TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_cree_le ON tasks(cree_le)")
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_ssh_users (
                 vm_name TEXT PRIMARY KEY,
                 username TEXT NOT NULL
@@ -51,6 +67,18 @@ def init_db():
                 vm_name TEXT PRIMARY KEY,
                 os_family TEXT NOT NULL,
                 started_at TEXT NOT NULL
+            )
+        """)
+        # Libelle d'OS DECLARE a la creation de la VM (deduit du template/ISO
+        # choisi, voir vms.create_vm) -- pas "detecte" au sens propre (pas de
+        # qemu-guest-agent installe dans les VM invitees aujourd'hui, donc
+        # libvirt ne peut rien lire depuis l'interieur), mais fiable puisque
+        # c'est Hyperlite lui-meme qui a lance cette installation et sait
+        # quel OS il a demande.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_os_label (
+                vm_name TEXT PRIMARY KEY,
+                os_label TEXT NOT NULL
             )
         """)
 

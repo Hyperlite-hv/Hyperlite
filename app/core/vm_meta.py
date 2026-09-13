@@ -33,6 +33,36 @@ def rename_vm_ssh_user(old_name, new_name):
         set_vm_ssh_user(new_name, username)
 
 
+# ---- Libelle d'OS declare a la creation (voir database.py::vm_os_label) ----
+
+def set_vm_os_label(vm_name, os_label):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO vm_os_label (vm_name, os_label) VALUES (?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET os_label = excluded.os_label",
+            (vm_name, os_label),
+        )
+        conn.commit()
+
+
+def get_vm_os_label(vm_name):
+    with get_conn() as conn:
+        row = conn.execute("SELECT os_label FROM vm_os_label WHERE vm_name = ?", (vm_name,)).fetchone()
+        return row["os_label"] if row else None
+
+
+def delete_vm_os_label(vm_name):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM vm_os_label WHERE vm_name = ?", (vm_name,))
+        conn.commit()
+
+
+def rename_vm_os_label(old_name, new_name):
+    label = get_vm_os_label(old_name)
+    if label:
+        set_vm_os_label(new_name, label)
+
+
 # ---- Suivi de progression d'une installation automatisee (ISO reconnu) ----
 
 def mark_provisioning(vm_name, os_family):

@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 import libvirt
 import re
 import asyncio
+import threading
 from fastapi import WebSocket, WebSocketDisconnect
 from app.core.libvirt_utils import ensure_vnc_graphics
 import secrets
@@ -13,17 +14,21 @@ import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-from app.core.libvirt_utils import open_conn
+from app.core.libvirt_utils import open_conn, get_vm_uptime_s
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.audit import log_action
+from app.core.tasks import create_task, finish_task
+from app.core.error_messages import describe_exception
 from app.core.vm_builder import (
-    validate_name, validate_username, create_disk, create_cloudinit_iso,
+    validate_name, validate_username, create_disk, create_cloudinit_iso, create_cloudinit_reseed_iso,
     build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
+    strip_install_boot_override,
 )
-from app.core.unattended_install import detect_os_family, build_seed_iso
+from app.core.unattended_install import detect_os_family, build_seed_iso, extract_casper_kernel
 from app.core.vm_meta import (
     set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user,
     mark_provisioning, get_provisioning, clear_provisioning,
+    set_vm_os_label, get_vm_os_label, delete_vm_os_label, rename_vm_os_label,
 )
 from app.core.permissions import delete_acl_for_vm, remove_vm_from_all_pools
 from app.core.network_alloc import generate_mac, allocate_static_ip, release_static_ip
@@ -61,15 +66,18 @@ def _get_ip(domain):
 
 def _domain_summary(domain):
     state, maxmem, mem, nvcpu, cputime = domain.info()
+    active = domain.isActive()
     return {
         "nom": domain.name(),
-        "id": domain.ID() if domain.isActive() else None,
+        "id": domain.ID() if active else None,
         "uuid": domain.UUIDString(),
         "etat": STATE_NAMES.get(state, "inconnu"),
         "vcpu": nvcpu,
         "memoire_mo": round(maxmem / 1024, 1),
-        "ip": _get_ip(domain) if domain.isActive() else None,
+        "ip": _get_ip(domain) if active else None,
         "utilisateur_ssh": get_vm_ssh_user(domain.name()),
+        "uptime_s": get_vm_uptime_s(domain.name()) if active else None,
+        "os": get_vm_os_label(domain.name()),
     }
 
 
@@ -108,7 +116,7 @@ class VMUpdate(BaseModel):
 @router.patch("/{name}")
 def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_privilege("vm.resize"))):
     if payload.vcpu is None and payload.memory_mb is None:
-        raise HTTPException(status_code=422, detail="Aucune modification demandee (vcpu ou memory_mb requis)")
+        raise HTTPException(status_code=422, detail="Aucune modification demandée (vcpu ou memory_mb requis)")
 
     conn = open_conn()
     try:
@@ -120,7 +128,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
 
         if domain.isActive():
             log_action(user["username"], "update_vm", name, "echec", "VM active")
-            raise HTTPException(status_code=409, detail="Arretez la VM avant de modifier ses ressources")
+            raise HTTPException(status_code=409, detail="Arrêtez la VM avant de modifier ses ressources")
 
         try:
             if payload.vcpu is not None:
@@ -133,13 +141,122 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
                 domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_MEM_MAXIMUM)
                 domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "update_vm", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de mise a jour des ressources : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "update_vm", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de mise à jour des ressources : {msg}")
 
         domain = conn.lookupByName(name)
         result = _domain_summary(domain)
         log_action(user["username"], "update_vm", name, "succes")
         return result
+    finally:
+        conn.close()
+
+
+# --- Limites et reservations de ressources (chantier 6 de la roadmap
+# vSphere/vCenter, 2026-09-13) -- equivalent simplifie des Resource Pools
+# vSphere (reservation/limit/shares), applique via les mecanismes cgroups
+# que libvirt expose directement (schedulerParametersFlags/memoryParameters -
+# pas de manipulation XML manuelle necessaire, contrairement au reste du
+# fichier, ces deux appels existent tels quels dans l'API libvirt).
+#
+# Simplifications assumees (a documenter cote utilisateur, pas de sur-
+# ingenierie a la vSphere complet) :
+# - CPU "shares" : priorite RELATIVE en cas de contention reelle du/des
+#   coeurs hote (cgroup cpu.shares, defaut 1024) -- pas une garantie absolue,
+#   n'a aucun effet tant que l'hote n'est pas sature.
+# - CPU "limite" : plafond dur en % d'un coeur PAR vCPU (cgroup
+#   cpu.cfs_quota_us/cfs_period_us via vcpu_quota/vcpu_period) -- une VM a 2
+#   vCPU avec 50% de limite peut consommer au plus l'equivalent d'1 coeur
+#   plein, jamais plus, meme si l'hote est inactif.
+# - RAM : PAS de vraie "reservation garantie" ici -- libvirt expose bien
+#   <memtune><min_guarantee> dans son schema XML, mais ce champ n'est
+#   respecte que par l'hyperviseur Xen, c'est un no-op cote QEMU/KVM (verifie
+#   dans la documentation libvirt). La seule reservation RAM reelle sur
+#   KVM consiste a ne pas suralouer l'hote (verifier RAM disponible avant
+#   d'augmenter memory_mb, deja fait par update_vm). Ce qui EST reellement
+#   applique ici : une limite dure separee de la RAM allouee
+#   (<memtune><hard_limit>, cgroup memory.limit_in_bytes) -- utile pour
+#   plafonner un processus qemu qui deriverait au-dela de la RAM allouee a
+#   l'invite, pas pour garantir un minimum.
+UNLIMITED_KB = 9007199254740991  # sentinelle documentee par libvirt pour "pas de limite"
+DEFAULT_CPU_SHARES = 1024
+CPU_PERIOD_US = 100000  # periode cgroup standard (100ms), coherent avec le defaut libvirt
+
+
+class ResourceLimits(BaseModel):
+    cpu_shares: int = Field(DEFAULT_CPU_SHARES, ge=2, le=262144)
+    cpu_limit_pct: int | None = Field(None, ge=1, le=100, description="% d'un coeur hote PAR vCPU ; null = illimité")
+    mem_hard_limit_mb: int | None = Field(None, ge=64, description="Plafond dur RAM en Mo, distinct de la RAM allouée ; null = illimité")
+
+
+def _limits_summary(domain):
+    flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+    sched = domain.schedulerParametersFlags(flags)
+    mem = domain.memoryParameters(flags)
+    nvcpu = domain.info()[3] or 1
+    quota = sched.get("vcpu_quota", 0)
+    period = sched.get("vcpu_period", 0) or CPU_PERIOD_US
+    cpu_limit_pct = None
+    if quota and quota > 0:
+        cpu_limit_pct = round((quota / period) / nvcpu * 100)
+    hard_limit_kb = mem.get("hard_limit", UNLIMITED_KB)
+    return {
+        # libvirt renvoie 0 tant qu'aucune valeur explicite n'a jamais ete
+        # posee (le defaut effectif cote cgroup est 1024, pas 0).
+        "cpu_shares": sched.get("cpu_shares") or DEFAULT_CPU_SHARES,
+        "cpu_limit_pct": cpu_limit_pct,
+        "mem_hard_limit_mb": None if hard_limit_kb >= UNLIMITED_KB else round(hard_limit_kb / 1024),
+    }
+
+
+@router.get("/{name}/limits")
+def get_vm_limits(name: str, user: dict = Depends(require_vm_privilege("vm.resize"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        return _limits_summary(domain)
+    finally:
+        conn.close()
+
+
+@router.put("/{name}/limits")
+def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(require_vm_privilege("vm.resize"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_vm_limits", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        nvcpu = domain.info()[3] or 1
+        if payload.cpu_limit_pct is None:
+            vcpu_quota = -1  # convention libvirt : illimite
+        else:
+            vcpu_quota = int(CPU_PERIOD_US * nvcpu * payload.cpu_limit_pct / 100)
+
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+
+        try:
+            domain.setSchedulerParametersFlags(
+                {"cpu_shares": payload.cpu_shares, "vcpu_period": CPU_PERIOD_US, "vcpu_quota": vcpu_quota},
+                flags,
+            )
+            hard_limit_kb = UNLIMITED_KB if payload.mem_hard_limit_mb is None else payload.mem_hard_limit_mb * 1024
+            domain.setMemoryParameters({"hard_limit": hard_limit_kb}, flags)
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "set_vm_limits", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur d'application des limites : {msg}")
+
+        log_action(user["username"], "set_vm_limits", name, "succes")
+        return _limits_summary(domain)
     finally:
         conn.close()
 
@@ -195,23 +312,24 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         if username_error:
             errors.append(username_error)
         if len(payload.password or "") < 4:
-            errors.append("Le mot de passe doit contenir au moins 4 caracteres")
+            errors.append("Le mot de passe doit contenir au moins 4 caractères")
 
     conn = open_conn()
+    task_id = create_task("create_vm", payload.name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             conn.lookupByName(payload.name)
-            errors.append(f"Une VM nommee '{payload.name}' existe deja")
+            errors.append(f"Une VM nommée '{payload.name}' existe déjà")
         except libvirt.libvirtError:
             pass
 
         try:
             conn.networkLookupByName(payload.network)
         except libvirt.libvirtError:
-            errors.append(f"Reseau '{payload.network}' introuvable")
+            errors.append(f"Réseau '{payload.network}' introuvable")
 
         if errors:
-            log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors))
+            log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
 
         # IP fixe par VM (voir app/core/network_alloc.py) : reservation DHCP
@@ -233,6 +351,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             ]
             cloudinit_path = None
             seed_iso_path = None
+            kernel_path = initrd_path = kernel_cmdline = None
             if not install_mode:
                 ssh_pubkey = get_or_create_automation_pubkey()
                 cloudinit_path = create_cloudinit_iso(
@@ -245,24 +364,43 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
                     os_family, payload.name,
                     username=payload.username, password=payload.password, ssh_pubkey=ssh_pubkey,
                 )
+                # Ubuntu/autoinstall a besoin du mot-cle "autoinstall" sur la
+                # ligne de commande noyau pour sauter la confirmation
+                # manuelle unique de Subiquity ("Continue with autoinstall?")
+                # -- pas necessaire pour kickstart (RHEL), qui n'a jamais eu
+                # ce probleme (Anaconda detecte OEMDRV sans confirmation).
+                # Retire une fois l'installation terminee, voir
+                # get_vm_provisioning plus bas (sinon reboot en boucle sur
+                # l'installeur live au lieu du systeme installe).
+                if os_family == "autoinstall":
+                    kernel_path, initrd_path = extract_casper_kernel(iso_path)
+                    kernel_cmdline = "autoinstall ---"
         except subprocess.CalledProcessError as e:
             msg = f"Erreur lors de la preparation du disque/cloud-init : {e.stderr or e}"
-            log_action(user["username"], "create_vm", payload.name, "echec", msg)
+            log_action(user["username"], "create_vm", payload.name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=msg)
         except ValueError as e:
-            log_action(user["username"], "create_vm", payload.name, "echec", str(e))
+            log_action(user["username"], "create_vm", payload.name, "echec", str(e), task_id=task_id)
             raise HTTPException(status_code=422, detail=str(e))
 
         xml = build_domain_xml(
             payload.name, payload.vcpu, payload.memory_mb,
             disk_paths, cloudinit_path, payload.network, iso_path=iso_path, seed_iso_path=seed_iso_path, mac=mac,
+            kernel_path=kernel_path, initrd_path=initrd_path, kernel_cmdline=kernel_cmdline,
         )
         domain = conn.defineXML(xml)
         if needs_account:
             set_vm_ssh_user(payload.name, payload.username)
         if automated_install:
             mark_provisioning(payload.name, os_family)
-        log_action(user["username"], "create_vm", payload.name, "succes")
+        # Libelle d'OS "declare" (voir vm_meta.py::set_vm_os_label) : deduit
+        # du nom de l'ISO montee, ou "Debian 12" pour le chemin cloud-init
+        # par defaut (aucune ISO, image pre-installee). Pas un vrai OS
+        # "detecte" (aucun qemu-guest-agent installe dans les VM invitees
+        # aujourd'hui), mais fiable : c'est Hyperlite qui a demande cet OS.
+        os_label = Path(payload.iso).stem if install_mode else "Debian 12"
+        set_vm_os_label(payload.name, os_label)
+        log_action(user["username"], "create_vm", payload.name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -271,21 +409,23 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 @router.post("/{name}/start")
 def start_vm(name: str, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn()
+    task_id = create_task("start_vm", name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "start_vm", name, "echec", "VM introuvable")
+            log_action(user["username"], "start_vm", name, "echec", "VM introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
         if domain.isActive():
-            log_action(user["username"], "start_vm", name, "echec", "VM deja active")
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est deja active")
+            log_action(user["username"], "start_vm", name, "echec", "VM déjà active", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est déjà active")
         try:
             domain.create()
         except libvirt.libvirtError as e:
-            log_action(user["username"], "start_vm", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Impossible de demarrer la VM : {e}")
-        log_action(user["username"], "start_vm", name, "succes")
+            msg = describe_exception(e)
+            log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Impossible de démarrer la VM : {msg}")
+        log_action(user["username"], "start_vm", name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -294,25 +434,27 @@ def start_vm(name: str, user: dict = Depends(require_vm_privilege("vm.power"))):
 @router.post("/{name}/stop")
 def stop_vm(name: str, force: bool = False, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn()
+    action_name = "force_stop_vm" if force else "stop_vm"
+    task_id = create_task(action_name, name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "stop_vm", name, "echec", "VM introuvable")
+            log_action(user["username"], "stop_vm", name, "echec", "VM introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
         if not domain.isActive():
-            log_action(user["username"], "stop_vm", name, "echec", "VM deja arretee")
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est deja arretee")
-        action_name = "force_stop_vm" if force else "stop_vm"
+            log_action(user["username"], "stop_vm", name, "echec", "VM déjà arrêtée", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est déjà arrêtée")
         try:
             if force:
                 domain.destroy()
             else:
                 domain.shutdown()
         except libvirt.libvirtError as e:
-            log_action(user["username"], action_name, name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Impossible d'arreter la VM : {e}")
-        log_action(user["username"], action_name, name, "succes")
+            msg = describe_exception(e)
+            log_action(user["username"], action_name, name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Impossible d'arrêter la VM : {msg}")
+        log_action(user["username"], action_name, name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -321,15 +463,16 @@ def stop_vm(name: str, force: bool = False, user: dict = Depends(require_vm_priv
 @router.post("/{name}/restart")
 def restart_vm(name: str, force: bool = False, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn()
+    task_id = create_task("restart_vm", name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "restart_vm", name, "echec", "VM introuvable")
+            log_action(user["username"], "restart_vm", name, "echec", "VM introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
         if not domain.isActive():
-            log_action(user["username"], "restart_vm", name, "echec", "VM arretee")
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est arretee, demarrez-la d'abord")
+            log_action(user["username"], "restart_vm", name, "echec", "VM arrêtée", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est arrêtée, démarrez-la d'abord")
         try:
             if force:
                 domain.destroy()
@@ -337,9 +480,10 @@ def restart_vm(name: str, force: bool = False, user: dict = Depends(require_vm_p
             else:
                 domain.reboot()
         except libvirt.libvirtError as e:
-            log_action(user["username"], "restart_vm", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Impossible de redemarrer la VM : {e}")
-        log_action(user["username"], "restart_vm", name, "succes")
+            msg = describe_exception(e)
+            log_action(user["username"], "restart_vm", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Impossible de redémarrer la VM : {msg}")
+        log_action(user["username"], "restart_vm", name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -348,61 +492,85 @@ def restart_vm(name: str, force: bool = False, user: dict = Depends(require_vm_p
 @router.delete("/{name}")
 def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
+    task_id = create_task("delete_vm", name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_vm", name, "echec", "VM introuvable")
+            log_action(user["username"], "delete_vm", name, "echec", "VM introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
         if domain.isActive():
-            log_action(user["username"], "delete_vm", name, "echec", "VM active, arret requis")
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est active. Arretez-la avant de la supprimer")
+            log_action(user["username"], "delete_vm", name, "echec", "VM active, arrêt requis", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' est active. Arrêtez-la avant de la supprimer")
         if not confirm:
-            log_action(user["username"], "delete_vm", name, "echec", "Confirmation manquante")
-            raise HTTPException(status_code=400, detail="Action irreversible : ajoutez ?confirm=true pour confirmer la suppression")
+            log_action(user["username"], "delete_vm", name, "echec", "Confirmation manquante", task_id=task_id)
+            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
 
         # Capture mac+reseau AVANT l'undefine (plus interrogeable apres) pour
         # liberer la reservation d'IP fixe (voir network_alloc.py) -- sinon
         # la plage DHCP se remplit d'entrees orphelines au fil des VM
         # supprimees.
         iface_mac, iface_network = None, None
+        # Capture AVANT l'undefine (plus interrogeable apres) de TOUS les
+        # disques et TOUTES les interfaces -- pas seulement les premiers :
+        # une VM multi-disques/multi-NIC (fonctionnalites deja livrees, voir
+        # roadmap) ne doit pas laisser de fichier qcow2 orphelin ni de
+        # reservation DHCP fantome pour ses disques/interfaces au-dela du
+        # premier. Bug reel trouve et corrige le 2026-09-13 (repere en testant
+        # le clonage multi-disques du chantier 5 : le disque secondaire d'une
+        # VM supprimee restait sur le disque hote, provoquant un conflit de
+        # nom au clonage suivant).
+        disk_paths_to_remove = []
+        ifaces_to_release = []
         try:
             root = ET.fromstring(domain.XMLDesc())
-            iface = root.find(".//interface[@type='network']")
-            if iface is not None:
+            for disk_el in root.findall(".//devices/disk"):
+                if disk_el.get("device") != "disk":
+                    continue
+                source_el = disk_el.find("source")
+                if source_el is not None and source_el.get("file"):
+                    disk_paths_to_remove.append(Path(source_el.get("file")))
+            for iface in root.findall(".//interface[@type='network']"):
                 mac_el, source_el = iface.find("mac"), iface.find("source")
-                iface_mac = mac_el.get("address") if mac_el is not None else None
-                iface_network = source_el.get("network") if source_el is not None else None
+                if mac_el is not None and source_el is not None and source_el.get("network"):
+                    ifaces_to_release.append((source_el.get("network"), mac_el.get("address")))
         except (libvirt.libvirtError, ET.ParseError):
             pass
 
         try:
-            domain.undefine()
+            # VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA : sans ce flag, undefine()
+            # echoue purement et simplement des qu'il reste un ou plusieurs
+            # snapshots ("cannot delete inactive domain with N snapshots"),
+            # meme partiellement supprimes -- bug reproduit et confirme le
+            # 2026-09-13 (voir chantier 4 snapshots). Sans danger ici : le
+            # fichier qcow2 qui contenait les snapshots internes est de toute
+            # facon supprime juste apres (unlink plus bas), la VM elle-meme
+            # est deja irrevocablement confirmee supprimee (?confirm=true).
+            domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "delete_vm", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Impossible de supprimer la VM : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "delete_vm", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Impossible de supprimer la VM : {msg}")
 
-        if iface_mac and iface_network:
+        for iface_network, iface_mac in ifaces_to_release:
             try:
                 release_static_ip(conn, iface_network, iface_mac)
             except libvirt.libvirtError:
                 pass
 
-        disk_path = IMAGES_DIR / f"{name}.qcow2"
-        cloudinit_path = IMAGES_DIR / f"{name}-cloudinit.iso"
-        oemdrv_path = IMAGES_DIR / f"{name}-oemdrv.iso"
-        autoinstall_path = IMAGES_DIR / f"{name}-autoinstall.iso"
-        disk_path.unlink(missing_ok=True)
-        cloudinit_path.unlink(missing_ok=True)
-        oemdrv_path.unlink(missing_ok=True)
-        autoinstall_path.unlink(missing_ok=True)
+        for disk_path in disk_paths_to_remove:
+            disk_path.unlink(missing_ok=True)
+        (IMAGES_DIR / f"{name}-cloudinit.iso").unlink(missing_ok=True)
+        (IMAGES_DIR / f"{name}-oemdrv.iso").unlink(missing_ok=True)
+        (IMAGES_DIR / f"{name}-autoinstall.iso").unlink(missing_ok=True)
         delete_vm_ssh_user(name)
+        delete_vm_os_label(name)
         clear_provisioning(name)
         delete_acl_for_vm(name)
         remove_vm_from_all_pools(name)
 
-        log_action(user["username"], "delete_vm", name, "succes")
-        return {"message": f"VM '{name}' supprimee"}
+        log_action(user["username"], "delete_vm", name, "succes", task_id=task_id)
+        return {"message": f"VM '{name}' supprimée"}
     finally:
         conn.close()
 
@@ -452,11 +620,12 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
         try:
             domain.attachDeviceFlags(disk_xml, flags)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "attach_disk", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur d'attachement du disque : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "attach_disk", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur d'attachement du disque : {msg}")
 
         log_action(user["username"], "attach_disk", name, "succes")
-        return {"message": f"Volume '{payload.volume_name}' attache a '{name}' en tant que {payload.target_dev}"}
+        return {"message": f"Volume '{payload.volume_name}' attaché à '{name}' en tant que {payload.target_dev}"}
     finally:
         conn.close()
 
@@ -493,11 +662,12 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
         try:
             domain.detachDeviceFlags(disk_xml, flags)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "detach_disk", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de detachement : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "detach_disk", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de détachement : {msg}")
 
         log_action(user["username"], "detach_disk", name, "succes")
-        return {"message": f"Disque '{target_dev}' detache de '{name}'"}
+        return {"message": f"Disque '{target_dev}' détaché de '{name}'"}
     finally:
         conn.close()
 
@@ -578,15 +748,15 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         try:
             conn.networkLookupByName(payload.network)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_network", name, "echec", "Reseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Reseau '{payload.network}' introuvable")
+            log_action(user["username"], "set_vm_network", name, "echec", "Réseau introuvable")
+            raise HTTPException(status_code=404, detail=f"Réseau '{payload.network}' introuvable")
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
         iface = root.find(".//devices/interface")
         if iface is None:
             log_action(user["username"], "set_vm_network", name, "echec", "Aucune interface")
-            raise HTTPException(status_code=404, detail="Aucune interface reseau trouvee sur cette VM")
+            raise HTTPException(status_code=404, detail="Aucune interface réseau trouvée sur cette VM")
 
         source = iface.find("source")
         if source is None:
@@ -602,11 +772,12 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         try:
             domain.updateDeviceFlags(iface_xml, flags)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "set_vm_network", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de mise a jour du reseau : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "set_vm_network", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de mise à jour du réseau : {msg}")
 
         log_action(user["username"], "set_vm_network", name, "succes")
-        return {"message": f"VM '{name}' associee au reseau '{payload.network}'"}
+        return {"message": f"VM '{name}' associée au réseau '{payload.network}'"}
     finally:
         conn.close()
 
@@ -631,8 +802,8 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
         try:
             conn.networkLookupByName(payload.network)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_interface", name, "echec", "Reseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Reseau '{payload.network}' introuvable")
+            log_action(user["username"], "attach_interface", name, "echec", "Réseau introuvable")
+            raise HTTPException(status_code=404, detail=f"Réseau '{payload.network}' introuvable")
 
         iface_xml = f"""
         <interface type='network'>
@@ -646,11 +817,12 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
         try:
             domain.attachDeviceFlags(iface_xml, flags)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "attach_interface", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur d'attachement de l'interface : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "attach_interface", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur d'attachement de l'interface : {msg}")
 
         log_action(user["username"], "attach_interface", name, "succes")
-        return {"message": f"Interface ajoutee sur le reseau '{payload.network}' pour '{name}'"}
+        return {"message": f"Interface ajoutée sur le réseau '{payload.network}' pour '{name}'"}
     finally:
         conn.close()
 
@@ -672,8 +844,8 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
         root = ET.fromstring(xml_desc)
         interfaces = root.findall(".//devices/interface")
         if len(interfaces) <= 1:
-            log_action(user["username"], "detach_interface", name, "echec", "Derniere interface")
-            raise HTTPException(status_code=422, detail="Impossible de detacher la derniere interface reseau d'une VM")
+            log_action(user["username"], "detach_interface", name, "echec", "Dernière interface")
+            raise HTTPException(status_code=422, detail="Impossible de détacher la dernière interface réseau d'une VM")
 
         iface_elem = None
         for iface in interfaces:
@@ -692,24 +864,62 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
         try:
             domain.detachDeviceFlags(iface_xml, flags)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "detach_interface", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de detachement : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "detach_interface", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de détachement : {msg}")
 
         log_action(user["username"], "detach_interface", name, "succes")
-        return {"message": f"Interface '{mac}' detachee de '{name}'"}
+        return {"message": f"Interface '{mac}' détachée de '{name}'"}
     finally:
         conn.close()
 
 
-# --- Snapshots (10.8) ---
+# --- Snapshots (10.8, reecrit le 2026-09-13 -- chantier 4 de la roadmap
+# vSphere/vCenter) ---
+#
 # Un snapshot capture l'etat d'une VM (disque, et memoire si elle tourne) a un
-# instant T, stocke DANS le fichier qcow2 lui-meme : c'est rapide a creer/restaurer
-# mais ce n'est PAS une sauvegarde independante (si le disque qcow2 est perdu/corrompu,
-# tous ses snapshots le sont aussi). Une vraie sauvegarde (backup) est une copie
-# complete et autonome des donnees, stockee ailleurs, qui survit a la perte du disque
-# source - c'est plus lent et plus lourd, mais c'est la seule protection contre une
-# panne de stockage. Le snapshot sert a revenir en arriere rapidement (avant une mise
-# a jour risquee, par exemple) ; le backup sert a la reprise apres sinistre.
+# instant T, stocke DANS le fichier qcow2 lui-meme (snapshot "interne") : c'est
+# rapide a creer/restaurer mais ce n'est PAS une sauvegarde independante (si le
+# disque qcow2 est perdu/corrompu, tous ses snapshots le sont aussi). Une
+# vraie sauvegarde (backup) est une copie complete et autonome des donnees,
+# stockee ailleurs, qui survit a la perte du disque source - c'est plus lent
+# et plus lourd, mais c'est la seule protection contre une panne de stockage.
+# Le snapshot sert a revenir en arriere rapidement (avant une mise a jour
+# risquee, par exemple) ; le backup sert a la reprise apres sinistre.
+#
+# Diagnostic (reproduit et confirme sur ce host le 2026-09-13, voir le journal
+# de session) : le code precedent (flags=0, XML minimal, synchrone) creait et
+# restaurait correctement des snapshots internes -- CE N'ETAIT PAS le probleme
+# principal. Le vrai bug reproductible : delete_vm() appelait domain.undefine()
+# SANS flag, qui echoue purement et simplement des qu'un ou plusieurs
+# snapshots existent encore ("cannot delete inactive domain with N snapshots")
+# -- corrige plus haut (VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA). Concretement :
+# une VM sur laquelle un snapshot avait deja ete pris devenait indelebile
+# depuis l'interface, ce qui explique tres probablement le ressenti "les
+# snapshots ne marchent pas".
+#
+# Option ecartee deliberement : un snapshot "sans memoire" sur une VM ACTIVE
+# est en realite un snapshot EXTERNE cote libvirt (nouveau fichier overlay,
+# chaine de "backing files"), teste et confirme fonctionnel a la creation --
+# mais `revertToSnapshot()` renvoie "revert to external snapshot not
+# supported yet" sur ce driver QEMU/libvirt : on ne peut PAS le restaurer.
+# Proposer une case "inclure la memoire" qui produirait des snapshots
+# irrecuperables aurait ete un nouveau piege, pas une correction. Le choix
+# memoire/pas-memoire n'est donc PAS expose : memoire incluse automatiquement
+# si la VM tourne (seul mode fiable a la restauration), disque seul si elle
+# est arretee (rien d'autre a capturer).
+#
+# Duree reelle : creer/restaurer un snapshot avec memoire peut prendre
+# plusieurs secondes (le temps de serialiser toute la RAM de la VM dans le
+# qcow2). Verifie sur ce host : libvirt n'expose AUCUNE statistique de
+# progression exploitable pour cette operation (domain.jobStats() renvoie
+# {'type': VIR_DOMAIN_JOB_NONE} du debut a la fin) -- afficher un pourcentage
+# serait invente. Le create/restore tournent donc en arriere-plan (thread
+# dedie + connexion libvirt separee) pendant que l'endpoint HTTP renvoie
+# immediatement un task_id (voir app.core.tasks, chantier 1) : le front
+# affiche une barre de progression indeterminee + le temps ecoule reel en
+# suivant GET /tasks/{id}, plutot que de bloquer la requete ou d'afficher un
+# faux pourcentage.
 
 def _snapshot_summary(snap):
     xml_desc = snap.getXMLDesc()
@@ -717,12 +927,17 @@ def _snapshot_summary(snap):
     desc_elem = root.find("description")
     creation_elem = root.find("creationTime")
     state_elem = root.find("state")
+    try:
+        parent_nom = snap.getParent().getName()
+    except libvirt.libvirtError:
+        parent_nom = None
     return {
         "nom": snap.getName(),
         "description": desc_elem.text if desc_elem is not None else None,
         "date_creation": creation_elem.text if creation_elem is not None else None,
         "etat_vm": state_elem.text if state_elem is not None else None,
         "actuel": snap.isCurrent() == 1,
+        "parent": parent_nom,
     }
 
 
@@ -748,7 +963,28 @@ class SnapshotCreate(BaseModel):
     description: str | None = None
 
 
-@router.post("/{name}/snapshots", status_code=201)
+def _create_snapshot_job(task_id, username, vm_name, snap_name, snap_xml):
+    """Tourne dans un thread separe (voir create_snapshot) avec sa PROPRE
+    connexion libvirt -- ne jamais partager un objet Domain/Connect entre
+    threads, les bindings Python de libvirt ne le garantissent pas. Le
+    log_action definitif (succes/echec) est pose ici, a la fin reelle du
+    travail -- pas au moment de la soumission synchrone, qui ne sait pas
+    encore si ça va marcher."""
+    conn = open_conn()
+    try:
+        domain = conn.lookupByName(vm_name)
+        domain.snapshotCreateXML(snap_xml, 0)
+        finish_task(task_id, "termine")
+        log_action(username, "create_snapshot", snap_name, "succes")
+    except libvirt.libvirtError as e:
+        msg = describe_exception(e)
+        finish_task(task_id, "echec", msg)
+        log_action(username, "create_snapshot", snap_name, "echec", msg)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/snapshots", status_code=202)
 def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     conn = open_conn()
     try:
@@ -765,8 +1001,8 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
 
         try:
             domain.snapshotLookupByName(payload.name)
-            log_action(user["username"], "create_snapshot", payload.name, "echec", "Snapshot deja existant")
-            raise HTTPException(status_code=422, detail=f"Un snapshot '{payload.name}' existe deja pour cette VM")
+            log_action(user["username"], "create_snapshot", payload.name, "echec", "Snapshot déjà existant")
+            raise HTTPException(status_code=422, detail=f"Un snapshot '{payload.name}' existe déjà pour cette VM")
         except libvirt.libvirtError:
             pass
 
@@ -777,19 +1013,39 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
           {desc_xml}
         </domainsnapshot>
         """
-        try:
-            snap = domain.snapshotCreateXML(snap_xml, 0)
-        except libvirt.libvirtError as e:
-            log_action(user["username"], "create_snapshot", payload.name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de creation du snapshot : {e}")
+        # flags=0 : interne, memoire incluse automatiquement si la VM tourne,
+        # disque seul si elle est arretee -- voir la note de conception
+        # au-dessus de _snapshot_summary pour pourquoi aucune autre option
+        # n'est proposee.
+        task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
+        threading.Thread(
+            target=_create_snapshot_job,
+            args=(task_id, user["username"], name, payload.name, snap_xml),
+            daemon=True,
+        ).start()
 
-        log_action(user["username"], "create_snapshot", payload.name, "succes")
-        return _snapshot_summary(snap)
+        return {"task_id": task_id, "nom": payload.name, "statut": "en_cours"}
     finally:
         conn.close()
 
 
-@router.post("/{name}/snapshots/{snapshot_name}/restore")
+def _restore_snapshot_job(task_id, username, vm_name, snapshot_name):
+    conn = open_conn()
+    try:
+        domain = conn.lookupByName(vm_name)
+        snap = domain.snapshotLookupByName(snapshot_name)
+        domain.revertToSnapshot(snap, 0)
+        finish_task(task_id, "termine")
+        log_action(username, "restore_snapshot", snapshot_name, "succes")
+    except libvirt.libvirtError as e:
+        msg = describe_exception(e)
+        finish_task(task_id, "echec", msg)
+        log_action(username, "restore_snapshot", snapshot_name, "echec", msg)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/snapshots/{snapshot_name}/restore", status_code=202)
 def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     conn = open_conn()
     try:
@@ -800,51 +1056,57 @@ def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user:
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
 
         try:
-            snap = domain.snapshotLookupByName(snapshot_name)
+            domain.snapshotLookupByName(snapshot_name)
         except libvirt.libvirtError:
             log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Snapshot introuvable")
             raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
 
         if not confirm:
             log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Confirmation manquante")
-            raise HTTPException(status_code=400, detail="Action irreversible : ajoutez ?confirm=true pour confirmer la restauration")
+            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la restauration")
 
-        try:
-            domain.revertToSnapshot(snap, 0)
-        except libvirt.libvirtError as e:
-            log_action(user["username"], "restore_snapshot", snapshot_name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de restauration : {e}")
+        task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
+        threading.Thread(
+            target=_restore_snapshot_job,
+            args=(task_id, user["username"], name, snapshot_name),
+            daemon=True,
+        ).start()
 
-        log_action(user["username"], "restore_snapshot", snapshot_name, "succes")
-        return {"message": f"VM '{name}' restauree a l'etat du snapshot '{snapshot_name}'"}
+        return {"task_id": task_id, "statut": "en_cours", "message": f"Restauration de '{name}' vers '{snapshot_name}' en cours"}
     finally:
         conn.close()
 
 
 @router.delete("/{name}/snapshots/{snapshot_name}")
 def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+    # Reste synchrone (pas de thread/tache en arriere-plan) : contrairement a
+    # create/restore, supprimer un snapshot interne est quasi-instantane meme
+    # avec un enfant (libvirt reparente l'enfant automatiquement), teste et
+    # confirme sur ce host le 2026-09-13.
     conn = open_conn()
+    task_id = create_task("delete_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_snapshot", name, "echec", "VM introuvable")
+            log_action(user["username"], "delete_snapshot", name, "echec", "VM introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
 
         try:
             snap = domain.snapshotLookupByName(snapshot_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_snapshot", snapshot_name, "echec", "Snapshot introuvable")
+            log_action(user["username"], "delete_snapshot", snapshot_name, "echec", "Snapshot introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
 
         try:
             snap.delete(0)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "delete_snapshot", snapshot_name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "delete_snapshot", snapshot_name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {msg}")
 
-        log_action(user["username"], "delete_snapshot", snapshot_name, "succes")
-        return {"message": f"Snapshot '{snapshot_name}' supprime"}
+        log_action(user["username"], "delete_snapshot", snapshot_name, "succes", task_id=task_id)
+        return {"message": f"Snapshot '{snapshot_name}' supprimé"}
     finally:
         conn.close()
 
@@ -854,61 +1116,99 @@ class CloneRequest(BaseModel):
 
 
 @router.post("/{name}/clone", status_code=201)
-def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(get_current_user)):
+def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone"))):
+    # Reecrit le 2026-09-13 (chantier 5 de la roadmap vSphere/vCenter) apres
+    # audit du code precedent. Bugs reels trouves et corriges ici :
+    # 1. SECURITE : aucune verification de droit avant (juste get_current_user,
+    #    donc n'importe quel compte -- meme "observateur", lecture seule
+    #    partout ailleurs -- pouvait cloner et creer une nouvelle VM). Gate
+    #    maintenant par un privilege ACL dedie ("vm.clone", voir permissions.py),
+    #    pas accorde par defaut a aucun role predefini : un admin doit l'ajouter
+    #    explicitement a un role personnalise s'il veut deleguer le clonage.
+    # 2. CORRUPTION DE DONNEES : seul le PREMIER disque (device='disk') etait
+    #    copie -- une VM multi-disques se retrouvait avec le clone et
+    #    l'original pointant sur le MEME fichier qcow2 pour les disques
+    #    suivants (deux VM ecrivant sur le meme fichier des que les deux
+    #    tournent). Tous les disques sont maintenant clones individuellement.
+    # 3. FUITE ENTRE ORIGINAL ET CLONE : le disque clone est une copie bit a
+    #    bit du disque source -- meme hostname, meme machine-id, memes CLES
+    #    HOTE SSH que l'original tant que rien ne force une reconfiguration.
+    #    Pour les VM crees via le chemin cloud-init par defaut (verifiable :
+    #    un fichier <nom>-cloudinit.iso existe), un nouvel ISO cloud-init
+    #    minimal (nouveau hostname + nouvel instance-id, PAS le mot de passe
+    #    -- jamais conserve nulle part par Hyperlite, meme pas possible de le
+    #    reinjecter) est fourni au clone : cloud-init detecte une "nouvelle
+    #    instance" au premier boot et regenere de lui-meme hostname + cles
+    #    hote SSH. Pour les VM installees depuis un ISO (kickstart/autoinstall
+    #    ou manuel), aucune personnalisation invite n'est possible -- meme
+    #    limite qu'un hyperviseur sans agent invite, documentee dans la reponse
+    #    plutot que silencieusement ignoree.
     conn = open_conn()
+    task_id = create_task("clone_vm", name, node=conn.getHostname(), username=user["username"])
+    new_disk_paths = []
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "clone_vm", name, "echec", "VM source introuvable")
+            log_action(user["username"], "clone_vm", name, "echec", "VM source introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
 
         try:
             validate_name(payload.new_name)
         except ValueError as exc:
-            log_action(user["username"], "clone_vm", name, "echec", f"nom invalide : {payload.new_name}")
+            log_action(user["username"], "clone_vm", name, "echec", f"nom invalide : {payload.new_name}", task_id=task_id)
             raise HTTPException(status_code=422, detail=str(exc))
 
         try:
             conn.lookupByName(payload.new_name)
-            log_action(user["username"], "clone_vm", name, "echec", f"'{payload.new_name}' existe deja")
-            raise HTTPException(status_code=409, detail=f"Une VM '{payload.new_name}' existe deja")
+            log_action(user["username"], "clone_vm", name, "echec", f"'{payload.new_name}' existe déjà", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"Une VM '{payload.new_name}' existe déjà")
         except libvirt.libvirtError:
             pass
 
         if domain.isActive():
-            log_action(user["username"], "clone_vm", name, "echec", "VM active")
-            raise HTTPException(status_code=409, detail="Arretez la VM avant de la cloner")
+            log_action(user["username"], "clone_vm", name, "echec", "VM active", task_id=task_id)
+            raise HTTPException(status_code=409, detail="Arrêtez la VM avant de la cloner")
 
         root = ET.fromstring(domain.XMLDesc(0))
 
-        disk_el = None
-        for disk in root.findall(".//devices/disk"):
-            if disk.get("device") == "disk":
-                disk_el = disk
-                break
-        if disk_el is None:
-            log_action(user["username"], "clone_vm", name, "echec", "disque source introuvable")
+        disk_els = [d for d in root.findall(".//devices/disk") if d.get("device") == "disk"]
+        if not disk_els:
+            log_action(user["username"], "clone_vm", name, "echec", "disque source introuvable", task_id=task_id)
             raise HTTPException(status_code=500, detail="Disque source introuvable")
-        source_el = disk_el.find("source")
-        source_path = source_el.get("file") if source_el is not None else None
-        if not source_path:
-            raise HTTPException(status_code=500, detail="Chemin du disque source introuvable")
 
-        new_disk_path = IMAGES_DIR / f"{payload.new_name}.qcow2"
-        if new_disk_path.exists():
-            raise HTTPException(status_code=409, detail="Un fichier disque porte deja ce nom")
+        # Clone TOUS les disques (pas seulement le premier -- voir note ci-dessus).
+        for i, disk_el in enumerate(disk_els):
+            source_el = disk_el.find("source")
+            source_path = source_el.get("file") if source_el is not None else None
+            if not source_path:
+                for p in new_disk_paths:
+                    Path(p).unlink(missing_ok=True)
+                log_action(user["username"], "clone_vm", name, "echec", "chemin du disque source introuvable", task_id=task_id)
+                raise HTTPException(status_code=500, detail="Chemin du disque source introuvable")
 
-        try:
-            subprocess.run(
-                ["qemu-img", "convert", "-O", "qcow2", source_path, str(new_disk_path)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            log_action(user["username"], "clone_vm", name, "echec", f"copie disque : {exc.stderr}")
-            raise HTTPException(status_code=500, detail="Echec de la copie du disque")
+            suffix = "" if i == 0 else f"-{i + 1}"
+            new_disk_path = IMAGES_DIR / f"{payload.new_name}{suffix}.qcow2"
+            if new_disk_path.exists():
+                for p in new_disk_paths:
+                    Path(p).unlink(missing_ok=True)
+                log_action(user["username"], "clone_vm", name, "echec", f"'{new_disk_path.name}' existe déjà", task_id=task_id)
+                raise HTTPException(status_code=409, detail=f"Un fichier disque '{new_disk_path.name}' existe déjà")
+
+            try:
+                subprocess.run(
+                    ["qemu-img", "convert", "-O", "qcow2", source_path, str(new_disk_path)],
+                    check=True, capture_output=True, text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                for p in new_disk_paths:
+                    Path(p).unlink(missing_ok=True)
+                msg = f"copie disque : {exc.stderr or exc}"
+                log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
+                raise HTTPException(status_code=500, detail="Échec de la copie du disque")
+
+            new_disk_paths.append(str(new_disk_path))
+            source_el.set("file", str(new_disk_path))
 
         name_el = root.find("name")
         if name_el is not None:
@@ -916,9 +1216,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(get_current_
 
         uuid_el = root.find("uuid")
         if uuid_el is not None:
-            root.remove(uuid_el)
-
-        source_el.set("file", str(new_disk_path))
+            root.remove(uuid_el)  # libvirt en genere un nouveau, distinct, a defineXML
 
         devices_el = root.find(".//devices")
         if devices_el is not None:
@@ -926,23 +1224,67 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(get_current_
                 if disk.get("device") == "cdrom":
                     devices_el.remove(disk)
 
+        # MAC explicite (plutot que laisser libvirt en tirer un au hasard) :
+        # permet de reserver tout de suite une IP fixe pour le clone, comme a
+        # la creation d'une VM (voir create_vm / network_alloc.py). Best-effort :
+        # un echec de reservation ne bloque pas le clonage, juste l'IP fixe.
+        new_ip_reservations = []
         for iface in root.findall(".//devices/interface"):
-            mac = iface.find("mac")
-            if mac is not None:
-                iface.remove(mac)
+            old_mac = iface.find("mac")
+            if old_mac is not None:
+                iface.remove(old_mac)
+            new_mac = generate_mac(conn)
+            ET.SubElement(iface, "mac", {"address": new_mac})
+            source_el = iface.find("source")
+            iface_network = source_el.get("network") if source_el is not None else None
+            if iface_network:
+                try:
+                    allocate_static_ip(conn, iface_network, new_mac)
+                    new_ip_reservations.append((iface_network, new_mac))
+                except libvirt.libvirtError:
+                    pass
+
+        # Personnalisation invite (hostname + cles hote SSH) : seulement pour
+        # le chemin cloud-init par defaut, detectable par la presence de son
+        # ISO -- voir note de conception au-dessus de la fonction.
+        reseed_iso = None
+        if (IMAGES_DIR / f"{name}-cloudinit.iso").exists():
+            try:
+                reseed_iso = create_cloudinit_reseed_iso(payload.new_name)
+                ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"}).extend([
+                    ET.fromstring(f"<driver name='qemu' type='raw'/>"),
+                    ET.fromstring(f"<source file='{reseed_iso}'/>"),
+                    ET.fromstring("<target dev='hdc' bus='ide'/>"),
+                    ET.fromstring("<readonly/>"),
+                ])
+            except subprocess.CalledProcessError:
+                reseed_iso = None  # tant pis pour la personnalisation, le clone reste fonctionnel
 
         new_xml = ET.tostring(root, encoding="unicode")
 
         try:
             new_domain = conn.defineXML(new_xml)
         except libvirt.libvirtError as exc:
-            new_disk_path.unlink(missing_ok=True)
-            log_action(user["username"], "clone_vm", name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Echec de la definition du clone : {exc}")
+            for p in new_disk_paths:
+                Path(p).unlink(missing_ok=True)
+            if reseed_iso:
+                Path(reseed_iso).unlink(missing_ok=True)
+            for iface_network, mac in new_ip_reservations:
+                try:
+                    release_static_ip(conn, iface_network, mac)
+                except libvirt.libvirtError:
+                    pass
+            msg = describe_exception(exc)
+            log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Échec de la définition du clone : {msg}")
 
         rename_vm_ssh_user(name, payload.new_name)
-        log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}")
-        return {"source": name, "clone": new_domain.name(), "etat": "arretee"}
+        rename_vm_os_label(name, payload.new_name)
+        log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}", task_id=task_id)
+        return {
+            "source": name, "clone": new_domain.name(), "etat": "arretee",
+            "personnalisation_invite": reseed_iso is not None,
+        }
     finally:
         conn.close()
 
@@ -1001,7 +1343,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(get_curr
                 domain.attachDeviceFlags(new_cdrom_xml, flags)
         except libvirt.libvirtError as exc:
             log_action(user["username"], "set_vm_cdrom", name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Echec du montage : {exc}")
+            raise HTTPException(status_code=500, detail=f"Échec du montage : {exc}")
 
         log_action(user["username"], "set_vm_cdrom", name, "succes", iso_filename)
         return {"vm": name, "iso": iso_filename}
@@ -1043,7 +1385,7 @@ def eject_vm_cdrom(name: str, user: dict = Depends(get_current_user)):
             domain.updateDeviceFlags(new_xml, flags)
         except libvirt.libvirtError as exc:
             log_action(user["username"], "eject_vm_cdrom", name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Echec de l'ejection : {exc}")
+            raise HTTPException(status_code=500, detail=f"Échec de l'éjection : {exc}")
 
         log_action(user["username"], "eject_vm_cdrom", name, "succes")
         return {"vm": name, "ejecte": True}
@@ -1206,6 +1548,24 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
 
         if result.returncode == 0:
             clear_provisioning(name)
+            # Ubuntu/autoinstall a demarre sur un noyau/initrd extrait de
+            # l'ISO (voir create_vm, extract_casper_kernel) pour ajouter
+            # "autoinstall" a la ligne de commande -- ce n'est plus
+            # necessaire une fois l'OS installe sur le disque, et le laisser
+            # ferait rebooter la VM indefiniment sur l'installeur live au
+            # lieu du systeme installe (le <boot order> normal, sur le
+            # disque, n'est jamais consulte tant que <kernel>/<initrd> sont
+            # presents). On retire l'override du XML PERSISTANT uniquement :
+            # la VM continue de tourner sans interruption avec sa
+            # configuration live actuelle jusqu'au prochain redemarrage.
+            if prov["os_family"] == "autoinstall":
+                try:
+                    current_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
+                    new_xml = strip_install_boot_override(current_xml)
+                    if new_xml != current_xml:
+                        conn.defineXML(new_xml)
+                except (libvirt.libvirtError, ET.ParseError):
+                    pass
             log_action(user["username"], "provisioning_complete", name, "succes")
             return {"provisioning": False, "just_finished": True}
         return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
@@ -1236,15 +1596,15 @@ def create_console_ticket(name: str, user: dict = Depends(get_current_user)):
                 log_action(user["username"], "create_console_ticket", name, "echec", "pas de VNC (VM active)")
                 raise HTTPException(
                     status_code=409,
-                    detail="Cette VM a ete creee avant l'ajout de la console. Arretez-la puis redemarrez-la une fois pour activer la console.",
+                    detail="Cette VM a été créée avant l'ajout de la console. Arrêtez-la puis redémarrez-la une fois pour activer la console.",
                 )
             ensure_vnc_graphics(conn, domain)
-            log_action(user["username"], "create_console_ticket", name, "echec", "VNC ajoute, VM arretee")
-            raise HTTPException(status_code=409, detail="Console activee sur cette VM : demarrez-la puis reessayez.")
+            log_action(user["username"], "create_console_ticket", name, "echec", "VNC ajouté, VM arrêtée")
+            raise HTTPException(status_code=409, detail="Console activée sur cette VM : démarrez-la puis réessayez.")
 
         if not domain.isActive():
-            log_action(user["username"], "create_console_ticket", name, "echec", "VM arretee")
-            raise HTTPException(status_code=409, detail="La VM doit etre demarree pour ouvrir une console")
+            log_action(user["username"], "create_console_ticket", name, "echec", "VM arrêtée")
+            raise HTTPException(status_code=409, detail="La VM doit être démarrée pour ouvrir une console")
 
         port = graphics.get("port")
         if not port or port == "-1":
@@ -1338,8 +1698,8 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_vm_privilege(
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
 
         if not domain.isActive():
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM arretee")
-            raise HTTPException(status_code=409, detail="La VM doit etre demarree pour ouvrir un terminal")
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM arrêtée")
+            raise HTTPException(status_code=409, detail="La VM doit être démarrée pour ouvrir un terminal")
 
         ip = _get_ip(domain)
         if not ip:
@@ -1352,8 +1712,8 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_vm_privilege(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"Aucun utilisateur SSH connu pour '{name}' (VM creee avant cette fonctionnalite). "
-                    "Deployez la cle d'automatisation avec un ssh-copy-id manuel puis reessayez."
+                    f"Aucun utilisateur SSH connu pour '{name}' (VM créée avant cette fonctionnalité). "
+                    "Déployez la clé d'automatisation avec un ssh-copy-id manuel puis réessayez."
                 ),
             )
 
@@ -1392,14 +1752,14 @@ async def vm_terminal(websocket: WebSocket, name: str):
             known_hosts=None, connect_timeout=10,
         )
     except (asyncssh.Error, OSError) as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Echec de connexion SSH a {ip} : {e}\x1b[0m\r\n")
+        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Échec de connexion SSH à {ip} : {e}\x1b[0m\r\n")
         await websocket.close(code=1011)
         return
 
     try:
         process = await ssh_conn.create_process(term_type="xterm-256color", term_size=(80, 24))
     except asyncssh.Error as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Echec d'ouverture du shell : {e}\x1b[0m\r\n")
+        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Échec d'ouverture du shell : {e}\x1b[0m\r\n")
         ssh_conn.close()
         await websocket.close(code=1011)
         return
