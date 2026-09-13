@@ -88,6 +88,23 @@ export async function fetchNetworks() {
   const nets = await realFetch("/networks");
   return nets.map((n) => ({ nom: n.nom, type: n.type, pont: n.pont, actif: n.actif, reseau: n.reseau }));
 }
+export async function fetchNetworkDetail(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}`);
+}
+export async function createNetwork(payload) {
+  return realFetch("/networks", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteNetwork(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
+}
+
+// ---- Pare-feu par VM (réel : GET/PUT /vms/{name}/firewall, nwfilter libvirt) ----
+export async function fetchVMFirewall(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/firewall`);
+}
+export async function setVMFirewall(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/firewall`, { method: "PUT", ...jsonBody(payload) });
+}
 
 export async function fetchIsoTemplates() {
   return realFetch("/isos");
@@ -199,8 +216,8 @@ export async function detachDisk(name, targetDev) {
 export async function fetchVMNetwork(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/network`);
 }
-export async function attachInterface(name, network) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network }) });
+export async function attachInterface(name, network, vlanTag = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network, vlan_tag: vlanTag }) });
 }
 export async function detachInterface(name, mac) {
   return realFetch(`/vms/${encodeURIComponent(name)}/interfaces/${encodeURIComponent(mac)}`, { method: "DELETE" });
