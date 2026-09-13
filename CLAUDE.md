@@ -192,11 +192,21 @@ avant tout `systemctl restart hyperlite`.
   `/etc/systemd/system/hyperlite.service` (`systemctl daemon-reload &&
   systemctl restart hyperlite` après modif). Reproduit et vérifié via
   `env -i PATH=... git fetch` avec/sans `HOME` avant et après le fix.
-  **Limite connue** : ce mécanisme dépend de `gh auth login` fait à la main
-  sur la machine — sur une appliance fraîche (ISO), il faudra soit refaire
-  `gh auth login`, soit (mieux, à faire) migrer vers un token d'accès
-  dédié en lecture seule stocké hors dépôt (`.env` par ex.) pour que la
-  mise à jour marche out-of-the-box sans configuration manuelle.
+  **Suite du même jour : dépôt passé en public**, sur le modèle Proxmox
+  (dépôt `pve-no-subscription` accessible sans authentification). Ça
+  supprime totalement la dépendance à `gh auth login` par machine — une
+  appliance fraîche pourra faire `git fetch` sans aucune configuration,
+  exactement l'objectif "plus jamais reconstruire d'ISO pour une mise à
+  jour". Avant de basculer en public : l'historique complet a été audité
+  (aucun secret en clair trouvé — l'exposition du mot de passe admin
+  mentionnée dans le commit `08b9172` du 12/09 avait déjà été purgée avant
+  cette session) puis **réécrit avec `git filter-repo`** pour retirer
+  `hyperlite.db` (suivi par erreur dans ~18 commits très anciens, 11-12
+  sept., avant d'être exclu du suivi) de tout l'historique, sur toutes les
+  branches, avec force-push. **Tous les hash de commit ont changé** — toute
+  personne avec un clone existant doit re-cloner (`hyperlite-ami` prévenu
+  et re-cloné). Vérifié par un clone HTTPS anonyme (sans `gh`, `HOME` vide)
+  avant et après bascule.
 
 ## Commandes utiles
 
