@@ -1,41 +1,50 @@
+import { useEffect, useState } from "react";
 import GaugeRing from "../../components/GaugeRing";
+import VMCard from "../../components/VMCard";
+import { fetchHostMetricsHistory } from "../../api/client";
+import { useInfraStore } from "../../store/useInfraStore";
 import { formatUptime, formatMo, formatGo } from "../../utils/format";
 
-// CPU/RAM totale et historique ne sont pas encore exposes par GET /dashboard
-// (item 5 de la roadmap Hyperlite -- dashboard avec historique persiste --
-// pas encore construit cote backend). En attendant, ce noeud reel affiche ce
-// qui est disponible aujourd'hui (stockage, VMs actives/arretees, RAM
-// disponible) plutot que de simuler des graphiques CPU/RAM qui ne
-// correspondraient a rien de reel.
+// CPU/RAM reels via GET /host/metrics/history (collecte continue, chantier
+// 10) -- meme source que NodeSystemTab.jsx, pas de donnee simulee : avant le
+// chantier 10 cette page affichait un avertissement "pas encore expose",
+// desormais perime.
 export default function NodeSummaryTab({ resource: node }) {
+  const vms = useInfraStore((s) => s.vms);
+  const [latest, setLatest] = useState(null);
+
+  useEffect(() => {
+    const load = () => fetchHostMetricsHistory("1h").then((rows) => setLatest(rows[rows.length - 1] || null)).catch(() => {});
+    load();
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  }, []);
+
   if (!node) return null;
 
+  const nodeVms = vms.filter((v) => v.node === node.id);
+  const cpuRatio = latest?.cpu_pct != null ? latest.cpu_pct / 100 : null;
+  const ramRatio = latest?.mem_total_mb ? (latest.mem_used_mb ?? 0) / latest.mem_total_mb : null;
   const diskRatio = node.stockage_total_go != null && node.stockage_utilise_go != null
     ? node.stockage_utilise_go / node.stockage_total_go : null;
 
   return (
     <div className="space-y-5">
-      {node.cpu_coeurs == null && (
-        <div className="rounded-md border border-anthracite-500 bg-anthracite-700/50 px-3 py-2 text-xs text-anthracite-300">
-          CPU/RAM total et historique pas encore exposés par le backend (GET /dashboard) -- seuls le stockage et le compte de VMs sont réels ici.
-        </div>
-      )}
-
       <div className="card grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
-        <div className="flex flex-col items-center justify-center gap-1 text-center">
-          <div className="text-2xl font-semibold text-anthracite-100">{node.vms_actives ?? "--"}</div>
-          <div className="text-xs text-anthracite-400">VMs actives</div>
-        </div>
-        <div className="flex flex-col items-center justify-center gap-1 text-center">
-          <div className="text-2xl font-semibold text-anthracite-100">{node.vms_arretees ?? "--"}</div>
-          <div className="text-xs text-anthracite-400">VMs arrêtées</div>
-        </div>
+        <GaugeRing
+          label="Processeur" ratio={cpuRatio}
+          valueLabel={cpuRatio != null ? `${Math.round(cpuRatio * 100)} %` : "n/a"}
+          colorClass="text-accent-blue"
+        />
+        <GaugeRing
+          label="Mémoire" ratio={ramRatio}
+          valueLabel={latest?.mem_total_mb ? `${Math.round(latest.mem_used_mb)} / ${Math.round(latest.mem_total_mb)} Mo` : "n/a"}
+          colorClass="text-accent-orange"
+        />
         {diskRatio != null ? (
           <GaugeRing label="Stockage" ratio={diskRatio} valueLabel={`${formatGo(node.stockage_utilise_go)} / ${formatGo(node.stockage_total_go)}`} colorClass="text-accent-green" />
         ) : (
-          <div className="flex flex-col items-center justify-center gap-1 text-center">
-            <div className="text-sm text-anthracite-400">Stockage n/a</div>
-          </div>
+          <GaugeRing label="Stockage" ratio={null} />
         )}
       </div>
 
@@ -47,6 +56,20 @@ export default function NodeSummaryTab({ resource: node }) {
           <div><dt className="text-anthracite-400 text-xs">Adresse IP</dt><dd className="text-anthracite-100">{node.ip || "--"}</dd></div>
           <div><dt className="text-anthracite-400 text-xs">Version</dt><dd className="text-anthracite-100">{node.version || "--"}</dd></div>
         </dl>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <span className="text-[15px] font-semibold text-anthracite-100">Machines virtuelles</span>
+          <span className="font-mono text-xs text-anthracite-400">{nodeVms.length}</span>
+        </div>
+        {nodeVms.length === 0 ? (
+          <div className="card p-4 text-sm text-anthracite-400">Aucune VM sur ce nœud.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+            {nodeVms.map((vm) => <VMCard key={vm.nom} vm={vm} />)}
+          </div>
+        )}
       </div>
     </div>
   );
