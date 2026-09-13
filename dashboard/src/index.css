@@ -24,17 +24,20 @@
     --a-100: 42 42 48;    /* texte principal -- charbon #2A2A30 */
   }
 
+  /* Rampe "mode sombre" alignee sur la maquette de refonte 2026-09-13
+     (ecrans 5a/5b/6a/6b) : violet/marine fonce plutot que le gris fonce
+     neutre precedent, memes valeurs exactes que la maquette a chaque palier. */
   .dark {
-    --a-950: 13 15 20;
-    --a-900: 20 22 28;
-    --a-800: 28 31 38;
-    --a-700: 35 38 47;
-    --a-600: 44 48 58;
-    --a-500: 58 63 75;
-    --a-400: 86 92 107;
-    --a-300: 122 129 148;
-    --a-200: 164 170 187;
-    --a-100: 212 215 224;
+    --a-950: 13 11 27;    /* #0D0B1B -- non utilise directement, un cran sous le fond de page */
+    --a-900: 16 14 38;    /* #100E26 -- fond de page */
+    --a-800: 23 21 58;    /* #17153A -- cartes au repos */
+    --a-700: 27 23 64;    /* #1B1740 -- survols / cartes relevees ou selectionnees */
+    --a-600: 43 38 87;    /* #2B2657 -- bordures */
+    --a-500: 58 50 112;   /* #3A3270 -- bordures secondaires, anneau de jauge "vide" */
+    --a-400: 154 148 196; /* #9A94C4 -- texte/etiquettes attenues (mono) */
+    --a-300: 182 176 222; /* #B6B0DE -- texte attenue tertiaire / placeholder */
+    --a-200: 218 215 242; /* #DAD7F2 -- texte secondaire */
+    --a-100: 237 235 250; /* #EDEBFA -- texte principal */
   }
 
   html,
@@ -64,20 +67,28 @@
   .btn {
     @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
   }
+  /* #6C5CE7 (pas accent-blue/#8B7CF6) : la maquette utilise deux tons de
+     violet distincts -- celui-ci, plus sature, uniquement pour le
+     remplissage plein des boutons/pastilles d'action primaire ; accent-blue
+     reste reserve au texte/bordures/anneaux de jauge. */
   .btn-primary {
-    @apply btn bg-accent-blue text-white hover:bg-blue-500;
+    @apply btn bg-[#6C5CE7] text-white hover:bg-[#7D6EF0];
   }
   .btn-secondary {
     @apply btn bg-anthracite-600 text-anthracite-100 hover:bg-anthracite-500;
   }
+  /* Traitement "attenue" (fond teinte sombre + texte rose, pas un aplat
+     plein) plutot que status-error en remplissage : reprend tel quel le
+     style des pastilles "Arrêter"/"Supprimer" de la maquette (ecrans
+     5b/6a/6b). */
   .btn-danger {
-    @apply btn bg-status-error text-white hover:bg-red-500;
+    @apply btn bg-[#2C1626] text-status-error border border-[#4A2438] hover:bg-[#3A1C30];
   }
   .card {
     @apply bg-anthracite-800 border border-anthracite-600 rounded-lg shadow-panel;
   }
   .input {
-    @apply w-full rounded-md bg-anthracite-700 border border-anthracite-500 px-3 py-1.5 text-sm text-anthracite-100 placeholder-anthracite-300 focus:outline-none focus:ring-1 focus:ring-accent-blue;
+    @apply w-full rounded-md bg-anthracite-900 border border-anthracite-500 px-3 py-1.5 text-sm text-anthracite-100 placeholder-anthracite-300 focus:outline-none focus:ring-1 focus:ring-accent-blue;
   }
   .toast-enter {
     animation: toast-in 180ms ease-out;
