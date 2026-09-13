@@ -55,7 +55,7 @@ export async function fetchNodes() {
     stockage_total_go: d.stockage.capacite_go,
     stockage_utilise_go: d.stockage.capacite_go != null && d.stockage.disponible_go != null
       ? Math.round((d.stockage.capacite_go - d.stockage.disponible_go) * 100) / 100 : null,
-    uptime_s: null,
+    uptime_s: d.hyperviseur.uptime_s,
     ip: null,
     version: `Hyperlite (${d.hyperviseur.type})`,
     os: null,
@@ -75,7 +75,7 @@ export async function fetchVMs() {
     vcpu: v.vcpu, memoire_mo: v.memoire_mo, memoire_utilisee_mo: null,
     disque_go: null, disque_utilise_go: null,
     ip: v.ip, utilisateur_ssh: v.utilisateur_ssh, uuid: v.uuid,
-    os: null, uptime_s: null,
+    os: v.os, uptime_s: v.uptime_s,
   }));
 }
 
@@ -97,13 +97,54 @@ export async function deleteIso(filename) {
 }
 
 // ---- Journal d'audit (reel : table audit_log, alimentee par chaque action) ----
-export async function fetchAuditLog(limit = 200) {
-  return realFetch(`/audit?limit=${limit}`);
+export async function fetchAuditLog(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") params.set(k, v);
+  });
+  const qs = params.toString();
+  return realFetch(`/audit${qs ? `?${qs}` : ""}`);
+}
+export async function fetchAuditActions() {
+  return realFetch("/audit/actions");
+}
+
+// ---- Taches persistees (reel : table tasks, horodatage creation/debut/fin -
+// voir app/core/tasks.py). Remplace le fetchTasks() encore theorique referme
+// dans NodeTasksTab.jsx par un vrai GET /tasks filtrable/triable.
+export async function fetchTasks(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") params.set(k, v);
+  });
+  const qs = params.toString();
+  return realFetch(`/tasks${qs ? `?${qs}` : ""}`);
+}
+export async function fetchTaskDetail(id) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}`);
+}
+
+// ---- Mise à jour d'Hyperlite depuis Git (réel : GET/POST /update/*, voir
+// app/routers/update.py — chantier 7) ----
+export async function fetchUpdateCheck() {
+  return realFetch("/update/check");
+}
+export async function applyUpdate() {
+  return realFetch("/update/apply", { method: "POST" });
 }
 
 // ---- Utilisateurs (reels) ----
 export async function fetchUsers() {
   return realFetch("/auth/users");
+}
+export async function createUser(username, password, role) {
+  return realFetch("/auth/users", { method: "POST", ...jsonBody({ username, password, role }) });
+}
+export async function updateUser(username, payload) {
+  return realFetch(`/auth/users/${encodeURIComponent(username)}`, { method: "PATCH", ...jsonBody(payload) });
+}
+export async function deleteUser(username) {
+  return realFetch(`/auth/users/${encodeURIComponent(username)}`, { method: "DELETE" });
 }
 
 // ---- Actions VM (endpoints reels) ----
@@ -131,8 +172,20 @@ export async function updateVM(name, payload) {
 export async function fetchVM(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}`);
 }
+
+// ---- Limites/réservations de ressources (réel : GET/PUT /vms/{name}/limits,
+// cgroups via libvirt schedulerParametersFlags/memoryParameters) ----
+export async function fetchVMLimits(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/limits`);
+}
+export async function setVMLimits(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/limits`, { method: "PUT", ...jsonBody(payload) });
+}
 export async function fetchVMMetrics(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
+}
+export async function fetchProvisioningStatus(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);
 }
 export async function fetchVMDisks(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks`);
@@ -167,6 +220,11 @@ export async function createTerminalTicket(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
 
+// ---- Shell interactif sur l'hôte physique (admin uniquement, voir app/routers/host.py) ----
+export async function createHostTerminalTicket() {
+  return realFetch("/host/terminal-ticket", { method: "POST" });
+}
+
 // ---- Snapshots (reels) ----
 export async function fetchSnapshots(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/snapshots`);
@@ -193,4 +251,63 @@ export async function deployTemplate(templateName, newName, network) {
 }
 export async function deleteTemplate(templateName) {
   return realFetch(`/templates/${encodeURIComponent(templateName)}?confirm=true`, { method: "DELETE" });
+}
+
+// ---- Permissions granulaires (reels) : Groupes, Pools, ACL ----
+export async function fetchGroups() {
+  return realFetch("/groups");
+}
+export async function createGroup(name) {
+  return realFetch("/groups", { method: "POST", ...jsonBody({ name }) });
+}
+export async function deleteGroup(groupId) {
+  return realFetch(`/groups/${groupId}`, { method: "DELETE" });
+}
+export async function addGroupMember(groupId, username) {
+  return realFetch(`/groups/${groupId}/members`, { method: "POST", ...jsonBody({ username }) });
+}
+export async function removeGroupMember(groupId, username) {
+  return realFetch(`/groups/${groupId}/members/${encodeURIComponent(username)}`, { method: "DELETE" });
+}
+
+export async function fetchPools() {
+  return realFetch("/pools");
+}
+export async function createPool(name, description = "") {
+  return realFetch("/pools", { method: "POST", ...jsonBody({ name, description }) });
+}
+export async function deletePool(poolId) {
+  return realFetch(`/pools/${poolId}`, { method: "DELETE" });
+}
+export async function addPoolMember(poolId, vmName) {
+  return realFetch(`/pools/${poolId}/members`, { method: "POST", ...jsonBody({ vm_name: vmName }) });
+}
+export async function removePoolMember(poolId, vmName) {
+  return realFetch(`/pools/${poolId}/members/${encodeURIComponent(vmName)}`, { method: "DELETE" });
+}
+
+export async function fetchAclRoles() {
+  return realFetch("/acl/roles");
+}
+export async function fetchAcl() {
+  return realFetch("/acl");
+}
+export async function createAcl(payload) {
+  return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteAcl(aclId) {
+  return realFetch(`/acl/${aclId}`, { method: "DELETE" });
+}
+
+export async function fetchPrivileges() {
+  return realFetch("/acl/privileges");
+}
+export async function fetchCustomRoles() {
+  return realFetch("/acl/custom-roles");
+}
+export async function createCustomRole(name, privileges) {
+  return realFetch("/acl/custom-roles", { method: "POST", ...jsonBody({ name, privileges }) });
+}
+export async function deleteCustomRole(roleId) {
+  return realFetch(`/acl/custom-roles/${roleId}`, { method: "DELETE" });
 }

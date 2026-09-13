@@ -1,18 +1,18 @@
 import { create } from "zustand";
 import {
   fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks,
-  startVM, stopVM, restartVM, deleteVM, updateVM, makeTaskId,
+  startVM, stopVM, restartVM, deleteVM, updateVM, fetchVM, makeTaskId,
 } from "../api/client";
 
 const TASK_LABELS = {
-  start_vm: "Demarrage",
-  stop_vm: "Arret",
-  restart_vm: "Redemarrage",
+  start_vm: "Démarrage",
+  stop_vm: "Arrêt",
+  restart_vm: "Redémarrage",
   delete_vm: "Suppression",
-  create_vm: "Creation VM",
+  create_vm: "Création VM",
   update_vm: "Modification des ressources",
-  create_snapshot: "Creation snapshot",
-  upload_iso: "Televersement ISO",
+  create_snapshot: "Création snapshot",
+  upload_iso: "Téléversement ISO",
 };
 
 let toastCounter = 0;
@@ -37,7 +37,10 @@ export const useInfraStore = create((set, get) => ({
   taskLogCollapsed: false,
 
   // ---- Theme ----
-  theme: "dark",
+  // Le mode clair est le defaut de l'identite Hyperlite ; la classe .dark
+  // reelle sur <html> est deja posee avant le premier rendu par le script
+  // inline d'index.html (evite le flash), on aligne juste le state ici.
+  theme: (typeof document !== "undefined" && document.documentElement.classList.contains("dark")) ? "dark" : "light",
 
   // ---- Chargement initial ----
   async loadAll() {
@@ -49,6 +52,25 @@ export const useInfraStore = create((set, get) => ({
       set({ nodes, vms, storagePools, networks, loading: false });
     } catch (e) {
       set({ error: e.message, loading: false });
+    }
+  },
+
+  // ---- Rafraichissement silencieux (polling en arriere-plan) ----
+  // Meme requetes que loadAll, mais sans jamais toucher `loading`/`error` : un
+  // polling qui declencherait le grand spinner plein ecran toutes les 6s (ou
+  // qui effacerait l'affichage sur un echec reseau ponctuel) serait pire que
+  // l'absence de rafraichissement. Objectif : voir les changements faits par
+  // un autre utilisateur (ou depuis un autre onglet) sans avoir a recharger
+  // la page a la main.
+  async refreshAll() {
+    try {
+      const [nodes, vms, storagePools, networks] = await Promise.all([
+        fetchNodes(), fetchVMs(), fetchStoragePools(), fetchNetworks(),
+      ]);
+      set({ nodes, vms, storagePools, networks });
+    } catch (e) {
+      // Echec silencieux : on garde le dernier etat connu plutot que de
+      // casser l'affichage pour un blip reseau ; le prochain tick reessaiera.
     }
   },
 
@@ -67,6 +89,7 @@ export const useInfraStore = create((set, get) => ({
   toggleTheme() {
     const next = get().theme === "dark" ? "light" : "dark";
     document.documentElement.classList.toggle("dark", next === "dark");
+    try { localStorage.setItem("hyperlite-theme", next); } catch (e) {}
     set({ theme: next });
   },
 
@@ -79,7 +102,13 @@ export const useInfraStore = create((set, get) => ({
     toastCounter += 1;
     const id = `toast-${toastCounter}`;
     set((s) => ({ toasts: [...s.toasts, { id, ...toast }] }));
-    setTimeout(() => get().dismissToast(id), toast.duration ?? 5000);
+    // Les erreurs restent affichees jusqu'a fermeture manuelle : un message
+    // d'echec technique (ex. erreur libvirt) prend plus de 5s a lire, et le
+    // disparaitre tout seul donnait l'impression qu'aucune erreur n'etait
+    // remontee alors qu'elle l'etait (juste trop vite pour etre vue).
+    if (toast.kind !== "error") {
+      setTimeout(() => get().dismissToast(id), toast.duration ?? 5000);
+    }
     return id;
   },
   dismissToast(id) {
@@ -114,7 +143,7 @@ export const useInfraStore = create((set, get) => ({
       const label = TASK_LABELS[task.type] || task.type;
       get().pushToast({
         kind: statut === "termine" ? "success" : "error",
-        title: statut === "termine" ? `${label} terminee` : `${label} en echec`,
+        title: statut === "termine" ? `${label} terminée` : `${label} en échec`,
         message: statut === "termine" ? task.cible : (erreur || "Une erreur est survenue"),
       });
     }
@@ -125,7 +154,7 @@ export const useInfraStore = create((set, get) => ({
   },
 
   // ---- Actions VM ----
-  async runVMAction(vmName, action) {
+  async runVMAction(vmName, action, { force = false } = {}) {
     const vm = get().vms.find((v) => v.nom === vmName);
     const node = vm?.node;
     const typeMap = { start: "start_vm", stop: "stop_vm", restart: "restart_vm", delete: "delete_vm" };
@@ -138,17 +167,37 @@ export const useInfraStore = create((set, get) => ({
       // pourcentage intermediaire reel cote backend) : la tache passe donc
       // directement de "en_cours" a "termine" une fois la reponse recue,
       // plutot que de simuler une fausse progression.
-      await apiFn(vmName, ...(action === "stop" ? [false] : [])); // arret propre (ACPI) ; pas de choix force expose dans l'UI pour l'instant
+      //
+      // "stop" (arret propre/ACPI, cote backend domain.shutdown()) est une
+      // simple DEMANDE envoyee a l'invite : l'appel reussit des que la
+      // demande est emise, pas quand la VM s'est reellement eteinte (qui
+      // peut prendre du temps, voire ne jamais arriver si l'invite ne gere
+      // pas l'ACPI -- ex. bloque sur un ecran d'installeur). On se fie donc
+      // a l'etat reellement renvoye par l'API plutot que de supposer
+      // "arrete" par optimisme : sinon l'interface affiche un etat faux,
+      // qui fait ensuite echouer les actions suivantes (ex. suppression,
+      // qui refuse a juste titre une VM encore active cote serveur) sans
+      // que rien n'explique pourquoi a l'utilisateur.
+      const result = await apiFn(vmName, ...(action === "stop" ? [force] : []));
       set((s) => ({
-        vms: s.vms.map((v) => {
-          if (v.nom !== vmName) return v;
-          if (action === "start") return { ...v, etat: "actif" };
-          if (action === "stop") return { ...v, etat: "arrete", ip: null };
-          if (action === "restart") return { ...v, etat: "actif" };
-          return v;
-        }).filter((v) => !(action === "delete" && v.nom === vmName)),
+        vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: result.etat, ip: result.ip } : v))
+          .filter((v) => !(action === "delete" && v.nom === vmName)),
       }));
       get().completeTask(taskId, "termine");
+
+      // Arret propre encore en cours (VM toujours active juste apres la
+      // demande) : une seule revenification differee suffit a rafraichir
+      // l'affichage sans avoir a recharger la page, pour le cas courant ou
+      // l'invite finit par s'eteindre dans les secondes qui suivent.
+      if (action === "stop" && result.etat === "actif") {
+        setTimeout(async () => {
+          try {
+            const fresh = await fetchVM(vmName);
+            set((s) => ({ vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
+          } catch (e) { /* VM peut-etre supprimee entre-temps, sans consequence */ }
+        }, 4000);
+      }
+
       return taskId;
     } catch (e) {
       get().completeTask(taskId, "echec", e.message);

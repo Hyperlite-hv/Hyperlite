@@ -9,7 +9,7 @@ export default function NodeNetworkTab({ resource: node }) {
   return (
     <div className="card divide-y divide-anthracite-600">
       <div className="grid grid-cols-4 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
-        <span>Nom</span><span>Type</span><span>Pont</span><span>Reseau</span>
+        <span>Nom</span><span>Type</span><span>Pont</span><span>Réseau</span>
       </div>
       {networks.map((n) => (
         <div key={n.nom} className="grid grid-cols-4 gap-2 px-4 py-2.5 text-sm">

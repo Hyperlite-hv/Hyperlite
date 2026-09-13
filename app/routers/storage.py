@@ -6,6 +6,7 @@ from app.core.libvirt_utils import open_conn, ensure_default_pool, get_disk_path
 from app.core.vm_builder import validate_name
 from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
+from app.core.error_messages import describe_exception
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
@@ -94,8 +95,8 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         filename = f"{base_name}.qcow2"
         try:
             pool.storageVolLookupByName(filename)
-            log_action(user["username"], "create_volume", filename, "echec", "Volume deja existant")
-            raise HTTPException(status_code=422, detail=f"Un volume '{filename}' existe deja dans ce pool")
+            log_action(user["username"], "create_volume", filename, "echec", "Volume déjà existant")
+            raise HTTPException(status_code=422, detail=f"Un volume '{filename}' existe déjà dans ce pool")
         except libvirt.libvirtError:
             pass
 
@@ -112,8 +113,9 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         try:
             vol = pool.createXML(vol_xml, 0)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "create_volume", filename, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de creation du volume : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "create_volume", filename, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de création du volume : {msg}")
 
         log_action(user["username"], "create_volume", filename, "succes")
         vol_info = vol.info()
@@ -142,20 +144,21 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
 
         in_use = get_disk_paths_in_use(conn)
         if vol.path() in in_use:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume utilise par une VM")
-            raise HTTPException(status_code=409, detail=f"Le volume '{volume_name}' est utilise par une VM, suppression refusee")
+            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume utilisé par une VM")
+            raise HTTPException(status_code=409, detail=f"Le volume '{volume_name}' est utilisé par une VM, suppression refusée")
 
         if not confirm:
             log_action(user["username"], "delete_volume", volume_name, "echec", "Confirmation manquante")
-            raise HTTPException(status_code=400, detail="Action irreversible : ajoutez ?confirm=true pour confirmer la suppression")
+            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
 
         try:
             vol.delete(0)
         except libvirt.libvirtError as e:
-            log_action(user["username"], "delete_volume", volume_name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {e}")
+            msg = describe_exception(e)
+            log_action(user["username"], "delete_volume", volume_name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {msg}")
 
         log_action(user["username"], "delete_volume", volume_name, "succes")
-        return {"message": f"Volume '{volume_name}' supprime"}
+        return {"message": f"Volume '{volume_name}' supprimé"}
     finally:
         conn.close()

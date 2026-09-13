@@ -19,7 +19,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
     <div>
       <div
         className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-sm cursor-pointer select-none ${
-          isSelected ? "bg-accent-blue/15 text-anthracite-100" : "text-anthracite-200 hover:bg-anthracite-700"
+          isSelected ? "bg-white/10 text-white" : "text-chrome-100 hover:bg-chrome-700"
         }`}
         style={{ paddingLeft: 6 + depth * 14 }}
         onClick={() => {
@@ -28,11 +28,11 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
         }}
       >
         {hasChildren ? (
-          expanded ? <ChevronDown size={13} className="text-anthracite-400 shrink-0" /> : <ChevronRight size={13} className="text-anthracite-400 shrink-0" />
+          expanded ? <ChevronDown size={13} className="text-chrome-400 shrink-0" /> : <ChevronRight size={13} className="text-chrome-400 shrink-0" />
         ) : (
           <span className="w-[13px] shrink-0" />
         )}
-        <Icon size={14} className="text-anthracite-300 shrink-0" />
+        <Icon size={14} className="text-chrome-400 shrink-0" />
         {node.etat && (
           <span
             className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -41,7 +41,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
         )}
         <span className="truncate">{node.label}</span>
         {node.badge != null && (
-          <span className="ml-auto text-[11px] text-anthracite-400 shrink-0">{node.badge}</span>
+          <span className="ml-auto text-[11px] text-chrome-400 shrink-0">{node.badge}</span>
         )}
       </div>
       {hasChildren && expanded && (

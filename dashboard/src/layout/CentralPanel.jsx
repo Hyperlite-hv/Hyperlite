@@ -15,6 +15,7 @@ import NodeSystemTab from "../panels/node/NodeSystemTab";
 import NodeNetworkTab from "../panels/node/NodeNetworkTab";
 import NodeDiskTab from "../panels/node/NodeDiskTab";
 import NodeTasksTab from "../panels/node/NodeTasksTab";
+import NodeShellTab from "../panels/node/NodeShellTab";
 
 import VMSummaryTab from "../panels/vm/VMSummaryTab";
 import VMConsoleTab from "../panels/vm/VMConsoleTab";
@@ -24,7 +25,7 @@ import VMBackupTab from "../panels/vm/VMBackupTab";
 import VMSnapshotsTab from "../panels/vm/VMSnapshotsTab";
 
 const DATACENTER_TABS = [
-  { id: "summary", label: "Resume", Component: DatacenterSummaryTab },
+  { id: "summary", label: "Résumé", Component: DatacenterSummaryTab },
   { id: "storage", label: "Stockage", Component: DcStorageTab },
   { id: "templates", label: "Templates", Component: TemplatesTab },
   { id: "backups", label: "Sauvegardes", Component: BackupsTab },
@@ -33,17 +34,18 @@ const DATACENTER_TABS = [
 ];
 
 const NODE_TABS = [
-  { id: "summary", label: "Resume", Component: NodeSummaryTab },
-  { id: "system", label: "Resume systeme", Component: NodeSystemTab },
-  { id: "network", label: "Reseau", Component: NodeNetworkTab },
+  { id: "summary", label: "Résumé", Component: NodeSummaryTab },
+  { id: "system", label: "Résumé système", Component: NodeSystemTab },
+  { id: "network", label: "Réseau", Component: NodeNetworkTab },
   { id: "disk", label: "Stockage disque", Component: NodeDiskTab },
-  { id: "tasks", label: "Taches", Component: NodeTasksTab },
+  { id: "tasks", label: "Tâches", Component: NodeTasksTab },
+  { id: "shell", label: "Shell", Component: NodeShellTab },
 ];
 
 const VM_TABS = [
-  { id: "summary", label: "Resume", Component: VMSummaryTab },
+  { id: "summary", label: "Résumé", Component: VMSummaryTab },
   { id: "console", label: "Console", Component: VMConsoleTab },
-  { id: "hardware", label: "Materiel", Component: VMHardwareTab },
+  { id: "hardware", label: "Matériel", Component: VMHardwareTab },
   { id: "options", label: "Options", Component: VMOptionsTab },
   { id: "backup", label: "Sauvegarde", Component: VMBackupTab },
   { id: "snapshots", label: "Snapshots", Component: VMSnapshotsTab },
@@ -68,7 +70,7 @@ export default function CentralPanel() {
     return (
       <div className="p-4">
         <h2 className="text-lg font-semibold text-anthracite-100">{selection.id}</h2>
-        <p className="mt-1 text-sm text-anthracite-300">Selectionnez un node pour voir le detail de ses pools de stockage (onglet "Stockage disque").</p>
+        <p className="mt-1 text-sm text-anthracite-300">Sélectionnez un nœud pour voir le détail de ses pools de stockage (onglet "Stockage disque").</p>
       </div>
     );
   }

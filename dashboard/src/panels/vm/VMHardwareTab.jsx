@@ -48,10 +48,10 @@ function DiskSection({ vmName, isAdmin }) {
     setBusy(true);
     try {
       await detachDisk(vmName, cible);
-      pushToast({ kind: "success", title: "Disque detache", message: cible });
+      pushToast({ kind: "success", title: "Disque détaché", message: cible });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec du detachement", message: e.message });
+      pushToast({ kind: "error", title: "Échec du détachement", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -66,10 +66,10 @@ function DiskSection({ vmName, isAdmin }) {
         volName = created.nom;
       }
       await attachDisk(vmName, volName, nextDev);
-      pushToast({ kind: "success", title: "Disque attache", message: `${volName} -> ${nextDev}` });
+      pushToast({ kind: "success", title: "Disque attaché", message: `${volName} -> ${nextDev}` });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de l'attachement", message: e.message });
+      pushToast({ kind: "error", title: "Échec de l'attachement", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -94,7 +94,7 @@ function DiskSection({ vmName, isAdmin }) {
 
       {isAdmin && (
         <div className="px-4 py-3 border-t border-anthracite-600 space-y-2">
-          <div className="text-xs font-medium text-anthracite-300">Ajouter un peripherique</div>
+          <div className="text-xs font-medium text-anthracite-300">Ajouter un périphérique</div>
           <select className="input" value={source} onChange={(e) => setSource(e.target.value)}>
             <option value="__new__">+ Nouveau disque...</option>
             {volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} Go)</option>)}
@@ -107,7 +107,7 @@ function DiskSection({ vmName, isAdmin }) {
             </div>
           )}
           <div className="flex items-center gap-2">
-            {nextDev ? <span className="text-xs font-mono text-anthracite-400">sera attache en tant que <b className="text-anthracite-200">{nextDev}</b></span>
+            {nextDev ? <span className="text-xs font-mono text-anthracite-400">sera attaché en tant que <b className="text-anthracite-200">{nextDev}</b></span>
               : <span className="text-xs text-status-error">Plus de lettre disponible</span>}
             <button className="btn-secondary ml-auto" disabled={busy || !nextDev} onClick={handleAttach}><Plus size={13} /> Attacher</button>
           </div>
@@ -131,7 +131,7 @@ function NetworkSection({ vmName, isAdmin }) {
       setNetworks(n);
       setAddNet((prev) => prev || n[0]?.nom || "");
     } catch (e) {
-      pushToast({ kind: "error", title: "Erreur reseau", message: e.message });
+      pushToast({ kind: "error", title: "Erreur réseau", message: e.message });
     }
   }, [vmName, pushToast]);
 
@@ -143,10 +143,10 @@ function NetworkSection({ vmName, isAdmin }) {
     setBusy(true);
     try {
       await detachInterface(vmName, mac);
-      pushToast({ kind: "success", title: "Interface detachee", message: mac });
+      pushToast({ kind: "success", title: "Interface détachée", message: mac });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec du detachement", message: e.message });
+      pushToast({ kind: "error", title: "Échec du détachement", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -154,10 +154,10 @@ function NetworkSection({ vmName, isAdmin }) {
     setBusy(true);
     try {
       await attachInterface(vmName, addNet);
-      pushToast({ kind: "success", title: "Interface ajoutee", message: addNet });
+      pushToast({ kind: "success", title: "Interface ajoutée", message: addNet });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de l'ajout", message: e.message });
+      pushToast({ kind: "error", title: "Échec de l'ajout", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -165,7 +165,7 @@ function NetworkSection({ vmName, isAdmin }) {
     <div className="card">
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-anthracite-600">
         <Network size={15} className="text-anthracite-400" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Interfaces reseau</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">Interfaces réseau</h3>
       </div>
       <div className="divide-y divide-anthracite-600">
         {info.interfaces.map((iface) => (
@@ -204,7 +204,7 @@ export default function VMHardwareTab({ resource: vm }) {
         </div>
         <div className="flex items-center gap-3 px-4 py-3">
           <MemoryStick size={16} className="text-anthracite-400 shrink-0" />
-          <span className="text-sm text-anthracite-200 flex-1">Memoire</span>
+          <span className="text-sm text-anthracite-200 flex-1">Mémoire</span>
           <span className="text-sm text-anthracite-100 font-mono">{vm.memoire_mo} Mo</span>
         </div>
       </div>

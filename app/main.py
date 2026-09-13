@@ -14,6 +14,12 @@ from app.routers.network import router as network_router
 from app.routers.templates import router as templates_router
 from app.routers.isos import router as isos_router
 from app.routers.audit import router as audit_router
+from app.routers.tasks import router as tasks_router
+from app.routers.groups import router as groups_router
+from app.routers.pools import router as pools_router
+from app.routers.acl import router as acl_router
+from app.routers.host import router as host_router
+from app.routers.update import router as update_router
 
 app = FastAPI(title="Hyperlite API")
 app.include_router(auth_router)
@@ -24,6 +30,12 @@ app.include_router(network_router)
 app.include_router(templates_router)
 app.include_router(isos_router)
 app.include_router(audit_router)
+app.include_router(tasks_router)
+app.include_router(groups_router)
+app.include_router(pools_router)
+app.include_router(acl_router)
+app.include_router(host_router)
+app.include_router(update_router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -51,10 +63,20 @@ def health():
         conn.close()
 
 
+# index.html reference les fichiers d'assets par leur hash de build (ex.
+# index-abc123.js) : sans en-tete explicite, un navigateur peut mettre en
+# cache l'index.html lui-meme au-dela d'un rechargement simple et continuer a
+# demander un vieux couple JS/CSS apres un nouveau déploiement, ce qui a fait
+# croire a un bug visuel deja corrige. "no-cache" force une revalidation a
+# chaque chargement (pas un "ne jamais stocker") sans re-télécharger si rien
+# n'a change cote serveur.
+NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
+
+
 @app.get("/legacy", include_in_schema=False)
 @app.get("/legacy/{path:path}", include_in_schema=False)
 def serve_legacy_ui(path: str = ""):
-    return FileResponse("app/static/index.html")
+    return FileResponse("app/static/index.html", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/", include_in_schema=False)
@@ -66,8 +88,8 @@ def serve_ui(path: str = ""):
     # enregistrees au-dessus (elles sont essayees en premier).
     dashboard_index = f"{DASHBOARD_DIST}/index.html"
     if os.path.isfile(dashboard_index):
-        return FileResponse(dashboard_index)
-    return FileResponse("app/static/index.html")
+        return FileResponse(dashboard_index, headers=NO_CACHE_HEADERS)
+    return FileResponse("app/static/index.html", headers=NO_CACHE_HEADERS)
 
 
 @app.exception_handler(Exception)

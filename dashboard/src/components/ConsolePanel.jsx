@@ -54,7 +54,7 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
       });
       rfb.addEventListener("disconnect", () => setStatus("idle"));
       rfb.addEventListener("credentialsrequired", () => {
-        setError("Cette VM demande des identifiants VNC non geres par Hyperlite.");
+        setError("Cette VM demande des identifiants VNC non gérés par Hyperlite.");
         setStatus("error");
       });
     } catch (e) {
@@ -87,7 +87,7 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
         ws.send("\x00" + JSON.stringify({ cols: term.cols, rows: term.rows }));
       };
       ws.onmessage = (ev) => term.write(ev.data);
-      ws.onclose = () => { term.write("\r\n\x1b[33m[connexion terminee]\x1b[0m\r\n"); setStatus("idle"); };
+      ws.onclose = () => { term.write("\r\n\x1b[33m[connexion terminée]\x1b[0m\r\n"); setStatus("idle"); };
       ws.onerror = () => setError("Erreur de connexion au terminal.");
 
       term.onData((data) => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
@@ -103,6 +103,17 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
   function connect() {
     if (mode === "vnc") connectVnc(); else connectTerminal();
   }
+
+  // Connexion automatique : plus besoin de cliquer "Se connecter" a la main,
+  // des que la VM est active on se connecte tout seul (au montage, a un
+  // changement d'onglet VNC/terminal, ou des que la VM demarre alors que la
+  // console etait deja ouverte). Ne redeclenche pas de reconnexion en boucle
+  // sur une simple coupure (status change seul, hors des dependances) --
+  // seulement sur un vrai changement de VM/mode/etat actif.
+  useEffect(() => {
+    if (vmActive && status === "idle") connect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vmName, mode, vmActive]);
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -123,7 +134,7 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
         </div>
 
         {status === "connected" ? (
-          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Deconnecter</button>
+          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Déconnecter</button>
         ) : (
           <button className="btn-primary ml-auto" disabled={!vmActive || status === "connecting"} onClick={connect}>
             <Plug size={13} /> {status === "connecting" ? "Connexion..." : "Se connecter"}
@@ -131,7 +142,7 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
         )}
       </div>
 
-      {!vmActive && <p className="text-xs text-anthracite-500">La VM doit etre demarree.</p>}
+      {!vmActive && <p className="text-xs text-anthracite-500">La VM doit être démarrée.</p>}
       {error && <p className="text-xs text-status-error">{error}</p>}
 
       <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-anthracite-600">

@@ -18,6 +18,16 @@ def _get_free_memory_kb():
     return None
 
 
+def _get_host_uptime_s():
+    # /proc/uptime : "<secondes depuis le boot> <secondes idle cumulees>",
+    # le premier nombre est ce qu'on veut.
+    try:
+        with open("/proc/uptime") as f:
+            return int(float(f.read().split()[0]))
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 @router.get("/dashboard")
 def dashboard(user: dict = Depends(get_current_user)):
     conn = open_conn()
@@ -45,6 +55,7 @@ def dashboard(user: dict = Depends(get_current_user)):
                 "nom": hostname,
                 "type": hv_type,
                 "connecte": connected,
+                "uptime_s": _get_host_uptime_s(),
             },
             "vms": {
                 "total": total,
