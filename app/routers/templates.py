@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
 from app.core.vm_builder import IMAGES_DIR, validate_name
@@ -26,7 +26,7 @@ class ConvertRequest(BaseModel):
 
 
 @router.post("/from-vm/{name}", status_code=201)
-def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends(get_current_user)):
+def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends(require_role("admin"))):
     tpl_name = (payload.template_name or name).strip()
     try:
         validate_name(tpl_name)
@@ -87,7 +87,7 @@ class DeployRequest(BaseModel):
 
 
 @router.post("/{template_name}/deploy", status_code=201)
-def deploy_template(template_name: str, payload: DeployRequest, user: dict = Depends(get_current_user)):
+def deploy_template(template_name: str, payload: DeployRequest, user: dict = Depends(require_role("admin"))):
     tpl = templates_store.get_template(template_name)
     if tpl is None:
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' introuvable")
@@ -164,7 +164,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
 
 
 @router.delete("/{template_name}")
-def delete_template_endpoint(template_name: str, confirm: bool = False, user: dict = Depends(get_current_user)):
+def delete_template_endpoint(template_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     tpl = templates_store.get_template(template_name)
     if tpl is None:
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' introuvable")

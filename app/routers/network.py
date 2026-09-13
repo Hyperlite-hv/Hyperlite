@@ -16,6 +16,15 @@ router = APIRouter(prefix="/networks", tags=["networks"])
 # fournie par l'utilisateur avant de l'inserer dans du XML libvirt.
 _IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
+# Nom d'interface Linux valide (alphanumerique/tiret/underscore/point, max
+# 15 caracteres -- limite IFNAMSIZ du noyau). Trouve a l'audit (chantier 11) :
+# bridge_name partait tel quel dans du XML libvirt construit par f-string
+# (<bridge name='{bridge_name}'/>) sans validation, une injection XML
+# possible pour qui peut atteindre cet endpoint (admin uniquement
+# aujourd'hui, donc pas exploitable par un tiers pour l'instant -- corrige
+# quand meme, ce n'est pas une bonne pratique a laisser trainer).
+_IFACE_NAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,15}$")
+
 
 def _valid_ipv4(addr):
     m = _IPV4_RE.match(addr or "")
@@ -133,8 +142,8 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
             pass
 
         if payload.mode == "bridge":
-            if not payload.bridge_name:
-                raise HTTPException(status_code=422, detail="bridge_name est requis pour le mode 'bridge'")
+            if not payload.bridge_name or not _IFACE_NAME_RE.match(payload.bridge_name):
+                raise HTTPException(status_code=422, detail="bridge_name invalide (attendu un nom d'interface Linux : lettres/chiffres/-/_/. , 15 caractères max)")
             net_xml = f"""
             <network>
               <name>{payload.name}</name>

@@ -1,5 +1,6 @@
 import re
 import sqlite3
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -13,6 +14,28 @@ from app.core.permissions import remove_group_member, get_user_groups
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
+
+# --- Protection anti-brute-force sur /auth/login (chantier 11, audit du
+# 2026-09-13) --- Trouve a l'audit : l'endpoint n'avait AUCUNE limite de
+# tentatives, un mot de passe se laissait deviner par essais illimites.
+# En memoire (pas en base) : suffisant pour ralentir un brute-force en
+# pratique, mais se reinitialise a chaque redemarrage du service -- limite
+# connue, documentee plutot que cachee. Une version persistante (table SQLite)
+# serait le prochain pas si ce point s'avere insuffisant en usage reel.
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_WINDOW_S = 300  # fenetre glissante sur laquelle les echecs comptent
+_login_failures = {}  # username -> [timestamps des echecs recents]
+
+
+def _login_locked_out(username):
+    now = time.time()
+    recent = [t for t in _login_failures.get(username, []) if now - t < LOGIN_WINDOW_S]
+    _login_failures[username] = recent
+    return len(recent) >= LOGIN_MAX_ATTEMPTS
+
+
+def _login_record_failure(username):
+    _login_failures.setdefault(username, []).append(time.time())
 
 
 class UserCreate(BaseModel):
@@ -28,10 +51,18 @@ class UserUpdate(BaseModel):
 
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    if _login_locked_out(form_data.username):
+        log_action(form_data.username, "login", "auth", "echec", f"Verrouillé ({LOGIN_MAX_ATTEMPTS} échecs récents)")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Trop de tentatives échouées pour ce compte, réessayez dans {LOGIN_WINDOW_S // 60} minutes",
+        )
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
+        _login_record_failure(form_data.username)
         log_action(form_data.username, "login", "auth", "echec", "Identifiants invalides")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identifiants invalides")
+    _login_failures.pop(form_data.username, None)
     token = create_access_token({"sub": user["username"], "role": user["role"]})
     log_action(user["username"], "login", "auth", "succes")
     return {"access_token": token, "token_type": "bearer", "role": user["role"]}

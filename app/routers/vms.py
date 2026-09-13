@@ -1439,7 +1439,7 @@ class CdromRequest(BaseModel):
 
 
 @router.put("/{name}/cdrom")
-def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(get_current_user)):
+def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     conn = open_conn()
     try:
         try:
@@ -1497,7 +1497,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(get_curr
 
 
 @router.delete("/{name}/cdrom")
-def eject_vm_cdrom(name: str, user: dict = Depends(get_current_user)):
+def eject_vm_cdrom(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     conn = open_conn()
     try:
         try:
@@ -1723,7 +1723,7 @@ CONSOLE_TICKET_TTL = 30
 
 
 @router.post("/{name}/console-ticket")
-def create_console_ticket(name: str, user: dict = Depends(get_current_user)):
+def create_console_ticket(name: str, user: dict = Depends(require_vm_privilege("vm.console"))):
     conn = open_conn()
     try:
         try:
