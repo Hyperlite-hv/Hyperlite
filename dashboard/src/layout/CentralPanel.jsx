@@ -14,6 +14,7 @@ import NodesTab from "../panels/datacenter/NodesTab";
 import ContainersTab from "../panels/datacenter/ContainersTab";
 import JournalTab from "../panels/datacenter/JournalTab";
 import ExportsTab from "../panels/datacenter/ExportsTab";
+import ActivityTab from "../panels/datacenter/ActivityTab";
 
 import NodeSummaryTab from "../panels/node/NodeSummaryTab";
 import NodeSystemTab from "../panels/node/NodeSystemTab";
@@ -31,6 +32,7 @@ import VMSnapshotsTab from "../panels/vm/VMSnapshotsTab";
 
 const DATACENTER_TABS = [
   { id: "summary", label: "Résumé", Component: DatacenterSummaryTab },
+  { id: "activity", label: "Activité récente", Component: ActivityTab },
   { id: "storage", label: "Stockage", Component: DcStorageTab },
   { id: "templates", label: "Templates", Component: TemplatesTab },
   { id: "backups", label: "Sauvegardes", Component: BackupsTab },

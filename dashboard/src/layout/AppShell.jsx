@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import Header from "./Header";
+import SidebarRail from "./SidebarRail";
 import ResourceTree from "./ResourceTree";
 import CentralPanel from "./CentralPanel";
 import TaskLogPanel from "./TaskLogPanel";
@@ -33,6 +34,7 @@ export default function AppShell() {
     <div className="flex h-screen flex-col overflow-hidden bg-anthracite-900">
       <Header />
       <div className="flex flex-1 overflow-hidden">
+        <SidebarRail />
         <div className="w-[236px] shrink-0">
           <ResourceTree />
         </div>
