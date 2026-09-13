@@ -32,6 +32,18 @@ export default function VMSummaryTab({ resource: vm }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [justFinished]);
 
+  // Chantier 12 : avant, un echec d'installation automatisee (timeout SSH,
+  // VM disparue en cours de route) restait invisible -- la barre de
+  // progression disparaissait juste silencieusement (provisioning: false
+  // sans distinction succes/echec). GET /vms/{name}/provisioning renvoie
+  // maintenant failed+erreur explicitement dans ce cas.
+  useEffect(() => {
+    if (provStatus?.failed) {
+      pushToast({ kind: "error", title: "Échec de l'installation automatisée", message: provStatus.erreur || "Cause inconnue" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provStatus?.failed]);
+
   if (!vm) return null;
   const provisioning = provStatus?.provisioning;
 

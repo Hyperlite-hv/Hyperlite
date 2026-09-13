@@ -65,12 +65,12 @@ def rename_vm_os_label(old_name, new_name):
 
 # ---- Suivi de progression d'une installation automatisee (ISO reconnu) ----
 
-def mark_provisioning(vm_name, os_family):
+def mark_provisioning(vm_name, os_family, task_id=None):
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO vm_provisioning (vm_name, os_family, started_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET os_family = excluded.os_family, started_at = excluded.started_at",
-            (vm_name, os_family, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO vm_provisioning (vm_name, os_family, started_at, task_id) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET os_family = excluded.os_family, started_at = excluded.started_at, task_id = excluded.task_id",
+            (vm_name, os_family, datetime.now(timezone.utc).isoformat(), task_id),
         )
         conn.commit()
 
@@ -78,7 +78,7 @@ def mark_provisioning(vm_name, os_family):
 def get_provisioning(vm_name):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT os_family, started_at FROM vm_provisioning WHERE vm_name = ?", (vm_name,)
+            "SELECT os_family, started_at, task_id FROM vm_provisioning WHERE vm_name = ?", (vm_name,)
         ).fetchone()
         return dict(row) if row else None
 

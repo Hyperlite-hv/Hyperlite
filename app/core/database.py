@@ -86,6 +86,13 @@ def init_db():
                 started_at TEXT NOT NULL
             )
         """)
+        # ALTER separe (pas dans le CREATE TABLE ci-dessus) : la table existe
+        # deja sur les installs anterieures au chantier 12, CREATE TABLE IF
+        # NOT EXISTS ne retro-ajoute pas de colonne a une table deja creee.
+        try:
+            conn.execute("ALTER TABLE vm_provisioning ADD COLUMN task_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # colonne deja presente
         # Libelle d'OS DECLARE a la creation de la VM (deduit du template/ISO
         # choisi, voir vms.create_vm) -- pas "detecte" au sens propre (pas de
         # qemu-guest-agent installe dans les VM invitees aujourd'hui, donc
