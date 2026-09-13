@@ -25,12 +25,23 @@ set -e
 OUT=/tmp/hyperlite-dynamic-preseed.cfg
 log() { echo "[hyperlite-partman] $*" > /dev/console 2>&1 || true; }
 
-# ---- Mot de passe root aleatoire ----
-# En clair (pas -crypted) : le composant passwd du vrai installeur se charge
-# du hachage lui-meme, aucune dependance a mkpasswd/openssl necessaire ici.
-ROOT_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)
+# ---- Mot de passe root ----
+# Fixe et simple ("hyperlite") plutot qu'aleatoire, a la demande d'Antho --
+# pense pour une premiere connexion facile juste apres l'installation d'une
+# appliance fraiche, PAS pour rester tel quel en usage reel. Ecrit en clair
+# ici (pas -crypted) : le composant passwd du vrai installeur se charge du
+# hachage lui-meme, aucune dependance a mkpasswd/openssl necessaire.
+#
+# ATTENTION SECURITE (a documenter cote utilisateur, voir chantier 16) :
+# un mot de passe par defaut connu de tous grant un acces root complet a la
+# machine ET a l'interface Hyperlite -- exactement le genre de trou trouve
+# et corrige au chantier 11 pour d'autres mecanismes (brute-force sur
+# /auth/login, ACL...). A changer immediatement apres la premiere connexion,
+# comme n'importe quel autre appareil qui expedie avec des identifiants par
+# defaut (routeurs, NAS...).
+ROOT_PASS="hyperlite"
 echo "$ROOT_PASS" > /tmp/hyperlite-root-password
-log "mot de passe root genere"
+log "mot de passe root fixe (hyperlite) -- a changer apres la premiere connexion"
 
 # ---- Detection des disques ----
 # /proc/partitions plutot que list-devices (module d-i partman-base) : rien
