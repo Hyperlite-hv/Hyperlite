@@ -4,6 +4,7 @@ import AppShell from "./layout/AppShell";
 import LoginScreen from "./auth/LoginScreen";
 import ConsoleWindow from "./console/ConsoleWindow";
 import HostShellWindow from "./console/HostShellWindow";
+import ContainerTerminalWindow from "./console/ContainerTerminalWindow";
 import { useAuthStore } from "./store/useAuthStore";
 
 // /console/:name et /host-shell ont leur propre gate d'authentification
@@ -17,6 +18,7 @@ export default function App() {
       <Routes>
         <Route path="/console/:name" element={<ConsoleWindow />} />
         <Route path="/host-shell" element={<HostShellWindow />} />
+        <Route path="/container-terminal/:name" element={<ContainerTerminalWindow />} />
         <Route path="/*" element={<MainApp />} />
       </Routes>
     </BrowserRouter>

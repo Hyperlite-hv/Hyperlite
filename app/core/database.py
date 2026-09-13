@@ -268,4 +268,14 @@ def init_db():
                 privileges TEXT NOT NULL
             )
         """)
+        # Conteneurs LXC (chantier 18) : table distincte de vm_ssh_users --
+        # domaines qemu et lxc vivent dans des espaces de noms libvirt
+        # separes (voir open_lxc_conn), un conteneur et une VM peuvent en
+        # theorie partager le meme nom sans collision a eviter ici.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS container_ssh_users (
+                container_name TEXT PRIMARY KEY,
+                username TEXT NOT NULL
+            )
+        """)
         conn.commit()
