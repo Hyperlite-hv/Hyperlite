@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { Plus, Bell, Sun, Moon, User, LogOut, RefreshCw } from "lucide-react";
+import { Plus, Box, Bell, Sun, Moon, User, LogOut, RefreshCw } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import HyperliteLogo from "../components/HyperliteLogo";
 import VMWizard from "../wizard/VMWizard";
+import ContainerWizard from "../wizard/ContainerWizard";
 import UpdateModal from "../components/UpdateModal";
 import { useInfraStore } from "../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 
 export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [containerWizardOpen, setContainerWizardOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
@@ -37,6 +39,11 @@ export default function Header() {
         {isAdmin && (
           <button className="btn-primary" onClick={() => setWizardOpen(true)}>
             <Plus size={15} /> Créer VM
+          </button>
+        )}
+        {isAdmin && (
+          <button className="btn-secondary" onClick={() => setContainerWizardOpen(true)}>
+            <Box size={15} /> Créer conteneur
           </button>
         )}
 
@@ -99,6 +106,7 @@ export default function Header() {
       </div>
 
       <VMWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <ContainerWizard open={containerWizardOpen} onClose={() => setContainerWizardOpen(false)} />
       {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} />}
     </header>
   );
