@@ -733,6 +733,7 @@ def get_vm_network(name: str, user: dict = Depends(get_current_user)):
 
 class NetworkUpdate(BaseModel):
     network: str
+    vlan_tag: int | None = Field(None, ge=1, le=4094, description="Tag 802.1Q -- effectif seulement si le réseau/pont sous-jacent gère le trunking (Open vSwitch) ; ignoré silencieusement sur un pont Linux standard")
 
 
 @router.put("/{name}/network")
@@ -765,6 +766,13 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
             del source.attrib[k]
         source.set("network", payload.network)
 
+        vlan_el = iface.find("vlan")
+        if vlan_el is not None:
+            iface.remove(vlan_el)
+        if payload.vlan_tag is not None:
+            vlan_el = ET.SubElement(iface, "vlan")
+            ET.SubElement(vlan_el, "tag", {"id": str(payload.vlan_tag)})
+
         iface_xml = ET.tostring(iface, encoding="unicode")
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
         if domain.isActive():
@@ -787,6 +795,7 @@ MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 
 class InterfaceAttach(BaseModel):
     network: str
+    vlan_tag: int | None = Field(None, ge=1, le=4094)
 
 
 @router.post("/{name}/interfaces", status_code=201)
@@ -805,9 +814,11 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
             log_action(user["username"], "attach_interface", name, "echec", "Réseau introuvable")
             raise HTTPException(status_code=404, detail=f"Réseau '{payload.network}' introuvable")
 
+        vlan_xml = f"<vlan><tag id='{payload.vlan_tag}'/></vlan>" if payload.vlan_tag is not None else ""
         iface_xml = f"""
         <interface type='network'>
           <source network='{payload.network}'/>
+          {vlan_xml}
           <model type='virtio'/>
         </interface>
         """
@@ -870,6 +881,140 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
 
         log_action(user["username"], "detach_interface", name, "succes")
         return {"message": f"Interface '{mac}' détachée de '{name}'"}
+    finally:
+        conn.close()
+
+
+# --- Pare-feu par VM (chantier 9 de la roadmap vSphere/vCenter, 2026-09-13)
+# ---
+# Implemente via le sous-systeme nwfilter de libvirt (VIR_NWFilter*), pas des
+# regles nftables/iptables generees a la main : nwfilter est deja le
+# mecanisme natif de libvirt pour ca, applique automatiquement par le
+# pilote QEMU sur chaque (re)demarrage de la VM sans script externe a
+# maintenir. Un filtre par VM ("hyperlite-vm-<nom>"), reference par
+# <filterref> sur chaque interface de la VM.
+
+_FIREWALL_PROTOCOLS = {"tcp", "udp", "icmp", "all"}
+_FIREWALL_ACTIONS = {"accept", "drop"}
+_FIREWALL_DIRECTIONS = {"in", "out", "inout"}
+
+
+class FirewallRule(BaseModel):
+    action: str
+    direction: str
+    protocol: str
+    port: int | None = Field(None, ge=1, le=65535)
+
+
+class FirewallConfig(BaseModel):
+    default_policy: str = "accept"
+    rules: list[FirewallRule] = []
+
+
+def _firewall_filter_name(vm_name):
+    return f"hyperlite-vm-{vm_name}"
+
+
+def _build_nwfilter_xml(vm_name, config):
+    rules_xml = ""
+    priority = 300
+    for rule in config.rules:
+        port_attr = f" dstportstart='{rule.port}'" if rule.port and rule.protocol in ("tcp", "udp") else ""
+        rules_xml += f"<rule action='{rule.action}' direction='{rule.direction}' priority='{priority}'><{rule.protocol}{port_attr}/></rule>"
+        priority += 1
+    default_action = "accept" if config.default_policy == "accept" else "drop"
+    rules_xml += f"<rule action='{default_action}' direction='inout' priority='999'><all/></rule>"
+    return f"<filter name='{_firewall_filter_name(vm_name)}' chain='root'>{rules_xml}</filter>"
+
+
+def _parse_nwfilter_xml(xml_desc):
+    root = ET.fromstring(xml_desc)
+    rules = []
+    default_policy = "accept"
+    for rule_el in root.findall("rule"):
+        proto_el = None
+        for candidate in ("tcp", "udp", "icmp", "all"):
+            proto_el = rule_el.find(candidate)
+            if proto_el is not None:
+                break
+        if proto_el is None:
+            continue
+        protocol = proto_el.tag
+        port = proto_el.get("dstportstart")
+        direction = rule_el.get("direction", "inout")
+        action = rule_el.get("action", "accept")
+        if protocol == "all" and direction == "inout" and int(rule_el.get("priority", 0)) >= 999:
+            default_policy = action  # la regle catch-all ajoutee par _build_nwfilter_xml
+            continue
+        rules.append({"action": action, "direction": direction, "protocol": protocol, "port": int(port) if port else None})
+    return {"default_policy": default_policy, "rules": rules}
+
+
+@router.get("/{name}/firewall")
+def get_vm_firewall(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    conn = open_conn()
+    try:
+        try:
+            conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        try:
+            nwf = conn.nwfilterLookupByName(_firewall_filter_name(name))
+            return _parse_nwfilter_xml(nwf.XMLDesc(0))
+        except libvirt.libvirtError:
+            return {"default_policy": "accept", "rules": []}  # aucune regle definie -- tout autorise, comportement par defaut
+    finally:
+        conn.close()
+
+
+@router.put("/{name}/firewall")
+def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    if payload.default_policy not in _FIREWALL_ACTIONS:
+        raise HTTPException(status_code=422, detail="default_policy doit être 'accept' ou 'drop'")
+    for rule in payload.rules:
+        if rule.action not in _FIREWALL_ACTIONS or rule.direction not in _FIREWALL_DIRECTIONS or rule.protocol not in _FIREWALL_PROTOCOLS:
+            raise HTTPException(status_code=422, detail=f"Règle invalide : {rule}")
+
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_vm_firewall", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        filter_name = _firewall_filter_name(name)
+        try:
+            conn.nwfilterDefineXML(_build_nwfilter_xml(name, payload))
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "set_vm_firewall", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de définition du pare-feu : {msg}")
+
+        # Reference le filtre sur CHAQUE interface de la VM (pas seulement la
+        # premiere) -- sans quoi une VM multi-NIC laisserait une interface
+        # non filtree, silencieusement, ce qui a ete precisement le type de
+        # bug corrige au chantier 5 pour les disques/interfaces au clonage.
+        root = ET.fromstring(domain.XMLDesc(0))
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
+        if domain.isActive():
+            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
+        applied = 0
+        for iface in root.findall(".//devices/interface"):
+            existing_ref = iface.find("filterref")
+            if existing_ref is not None:
+                iface.remove(existing_ref)
+            ET.SubElement(iface, "filterref", {"filter": filter_name})
+            try:
+                domain.updateDeviceFlags(ET.tostring(iface, encoding="unicode"), flags)
+                applied += 1
+            except libvirt.libvirtError as e:
+                msg = describe_exception(e)
+                log_action(user["username"], "set_vm_firewall", name, "echec", msg)
+                raise HTTPException(status_code=500, detail=f"Filtre créé mais non appliqué à l'interface : {msg}")
+
+        log_action(user["username"], "set_vm_firewall", name, "succes", f"{len(payload.rules)} règle(s), {applied} interface(s)")
+        return {"message": f"Pare-feu appliqué à {applied} interface(s)", **payload.model_dump()}
     finally:
         conn.close()
 
