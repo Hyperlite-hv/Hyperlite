@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Server, LogIn } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
+import HyperliteLogo from "../components/HyperliteLogo";
 
 export default function LoginScreen() {
   const login = useAuthStore((s) => s.login);
@@ -26,9 +27,7 @@ export default function LoginScreen() {
     <div className="flex h-screen items-center justify-center bg-anthracite-900">
       <form onSubmit={onSubmit} className="card w-full max-w-sm p-6">
         <div className="mb-5 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent-blue">
-            <Server size={18} className="text-white" />
-          </div>
+          <HyperliteLogo size={32} className="rounded-md" />
           <span className="text-base font-semibold tracking-wide text-anthracite-100">HYPERLITE</span>
         </div>
 
