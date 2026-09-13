@@ -25,28 +25,28 @@ export default function StepTemplate({ form, patch }) {
         {!form.iso ? (
           <>
             Image de base : <span className="text-anthracite-100 font-medium">Debian 12 (cloud-init)</span>
-            <div className="text-xs text-anthracite-400 mt-0.5">Preinstallee et prete a l'emploi (utilisateur/mot de passe definis a l'etape suivante).</div>
+            <div className="text-xs text-anthracite-400 mt-0.5">Préinstallée et prête à l'emploi (utilisateur/mot de passe définis à l'étape suivante).</div>
           </>
         ) : osFamily === "kickstart" ? (
           <>
-            Disque systeme : <span className="text-anthracite-100 font-medium">vierge, installation automatisee (Kickstart)</span>
+            Disque système : <span className="text-anthracite-100 font-medium">vierge, installation automatisée (Kickstart)</span>
             <div className="text-xs text-anthracite-400 mt-0.5">
-              Le compte defini a l'etape suivante et la cle SSH Hyperlite sont installes automatiquement -- terminal SSH web fonctionnel une fois l'installation terminee, sans intervention.
+              Le compte défini à l'étape suivante et la clé SSH Hyperlite sont installés automatiquement -- terminal SSH web fonctionnel une fois l'installation terminée, sans intervention.
             </div>
           </>
         ) : osFamily === "autoinstall" ? (
           <>
-            Disque systeme : <span className="text-anthracite-100 font-medium">vierge, installation automatisee (autoinstall)</span>
+            Disque système : <span className="text-anthracite-100 font-medium">vierge, installation automatisée (autoinstall)</span>
             <div className="text-xs text-anthracite-400 mt-0.5">
-              Le compte defini a l'etape suivante et la cle SSH Hyperlite sont installes automatiquement. Ubuntu demande une confirmation unique ("Continue with autoinstall?") : appuyez une fois sur Entree dans la console VNC au demarrage, le reste est automatique.
+              Le compte défini à l'étape suivante et la clé SSH Hyperlite sont installés automatiquement. Ubuntu demande une confirmation unique ("Continue with autoinstall?") : appuyez une fois sur Entrée dans la console VNC au démarrage, le reste est automatique.
             </div>
           </>
         ) : (
           <>
-            Disque systeme : <span className="text-anthracite-100 font-medium">vierge, a installer manuellement</span>
+            Disque système : <span className="text-anthracite-100 font-medium">vierge, à installer manuellement</span>
             <div className="text-xs text-anthracite-400 mt-0.5">
-              ISO non reconnu pour l'installation automatisee : la VM demarrera dessus pour une installation manuelle via la console VNC.
-              Le compte utilisateur sera cree pendant l'installation (pas de terminal SSH web automatique pour cette VM tant que vous n'y avez pas configure l'acces vous-meme).
+              ISO non reconnu pour l'installation automatisée : la VM démarrera dessus pour une installation manuelle via la console VNC.
+              Le compte utilisateur sera créé pendant l'installation (pas de terminal SSH web automatique pour cette VM tant que vous n'y avez pas configuré l'accès vous-même).
             </div>
           </>
         )}

@@ -52,11 +52,11 @@ def list_users(user: dict = Depends(require_role("admin"))):
 @router.post("/users", status_code=201)
 def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))):
     if not USERNAME_RE.match(payload.username):
-        raise HTTPException(status_code=422, detail="Nom d'utilisateur invalide (2-32 caracteres : lettres, chiffres, . _ -)")
+        raise HTTPException(status_code=422, detail="Nom d'utilisateur invalide (2-32 caractères : lettres, chiffres, . _ -)")
     if len(payload.password) < 4:
-        raise HTTPException(status_code=422, detail="Le mot de passe doit contenir au moins 4 caracteres")
+        raise HTTPException(status_code=422, detail="Le mot de passe doit contenir au moins 4 caractères")
     if payload.role not in ("admin", "observateur"):
-        raise HTTPException(status_code=422, detail="Role invalide (admin ou observateur)")
+        raise HTTPException(status_code=422, detail="Rôle invalide (admin ou observateur)")
     try:
         with get_conn() as conn:
             conn.execute(
@@ -65,7 +65,7 @@ def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))
             )
             conn.commit()
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=422, detail=f"L'utilisateur '{payload.username}' existe deja")
+        raise HTTPException(status_code=422, detail=f"L'utilisateur '{payload.username}' existe déjà")
     log_action(user["username"], "create_user", payload.username, "succes")
     return {"username": payload.username, "role": payload.role}
 
@@ -78,23 +78,23 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
             raise HTTPException(status_code=404, detail=f"Utilisateur '{username}' introuvable")
         if payload.role is not None:
             if payload.role not in ("admin", "observateur"):
-                raise HTTPException(status_code=422, detail="Role invalide (admin ou observateur)")
+                raise HTTPException(status_code=422, detail="Rôle invalide (admin ou observateur)")
             if existing["role"] == "admin" and payload.role != "admin" and username == user["username"]:
-                raise HTTPException(status_code=400, detail="Impossible de te retirer toi-meme les droits admin")
+                raise HTTPException(status_code=400, detail="Impossible de te retirer toi-même les droits admin")
             conn.execute("UPDATE users SET role = ? WHERE username = ?", (payload.role, username))
         if payload.password is not None:
             if len(payload.password) < 4:
-                raise HTTPException(status_code=422, detail="Le mot de passe doit contenir au moins 4 caracteres")
+                raise HTTPException(status_code=422, detail="Le mot de passe doit contenir au moins 4 caractères")
             conn.execute("UPDATE users SET hashed_password = ? WHERE username = ?", (hash_password(payload.password), username))
         conn.commit()
     log_action(user["username"], "update_user", username, "succes")
-    return {"message": "Utilisateur mis a jour"}
+    return {"message": "Utilisateur mis à jour"}
 
 
 @router.delete("/users/{username}")
 def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     if username == user["username"]:
-        raise HTTPException(status_code=400, detail="Impossible de te supprimer toi-meme")
+        raise HTTPException(status_code=400, detail="Impossible de te supprimer toi-même")
     with get_conn() as conn:
         row = conn.execute("SELECT role FROM users WHERE username = ?", (username,)).fetchone()
         if not row:
@@ -108,4 +108,4 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     for group_id in get_user_groups(username):
         remove_group_member(group_id, username)
     log_action(user["username"], "delete_user", username, "succes")
-    return {"message": "Utilisateur supprime"}
+    return {"message": "Utilisateur supprimé"}

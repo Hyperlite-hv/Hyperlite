@@ -46,13 +46,13 @@ def list_custom_roles(user: dict = Depends(require_role("admin"))):
 def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_role("admin"))):
     name = payload.name.strip()
     if not name:
-        raise HTTPException(status_code=422, detail="Nom de role requis")
+        raise HTTPException(status_code=422, detail="Nom de rôle requis")
     try:
         role_id = perm.create_custom_role(name, payload.privileges)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
-        raise HTTPException(status_code=422, detail=f"Un role nomme '{name}' existe deja")
+        raise HTTPException(status_code=422, detail=f"Un rôle nommé '{name}' existe déjà")
     log_action(user["username"], "create_custom_role", f"{name} ({','.join(payload.privileges)})", "succes")
     return {"id": role_id, "key": f"custom:{role_id}", "name": name, "privileges": payload.privileges}
 
@@ -61,7 +61,7 @@ def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_r
 def delete_custom_role(role_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_custom_role(role_id)
     log_action(user["username"], "delete_custom_role", str(role_id), "succes")
-    return {"message": "Role supprime"}
+    return {"message": "Rôle supprimé"}
 
 
 @router.get("")
@@ -72,11 +72,11 @@ def list_acl(user: dict = Depends(require_role("admin"))):
 @router.post("", status_code=201)
 def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
     if payload.subject_type not in ("user", "group"):
-        raise HTTPException(status_code=422, detail="subject_type doit etre 'user' ou 'group'")
+        raise HTTPException(status_code=422, detail="subject_type doit être 'user' ou 'group'")
     if payload.resource_type not in ("vm", "pool"):
-        raise HTTPException(status_code=422, detail="resource_type doit etre 'vm' ou 'pool'")
+        raise HTTPException(status_code=422, detail="resource_type doit être 'vm' ou 'pool'")
     if not perm.role_exists(payload.role):
-        raise HTTPException(status_code=422, detail=f"Role inconnu : {payload.role}")
+        raise HTTPException(status_code=422, detail=f"Rôle inconnu : {payload.role}")
     acl_id = perm.create_acl(
         payload.subject_type, payload.subject_id, payload.role,
         payload.resource_type, payload.resource_id,
@@ -93,4 +93,4 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
 def delete_acl(acl_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_acl(acl_id)
     log_action(user["username"], "delete_acl", str(acl_id), "succes")
-    return {"message": "Attribution supprimee"}
+    return {"message": "Attribution supprimée"}

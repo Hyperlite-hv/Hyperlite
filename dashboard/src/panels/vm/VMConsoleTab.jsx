@@ -12,7 +12,7 @@ export default function VMConsoleTab({ resource: vm }) {
   const [mode, setMode] = useState("vnc"); // "vnc" | "terminal"
 
   if (!isAdmin) {
-    return <p className="text-sm text-anthracite-400">Console reservee au role admin.</p>;
+    return <p className="text-sm text-anthracite-400">Console réservée au rôle admin.</p>;
   }
   if (!vm) return null;
 
@@ -43,13 +43,13 @@ export default function VMConsoleTab({ resource: vm }) {
       <div className="card flex flex-col items-center gap-3 p-10 text-center">
         {mode === "vnc" ? <Monitor size={28} className="text-anthracite-400" /> : <TerminalSquare size={28} className="text-anthracite-400" />}
         <p className="text-sm text-anthracite-300">
-          {mode === "vnc" ? "La console graphique" : "Le terminal SSH"} s'ouvre dans une fenetre separee, pour garder
+          {mode === "vnc" ? "La console graphique" : "Le terminal SSH"} s'ouvre dans une fenêtre séparée, pour garder
           ce tableau de bord utilisable pendant que la connexion reste ouverte.
         </p>
         <button className="btn-primary" disabled={vm.etat !== "actif"} onClick={openWindow}>
-          <ExternalLink size={14} /> Ouvrir dans une nouvelle fenetre
+          <ExternalLink size={14} /> Ouvrir dans une nouvelle fenêtre
         </button>
-        {vm.etat !== "actif" && <p className="text-xs text-anthracite-500">La VM doit etre demarree.</p>}
+        {vm.etat !== "actif" && <p className="text-xs text-anthracite-500">La VM doit être démarrée.</p>}
       </div>
     </div>
   );

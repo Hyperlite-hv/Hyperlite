@@ -67,7 +67,7 @@ def require_role(*roles):
         if user["role"] not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Role '{user['role']}' non autorise pour cette action",
+                detail=f"Rôle '{user['role']}' non autorisé pour cette action",
             )
         return user
     return checker
@@ -86,7 +86,7 @@ def require_vm_privilege(privilege):
         if not has_privilege(user, name, privilege):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Droits insuffisants sur la VM '{name}' (privilege requis : {privilege})",
+                detail=f"Droits insuffisants sur la VM '{name}' (privilège requis : {privilege})",
             )
         return user
     return checker

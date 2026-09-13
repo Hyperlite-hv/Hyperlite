@@ -34,7 +34,7 @@ export default function StepResources({ form, patch }) {
           <input type="number" min={1} max={2} className="input mt-1" value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
         </div>
         <div>
-          <label className="text-xs font-medium text-anthracite-300">Memoire (Mo, 256-2048)</label>
+          <label className="text-xs font-medium text-anthracite-300">Mémoire (Mo, 256-2048)</label>
           <input type="number" min={256} max={2048} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
         </div>
       </div>
@@ -57,7 +57,7 @@ export default function StepResources({ form, patch }) {
 
       {manualInstall ? (
         <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-300">
-          Compte utilisateur non applicable : cet ISO n'est pas reconnu pour l'installation automatisee, l'OS et son compte seront crees pendant l'installation manuelle (voir l'etape "Modele").
+          Compte utilisateur non applicable : cet ISO n'est pas reconnu pour l'installation automatisée, l'OS et son compte seront créés pendant l'installation manuelle (voir l'étape "Modèle").
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">

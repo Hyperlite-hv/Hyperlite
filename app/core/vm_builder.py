@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 IMAGES_DIR = Path("/var/lib/libvirt/images")
@@ -23,13 +24,13 @@ SCSI_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
 def validate_name(name):
     if not NAME_RE.match(name):
-        return "Nom de VM invalide (lettres/chiffres/tirets, 2-63 caracteres, doit commencer par une lettre ou un chiffre)"
+        return "Nom de VM invalide (lettres/chiffres/tirets, 2-63 caractères, doit commencer par une lettre ou un chiffre)"
     return None
 
 
 def validate_username(username):
     if not USERNAME_RE.match(username):
-        return "Nom d'utilisateur invalide (minuscules/chiffres/tirets/underscore, doit commencer par une lettre minuscule ou _, 32 caracteres max)"
+        return "Nom d'utilisateur invalide (minuscules/chiffres/tirets/underscore, doit commencer par une lettre minuscule ou _, 32 caractères max)"
     return None
 
 
@@ -108,7 +109,7 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
         meta_data = workdir / "meta-data"
 
         if any(c in password for c in ("\n", "\r")):
-            raise ValueError("Le mot de passe ne doit pas contenir de retour a la ligne")
+            raise ValueError("Le mot de passe ne doit pas contenir de retour à la ligne")
         pwd_quoted = "'" + password.replace("'", "''") + "'"
         ud = [
             "#cloud-config",
@@ -144,7 +145,39 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None, mac=None):
+def create_cloudinit_reseed_iso(vm_name):
+    """ISO cloud-init minimal pour un CLONE (voir clone_vm) : contrairement a
+    create_cloudinit_iso(), ne recree pas le compte utilisateur (le disque
+    clone en dispose deja -- copie du disque source -- et le mot de passe en
+    clair de la VM d'origine n'est de toute facon jamais conserve nulle part
+    par Hyperlite, impossible a reinjecter meme si on le voulait).
+    Se contente de changer le hostname et de fournir un nouvel instance-id :
+    cloud-init detecte alors une "nouvelle instance" au premier boot du clone
+    et regenere de lui-meme les cles hote SSH (module `ssh` de cloud-init,
+    comportement par defaut sur une instance jamais vue) et le hostname --
+    exactement le risque identifie a l'audit (clone qui demarre avec les
+    memes cles SSH hote et le meme hostname que l'original tant que rien ne
+    force cloud-init a se re-executer)."""
+    workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-reseed-"))
+    try:
+        user_data = workdir / "user-data"
+        meta_data = workdir / "meta-data"
+        user_data.write_text("#cloud-config\nhostname: {0}\nmanage_etc_hosts: true\n".format(vm_name))
+        meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
+
+        iso_path = IMAGES_DIR / f"{vm_name}-cloudinit.iso"
+        subprocess.run(
+            ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return iso_path
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None, mac=None, kernel_path=None, initrd_path=None, kernel_cmdline=None):
     # Ordre de boot PAR PERIPHERIQUE (<boot order='N'/> sur chaque <disk>)
     # plutot que la liste globale <os><boot dev=.../></os> : SeaBIOS ne fait
     # pas de fallback fiable entre plusieurs CD-ROM IDE avec la liste globale
@@ -233,6 +266,23 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
     # que de laisser libvirt en generer une aleatoire.
     mac_xml = f"<mac address='{mac}'/>\n      " if mac else ""
 
+    # kernel_path/initrd_path : demarrage direct d'un noyau/initrd extrait de
+    # l'ISO (voir app/core/unattended_install.py::extract_casper_kernel),
+    # utilise UNIQUEMENT pour le tout premier boot d'un autoinstall Ubuntu
+    # (seul moyen d'ajouter le mot-cle "autoinstall" sur la ligne de commande
+    # noyau et sauter la confirmation manuelle de Subiquity). IMPORTANT :
+    # cet override doit etre retire du XML PERSISTANT une fois l'installation
+    # terminee (voir vms.py::get_vm_provisioning, strip_install_boot_override
+    # ci-dessous) -- sinon la VM rebooterait indefiniment sur l'installeur
+    # live au lieu du systeme installe sur le disque, le <boot order> normal
+    # n'etant jamais consulte tant que <kernel>/<initrd> sont presents.
+    os_extra_xml = ""
+    if kernel_path:
+        cmdline_xml = f"\n    <cmdline>{kernel_cmdline}</cmdline>" if kernel_cmdline else ""
+        os_extra_xml = f"""
+    <kernel>{kernel_path}</kernel>
+    <initrd>{initrd_path}</initrd>{cmdline_xml}"""
+
     return f"""
 <domain type='kvm'>
   <name>{vm_name}</name>
@@ -240,7 +290,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   <currentMemory unit='MiB'>{memory_mb}</currentMemory>
   <vcpu placement='static'>{vcpu}</vcpu>
   <os>
-    <type arch='x86_64' machine='pc'>hvm</type>
+    <type arch='x86_64' machine='pc'>hvm</type>{os_extra_xml}
   </os>
   <features>
     <acpi/>
@@ -266,3 +316,28 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
   </devices>
 </domain>
 """
+
+
+def strip_install_boot_override(domain_xml):
+    """Retire <kernel>/<initrd>/<cmdline> du XML d'un domaine, s'ils sont
+    presents -- appele une fois un autoinstall Ubuntu termine (voir
+    vms.py::get_vm_provisioning) pour que les demarrages suivants utilisent a
+    nouveau le <boot order> normal (disque systeme) plutot que de rebooter
+    indefiniment sur le noyau/initrd live extrait de l'ISO (voir
+    build_domain_xml, parametre kernel_path). Ne modifie que le XML
+    PERSISTANT (conn.defineXML) : le domaine deja demarre continue de
+    tourner avec sa configuration live actuelle jusqu'au prochain
+    redemarrage, sans interruption."""
+    root = ET.fromstring(domain_xml)
+    os_elem = root.find("os")
+    if os_elem is None:
+        return domain_xml
+    changed = False
+    for tag in ("kernel", "initrd", "cmdline"):
+        elem = os_elem.find(tag)
+        if elem is not None:
+            os_elem.remove(elem)
+            changed = True
+    if not changed:
+        return domain_xml
+    return ET.tostring(root, encoding="unicode")

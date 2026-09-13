@@ -1,9 +1,17 @@
 """Installation automatisee depuis un ISO (Kickstart pour la famille RHEL,
 autoinstall/NoCloud pour Ubuntu) : construit un petit "ISO de reponses" que
-l'installeur detecte tout seul au demarrage (aucun argument de boot a
-injecter, aucune extraction de noyau necessaire) pour creer le compte
-utilisateur et y installer la cle SSH d'automatisation Hyperlite, exactement
-comme le fait deja le cloud-init des VM Debian.
+l'installeur detecte tout seul au demarrage pour creer le compte utilisateur
+et y installer la cle SSH d'automatisation Hyperlite, exactement comme le
+fait deja le cloud-init des VM Debian.
+
+Kickstart (RHEL et derives) n'a besoin d'aucun argument de boot : Anaconda
+detecte tout seul le volume OEMDRV au demarrage. Ubuntu/autoinstall, en
+revanche, a besoin du mot-cle "autoinstall" sur la ligne de commande noyau
+pour sauter sa confirmation manuelle unique ("Continue with autoinstall?") --
+voir extract_casper_kernel plus bas, qui extrait /casper/vmlinuz et
+/casper/initrd de l'ISO pour les demarrer directement via libvirt
+(<os><kernel>/<initrd>/<cmdline>), meme principe que le menu de boot construit
+pour l'installeur Hyperlite Appliance (voir installer/build-iso.sh).
 
 Limite assumee : chaque famille d'OS a son propre format de reponses ; seules
 RHEL (et derives Anaconda : CentOS/Rocky/AlmaLinux/Fedora) et Ubuntu
@@ -22,6 +30,13 @@ from .vm_builder import IMAGES_DIR
 
 KICKSTART_FAMILIES = ("rhel", "centos", "rocky", "almalinux", "alma-", "fedora")
 AUTOINSTALL_FAMILIES = ("ubuntu",)
+
+# Cache des noyaux/initrd casper extraits : une seule extraction par ISO
+# (reutilise pour toutes les VM creees depuis le meme fichier), pas une a
+# chaque creation de VM. Sous data/ comme le reste des caches/donnees propres
+# a Hyperlite (data/isos, data/ssh, data/tls), pas sous le repertoire systeme
+# de libvirt.
+CASPER_CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "casper-cache"
 
 
 def detect_os_family(iso_filename):
@@ -91,14 +106,46 @@ systemctl enable sshd
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def extract_casper_kernel(iso_path):
+    """Extrait /casper/vmlinuz et /casper/initrd de l'ISO Ubuntu live-server
+    pour les demarrer directement via libvirt (<os><kernel>/<initrd>), en
+    ajoutant "autoinstall" sur la ligne de commande -- seul moyen de sauter
+    la confirmation manuelle unique de Subiquity ("Continue with
+    autoinstall?"), le mot-cle doit etre present des le demarrage du noyau,
+    pas seulement dans l'ISO de reponses (voir build_autoinstall_iso).
+    Ligne de commande verifiee directement dans le grub.cfg reel de l'ISO
+    Ubuntu 26.04 : `linux /casper/vmlinuz  ---` + `initrd /casper/initrd`,
+    aucun autre parametre requis.
+
+    Extraction mise en cache par nom de fichier ISO (reutilisee pour toutes
+    les VM creees depuis le meme fichier) plutot que refaite a chaque
+    creation de VM -- l'extraction lit ~200 Mo depuis un ISO de plusieurs Go,
+    pas instantane.
+
+    Retourne (kernel_path, initrd_path)."""
+    cache_dir = CASPER_CACHE_DIR / Path(iso_path).stem
+    kernel_path = cache_dir / "vmlinuz"
+    initrd_path = cache_dir / "initrd"
+    if kernel_path.exists() and initrd_path.exists():
+        return kernel_path, initrd_path
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    for member, dest in (("/casper/vmlinuz", kernel_path), ("/casper/initrd", initrd_path)):
+        subprocess.run(
+            ["xorriso", "-osirrox", "on", "-indev", str(iso_path), "-extract", member, str(dest)],
+            check=True, capture_output=True, text=True,
+        )
+    return kernel_path, initrd_path
+
+
 def build_autoinstall_iso(vm_name, username, password, ssh_pubkey):
     """ISO NoCloud (label cidata, meme outil cloud-localds que le cloud-init
     Debian) contenant un autoinstall.yaml : Subiquity (installeur "live-server"
-    d'Ubuntu) detecte cette source toute seule. Sans l'argument de boot
-    "autoinstall" (qu'on n'injecte pas ici, pour rester sur le meme mecanisme
-    "boot par defaut" que le mode kickstart), Subiquity demande une confirmation
-    manuelle unique ("Continue with autoinstall?", un Appui sur Entree dans la
-    console VNC) avant de partitionner -- signale a l'utilisateur cote wizard."""
+    d'Ubuntu) detecte cette source toute seule par etiquette de volume. Le mot-cle
+    "autoinstall" doit EN PLUS etre present sur la ligne de commande noyau (voir
+    extract_casper_kernel) pour sauter la confirmation manuelle unique
+    ("Continue with autoinstall?") -- la seule presence de ce fichier ne
+    suffit pas a elle seule."""
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-autoinstall-"))
     try:
         pwd_hash = _hash_password(password)
@@ -154,4 +201,4 @@ def build_seed_iso(os_family, vm_name, username, password, ssh_pubkey):
         return build_kickstart_iso(vm_name, username, password, ssh_pubkey)
     if os_family == "autoinstall":
         return build_autoinstall_iso(vm_name, username, password, ssh_pubkey)
-    raise ValueError(f"Famille d'OS non geree : {os_family}")
+    raise ValueError(f"Famille d'OS non gérée : {os_family}")

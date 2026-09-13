@@ -1,3 +1,4 @@
+import os
 import libvirt
 import xml.etree.ElementTree as ET
 from fastapi import HTTPException
@@ -10,6 +11,31 @@ def open_conn():
     if conn is None:
         raise HTTPException(status_code=500, detail="Connexion libvirt impossible")
     return conn
+
+
+def get_vm_uptime_s(vm_name):
+    """Duree depuis le demarrage du PROCESSUS qemu de cette VM (pas l'uptime
+    interne de l'OS invite, que libvirt n'expose pas sans qemu-guest-agent --
+    meme convention que Proxmox). Lit le fichier PID que libvirt ecrit pour
+    chaque domaine actif, puis le champ "starttime" de /proc/<pid>/stat
+    (22e champ, en ticks d'horloge depuis le boot de l'HOTE) pour en deduire
+    l'age du processus par difference avec /proc/uptime. Retourne None si la
+    VM est arretee ou si l'info n'est pas lisible (pas une erreur bloquante,
+    juste un uptime inconnu affiche en degrade cote dashboard)."""
+    try:
+        pid = int(open(f"/run/libvirt/qemu/{vm_name}.pid").read().strip())
+        stat = open(f"/proc/{pid}/stat").read()
+        # Le nom du process (2e champ) est entre parentheses et peut contenir
+        # des espaces -- on repart du dernier ')' pour retrouver les champs
+        # suivants de facon fiable plutot que de decouper naivement sur ' '.
+        after_comm = stat.rsplit(")", 1)[1].split()
+        starttime_ticks = int(after_comm[22 - 3])  # champ 22, l'etat (champ 3) est after_comm[0]
+        clk_tck = os.sysconf("SC_CLK_TCK")
+        host_uptime_s = float(open("/proc/uptime").read().split()[0])
+        uptime = host_uptime_s - (starttime_ticks / clk_tck)
+        return int(uptime) if uptime >= 0 else None
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 def ensure_default_pool(conn):

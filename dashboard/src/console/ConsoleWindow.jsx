@@ -30,7 +30,7 @@ export default function ConsoleWindow() {
   }, [name, status]);
 
   if (status === "checking") {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Verification de la session...</div>;
+    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Vérification de la session...</div>;
   }
   if (status === "anonymous") {
     return <LoginScreen />;
@@ -42,7 +42,7 @@ export default function ConsoleWindow() {
         <Server size={15} className="text-accent-blue" />
         <span className="text-sm font-semibold text-anthracite-100">{name}</span>
         {vm?.etat && <span className="text-xs text-anthracite-400">({vm.etat})</span>}
-        <button className="btn-secondary ml-auto" onClick={() => window.close()}>Fermer la fenetre</button>
+        <button className="btn-secondary ml-auto" onClick={() => window.close()}>Fermer la fenêtre</button>
       </div>
       {error && <p className="text-xs text-status-error">{error}</p>}
       <div className="flex-1 min-h-0">

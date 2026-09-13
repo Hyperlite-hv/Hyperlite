@@ -2,7 +2,7 @@ import { statusColor } from "../theme/colors";
 
 const LABELS = {
   actif: "En marche", online: "En ligne", running: "En marche",
-  arrete: "Arrete", stopped: "Arrete",
+  arrete: "Arrêté", stopped: "Arrêté",
   avertissement: "Avertissement", warning: "Avertissement",
   erreur: "Erreur", error: "Erreur",
 };

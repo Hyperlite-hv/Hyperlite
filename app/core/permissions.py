@@ -16,12 +16,13 @@ from app.core.database import get_conn
 # reste a cabler endpoint par endpoint via require_vm_privilege (voir
 # app/routers/vms.py).
 ALL_PRIVILEGES = {
-    "vm.view": "Consulter (etat, metriques, journal)",
-    "vm.power": "Demarrer / arreter / redemarrer",
+    "vm.view": "Consulter (état, métriques, journal)",
+    "vm.power": "Démarrer / arrêter / redémarrer",
     "vm.console": "Console graphique (VNC) et terminal SSH",
-    "vm.snapshot": "Snapshots (creer / restaurer / supprimer)",
+    "vm.snapshot": "Snapshots (créer / restaurer / supprimer)",
     "vm.resize": "Redimensionner (CPU / RAM / disque)",
-    "vm.hardware": "Materiel (disques, interfaces reseau, lecteur CD)",
+    "vm.hardware": "Matériel (disques, interfaces réseau, lecteur CD)",
+    "vm.clone": "Cloner la VM (crée une nouvelle VM et consomme de l'espace disque)",
 }
 
 # Roles predefinis, scopes, attribuables via une ACL (distincts des roles
@@ -31,17 +32,17 @@ ALL_PRIVILEGES = {
 ROLES = {
     "lecteur": {
         "label": "Lecteur",
-        "description": "Consultation (etat, metriques, journal) sur la ressource attribuee.",
+        "description": "Consultation (état, métriques, journal) sur la ressource attribuée.",
         "privileges": {"vm.view"},
     },
     "operateur": {
         "label": "Operateur",
-        "description": "Demarrer / arreter / redemarrer, console graphique et terminal SSH, sur la ressource attribuee.",
+        "description": "Démarrer / arrêter / redémarrer, console graphique et terminal SSH, sur la ressource attribuée.",
         "privileges": {"vm.view", "vm.power", "vm.console"},
     },
     "gestionnaire": {
         "label": "Gestionnaire",
-        "description": "Operateur + snapshots, redimensionnement CPU/RAM/disque, materiel (disques/reseau) -- sans creation ni suppression de VM.",
+        "description": "Opérateur + snapshots, redimensionnement CPU/RAM/disque, matériel (disques/réseau) -- sans création ni suppression de VM.",
         "privileges": {"vm.view", "vm.power", "vm.console", "vm.snapshot", "vm.resize", "vm.hardware"},
     },
 }
@@ -61,7 +62,7 @@ def list_custom_roles():
     with get_conn() as conn:
         rows = conn.execute("SELECT id, name, privileges FROM custom_roles ORDER BY name").fetchall()
     return [
-        {"key": _custom_role_key(r), "id": r["id"], "label": r["name"], "description": "Role personnalise.",
+        {"key": _custom_role_key(r), "id": r["id"], "label": r["name"], "description": "Rôle personnalisé.",
          "privileges": set(r["privileges"].split(",")) if r["privileges"] else set()}
         for r in rows
     ]
@@ -70,9 +71,9 @@ def list_custom_roles():
 def create_custom_role(name, privileges):
     invalid = set(privileges) - set(ALL_PRIVILEGES)
     if invalid:
-        raise ValueError(f"Privileges inconnus : {', '.join(sorted(invalid))}")
+        raise ValueError(f"Privilèges inconnus : {', '.join(sorted(invalid))}")
     if not privileges:
-        raise ValueError("Choisis au moins un privilege")
+        raise ValueError("Choisis au moins un privilège")
     with get_conn() as conn:
         cur = conn.execute("INSERT INTO custom_roles (name, privileges) VALUES (?, ?)", (name, ",".join(privileges)))
         conn.commit()
@@ -242,7 +243,7 @@ def list_acl():
 
 def create_acl(subject_type, subject_id, role, resource_type, resource_id):
     if not role_exists(role):
-        raise ValueError(f"Role inconnu : {role}")
+        raise ValueError(f"Rôle inconnu : {role}")
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO acl (subject_type, subject_id, role, resource_type, resource_id) VALUES (?, ?, ?, ?, ?)",

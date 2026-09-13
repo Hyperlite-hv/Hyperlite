@@ -33,7 +33,7 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     if templates_store.exists(tpl_name):
-        raise HTTPException(status_code=409, detail=f"Un template '{tpl_name}' existe deja")
+        raise HTTPException(status_code=409, detail=f"Un template '{tpl_name}' existe déjà")
 
     conn = open_conn()
     try:
@@ -45,7 +45,7 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
 
         if domain.isActive():
             log_action(user["username"], "convert_to_template", name, "echec", "VM active")
-            raise HTTPException(status_code=409, detail="Arretez la VM avant de la convertir en template")
+            raise HTTPException(status_code=409, detail="Arrêtez la VM avant de la convertir en template")
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
@@ -71,7 +71,7 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
         except libvirt.libvirtError as exc:
             templates_store.delete_template(tpl_name)
             log_action(user["username"], "convert_to_template", name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Echec de l'undefine : {exc}")
+            raise HTTPException(status_code=500, detail=f"Échec de l'undefine : {exc}")
 
         shutil.move(disk_source, str(target_disk))
 
@@ -101,14 +101,14 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
     try:
         try:
             conn.lookupByName(payload.new_name)
-            log_action(user["username"], "deploy_template", template_name, "echec", f"'{payload.new_name}' existe deja")
-            raise HTTPException(status_code=409, detail=f"Une VM '{payload.new_name}' existe deja")
+            log_action(user["username"], "deploy_template", template_name, "echec", f"'{payload.new_name}' existe déjà")
+            raise HTTPException(status_code=409, detail=f"Une VM '{payload.new_name}' existe déjà")
         except libvirt.libvirtError:
             pass
 
         new_disk_path = IMAGES_DIR / f"{payload.new_name}.qcow2"
         if new_disk_path.exists():
-            raise HTTPException(status_code=409, detail="Un fichier disque porte deja ce nom")
+            raise HTTPException(status_code=409, detail="Un fichier disque porte déjà ce nom")
 
         try:
             subprocess.run(
@@ -117,7 +117,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
             )
         except subprocess.CalledProcessError as exc:
             log_action(user["username"], "deploy_template", template_name, "echec", f"copie disque : {exc.stderr}")
-            raise HTTPException(status_code=500, detail="Echec de la copie du disque")
+            raise HTTPException(status_code=500, detail="Échec de la copie du disque")
 
         root = ET.fromstring(tpl["xml"])
         name_el = root.find("name")
@@ -155,7 +155,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
         except libvirt.libvirtError as exc:
             new_disk_path.unlink(missing_ok=True)
             log_action(user["username"], "deploy_template", template_name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Echec de la definition : {exc}")
+            raise HTTPException(status_code=500, detail=f"Échec de la définition : {exc}")
 
         log_action(user["username"], "deploy_template", template_name, "succes", f"-> {payload.new_name}")
         return {"template": template_name, "vm": new_domain.name(), "etat": "arretee"}

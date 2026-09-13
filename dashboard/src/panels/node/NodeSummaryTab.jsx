@@ -17,7 +17,7 @@ export default function NodeSummaryTab({ resource: node }) {
     <div className="space-y-5">
       {node.cpu_coeurs == null && (
         <div className="rounded-md border border-anthracite-500 bg-anthracite-700/50 px-3 py-2 text-xs text-anthracite-300">
-          CPU/RAM total et historique pas encore exposes par le backend (GET /dashboard) -- seuls le stockage et le compte de VMs sont reels ici.
+          CPU/RAM total et historique pas encore exposés par le backend (GET /dashboard) -- seuls le stockage et le compte de VMs sont réels ici.
         </div>
       )}
 
@@ -28,7 +28,7 @@ export default function NodeSummaryTab({ resource: node }) {
         </div>
         <div className="flex flex-col items-center justify-center gap-1 text-center">
           <div className="text-2xl font-semibold text-anthracite-100">{node.vms_arretees ?? "--"}</div>
-          <div className="text-xs text-anthracite-400">VMs arretees</div>
+          <div className="text-xs text-anthracite-400">VMs arrêtées</div>
         </div>
         {diskRatio != null ? (
           <GaugeRing label="Stockage" ratio={diskRatio} valueLabel={`${formatGo(node.stockage_utilise_go)} / ${formatGo(node.stockage_total_go)}`} colorClass="text-accent-green" />

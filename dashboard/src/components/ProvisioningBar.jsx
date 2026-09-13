@@ -1,9 +1,9 @@
 import { Loader2 } from "lucide-react";
 
 const PHASE_LABELS = {
-  demarrage: "Demarrage de la VM...",
-  installation: "Installation automatisee en cours (paquets, configuration)...",
-  arretee: "VM arretee avant la fin de l'installation -- redemarrez-la pour reprendre.",
+  demarrage: "Démarrage de la VM...",
+  installation: "Installation automatisée en cours (paquets, configuration)...",
+  arretee: "VM arrêtée avant la fin de l'installation -- redémarrez-la pour reprendre.",
 };
 
 const FAMILY_LABELS = {
@@ -30,7 +30,7 @@ export default function ProvisioningBar({ status }) {
         <Loader2 size={16} className="animate-spin text-accent-blue shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-anthracite-100">
-            Installation automatisee {status.os_family ? `(${FAMILY_LABELS[status.os_family] || status.os_family})` : ""} en cours
+            Installation automatisée {status.os_family ? `(${FAMILY_LABELS[status.os_family] || status.os_family})` : ""} en cours
           </div>
           <div className="text-xs text-anthracite-400 mt-0.5">
             {PHASE_LABELS[status.phase] || "En cours..."} {status.elapsed_s != null && `(${formatElapsed(status.elapsed_s)})`}
@@ -41,7 +41,7 @@ export default function ProvisioningBar({ status }) {
         <div className="h-full w-1/3 rounded-full bg-accent-blue provisioning-indeterminate" />
       </div>
       <p className="mt-2 text-[11px] text-anthracite-400">
-        Le terminal SSH web sera disponible automatiquement des la fin de l'installation.
+        Le terminal SSH web sera disponible automatiquement dès la fin de l'installation.
       </p>
     </div>
   );

@@ -14,7 +14,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 // inchanges par ce systeme, qui se contente d'AJOUTER des droits scopes
 // par-dessus (voir app/core/permissions.py).
 const GLOBAL_ROLES = [
-  { nom: "admin", description: "Acces complet : creation/suppression de VM, actions destructives, terminal SSH, console." },
+  { nom: "admin", description: "Accès complet : création/suppression de VM, actions destructives, terminal SSH, console." },
   { nom: "observateur", description: "Lecture seule globale (et console VNC) sur tout. Aucune action de modification sans attribution explicite ci-dessous." },
 ];
 
@@ -52,7 +52,7 @@ export default function PermissionsTab() {
   return (
     <div className="space-y-4">
       <div className="card p-4">
-        <h3 className="text-sm font-semibold text-anthracite-100 mb-2">Roles globaux</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100 mb-2">Rôles globaux</h3>
         <div className="divide-y divide-anthracite-600">
           {GLOBAL_ROLES.map((r) => (
             <div key={r.nom} className="py-2">
@@ -88,11 +88,11 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
     setBusy(true);
     try {
       await createCustomRole(name.trim(), privs);
-      pushToast({ kind: "success", title: "Role cree", message: name.trim() });
+      pushToast({ kind: "success", title: "Rôle créé", message: name.trim() });
       setName(""); setSelected({});
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de creation", message: e.message });
+      pushToast({ kind: "error", title: "Échec de création", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -100,10 +100,10 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
     setBusy(true);
     try {
       await deleteCustomRole(id);
-      pushToast({ kind: "success", title: "Role supprime", message: roleName });
+      pushToast({ kind: "success", title: "Rôle supprimé", message: roleName });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec", message: e.message });
+      pushToast({ kind: "error", title: "Échec", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -114,16 +114,16 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-1">
         <ShieldCheck size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Roles personnalises</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">Rôles personnalisés</h3>
       </div>
-      <p className="text-xs text-anthracite-400 mb-3">Construis un role a la carte en choisissant exactement les actions autorisees, en plus de Lecteur/Operateur/Gestionnaire.</p>
+      <p className="text-xs text-anthracite-400 mb-3">Construis un rôle à la carte en choisissant exactement les actions autorisées, en plus de Lecteur/Opérateur/Gestionnaire.</p>
 
       {!ready ? (
         <p className="text-sm text-anthracite-400">Chargement...</p>
       ) : (
         <>
           <div className="rounded-md border border-anthracite-600 p-3 mb-3">
-            <input className="input mb-2" placeholder="Nom du role (ex. sauvegardes-seules)" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="input mb-2" placeholder="Nom du rôle (ex. sauvegardes-seules)" value={name} onChange={(e) => setName(e.target.value)} />
             <div className="grid grid-cols-1 gap-1.5 mb-2 sm:grid-cols-2">
               {Object.entries(privileges).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-xs text-anthracite-200 cursor-pointer">
@@ -133,12 +133,12 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
               ))}
             </div>
             <button className="btn-primary" disabled={busy || !name.trim() || selectedCount === 0} onClick={handleCreate}>
-              <Plus size={14} /> Creer ({selectedCount} privilege{selectedCount > 1 ? "s" : ""})
+              <Plus size={14} /> Créer ({selectedCount} privilège{selectedCount > 1 ? "s" : ""})
             </button>
           </div>
 
           {customRoles.length === 0 ? (
-            <p className="text-sm text-anthracite-400">Aucun role personnalise.</p>
+            <p className="text-sm text-anthracite-400">Aucun rôle personnalisé.</p>
           ) : (
             <div className="divide-y divide-anthracite-600">
               {customRoles.map((r) => (
@@ -172,11 +172,11 @@ function UsersSection({ users, reload, pushToast }) {
     setBusy(true);
     try {
       await createUser(newUsername.trim(), newPassword, newRole);
-      pushToast({ kind: "success", title: "Utilisateur cree", message: newUsername.trim() });
+      pushToast({ kind: "success", title: "Utilisateur créé", message: newUsername.trim() });
       setNewUsername(""); setNewPassword(""); setNewRole("observateur");
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de creation", message: e.message });
+      pushToast({ kind: "error", title: "Échec de création", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -186,7 +186,7 @@ function UsersSection({ users, reload, pushToast }) {
       await updateUser(username, { role });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec", message: e.message });
+      pushToast({ kind: "error", title: "Échec", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -195,10 +195,10 @@ function UsersSection({ users, reload, pushToast }) {
     setBusy(true);
     try {
       await deleteUser(username);
-      pushToast({ kind: "success", title: "Utilisateur supprime", message: username });
+      pushToast({ kind: "success", title: "Utilisateur supprimé", message: username });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec", message: e.message });
+      pushToast({ kind: "error", title: "Échec", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -217,7 +217,7 @@ function UsersSection({ users, reload, pushToast }) {
           <option value="admin">admin</option>
         </select>
         <button className="btn-primary" disabled={busy || !newUsername.trim() || newPassword.length < 4} onClick={handleCreate}>
-          <Plus size={14} /> Creer
+          <Plus size={14} /> Créer
         </button>
       </div>
 
@@ -241,7 +241,7 @@ function UsersSection({ users, reload, pushToast }) {
                 <button
                   className="text-anthracite-400 hover:text-status-error disabled:opacity-30 disabled:hover:text-anthracite-400"
                   disabled={busy || u.username === me}
-                  title={u.username === me ? "Impossible de te supprimer toi-meme" : "Supprimer"}
+                  title={u.username === me ? "Impossible de te supprimer toi-même" : "Supprimer"}
                   onClick={() => handleDelete(u.username)}
                 >
                   <Trash2 size={14} />
@@ -266,10 +266,10 @@ function GroupsSection({ groups, reload, pushToast }) {
     try {
       await createGroup(newName.trim());
       setNewName("");
-      pushToast({ kind: "success", title: "Groupe cree", message: newName.trim() });
+      pushToast({ kind: "success", title: "Groupe créé", message: newName.trim() });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de creation", message: e.message });
+      pushToast({ kind: "error", title: "Échec de création", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -277,10 +277,10 @@ function GroupsSection({ groups, reload, pushToast }) {
     setBusy(true);
     try {
       await deleteGroup(id);
-      pushToast({ kind: "success", title: "Groupe supprime", message: name });
+      pushToast({ kind: "success", title: "Groupe supprimé", message: name });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec", message: e.message });
+      pushToast({ kind: "error", title: "Échec", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -293,7 +293,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       setMemberInputs((s) => ({ ...s, [id]: "" }));
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec d'ajout", message: e.message });
+      pushToast({ kind: "error", title: "Échec d'ajout", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -303,7 +303,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       await removeGroupMember(id, username);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de retrait", message: e.message });
+      pushToast({ kind: "error", title: "Échec de retrait", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -318,14 +318,14 @@ function GroupsSection({ groups, reload, pushToast }) {
         <input className="input" placeholder="Nom du groupe (ex. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
-          <Plus size={14} /> Creer
+          <Plus size={14} /> Créer
         </button>
       </div>
 
       {groups == null ? (
         <p className="text-sm text-anthracite-400">Chargement...</p>
       ) : groups.length === 0 ? (
-        <p className="text-sm text-anthracite-400">Aucun groupe. Cree un groupe pour attribuer des droits a plusieurs utilisateurs a la fois.</p>
+        <p className="text-sm text-anthracite-400">Aucun groupe. Crée un groupe pour attribuer des droits à plusieurs utilisateurs à la fois.</p>
       ) : (
         <div className="space-y-3">
           {groups.map((g) => (
@@ -370,10 +370,10 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
     try {
       await createPool(newName.trim());
       setNewName("");
-      pushToast({ kind: "success", title: "Pool cree", message: newName.trim() });
+      pushToast({ kind: "success", title: "Pool créé", message: newName.trim() });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de creation", message: e.message });
+      pushToast({ kind: "error", title: "Échec de création", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -381,10 +381,10 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
     setBusy(true);
     try {
       await deletePool(id);
-      pushToast({ kind: "success", title: "Pool supprime", message: name });
+      pushToast({ kind: "success", title: "Pool supprimé", message: name });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec", message: e.message });
+      pushToast({ kind: "error", title: "Échec", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -396,7 +396,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       await addPoolMember(id, vmName);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec d'ajout", message: e.message });
+      pushToast({ kind: "error", title: "Échec d'ajout", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -406,7 +406,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       await removePoolMember(id, vmName);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de retrait", message: e.message });
+      pushToast({ kind: "error", title: "Échec de retrait", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -422,7 +422,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
         <input className="input" placeholder="Nom du pool (ex. projet-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
-          <Plus size={14} /> Creer
+          <Plus size={14} /> Créer
         </button>
       </div>
 
@@ -487,11 +487,11 @@ function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }
     setBusy(true);
     try {
       await createAcl({ subject_type: subjectType, subject_id: subjectId, role, resource_type: resourceType, resource_id: resourceId });
-      pushToast({ kind: "success", title: "Attribution creee" });
+      pushToast({ kind: "success", title: "Attribution créée" });
       setSubjectId(""); setResourceId("");
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec de l'attribution", message: e.message });
+      pushToast({ kind: "error", title: "Échec de l'attribution", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -501,7 +501,7 @@ function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }
       await deleteAcl(id);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec", message: e.message });
+      pushToast({ kind: "error", title: "Échec", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -509,7 +509,7 @@ function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-3">
         <ShieldCheck size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Attributions (qui a quel role, sur quoi)</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">Attributions (qui a quel rôle, sur quoi)</h3>
       </div>
 
       {!ready ? (
@@ -534,7 +534,7 @@ function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }
               </select>
             </div>
             <div>
-              <label className="text-[11px] text-anthracite-400">Role</label>
+              <label className="text-[11px] text-anthracite-400">Rôle</label>
               <select className="input text-xs py-1.5" value={role} onChange={(e) => setRole(e.target.value)}>
                 {Object.entries(roles).map(([key, r]) => <option key={key} value={key}>{r.label}</option>)}
               </select>
@@ -579,7 +579,7 @@ function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }
               ))}
             </div>
           ) : (
-            <p className="text-sm text-anthracite-400">Aucune attribution -- les acces restent limites aux roles globaux ci-dessus.</p>
+            <p className="text-sm text-anthracite-400">Aucune attribution -- les accès restent limités aux rôles globaux ci-dessus.</p>
           )}
         </>
       )}
