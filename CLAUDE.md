@@ -83,7 +83,8 @@ de 16 chantiers triés par charge de travail croissante.
 | 15 | Multi-nœuds (qemu+ssh://) | ✅ dans `master` — testé en boucle sur kvm-lab lui-même (pas de second hôte disponible), pas de vrai test inter-sites |
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
 | 17 | Onglet HA (Load Balancing, Ceph) | ⬜ pas commencé — demandé le 2026-09-13. Dépend largement du chantier 15 (multi-nœuds) pour avoir du sens |
-| 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ première version testée (PR en cours) — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié. **systemd-networkd, pas ifupdown/isc-dhcp-client** : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). Pas encore fait : snapshots/clonage de conteneur, ACL granulaire (réservé admin pour l'instant), galerie de templates (une seule base Debian 12). Docker envisagé, pas retenu (LXC colle mieux à l'architecture libvirt existante) |
+| 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ dans `master` — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur) **ou image Docker Hub/registre OCI au choix** (`skopeo`+`umoci`, pas de démon Docker requis ; bootstrap post-pull systemd+openssh+sudo côté apt, openrc+openssh+sudo côté apk, création des nœuds `/dev` manquants — testé réellement sur `alpine:3.19` et `debian:12`), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié + champ de sélection d'image dans les deux formulaires de création. **systemd-networkd, pas ifupdown/isc-dhcp-client** (côté apt) : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). Pas encore fait : snapshots/clonage de conteneur, ACL granulaire (réservé admin pour l'instant), galerie de templates visuelle |
+| 23 | Export/Import de VM depuis un fichier disque | 🔄 en cours (2026-09-13, demandé par Antho juste après le chantier 18) — bouton d'export d'une VM existante vers un fichier disque téléchargeable, et import/création d'une VM à partir d'un disque fourni (alternative à ISO+kickstart dans le formulaire de création). Pas encore de code, recherche d'architecture en cours (stockage qcow2 existant, upload ISO existant, wizard VM existant) avant implémentation |
 | 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ⬜ pas commencé — demandé le 2026-09-13 |
 | 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
 | 21 | Pare-feu réseau/cluster | ⬜ pas commencé — demandé le 2026-09-13. **Attention, existe déjà en partie** : pare-feu **par VM** (nwfilter) fonctionnel dans `app/routers/vms.py` (`FirewallConfig`/`set_vm_firewall`) + UI dans `VMHardwareTab.jsx`. Ce chantier = un niveau réseau/global, pas repartir de zéro |
@@ -104,8 +105,26 @@ le contacter via SendMessage/ListAgents) sur deux chantiers en parallèle :
   26.04 desktop restent à vérifier. **Ne retouche pas
   `app/core/unattended_install.py` ni `get_vm_provisioning` sans
   coordination** — attends sa PR plutôt que de dupliquer le travail.
-- **Chantier 18** : support conteneurs LXC, voir ci-dessus — testé, PR en
-  cours d'ouverture.
+- **Chantier 18** : support conteneurs LXC + choix d'image Docker Hub,
+  terminé et mergé (PR #10 puis PR #15).
+- **Chantier 12, dernier essai Kali (v7, 2026-09-13)** : le correctif
+  base64 sur le contenu du fichier `.network` (late_command) n'a **pas**
+  résolu le problème — même échec qu'avant : `Failed to process the
+  preconfiguration file from file:///preseed.cfg. The file may be
+  corrupt.`. Point important pour la suite : cette erreur apparaît **avant**
+  toute exécution de `late_command` (c'est un échec de *parsing* du
+  preseed.cfg lui-même par debconf, au tout début de l'installeur) — donc le
+  bug n'est presque certainement PAS dans le contenu du late_command
+  (déjà base64-encodé) mais plus en amont : soit dans la génération du
+  preseed.cfg (un caractère qui casse le format debconf ailleurs dans le
+  fichier), soit dans la façon dont il est injecté dans l'initrd
+  (cpio/gzip, encodage, fin de ligne). Prochaine piste : extraire le
+  preseed.cfg réellement présent dans l'initrd généré (pas celui généré en
+  Python avant injection) et le comparer octet à octet à un preseed.cfg
+  Debian valide connu, plutôt que de continuer à itérer sur le
+  late_command.
+- **Chantier 23** (nouveau, 2026-09-13) : export/import de VM depuis un
+  fichier disque, demandé par Antho.
 
 Tests réels en cours sur ce host (VM/conteneurs jetables, hors service
 HTTP — zéro interférence avec ce qui tourne sur `/root/hyperlite`). Prévenu
