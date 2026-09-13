@@ -7,7 +7,17 @@ DB_PATH = Path(__file__).resolve().parent.parent.parent / "hyperlite.db"
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout=30 (au lieu du defaut de 5s) + mode WAL : corrige un vrai
+    # `database is locked` rencontre a plusieurs reprises en pratique
+    # (chantier 11, reconfirme au chantier 13) des que deux ecritures
+    # concurrentes se chevauchent -- le service ecrit en continu (audit,
+    # taches, metriques toutes les 15s). WAL permet aux lecteurs de
+    # continuer pendant qu'un writer est actif (contrairement au mode
+    # rollback-journal par defaut, qui verrouille tout le fichier) ; le
+    # PRAGMA est un no-op si deja applique, sans cout a le repeter a chaque
+    # connexion.
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -69,6 +79,37 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(cible, tier, ts)")
+
+        # ---- Backups natifs (chantier 13) ----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vm_name TEXT NOT NULL UNIQUE,
+                frequence TEXT NOT NULL CHECK(frequence IN ('quotidien', 'hebdomadaire', 'mensuel')),
+                heure TEXT NOT NULL,
+                cible_dir TEXT NOT NULL,
+                retention_count INTEGER NOT NULL DEFAULT 7,
+                actif INTEGER NOT NULL DEFAULT 1,
+                derniere_execution TEXT,
+                prochaine_execution TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vm_name TEXT NOT NULL,
+                job_id INTEGER,
+                chemin TEXT NOT NULL,
+                taille_octets INTEGER,
+                checksum_sha256 TEXT,
+                mode TEXT NOT NULL CHECK(mode IN ('chaud', 'froid')),
+                cree_le TEXT NOT NULL,
+                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'termine', 'echec')),
+                task_id TEXT,
+                erreur TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, cree_le)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_ssh_users (
                 vm_name TEXT PRIMARY KEY,
