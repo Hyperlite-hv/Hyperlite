@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Server, Plus, Bell, Sun, Moon, User, LogOut, RefreshCw } from "lucide-react";
+import { Plus, Bell, Sun, Moon, User, LogOut, RefreshCw } from "lucide-react";
 import SearchBar from "../components/SearchBar";
+import HyperliteLogo from "../components/HyperliteLogo";
 import VMWizard from "../wizard/VMWizard";
 import UpdateModal from "../components/UpdateModal";
 import { useInfraStore } from "../store/useInfraStore";
@@ -24,9 +25,7 @@ export default function Header() {
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-chrome-950 bg-chrome-900 px-4">
       <div className="flex items-center gap-2 shrink-0">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-blue">
-          <Server size={16} className="text-white" />
-        </div>
+        <HyperliteLogo size={28} className="rounded-md" />
         <span className="text-sm font-semibold tracking-wide text-chrome-100">HYPERLITE</span>
       </div>
 
