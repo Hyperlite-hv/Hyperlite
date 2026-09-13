@@ -9,7 +9,7 @@ import { createContainer } from "../api/client";
 // container_builder.py, chantier 18). Accessible directement depuis le
 // bouton "Créer conteneur" du Header, a cote de "Créer VM".
 function initialForm(networks) {
-  return { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: networks[0]?.nom || "default" };
+  return { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: networks[0]?.nom || "default", image: "" };
 }
 
 export default function ContainerWizard({ open, onClose }) {
@@ -59,13 +59,46 @@ export default function ContainerWizard({ open, onClose }) {
 
         <div className="space-y-3 px-5 py-4">
           <p className="text-xs text-anthracite-500">
-            Conteneur LXC (Debian 12 minimal), accès terminal par clé SSH d'automatisation.
-            La toute première création prépare l'image de base (quelques minutes) ; les suivantes sont rapides.
+            Conteneur LXC, accès terminal par clé SSH d'automatisation.
+            La toute première création d'une image donnée prépare sa base (quelques minutes) ; les suivantes sont rapides.
           </p>
 
           <div>
             <label className="text-xs font-medium text-anthracite-300">Nom</label>
             <input className="input mt-1 w-full" value={form.name} onChange={(e) => patch({ name: e.target.value })} autoFocus />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-anthracite-300">Source de l'image</label>
+            <div className="mt-1 flex gap-2">
+              <button
+                type="button"
+                className={form.image === "" ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+                onClick={() => patch({ image: "" })}
+              >
+                Debian 12 (base locale)
+              </button>
+              <button
+                type="button"
+                className={form.image !== "" ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+                onClick={() => patch({ image: form.image || "alpine:3.19" })}
+              >
+                Image Docker Hub
+              </button>
+            </div>
+            {form.image !== "" && (
+              <div className="mt-2">
+                <input
+                  className="input w-full"
+                  placeholder="ex. ubuntu:22.04, alpine:3.19, debian:12"
+                  value={form.image}
+                  onChange={(e) => patch({ image: e.target.value })}
+                />
+                <p className="mt-1 text-[11px] text-anthracite-500">
+                  Référence Docker Hub (ou tout registre OCI) — l'image est tirée puis dotée de SSH/sudo automatiquement.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
