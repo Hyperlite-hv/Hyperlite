@@ -80,7 +80,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 12 | Finalisation Kickstart automatisé | ✅ dans `master` — démarrage auto + timeout/tâche dédiée corrigés et testés. **Vérification de bout en bout (un vrai kickstart/autoinstall jusqu'au bout, ~15 min) pas encore faite — assignée à un collègue via son propre clone `/root/hyperlite-ami`, voir note ci-dessous.** |
 | 13 | Backup/restauration natifs des VM | ✅ dans `master` |
 | 14 | Onglet Automation (moteur de jobs) | ✅ dans `master` |
-| 15 | Multi-nœuds | ⬜ pas commencé |
+| 15 | Multi-nœuds (qemu+ssh://) | ✅ dans `master` — testé en boucle sur kvm-lab lui-même (pas de second hôte disponible), pas de vrai test inter-sites |
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
 
 **Chantier 7, en attente d'un usage réel** : le système de mise à jour
@@ -129,6 +129,29 @@ zéro interférence avec ce qui tourne sur `/root/hyperlite`).
 - Reste à explorer si quelqu'un reprend l'audit : rate-limiting par IP (pas
   seulement par compte), revue des autres routers (`groups.py`, `pools.py`,
   `acl.py`, `dashboard.py`) pas encore passés en revue ligne à ligne.
+
+### Notes diverses (2026-09-13)
+- **Mot de passe root/admin de l'appliance ISO fixé à `hyperlite`** (au lieu
+  d'aléatoire, demande explicite d'Antho) — `installer/partman-auto.sh`.
+  Volontairement simple pour une première connexion facile, PAS pensé pour
+  rester tel quel : à changer immédiatement après install. Documenté comme
+  point de vigilance à reprendre dans le chantier 16 (checklist sécurité).
+- **L'ISO appliance embarque maintenant un vrai commit Git** (voir
+  `installer/build-iso.sh`) — avant ce correctif, le code copié sur une
+  appliance fraîche n'était PAS un dépôt Git (`.git` explicitement exclu du
+  rsync), donc le bouton de mise à jour (chantier 7) ne pouvait pas
+  fonctionner dessus et il fallait reconstruire/reflasher un ISO entier à
+  chaque version. Corrigé : un unique commit (pas tout l'historique de
+  kvm-lab) est créé dans le code embarqué au moment de fabriquer l'ISO —
+  suffisant pour que `git fetch` + `git reset --hard origin/<branche>`
+  fonctionne ensuite normalement (testé réellement contre le vrai dépôt
+  GitHub, voir le commit du chantier 15).
+- **Tailscale installé sur kvm-lab** (`100.88.184.24`) en vue de connecter
+  un second serveur physique d'Antho, sur un réseau différent (deux sites
+  distants, pas juste deux machines du même LAN) — connexion pas encore
+  finalisée du côté du second serveur au moment d'écrire cette note. Une
+  fois les deux machines liées au même compte Tailscale, enregistrer le
+  second serveur comme nœud via `POST /nodes` avec son adresse `100.x.x.x`.
 
 ## Commandes utiles
 
