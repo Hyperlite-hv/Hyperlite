@@ -9,6 +9,7 @@ Type=simple
 WorkingDirectory=/root/hyperlite
 EnvironmentFile=/root/hyperlite/.env
 Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/root
 ExecStartPre=/root/hyperlite/scripts/ensure-tls-cert.sh
 ExecStartPre=/root/hyperlite/scripts/write-motd.sh
 ExecStart=/root/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /root/hyperlite/data/tls/hyperlite.key --ssl-certfile /root/hyperlite/data/tls/hyperlite.crt
