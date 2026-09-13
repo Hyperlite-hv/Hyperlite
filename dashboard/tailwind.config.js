@@ -31,34 +31,41 @@ export default {
           200: "rgb(var(--a-200) / <alpha-value>)",
           100: "rgb(var(--a-100) / <alpha-value>)",
         },
+        // Palette issue de la refonte design 2026-09-13 (maquette Claude
+        // Design fournie par Antho, ecrans 5a/5b/6a/6b) : violet/marine
+        // fonce, meme famille que le logo Hyperlite (HyperliteLogo.jsx).
         status: {
-          running: "#3fb950",
-          stopped: "#7a8194",
-          warning: "#e3a008",
-          error: "#e5484d",
+          running: "#2BC4B6",
+          stopped: "#9A94C4",
+          warning: "#F5A04B",
+          error: "#FF8FA3",
         },
         accent: {
-          // Indigo/violet -- accent de marque, constant en clair comme en
-          // sombre (boutons primaires, onglet actif, jauges CPU/RAM).
-          blue: "#5A4FCF",
-          orange: "#ff9f43",
-          green: "#3fb950",
+          // Violet de marque -- texte/bordures/anneaux de jauge/etats actifs.
+          // Le remplissage plein des boutons primaires (fond plus sature,
+          // #6C5CE7) vit dans .btn-primary (index.css), pas ici : la
+          // maquette utilise deux tons de violet distincts selon le role.
+          blue: "#8B7CF6",
+          orange: "#F5A04B",
+          green: "#2BC4B6", // nom historique ("vert") -- devenu le teal de la maquette
+          pink: "#FF8FA3",
         },
         // Habillage permanent (header + sidebar) : reste dans cette teinte
-        // indigo/violet quel que soit le theme -- c'est l'ancre visuelle de
-        // l'identite Hyperlite, independante du mode clair/sombre.
+        // quel que soit le theme -- c'est l'ancre visuelle de l'identite
+        // Hyperlite, independante du mode clair/sombre. Valeurs exactes de
+        // la maquette (ecran 5a) : header et sidebar partagent le meme fond.
         chrome: {
-          950: "#2E2560",
-          900: "#3B2F72",
-          800: "#4B3F8C",
-          700: "#5D4FA6",
-          400: "#B7AEDD",
-          100: "#F5F3FA",
+          950: "#2B2657",
+          900: "#13112C",
+          800: "#13112C",
+          700: "#241F52",
+          400: "#9A94C4",
+          100: "#EDEBFA",
         },
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ["Archivo", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ['"IBM Plex Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       boxShadow: {
         panel: "0 1px 2px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.03)",
