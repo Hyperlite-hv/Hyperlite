@@ -55,11 +55,22 @@ log "=== 3/6 : injection des fichiers Hyperlite ==="
 HL_DIR="$EXTRACT_DIR/hyperlite"
 mkdir -p "$HL_DIR/hyperlite-src"
 
+# ensure-tls-cert.sh/write-motd.sh ne sont PLUS copies ici depuis
+# installer/ (bug reel trouve en testant une vraie mise a jour sur le
+# serveur physique d'Antho) : postinstall.sh les recopiait separement dans
+# $APP_DIR/scripts/, un chemin JAMAIS ajoute au commit git initial --
+# "git status" les voyait donc comme fichiers non suivis ("??"), rendant
+# l'arbre "sale" en PERMANENCE et bloquant le bouton mise a jour sur TOUTE
+# appliance installee depuis cet ISO, definitivement (jusqu'a une premiere
+# mise a jour manuelle qui les aurait fait disparaitre du diff, mais
+# jamais avant). Corrige a la racine : ces deux scripts vivent maintenant
+# dans scripts/ (comme update_watchdog.sh deja suivi par git), donc inclus
+# automatiquement par le rsync de hyperlite-src/ ci-dessous et commites
+# des le premier commit -- plus besoin de copie separee ni cote build-iso.sh
+# ni cote postinstall.sh.
 cp "$SCRIPT_DIR/preseed.cfg" "$HL_DIR/preseed.cfg"
 cp "$SCRIPT_DIR/partman-auto.sh" "$HL_DIR/partman-auto.sh"
 cp "$SCRIPT_DIR/postinstall.sh" "$HL_DIR/postinstall.sh"
-cp "$SCRIPT_DIR/ensure-tls-cert.sh" "$HL_DIR/ensure-tls-cert.sh"
-cp "$SCRIPT_DIR/write-motd.sh" "$HL_DIR/write-motd.sh"
 cp "$SCRIPT_DIR/hyperlite.service" "$HL_DIR/hyperlite.service"
 chmod +x "$HL_DIR"/*.sh
 
