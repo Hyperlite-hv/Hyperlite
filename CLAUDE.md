@@ -236,16 +236,51 @@ avant tout `systemctl restart hyperlite`.
   `partman-auto/method/choose_recipe`, `partman-auto-lvm/guided_size`,
   `passwd/root-password` (+ mot de passe root repris en dur dans
   `postinstall.sh` si le fichier généré par `partman-auto.sh` manque).
-  **Mystère non résolu** : l'écran "Écrire les modifications sur les
-  disques et configurer LVM ?" (`partman-lvm/confirm`, déjà preseedé à
-  `true`) est quand même apparu une fois pendant un test alors que rien
-  d'autre autour n'a bougé — validé manuellement (Entrée) pour ce test,
-  PAS re-confirmé sur un run 100% automatique depuis. A vérifier sur le
-  syslog d'installation (`/var/log/installer/syslog` sur la VM installée)
-  avant de considérer l'ISO fiable à 100% sans surveillance.
+  **Mystère `partman-lvm/confirm` RÉSOLU (comportement voulu, pas un bug)** :
+  l'écran "Écrire les modifications sur les disques et configurer LVM ?"
+  apparaît systématiquement, à CHAQUE run, même avec `partman-lvm/confirm
+  boolean true` ET `debconf/priority string critical` tous les deux
+  preseedés (vérifié en direct sur `/var/lib/cdebconf/questions.dat` via le
+  shell de secours de l'installeur, Ctrl+Alt+F2 : `debconf/priority` n'a
+  jamais de `Value:` du tout, preseeder cette question n'a aucun effet).
+  C'est un garde-fou VOLONTAIRE de Debian Installer contre la perte de
+  données : les deux confirmations finales d'écriture disque de partman
+  (`partman/confirm`, `partman-lvm/confirm`) ignorent delibérément le seuil
+  de priorité pour forcer une confirmation humaine avant toute action
+  irréversible — pas contournable proprement par preseed. **Une seule
+  touche Entrée reste donc nécessaire à cette étape précise, sur toute
+  l'installation** ; documenté dans la bannière de boot, à accepter comme
+  limite connue plutôt que continuer à chercher un correctif.
   **Chemin RAID (2+ disques) probablement CASSÉ** par le fix
   `partman-auto/method string lvm` statique (voir commentaire dans
   `preseed.cfg`) — non prioritaire, le cas réel est un serveur unique.
+  **BUG CRITIQUE trouvé le 14/09 sur le VRAI serveur physique d'Antho**
+  (première appliance jamais installée en dehors de kvm-lab) : le bouton
+  mise à jour plantait avec `FileNotFoundError: [Errno 2] No such file or
+  directory: 'git'` — **le paquet `git` n'était pas dans la liste de
+  paquets installés** (`pkgsel/include`), donc absent de toute appliance
+  installée depuis cet ISO. Corrigé : `git` ajouté à `pkgsel/include`
+  dans `preseed.cfg`. Un DEUXIÈME bug lié a suivi immédiatement après :
+  une fois `git` installé manuellement (`apt install git`) sur ce même
+  serveur, la mise à jour restait bloquée sur "Arbre de travail non
+  propre" à cause de `scripts/ensure-tls-cert.sh` et
+  `scripts/write-motd.sh` — `postinstall.sh` les copiait depuis
+  `/root/hyperlite-installer/` (hors de l'arbre git) directement dans
+  `$APP_DIR/scripts/`, jamais ajoutés au commit initial, donc "non
+  suivis" (`git status --porcelain` → `?? scripts/...`) EN PERMANENCE sur
+  CHAQUE appliance, bloquant le bouton mise à jour indéfiniment (pas
+  juste au premier boot). Corrigé à la racine : ces deux scripts vivent
+  maintenant dans `scripts/` (dépôt principal, comme
+  `scripts/update_watchdog.sh` déjà suivi), donc inclus automatiquement
+  dans le commit initial via le rsync de `hyperlite-src/` — plus de copie
+  séparée ni côté `build-iso.sh` ni côté `postinstall.sh`. **Le serveur
+  physique d'Antho a besoin du même correctif manuel** en attendant une
+  vraie mise à jour ou une réinstallation : sur ce serveur,
+  `git add scripts/ensure-tls-cert.sh scripts/write-motd.sh -f` ne suffit
+  pas seul (il faudrait aussi committer) — plus simple d'attendre que ce
+  chantier soit mergé puis de refaire un `git fetch && git reset --hard`
+  une fois `git` installé, OU de committer localement ces deux fichiers à
+  la main sur ce serveur pour débloquer tout de suite.
   **Comment tester** :
   ```bash
   cd /root/hyperlite/installer && ./build-iso.sh

@@ -25,9 +25,16 @@ ROOT_PASSWORD=$(cat "$INSTALLER_DIR/hyperlite-root-password" 2>/dev/null || echo
 log "=== 1/8 : deploiement du code Hyperlite ==="
 mkdir -p "$APP_DIR"
 cp -r "$INSTALLER_DIR/hyperlite-src/." "$APP_DIR/"
-mkdir -p "$APP_DIR/data/isos" "$APP_DIR/data/templates" "$APP_DIR/data/tls" "$APP_DIR/data/ssh" "$APP_DIR/scripts"
-cp "$INSTALLER_DIR/ensure-tls-cert.sh" "$APP_DIR/scripts/ensure-tls-cert.sh"
-cp "$INSTALLER_DIR/write-motd.sh" "$APP_DIR/scripts/write-motd.sh"
+mkdir -p "$APP_DIR/data/isos" "$APP_DIR/data/templates" "$APP_DIR/data/tls" "$APP_DIR/data/ssh"
+# ensure-tls-cert.sh/write-motd.sh sont maintenant DANS hyperlite-src/scripts/
+# (suivis par git, comme scripts/update_watchdog.sh) -- copies par le cp -r
+# ci-dessus, plus besoin de copie separee. ATTENTION (bug reel trouve en
+# testant une vraie mise a jour sur le serveur physique d'Antho) : les
+# copier separement ici, hors de l'arbre git, les rendait "non suivis" pour
+# toujours ("git status --porcelain" affichait "?? scripts/..."), donc
+# l'arbre restait "sale" en permanence et le bouton mise a jour restait
+# bloque sur TOUTE appliance. Verifie que le rsync a bien conserve le bit
+# executable (devrait deja etre le cas, -a le preserve) :
 chmod +x "$APP_DIR/scripts/ensure-tls-cert.sh" "$APP_DIR/scripts/write-motd.sh"
 
 # /root en 700 empeche l'utilisateur libvirt-qemu (proprietaire du process
