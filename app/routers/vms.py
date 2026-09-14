@@ -83,8 +83,15 @@ def _domain_summary(domain):
 
 
 @router.get("")
-def list_vms(user: dict = Depends(get_current_user)):
-    conn = open_conn()
+def list_vms(node: str | None = None, user: dict = Depends(get_current_user)):
+    """node : nom d'un noeud distant enregistre (chantier 15) pour lister SES
+    VM au lieu de celles de l'hote local -- omis ou None = comportement
+    inchange (hote local). Auparavant le frontend n'avait aucun moyen
+    d'interroger un noeud distant ici, donc les VM d'un noeud enregistre
+    n'apparaissaient jamais dans l'arbre principal (seul l'onglet dedie
+    "Noeuds" les affichait, via /nodes/{name}/summary) -- bug reel signale
+    en testant un vrai second noeud physique."""
+    conn = open_conn(node)
     try:
         domains = conn.listAllDomains()
         result = [_domain_summary(d) for d in domains]

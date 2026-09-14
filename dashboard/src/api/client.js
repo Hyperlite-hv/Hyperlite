@@ -39,7 +39,7 @@ export async function fetchDashboardSummary() {
 
 export async function fetchNodes() {
   const d = await fetchDashboardSummary();
-  const node = {
+  const localNode = {
     id: "kvm-lab",
     nom: d.hyperviseur.nom,
     etat: d.hyperviseur.connecte ? "online" : "erreur",
@@ -60,26 +60,102 @@ export async function fetchNodes() {
     vms_actives: d.vms.actives,
     vms_arretees: d.vms.arretees,
   };
-  return [node];
+
+  // Noeuds distants enregistres (chantier 15) -- AUPARAVANT absents d'ici :
+  // cette fonction ne renvoyait toujours qu'un unique noeud synthetique
+  // "kvm-lab", donc un noeud distant reellement enregistre et fonctionnel
+  // cote backend (GET /nodes) restait invisible dans l'arbre principal --
+  // bug reel signale en testant un vrai second noeud physique (seul
+  // l'onglet dedie "Noeuds", qui interroge /nodes directement, le montrait).
+  let remoteNodes = [];
+  try {
+    const remotes = await fetchRemoteNodes();
+    remoteNodes = await Promise.all(remotes.map(async (n) => {
+      let s = null;
+      try { s = await fetchRemoteNodeSummary(n.name); } catch (e) { /* noeud injoignable pour l'instant -- degrade plutot que de faire echouer tout le tableau de bord */ }
+      return {
+        id: n.name,
+        nom: n.name,
+        etat: s ? (s.connecte ? "online" : "erreur") : (n.statut === "en_ligne" ? "online" : "erreur"),
+        cpu_coeurs: null,
+        cpu_utilisation: null,
+        memoire_totale_mo: null,
+        memoire_utilisee_mo: null,
+        memoire_disponible_mo: null,
+        stockage_total_go: s?.stockage_capacite_go ?? null,
+        stockage_utilise_go: s && s.stockage_capacite_go != null && s.stockage_disponible_go != null
+          ? Math.round((s.stockage_capacite_go - s.stockage_disponible_go) * 100) / 100 : null,
+        uptime_s: null,
+        ip: n.hostname,
+        version: "Hyperlite (distant)",
+        os: null,
+        vms_actives: s?.vms_actives ?? 0,
+        vms_arretees: s?.vms_arretees ?? 0,
+        distant: true,
+      };
+    }));
+  } catch (e) { /* GET /nodes indisponible -- reste sur le noeud local seul, comme avant ce correctif */ }
+
+  return [localNode, ...remoteNodes];
 }
 
-export async function fetchVMs() {
-  const vms = await realFetch("/vms");
-  // GET /vms ne renvoie pas encore toutes les stats affichees par ce dashboard
-  // (disque detaille, tags...) -- completees par des valeurs par defaut en
-  // attendant un GET /vms plus riche.
-  return vms.map((v) => ({
-    nom: v.nom, node: "kvm-lab", type: "vm", etat: v.etat,
+// GET /vms ne renvoie pas encore toutes les stats affichees par ce dashboard
+// (disque detaille, tags...) -- completees par des valeurs par defaut en
+// attendant un GET /vms plus riche.
+function mapVm(v, nodeId) {
+  return {
+    nom: v.nom, node: nodeId, type: "vm", etat: v.etat,
     vcpu: v.vcpu, memoire_mo: v.memoire_mo, memoire_utilisee_mo: null,
     disque_go: null, disque_utilise_go: null,
     ip: v.ip, utilisateur_ssh: v.utilisateur_ssh, uuid: v.uuid,
     os: v.os, uptime_s: v.uptime_s,
-  }));
+  };
+}
+
+export async function fetchVMs() {
+  const localVms = await realFetch("/vms");
+  let result = localVms.map((v) => mapVm(v, "kvm-lab"));
+
+  // Noeuds distants enregistres (chantier 15) -- AUPARAVANT jamais
+  // interroges ici (node force en dur a "kvm-lab" pour tout le monde), donc
+  // les VM d'un noeud distant n'apparaissaient jamais dans l'arbre
+  // principal malgre un enregistrement reussi cote backend -- bug reel
+  // signale en testant un vrai second noeud physique. GET /vms accepte
+  // maintenant un parametre node= (voir app/routers/vms.py).
+  try {
+    const remotes = await fetchRemoteNodes();
+    const remoteLists = await Promise.all(remotes.map(async (n) => {
+      try {
+        const vms = await realFetch(`/vms?node=${encodeURIComponent(n.name)}`);
+        return vms.map((v) => mapVm(v, n.name));
+      } catch (e) { return []; /* noeud injoignable pour l'instant */ }
+    }));
+    result = result.concat(...remoteLists);
+  } catch (e) { /* GET /nodes indisponible -- reste sur le noeud local seul */ }
+
+  return result;
+}
+
+function mapPool(p, nodeId) {
+  return { nom: p.nom, node: nodeId, type: "dir", etat: p.etat, capacite_go: p.capacite_go, disponible_go: p.disponible_go };
 }
 
 export async function fetchStoragePools() {
-  const pools = await realFetch("/storage");
-  return pools.map((p) => ({ nom: p.nom, node: "kvm-lab", type: "dir", etat: p.etat, capacite_go: p.capacite_go, disponible_go: p.disponible_go }));
+  const localPools = await realFetch("/storage");
+  let result = localPools.map((p) => mapPool(p, "kvm-lab"));
+
+  try {
+    const remotes = await fetchRemoteNodes();
+    const remoteLists = await Promise.all(remotes.map(async (n) => {
+      try {
+        const pools = await realFetch(`/storage?node=${encodeURIComponent(n.name)}`);
+        return pools.map((p) => mapPool(p, n.name));
+      } catch (e) { return []; }
+    }));
+    result = result.concat(...remoteLists);
+  } catch (e) { /* GET /nodes indisponible */ }
+
+  return result;
 }
 
 export async function fetchNetworks() {
