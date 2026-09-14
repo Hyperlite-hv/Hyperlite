@@ -34,8 +34,10 @@ def _pool_summary(pool):
 
 
 @router.get("")
-def list_pools(user: dict = Depends(get_current_user)):
-    conn = open_conn()
+def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
+    """node : meme convention que GET /vms (chantier 15) -- liste les pools
+    d'un noeud distant enregistre plutot que de l'hote local."""
+    conn = open_conn(node)
     try:
         ensure_default_pool(conn)
         pools = conn.listAllStoragePools()
