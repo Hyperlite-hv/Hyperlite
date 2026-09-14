@@ -104,7 +104,20 @@ def _backup(task_id):
     tarball = BACKUP_DIR / f"hyperlite-backup-{stamp}.tar.gz"
     cmd = ["tar", "czf", str(tarball)] + _BACKUP_EXCLUDES + ["-C", str(REPO_DIR.parent), REPO_DIR.name]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if r.returncode != 0:
+    # ATTENTION (bug reel trouve lors du tout premier /update/apply jamais
+    # execute en conditions reelles, sur le serveur physique d'Antho) : tar
+    # renvoie le code de sortie 1 -- pas 0, mais pas non plus une vraie
+    # erreur -- des qu'un fichier change PENDANT sa lecture ("file changed
+    # as we read it"). Hyperlite tourne en continu ET ecrit sans arret dans
+    # hyperlite.db (mode WAL, collecte de metriques, etc.) exactement
+    # pendant que ce tar l'archive -- ce n'est pas un cas rare, c'est
+    # SYSTEMATIQUE sur une instance active. D'apres tar lui-meme (man tar,
+    # section EXIT STATUS) : 0 = succes, 1 = "some files differ" (avertissement
+    # non fatal, l'archive est quand meme utilisable), 2 = erreur fatale
+    # reelle. Traiter 1 comme un echec bloquait TOUTE mise a jour des qu'un
+    # thread d'arriere-plan touchait un fichier au mauvais moment -- corrige
+    # en ne considerant que le code 2+ comme une vraie erreur.
+    if r.returncode >= 2:
         raise RuntimeError(f"Échec de la sauvegarde : {r.stderr.strip()[:400]}")
     return tarball
 
