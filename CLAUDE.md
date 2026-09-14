@@ -207,6 +207,67 @@ avant tout `systemctl restart hyperlite`.
   personne avec un clone existant doit re-cloner (`hyperlite-ami` prévenu
   et re-cloné). Vérifié par un clone HTTPS anonyme (sans `gh`, `HOME` vide)
   avant et après bascule.
+- **Reconstruction de l'ISO appliance (2026-09-13/14) : gros chantier de
+  debug en cours, PAS ENCORE COMMITÉ.** Fichiers modifiés (tous dans
+  `installer/`, non commités au moment d'écrire cette note — regarder
+  `git diff`/`git log` pour voir si c'est toujours vrai) : `build-iso.sh`,
+  `preseed.cfg`, `postinstall.sh`, `partman-auto.sh`.
+  **Si tu reprends ce travail** : `git diff` sur ces 4 fichiers pour voir
+  l'etat exact, et vérifier `virsh list --all` sur kvm-lab pour une VM de
+  test `hl-iso-test` qui pourrait etre en cours ou terminée (voir en bas
+  de cette note comment l'interpréter).
+  **Cause racine trouvée** (la vraie, après plusieurs fausses pistes) :
+  l'installeur Debian charge UN SEUL fichier de preseed (le premier trouvé)
+  et ignore ensuite le paramètre noyau `preseed/file=/cdrom/...` — notre
+  `preseed.cfg` embarqué dans l'initrd (technique déjà en place pour la
+  langue) "gagnait" toujours, donc `/cdrom/hyperlite/preseed.cfg` n'était
+  JAMAIS lu, et avec lui ni `preseed/include_command` (partman-auto.sh) ni
+  surtout `preseed/late_command` (point d'entrée UNIQUE de
+  postinstall.sh — donc Hyperlite lui-même n'était jamais installé, alors
+  que l'installation Debian se terminait sans aucun écran bloqué).
+  Découvert en lisant `/var/log/installer/syslog` sur une VRAIE machine
+  installée (`grep -c late_command` → 0). **Corrigé** : `build-iso.sh`
+  embarque maintenant directement le `preseed.cfg` du dépôt (une seule
+  source de vérité) au lieu de reconstruire un sous-ensemble à la main.
+  **Conséquence** : quelques valeurs qui n'existaient QUE dans l'ancien
+  mécanisme temporaire (jamais dans `preseed.cfg` lui-même) ont dû être
+  ajoutées au vrai fichier après coup, découvertes une par une en
+  testant : `apt-setup/cdrom/set-first/set-next/set-failed`,
+  `partman-auto/method/choose_recipe`, `partman-auto-lvm/guided_size`,
+  `passwd/root-password` (+ mot de passe root repris en dur dans
+  `postinstall.sh` si le fichier généré par `partman-auto.sh` manque).
+  **Mystère non résolu** : l'écran "Écrire les modifications sur les
+  disques et configurer LVM ?" (`partman-lvm/confirm`, déjà preseedé à
+  `true`) est quand même apparu une fois pendant un test alors que rien
+  d'autre autour n'a bougé — validé manuellement (Entrée) pour ce test,
+  PAS re-confirmé sur un run 100% automatique depuis. A vérifier sur le
+  syslog d'installation (`/var/log/installer/syslog` sur la VM installée)
+  avant de considérer l'ISO fiable à 100% sans surveillance.
+  **Chemin RAID (2+ disques) probablement CASSÉ** par le fix
+  `partman-auto/method string lvm` statique (voir commentaire dans
+  `preseed.cfg`) — non prioritaire, le cas réel est un serveur unique.
+  **Comment tester** :
+  ```bash
+  cd /root/hyperlite/installer && ./build-iso.sh
+  qemu-img create -f qcow2 /var/lib/libvirt/images/hl-iso-test.qcow2 12G
+  virt-install --name hl-iso-test --memory 2048 --vcpus 2 \
+    --disk path=/var/lib/libvirt/images/hl-iso-test.qcow2,format=qcow2,bus=virtio \
+    --cdrom /root/hyperlite/installer/hyperlite-appliance-amd64.iso \
+    --os-variant generic --network network=default \
+    --graphics vnc,listen=127.0.0.1 --noautoconsole --noreboot
+  # attendre "shut off" (virsh domstate hl-iso-test), puis :
+  virsh start hl-iso-test   # doit booter le systeme installe, pas l'ISO
+  # identifiants : root / hyperlite (SSH ou console graphique via
+  # virsh screenshot / virsh send-key --codeset linux KEY_X)
+  ```
+  Si un écran reste bloqué (`virsh screenshot` régulièrement pour voir),
+  chercher le nom exact de la question debconf affichée et l'ajouter
+  statiquement dans `preseed.cfg` plutôt que de re-deviner. Une fois un
+  run 100% automatique confirmé (aucune touche envoyée manuellement) du
+  début jusqu'à `root@hyperlite:~#` accessible ET `curl -sk
+  https://<ip-vm>:8000/health` qui répond, chantier terminé : commit sur
+  une branche (`chantier-iso-fix` ou similaire) + PR, jamais direct sur
+  `master` vu l'ampleur du changement.
 
 ## Commandes utiles
 
