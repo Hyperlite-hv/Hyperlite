@@ -96,8 +96,9 @@ if [ "$DISK_COUNT" -ge 2 ]; then
     S2=$(partsuffix "$D2")
 
     {
-        echo "d-i passwd/root-password password $ROOT_PASS"
-        echo "d-i passwd/root-password-again password $ROOT_PASS"
+        # passwd/root-password* PAS ici -- voir preseed.cfg, deplace car
+        # include_command est consomme avant que l'udeb passwd/user-setup
+        # ne soit charge (bug reel trouve en testant un vrai boot).
         echo "d-i partman-auto/disk string $D1 $D2"
         echo "d-i partman-auto/method string raid"
         echo "d-i partman-lvm/device_remove_lvm boolean true"
@@ -132,8 +133,8 @@ else
     log "mode disque unique + LVM : $D1"
 
     {
-        echo "d-i passwd/root-password password $ROOT_PASS"
-        echo "d-i passwd/root-password-again password $ROOT_PASS"
+        # passwd/root-password* PAS ici -- voir preseed.cfg (meme raison
+        # que la branche RAID1 ci-dessus).
         echo "d-i partman-auto/disk string $D1"
         echo "d-i partman-auto/method string lvm"
         echo "d-i partman-auto/choose_recipe select atomic"

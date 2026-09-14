@@ -14,7 +14,13 @@ log() { echo "[hyperlite-postinstall] $*"; }
 
 INSTALLER_DIR=/root/hyperlite-installer
 APP_DIR=/root/hyperlite
-ROOT_PASSWORD=$(cat "$INSTALLER_DIR/hyperlite-root-password")
+# Repli sur la constante "hyperlite" si le fichier est absent/vide : ce
+# fichier est ecrit par partman-auto.sh (preseed/include_command), un
+# mecanisme dont la fiabilite s'est averee incertaine pour d'autres valeurs
+# (voir preseed.cfg) -- vu que le mot de passe est de toute facon fixe
+# ("hyperlite", pas aleatoire), pas de raison de laisser tout postinstall.sh
+# echouer ici (set -e) si ce fichier venait a manquer.
+ROOT_PASSWORD=$(cat "$INSTALLER_DIR/hyperlite-root-password" 2>/dev/null || echo "hyperlite")
 
 log "=== 1/8 : deploiement du code Hyperlite ==="
 mkdir -p "$APP_DIR"
