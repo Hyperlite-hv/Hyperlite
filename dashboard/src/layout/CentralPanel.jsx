@@ -77,15 +77,32 @@ export default function CentralPanel() {
     activeTab: s.activeTab, setActiveTab: s.setActiveTab,
   }));
 
+  // Deux effets distincts, pas un seul -- BUG REEL trouve le 2026-09-17 en
+  // testant sur un vrai navigateur (Antho : "les boutons sur le côté
+  // gauche marche pas") : avec un seul useEffect deps=[selection.type,
+  // selection.id], cliquer un item de SidebarRail alors qu'on est deja sur
+  // la vue "datacenter" (le cas le plus courant : selection.type/id ne
+  // changent pas, seul pendingTab change) ne re-declenchait JAMAIS l'effet
+  // -- pendingTab restait pose dans le store mais n'etait jamais consomme,
+  // l'onglet affiche ne changeait pas. Corrige en separant : l'effet
+  // "nouvelle selection -> revenir a Résumé" ne depend QUE de la selection
+  // (comportement inchange), l'effet "onglet demande" ne depend QUE de
+  // pendingTab et se declenche donc bien a chaque navigateTo(), meme sans
+  // changement de selection. L'ordre de declaration importe : celui-ci
+  // s'execute apres, donc gagne si les deux changent en meme temps (cas
+  // navigateTo(nouvelleSelection, onglet), ex. clic sur une ligne de la
+  // table des nœuds).
+  useEffect(() => {
+    setActiveTab("summary");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.type, selection.id]);
+
   useEffect(() => {
     if (pendingTab) {
       setActiveTab(pendingTab);
       clearPendingTab();
-    } else {
-      setActiveTab("summary");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection.type, selection.id]);
+  }, [pendingTab, setActiveTab, clearPendingTab]);
 
   if (selection.type === "storage") {
     return (
