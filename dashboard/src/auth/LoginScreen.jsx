@@ -1,26 +1,80 @@
 import { useState } from "react";
-import { LogIn } from "lucide-react";
+import { LogIn, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import HyperliteLogo from "../components/HyperliteLogo";
 
 export default function LoginScreen() {
   const login = useAuthStore((s) => s.login);
+  const loginWith2FA = useAuthStore((s) => s.loginWith2FA);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Chantier 30 (2FA, 2026-09-17) : quand /auth/login renvoie require_2fa,
+  // on bascule sur une deuxieme etape (saisie du code TOTP) plutot que de
+  // reafficher le formulaire mot de passe -- preAuthToken porte la preuve
+  // que le mot de passe etait bon, valable 5 minutes (voir security.py).
+  const [preAuthToken, setPreAuthToken] = useState(null);
+  const [code, setCode] = useState("");
 
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      await login(username, password);
+      const result = await login(username, password);
+      if (result.require2FA) {
+        setPreAuthToken(result.preAuthToken);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function onSubmit2FA(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await loginWith2FA(preAuthToken, code, username);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (preAuthToken) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-anthracite-900">
+        <form onSubmit={onSubmit2FA} className="card w-full max-w-sm p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <ShieldCheck size={22} className="text-accent-blue" />
+            <span className="text-base font-semibold tracking-wide text-anthracite-100">Vérification en 2 étapes</span>
+          </div>
+          <p className="mb-3 text-sm text-anthracite-300">
+            Entrez le code à 6 chiffres généré par votre application d'authentification.
+          </p>
+          <input
+            className="input text-center text-lg tracking-[0.4em]" autoFocus inputMode="numeric" maxLength={6}
+            value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+          />
+          {error && <p className="mt-3 text-sm text-status-error">{error}</p>}
+          <button type="submit" disabled={loading || code.length !== 6} className="btn-primary mt-5 w-full justify-center">
+            <ShieldCheck size={15} /> {loading ? "Vérification..." : "Valider"}
+          </button>
+          <button
+            type="button" className="mt-2 w-full text-center text-xs text-anthracite-400 hover:text-anthracite-200"
+            onClick={() => { setPreAuthToken(null); setCode(""); setError(""); }}
+          >
+            Retour
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (
