@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Plus, Box, Bell, Sun, Moon, LogOut, RefreshCw } from "lucide-react";
+import { Plus, Box, Bell, Sun, Moon, LogOut, RefreshCw, ChevronDown } from "lucide-react";
 import SearchBar from "../components/SearchBar";
-import HyperliteLogo from "../components/HyperliteLogo";
 import VMWizard from "../wizard/VMWizard";
 import ContainerWizard from "../wizard/ContainerWizard";
 import UpdateModal from "../components/UpdateModal";
@@ -13,6 +12,17 @@ function initials(name) {
   return name.slice(0, 2).toUpperCase();
 }
 
+// Fil d'Ariane "Datacenter / <selection>" (refonte 2026-09-17, calque sur la
+// reference validee) -- purement indicatif, ne navigue pas (contrairement au
+// selecteur de la reference qui suppose un seul niveau ; ici la vraie
+// navigation reste l'arbre Datacenter, voir Sidebar.jsx/ResourceTree.jsx).
+function breadcrumbLabel(selection, nodes, vms) {
+  if (selection.type === "node") return nodes.find((n) => n.id === selection.id)?.nom || selection.id;
+  if (selection.type === "vm") return vms.find((v) => v.nom === selection.id)?.nom || selection.id;
+  if (selection.type === "storage") return selection.id;
+  return null;
+}
+
 export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [containerWizardOpen, setContainerWizardOpen] = useState(false);
@@ -22,27 +32,38 @@ export default function Header() {
   const theme = useInfraStore((s) => s.theme);
   const toggleTheme = useInfraStore((s) => s.toggleTheme);
   const tasks = useInfraStore((s) => s.tasks);
+  const selection = useInfraStore((s) => s.selection);
+  const nodes = useInfraStore((s) => s.nodes);
+  const vms = useInfraStore((s) => s.vms);
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore(selectIsAdmin);
   const logout = useAuthStore((s) => s.logout);
 
   const runningCount = tasks.filter((t) => t.statut === "en_cours").length;
   const recentTasks = tasks.slice(0, 5);
+  const crumb = breadcrumbLabel(selection, nodes, vms);
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-5 border-b border-chrome-950 bg-chrome-900 px-4">
-      <div className="flex items-center gap-2 shrink-0">
-        <HyperliteLogo size={26} />
-        <span className="text-sm font-extrabold tracking-wide text-chrome-100">HYPERLITE</span>
+    <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-anthracite-600 bg-anthracite-800 px-6">
+      <div className="hidden shrink-0 items-center gap-1.5 text-[13px] font-bold text-anthracite-100 md:flex">
+        <span>Datacenter</span>
+        {crumb && (
+          <>
+            <span className="text-anthracite-300 font-normal">/</span>
+            <span>{crumb}</span>
+          </>
+        )}
+      </div>
+
+      <div className="w-px h-5 bg-anthracite-600 hidden md:block shrink-0" />
+
+      <div className="w-[240px] shrink-0">
+        <SearchBar />
       </div>
 
       <div className="flex-1" />
 
       <div className="flex items-center gap-2 shrink-0">
-        <div className="w-[220px]">
-          <SearchBar />
-        </div>
-
         {isAdmin && (
           <button className="btn-primary !rounded-full" onClick={() => setWizardOpen(true)}>
             <Plus size={15} /> Créer VM
@@ -55,16 +76,16 @@ export default function Header() {
         )}
 
         <div className="relative">
-          <button className="relative rounded-md p-2 text-chrome-400 hover:bg-chrome-700 hover:text-chrome-100" onClick={() => setNotifOpen((o) => !o)}>
+          <button className="relative rounded-lg p-2.5 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100" onClick={() => setNotifOpen((o) => !o)}>
             <Bell size={17} />
             {runningCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-accent-orange text-[10px] font-bold text-white">
+              <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent-orange text-[10px] font-bold text-white">
                 {runningCount}
               </span>
             )}
           </button>
           {notifOpen && (
-            <div className="absolute right-0 mt-1 w-72 card border border-anthracite-600 z-50 py-1" onMouseLeave={() => setNotifOpen(false)}>
+            <div className="absolute right-0 mt-1 w-72 card z-50 py-1" onMouseLeave={() => setNotifOpen(false)}>
               <div className="px-3 py-1.5 text-xs font-semibold text-anthracite-300">Tâches récentes</div>
               {recentTasks.length === 0 && <div className="px-3 py-2 text-sm text-anthracite-400">Aucune tâche.</div>}
               {recentTasks.map((t) => (
@@ -81,13 +102,17 @@ export default function Header() {
 
         <div className="relative">
           <button
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-anthracite-700 border border-anthracite-500 text-xs font-semibold text-anthracite-100"
+            className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 hover:bg-anthracite-700"
             onClick={() => setUserOpen((o) => !o)}
           >
-            {initials(username)}
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent-blue to-[#4338CA] text-xs font-bold text-white">
+              {initials(username)}
+            </span>
+            <span className="hidden text-[12.5px] font-semibold text-anthracite-100 sm:inline">{username}</span>
+            <ChevronDown size={13} className="hidden text-anthracite-400 sm:inline" />
           </button>
           {userOpen && (
-            <div className="absolute right-0 mt-1 w-48 card border border-anthracite-600 z-50 py-1" onMouseLeave={() => setUserOpen(false)}>
+            <div className="absolute right-0 mt-1 w-48 card z-50 py-1" onMouseLeave={() => setUserOpen(false)}>
               <div className="px-3 py-1.5 text-sm text-anthracite-100">{username} <span className="text-xs text-anthracite-400">({isAdmin ? "admin" : "observateur"})</span></div>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"

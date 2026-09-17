@@ -31,35 +31,39 @@ export default {
           200: "rgb(var(--a-200) / <alpha-value>)",
           100: "rgb(var(--a-100) / <alpha-value>)",
         },
-        // Palette issue de la refonte design 2026-09-13 (maquette Claude
-        // Design fournie par Antho, ecrans 5a/5b/6a/6b) : violet/marine
-        // fonce, meme famille que le logo Hyperlite (HyperliteLogo.jsx).
+        // Palette de la refonte 2026-09-17 (direction "indigo console",
+        // validee par Antho sur maquette avant integration -- cf. lien
+        // artefact dans la conversation) : indigo/blanc plutot que le
+        // violet-marine precedent, jugee trop generique/IA. Meme famille
+        // que le logo Hyperlite (HyperliteLogo.jsx).
         status: {
-          running: "#2BC4B6",
-          stopped: "#9A94C4",
-          warning: "#F5A04B",
-          error: "#FF8FA3",
+          running: "#16A34A",
+          stopped: "#6B7280",
+          warning: "#D97706",
+          error: "#DC2626",
         },
         accent: {
-          // Violet de marque -- texte/bordures/anneaux de jauge/etats actifs.
-          // Le remplissage plein des boutons primaires (fond plus sature,
-          // #6C5CE7) vit dans .btn-primary (index.css), pas ici : la
-          // maquette utilise deux tons de violet distincts selon le role.
-          blue: "#8B7CF6",
-          orange: "#F5A04B",
-          green: "#2BC4B6", // nom historique ("vert") -- devenu le teal de la maquette
-          pink: "#FF8FA3",
+          // Indigo de marque -- texte/bordures/anneaux de jauge/etats actifs
+          // ET remplissage plein des boutons primaires (voir .btn-primary,
+          // index.css) : contrairement a l'ancienne palette, un seul ton
+          // sert les deux roles ici (coherent avec la reference validee).
+          blue: "#4F46E5",
+          orange: "#D97706",
+          green: "#16A34A",
+          pink: "#DC2626",
         },
-        // Habillage permanent (header + sidebar) : reste dans cette teinte
-        // quel que soit le theme -- c'est l'ancre visuelle de l'identite
-        // Hyperlite, independante du mode clair/sombre. Valeurs exactes de
-        // la maquette (ecran 5a) : header et sidebar partagent le meme fond.
+        // Habillage permanent (sidebar) : reste dans cette teinte quel que
+        // soit le theme clair/sombre du contenu -- ancre visuelle de
+        // l'identite Hyperlite, independante du mode. Le header/topbar ne
+        // fait plus partie du "chrome" depuis la refonte 2026-09-17 (passe
+        // clair, voir Header.jsx) ; seule la colonne laterale (logo + nav +
+        // arbre Datacenter) garde ce fond indigo fonce.
         chrome: {
-          950: "#2B2657",
-          900: "#13112C",
-          800: "#13112C",
-          700: "#241F52",
-          400: "#9A94C4",
+          950: "#171340",
+          900: "#211C49",
+          800: "#211C49",
+          700: "#332C6E",
+          400: "#8C88BE",
           100: "#EDEBFA",
         },
       },

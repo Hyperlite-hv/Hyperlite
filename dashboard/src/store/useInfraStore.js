@@ -35,6 +35,12 @@ export const useInfraStore = create((set, get) => ({
   pendingTab: null,
   searchQuery: "",
   treeFilter: "server", // "server" | "pool" | "tag"
+  // Onglet CentralPanel reellement affiche en ce moment (refonte 2026-09-17,
+  // sidebar unifiee) -- purement pour permettre a SidebarRail de surligner
+  // l'entree active sans dupliquer la logique deja geree par CentralPanel
+  // (pendingTab/clearPendingTab, inchanges). CentralPanel reste la seule
+  // source qui l'ecrit (setActiveTab).
+  activeTab: "summary",
 
   // ---- Taches (actions reelles de cette session) & notifications ----
   tasks: [],
@@ -93,6 +99,10 @@ export const useInfraStore = create((set, get) => ({
 
   clearPendingTab() {
     set({ pendingTab: null });
+  },
+
+  setActiveTab(tab) {
+    set({ activeTab: tab });
   },
 
   setSearchQuery(q) {

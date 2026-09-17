@@ -1,34 +1,35 @@
 // Recharts a besoin de couleurs CSS explicites (il ne lit pas les classes Tailwind).
 // Garder ces valeurs synchronisees avec tailwind.config.js si la palette change.
+// Refonte 2026-09-17 : indigo/blanc plutot que le violet-marine precedent.
 export const chartColors = {
-  cpu: "#4f8cff",
-  ram: "#ff9f43",
-  disk: "#3fb950",
-  netIn: "#4f8cff",
-  netOut: "#c084fc",
-  grid: "#2c303a",
-  axis: "#7a8194",
+  cpu: "#4F46E5",
+  ram: "#D97706",
+  disk: "#16A34A",
+  netIn: "#4F46E5",
+  netOut: "#A855F7",
+  grid: "#E5E7EB",
+  axis: "#9CA3AF",
 };
 
 export const statusColors = {
-  actif: "#3fb950",
-  online: "#3fb950",
-  running: "#3fb950",
-  arrete: "#7a8194",
-  stopped: "#7a8194",
-  avertissement: "#e3a008",
-  warning: "#e3a008",
-  erreur: "#e5484d",
-  error: "#e5484d",
+  actif: "#16A34A",
+  online: "#16A34A",
+  running: "#16A34A",
+  arrete: "#6B7280",
+  stopped: "#6B7280",
+  avertissement: "#D97706",
+  warning: "#D97706",
+  erreur: "#DC2626",
+  error: "#DC2626",
   // Etats reels d'un domaine libvirt (voir STATE_NAMES, app/routers/vms.py
   // et app/routers/containers.py) au-dela du sous-ensemble actif/arrete
   // deja couvert ci-dessus.
-  en_pause: "#e3a008",
-  suspendu: "#e3a008",
-  bloque: "#e5484d",
-  en_arret: "#7a8194",
-  plante: "#e5484d",
-  inconnu: "#7a8194",
+  en_pause: "#D97706",
+  suspendu: "#D97706",
+  bloque: "#DC2626",
+  en_arret: "#6B7280",
+  plante: "#DC2626",
+  inconnu: "#6B7280",
 };
 
 export function statusColor(etat) {
