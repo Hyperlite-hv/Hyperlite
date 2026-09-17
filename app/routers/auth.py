@@ -139,7 +139,10 @@ def login_2fa(payload: Login2FA):
 
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)):
-    return {"username": user["username"], "role": user["role"], "totp_enabled": bool(user["totp_enabled"])}
+    return {
+        "username": user["username"], "role": user["role"], "totp_enabled": bool(user["totp_enabled"]),
+        "auth_source": user.get("auth_source", "local"),
+    }
 
 
 # --- 2FA en libre-service (chantier 30, 2026-09-17) -- chaque utilisateur
@@ -218,7 +221,7 @@ def delete_api_token(token_id: int, user: dict = Depends(get_current_user)):
 @router.get("/users")
 def list_users(user: dict = Depends(require_role("admin"))):
     with get_conn() as conn:
-        rows = conn.execute("SELECT username, role FROM users ORDER BY username").fetchall()
+        rows = conn.execute("SELECT username, role, auth_source FROM users ORDER BY username").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -246,9 +249,17 @@ def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))
 @router.patch("/users/{username}")
 def update_user(username: str, payload: UserUpdate, user: dict = Depends(require_role("admin"))):
     with get_conn() as conn:
-        existing = conn.execute("SELECT username, role FROM users WHERE username = ?", (username,)).fetchone()
+        existing = conn.execute("SELECT username, role, auth_source FROM users WHERE username = ?", (username,)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Utilisateur '{username}' introuvable")
+        # SSO (chantier 20) : le mot de passe local d'un compte SSO est un
+        # secret aleatoire jamais communique (voir sso.py::provision_user)
+        # -- le "changer" ici donnerait l'illusion trompeuse qu'un login
+        # local fonctionnerait ensuite, alors que le role lui-meme sera de
+        # toute facon ecrase au prochain login SSO. Le role, lui, reste
+        # modifiable manuellement (utile en secours si l'IdP est down).
+        if payload.password is not None and existing["auth_source"] == "sso":
+            raise HTTPException(status_code=400, detail="Compte SSO : le mot de passe ne peut pas être modifié localement")
         if payload.role is not None:
             if payload.role not in ("admin", "observateur"):
                 raise HTTPException(status_code=422, detail="Rôle invalide (admin ou observateur)")
