@@ -12,6 +12,7 @@ import NetworkOverviewTab from "../panels/datacenter/NetworkOverviewTab";
 import AutomationTab from "../panels/datacenter/AutomationTab";
 import NodesTab from "../panels/datacenter/NodesTab";
 import HaTab from "../panels/datacenter/HaTab";
+import NotificationsTab from "../panels/datacenter/NotificationsTab";
 import ContainersTab from "../panels/datacenter/ContainersTab";
 import JournalTab from "../panels/datacenter/JournalTab";
 import ExportsTab from "../panels/datacenter/ExportsTab";
@@ -44,6 +45,7 @@ const DATACENTER_TABS = [
   { id: "containers", label: "Conteneurs", Component: ContainersTab },
   { id: "nodes", label: "Nœuds", Component: NodesTab },
   { id: "ha", label: "HA", Component: HaTab },
+  { id: "notifications", label: "Notifications", Component: NotificationsTab },
   { id: "journal", label: "Journal", Component: JournalTab },
 ];
 
