@@ -6,10 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
+from jose import jwt, JWTError
+
 from app.core.database import get_conn
-from app.core.security import authenticate_user, create_access_token, get_current_user, require_role, hash_password
+from app.core.security import (
+    authenticate_user, create_access_token, create_preauth_token, get_current_user,
+    require_role, hash_password, verify_password, get_user, SECRET_KEY, ALGORITHM,
+)
 from app.core.audit import log_action
 from app.core.permissions import remove_group_member, get_user_groups
+from app.core.twofa import generate_secret, provisioning_uri, qr_code_svg, verify_code
+from app.core.api_tokens import create_token, list_tokens, revoke_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -49,6 +56,23 @@ class UserUpdate(BaseModel):
     role: str | None = None
 
 
+class Login2FA(BaseModel):
+    pre_auth_token: str
+    code: str
+
+
+class TwoFAConfirm(BaseModel):
+    code: str
+
+
+class TwoFADisable(BaseModel):
+    password: str
+
+
+class TokenCreate(BaseModel):
+    name: str
+
+
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
     if _login_locked_out(form_data.username):
@@ -63,14 +87,132 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
         log_action(form_data.username, "login", "auth", "echec", "Identifiants invalides")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identifiants invalides")
     _login_failures.pop(form_data.username, None)
+
+    # Chantier 30 (2FA, 2026-09-17) : mot de passe correct mais 2FA active
+    # -- pas de jeton de session complet tout de suite, juste un jeton
+    # intermediaire de 5 min (voir create_preauth_token) que le frontend
+    # echange contre le vrai jeton via /auth/login/2fa apres le code TOTP.
+    if user["totp_enabled"]:
+        pre_auth = create_preauth_token(user["username"])
+        log_action(user["username"], "login", "auth", "succes", "Mot de passe validé, code 2FA requis")
+        return {"require_2fa": True, "pre_auth_token": pre_auth}
+
     token = create_access_token({"sub": user["username"], "role": user["role"]})
     log_action(user["username"], "login", "auth", "succes")
     return {"access_token": token, "token_type": "bearer", "role": user["role"]}
 
 
+@router.post("/login/2fa")
+def login_2fa(payload: Login2FA):
+    """Deuxieme etape du login quand /auth/login a renvoye require_2fa.
+    Reutilise le meme verrou anti-brute-force que /auth/login (par
+    username) -- un code TOTP est a 6 chiffres (1M combinaisons), pas
+    negligeable a laisser deviner sans limite."""
+    try:
+        claims = jwt.decode(payload.pre_auth_token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Session de connexion expirée, reconnectez-vous")
+    username = claims.get("sub")
+    if not claims.get("2fa_pending") or not username:
+        raise HTTPException(status_code=401, detail="Jeton de pré-authentification invalide")
+
+    if _login_locked_out(username):
+        log_action(username, "login", "auth", "echec", f"Verrouillé ({LOGIN_MAX_ATTEMPTS} échecs récents)")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Trop de tentatives échouées pour ce compte, réessayez dans {LOGIN_WINDOW_S // 60} minutes",
+        )
+
+    user = get_user(username)
+    if not user:
+        raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    if not verify_code(user["totp_secret"], payload.code):
+        _login_record_failure(username)
+        log_action(username, "login", "auth", "echec", "Code 2FA invalide")
+        raise HTTPException(status_code=401, detail="Code invalide")
+
+    _login_failures.pop(username, None)
+    token = create_access_token({"sub": user["username"], "role": user["role"]})
+    log_action(username, "login", "auth", "succes", "2FA validé")
+    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+
+
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)):
-    return {"username": user["username"], "role": user["role"]}
+    return {"username": user["username"], "role": user["role"], "totp_enabled": bool(user["totp_enabled"])}
+
+
+# --- 2FA en libre-service (chantier 30, 2026-09-17) -- chaque utilisateur
+# gere son propre 2FA, pas besoin d'etre admin (require_role). Flux en 2
+# temps : /2fa/setup genere un secret et le stocke DEJA en base mais
+# totp_enabled reste a 0 -- tant que /2fa/confirm n'a pas verifie un vrai
+# code, la 2FA n'est PAS active, un secret genere puis jamais confirme
+# (ex. l'utilisateur ferme l'onglet en scannant le QR) ne bloque personne
+# a la prochaine connexion.
+@router.post("/2fa/setup")
+def setup_2fa(user: dict = Depends(get_current_user)):
+    if user["totp_enabled"]:
+        raise HTTPException(status_code=400, detail="2FA déjà activée — désactivez-la avant d'en générer une nouvelle")
+    secret = generate_secret()
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET totp_secret = ? WHERE username = ?", (secret, user["username"]))
+        conn.commit()
+    uri = provisioning_uri(secret, user["username"])
+    return {"secret": secret, "otpauth_uri": uri, "qr_code_svg": qr_code_svg(uri)}
+
+
+@router.post("/2fa/confirm")
+def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_current_user)):
+    fresh = get_user(user["username"])
+    if not fresh["totp_secret"]:
+        raise HTTPException(status_code=400, detail="Aucune configuration 2FA en attente — lancez /auth/2fa/setup d'abord")
+    if not verify_code(fresh["totp_secret"], payload.code):
+        raise HTTPException(status_code=401, detail="Code invalide")
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET totp_enabled = 1 WHERE username = ?", (user["username"],))
+        conn.commit()
+    log_action(user["username"], "enable_2fa", user["username"], "succes")
+    return {"message": "2FA activée"}
+
+
+@router.post("/2fa/disable")
+def disable_2fa(payload: TwoFADisable, user: dict = Depends(get_current_user)):
+    if not verify_password(payload.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect")
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE username = ?", (user["username"],))
+        conn.commit()
+    log_action(user["username"], "disable_2fa", user["username"], "succes")
+    return {"message": "2FA désactivée"}
+
+
+# --- Jetons API en libre-service (chantier 30, 2026-09-17) -- pense pour
+# l'automatisation (scripts/Terraform/cron), authentification alternative
+# au JWT de session (voir security.py::get_current_user, repli sur
+# api_tokens.verify_token quand le jeton n'est pas un JWT valide).
+@router.get("/tokens")
+def get_api_tokens(user: dict = Depends(get_current_user)):
+    return list_tokens(user["username"])
+
+
+@router.post("/tokens", status_code=201)
+def post_api_token(payload: TokenCreate, user: dict = Depends(get_current_user)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Le nom du jeton est requis")
+    token_id, token = create_token(user["username"], name)
+    log_action(user["username"], "create_api_token", name, "succes")
+    # Le jeton en clair n'est retourne qu'ICI, une seule fois -- il n'est
+    # plus jamais recuperable ensuite (seul son hash SHA-256 est stocke).
+    return {"id": token_id, "name": name, "token": token}
+
+
+@router.delete("/tokens/{token_id}")
+def delete_api_token(token_id: int, user: dict = Depends(get_current_user)):
+    if not revoke_token(user["username"], token_id):
+        raise HTTPException(status_code=404, detail="Jeton introuvable")
+    log_action(user["username"], "revoke_api_token", str(token_id), "succes")
+    return {"message": "Jeton révoqué"}
 
 
 @router.get("/users")

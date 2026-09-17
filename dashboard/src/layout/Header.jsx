@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, Box, Bell, Sun, Moon, LogOut, RefreshCw, ChevronDown, Menu } from "lucide-react";
+import { Plus, Box, Bell, Sun, Moon, LogOut, RefreshCw, ChevronDown, Menu, ShieldCheck } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import VMWizard from "../wizard/VMWizard";
 import ContainerWizard from "../wizard/ContainerWizard";
 import UpdateModal from "../components/UpdateModal";
+import AccountSecurityModal from "../components/AccountSecurityModal";
 import { useInfraStore } from "../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 
@@ -27,6 +28,7 @@ export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [containerWizardOpen, setContainerWizardOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
   // Un seul et meme state pour les deux menus deroulants (au lieu de deux
   // booleens independants) -- BUG REEL trouve en testant sur un vrai
   // navigateur (Playwright) : avec notifOpen/userOpen separes et une
@@ -167,6 +169,12 @@ export default function Header() {
               )}
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
+                onClick={() => { setSecurityOpen(true); setOpenMenu(null); }}
+              >
+                <ShieldCheck size={14} /> Sécurité du compte
+              </button>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
                 onClick={logout}
               >
                 <LogOut size={14} /> Se déconnecter
@@ -179,6 +187,7 @@ export default function Header() {
       <VMWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <ContainerWizard open={containerWizardOpen} onClose={() => setContainerWizardOpen(false)} />
       {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} />}
+      {securityOpen && <AccountSecurityModal onClose={() => setSecurityOpen(false)} />}
     </header>
   );
 }
