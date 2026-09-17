@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Activity, Box, HardDrive, Network, Layers,
-  CalendarClock, PackageOpen, ShieldCheck, Workflow, Server, ScrollText, LifeBuoy,
+  CalendarClock, PackageOpen, ShieldCheck, Workflow, Server, ScrollText, LifeBuoy, Bell,
 } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
 
@@ -36,6 +36,7 @@ const GROUPS = [
       { tab: "automation", label: "Automatisation", Icon: Workflow },
       { tab: "permissions", label: "Permissions", Icon: ShieldCheck },
       { tab: "journal", label: "Journal", Icon: ScrollText },
+      { tab: "notifications", label: "Notifications", Icon: Bell },
     ],
   },
 ];

@@ -32,6 +32,7 @@ from app.routers.containers import router as containers_router
 from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
 from app.routers.ha import router as ha_router
+from app.routers.notifications import router as notifications_router
 
 app = FastAPI(title="Hyperlite API")
 app.include_router(auth_router)
@@ -56,6 +57,7 @@ app.include_router(containers_router)
 app.include_router(vm_disks_router)
 app.include_router(vm_export_router)
 app.include_router(ha_router)
+app.include_router(notifications_router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

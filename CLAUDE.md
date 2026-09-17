@@ -93,7 +93,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 25 | Refonte visuelle "indigo console" + audit fonctionnel Playwright | ✅ dans `master` — voir section dédiée plus bas |
 | 26 | Stockage réseau partagé (pools NFS) | ✅ dans `master` — `POST`/`DELETE /storage` (pools `dir`/`netfs`), UI dans l'onglet Stockage. Testé de bout en bout avec un vrai serveur NFS (curl + UI). 2 bugs préexistants trouvés en testant : `POOL_STATE_NAMES` désynchronisé de l'énum libvirt réelle (tous les pools actifs s'affichaient "en_construction"), `mapPool()` qui codait `type` en dur à `"dir"` côté frontend — corrigés |
 | 27 | Migration à chaud de VM entre nœuds | ✅ dans `master` — `POST /vms/{name}/migrate` (admin uniquement), bouton "Migrer" dans l'onglet Résumé de la VM. **Testé réellement de bout en bout entre kvm-lab et serveur-antho (deux vraies machines physiques, sites différents, via Tailscale)** : une VM active a réellement migré à chaud, vérifié des deux côtés (`virsh list`). Voir la section dédiée plus bas pour le détail des 5 bugs réels trouvés en testant et la limite connue (sens nœud distant → kvm-lab non supporté) |
-| 28 | Notifications sortantes (email/webhook) | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui tout reste dans l'audit log interne, aucune alerte ne sort de l'app |
+| 28 | Notifications sortantes (email/webhook) | ✅ dans `master` — `app/core/notifications.py`, point d'entree unique via `log_action()` (voir section dédiée) : couvre automatiquement node_statut_change/ha_alert/create_vm/delete_vm/migrate_vm/backup_vm/restore_backup/hyperlite_update sans toucher leurs sites d'appel. Onglet Notifications (Datacenter). Testé réellement avec un vrai récepteur webhook local (déclenchement automatique ET bouton "Tester" confirmés) |
 | 29 | Politique de rétention des sauvegardes | ⬜ pas commencé — demandé le 2026-09-17. Le chantier 13 fait des sauvegardes complètes mais sans purge automatique (garder N quotidiennes/hebdo/mensuelles) |
 | 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui JWT de session uniquement, pas de second facteur, pas de jeton dédié à l'automatisation (Terraform/scripts) |
 
@@ -105,7 +105,7 @@ Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 **Séquencement demandé le 2026-09-17 ("va au-delà de Proxmox", implémenter
 étape par étape avec tests à chaque fois)** : 26 (stockage partagé) ✅ → 27
 (migration à chaud) ✅ → 17 (HA, dépend de 26/27 pour avoir du sens réel) ✅ →
-**28 (notifications) ← prochain**  → 29 (rétention sauvegardes) → 30 (2FA + jetons API) →
+28 (notifications) ✅ → **29 (rétention sauvegardes) ← prochain** → 30 (2FA + jetons API) →
 21 (pare-feu datacenter) → 19 (nettoyage VM inactives) → 20 (SSO) → 16
 (doc récap, en dernier). Si tu reprends cette session : regarde d'abord
 quel chantier de cette liste a le statut le plus avancé dans le tableau
@@ -602,3 +602,42 @@ initial du chantier 26) -- corriges dans `app/routers/storage.py::_build_pool_xm
 
 Compte de test, VM de test, pools NFS et export supprimes des deux
 nœuds a la fin des tests.
+
+## Chantier 28 : notifications sortantes (2026-09-17)
+
+Deux types de canal : webhook generique (POST JSON, compatible Discord/
+Slack/ntfy/n'importe quel receveur HTTP) et email (SMTP). Aucune nouvelle
+dependance -- `urllib`/`smtplib` (stdlib) seulement.
+
+**Point d'entree unique, pas un appel a ajouter partout** :
+`app/core/audit.py::log_action()` (deja appelee par la quasi-totalite du
+code, chaque action significative y passe) declenche desormais
+`notifications.notify()` pour les `action` listees dans
+`NOTIFY_EVENTS` (`app/core/notifications.py`) --
+node_statut_change/ha_alert/create_vm/delete_vm/migrate_vm/backup_vm/
+restore_backup/hyperlite_update. Couvre automatiquement tous ces
+evenements sans toucher a leurs dizaines de sites d'appel existants dans
+`vms.py`/`cluster.py`/`ha.py`/`update.py`/etc. A etendre en ajoutant une
+entree a `NOTIFY_EVENTS`, pas en cherchant chaque site d'appel.
+
+`GET/POST/PATCH/DELETE /notifications/channels` + `POST .../test` (envoi
+immediat, jamais filtre par evenement). Onglet "Notifications"
+(Datacenter) : creation de canal (formulaire different webhook/email),
+activer/desactiver, tester, supprimer.
+
+**Testé réellement** : petit serveur HTTP local (`http.server`, stdlib)
+lance pour recevoir de vrais webhooks --
+1. Bouton "Tester" : notification recue avec le bon contenu JSON.
+2. **Declenchement automatique reel** : creation puis suppression d'une
+   VM de test via l'API ont chacune genere leur notification SANS aucun
+   code specifique a la notification dans `vms.py` -- confirme que le
+   point d'entree unique via `log_action()` fonctionne comme prevu.
+3. Meme test refait depuis l'UI reelle (Playwright) : creation du canal,
+   test, suppression -- tout confirme visuellement et par le contenu
+   reellement recu par le serveur local.
+
+Mot de passe SMTP stocke en clair dans `notification_channels.config`
+(JSON) -- aucune autre forme de secret n'est chiffree dans ce projet
+(voir `.env` pour le secret JWT), reserve aux admins, meme niveau de
+confiance que le reste de la config serveur. A revisiter si Hyperlite
+gagne un jour un vrai coffre-fort de secrets.
