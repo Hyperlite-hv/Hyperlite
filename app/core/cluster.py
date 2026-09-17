@@ -104,6 +104,12 @@ def get_node(name):
     return dict(row) if row else None
 
 
+def list_nodes():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM nodes ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
 def test_node_connection(hostname, ssh_user, ssh_port):
     """Tente une vraie connexion libvirt distante et verifie qu'il s'agit
     bien d'un hote QEMU/KVM -- pas juste "le port SSH repond", comme deja
