@@ -29,6 +29,8 @@ function initialForm(nodes, networks) {
     username: "",
     password: "",
     network: networks[0]?.nom || "default",
+    autoCleanupEnabled: false,
+    autoCleanupDays: 7,
   };
 }
 
@@ -62,6 +64,7 @@ export default function VMWizard({ open, onClose }) {
       disks: form.disks, network: form.network, username: form.username,
       password: form.password, iso: form.iso || null,
       import_disk: form.importDisk || null,
+      auto_cleanup_days: form.autoCleanupEnabled ? form.autoCleanupDays : null,
     };
     const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
     try {
