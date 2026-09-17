@@ -989,10 +989,12 @@ PUBLIQUE est publiee, `hyperlite-archive-keyring.asc` a la racine du
 depot).
 
 **Pour adopter ce mecanisme sur une machine** (serveur-antho, une future
-appliance) :
+appliance) -- **toujours le depot nginx local** (`100.88.184.24:8899`, voir
+la source suivante pour le pourquoi), jamais GitHub Pages en source
+principale :
 ```bash
-curl -fsSL https://twikles.github.io/hyperlite/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] https://twikles.github.io/hyperlite stable main" > /etc/apt/sources.list.d/hyperlite.list
+curl -fsSL http://100.88.184.24:8899/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] http://100.88.184.24:8899 stable main" > /etc/apt/sources.list.d/hyperlite.list
 apt update && apt install hyperlite
 ```
 Installe/adopte l'application dans `/root/hyperlite` (meme emplacement
