@@ -88,7 +88,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 24 | Refonte tableau de bord + barre latérale façon Proxmox VE | ✅ dans `master` — rail de navigation (`SidebarRail.jsx`) ajouté à gauche de l'arbre Datacenter/Nœud/VM existant (purement additif, l'arbre reste les raccourcis VM), calqué sur les onglets Datacenter réels seulement (pas la liste complète de Proxmox). Nouvel onglet "Activité récente" (table `tasks` existante, pas encore exposée au niveau Datacenter). "Statut des VM" devient une vraie liste sur les états réels d'un domaine libvirt. **Pas de vérification visuelle possible depuis cette session (pas de navigateur connecté) — à confirmer par Antho** |
 | 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ⬜ pas commencé — demandé le 2026-09-13 |
 | 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
-| 21 | Pare-feu réseau/cluster | ⬜ pas commencé — demandé le 2026-09-13. **Attention, existe déjà en partie** : pare-feu **par VM** (nwfilter) fonctionnel dans `app/routers/vms.py` (`FirewallConfig`/`set_vm_firewall`) + UI dans `VMHardwareTab.jsx`. Ce chantier = un niveau réseau/global, pas repartir de zéro |
+| 21 | Pare-feu réseau/cluster | ✅ dans `master` — `app/core/network_firewall.py`. Distinct du pare-feu **par VM** (nwfilter) : filtre au niveau du **pont** (chaîne FORWARD du noyau, iptables), donc couvre toutes les VM d'un réseau présentes ET futures. Réutilise le même `FirewallConfig`/`FirewallRule` que le pare-feu par VM (même UI, `FirewallRulesEditor.jsx` factorisé). **Testé réellement avec du vrai trafic** (conteneur LXC jetable sur un réseau de test, `nsenter` dans sa netns) : ping externe bloqué par défaut, autorisé après règle, confirmé au niveau paquets (`iptables -v`). 2 bugs réels trouvés en testant, voir section dédiée |
 | 22 | Onglet "Système" sur le node | ✅ déjà fait avant cette demande — `dashboard/src/panels/node/NodeSystemTab.jsx`, branché dans `CentralPanel.jsx` (id `system`, "Résumé système"), données réelles (`/health` + historique métriques du chantier 10) |
 | 25 | Refonte visuelle "indigo console" + audit fonctionnel Playwright | ✅ dans `master` — voir section dédiée plus bas |
 | 26 | Stockage réseau partagé (pools NFS) | ✅ dans `master` — `POST`/`DELETE /storage` (pools `dir`/`netfs`), UI dans l'onglet Stockage. Testé de bout en bout avec un vrai serveur NFS (curl + UI). 2 bugs préexistants trouvés en testant : `POOL_STATE_NAMES` désynchronisé de l'énum libvirt réelle (tous les pools actifs s'affichaient "en_construction"), `mapPool()` qui codait `type` en dur à `"dir"` côté frontend — corrigés |
@@ -108,9 +108,13 @@ Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 (migration à chaud) ✅ → 17 (HA, dépend de 26/27 pour avoir du sens réel) ✅ →
 28 (notifications) ✅ → 29 (rétention sauvegardes) ✅ → 31 (audit log
 asynchrone, inséré ici sur demande explicite d'Antho le 2026-09-17 après
-avoir impacté sa session active) ✅ → 30 (2FA + jetons API) ✅ →
-**21 (pare-feu datacenter) ← prochain** → 19 (nettoyage VM inactives) →
-20 (SSO) → 16 (doc récap, en dernier). Si tu reprends cette session : regarde d'abord
+avoir impacté sa session active) ✅ → 30 (2FA + jetons API) ✅ → 21
+(pare-feu datacenter) ✅ → **19 (nettoyage VM inactives) ← prochain** →
+20 (SSO) → 16 (doc récap, en dernier). **Chantier 12 (kickstart) explicitement
+exclu de cette séquence** (demande d'Antho le 2026-09-17, "fait tout dans
+l'ordre sauf le kickstart") -- de toute façon piloté par le collègue sur
+`/root/hyperlite-ami`, voir "Répartition en cours" plus bas, ne pas y
+toucher. Si tu reprends cette session : regarde d'abord
 quel chantier de cette liste a le statut le plus avancé dans le tableau
 ci-dessus, c'est le point de reprise. Chaque chantier de cette liste doit
 être testé en conditions réelles (pas juste relu) avant merge, même
@@ -778,3 +782,92 @@ a la fin) :
 Aucun bug reel trouve en testant ce chantier (contrairement aux
 precedents) -- flux plus isole/moins de dependances externes (pas de
 libvirt, pas de reseau inter-nœuds) que les chantiers multi-nœuds recents.
+
+## Chantier 21 : pare-feu réseau/datacenter (2026-09-17)
+
+**Pourquoi pas nwfilter (comme le pare-feu par VM)** -- verifie contre les
+schemas RNG de libvirt sur cet hote (`/usr/share/libvirt/schemas/
+network.rng` et `nwfilter.rng`) : `<filterref>` n'existe QUE dans le schema
+du DOMAINE (interface de VM), le schema `<network>` n'a aucune notion de
+filtre par defaut applique a toutes les interfaces d'un reseau. Un
+pare-feu reellement "reseau" doit donc filtrer le point de passage reel du
+trafic : le pont Linux associe au reseau, via `iptables`/`FORWARD` --
+exactement la ou libvirt lui-meme insere deja ses propres chaines pour le
+NAT (`LIBVIRT_FWI/FWO/FWX`, deja presentes sur cet hote pour chaque reseau
+nat/isole demarre).
+
+`app/core/network_firewall.py` : une chaine `HYPERLITENETFW` inseree en
+**position 1** de `FORWARD` (donc evaluee AVANT les chaines de libvirt --
+un DROP explicite bloque le trafic avant que libvirt n'ait la moindre
+chance de l'autoriser), qui saute vers une chaine dediee par reseau
+(nommee par hash SHA-1 du nom de reseau, la limite reelle d'un nom de
+chaine iptables etant 28 caracteres). `PUT /networks/{name}/firewall`
+reconstruit entierement la chaine dediee (flush + regles dans l'ordre),
+meme principe que `nwfilterDefineXML` pour le pare-feu par VM. Reutilise
+**exactement** `FirewallConfig`/`FirewallRule` du pare-feu par VM (importe
+depuis `app/routers/vms.py`) et un composant React factorise
+(`FirewallRulesEditor.jsx`, extrait de l'ancien `VMHardwareTab.jsx` sans
+changement de comportement) -- meme UI, meme validation, seule la CIBLE
+change.
+
+**Persistance** : contrairement au nwfilter (stocke et reapplique
+automatiquement par libvirt lui-meme), les regles iptables ne survivent
+PAS a un redemarrage de l'HOTE. Table `network_firewall` (SQLite) =
+source de verite, reappliquee a chaque demarrage du service
+(`app/main.py::on_startup` -> `network_firewall.reapply_all()`) --
+verifie reellement en redemarrant `hyperlite.service` avec une regle
+deja appliquee : la chaine est bien reconstruite a l'identique.
+
+**Testé réellement avec du vrai trafic**, pas seulement une lecture du
+XML/de la configuration (conteneur LXC jetable `alpine:3.19` cree sur un
+reseau de test, adresse statique assignee via `nsenter` dans sa vraie
+netns -- pas celle du process superviseur libvirt-lxc, qui reste dans le
+netns HOTE, piege rencontre en testant : le PID a utiliser est celui de
+l'enfant `/sbin/init`, pas celui du fichier `.pid` de libvirt) :
+- Ping vers une IP reellement externe (1.1.1.1, pas l'hote lui-meme --
+  piege rencontre : pinguer l'IP de l'hote depuis le conteneur NE PASSE
+  PAS par `FORWARD`, c'est un trafic a destination locale de l'hote,
+  invisible pour ce pare-feu) bloque par la politique par defaut (`drop`)
+  -- confirme au niveau PAQUETS (`iptables -v` montrant les compteurs
+  incrementer sur la regle DROP correspondante), pas juste "la commande a
+  echoue".
+- Regle explicite ajoutee (ICMP sortant autorise) -- meme ping reussit.
+- Connexion TCP non autorisee vers la meme IP externe : toujours bloquee
+  (le "autoriser" cible bien le protocole demande, pas tout le trafic).
+
+**2 bugs reels trouves en testant** :
+1. **Regles sans etat (bug de robustesse du chantier lui-meme)** : un
+   ping SORTANT autorise ne laissait jamais revenir sa REPONSE -- au sens
+   de ce filtre stateless, la reponse ICMP entrante est un flux DISTINCT
+   du ping sortant, bloque par la politique par defaut. **100% de perte
+   de paquets malgre une regle "autoriser" explicite**, trouve en
+   regardant les compteurs `iptables -v` (2 paquets/168 octets sur la
+   regle DROP entrante correspondant exactement aux 2 reponses ICMP
+   attendues). Corrige en ajoutant systematiquement, en tete de chaque
+   chaine de reseau, un accept `state ESTABLISHED,RELATED` dans les deux
+   sens -- comme tout pare-feu reel (iptables en best practice, Proxmox,
+   pfSense...) : le retour d'une connexion deja autorisee doit passer
+   sans exiger une regle miroir manuelle pour chaque protocole/port.
+   Reverifie apres correctif : meme ping desormais 0% de perte, ET une
+   connexion TCP non explicitement autorisee reste bloquee (le correctif
+   n'affaiblit pas la politique par defaut).
+2. **Bug PRE-EXISTANT, sans rapport avec ce chantier, trouve en testant**
+   (`app/routers/network.py::create_network`) : le nom de pont genere
+   pour un reseau nat/isole était `f"virbr-{payload.name[:10]}"` --
+   `"virbr-"` (6) + jusqu'a 10 caracteres = jusqu'a 16, UN DE PLUS que la
+   limite reelle du noyau Linux pour un nom d'interface (`IFNAMSIZ`=16
+   OCTETS INCLUANT LE TERMINATEUR NUL, donc 15 caracteres utilisables).
+   Tout nom de reseau de 10+ caracteres faisait echouer sa creation avec
+   `error creating bridge interface... Numerical result out of range`
+   (`ENAMETOOLONG` traduit par libvirt) -- reproduit avec un nom de test
+   de 11 caracteres (`hltest-uifw`), un cas tres probable en usage reel
+   (ex. "production", "guest-wifi"). Corrige : `name[:9]` (6+9=15).
+   Collision residuelle non traitee : deux noms de reseau partageant
+   leurs 9 premiers caracteres genereraient le meme nom de pont (echec
+   "existe deja" a la creation du second) -- limite pre-existante,
+   documentee plutot que corrigee (necessiterait un nom de pont derive
+   par hash, hors scope de ce correctif ponctuel).
+
+Compte de test, conteneur de test et reseau de test supprimes a la fin
+(verifie : `iptables -nL HYPERLITENETFW` vide, chaine dediee absente de
+`nft list ruleset`, table `network_firewall` vide en base).

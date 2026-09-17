@@ -10,6 +10,7 @@ from app.core.backups import start_backup_scheduler
 from app.core.jobs import ensure_lb_job_exists
 from app.core.cluster import start_node_poller
 from app.core.libvirt_utils import open_conn
+from app.core.network_firewall import reapply_all as reapply_network_firewalls
 from app.routers.auth import router as auth_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.vms import router as vms_router
@@ -161,3 +162,13 @@ def on_startup():
     start_backup_scheduler()
     ensure_lb_job_exists()
     start_node_poller()
+
+    # Chantier 21 : les regles iptables du pare-feu reseau ne survivent
+    # pas a un redemarrage de l'hote (contrairement au nwfilter du
+    # pare-feu par VM, gere par libvirt lui-meme) -- reapplique tout ce
+    # qui est persiste en base a chaque demarrage du service.
+    conn = open_conn()
+    try:
+        reapply_network_firewalls(conn)
+    finally:
+        conn.close()
