@@ -1,3 +1,6 @@
+import re
+import xml.etree.ElementTree as ET
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 import libvirt
@@ -10,14 +13,36 @@ from app.core.error_messages import describe_exception
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
+# BUG REEL trouve le 2026-09-17 en testant la creation d'un pool NFS (tous
+# les pools, y compris "default" deja actif depuis des jours, s'affichaient
+# "en_construction") : cette table ne correspondait PAS a l'enumeration
+# reelle de libvirt (virStoragePoolState -- verifie via
+# libvirt.VIR_STORAGE_POOL_*, seulement 5 valeurs 0-4, pas 6). Sans impact
+# visible avant aujourd'hui car aucun ecran n'affichait encore ce champ
+# "etat" -- corrige avant de l'exposer dans l'UI de gestion des pools.
 POOL_STATE_NAMES = {
-    0: "inactif",
-    1: "cree",
-    2: "en_construction",
-    3: "actif",
-    4: "suppression",
-    5: "inconnu",
+    0: "inactif",       # VIR_STORAGE_POOL_INACTIVE
+    1: "en_construction",  # VIR_STORAGE_POOL_BUILDING
+    2: "actif",          # VIR_STORAGE_POOL_RUNNING
+    3: "degrade",         # VIR_STORAGE_POOL_DEGRADED
+    4: "inaccessible",    # VIR_STORAGE_POOL_INACCESSIBLE
 }
+
+# Nom d'hote/IP (chantier 26, pool NFS) : lettres/chiffres/points/tirets --
+# suffisant pour un hostname ou une IPv4/IPv6 simple, exclut tout caractere
+# qui pourrait avoir un sens special ailleurs.
+NFS_HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.:_-]{0,253})$")
+# Chemin absolu (export NFS cote serveur, ou repertoire local d'un pool
+# "dir") : pas d'espace ni de caracteres XML/shell speciaux.
+POOL_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.-]{0,255}$")
+
+
+def _pool_type(pool):
+    try:
+        root = ET.fromstring(pool.XMLDesc(0))
+        return root.get("type", "inconnu")
+    except (libvirt.libvirtError, ET.ParseError):
+        return "inconnu"
 
 
 def _pool_summary(pool):
@@ -25,6 +50,7 @@ def _pool_summary(pool):
     return {
         "nom": pool.name(),
         "uuid": pool.UUIDString(),
+        "type": _pool_type(pool),
         "etat": POOL_STATE_NAMES.get(state, "inconnu"),
         "autostart": bool(pool.autostart()),
         "capacite_go": round(capacity / (1024 ** 3), 2),
@@ -44,6 +70,133 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
         result = [_pool_summary(p) for p in pools]
         log_action(user["username"], "list_storage_pools", "storage", "succes")
         return result
+    finally:
+        conn.close()
+
+
+class PoolCreate(BaseModel):
+    name: str
+    # "dir" : repertoire local au nœud (comme le pool "default" existant).
+    # "netfs" : export NFS distant monte par libvirt (chantier 26, stockage
+    # partage) -- fondation du chantier 27 (migration a chaud), un disque
+    # sur un pool netfs est visible identiquement depuis n'importe quel
+    # nœud qui monte le meme export, pas besoin de le copier au moment de
+    # migrer une VM.
+    type: str = Field(pattern="^(dir|netfs)$")
+    path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
+    nfs_host: str | None = None  # pool "netfs" : hote du serveur NFS
+    nfs_export_path: str | None = None  # pool "netfs" : chemin exporte cote serveur
+
+
+def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
+    """Construit le XML libvirt via ElementTree (echappement automatique)
+    plutot que par concatenation de chaines -- l'audit securite (chantier
+    11) avait justement trouve une injection XML dans la creation reseau
+    en mode pont pour cette raison, pas question de repeter l'erreur ici."""
+    pool_el = ET.Element("pool", type=payload.type)
+    ET.SubElement(pool_el, "name").text = payload.name
+    if payload.type == "netfs":
+        source_el = ET.SubElement(pool_el, "source")
+        ET.SubElement(source_el, "host", name=payload.nfs_host)
+        ET.SubElement(source_el, "dir", path=payload.nfs_export_path)
+        ET.SubElement(source_el, "format", type="nfs")
+    target_el = ET.SubElement(pool_el, "target")
+    ET.SubElement(target_el, "path").text = target_path
+    return ET.tostring(pool_el, encoding="unicode")
+
+
+@router.post("", status_code=201)
+def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    name_error = validate_name(payload.name)
+    if name_error:
+        log_action(user["username"], "create_storage_pool", payload.name, "echec", name_error)
+        raise HTTPException(status_code=422, detail=name_error)
+
+    if payload.type == "dir":
+        target_path = payload.path or f"/var/lib/libvirt/hyperlite-pools/{payload.name}"
+        if not POOL_PATH_RE.match(target_path):
+            raise HTTPException(status_code=422, detail="Chemin de pool invalide (doit être un chemin absolu, sans espace ni caractère spécial)")
+    else:
+        if not payload.nfs_host or not payload.nfs_export_path:
+            raise HTTPException(status_code=422, detail="nfs_host et nfs_export_path sont requis pour un pool NFS")
+        if not NFS_HOST_RE.match(payload.nfs_host):
+            raise HTTPException(status_code=422, detail="Hôte NFS invalide")
+        if not POOL_PATH_RE.match(payload.nfs_export_path):
+            raise HTTPException(status_code=422, detail="Chemin d'export NFS invalide (doit être un chemin absolu)")
+        # Point de montage LOCAL au nœud (cote client NFS) -- distinct du
+        # chemin exporte cote serveur, jamais fourni par l'appelant pour
+        # eviter toute collision avec un repertoire systeme existant.
+        target_path = f"/var/lib/libvirt/hyperlite-pools/{payload.name}"
+
+    conn = open_conn(node)
+    try:
+        try:
+            conn.storagePoolLookupByName(payload.name)
+            log_action(user["username"], "create_storage_pool", payload.name, "echec", "Pool déjà existant")
+            raise HTTPException(status_code=422, detail=f"Un pool '{payload.name}' existe déjà")
+        except libvirt.libvirtError:
+            pass
+
+        pool_xml = _build_pool_xml(payload, target_path)
+        try:
+            pool = conn.storagePoolDefineXML(pool_xml)
+            # build() cree le repertoire local ("dir") ou le point de montage
+            # ("netfs") -- necessaire avant create() sur un pool tout neuf.
+            # flags=0 : pas de reformatage destructif d'un support existant.
+            pool.build(0)
+            pool.create(0)
+            pool.setAutostart(True)
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "create_storage_pool", payload.name, "echec", msg)
+            # Nettoyage best-effort si la definition a reussi mais pas le
+            # demarrage (ex. export NFS injoignable) -- evite un pool
+            # "fantome" defini mais jamais utilisable qui bloquerait un
+            # nouvel essai avec le meme nom.
+            try:
+                conn.storagePoolLookupByName(payload.name).undefine()
+            except libvirt.libvirtError:
+                pass
+            raise HTTPException(status_code=500, detail=f"Erreur de création du pool : {msg}")
+
+        log_action(user["username"], "create_storage_pool", payload.name, "succes")
+        return _pool_summary(pool)
+    finally:
+        conn.close()
+
+
+@router.delete("/{pool_name}")
+def delete_pool(pool_name: str, node: str | None = None, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+    if pool_name == "default":
+        raise HTTPException(status_code=400, detail="Le pool 'default' ne peut pas être supprimé")
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
+
+    conn = open_conn(node)
+    try:
+        try:
+            pool = conn.storagePoolLookupByName(pool_name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Pool de stockage '{pool_name}' introuvable")
+
+        pool.refresh(0)
+        if pool.listAllVolumes():
+            log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool non vide")
+            raise HTTPException(status_code=409, detail=f"Le pool '{pool_name}' contient encore des volumes, supprimez-les d'abord")
+
+        try:
+            if pool.isActive():
+                # netfs : demonte l'export. dir : ne touche pas au contenu du
+                # repertoire (deja verifie vide ci-dessus).
+                pool.destroy()
+            pool.undefine()
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "delete_storage_pool", pool_name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Erreur de suppression du pool : {msg}")
+
+        log_action(user["username"], "delete_storage_pool", pool_name, "succes")
+        return {"message": f"Pool '{pool_name}' supprimé"}
     finally:
         conn.close()
 
