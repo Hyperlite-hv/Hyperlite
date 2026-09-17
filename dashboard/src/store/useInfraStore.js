@@ -41,6 +41,12 @@ export const useInfraStore = create((set, get) => ({
   // (pendingTab/clearPendingTab, inchanges). CentralPanel reste la seule
   // source qui l'ecrit (setActiveTab).
   activeTab: "summary",
+  // Sidebar mobile (refonte 2026-09-17) : BUG REEL trouve en testant a
+  // largeur telephone (~400px) -- la colonne laterale (268px fixes) prenait
+  // tout l'ecran, le contenu central devenait inutilisable. Sous le seuil
+  // `md` (voir Sidebar.jsx/Header.jsx), la sidebar devient un tiroir
+  // superpose controle par cet etat plutot que toujours visible.
+  mobileSidebarOpen: false,
 
   // ---- Taches (actions reelles de cette session) & notifications ----
   tasks: [],
@@ -103,6 +109,14 @@ export const useInfraStore = create((set, get) => ({
 
   setActiveTab(tab) {
     set({ activeTab: tab });
+  },
+
+  toggleMobileSidebar() {
+    set((s) => ({ mobileSidebarOpen: !s.mobileSidebarOpen }));
+  },
+
+  closeMobileSidebar() {
+    set({ mobileSidebarOpen: false });
   },
 
   setSearchQuery(q) {

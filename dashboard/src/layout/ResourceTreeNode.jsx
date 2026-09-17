@@ -10,6 +10,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const selection = useInfraStore((s) => s.selection);
   const select = useInfraStore((s) => s.select);
+  const closeMobileSidebar = useInfraStore((s) => s.closeMobileSidebar);
 
   const hasChildren = node.children && node.children.length > 0;
   const Icon = ICONS[node.type] || Box;
@@ -25,6 +26,11 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
         onClick={() => {
           if (hasChildren) setExpanded((e) => !e);
           if (SELECTABLE.has(node.type)) select(node.type, node.id);
+          // Ferme le tiroir mobile seulement sur une vraie feuille (VM/pool,
+          // ou un nœud sans enfant) -- sinon un simple depli/repli de
+          // "Datacenter"/nœud fermerait le tiroir avant que l'utilisateur
+          // ait pu choisir un enfant.
+          if (SELECTABLE.has(node.type) && !hasChildren) closeMobileSidebar();
         }}
       >
         {hasChildren ? (
