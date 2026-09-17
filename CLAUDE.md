@@ -90,11 +90,28 @@ de 16 chantiers triés par charge de travail croissante.
 | 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
 | 21 | Pare-feu réseau/cluster | ⬜ pas commencé — demandé le 2026-09-13. **Attention, existe déjà en partie** : pare-feu **par VM** (nwfilter) fonctionnel dans `app/routers/vms.py` (`FirewallConfig`/`set_vm_firewall`) + UI dans `VMHardwareTab.jsx`. Ce chantier = un niveau réseau/global, pas repartir de zéro |
 | 22 | Onglet "Système" sur le node | ✅ déjà fait avant cette demande — `dashboard/src/panels/node/NodeSystemTab.jsx`, branché dans `CentralPanel.jsx` (id `system`, "Résumé système"), données réelles (`/health` + historique métriques du chantier 10) |
+| 25 | Refonte visuelle "indigo console" + audit fonctionnel Playwright | ✅ dans `master` — voir section dédiée plus bas |
+| 26 | Stockage réseau partagé (pools NFS) | ⬜ pas commencé — demandé le 2026-09-17. Fondation du chantier 27 (sans stockage partagé, une migration à chaud doit copier tout le disque par le réseau à chaque fois, lent et fragile) |
+| 27 | Migration à chaud de VM entre nœuds | ⬜ pas commencé — demandé le 2026-09-17. Le multi-nœuds (chantier 15) ne fait que lister/gérer plusieurs hôtes séparément, aucun bouton "migrer" n'existe. `virsh migrate --live` fonctionne aussi sans stockage partagé via `--copy-storage-all` (plus lent) — prévoir les deux chemins, privilégier le chantier 26 quand disponible |
+| 28 | Notifications sortantes (email/webhook) | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui tout reste dans l'audit log interne, aucune alerte ne sort de l'app |
+| 29 | Politique de rétention des sauvegardes | ⬜ pas commencé — demandé le 2026-09-17. Le chantier 13 fait des sauvegardes complètes mais sans purge automatique (garder N quotidiennes/hebdo/mensuelles) |
+| 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui JWT de session uniquement, pas de second facteur, pas de jeton dédié à l'automatisation (Terraform/scripts) |
 
 **Chantier 7, en attente d'un usage réel** : le système de mise à jour
 actuel est basé sur `git pull`. Antho a demandé, une fois la liste
 terminée, de le remplacer par quelque chose de plus proche du système de
 Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
+
+**Séquencement demandé le 2026-09-17 ("va au-delà de Proxmox", implémenter
+étape par étape avec tests à chaque fois)** : 26 (stockage partagé) → 27
+(migration à chaud) → 17 (HA, dépend de 26/27 pour avoir du sens réel) →
+28 (notifications) → 29 (rétention sauvegardes) → 30 (2FA + jetons API) →
+21 (pare-feu datacenter) → 19 (nettoyage VM inactives) → 20 (SSO) → 16
+(doc récap, en dernier). Si tu reprends cette session : regarde d'abord
+quel chantier de cette liste a le statut le plus avancé dans le tableau
+ci-dessus, c'est le point de reprise. Chaque chantier de cette liste doit
+être testé en conditions réelles (pas juste relu) avant merge, même
+principe que tout le reste de ce document.
 
 **Répartition en cours (2026-09-13)** : un collègue travaille depuis son
 propre clone (`/root/hyperlite-ami`, session `hyperlite-ami-5c` si tu veux
