@@ -1135,13 +1135,112 @@ evitee AVANT de tester, pas decouverte apres coup).
 
 **Reste a faire pour un vrai "comme Proxmox" complet** (pas traite dans
 cette passe, documente pour la suite) :
-- L'ISO d'installation (`installer/build-iso.sh`/`preseed.cfg`) embarque
-  toujours l'ancien mecanisme (code + `.git`, mise a jour via `git pull`)
-  -- une appliance fraiche installee aujourd'hui depuis l'ISO ne serait
-  PAS sur `apt`. Migrer l'installeur lui-meme reste a faire.
+- ~~L'ISO d'installation embarque toujours l'ancien mecanisme~~ **FAIT**,
+  voir la section dediee "ISO appliance : installation via apt" plus bas
+  (2026-09-17, meme jour).
 - Cle de signature GPG sans phrase de passe, stockee uniquement sur
   kvm-lab (`/root/.hyperlite-apt-gpg`) -- acceptable pour un usage perso
   (et coherent avec le choix "jamais sur une CI tierce" ci-dessus), a
   reconsiderer avant de distribuer ce depot a des tiers.
 - Pas d'interface pour revenir a une version anterieure precise (possible
   en ligne de commande `apt install hyperlite=<version>`, rien dans l'UI).
+
+## ISO appliance : installation via apt, plus de git embarque (2026-09-17)
+
+Suite directe du durcissement chantier 7bis ci-dessus -- demande explicite
+d'Antho ("il faut absolument bosser sur tout ces points pour que ca soit
+parfait encore une fois comme proxmox"). `installer/build-iso.sh`
+n'embarque plus `hyperlite-src/` ni `git init` (~60 lignes supprimees) --
+une appliance fraiche installe Hyperlite directement depuis le vrai depot
+APT publie, exactement le mecanisme du chantier 7bis, plutot qu'un commit
+Git a part reconstruit a chaque ISO. Objectif d'origine du chantier 7
+enfin atteint proprement : plus jamais reconstruire/reflasher un ISO
+entier pour une mise a jour.
+
+`installer/postinstall.sh` (execute en chroot via `late_command`,
+`in-target`) : ajoute le depot + la cle, `apt-get update`,
+`apt-get install -y hyperlite`, aligne le mot de passe root Linux/admin
+Hyperlite (toujours `hyperlite`, simple par design, voir note du
+2026-09-13 plus haut), active libvirtd + reseau NAT par defaut.
+
+**Decision explicite prise avec Antho pendant ce chantier** ("esssaye
+d'anticiper en recherchant usr le net etc" + "il faut limiter les
+tests") : chercher la cause racine via `WebSearch`/inspection directe de
+l'etat reel (logs `/var/log/installer/syslog` via `virt-cat`, requetes
+directes au depot depuis plusieurs machines) avant chaque nouveau test,
+plutot que d'enchainer des reconstructions d'ISO au jugé.
+
+### 3 bugs reels trouves et corriges (dans l'ordre rencontre, plusieurs
+installations completes testees sur VM jetable, serveur-antho)
+
+1. **Incoherence CDN structurelle de GitHub Pages entre fichiers lies
+   d'un meme commit**, PAS une fenetre de propagation transitoire.
+   `apt-get update` echouait de facon persistante ("Le fichier a une
+   taille incoherente") sur `dists/stable/main/binary-amd64/Packages` --
+   confirme en interrogeant DIRECTEMENT l'origine (`curl` depuis
+   serveur-antho lui-meme, pas une VM, plus d'1h20 apres la derniere
+   publication) : `InRelease` et `Packages` restaient desynchronises.
+   Teste jusqu'a 30 tentatives x 20s (10 min), echec identique a chaque
+   fois -- confirme que ce n'est pas corrigible par un budget de retry,
+   aussi genereux soit-il. **Fix robuste** (pas un contournement) : le
+   depot est desormais AUSSI servi en direct par nginx sur kvm-lab
+   (`installer/hyperlite-apt-repo.nginx.conf`, lie uniquement a l'IP
+   Tailscale `100.88.184.24:8899`, jamais expose sur l'internet public)
+   -- aucun CDN entre l'origine et le client, coherence garantie par
+   construction (un seul fichier sur disque). GitHub Pages reste publie
+   en parallele (documente comme non garanti pour la coherence,
+   `installer/build-apt-repo.sh`) mais n'est plus la source utilisee par
+   `postinstall.sh`.
+2. **Source `cdrom://` auto-ajoutee par l'installeur Debian a
+   `/etc/apt/sources.list`** -- comportement generique et documente de
+   Debian/Ubuntu (trouve via `WebSearch`, ex. Debian bug #807996), pas
+   specifique a ce depot : `apt-get update` echoue GLOBALEMENT des
+   qu'UNE source echoue, meme si toutes les autres (dont la notre)
+   reussissent. Corrige avec `sed -i '/^deb cdrom:/d' /etc/apt/sources.list`
+   avant tout `apt-get update` dans `postinstall.sh`.
+3. **`systemctl start`/`restart` silencieusement no-op dans le chroot
+   d'installation** ("Running in chroot, ignoring command 'start'",
+   comportement STANDARD et VOULU de Debian Installer via `policy-rc.d`,
+   pas un bug corrigible). Consequence : le service ne demarre jamais
+   reellement pendant `late_command`, donc la DB Hyperlite (schema +
+   compte admin, normalement crees par `seed_admin()` au premier
+   demarrage) n'existe pas encore a ce stade -- un premier essai avec un
+   `UPDATE` SQL direct sur `users` echouait avec `sqlite3.OperationalError:
+   no such table: users`. Corrige en appelant `seed_admin()`
+   (`app/core/seed.py`, deja idempotent, lit deja
+   `HYPERLITE_INITIAL_ADMIN_PASSWORD`) directement depuis
+   `postinstall.sh` plutot que d'attendre un demarrage impossible dans ce
+   contexte.
+
+**Egalement (bug trouve en testant, sans rapport direct avec l'ISO)** :
+`libvirt-daemon-driver-lxc` ajoute a `preseed.cfg`/`control.template` --
+trouve en reproduisant une VRAIE erreur 500 sur le dashboard LIVE de
+serveur-antho ("Erreur conteneurs", `aucun pilote de connexion disponible
+pour lxc:///system`). Ce paquet est SEPARE de `libvirt-daemon-system` et
+n'avait jamais ete dans la liste de paquets de l'installeur -- masque
+jusqu'ici car kvm-lab (seule machine testee avant serveur-antho) l'avait
+deja installe manuellement a un moment non documente. Corrige a la fois
+en live sur serveur-antho (`apt-get install -y libvirt-daemon-driver-lxc
+&& systemctl restart libvirtd`) et a la racine dans `preseed.cfg`.
+
+**Testé réellement de bout en bout** (VM jetable `hl-apt-iso-test` sur
+serveur-antho, 5 cycles de build+test avant d'obtenir un run propre avec
+les 3 bugs corriges) : installation 100% automatisee (une seule touche
+humaine envoyee, le garde-fou `partman-lvm/confirm` deja documente plus
+haut comme non contournable par preseed), VM eteinte proprement en fin
+d'installation, redemarree, `/health` repond avec une vraie connexion
+libvirt (`"hypervisor":"QEMU"`), SSH root fonctionnel avec le mot de passe
+attendu, `dpkg -l hyperlite` confirme une installation par paquet (pas de
+`.git` dans `/root/hyperlite`), `lxc:///system` fonctionnel, login admin
+Hyperlite (`POST /auth/login`) reussi avec le meme mot de passe. VM,
+disque et ISO de test supprimes a la fin.
+
+**Piege de test rencontre (pas un bug applicatif)** : apres le premier
+demarrage reel de la VM installee, `virsh domifaddr` montrait DEUX baux
+DHCP pour la meme MAC -- un ancien bail (ID client RFC951, sans hostname,
+date de la phase installeur) et le bail ACTUEL (DUID, hostname
+`hyperlite`, expiration plus tardive). Tenter de joindre le premier
+(`.65`) donnait "No route to host" -- l'adresse reellement active etait
+la deuxieme entree (`.66`). A verifier `virsh net-dhcp-leases <reseau>`
+en cas de "No route to host" apparemment illogique juste apres un
+demarrage, plutot que de supposer un probleme reseau plus profond.
