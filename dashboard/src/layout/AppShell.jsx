@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import Header from "./Header";
-import SidebarRail from "./SidebarRail";
-import ResourceTree from "./ResourceTree";
+import Sidebar from "./Sidebar";
 import CentralPanel from "./CentralPanel";
 import TaskLogPanel from "./TaskLogPanel";
 import ToastContainer from "../components/ToastContainer";
@@ -31,13 +30,10 @@ export default function AppShell() {
   }, [refreshAll]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-anthracite-900">
-      <Header />
-      <div className="flex flex-1 overflow-hidden">
-        <SidebarRail />
-        <div className="w-[236px] shrink-0">
-          <ResourceTree />
-        </div>
+    <div className="flex h-screen overflow-hidden bg-anthracite-900">
+      <Sidebar />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Header />
         <div className="flex-1 overflow-hidden">
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-anthracite-400">Chargement de l'infrastructure...</div>
