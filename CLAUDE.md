@@ -95,7 +95,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 27 | Migration à chaud de VM entre nœuds | ✅ dans `master` — `POST /vms/{name}/migrate` (admin uniquement), bouton "Migrer" dans l'onglet Résumé de la VM. **Testé réellement de bout en bout entre kvm-lab et serveur-antho (deux vraies machines physiques, sites différents, via Tailscale)** : une VM active a réellement migré à chaud, vérifié des deux côtés (`virsh list`). Voir la section dédiée plus bas pour le détail des 5 bugs réels trouvés en testant et la limite connue (sens nœud distant → kvm-lab non supporté) |
 | 28 | Notifications sortantes (email/webhook) | ✅ dans `master` — `app/core/notifications.py`, point d'entree unique via `log_action()` (voir section dédiée) : couvre automatiquement node_statut_change/ha_alert/create_vm/delete_vm/migrate_vm/backup_vm/restore_backup/hyperlite_update sans toucher leurs sites d'appel. Onglet Notifications (Datacenter). Testé réellement avec un vrai récepteur webhook local (déclenchement automatique ET bouton "Tester" confirmés) |
 | 29 | Politique de rétention des sauvegardes | ✅ dans `master` — **en fait déjà partiellement implémentée depuis le chantier 13** (`retention_count`, "garder les N plus récentes"), mais seulement pour les sauvegardes planifiées ; un backup manuel n'était jamais purgé. Corrigé + 3 bugs de concurrence réels trouvés en testant, voir section dédiée |
-| 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui JWT de session uniquement, pas de second facteur, pas de jeton dédié à l'automatisation (Terraform/scripts) |
+| 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ✅ dans `master` — `app/core/twofa.py`/`app/core/api_tokens.py`. Connexion en 2 temps quand la 2FA est active (jeton intermédiaire 5 min, jamais valide comme jeton de session), jetons API en repli dans `get_current_user` quand le jeton n'est pas un JWT valide. Modale "Sécurité du compte" (menu utilisateur, en libre-service, pas un onglet Datacenter). **Testé réellement de bout en bout** (API directe ET UI Playwright) : setup 2FA + QR code + code TOTP calculé localement (`pyotp`) accepté, code erroné rejeté, jeton intermédiaire refusé comme jeton de session, verrou anti-brute-force réutilisé sur `/auth/login/2fa`, jeton API créé/utilisé pour un appel authentifié/révoqué puis refusé, désactivation 2FA |
 | 31 | Robustesse SQLite : audit log asynchrone | ✅ dans `master` — `app/core/audit.py` : un thread dédié possède désormais l'écriture de `audit_log` (file + `queue.Queue`), chaque requête dépose son entrée et repart immédiatement au lieu d'écrire SQLite elle-même. Clôture de tâche (`task_id`) restée synchrone (des appelants relisent le statut juste après). Notifications (chantier 28) aussi passées en arrière-plan (réseau, jusqu'à 10s de timeout par canal — ne doit jamais bloquer la réponse HTTP). **Testé réellement** : 20 requêtes concurrentes puis création VM + sauvegarde + 15 lectures concurrentes, zéro `database is locked` dans les deux cas (le scénario exact qui avait fait planter le dashboard réel d'Antho pendant le test du chantier 29) |
 
 **Chantier 7, en attente d'un usage réel** : le système de mise à jour
@@ -108,9 +108,9 @@ Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 (migration à chaud) ✅ → 17 (HA, dépend de 26/27 pour avoir du sens réel) ✅ →
 28 (notifications) ✅ → 29 (rétention sauvegardes) ✅ → 31 (audit log
 asynchrone, inséré ici sur demande explicite d'Antho le 2026-09-17 après
-avoir impacté sa session active) ✅ → **30 (2FA + jetons API) ← prochain** →
-21 (pare-feu datacenter) → 19 (nettoyage VM inactives) → 20 (SSO) → 16
-(doc récap, en dernier). Si tu reprends cette session : regarde d'abord
+avoir impacté sa session active) ✅ → 30 (2FA + jetons API) ✅ →
+**21 (pare-feu datacenter) ← prochain** → 19 (nettoyage VM inactives) →
+20 (SSO) → 16 (doc récap, en dernier). Si tu reprends cette session : regarde d'abord
 quel chantier de cette liste a le statut le plus avancé dans le tableau
 ci-dessus, c'est le point de reprise. Chaque chantier de cette liste doit
 être testé en conditions réelles (pas juste relu) avant merge, même
@@ -707,3 +707,74 @@ en session active pendant le test** (erreurs 500 visibles sur
 
 Compte de test, VM de test, planification et sauvegardes de test
 supprimes a la fin (verifie : fichiers sur disque ET lignes en base).
+
+## Chantier 30 : sécurité du compte -- 2FA (TOTP) + jetons API (2026-09-17)
+
+Deux mecanismes independants, tous deux en LIBRE-SERVICE (chaque
+utilisateur gere son propre compte, pas besoin d'etre admin) :
+
+**2FA (TOTP)** -- `app/core/twofa.py` (`pyotp` pour generer/verifier les
+codes, `qrcode` en SVG pour le QR code, sans dependance Pillow). Flux en
+deux temps a l'activation : `POST /auth/2fa/setup` genere un secret et le
+stocke DEJA en base, mais `totp_enabled` reste a 0 tant que
+`POST /auth/2fa/confirm` n'a pas verifie un vrai code -- un utilisateur
+qui ferme l'onglet en plein scan de QR code (secret genere, jamais
+confirme) ne se retrouve jamais verrouille hors de son propre compte a la
+connexion suivante.
+
+**Connexion avec 2FA active** -- `POST /auth/login` (mot de passe correct,
+compte avec 2FA) ne renvoie plus de jeton de session complet : il renvoie
+`{require_2fa: true, pre_auth_token}`, un JWT intermediaire de 5 minutes
+marque `2fa_pending: true` (`security.py::create_preauth_token`). Le
+frontend echange ensuite ce jeton + le code TOTP contre le vrai jeton via
+`POST /auth/login/2fa`. **Point de securite explicitement teste** : le
+jeton intermediaire NE DOIT PAS pouvoir servir de jeton de session normal
+(sinon la 2FA ne protegerait rien) -- `get_current_user` rejette
+explicitement tout JWT portant `2fa_pending`, verifie en envoyant ce
+jeton a `/auth/me` (401, comme attendu). Le verrou anti-brute-force
+existant sur `/auth/login` (chantier 11, 5 echecs/5 min par compte) est
+REUTILISE sur `/auth/login/2fa` : un code TOTP est a 6 chiffres (1M
+combinaisons), pas negligeable a laisser deviner sans limite meme avec la
+fenetre de 5 minutes du jeton intermediaire.
+
+**Jetons API** -- `app/core/api_tokens.py`, credential distinct du JWT de
+session pense pour l'automatisation (scripts/Terraform/cron) : prefixe
+`hlt_`, stocke uniquement par son hash SHA-256 (comme un mot de passe --
+le jeton en clair n'est JAMAIS recuperable apres sa creation, affiche UNE
+SEULE fois cote UI), revocable individuellement. Branche dans
+`security.py::get_current_user` en REPLI : si le jeton presente n'est pas
+un JWT valide (`JWTError`), on tente `api_tokens.verify_token()` avant de
+rejeter -- aucune nouvelle dependance FastAPI a brancher sur chaque route,
+tout endpoint existant qui utilise deja `Depends(get_current_user)`
+accepte desormais aussi bien un jeton de session qu'un jeton API sans
+modification.
+
+Modale "Sécurité du compte" (`AccountSecurityModal.jsx`, menu utilisateur
+du header) plutot qu'un nouvel onglet Datacenter -- ce sont des reglages
+du COMPTE connecte, pas de l'infrastructure geree, donc pas a leur place
+dans l'arbre Datacenter/Nœud/VM.
+
+**Testé réellement de bout en bout**, deux fois (appels API directs PUIS
+UI reelle via Playwright, compte de test jetable a chaque fois, supprime
+a la fin) :
+- Connexion normale (pas de 2FA) inchangee.
+- Setup 2FA : QR code scanne (secret extrait du SVG), code TOTP calcule
+  LOCALEMENT via `pyotp.TOTP(secret).now()` (simule une vraie application
+  d'authentification) accepte par `/auth/2fa/confirm`.
+- Connexion avec 2FA active : `require_2fa` renvoye, code errone rejete
+  (`401`), jeton intermediaire refuse comme jeton de session normal
+  (`/auth/me` -> 401), verrou anti-brute-force declenche apres 5 codes
+  errones (`429`), bon code accepte -> vrai jeton de session.
+- Jeton API : cree (jeton en clair recupere une seule fois), utilise pour
+  authentifier `GET /auth/me` SANS JWT, `last_used_at` mis a jour, revoque
+  puis re-essaye -> `401`.
+- Desactivation 2FA (mot de passe requis).
+- Meme parcours complet rejoue dans un vrai navigateur (Chromium
+  headless) : ouverture de la modale, activation 2FA avec un vrai QR code
+  affiche a l'ecran, deconnexion/reconnexion avec le VRAI ecran de defi
+  2FA affiche par `LoginScreen.jsx`, creation/revocation d'un jeton API
+  depuis l'UI.
+
+Aucun bug reel trouve en testant ce chantier (contrairement aux
+precedents) -- flux plus isole/moins de dependances externes (pas de
+libvirt, pas de reseau inter-nœuds) que les chantiers multi-nœuds recents.
