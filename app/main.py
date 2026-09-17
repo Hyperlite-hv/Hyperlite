@@ -12,6 +12,7 @@ from app.core.cluster import start_node_poller
 from app.core.libvirt_utils import open_conn
 from app.core.network_firewall import reapply_all as reapply_network_firewalls
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
+from app.core.update_check import start_update_check_scheduler
 from app.routers.auth import router as auth_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.vms import router as vms_router
@@ -164,6 +165,7 @@ def on_startup():
     ensure_lb_job_exists()
     start_node_poller()
     start_auto_cleanup_scheduler()
+    start_update_check_scheduler()
 
     # Chantier 21 : les regles iptables du pare-feu reseau ne survivent
     # pas a un redemarrage de l'hote (contrairement au nwfilter du
