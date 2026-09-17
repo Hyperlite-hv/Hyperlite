@@ -379,6 +379,19 @@ export async function disableHa(name) {
 export async function recoverHa(name, targetNode) {
   return realFetch(`/ha/${encodeURIComponent(name)}/recover`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
 }
+
+// Chantier 19 : suppression automatique des VM inactives (opt-in par VM,
+// voir app/core/vm_cleanup.py -- le compteur ne court que pendant que la
+// VM est arrêtée, jamais si elle est protégée HA).
+export async function fetchVMAutoCleanup(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/auto-cleanup`);
+}
+export async function setVMAutoCleanup(name, inactiveDays) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/auto-cleanup`, { method: "PUT", ...jsonBody({ inactive_days: inactiveDays }) });
+}
+export async function disableVMAutoCleanup(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/auto-cleanup`, { method: "DELETE" });
+}
 // Chantier 28 (notifications sortantes) : voir app/core/notifications.py.
 export async function fetchNotifyEvents() {
   return realFetch("/notifications/events");
