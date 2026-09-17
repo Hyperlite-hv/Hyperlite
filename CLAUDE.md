@@ -33,6 +33,16 @@ gh pr create --base master --head nom-du-chantier --title "..." --body "..."
 gh pr merge <numero> --merge --delete-branch=false   # apres validation
 ```
 
+**Branches attendues : exactement `master`/`test`/`test2`, PLUS
+`gh-pages`** (depuis le 2026-09-17, chantier 7bis) -- toute branche de
+chantier doit etre supprimee apres merge (`git push origin --delete ...`
++ `git branch -d ...`), SAUF `gh-pages` qui est une exception permanente
+et volontaire : elle porte le contenu publie du depot APT
+(https://twikles.github.io/hyperlite/, voir la section dediee plus bas),
+pas du code, republiee a la main a chaque nouvelle version via
+`installer/build-apt-repo.sh` + un commit direct dessus. Ne JAMAIS la
+supprimer ni la merger dans `master`.
+
 ## Pièges connus de ce dépôt
 
 - **`hyperlite.db` n'est plus suivi par Git** (retiré volontairement le
