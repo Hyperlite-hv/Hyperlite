@@ -11,7 +11,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 const TASK_LABELS = {
   create_vm: "Créer VM", delete_vm: "Supprimer VM", start_vm: "Démarrer VM",
   stop_vm: "Arrêter VM", force_stop_vm: "Arrêt forcé VM", restart_vm: "Redémarrer VM",
-  clone_vm: "Cloner VM", auto_install: "Installation automatisée",
+  clone_vm: "Cloner VM", migrate_vm: "Migrer VM", auto_install: "Installation automatisée",
   create_snapshot: "Créer snapshot", delete_snapshot: "Supprimer snapshot", restore_snapshot: "Restaurer snapshot",
   backup_vm: "Sauvegarder VM", restore_backup: "Restaurer sauvegarde",
   export_vm: "Exporter VM", upload_vm_disk: "Téléverser disque",
