@@ -350,6 +350,12 @@ export async function deleteVM(name) {
 export async function cloneVM(name, newName) {
   return realFetch(`/vms/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
+// Chantier 27 (migration a chaud) : sourceNode "kvm-lab" (ou omis) = hote
+// local, meme convention que le reste (open_conn(node), fetchVMs...).
+export async function migrateVM(name, targetNode, sourceNode) {
+  const qs = sourceNode && sourceNode !== "kvm-lab" ? `?node=${encodeURIComponent(sourceNode)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
+}
 export async function createVM(payload) {
   return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
 }

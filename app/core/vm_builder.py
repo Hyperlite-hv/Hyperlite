@@ -6,6 +6,8 @@ import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import libvirt
+
 IMAGES_DIR = Path("/var/lib/libvirt/images")
 BASE_IMAGE = IMAGES_DIR / "base" / "debian-12-generic-amd64.qcow2"
 BASE_IMAGE_URL = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
@@ -192,6 +194,75 @@ def create_cloudinit_reseed_iso(vm_name):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def _host_cpu_caps_xml(conn):
+    root = ET.fromstring(conn.getCapabilities())
+    cpu_el = root.find("host/cpu")
+    return ET.tostring(cpu_el, encoding="unicode") if cpu_el is not None else None
+
+
+def _compute_migratable_cpu_xml():
+    """Calcule un CPU 'plus petit denominateur commun' entre TOUS les nœuds
+    du cluster (chantier 15) + l'hote local, pour qu'une VM creee reste
+    migrable a chaud (chantier 27) vers n'importe quel nœud plutot que
+    d'etre figee sur les fonctions exactes du CPU qui l'a creee ('host-
+    model' seul fait exactement ca -- copie le modele le plus proche du
+    CPU LOCAL une fois pour toutes a la creation, incompatible avec un
+    nœud dont le CPU a ne serait-ce qu'une fonction en moins).
+
+    Purement best-effort : retourne None (et build_domain_xml retombe sur
+    host-model, comportement identique a avant ce chantier) des qu'un seul
+    nœud existe ou que le calcul echoue pour QUELQUE RAISON QUE CE SOIT --
+    jamais bloquant pour la creation de VM. BUG D'ENVIRONNEMENT REEL
+    rencontre en testant avec un vrai second nœud physique (chantier 27) :
+    deux hotes Intel Skylake, mais des VERSIONS DE QEMU/libvirt differentes
+    embarquent des bases de modeles CPU differentes -- le modele exact
+    renvoye par l'un ('Skylake-Client-v3') est carrement INCONNU de
+    l'autre, `baselineCPU()` echoue avec 'Unknown CPU model'. Documente
+    dans CLAUDE.md comme limite connue plutot que masque."""
+    from app.core.cluster import list_nodes, build_libvirt_uri  # import tardif : cluster.py importe PROJDIR depuis CE module, cycle sinon
+
+    try:
+        nodes = list_nodes()
+    except Exception:
+        return None
+    if not nodes:
+        return None  # un seul nœud (le local) : host-model suffit, rien a calculer
+
+    cpu_xmls = []
+    local_conn = None
+    try:
+        local_conn = libvirt.open("qemu:///system")
+        if local_conn is None:
+            return None
+        local_xml = _host_cpu_caps_xml(local_conn)
+        if local_xml:
+            cpu_xmls.append(local_xml)
+
+        for node in nodes:
+            remote_conn = None
+            try:
+                remote_conn = libvirt.open(build_libvirt_uri(node))
+                if remote_conn is not None:
+                    remote_xml = _host_cpu_caps_xml(remote_conn)
+                    if remote_xml:
+                        cpu_xmls.append(remote_xml)
+            except libvirt.libvirtError:
+                pass  # nœud injoignable : ignore, pas fatal pour le calcul global
+            finally:
+                if remote_conn is not None:
+                    remote_conn.close()
+
+        if len(cpu_xmls) < 2:
+            return None  # aucun autre nœud reellement joignable
+
+        return local_conn.baselineCPU(cpu_xmls, libvirt.VIR_CONNECT_BASELINE_CPU_MIGRATABLE)
+    except libvirt.libvirtError:
+        return None
+    finally:
+        if local_conn is not None:
+            local_conn.close()
+
+
 def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None, mac=None, kernel_path=None, initrd_path=None, kernel_cmdline=None):
     # Ordre de boot PAR PERIPHERIQUE (<boot order='N'/> sur chaque <disk>)
     # plutot que la liste globale <os><boot dev=.../></os> : SeaBIOS ne fait
@@ -298,6 +369,14 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
     <kernel>{kernel_path}</kernel>
     <initrd>{initrd_path}</initrd>{cmdline_xml}"""
 
+    # Chantier 27 (migration a chaud) : CPU "plus petit denominateur
+    # commun" du cluster quand c'est calculable (2+ nœuds joignables avec
+    # des CPU compatibles), sinon host-model classique -- voir la docstring
+    # de _compute_migratable_cpu_xml pour le detail (et sa limite reelle
+    # rencontree en test, documentee dans CLAUDE.md).
+    cluster_cpu_xml = _compute_migratable_cpu_xml()
+    cpu_xml = cluster_cpu_xml if cluster_cpu_xml else "<cpu mode='host-model'/>"
+
     return f"""
 <domain type='kvm'>
   <name>{vm_name}</name>
@@ -311,7 +390,7 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
     <acpi/>
     <apic/>
   </features>
-  <cpu mode='host-model'/>
+  {cpu_xml}
   <clock offset='utc'/>
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
