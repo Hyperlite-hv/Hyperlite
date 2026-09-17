@@ -30,6 +30,20 @@ def create_access_token(data: dict):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_preauth_token(username: str):
+    """Chantier 30 (2FA) : jeton intermediaire emis apres un mot de passe
+    correct mais AVANT verification du code TOTP -- prouve seulement "ce
+    mot de passe est le bon", pas "cet utilisateur est authentifie".
+    Duree de vie courte (5 min, le temps de taper un code) et marque
+    explicitement `2fa_pending` : get_current_user() rejette ce claim pour
+    qu'un jeton intermediaire vole/intercepte ne puisse jamais servir de
+    jeton de session complet."""
+    to_encode = {"sub": username, "2fa_pending": True}
+    expire = datetime.now(timezone.utc) + timedelta(minutes=5)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
 def get_user(username: str):
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
@@ -51,12 +65,28 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if username is None:
-            raise credentials_exception
     except JWTError:
-        raise credentials_exception
-    user = get_user(username)
+        payload = None
+
+    if payload is not None:
+        username = payload.get("sub")
+        # 2fa_pending : jeton intermediaire du chantier 30 (voir
+        # create_preauth_token), prouve le mot de passe mais pas le 2FA --
+        # ne doit jamais etre accepte comme un jeton de session normal.
+        if username is None or payload.get("2fa_pending"):
+            raise credentials_exception
+        user = get_user(username)
+        if user is None:
+            raise credentials_exception
+        return user
+
+    # Pas un JWT valide : peut etre un jeton API (chantier 30, 2026-09-17)
+    # plutot qu'un jeton de session -- meme en-tete Authorization: Bearer,
+    # format different (prefixe "hlt_"), donc pas de nouvelle dependance
+    # FastAPI a brancher partout, juste un repli ici.
+    from app.core.api_tokens import verify_token  # import tardif : evite un cycle (api_tokens -> database, pas de retour vers security)
+
+    user = verify_token(token)
     if user is None:
         raise credentials_exception
     return user

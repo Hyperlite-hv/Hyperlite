@@ -35,6 +35,21 @@ def init_db():
                 role TEXT NOT NULL CHECK(role IN ('admin', 'observateur'))
             )
         """)
+        # 2FA TOTP (chantier 30) : ALTER separe, `users` existe deja sur ce
+        # depot (meme raison que vm_provisioning/task_id plus bas) --
+        # totp_secret reste NULL tant que le 2FA n'est ni configure ni
+        # confirme (voir app/core/twofa.py : un secret genere mais jamais
+        # confirme par un vrai code ne doit PAS activer le 2FA, sinon un
+        # utilisateur qui n'a jamais fini l'etape QR code se retrouverait
+        # verrouille hors de son compte).
+        for ddl in (
+            "ALTER TABLE users ADD COLUMN totp_secret TEXT",
+            "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # colonne deja presente
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -313,6 +328,24 @@ def init_db():
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_by TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            )
+        """)
+        # Jetons d'API (chantier 30) : credential dedie a l'automatisation
+        # (scripts/Terraform), separe du JWT de session (duree de vie/portee
+        # differente -- un jeton d'API n'expire pas au bout de 4h comme une
+        # session, mais peut etre revoque individuellement sans deconnecter
+        # l'utilisateur partout). SEUL token_hash (SHA-256) est stocke, JAMAIS
+        # le jeton en clair -- il n'est affiche qu'UNE fois, a la creation
+        # (voir app/core/api_tokens.py), impossible a retrouver ensuite meme
+        # par un admin avec un acces direct a la base.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                name TEXT NOT NULL,
+                token_hash TEXT UNIQUE NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT
             )
         """)
         conn.commit()

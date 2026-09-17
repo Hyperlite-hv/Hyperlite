@@ -581,3 +581,24 @@ export async function deleteContainer(name) {
 export async function createContainerTerminalTicket(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
+
+// Chantier 30 (2FA + jetons API, 2026-09-17) -- en libre-service, chaque
+// utilisateur gere son propre compte (pas besoin d'etre admin).
+export async function setup2FA() {
+  return realFetch("/auth/2fa/setup", { method: "POST" });
+}
+export async function confirm2FA(code) {
+  return realFetch("/auth/2fa/confirm", { method: "POST", ...jsonBody({ code }) });
+}
+export async function disable2FA(password) {
+  return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password }) });
+}
+export async function fetchApiTokens() {
+  return realFetch("/auth/tokens");
+}
+export async function createApiToken(name) {
+  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name }) });
+}
+export async function deleteApiToken(id) {
+  return realFetch(`/auth/tokens/${id}`, { method: "DELETE" });
+}
