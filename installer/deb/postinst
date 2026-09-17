@@ -1,0 +1,73 @@
+#!/bin/bash
+# Script de maintenance Debian (postinst), execute par dpkg juste apres que
+# les fichiers du paquet ont ete deposes dans /root/hyperlite. Couvre a la
+# fois une INSTALLATION FRAICHE (rien n'existe encore) et une MISE A JOUR
+# (le paquet remplace juste le code applicatif par-dessus une instance deja
+# configuree) -- distingue les deux via la presence de .env (jamais livre
+# par le paquet, voir installer/build-deb.sh) : absent = premiere
+# installation, present = mise a jour, ne jamais regenerer les secrets ni
+# toucher au mot de passe root dans ce cas.
+set -e
+
+log() { echo "[hyperlite-postinst] $*"; }
+
+APP_DIR=/root/hyperlite
+FRESH_INSTALL=0
+[ ! -f "$APP_DIR/.env" ] && FRESH_INSTALL=1
+
+mkdir -p "$APP_DIR/data/isos" "$APP_DIR/data/templates" "$APP_DIR/data/tls" "$APP_DIR/data/ssh" \
+         "$APP_DIR/data/vm-exports" "$APP_DIR/data/imported-disks" "$APP_DIR/data/casper-cache"
+chmod +x "$APP_DIR/scripts/"*.sh 2>/dev/null || true
+chmod o+x /root  # voir postinstall.sh -- necessaire pour que libvirt-qemu monte les ISO sous data/isos/
+
+log "environnement Python (venv)"
+if [ ! -x "$APP_DIR/venv/bin/python3" ]; then
+    python3 -m venv "$APP_DIR/venv"
+fi
+"$APP_DIR/venv/bin/pip" install --no-input --upgrade pip --quiet
+"$APP_DIR/venv/bin/pip" install --no-input -r "$APP_DIR/requirements.txt" --quiet
+
+if [ "$FRESH_INSTALL" = "1" ]; then
+    log "premiere installation : generation des secrets propres a cette machine"
+    SECRET_KEY=$(openssl rand -hex 32)
+    ROOT_PASSWORD=$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-16)
+    cat > "$APP_DIR/.env" <<ENVEOF
+HYPERLITE_SECRET_KEY=$SECRET_KEY
+HYPERLITE_INITIAL_ADMIN_PASSWORD=$ROOT_PASSWORD
+ENVEOF
+    chmod 600 "$APP_DIR/.env"
+
+    if [ ! -f "$APP_DIR/data/ssh/hyperlite_automation" ]; then
+        ssh-keygen -t ed25519 -N "" -f "$APP_DIR/data/ssh/hyperlite_automation" -C "hyperlite-automation" -q
+    fi
+    chmod 700 "$APP_DIR/data/ssh"
+    chmod 600 "$APP_DIR/data/ssh/hyperlite_automation" 2>/dev/null || true
+
+    echo "root:$ROOT_PASSWORD" | chpasswd
+    echo "$ROOT_PASSWORD" > /root/.hyperlite-initial-password
+    chmod 600 /root/.hyperlite-initial-password
+    log "mot de passe admin/root initial : $ROOT_PASSWORD (voir aussi /root/.hyperlite-initial-password)"
+else
+    log "mise a jour : secrets/config existants conserves tels quels"
+fi
+
+log "service systemd"
+cp "$APP_DIR/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
+systemctl daemon-reload
+systemctl enable hyperlite.service
+if [ "$FRESH_INSTALL" = "1" ]; then
+    systemctl start hyperlite.service
+elif [ -z "$HYPERLITE_SKIP_RESTART" ]; then
+    systemctl restart hyperlite.service
+else
+    # HYPERLITE_SKIP_RESTART : positionne par app/routers/update.py quand
+    # cette installation est declenchee DEPUIS le service hyperlite
+    # lui-meme (bouton "Verifier les mises a jour" de l'interface web) --
+    # se redemarrer ici tuerait ce processus apt-get en plein milieu de son
+    # propre postinst. L'appelant se charge du redemarrage juste apres,
+    # depuis un processus detache.
+    log "redémarrage différé (déclenché par l'appelant, ex. interface web Hyperlite)"
+fi
+
+log "termine (version $(cat "$APP_DIR/VERSION" 2>/dev/null || echo '?'))"
+exit 0
