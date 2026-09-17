@@ -319,3 +319,57 @@ systemctl restart hyperlite && sleep 2 && curl -sk https://localhost:8000/health
 # Voir les logs du service
 journalctl -u hyperlite -n 100 --no-pager
 ```
+
+## Refonte visuelle du frontend + audit fonctionnel (2026-09-17)
+
+**Nouvelle direction visuelle "indigo console"** (`chantier25-refonte-ui`,
+mergee) : remplace le theme violet/marine du 2026-09-13 (jugee trop
+generique/"IA"). Palette indigo (`#4F46E5`), fond clair fixe, sidebar
+unifiee (logo + nav + arbre Datacenter dans une seule colonne, voir
+`dashboard/src/layout/Sidebar.jsx`). Recolorisation via
+`tailwind.config.js`/`index.css`/`theme/colors.js` -- tous les ecrans en
+heritent automatiquement, pas retouches un par un. Tableau de bord
+(`DatacenterSummaryTab.jsx`) entierement reecrit (tuiles de stats +
+graphiques de tendance CPU/Memoire/Reseau reels via `MetricChart` + table
+des nœuds + statut VM + taches recentes), aucune donnee inventee.
+
+**Playwright + Chromium headless installes sur kvm-lab** (`npm install
+playwright` + `npx playwright install --with-deps chromium`, ~180 Mo dans
+`~/.cache/ms-playwright`) pour tester l'UI reelle en conditions reelles au
+lieu de se fier a la seule lecture de code -- Antho a explicitement demande
+un audit complet ("trouve tout les bug de la web ui... il faut que tout
+soit fonctionnel"). **A reutiliser pour toute future modif frontend
+significative**, ca a trouve des bugs reels que la relecture de code seule
+n'aurait pas vus :
+- Bouton sidebar qui ne changeait jamais d'onglet une fois sur la vue
+  Datacenter (deux `useEffect` avec la mauvaise dependance dans
+  `CentralPanel.jsx` -- corrige avant l'audit complet).
+- Menus deroulants du header (cloche/avatar) qui pouvaient rester bloques
+  ouverts ou s'afficher tous les deux en meme temps (fermeture uniquement
+  au survol, pas de fermeture au clic exterieur) -- corrige (un seul menu
+  a la fois, clic exterieur + Echap).
+- Sidebar qui prenait tout l'ecran a largeur telephone (~400px), contenu
+  inutilisable -- corrige (tiroir superpose sous le seuil `md`).
+- `TaskLogPanel` (barre des taches) qui se rendait comme une colonne
+  etroite a droite de l'ecran au lieu d'une barre en bas du contenu --
+  regression de la refonte visuelle elle-meme (conteneur racine passe en
+  `flex-row` pour la nouvelle sidebar pleine hauteur, sans deplacer
+  `TaskLogPanel` a l'interieur de la colonne contenu) -- corrige.
+
+**Methode qui a marche** : compte admin temporaire cree directement en
+base (`hash_password()` de `app/core/security.py`, jamais via un mot de
+passe en clair dans du code commite), script Playwright qui se connecte
+pour de vrai, clique systematiquement tous les onglets Datacenter + les
+lignes de l'arbre reel + les onglets d'une vraie VM + menus/modales/
+assistants, capture toute `console.error`/`pageerror`/reponse HTTP >=400,
+screenshots a chaque etape. **Piege rencontre en ecrivant ce genre de
+script** : le filtre `hasText` de Playwright fait un test de
+sous-chaine, PAS une egalite exacte, meme avec `exact: true` passe a
+`page.locator(selector, { hasText, exact })` -- cette option n'existe pas
+pour cette forme de `locator()` (seulement pour `getByText`/`getByRole`),
+elle est silencieusement ignoree. Resultat concret ici : chercher un
+bouton "Sauvegarde" (onglet VM) matchait aussi "Sauvegardes" (item de
+sidebar, pluriel) et `.first()` cliquait le mauvais des deux -- a scoper
+le `locator()` a un conteneur precis (ex. `div.overflow-x-auto` pour la
+barre d'onglets de `Tabs.jsx`) plutot que de compter sur `hasText` seul.
+Compte de test supprime de la base a la fin de l'audit.
