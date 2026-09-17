@@ -43,8 +43,15 @@ export default function AppShell() {
             <CentralPanel />
           )}
         </div>
+        {/* BUG REEL trouve en testant a l'oeil (Playwright) : place comme
+            frere direct de la colonne Sidebar+contenu (conteneur racine en
+            flex-row depuis la refonte 2026-09-17), TaskLogPanel se rendait
+            comme une colonne etroite a droite de tout l'ecran au lieu d'une
+            barre en bas -- avant la refonte, le conteneur racine etait en
+            flex-col, donc le meme JSX se comportait correctement. Remis a
+            l'interieur de la colonne contenu (sous Header+CentralPanel). */}
+        <TaskLogPanel />
       </div>
-      <TaskLogPanel />
       <ToastContainer />
     </div>
   );

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Box, Bell, Sun, Moon, LogOut, RefreshCw, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Box, Bell, Sun, Moon, LogOut, RefreshCw, ChevronDown, Menu } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import VMWizard from "../wizard/VMWizard";
 import ContainerWizard from "../wizard/ContainerWizard";
@@ -27,14 +27,25 @@ export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [containerWizardOpen, setContainerWizardOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [userOpen, setUserOpen] = useState(false);
+  // Un seul et meme state pour les deux menus deroulants (au lieu de deux
+  // booleens independants) -- BUG REEL trouve en testant sur un vrai
+  // navigateur (Playwright) : avec notifOpen/userOpen separes et une
+  // fermeture uniquement sur onMouseLeave, ouvrir la cloche puis l'avatar
+  // sans que la souris ne "quitte" proprement le premier menu le laissait
+  // ouvert -- les deux dropdowns pouvaient rester affiches en meme temps,
+  // superposes. Un seul menu ouvert a la fois, + fermeture au clic
+  // exterieur et a la touche Echap (plus robuste que onMouseLeave, qui ne
+  // marche pas du tout au clavier/tactile).
+  const [openMenu, setOpenMenu] = useState(null); // null | "notif" | "user"
+  const menuAreaRef = useRef(null);
+
   const theme = useInfraStore((s) => s.theme);
   const toggleTheme = useInfraStore((s) => s.toggleTheme);
   const tasks = useInfraStore((s) => s.tasks);
   const selection = useInfraStore((s) => s.selection);
   const nodes = useInfraStore((s) => s.nodes);
   const vms = useInfraStore((s) => s.vms);
+  const toggleMobileSidebar = useInfraStore((s) => s.toggleMobileSidebar);
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore(selectIsAdmin);
   const logout = useAuthStore((s) => s.logout);
@@ -43,8 +54,30 @@ export default function Header() {
   const recentTasks = tasks.slice(0, 5);
   const crumb = breadcrumbLabel(selection, nodes, vms);
 
+  useEffect(() => {
+    if (!openMenu) return;
+    const onPointerDown = (e) => {
+      if (menuAreaRef.current && !menuAreaRef.current.contains(e.target)) setOpenMenu(null);
+    };
+    const onKeyDown = (e) => { if (e.key === "Escape") setOpenMenu(null); };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openMenu]);
+
   return (
-    <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-anthracite-600 bg-anthracite-800 px-6">
+    <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-anthracite-600 bg-anthracite-800 px-4 md:gap-4 md:px-6">
+      <button
+        className="rounded-lg p-2 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100 md:hidden"
+        onClick={toggleMobileSidebar}
+        aria-label="Ouvrir la navigation"
+      >
+        <Menu size={19} />
+      </button>
+
       <div className="hidden shrink-0 items-center gap-1.5 text-[13px] font-bold text-anthracite-100 md:flex">
         <span>Datacenter</span>
         {crumb && (
@@ -57,26 +90,29 @@ export default function Header() {
 
       <div className="w-px h-5 bg-anthracite-600 hidden md:block shrink-0" />
 
-      <div className="w-[240px] shrink-0">
+      <div className="hidden w-[240px] shrink-0 sm:block">
         <SearchBar />
       </div>
 
       <div className="flex-1" />
 
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0" ref={menuAreaRef}>
         {isAdmin && (
           <button className="btn-primary !rounded-full" onClick={() => setWizardOpen(true)}>
-            <Plus size={15} /> Créer VM
+            <Plus size={15} /> <span className="hidden sm:inline">Créer VM</span>
           </button>
         )}
         {isAdmin && (
-          <button className="btn-secondary" onClick={() => setContainerWizardOpen(true)}>
+          <button className="btn-secondary hidden sm:inline-flex" onClick={() => setContainerWizardOpen(true)}>
             <Box size={15} /> Créer conteneur
           </button>
         )}
 
         <div className="relative">
-          <button className="relative rounded-lg p-2.5 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100" onClick={() => setNotifOpen((o) => !o)}>
+          <button
+            className="relative rounded-lg p-2.5 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100"
+            onClick={() => setOpenMenu((m) => (m === "notif" ? null : "notif"))}
+          >
             <Bell size={17} />
             {runningCount > 0 && (
               <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent-orange text-[10px] font-bold text-white">
@@ -84,8 +120,8 @@ export default function Header() {
               </span>
             )}
           </button>
-          {notifOpen && (
-            <div className="absolute right-0 mt-1 w-72 card z-50 py-1" onMouseLeave={() => setNotifOpen(false)}>
+          {openMenu === "notif" && (
+            <div className="absolute right-0 mt-1 w-72 card z-50 py-1">
               <div className="px-3 py-1.5 text-xs font-semibold text-anthracite-300">Tâches récentes</div>
               {recentTasks.length === 0 && <div className="px-3 py-2 text-sm text-anthracite-400">Aucune tâche.</div>}
               {recentTasks.map((t) => (
@@ -103,7 +139,7 @@ export default function Header() {
         <div className="relative">
           <button
             className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 hover:bg-anthracite-700"
-            onClick={() => setUserOpen((o) => !o)}
+            onClick={() => setOpenMenu((m) => (m === "user" ? null : "user"))}
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent-blue to-[#4338CA] text-xs font-bold text-white">
               {initials(username)}
@@ -111,8 +147,8 @@ export default function Header() {
             <span className="hidden text-[12.5px] font-semibold text-anthracite-100 sm:inline">{username}</span>
             <ChevronDown size={13} className="hidden text-anthracite-400 sm:inline" />
           </button>
-          {userOpen && (
-            <div className="absolute right-0 mt-1 w-48 card z-50 py-1" onMouseLeave={() => setUserOpen(false)}>
+          {openMenu === "user" && (
+            <div className="absolute right-0 mt-1 w-48 card z-50 py-1">
               <div className="px-3 py-1.5 text-sm text-anthracite-100">{username} <span className="text-xs text-anthracite-400">({isAdmin ? "admin" : "observateur"})</span></div>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
@@ -124,7 +160,7 @@ export default function Header() {
               {isAdmin && (
                 <button
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
-                  onClick={() => { setUpdateOpen(true); setUserOpen(false); }}
+                  onClick={() => { setUpdateOpen(true); setOpenMenu(null); }}
                 >
                   <RefreshCw size={14} /> Vérifier les mises à jour
                 </button>

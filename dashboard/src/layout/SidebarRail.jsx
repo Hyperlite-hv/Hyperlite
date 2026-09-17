@@ -41,11 +41,12 @@ const GROUPS = [
 
 function NavItem({ tab, label, Icon }) {
   const navigateTo = useInfraStore((s) => s.navigateTo);
+  const closeMobileSidebar = useInfraStore((s) => s.closeMobileSidebar);
   const isActive = useInfraStore((s) => s.selection.type === "datacenter" && s.activeTab === tab);
 
   return (
     <button
-      onClick={() => navigateTo("datacenter", null, tab)}
+      onClick={() => { navigateTo("datacenter", null, tab); closeMobileSidebar(); }}
       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12.5px] font-semibold transition-colors ${
         isActive
           ? "bg-accent-blue text-white shadow-[0_4px_14px_rgba(79,70,229,0.35)]"
