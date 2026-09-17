@@ -296,4 +296,23 @@ def init_db():
                 last_synced_at TEXT
             )
         """)
+        # Notifications sortantes (chantier 28) : config JSON stockee en
+        # clair (mot de passe SMTP inclus si type='email') -- aucune autre
+        # forme de secret n'est chiffree dans ce projet (voir .env pour le
+        # secret JWT par ex.), reserve aux admins (meme niveau de confiance
+        # que le reste de la config serveur). `events` : liste JSON de noms
+        # d'evenements a notifier sur ce canal, [] = tous (voir
+        # app/core/notifications.py::NOTIFY_EVENTS pour la liste complete).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL CHECK(type IN ('webhook', 'email')),
+                name TEXT NOT NULL,
+                config TEXT NOT NULL,
+                events TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
         conn.commit()
