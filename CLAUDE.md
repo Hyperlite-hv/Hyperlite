@@ -1246,3 +1246,99 @@ date de la phase installeur) et le bail ACTUEL (DUID, hostname
 la deuxieme entree (`.66`). A verifier `virsh net-dhcp-leases <reseau>`
 en cas de "No route to host" apparemment illogique juste apres un
 demarrage, plutot que de supposer un probleme reseau plus profond.
+
+## Harmonisation post-chantier : serveur-antho désynchronisé, détection + ISO publique (2026-09-17)
+
+Suite directe du chantier ISO/apt ci-dessus, même jour. En vérifiant le
+mécanisme de mise à jour sur le dashboard réel de serveur-antho (capture
+d'écran fournie par Antho), celui-ci affichait "À jour" alors qu'il ne
+l'était PAS (version `2026.09.17.1` affichée des deux côtés, alors que
+kvm-lab avait déjà publié `2026.09.17.1951`). Demande explicite d'Antho
+ensuite : "il faut tout harmonisé que tout soit bien a jour et quand on
+change un truc ou autre que ca soit a jour aussi".
+
+**Cause racine du faux "à jour"** : serveur-antho avait été adopté (voir
+"Durcissement post-chantier" plus haut) en suivant l'exemple documenté
+dans CLAUDE.md à ce moment-là, qui recommandait l'URL **GitHub Pages**
+comme source APT -- pas le dépôt nginx local créé plus tard dans le même
+chantier. Résultat : `apt-get update` réussissait (`InRelease` récupéré
+sans erreur) mais servait une version PÉRIMÉE de `Packages` via un nœud
+CDN différent de celui interrogé manuellement par `curl` -- exactement
+l'incohérence structurelle de GitHub Pages déjà documentée plus haut,
+mais cette fois-ci passée inaperçue silencieusement plutôt que de faire
+échouer `apt-get update` franchement. **Corrigé à deux niveaux** :
+1. Source APT de serveur-antho basculée manuellement vers le dépôt nginx
+   local (`http://100.88.184.24:8899`).
+2. **La doc CLAUDE.md elle-même corrigée** ("Pour adopter ce mécanisme
+   sur une machine", section chantier 7bis) pour recommander
+   systématiquement le dépôt nginx local -- c'était la vraie source du
+   problème : suivre cette doc au pied de la lettre menait à la mauvaise
+   configuration.
+
+### Vérification automatique périodique des mises à jour
+
+`app/core/update_check.py` (nouveau, testé réellement) : cycle horaire
+(même cadence que `vm_cleanup.py`) qui réutilise `check_update()` (git ou
+apt selon `_install_method()`) et notifie via le point d'entrée unique du
+chantier 28 (`log_action()` → `NOTIFY_EVENTS["update_available"]`) dès
+qu'une nouvelle version est détectée -- **UNE SEULE FOIS par version**
+(table `update_check_state`, une ligne), pas à chaque cycle tant que
+personne n'a appliqué la mise à jour. **N'applique JAMAIS de mise à jour
+tout seul** -- même principe de prudence que la HA (chantier 17) :
+détecter et alerter, la décision reste toujours humaine (une mise à jour
+redémarre le service, pas anodin sans supervision). Branché dans
+`app/main.py::on_startup` comme les autres schedulers (`vm_cleanup`,
+métriques, poller de nœuds...).
+
+Testé réellement (simulation de 3 cycles avec un résultat "en retard"
+injecté) : une seule notification malgré 3 cycles, une version plus
+récente redéclenche bien une notification, un état "à jour" ne notifie
+rien. Déployé et vérifié sans erreur au démarrage sur kvm-lab.
+
+### ISO publique + republication automatique à chaque changement
+
+Antho a explicitement demandé que l'ISO soit accessible publiquement
+(pas seulement via Tailscale) ET reconstruite/republiée à **chaque**
+changement sur `master`, "constamment" -- pas seulement le dépôt APT.
+
+- **Publication publique** : GitHub Release (le dépôt est déjà public
+  depuis le chantier 7). GitHub Pages est explicitement inadapté pour ce
+  fichier (limite dure de 100 Mo par fichier via un push Git classique,
+  l'ISO fait ~940 Mo) -- une Release GitHub accepte jusqu'à 2 Go par
+  pièce jointe, sans cette limite.
+- **Republication automatique** : le hook `post-merge`
+  (`scripts/git-hooks/post-merge`) reconstruit désormais AUSSI l'ISO
+  (`installer/build-iso.sh`, ~25s mesurées réellement -- négligeable en
+  arrière-plan) après chaque republication du dépôt APT, à chaque merge
+  sur `master`.
+- **Release UNIQUE et stable** (`appliance-iso-latest`), pas un nouveau
+  tag par commit -- éviterait d'accumuler des dizaines de releases de
+  ~950 Mo chacune. Le lien de téléchargement ne change JAMAIS :
+  `https://github.com/twikles/hyperlite/releases/latest/download/hyperlite-appliance-amd64.iso`.
+  Seuls le fichier et les notes (version + commit) sont remplacés
+  (`gh release upload --clobber` + `gh release edit --notes`) à chaque
+  publication -- le tag git sous-jacent n'est volontairement PAS
+  redéplacé à chaque fois (la trace du commit exact est dans les notes
+  de la release, pas besoin qu'elle soit aussi dans le tag).
+
+**Testé réellement de bout en bout, y compris un vrai cycle automatique
+(pas juste simulé)** : création initiale de la release, cycle de mise à
+jour simulé (upload --clobber + edit --notes, téléchargement vérifié
+après chaque étape), PUIS un vrai merge sur `master` (PR du hook
+lui-même) a déclenché le hook pour de vrai -- log `publish.log` confirmé
+(`ISO republiée avec succès`, `Dépôt APT republié avec succès`), release
+vérifiée à jour avec la nouvelle version/commit exacts, téléchargement
+public confirmé fonctionnel (200 OK, taille correcte, sans
+authentification).
+
+### Boucle complète vérifiée
+
+Après ces deux mécanismes, un cycle réel a été rejoué intégralement :
+merge sur `master` → hook republie dépôt APT + ISO automatiquement →
+serveur-antho détecté "non à jour" via `/update/check` → mise à jour
+appliquée via `/update/apply` (bouton réel du dashboard) → versions
+kvm-lab et serveur-antho confirmées identiques (`dpkg -l hyperlite` des
+deux côtés). Nettoyage : ancienne release ponctuelle (`iso-<version>`,
+publiée avant la mise en place du mécanisme automatique) supprimée,
+branche `chantier7ter-auto-publish` (déjà mergée depuis le chantier
+7bis, jamais supprimée après coup) nettoyée à cette occasion.
