@@ -177,6 +177,15 @@ export async function deleteNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
 }
 
+// ---- Pare-feu réseau (chantier 21, réel : GET/PUT /networks/{name}/firewall,
+// distinct du pare-feu par VM -- filtre au niveau du pont, pas de l'interface) ----
+export async function fetchNetworkFirewall(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/firewall`);
+}
+export async function setNetworkFirewall(name, payload) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/firewall`, { method: "PUT", ...jsonBody(payload) });
+}
+
 // ---- Pare-feu par VM (réel : GET/PUT /vms/{name}/firewall, nwfilter libvirt) ----
 export async function fetchVMFirewall(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/firewall`);
