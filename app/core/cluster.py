@@ -207,6 +207,23 @@ def _poll_nodes():
                     conn.commit()
                 if prev and prev["statut"] != new_statut:
                     log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
+                    if new_statut == "hors_ligne":
+                        # HA (chantier 17) : signale les VM protegees de ce
+                        # nœud DES la detection -- import tardif, evite un
+                        # cycle (ha.py importe deja depuis libvirt_utils.py).
+                        from app.core.ha import alert_for_down_node
+                        try:
+                            alert_for_down_node(node["name"])
+                        except Exception as ha_exc:
+                            print(f"[cluster] alerte HA échouée pour {node['name']} : {ha_exc!r}", flush=True)
+            # HA : resynchronise le cache des VM protegees pendant que leur
+            # nœud est joignable -- meme cadence que le poll des nœuds
+            # (POLL_INTERVAL_S), pas besoin d'une boucle dediee separee.
+            try:
+                from app.core.ha import sync_protected_vms
+                sync_protected_vms()
+            except Exception as ha_exc:
+                print(f"[cluster] resynchronisation HA échouée : {ha_exc!r}", flush=True)
         except Exception as e:
             print(f"[cluster] poll échoué : {e!r}", flush=True)
         time.sleep(POLL_INTERVAL_S)

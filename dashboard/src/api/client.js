@@ -356,6 +356,20 @@ export async function migrateVM(name, targetNode, sourceNode) {
   const qs = sourceNode && sourceNode !== "kvm-lab" ? `?node=${encodeURIComponent(sourceNode)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
 }
+// Chantier 17 (HA) : voir app/core/ha.py -- pas de fencing, recuperation
+// toujours declenchee par un admin, jamais automatique.
+export async function fetchHaProtected() {
+  return realFetch("/ha");
+}
+export async function enableHa(name, node) {
+  return realFetch(`/ha/${encodeURIComponent(name)}/enable`, { method: "POST", ...jsonBody({ node: node && node !== "kvm-lab" ? node : null }) });
+}
+export async function disableHa(name) {
+  return realFetch(`/ha/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function recoverHa(name, targetNode) {
+  return realFetch(`/ha/${encodeURIComponent(name)}/recover`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
+}
 export async function createVM(payload) {
   return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
 }
