@@ -92,7 +92,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 22 | Onglet "Système" sur le node | ✅ déjà fait avant cette demande — `dashboard/src/panels/node/NodeSystemTab.jsx`, branché dans `CentralPanel.jsx` (id `system`, "Résumé système"), données réelles (`/health` + historique métriques du chantier 10) |
 | 25 | Refonte visuelle "indigo console" + audit fonctionnel Playwright | ✅ dans `master` — voir section dédiée plus bas |
 | 26 | Stockage réseau partagé (pools NFS) | ✅ dans `master` — `POST`/`DELETE /storage` (pools `dir`/`netfs`), UI dans l'onglet Stockage. Testé de bout en bout avec un vrai serveur NFS (curl + UI). 2 bugs préexistants trouvés en testant : `POOL_STATE_NAMES` désynchronisé de l'énum libvirt réelle (tous les pools actifs s'affichaient "en_construction"), `mapPool()` qui codait `type` en dur à `"dir"` côté frontend — corrigés |
-| 27 | Migration à chaud de VM entre nœuds | ⬜ pas commencé — demandé le 2026-09-17. Le multi-nœuds (chantier 15) ne fait que lister/gérer plusieurs hôtes séparément, aucun bouton "migrer" n'existe. `virsh migrate --live` fonctionne aussi sans stockage partagé via `--copy-storage-all` (plus lent) — prévoir les deux chemins, privilégier le chantier 26 quand disponible |
+| 27 | Migration à chaud de VM entre nœuds | ✅ dans `master` — `POST /vms/{name}/migrate` (admin uniquement), bouton "Migrer" dans l'onglet Résumé de la VM. **Testé réellement de bout en bout entre kvm-lab et serveur-antho (deux vraies machines physiques, sites différents, via Tailscale)** : une VM active a réellement migré à chaud, vérifié des deux côtés (`virsh list`). Voir la section dédiée plus bas pour le détail des 5 bugs réels trouvés en testant et la limite connue (sens nœud distant → kvm-lab non supporté) |
 | 28 | Notifications sortantes (email/webhook) | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui tout reste dans l'audit log interne, aucune alerte ne sort de l'app |
 | 29 | Politique de rétention des sauvegardes | ⬜ pas commencé — demandé le 2026-09-17. Le chantier 13 fait des sauvegardes complètes mais sans purge automatique (garder N quotidiennes/hebdo/mensuelles) |
 | 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui JWT de session uniquement, pas de second facteur, pas de jeton dédié à l'automatisation (Terraform/scripts) |
@@ -390,3 +390,118 @@ sidebar, pluriel) et `.first()` cliquait le mauvais des deux -- a scoper
 le `locator()` a un conteneur precis (ex. `div.overflow-x-auto` pour la
 barre d'onglets de `Tabs.jsx`) plutot que de compter sur `hasText` seul.
 Compte de test supprime de la base a la fin de l'audit.
+
+## Chantier 27 : migration a chaud (2026-09-17)
+
+`POST /vms/{name}/migrate` (`{"target_node": "..."}`, `node=` optionnel
+pour la source) -- admin uniquement (deplacer une VM change l'allocation
+de ressources du CLUSTER ENTIER, pas juste de cette VM, d'ou
+`require_role("admin")` plutot qu'un privilege ACL scope comme
+`vm.clone`). Tache asynchrone (meme pattern que `create_snapshot` :
+thread separe, `create_task`/`finish_task`, progression via un DEUXIEME
+thread qui poll `domain.jobInfo()` sur sa PROPRE connexion). Bouton
+"Migrer" dans `VMSummaryTab.jsx`, actif seulement si la VM tourne.
+
+**Testé reellement de bout en bout** avec les deux vraies machines
+physiques disponibles (kvm-lab + serveur-antho, sites differents relies
+par Tailscale) : creation d'une VM de test, migration a chaud reelle
+kvm-lab -> serveur-antho **confirmee des deux cotes** (`virsh list`sur
+serveur-antho montrait la VM "en cours d'execution", plus presente du
+tout sur kvm-lab), puis retour serveur-antho -> kvm-lab. Tres peu
+probable que cette combinaison de bugs ait pu etre trouvee par la seule
+lecture de code.
+
+### Bugs reels trouves en testant (dans l'ordre rencontre)
+
+1. **`VIR_MIGRATE_PERSISTENT` n'existe pas** dans cette version de
+   libvirt-python (verifie via `dir(libvirt)`) -- c'est
+   `VIR_MIGRATE_PERSIST_DEST`. Plantait le thread AVANT le premier
+   `jobInfo()`, HORS du `except libvirt.libvirtError`, donc la tache
+   restait bloquee "en_cours" pour toujours sans aucune trace cote UI.
+   **Corrige a deux niveaux** : bon nom de constante + un `except
+   Exception` generique ajoute en filet de securite (toute erreur
+   inattendue doit quand meme cloturer la tache).
+2. **Reseau de destination inactif** (`serveur-antho`, installe
+   manuellement donc jamais passe par l'installeur Hyperlite, qui lui
+   demarre `default` automatiquement) -- migration refusee par libvirt.
+   Corrige en ajoutant `_ensure_networks_active()` : Hyperlite demarre
+   lui-meme les reseaux necessaires sur la destination avant de migrer,
+   plutot que d'echouer et de laisser deviner.
+3. **ISO cloud-init jamais copiee** : `VIR_MIGRATE_NON_SHARED_DISK` ne
+   copie QUE les disques `device='disk'`, jamais les CD-ROM
+   `device='cdrom'` -- l'ISO cloud-init (creee pour chaque VM, voir
+   `vm_builder.py::create_cloudinit_iso`) manquait donc systematiquement
+   sur la destination. Corrige avec `_copy_file_to_node()` (scp via la
+   cle SSH du cluster, meme cle que les connexions qemu+ssh://) --
+   uniquement depuis un nœud SOURCE local (Hyperlite n'a pas d'acces
+   fichier direct a un nœud distant, limite documentee dans le code).
+4. **`VIR_MIGRATE_TUNNELLED` casse** avec `VIR_MIGRATE_PEER2PEER` sur
+   cette version de libvirt (9.0.0, Debian 12) des que l'URI qemu+ssh://
+   porte des parametres de requete (`keyfile=`/`no_verify=1`/
+   `sshauth=privkey`, nos URI de cluster en ont toujours) : erreur
+   interne opaque ("la clé de l'argument 'host' ne doit pas avoir une
+   valeur Null"), tres probablement un bug de libvirt lui-meme dans ce
+   chemin de code precis. **Abandonne le tunnel SSH** (accepte le
+   compromis : le flux de donnees QEMU passe directement entre les deux
+   hotes, pas par le tunnel SSH -- viable ici car un nœud enregistre
+   doit deja etre joignable directement pour SSH, donc l'est presque
+   toujours pour ce flux aussi). Passe de `domain.migrate()` a
+   `domain.migrateToURI3()` (API plus moderne, params typés).
+5. **Hostname auto-rapporte non resolvable** : sans le preciser, QEMU
+   tente de resoudre le PROPRE nom d'hote de la destination tel qu'IL le
+   connait de lui-meme (`hyperlite.home` pour serveur-antho -- non
+   resolvable depuis kvm-lab, qui ne le joint que par IP Tailscale)
+   plutot que l'adresse par laquelle Hyperlite l'a effectivement joint.
+   Corrige en fournissant `migrate_uri` explicitement (parametre type
+   `migrate_uri`, PAS `uri` malgre le nom de la constante Python
+   `VIR_MIGRATE_PARAM_URI` qui vaut la chaine `"migrate_uri"`) avec la
+   meme adresse `hostname` deja enregistree pour la connexion SSH.
+
+### Limite connue, non contournee (documentee plutot que masquee)
+
+**Migrer un nœud DISTANT vers kvm-lab ne fonctionne pas.** La migration
+peer-to-peer est initiee par le libvirtd SOURCE (celui du nœud distant),
+qui doit pouvoir se connecter LUI-MEME vers kvm-lab -- ca demande une
+confiance SSH INVERSE (nœud distant -> kvm-lab) qui n'existe pas (seule
+kvm-lab -> nœud distant est mise en place, voir `cluster.py`). Tente en
+reel, echoue avec `Attempt to migrate guest to the same host` (le
+libvirtd source interprete `qemu:///system` comme lui-meme). **Bloque
+explicitement cote backend** (`422` avec message clair, pas une
+tentative qui echoue en silence dans un thread) et **filtre cote
+frontend** (la sidebar de migration ne propose meme pas kvm-lab comme
+destination si la VM est deja distante). Le sens normal (depuis kvm-lab,
+ou tourne Hyperlite, vers un nœud distant) est le sens teste et
+fonctionnel -- c'est aussi le sens que l'UI utilise dans l'immense
+majorite des cas reels (un seul kvm-lab, plusieurs nœuds geres depuis
+lui).
+
+**CPU heterogene entre nœuds** : ajoute `_compute_migratable_cpu_xml()`
+(`vm_builder.py`) -- calcule un CPU "plus petit denominateur commun" via
+`conn.baselineCPU()` entre TOUS les nœuds du cluster a la CREATION d'une
+VM, pour qu'elle reste migrable plus tard, au lieu de `host-model` seul
+(fige sur le CPU exact du nœud qui a cree la VM). Retombe sur
+`host-model` (comportement inchange) si un seul nœud existe ou si le
+calcul echoue pour N'IMPORTE quelle raison. **Rencontre reellement entre
+kvm-lab et serveur-antho** : `baselineCPU()` echoue purement et
+simplement avec `Unknown CPU model Skylake-Client-v3` -- les deux hotes
+tournent des VERSIONS DE QEMU/libvirt differentes, donc des bases de
+modeles CPU differentes, et le modele exact detecte sur l'un est
+carrement inconnu de l'autre. Confirme que le repli sur `host-model` ne
+casse rien (VM de test creee et demarree normalement) mais signifie que
+la migration entre CES DEUX machines precises necessite un CPU generique
+compatible des deux cotes (verifie manuellement avec succes en testant :
+`<cpu mode='custom' match='exact'><model fallback='forbid'>qemu64</model>
+<feature policy='disable' name='svm'/></cpu>` -- `qemu64` a le feature
+`svm` [virtualisation AMD] active par defaut, qui casse le demarrage sur
+un hote Intel, d'ou le `disable` explicite). Pas d'automatisation de ce
+contournement dans l'UI pour l'instant -- documente ici pour la
+prochaine fois plutot que redecouvert a chaque fois.
+
+**Actions VM (start/stop/delete/etc.) toujours locales uniquement** :
+confirme en testant le nettoyage post-migration -- `POST /vms/{name}/stop`
+et `DELETE /vms/{name}` n'acceptent PAS de parametre `node` (seul
+`GET /vms`/`GET /vms/{name}` et maintenant `POST /vms/{name}/migrate`
+le font). Deja documente comme limitation deliberee du chantier 15/24
+("visibilite seulement"), reconfirme ici en la percutant reellement --
+pas un nouveau bug, juste la preuve que la limite documentee est toujours
+d'actualite.

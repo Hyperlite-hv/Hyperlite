@@ -29,7 +29,7 @@ const VM_STATUS_ORDER = [
 
 const TASK_LABELS = {
   create_vm: "Créer VM", delete_vm: "Supprimer VM", start_vm: "Démarrer VM",
-  stop_vm: "Arrêter VM", restart_vm: "Redémarrer VM", clone_vm: "Cloner VM",
+  stop_vm: "Arrêter VM", restart_vm: "Redémarrer VM", clone_vm: "Cloner VM", migrate_vm: "Migrer VM",
   auto_install: "Installation automatisée", create_snapshot: "Créer snapshot",
   backup_vm: "Sauvegarder VM", restore_backup: "Restaurer sauvegarde",
   export_vm: "Exporter VM", upload_vm_disk: "Téléverser disque",

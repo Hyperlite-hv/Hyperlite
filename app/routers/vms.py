@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from app.core.libvirt_utils import open_conn, get_vm_uptime_s
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.audit import log_action
-from app.core.tasks import create_task, finish_task
+from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.error_messages import describe_exception
 from app.core.vm_builder import (
     validate_name, validate_username, create_disk, create_disk_from_import, create_cloudinit_iso, create_cloudinit_reseed_iso,
@@ -1510,6 +1510,362 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
         }
     finally:
         conn.close()
+
+
+class MigrateRequest(BaseModel):
+    target_node: str
+
+
+def _pool_target_path(pool):
+    try:
+        root = ET.fromstring(pool.XMLDesc(0))
+        return root.get("type"), root.findtext("target/path")
+    except (libvirt.libvirtError, ET.ParseError):
+        return None, None
+
+
+def _domain_disk_paths(domain):
+    root = ET.fromstring(domain.XMLDesc(0))
+    paths = []
+    for disk_el in root.findall(".//devices/disk"):
+        if disk_el.get("device") != "disk":
+            continue
+        source_el = disk_el.find("source")
+        path = source_el.get("file") if source_el is not None else None
+        if path:
+            paths.append(path)
+    return paths
+
+
+def _uses_shared_storage(src_conn, dest_conn, domain):
+    """True seulement si CHAQUE disque de la VM vit sur un pool 'netfs'
+    (chantier 26) qui existe ET est actif sur le nœud de destination, SOUS
+    LE MEME NOM -- condition suffisante en pratique puisque le chemin de
+    montage local d'un pool netfs est toujours derive du nom du pool (voir
+    create_pool, app/routers/storage.py), donc un meme nom des deux cotes
+    implique le meme export NFS monte au meme endroit. Si un seul disque ne
+    remplit pas cette condition, la migration copiera TOUS les disques
+    (VIR_MIGRATE_NON_SHARED_DISK) -- plus lent mais fonctionne quand meme,
+    plutot que d'echouer ou de ne copier qu'une partie."""
+    disk_paths = _domain_disk_paths(domain)
+    if not disk_paths:
+        return True  # rien a copier (VM sans disque fichier, rare)
+
+    src_pools = list(src_conn.listAllStoragePools())
+    for path in disk_paths:
+        matched = None
+        for pool in src_pools:
+            pool_type, target_path = _pool_target_path(pool)
+            if target_path and path.startswith(target_path.rstrip("/") + "/"):
+                matched = (pool.name(), pool_type)
+                break
+        if not matched or matched[1] != "netfs":
+            return False
+        pool_name, _ = matched
+        try:
+            dest_pool = dest_conn.storagePoolLookupByName(pool_name)
+        except libvirt.libvirtError:
+            return False
+        dest_type, _ = _pool_target_path(dest_pool)
+        if dest_type != "netfs" or not dest_pool.isActive():
+            return False
+    return True
+
+
+def _migration_progress_job(stop_event, task_id, node, vm_name):
+    """Tourne dans son PROPRE thread (troisieme, avec sa propre connexion
+    libvirt -- jamais partager un objet Domain entre threads) pendant que
+    le thread principal est bloque dans domain.migrate(). jobInfo() peut
+    echouer transitoirement (pas encore de job demarre, job termine entre
+    deux appels) -- jamais fatal ici, juste ignore, best-effort."""
+    conn = None
+    try:
+        conn = open_conn(node)
+        domain = conn.lookupByName(vm_name)
+        while not stop_event.is_set():
+            try:
+                info = domain.jobInfo()
+                # (type, timeElapsed, timeRemaining, dataTotal, dataProcessed, dataRemaining, ...)
+                data_total, data_processed = info[3], info[4]
+                if data_total > 0:
+                    pct = min(99, int(data_processed * 100 / data_total))
+                    update_task_progress(task_id, pct)
+            except libvirt.libvirtError:
+                pass
+            stop_event.wait(2)
+    except libvirt.libvirtError:
+        pass
+    finally:
+        if conn:
+            conn.close()
+
+
+def _cdrom_source_paths(domain):
+    root = ET.fromstring(domain.XMLDesc(0))
+    paths = []
+    for disk_el in root.findall(".//devices/disk"):
+        if disk_el.get("device") != "cdrom":
+            continue
+        source_el = disk_el.find("source")
+        path = source_el.get("file") if source_el is not None else None
+        if path:
+            paths.append(path)
+    return paths
+
+
+def _copy_file_to_node(local_path, node_name, remote_path):
+    """scp best-effort d'un fichier LOCAL vers le meme chemin absolu sur un
+    nœud distant, via la cle SSH dediee au cluster (meme cle que les
+    connexions qemu+ssh://). BUG REEL trouve en testant une vraie
+    migration (kvm-lab -> serveur-antho) : VIR_MIGRATE_NON_SHARED_DISK ne
+    copie QUE les disques device='disk', jamais les CD-ROM/ISO
+    device='cdrom' -- l'ISO cloud-init (creee pour chaque VM, voir
+    vm_builder.py::create_cloudinit_iso) manquait donc systematiquement
+    sur la destination, migration refusee ('impossible d'acceder au
+    fichier de stockage'). Uniquement supporte depuis le nœud LOCAL
+    (Hyperlite pilote toujours depuis kvm-lab, voir cluster.py) -- migrer
+    une VM entre deux nœuds distants echouera ici avec une erreur claire
+    plutot que d'etre geree en silence."""
+    from app.core.cluster import get_node, get_cluster_private_key_path
+    node = get_node(node_name)
+    if not node:
+        raise RuntimeError(f"Nœud '{node_name}' introuvable")
+    key_path = str(get_cluster_private_key_path())
+    remote_dir = str(Path(remote_path).parent)
+    ssh_target = f"{node['ssh_user']}@{node['hostname']}"
+    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    mkdir_r = subprocess.run(
+        ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), ssh_target, "mkdir", "-p", remote_dir],
+        capture_output=True, text=True, timeout=15,
+    )
+    if mkdir_r.returncode != 0:
+        raise RuntimeError(f"Préparation du répertoire distant échouée ({remote_dir} sur {node_name}) : {mkdir_r.stderr.strip()[:300]}")
+    scp_r = subprocess.run(
+        ["scp", *ssh_opts, "-P", str(node["ssh_port"]), local_path, f"{ssh_target}:{remote_path}"],
+        capture_output=True, text=True, timeout=300,
+    )
+    if scp_r.returncode != 0:
+        raise RuntimeError(f"Copie de '{Path(local_path).name}' vers {node_name} échouée : {scp_r.stderr.strip()[:300]}")
+
+
+def _domain_network_names(domain):
+    root = ET.fromstring(domain.XMLDesc(0))
+    names = []
+    for iface in root.findall(".//devices/interface"):
+        source_el = iface.find("source")
+        if source_el is not None and source_el.get("network"):
+            names.append(source_el.get("network"))
+    return names
+
+
+def _ensure_networks_active(conn, network_names):
+    """Demarre (et autostart) sur `conn` chaque reseau libvirt nomme dans
+    network_names s'il existe mais est inactif -- BUG REEL trouve en
+    testant une vraie migration cross-site (kvm-lab -> serveur-antho,
+    installe manuellement donc jamais passe par l'installeur Hyperlite,
+    voir ensure_default_pool pour le meme genre de garde-fou cote
+    stockage) : le reseau 'default' existait mais n'etait pas demarre sur
+    le nœud de destination, migration refusee par libvirt avec une erreur
+    peu actionnable ('le réseau default n'est pas actif'). Plutot que de
+    laisser echouer et deviner, Hyperlite corrige lui-meme le cas courant.
+    Ne fait rien si le reseau n'existe pas du tout sur la destination --
+    ca, ca reste une vraie erreur a remonter telle quelle (mauvaise
+    config, pas un simple oubli de demarrage)."""
+    for name in network_names:
+        try:
+            net = conn.networkLookupByName(name)
+        except libvirt.libvirtError:
+            continue  # reseau absent cote destination : migrate() echouera avec une erreur claire, rien a "reparer" ici
+        if not net.isActive():
+            net.create()
+            net.setAutostart(True)
+
+
+def _local_migrate_uri_host():
+    """Adresse par laquelle CE nœud (kvm-lab, jamais une ligne de la table
+    `nodes` -- c'est l'hote local ou tourne Hyperlite lui-meme) est
+    joignable par un AUTRE nœud pour le flux de donnees QEMU d'une
+    migration -- utile seulement quand kvm-lab est la DESTINATION d'une
+    migration (le sens largement le plus frequent, VERS un nœud distant
+    enregistre, n'en a pas besoin, voir plus bas). Interroge Tailscale
+    (deja en place sur ce projet, voir CLAUDE.md) plutot que de deviner ou
+    coder une IP en dur. Best-effort : None si indisponible, la migration
+    tentera alors sans migrate_uri explicite plutot que d'echouer ici."""
+    try:
+        r = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip().splitlines()[0]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
+    from app.core.cluster import get_node, build_libvirt_uri
+    # "kvm-lab" est la convention FRONTEND pour l'hote local (voir
+    # fetchNodes(), dashboard/src/api/client.js) -- jamais une ligne de la
+    # table `nodes` cote backend. BUG REEL trouve en testant un aller-
+    # retour complet (kvm-lab -> serveur-antho -> kvm-lab) : open_conn()
+    # tente de RESOUDRE "kvm-lab" comme un nœud distant enregistre et
+    # echoue avec 404 des que target_node vaut litteralement "kvm-lab" --
+    # traduit ici en None (= connexion locale, meme convention que partout
+    # ailleurs dans le code, voir open_conn()).
+    dest_node_key = None if target_node == "kvm-lab" else target_node
+    src_conn = open_conn(source_node)
+    dest_conn = None
+    stop_event = threading.Event()
+    progress_thread = threading.Thread(target=_migration_progress_job, args=(stop_event, task_id, source_node, vm_name), daemon=True)
+    try:
+        domain = src_conn.lookupByName(vm_name)
+        dest_conn = open_conn(dest_node_key)
+
+        _ensure_networks_active(dest_conn, _domain_network_names(domain))
+
+        # ISO cloud-init/CD-ROM attachees : jamais copiees par libvirt
+        # (voir _copy_file_to_node) -- seulement gere depuis un nœud SOURCE
+        # local, Hyperlite n'a pas d'acces fichier direct a un nœud distant.
+        if not source_node or source_node == "kvm-lab":
+            for cdrom_path in _cdrom_source_paths(domain):
+                if Path(cdrom_path).exists():
+                    _copy_file_to_node(cdrom_path, target_node, cdrom_path)
+
+        shared = _uses_shared_storage(src_conn, dest_conn, domain)
+        # BUG REEL trouve en testant (grave : plantait le thread AVANT
+        # meme le premier appel a jobInfo, hors du except libvirt.libvirtError
+        # ci-dessous -- une tache restait bloquee "en_cours" pour toujours,
+        # sans aucune trace pour l'utilisateur autre que les logs serveur) :
+        # la constante s'appelle VIR_MIGRATE_PERSIST_DEST dans cette version
+        # de libvirt-python, pas VIR_MIGRATE_PERSISTENT (qui n'existe pas du
+        # tout -- verifie via dir(libvirt)).
+        flags = (
+            libvirt.VIR_MIGRATE_LIVE
+            | libvirt.VIR_MIGRATE_PEER2PEER
+            | libvirt.VIR_MIGRATE_PERSIST_DEST
+            | libvirt.VIR_MIGRATE_UNDEFINE_SOURCE
+        )
+        if not shared:
+            flags |= libvirt.VIR_MIGRATE_NON_SHARED_DISK
+
+        # PAS de VIR_MIGRATE_TUNNELLED : teste en reel (chantier 27) et
+        # echoue systematiquement avec 'erreur interne : la clé de
+        # l'argument host ne doit pas avoir une valeur Null' des que
+        # PEER2PEER+TUNNELLED sont combines sur cette version de libvirt
+        # (9.0.0, Debian 12) avec une URI qemu+ssh:// portant des
+        # parametres de requete (keyfile=/no_verify=1/sshauth=privkey) --
+        # tres probablement un bug de libvirt lui-meme dans ce chemin de
+        # code specifique, pas quelque chose de corrigeable cote Hyperlite.
+        # SANS tunnel, le flux de donnees QEMU (memoire + disque si
+        # VIR_MIGRATE_NON_SHARED_DISK) passe DIRECTEMENT entre les deux
+        # hotes plutot que par le tunnel SSH -- acceptable ici : un nœud
+        # enregistre (voir cluster.py) doit deja etre joignable directement
+        # pour SSH, donc l'est presque toujours aussi pour ce flux direct
+        # (confirme reellement entre kvm-lab et serveur-antho via
+        # Tailscale, deux sites differents). Deuxieme bug reel trouve en
+        # meme temps : sans le preciser explicitement, QEMU tente de
+        # resoudre le PROPRE nom d'hote du nœud de destination tel qu'IL le
+        # connait de lui-meme (ex. 'hyperlite.home', pas resolvable depuis
+        # kvm-lab) plutot que l'adresse par laquelle Hyperlite l'a
+        # effectivement joint -- corrige en fournissant migrate_uri
+        # explicitement, avec l'adresse deja verifiee joignable (le meme
+        # `hostname` enregistre que celui utilise pour la connexion
+        # qemu+ssh:// elle-meme).
+        if dest_node_key is None:
+            dest_uri = "qemu:///system"
+            local_addr = _local_migrate_uri_host()
+            migrate_params = {"migrate_uri": f"tcp://{local_addr}"} if local_addr else {}
+        else:
+            dest_node = get_node(dest_node_key)
+            dest_uri = build_libvirt_uri(dest_node)
+            migrate_params = {"migrate_uri": f"tcp://{dest_node['hostname']}"}
+
+        progress_thread.start()
+        domain.migrateToURI3(dest_uri, migrate_params, flags)
+
+        stop_event.set()
+        update_task_progress(task_id, 100)
+        finish_task(task_id, "termine")
+        log_action(username, "migrate_vm", vm_name, "succes", f"{source_node} -> {target_node} (stockage {'partagé' if shared else 'copié'})")
+    except libvirt.libvirtError as e:
+        stop_event.set()
+        msg = describe_exception(e)
+        finish_task(task_id, "echec", msg)
+        log_action(username, "migrate_vm", vm_name, "echec", msg)
+    except Exception as e:
+        # Filet de securite generique (chantier 26/27, robustesse demandee
+        # explicitement le 2026-09-17) : TOUTE exception inattendue doit
+        # quand meme cloturer la tache -- sinon elle reste "en_cours" pour
+        # toujours dans l'UI, sans aucune explication visible pour
+        # l'utilisateur. Trouve reellement necessaire en testant (voir
+        # commentaire ci-dessus sur VIR_MIGRATE_PERSIST_DEST).
+        stop_event.set()
+        finish_task(task_id, "echec", f"Erreur interne : {e}")
+        log_action(username, "migrate_vm", vm_name, "echec", f"Erreur interne : {e}")
+    finally:
+        stop_event.set()
+        src_conn.close()
+        if dest_conn:
+            dest_conn.close()
+
+
+@router.post("/{name}/migrate", status_code=202)
+def migrate_vm(name: str, payload: MigrateRequest, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    """Migration a chaud vers un autre nœud (chantier 27, s'appuie sur le
+    stockage partage du chantier 26 quand disponible). Reservee aux admins
+    (pas un privilege ACL par-VM comme vm.clone) : deplacer une VM change
+    l'allocation de ressources d'un nœud DU CLUSTER ENTIER, une portee
+    au-dela de ce qu'une ACL scopee a une VM est censee couvrir."""
+    if payload.target_node == (node or "kvm-lab"):
+        raise HTTPException(status_code=422, detail="Le nœud de destination doit être différent du nœud source")
+    # LIMITE CONNUE, documentee plutot que masquee (voir CLAUDE.md) : migrer
+    # DEPUIS un nœud distant VERS kvm-lab echoue reellement -- la migration
+    # peer-to-peer est initiee par le libvirtd SOURCE (celui du nœud
+    # distant), qui a besoin de pouvoir se connecter LUI-MEME vers kvm-lab
+    # (confiance SSH inverse, jamais mise en place -- seule kvm-lab -> nœud
+    # distant existe, voir cluster.py). Le sens inverse (le cas normal :
+    # migrer DEPUIS kvm-lab, ou tourne Hyperlite, VERS un nœud distant) est
+    # teste et fonctionne reellement.
+    if node and payload.target_node == "kvm-lab":
+        raise HTTPException(
+            status_code=422,
+            detail="Migration non supportée : depuis un nœud distant vers kvm-lab. Migrez depuis kvm-lab vers un nœud distant à la place (sens supporté).",
+        )
+
+    src_conn = open_conn(node)
+    try:
+        try:
+            domain = src_conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        if not domain.isActive():
+            raise HTTPException(status_code=409, detail="La VM doit être active pour une migration à chaud (utilisez l'export/import pour une VM arrêtée)")
+
+        # Verifie la destination des maintenant (erreur claire immediate,
+        # open_conn leve deja une HTTPException explicite si le nœud est
+        # introuvable ou injoignable) plutot que de laisser echouer le
+        # thread d'arriere-plan sans autre forme de proces pour l'utilisateur.
+        # "kvm-lab" = convention frontend pour l'hote local, jamais une
+        # ligne de la table `nodes` (voir _migrate_vm_job pour le meme
+        # traitement, bug reel trouve en testant un aller-retour complet).
+        dest_conn = open_conn(None if payload.target_node == "kvm-lab" else payload.target_node)
+        try:
+            try:
+                dest_conn.lookupByName(name)
+                raise HTTPException(status_code=409, detail=f"Une VM '{name}' existe déjà sur le nœud de destination")
+            except libvirt.libvirtError:
+                pass
+        finally:
+            dest_conn.close()
+
+        source_node = node or "kvm-lab"
+        task_id = create_task("migrate_vm", name, node=source_node, username=user["username"])
+        threading.Thread(
+            target=_migrate_vm_job,
+            args=(task_id, user["username"], node, payload.target_node, name),
+            daemon=True,
+        ).start()
+        return {"task_id": task_id, "statut": "en_cours"}
+    finally:
+        src_conn.close()
 
 
 class CdromRequest(BaseModel):

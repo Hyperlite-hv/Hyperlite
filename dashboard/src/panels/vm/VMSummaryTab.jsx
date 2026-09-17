@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Play, Square, Power, RotateCw, Trash2, Copy, Layers } from "lucide-react";
+import { Play, Square, Power, RotateCw, Trash2, Copy, Layers, ArrowRightLeft } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricChart from "../../components/MetricChart";
 import MetricsHistoryCard from "../../components/MetricsHistoryCard";
@@ -12,14 +12,18 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { chartColors } from "../../theme/colors";
 import { formatUptime, formatMo, formatKbps } from "../../utils/format";
-import { cloneVM, createTemplateFromVM } from "../../api/client";
+import { cloneVM, createTemplateFromVM, migrateVM } from "../../api/client";
 
 export default function VMSummaryTab({ resource: vm }) {
   const [confirm, setConfirm] = useState(null); // "stop" | "force-stop" | "delete" | null
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const [migrateTarget, setMigrateTarget] = useState("");
+  const [migrating, setMigrating] = useState(false);
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const loadAll = useInfraStore((s) => s.loadAll);
   const select = useInfraStore((s) => s.select);
   const pushToast = useInfraStore((s) => s.pushToast);
+  const nodes = useInfraStore((s) => s.nodes);
   const isAdmin = useAuthStore(selectIsAdmin);
   const { data, current, error } = useLiveVMMetrics(vm?.nom, vm?.etat === "actif");
   const { status: provStatus, justFinished } = useProvisioningStatus(vm?.nom, vm?.etat === "actif");
@@ -68,6 +72,22 @@ export default function VMSummaryTab({ resource: vm }) {
     }
   }
 
+  async function handleMigrate() {
+    if (!migrateTarget) return;
+    setMigrating(true);
+    try {
+      await migrateVM(vm.nom, migrateTarget, vm.node);
+      pushToast({ kind: "success", title: "Migration lancée", message: `${vm.nom} vers ${migrateTarget} — suivez la progression dans les tâches` });
+      setMigrateOpen(false);
+      setMigrateTarget("");
+      await loadAll();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec de la migration", message: e.message });
+    } finally {
+      setMigrating(false);
+    }
+  }
+
   async function handleToTemplate() {
     const tplName = window.prompt(`Nom du template a creer depuis '${vm.nom}' :`, vm.nom);
     if (!tplName || !tplName.trim()) return;
@@ -80,6 +100,14 @@ export default function VMSummaryTab({ resource: vm }) {
       pushToast({ kind: "error", title: "Échec de la conversion", message: e.message });
     }
   }
+
+  // "kvm-lab" comme destination exclu quand la VM est deja sur un nœud
+  // DISTANT (limite reelle et connue, voir CLAUDE.md : la migration
+  // peer-to-peer est initiee par le libvirtd SOURCE, qui n'a pas de
+  // confiance SSH inverse vers kvm-lab -- seul kvm-lab -> nœud distant est
+  // teste et supporte). Evite de proposer une destination qui echouera a
+  // coup sur plutot que de laisser l'utilisateur decouvrir l'erreur.
+  const migrationTargets = nodes.filter((n) => n.id !== vm.node && n.etat === "online" && !(vm.node !== "kvm-lab" && n.id === "kvm-lab"));
 
   return (
     <div className="space-y-5">
@@ -108,9 +136,35 @@ export default function VMSummaryTab({ resource: vm }) {
           <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={handleToTemplate}>
             <Layers size={14} /> Vers template
           </button>
+          <button
+            className="btn-secondary"
+            disabled={vm.etat !== "actif" || migrationTargets.length === 0}
+            title={migrationTargets.length === 0 ? "Aucun autre nœud en ligne disponible" : "Migrer cette VM vers un autre nœud sans l'éteindre"}
+            onClick={() => setMigrateOpen((o) => !o)}
+          >
+            <ArrowRightLeft size={14} /> Migrer
+          </button>
           <button className="btn-danger ml-auto" disabled={vm.etat === "actif"} onClick={() => setConfirm("delete")}>
             <Trash2 size={14} /> Supprimer
           </button>
+        </div>
+      )}
+
+      {migrateOpen && (
+        <div className="card flex flex-wrap items-center gap-3 p-4">
+          <span className="text-sm text-anthracite-200">Migrer <b className="text-anthracite-100">{vm.nom}</b> vers</span>
+          <select className="input w-auto" value={migrateTarget} onChange={(e) => setMigrateTarget(e.target.value)}>
+            <option value="">Choisir un nœud…</option>
+            {migrationTargets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+          </select>
+          <button className="btn-primary" disabled={!migrateTarget || migrating} onClick={handleMigrate}>
+            {migrating ? "Lancement..." : "Migrer"}
+          </button>
+          <button className="btn-secondary" onClick={() => setMigrateOpen(false)}>Annuler</button>
+          <p className="w-full text-xs text-anthracite-400">
+            Migration à chaud : la VM continue de tourner pendant le transfert. Si le disque n'est pas sur un pool partagé
+            (chantier 26), il est copié pendant la migration — peut prendre du temps selon sa taille.
+          </p>
         </div>
       )}
 

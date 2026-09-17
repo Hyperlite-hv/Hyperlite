@@ -5,7 +5,7 @@ import { useInfraStore } from "../store/useInfraStore";
 
 const TASK_LABELS = {
   start_vm: "Démarrer VM", stop_vm: "Arrêter VM", restart_vm: "Redémarrer VM",
-  delete_vm: "Supprimer VM", create_vm: "Créer VM", create_snapshot: "Créer snapshot",
+  delete_vm: "Supprimer VM", create_vm: "Créer VM", migrate_vm: "Migrer VM", create_snapshot: "Créer snapshot",
   upload_iso: "Téléverser ISO",
 };
 
