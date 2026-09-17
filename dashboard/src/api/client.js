@@ -137,7 +137,12 @@ export async function fetchVMs() {
 }
 
 function mapPool(p, nodeId) {
-  return { nom: p.nom, node: nodeId, type: "dir", etat: p.etat, capacite_go: p.capacite_go, disponible_go: p.disponible_go };
+  // BUG REEL trouve le 2026-09-17 (chantier 26, pools NFS) : `type`
+  // etait code en dur a "dir" ici -- inoffensif tant que GET /storage ne
+  // renvoyait jamais de vrai champ `type` (tous les pools existants
+  // etaient effectivement "dir"), mais aurait masque silencieusement le
+  // nouveau champ reel une fois les pools NFS ajoutes cote backend.
+  return { nom: p.nom, node: nodeId, type: p.type, etat: p.etat, capacite_go: p.capacite_go, disponible_go: p.disponible_go };
 }
 
 export async function fetchStoragePools() {
@@ -398,6 +403,18 @@ export async function createVolume(pool, name, sizeGb) {
 }
 export async function fetchVolumes(pool) {
   return realFetch(`/storage/${encodeURIComponent(pool)}/volumes`);
+}
+// Chantier 26 (stockage partage) : node optionnel, meme convention que le
+// reste (fetchVMs, fetchStoragePools...) -- cree/supprime un pool sur un
+// noeud distant enregistre plutot que l'hote local.
+export async function createStoragePool(payload, node) {
+  const qs = node ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/storage${qs}`, { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteStoragePool(poolName, node) {
+  const params = new URLSearchParams({ confirm: "true" });
+  if (node) params.set("node", node);
+  return realFetch(`/storage/${encodeURIComponent(poolName)}?${params.toString()}`, { method: "DELETE" });
 }
 
 // ---- Console VNC / Terminal SSH (relais WebSocket reels) ----

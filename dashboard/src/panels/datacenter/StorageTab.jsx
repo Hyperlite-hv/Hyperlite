@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, Plus, HardDrive, Network } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
-import { fetchIsoTemplates, deleteIso } from "../../api/client";
+import { fetchIsoTemplates, deleteIso, createStoragePool, deleteStoragePool } from "../../api/client";
+
+const EMPTY_FORM = { name: "", type: "dir", node: "kvm-lab", path: "", nfs_host: "", nfs_export_path: "" };
 
 // Pools : vue agregee de GET /storage sur tous les noeuds -- reel pour kvm-lab.
 // Images ISO : vraie liste/upload/suppression via GET/POST/DELETE /isos.
+// Creation/suppression de pool (chantier 26, stockage partage NFS) : reel,
+// via POST/DELETE /storage (app/routers/storage.py).
 export default function StorageTab() {
   const storagePools = useInfraStore((s) => s.storagePools);
+  const nodes = useInfraStore((s) => s.nodes);
+  const refreshAll = useInfraStore((s) => s.refreshAll);
   const pushToast = useInfraStore((s) => s.pushToast);
   const isAdmin = useAuthStore(selectIsAdmin);
   const [isos, setIsos] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [busy, setBusy] = useState(false);
 
   const reloadIsos = useCallback(async () => {
     try { setIsos(await fetchIsoTemplates()); }
@@ -30,21 +39,129 @@ export default function StorageTab() {
     }
   }
 
+  async function handleCreatePool(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const payload = form.type === "dir"
+        ? { name: form.name, type: "dir", path: form.path || null }
+        : { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path };
+      // node "kvm-lab" = hote local (voir convention fetchNodes()/open_conn) :
+      // le backend n'accepte que le nom d'un nœud distant enregistré, jamais
+      // "kvm-lab" lui-même.
+      const node = form.node === "kvm-lab" ? undefined : form.node;
+      await createStoragePool(payload, node);
+      pushToast({ kind: "success", title: "Pool créé", message: form.name });
+      setForm(EMPTY_FORM);
+      setFormOpen(false);
+      refreshAll();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec de la création", message: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeletePool(pool) {
+    if (pool.nom === "default") return;
+    if (!window.confirm(`Supprimer le pool '${pool.nom}' ? Le pool doit être vide.`)) return;
+    try {
+      await deleteStoragePool(pool.nom, pool.node === "kvm-lab" ? undefined : pool.node);
+      pushToast({ kind: "success", title: "Pool supprimé", message: pool.nom });
+      refreshAll();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec de la suppression", message: e.message });
+    }
+  }
+
   return (
     <div className="space-y-5">
-      <div className="card divide-y divide-anthracite-600">
-        <div className="grid grid-cols-5 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
-          <span>Pool</span><span>Nœud</span><span>Type</span><span>Capacité</span><span>Disponible</span>
+      <div className="card">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-anthracite-600">
+          <h3 className="text-sm font-semibold text-anthracite-100">Pools de stockage</h3>
+          {isAdmin && (
+            <button className="btn-secondary" onClick={() => setFormOpen((o) => !o)}>
+              <Plus size={14} /> Créer un pool
+            </button>
+          )}
         </div>
-        {storagePools.map((p) => (
-          <div key={`${p.node}-${p.nom}`} className="grid grid-cols-5 gap-2 px-4 py-2.5 text-sm">
-            <span className="text-anthracite-100">{p.nom}</span>
-            <span className="text-anthracite-300">{p.node}</span>
-            <span className="text-anthracite-300">{p.type}</span>
-            <span className="text-anthracite-300">{p.capacite_go} Go</span>
-            <span className="text-anthracite-300">{p.disponible_go} Go</span>
+
+        {formOpen && (
+          <form onSubmit={handleCreatePool} className="space-y-3 border-b border-anthracite-600 px-4 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-anthracite-300">Nom du pool</label>
+                <input className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="ex. nfs-partage" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-anthracite-300">Nœud</label>
+                <select className="input mt-1" value={form.node} onChange={(e) => setForm({ ...form, node: e.target.value })}>
+                  {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, type: "dir" })}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${form.type === "dir" ? "border-accent-blue bg-accent-blue/10 text-accent-blue" : "border-anthracite-600 text-anthracite-300"}`}
+              >
+                <HardDrive size={14} /> Répertoire local
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, type: "netfs" })}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${form.type === "netfs" ? "border-accent-blue bg-accent-blue/10 text-accent-blue" : "border-anthracite-600 text-anthracite-300"}`}
+              >
+                <Network size={14} /> Partage NFS
+              </button>
+            </div>
+
+            {form.type === "dir" ? (
+              <div>
+                <label className="text-xs font-medium text-anthracite-300">Chemin local (optionnel)</label>
+                <input className="input mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (auto si vide)" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-anthracite-300">Hôte du serveur NFS</label>
+                  <input className="input mt-1" required value={form.nfs_host} onChange={(e) => setForm({ ...form, nfs_host: e.target.value })} placeholder="ex. 192.168.1.10" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-anthracite-300">Chemin exporté</label>
+                  <input className="input mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/partage" />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setFormOpen(false)}>Annuler</button>
+              <button type="submit" disabled={busy} className="btn-primary">{busy ? "Création..." : "Créer"}</button>
+            </div>
+          </form>
+        )}
+
+        <div className="divide-y divide-anthracite-600">
+          <div className="grid grid-cols-6 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
+            <span>Pool</span><span>Nœud</span><span>Type</span><span>Capacité</span><span>Disponible</span><span />
           </div>
-        ))}
+          {storagePools.map((p) => (
+            <div key={`${p.node}-${p.nom}`} className="grid grid-cols-6 gap-2 px-4 py-2.5 text-sm items-center">
+              <span className="text-anthracite-100">{p.nom}</span>
+              <span className="text-anthracite-300">{p.node}</span>
+              <span className="text-anthracite-300">{p.type === "netfs" ? "NFS" : p.type}</span>
+              <span className="text-anthracite-300">{p.capacite_go} Go</span>
+              <span className="text-anthracite-300">{p.disponible_go} Go</span>
+              <span className="text-right">
+                {isAdmin && p.nom !== "default" && (
+                  <button className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="card p-5">
