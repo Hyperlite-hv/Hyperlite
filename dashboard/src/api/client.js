@@ -370,6 +370,25 @@ export async function disableHa(name) {
 export async function recoverHa(name, targetNode) {
   return realFetch(`/ha/${encodeURIComponent(name)}/recover`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
 }
+// Chantier 28 (notifications sortantes) : voir app/core/notifications.py.
+export async function fetchNotifyEvents() {
+  return realFetch("/notifications/events");
+}
+export async function fetchNotificationChannels() {
+  return realFetch("/notifications/channels");
+}
+export async function createNotificationChannel(payload) {
+  return realFetch("/notifications/channels", { method: "POST", ...jsonBody(payload) });
+}
+export async function setNotificationChannelEnabled(id, enabled) {
+  return realFetch(`/notifications/channels/${id}`, { method: "PATCH", ...jsonBody({ enabled }) });
+}
+export async function deleteNotificationChannel(id) {
+  return realFetch(`/notifications/channels/${id}`, { method: "DELETE" });
+}
+export async function testNotificationChannel(id) {
+  return realFetch(`/notifications/channels/${id}/test`, { method: "POST" });
+}
 export async function createVM(payload) {
   return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
 }
