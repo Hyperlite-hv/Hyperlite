@@ -97,7 +97,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 23 | Export/Import de VM depuis un fichier disque | ✅ dans `master` — bouton "Exporter le disque" (menu d'actions VM, disque système uniquement, chaud ou froid selon l'état, réutilise le mécanisme du chantier 13), onglet Datacenter > Exports (liste/télécharge/supprime, téléchargement par ticket à usage unique), option "Importer un disque existant" dans le formulaire de création de VM (upload + sélection). Bug réel trouvé et corrigé en testant : un disque importé garde le netplan MAC-épinglé de son tout premier démarrage (cloud-init) — nouvelle MAC = plus aucune interface ne correspond, réseau mort. Corrigé via un ISO de "reseed" cloud-init (nouvel instance-id, même mécanisme que le clonage chantier 5) qui force cloud-init à régénérer son réseau. Testé réellement de bout en bout (export à chaud + import + SSH fonctionnel) |
 | 24 | Refonte tableau de bord + barre latérale façon Proxmox VE | ✅ dans `master` — rail de navigation (`SidebarRail.jsx`) ajouté à gauche de l'arbre Datacenter/Nœud/VM existant (purement additif, l'arbre reste les raccourcis VM), calqué sur les onglets Datacenter réels seulement (pas la liste complète de Proxmox). Nouvel onglet "Activité récente" (table `tasks` existante, pas encore exposée au niveau Datacenter). "Statut des VM" devient une vraie liste sur les états réels d'un domaine libvirt. **Pas de vérification visuelle possible depuis cette session (pas de navigateur connecté) — à confirmer par Antho** |
 | 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ✅ dans `master` — `app/core/vm_cleanup.py`, opt-in par VM (à la création ou après coup, `PUT /vms/{name}/auto-cleanup`). Le compteur ne court que pendant que la VM est ARRÊTÉE (jamais une VM en marche), jamais une VM protégée HA, avertissement ~24h avant suppression réelle (notifications, chantier 28). **Testé réellement** : cycle de vérification déclenché manuellement avec des horodatages simulés (au-delà/en-deçà du seuil) — avertissement, suppression réelle (VM + disque + entrées DB), et les deux garde-fous (VM active, VM HA) vérifiés un par un. UI (assistant de création + panneau sur la fiche VM) testée dans un vrai navigateur |
-| 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
+| 20 | SSO (LDAP/OIDC/SAML — à préciser) | ✅ dans `master` — OIDC (Authorization Code flow), voir section dédiée plus bas. Authentification locale conservée en parallèle (secours), jamais remplacée |
 | 21 | Pare-feu réseau/cluster | ✅ dans `master` — `app/core/network_firewall.py`. Distinct du pare-feu **par VM** (nwfilter) : filtre au niveau du **pont** (chaîne FORWARD du noyau, iptables), donc couvre toutes les VM d'un réseau présentes ET futures. Réutilise le même `FirewallConfig`/`FirewallRule` que le pare-feu par VM (même UI, `FirewallRulesEditor.jsx` factorisé). **Testé réellement avec du vrai trafic** (conteneur LXC jetable sur un réseau de test, `nsenter` dans sa netns) : ping externe bloqué par défaut, autorisé après règle, confirmé au niveau paquets (`iptables -v`). 2 bugs réels trouvés en testant, voir section dédiée |
 | 22 | Onglet "Système" sur le node | ✅ déjà fait avant cette demande — `dashboard/src/panels/node/NodeSystemTab.jsx`, branché dans `CentralPanel.jsx` (id `system`, "Résumé système"), données réelles (`/health` + historique métriques du chantier 10) |
 | 25 | Refonte visuelle "indigo console" + audit fonctionnel Playwright | ✅ dans `master` — voir section dédiée plus bas |
@@ -122,8 +122,8 @@ n'est donc pas concerné par ce changement.
 28 (notifications) ✅ → 29 (rétention sauvegardes) ✅ → 31 (audit log
 asynchrone, inséré ici sur demande explicite d'Antho le 2026-09-17 après
 avoir impacté sa session active) ✅ → 30 (2FA + jetons API) ✅ → 21
-(pare-feu datacenter) ✅ → 19 (nettoyage VM inactives) ✅ →
-**20 (SSO) ← prochain** → 16 (doc récap, en dernier). **Chantier 12 (kickstart) explicitement
+(pare-feu datacenter) ✅ → 19 (nettoyage VM inactives) ✅ → 20 (SSO) ✅ →
+**16 (doc récap, en dernier) ← prochain**. **Chantier 12 (kickstart) explicitement
 exclu de cette séquence** (demande d'Antho le 2026-09-17, "fait tout dans
 l'ordre sauf le kickstart") -- de toute façon piloté par le collègue sur
 `/root/hyperlite-ami`, voir "Répartition en cours" plus bas, ne pas y
@@ -1342,3 +1342,94 @@ deux côtés). Nettoyage : ancienne release ponctuelle (`iso-<version>`,
 publiée avant la mise en place du mécanisme automatique) supprimée,
 branche `chantier7ter-auto-publish` (déjà mergée depuis le chantier
 7bis, jamais supprimée après coup) nettoyée à cette occasion.
+
+## Chantier 20 : SSO OIDC (2026-09-17)
+
+Décisions prises avec Antho avant de commencer (il ne serait pas devant
+son PC pendant l'implémentation, toutes les questions posées à
+l'avance) : **OIDC** (pas LDAP/SAML), **pas d'IdP existant** → un IdP de
+test jetable monté pour valider réellement le protocole, **authentification
+locale conservée en parallèle** (secours admin si l'IdP tombe/mal
+configuré, jamais remplacée), **rôles mappés via les groupes/claims de
+l'IdP**.
+
+**Modèle de rôle** : ce projet a un rôle global BINAIRE
+(`users.role` : `admin`/`observateur` seulement, voir
+`app/core/database.py`) -- l'accès fin passe par les ACL/groupes/rôles
+personnalisés de `app/core/permissions.py`, pas par ce champ. Un compte
+SSO reçoit `admin` si l'un de ses groupes IdP (nom de claim configurable,
+défaut `groups`) figure dans la liste "groupes admin" configurée côté
+Hyperlite, sinon `observateur`. **Réévalué à CHAQUE connexion**, pas figé
+à la création : un utilisateur retiré du groupe admin côté IdP perd ses
+droits admin Hyperlite dès sa prochaine connexion SSO.
+
+**Protection anti-collision (point de sécurité important)** : une
+connexion SSO qui résout un nom d'utilisateur correspondant à un compte
+LOCAL existant (`auth_source != 'sso'`) est explicitement REFUSÉE
+(`sso.LocalAccountConflict`) plutôt que d'écraser silencieusement son
+rôle -- sans ça, un utilisateur SSO nommé par coïncidence (ou
+intentionnellement) comme le compte admin local aurait pu rétrograder ce
+compte de secours à `observateur`, cassant exactement la garantie de
+secours qu'Antho a demandée.
+
+Aucune nouvelle dépendance : `urllib` (stdlib, même convention que
+`app/core/notifications.py` du chantier 28) pour les appels HTTP vers
+l'IdP, `python-jose` (déjà utilisé par `security.py` pour les JWT de
+session) pour valider la signature RS256 de l'ID token via les JWKS de
+l'IdP.
+
+`app/core/sso.py` (logique) + `app/routers/sso.py` (endpoints) :
+- `GET /auth/sso/status` (public) -- l'écran de connexion doit savoir
+  s'il faut afficher le bouton SSO avant que quiconque soit authentifié.
+- `GET`/`PUT /auth/sso/config` (admin) -- issuer, client_id/secret,
+  redirect_uri, claim des groupes, liste des groupes → admin. Le secret
+  n'est jamais renvoyé en clair (`client_secret_set: bool` seulement).
+- `GET /auth/sso/login` -- découverte OIDC (`{issuer}/.well-known/
+  openid-configuration`, un seul champ à saisir plutôt que 4 URLs),
+  génère `state`+`nonce` (table `sso_login_state`, à usage unique, TTL
+  10 min), redirige vers l'IdP.
+- `GET /auth/sso/callback` -- consomme le `state` (protection anti-rejeu),
+  échange le code, valide la signature de l'ID token (JWKS + `kid`) ET
+  les claims standard (`iss`/`aud`/`exp`) ET le `nonce`, résout le rôle,
+  provisionne l'utilisateur, émet un jeton de session Hyperlite normal
+  (`create_access_token`, même mécanisme qu'un login classique) et
+  redirige le navigateur vers `/?sso_token=...`. Toute erreur redirige
+  vers `/?sso_error=...` (message clair) plutôt qu'un 500 brut -- ce sont
+  des redirections de NAVIGATEUR, personne ne verrait un code d'erreur
+  JSON.
+
+Frontend : bouton "Se connecter avec SSO" sur `LoginScreen.jsx` (affiché
+seulement si `GET /auth/sso/status` renvoie `enabled: true`), nouvel
+onglet Datacenter "SSO" (`SSOTab.jsx`, admin uniquement, même style que
+`NotificationsTab.jsx`) pour la configuration. `useAuthStore.js::
+restoreSession()` capture `sso_token` dans l'URL au chargement (même
+format qu'un jeton de login classique), nettoie l'URL immédiatement
+(`history.replaceState`) pour ne jamais laisser un jeton de session
+trainer dans l'historique du navigateur.
+
+**Testé réellement de bout en bout avec un IdP OIDC de test jetable**
+(script Python, jamais committé, clé RSA générée à chaque run, vraie
+signature/vérification, vrai flux de redirection HTTP -- pas une
+simulation) : 16 vérifications automatisées, toutes passées :
+- Utilisateur sans groupe admin → compte créé en `observateur`.
+- Utilisateur avec un groupe mappé → rôle `admin`.
+- Le MÊME utilisateur qui perd son groupe admin côté IdP → rétrogradé à
+  `observateur` dès sa connexion suivante (réévaluation confirmée dans
+  les deux sens, pas juste à la création).
+- ID token avec un `nonce` falsifié → rejeté, aucun compte créé.
+- ID token signé avec une AUTRE clé (signature invalide) → rejeté.
+- Tentative de collision avec un compte local existant → refusée, compte
+  local vérifié INTACT (`auth_source`/`role` inchangés) après la
+  tentative.
+- `state` forgé directement sur `/auth/sso/callback` (sans passer par
+  `/auth/sso/login`) → rejeté.
+- Login local (mot de passe) toujours fonctionnel après tous les essais
+  SSO précédents -- confirme le principe de secours.
+
+UI vérifiée dans un vrai navigateur (Playwright, même méthode que le
+chantier 25) : bouton SSO absent tant que non configuré/activé,
+formulaire de config Datacenter rempli/enregistré/persisté après
+rechargement de page, bouton SSO qui apparaît ensuite sur l'écran de
+connexion. Compte de test et IdP jetable supprimés à la fin, config SSO
+remise à `enabled: false` (aucun vrai IdP configuré pour l'instant --
+à faire par Antho via l'onglet Datacenter > SSO le jour où il en a un).
