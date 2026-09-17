@@ -24,6 +24,7 @@ NOTIFY_EVENTS = {
     "node_statut_change": "Changement d'état d'un nœud",
     "ha_alert": "Alerte HA (nœud protégé tombé)",
     "hyperlite_update": "Mise à jour Hyperlite",
+    "update_available": "Nouvelle version Hyperlite disponible (à appliquer)",
     "create_vm": "Création de VM",
     "delete_vm": "Suppression de VM",
     "migrate_vm": "Migration de VM",
