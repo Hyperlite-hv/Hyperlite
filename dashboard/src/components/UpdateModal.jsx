@@ -19,6 +19,17 @@ const STEP_ORDER = [
 // /health) -- le backend qui pilote la mise a jour meurt avec le restart, il
 // ne peut pas verifier son propre remplacement (voir scripts/update_watchdog.sh
 // pour le vrai filet de securite cote serveur).
+
+// commit_local/commit_distant porte soit un hash Git (kvm-lab, mode "git"),
+// soit un numero de version de paquet .deb (une appliance passee sur le
+// depot APT, mode "apt" -- 2026-09-17) : meme forme de reponse cote backend
+// pour les deux, seul l'affichage differe. Un hash Git ne contient jamais de
+// point, un numero de version .deb en contient systematiquement -- heuristique
+// suffisante pour ne tronquer que les vrais hashs.
+function shortVersion(v) {
+  if (!v) return v;
+  return v.includes(".") ? v : v.slice(0, 8);
+}
 export default function UpdateModal({ onClose }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
@@ -77,8 +88,8 @@ export default function UpdateModal({ onClose }) {
             {!info.verifiable && <p className="text-sm text-anthracite-300">{info.erreur}</p>}
             {info.verifiable && (
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-anthracite-400">Version locale</span><span className="font-mono text-anthracite-200">{info.commit_local?.slice(0, 8)}</span></div>
-                <div className="flex justify-between"><span className="text-anthracite-400">Version distante</span><span className="font-mono text-anthracite-200">{info.commit_distant?.slice(0, 8) ?? "--"}</span></div>
+                <div className="flex justify-between"><span className="text-anthracite-400">Version locale</span><span className="font-mono text-anthracite-200">{shortVersion(info.commit_local)}</span></div>
+                <div className="flex justify-between"><span className="text-anthracite-400">Version distante</span><span className="font-mono text-anthracite-200">{shortVersion(info.commit_distant) ?? "--"}</span></div>
                 <div className="flex justify-between"><span className="text-anthracite-400">Statut</span><span className={info.a_jour ? "text-status-running" : "text-status-warning"}>{info.a_jour ? "À jour" : "Nouvelle version disponible"}</span></div>
 
                 {info.changelog?.length > 0 && (

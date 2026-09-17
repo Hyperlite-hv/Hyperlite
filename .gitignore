@@ -17,6 +17,9 @@ data/vm-exports/
 data/imported-disks/
 installer/*.iso
 installer/.iso-cache/
+installer/*.deb
+installer/deb-build/
+installer/apt-repo/
 hyperlite.db-journal
 hyperlite.db-wal
 hyperlite.db-shm

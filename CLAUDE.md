@@ -98,10 +98,13 @@ de 16 chantiers triés par charge de travail croissante.
 | 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ✅ dans `master` — `app/core/twofa.py`/`app/core/api_tokens.py`. Connexion en 2 temps quand la 2FA est active (jeton intermédiaire 5 min, jamais valide comme jeton de session), jetons API en repli dans `get_current_user` quand le jeton n'est pas un JWT valide. Modale "Sécurité du compte" (menu utilisateur, en libre-service, pas un onglet Datacenter). **Testé réellement de bout en bout** (API directe ET UI Playwright) : setup 2FA + QR code + code TOTP calculé localement (`pyotp`) accepté, code erroné rejeté, jeton intermédiaire refusé comme jeton de session, verrou anti-brute-force réutilisé sur `/auth/login/2fa`, jeton API créé/utilisé pour un appel authentifié/révoqué puis refusé, désactivation 2FA |
 | 31 | Robustesse SQLite : audit log asynchrone | ✅ dans `master` — `app/core/audit.py` : un thread dédié possède désormais l'écriture de `audit_log` (file + `queue.Queue`), chaque requête dépose son entrée et repart immédiatement au lieu d'écrire SQLite elle-même. Clôture de tâche (`task_id`) restée synchrone (des appelants relisent le statut juste après). Notifications (chantier 28) aussi passées en arrière-plan (réseau, jusqu'à 10s de timeout par canal — ne doit jamais bloquer la réponse HTTP). **Testé réellement** : 20 requêtes concurrentes puis création VM + sauvegarde + 15 lectures concurrentes, zéro `database is locked` dans les deux cas (le scénario exact qui avait fait planter le dashboard réel d'Antho pendant le test du chantier 29) |
 
-**Chantier 7, en attente d'un usage réel** : le système de mise à jour
-actuel est basé sur `git pull`. Antho a demandé, une fois la liste
-terminée, de le remplacer par quelque chose de plus proche du système de
-Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
+**Chantier 7bis (2026-09-17) : dépôt APT façon Proxmox** — voir section
+dédiée plus bas. `app/routers/update.py` détecte maintenant automatiquement
+la méthode d'installation (`git` sur kvm-lab, inchangé ; `apt` sur toute
+machine ayant adopté le paquet `hyperlite`). **kvm-lab reste volontairement
+en clone Git** (décision explicite d'Antho, 2026-09-17) — c'est là que le
+développement continue, le bouton "Vérifier les mises à jour" de kvm-lab
+n'est donc pas concerné par ce changement.
 
 **Séquencement demandé le 2026-09-17 ("va au-delà de Proxmox", implémenter
 étape par étape avec tests à chaque fois)** : 26 (stockage partagé) ✅ → 27
@@ -950,3 +953,116 @@ dans le vrai service (process long-vivant).
 Compte de test et VM de test supprimes a la fin (verifie : VM absente de
 `virsh list --all`, fichier disque absent, lignes `vm_auto_cleanup`/
 `ha_protected_vms` de test absentes de la base).
+
+## Chantier 7bis : dépôt APT façon Proxmox (2026-09-17)
+
+Remplace le suivi "chantier 7, en attente d'un usage réel" -- demande
+explicite d'Antho apres le chantier 19 ("faudrais qu'on fasse le apt
+install mise a jour la comme proxmox"). **Decision explicite prise avec
+Antho avant de commencer** : kvm-lab reste un clone Git (c'est la machine
+de developpement) -- ce nouveau mecanisme est pour serveur-antho et les
+futures appliances, PAS pour kvm-lab lui-meme. `app/routers/update.py`
+detecte automatiquement la methode reelle d'installation
+(`_install_method()` : presence de `.git` = "git", sinon `dpkg-query` sur
+le paquet `hyperlite` = "apt") -- sur kvm-lab, verifie que ca renvoie
+toujours "git", donc AUCUN changement de comportement pour le bouton de
+mise a jour existant.
+
+**Depot APT reel, publie et signe** : https://twikles.github.io/hyperlite/
+(GitHub Pages, branche `gh-pages` de ce meme depot -- statique, gratuit,
+deja public comme le code). Structure Debian classique
+(`dists/stable/main/binary-amd64/Packages(.gz)`, `Release`/`Release.gpg`/
+`InRelease`, `pool/main/h/hyperlite/*.deb`), signee avec une cle GPG
+dediee generee dans un trousseau ISOLE hors du depot Git
+(`/root/.hyperlite-apt-gpg` sur kvm-lab, jamais commite -- seule la cle
+PUBLIQUE est publiee, `hyperlite-archive-keyring.asc` a la racine du
+depot).
+
+**Pour adopter ce mecanisme sur une machine** (serveur-antho, une future
+appliance) :
+```bash
+curl -fsSL https://twikles.github.io/hyperlite/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] https://twikles.github.io/hyperlite stable main" > /etc/apt/sources.list.d/hyperlite.list
+apt update && apt install hyperlite
+```
+Installe/adopte l'application dans `/root/hyperlite` (meme emplacement
+qu'aujourd'hui). **Piege attendu, pas un bug** : la toute premiere fois
+qu'une machine bascule d'un code SANS la logique apt (toute version
+anterieure a ce chantier) vers une version AVEC -- le bouton "Verifier les
+mises a jour" de l'ancienne version ne sait pas encore parler apt (verifie
+en conditions reelles : `500 Erreur interne du serveur`). Cette toute
+premiere transition doit donc se faire une fois a la main
+(`apt update && apt install --only-upgrade hyperlite` en SSH) ; toutes les
+mises a jour SUIVANTES fonctionnent normalement depuis le bouton, meme
+version a version.
+
+**Fichiers** : `VERSION` (racine du depot, numero de version au format
+`AAAA.MM.JJ[.N]`), `installer/build-deb.sh` (construit
+`hyperlite_<version>_amd64.deb` -- payload = exactement les fichiers
+suivis par Git, PLUS `dashboard/dist` reconstruit au moment du build, donc
+jamais de Node/npm requis sur la machine cible contrairement au chemin
+Git), `installer/build-apt-repo.sh` (assemble/signe le depot dans
+`installer/apt-repo/`, jamais commite sur `master` -- republie a la main
+sur `gh-pages` a chaque nouvelle version), `installer/deb/control.template`
++ `installer/deb/postinst` (script de maintenance Debian : cree/actualise
+le venv Python, genere les secrets UNIQUEMENT a la toute premiere
+installation -- jamais touches sur une mise a jour -- installe le service
+systemd).
+
+**Probleme de conception identifie et resolu AVANT de tester** (pas
+decouvert apres coup) : `apt-get install --only-upgrade hyperlite`
+declenche depuis `/update/apply` tourne comme sous-processus du service
+hyperlite LUI-MEME (la requete HTTP qui a demande la mise a jour). Si le
+`postinst` du paquet redemarre le service normalement (comportement
+Debian standard, correct pour un admin qui lance `apt install` a la main
+en SSH), ce redemarrage tue le sous-processus `apt-get` en plein milieu de
+son propre postinst -- paquet dans un etat incoherent. Corrige avec la
+variable d'environnement `HYPERLITE_SKIP_RESTART` : positionnee UNIQUEMENT
+par `app/routers/update.py` avant d'appeler `apt-get install`, elle dit au
+postinst de NE PAS se redemarrer -- c'est alors `update.py` qui declenche
+le redemarrage juste apres, depuis un processus DETACHE (`Popen(...,
+start_new_session=True)`), exactement le meme mecanisme deja utilise par
+le chemin Git existant. Un `apt install` manuel (sans cette variable)
+redemarre normalement, comme n'importe quel paquet Debian bien ecrit.
+
+**Testé réellement de bout en bout** (VM jetable creee via Hyperlite
+lui-meme, disposable, jamais kvm-lab) :
+1. Installation FRAICHE via le depot local (servi temporairement en HTTP
+   depuis kvm-lab le temps du test) : cle GPG verifiee par `apt update`
+   sans erreur, `apt install hyperlite` installe TOUTES les dependances
+   systeme (qemu-kvm, libvirt-daemon-system, gcc, libvirt-dev...) puis le
+   paquet lui-meme, service demarre automatiquement, `/health` repond --
+   **y compris une vraie connexion libvirt fonctionnelle DANS la VM
+   nouvellement installee**.
+2. Mise a jour MANUELLE en SSH (`apt install --only-upgrade`) vers une
+   version 2 : secrets/session admin PRESERVES (meme mot de passe encore
+   valide apres), service redemarre normalement.
+3. **Le vrai flux complet via l'API** (celui que le bouton de l'interface
+   declenche) : `GET /update/check` detecte correctement la version 3
+   disponible, `POST /update/apply` lance la tache, le service
+   s'auto-redemarre SANS tuer son propre `apt-get` (le probleme identifie
+   ci-dessus, confirme resolu), tache marquee "termine" (progres 100),
+   nouveau `GET /update/check` confirme `a_jour: true`.
+4. **Depot REELEMENT publie** verifie depuis l'exterieur (pas seulement en
+   local) : `curl https://twikles.github.io/hyperlite/dists/stable/main/
+   binary-amd64/Packages` renvoie bien le paquet publie, cle GPG publique
+   recuperee et importee avec succes.
+5. Bug reel trouve en testant (sans rapport avec la conception, une
+   erreur d'execution) : `VERSION` n'avait jamais ete ajoute a Git
+   (`git add`), donc absent du premier paquet construit malgre sa
+   presence sur disque (`build-deb.sh` s'appuyait sur `git ls-files`) --
+   corrige en copiant ce fichier explicitement, independamment de son
+   suivi Git.
+
+**Limite connue, documentee plutot que masquee** : le filet de securite
+"watchdog" (`scripts/update_watchdog.sh`, reutilise tel quel pour les deux
+methodes) restaure un tarball de fichiers en cas d'echec post-redemarrage,
+mais ne fait PAS reculer l'etat interne de `dpkg` (qui continuerait de
+rapporter la version la plus recente comme "installee" meme apres une
+restauration de fichiers). Consequence : un `apt upgrade` ulterieur
+pourrait considerer, a tort, que rien n'a besoin d'etre reinstalle. Cas
+rare (suppose un echec de demarrage APRES un `apt install` reussi), pas
+corrige dans cette passe -- a traiter si ca se presente reellement.
+
+VM de test et paquets/versions de test (`.1`, `.2`) supprimes a la fin ;
+seule la version reelle `2026.09.17` reste publiee sur `gh-pages`.
