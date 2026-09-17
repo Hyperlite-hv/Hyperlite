@@ -36,9 +36,11 @@ from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
 from app.routers.ha import router as ha_router
 from app.routers.notifications import router as notifications_router
+from app.routers.sso import router as sso_router
 
 app = FastAPI(title="Hyperlite API")
 app.include_router(auth_router)
+app.include_router(sso_router)
 app.include_router(dashboard_router)
 app.include_router(vms_router)
 app.include_router(storage_router)
