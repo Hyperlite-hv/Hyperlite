@@ -348,4 +348,17 @@ def init_db():
                 last_used_at TEXT
             )
         """)
+        # Pare-feu reseau/datacenter (chantier 21) : contrairement au
+        # pare-feu par VM (nwfilter, stocke et reapplique par libvirt
+        # lui-meme), les regles iptables de ce chantier ne survivent PAS a
+        # un redemarrage de l'hote -- cette table est l'unique source de
+        # verite persistante, reappliquee au demarrage du service (voir
+        # app/core/network_firewall.py::reapply_all).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS network_firewall (
+                network_name TEXT PRIMARY KEY,
+                default_policy TEXT NOT NULL,
+                rules_json TEXT NOT NULL
+            )
+        """)
         conn.commit()

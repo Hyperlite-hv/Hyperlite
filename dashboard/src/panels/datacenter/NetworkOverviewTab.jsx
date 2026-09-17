@@ -1,8 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { Network, Plus, Trash2 } from "lucide-react";
-import { fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork } from "../../api/client";
+import {
+  fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork,
+  fetchNetworkFirewall, setNetworkFirewall,
+} from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
+import FirewallRulesEditor from "../../components/FirewallRulesEditor";
+
+// Composant local (pas exporte) plutot qu'un inline arrow function dans le
+// .map() plus bas : useCallback a besoin d'etre garde stable PAR reseau
+// (meme raison que VMHardwareTab.jsx) -- sans ca, FirewallRulesEditor
+// relancerait un GET a chaque re-render de NetworkOverviewTab entier (ex.
+// un toast pousse par n'importe quel autre reseau developpe), pas
+// seulement quand ce reseau precis change.
+function NetworkFirewallSection({ name, isAdmin }) {
+  const fetchConfig = useCallback(() => fetchNetworkFirewall(name), [name]);
+  const saveConfig = useCallback((config) => setNetworkFirewall(name, config), [name]);
+  return <FirewallRulesEditor title="Pare-feu réseau" fetchConfig={fetchConfig} saveConfig={saveConfig} isAdmin={isAdmin} />;
+}
 
 // Reel : GET/POST/DELETE /networks (voir app/routers/network.py, chantier 9)
 // -- vue d'ensemble façon vSphere Networking : reseaux virtuels + VM
@@ -114,6 +130,9 @@ export default function NetworkOverviewTab() {
                 {(detail.baux_dhcp || []).map((b, i) => (
                   <div key={i} className="pl-3 font-mono">{b.ip} — {b.mac} {b.hostname ? `(${b.hostname})` : ""}</div>
                 ))}
+                <div className="pt-2">
+                  <NetworkFirewallSection name={n.nom} isAdmin={isAdmin} />
+                </div>
               </div>
             )}
           </div>

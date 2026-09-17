@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Cpu, MemoryStick, HardDrive, Network, Trash2, Plus, ShieldCheck, Save } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, Network, Trash2, Plus } from "lucide-react";
 import {
   fetchVMDisks, attachDisk, detachDisk, createVolume, fetchVolumes,
   fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
@@ -7,6 +7,7 @@ import {
 } from "../../api/client";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
+import FirewallRulesEditor from "../../components/FirewallRulesEditor";
 
 // Porte en React le menu "Ajouter un peripherique" deja construit et teste
 // cote vanilla-JS (app/static/app.js: loadVMDisksTab/loadVMNetTab) -- memes
@@ -197,95 +198,10 @@ function NetworkSection({ vmName, isAdmin }) {
   );
 }
 
-const PROTOCOLS = ["tcp", "udp", "icmp", "all"];
-
-function FirewallSection({ vmName, isAdmin }) {
-  const pushToast = useInfraStore((s) => s.pushToast);
-  const [config, setConfig] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  const reload = useCallback(() => {
-    fetchVMFirewall(vmName).then(setConfig).catch((e) => pushToast({ kind: "error", title: "Erreur pare-feu", message: e.message }));
-  }, [vmName, pushToast]);
-
-  useEffect(() => { reload(); }, [vmName, reload]);
-
-  if (!config) return null;
-
-  function updateRule(i, patch) {
-    setConfig((c) => ({ ...c, rules: c.rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) }));
-  }
-  function addRule() {
-    setConfig((c) => ({ ...c, rules: [...c.rules, { action: "accept", direction: "in", protocol: "tcp", port: null }] }));
-  }
-  function removeRule(i) {
-    setConfig((c) => ({ ...c, rules: c.rules.filter((_, idx) => idx !== i) }));
-  }
-
-  async function handleSave() {
-    setBusy(true);
-    try {
-      await setVMFirewall(vmName, config);
-      pushToast({ kind: "success", title: "Pare-feu appliqué", message: vmName });
-      await reload();
-    } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
-    } finally { setBusy(false); }
-  }
-
-  return (
-    <div className="card">
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-anthracite-600">
-        <ShieldCheck size={15} className="text-anthracite-400" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Pare-feu (nwfilter)</h3>
-        <select
-          className="input ml-auto w-40" disabled={!isAdmin}
-          value={config.default_policy} onChange={(e) => setConfig((c) => ({ ...c, default_policy: e.target.value }))}
-        >
-          <option value="accept">Par défaut : autoriser</option>
-          <option value="drop">Par défaut : bloquer</option>
-        </select>
-      </div>
-      <div className="divide-y divide-anthracite-600">
-        {config.rules.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucune règle -- tout le trafic suit la politique par défaut.</div>}
-        {config.rules.map((rule, i) => (
-          <div key={i} className="flex items-center gap-2 px-4 py-2 text-sm">
-            <select className="input w-28" disabled={!isAdmin} value={rule.action} onChange={(e) => updateRule(i, { action: e.target.value })}>
-              <option value="accept">Autoriser</option>
-              <option value="drop">Bloquer</option>
-            </select>
-            <select className="input w-24" disabled={!isAdmin} value={rule.direction} onChange={(e) => updateRule(i, { direction: e.target.value })}>
-              <option value="in">Entrant</option>
-              <option value="out">Sortant</option>
-              <option value="inout">Les deux</option>
-            </select>
-            <select className="input w-24" disabled={!isAdmin} value={rule.protocol} onChange={(e) => updateRule(i, { protocol: e.target.value })}>
-              {PROTOCOLS.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
-            </select>
-            {(rule.protocol === "tcp" || rule.protocol === "udp") && (
-              <input
-                type="number" min={1} max={65535} placeholder="port" className="input w-24" disabled={!isAdmin}
-                value={rule.port ?? ""} onChange={(e) => updateRule(i, { port: e.target.value ? Number(e.target.value) : null })}
-              />
-            )}
-            {isAdmin && (
-              <button className="btn-danger ml-auto" onClick={() => removeRule(i)}><Trash2 size={13} /></button>
-            )}
-          </div>
-        ))}
-      </div>
-      {isAdmin && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-anthracite-600">
-          <button className="btn-secondary" onClick={addRule}><Plus size={13} /> Ajouter une règle</button>
-          <button className="btn-primary" disabled={busy} onClick={handleSave}><Save size={13} /> Appliquer</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function VMHardwareTab({ resource: vm }) {
   const isAdmin = useAuthStore(selectIsAdmin);
+  const fetchFirewall = useCallback(() => fetchVMFirewall(vm?.nom), [vm?.nom]);
+  const saveFirewall = useCallback((config) => setVMFirewall(vm?.nom, config), [vm?.nom]);
   if (!vm) return null;
 
   return (
@@ -305,7 +221,7 @@ export default function VMHardwareTab({ resource: vm }) {
 
       <DiskSection vmName={vm.nom} isAdmin={isAdmin} />
       <NetworkSection vmName={vm.nom} isAdmin={isAdmin} />
-      <FirewallSection vmName={vm.nom} isAdmin={isAdmin} />
+      <FirewallRulesEditor title="Pare-feu (nwfilter)" fetchConfig={fetchFirewall} saveConfig={saveFirewall} isAdmin={isAdmin} />
     </div>
   );
 }

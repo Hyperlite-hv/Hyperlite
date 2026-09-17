@@ -9,6 +9,8 @@ from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 from app.core.vm_builder import validate_name
 from app.core.error_messages import describe_exception
+from app.routers.vms import FirewallConfig, _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS
+from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 
 router = APIRouter(prefix="/networks", tags=["networks"])
 
@@ -106,6 +108,60 @@ def get_network(name: str, user: dict = Depends(get_current_user)):
         conn.close()
 
 
+# --- Pare-feu au niveau RESEAU (chantier 21, 2026-09-17) -- distinct du
+# pare-feu PAR VM (app/routers/vms.py, chantier 9, sous-systeme nwfilter) :
+# celui-ci s'applique au PONT du reseau entier (chaine FORWARD du noyau,
+# voir app/core/network_firewall.py pour le detail et pourquoi nwfilter ne
+# peut pas etre utilise a ce niveau -- verifie contre les schemas RNG de
+# libvirt). Reutilise volontairement le meme FirewallConfig/FirewallRule
+# que le pare-feu par VM : meme UI, meme validation, seule la cible
+# differe. Reserve aux admins (touche iptables au niveau de l'hote, pas
+# une VM individuelle).
+
+@router.get("/{name}/firewall")
+def get_network_firewall_route(name: str, user: dict = Depends(get_current_user)):
+    conn = open_conn()
+    try:
+        try:
+            conn.networkLookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Réseau '{name}' introuvable")
+        return get_network_firewall(name)
+    finally:
+        conn.close()
+
+
+@router.put("/{name}/firewall")
+def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depends(require_role("admin"))):
+    if payload.default_policy not in _FIREWALL_ACTIONS:
+        raise HTTPException(status_code=422, detail="default_policy doit être 'accept' ou 'drop'")
+    for rule in payload.rules:
+        if rule.action not in _FIREWALL_ACTIONS or rule.direction not in _FIREWALL_DIRECTIONS or rule.protocol not in _FIREWALL_PROTOCOLS:
+            raise HTTPException(status_code=422, detail=f"Règle invalide : {rule}")
+
+    conn = open_conn()
+    try:
+        try:
+            conn.networkLookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_network_firewall", name, "echec", "Réseau introuvable")
+            raise HTTPException(status_code=404, detail=f"Réseau '{name}' introuvable")
+
+        try:
+            result = apply_network_firewall(conn, name, payload.model_dump())
+        except ValueError as e:
+            log_action(user["username"], "set_network_firewall", name, "echec", str(e))
+            raise HTTPException(status_code=422, detail=str(e))
+        except RuntimeError as e:
+            log_action(user["username"], "set_network_firewall", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+        log_action(user["username"], "set_network_firewall", name, "succes", f"{len(payload.rules)} règle(s), pont {result['pont']}")
+        return {"message": f"Pare-feu appliqué au réseau '{name}' (pont {result['pont']})", **payload.model_dump()}
+    finally:
+        conn.close()
+
+
 # --- Creation/suppression de reseaux virtuels (chantier 9 de la roadmap
 # vSphere/vCenter, 2026-09-13) -- equivalent simplifie des vSwitch/Port
 # Groups : un reseau libvirt = l'equivalent d'un port group relie a un
@@ -160,7 +216,16 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
                 if not (_valid_ipv4(payload.dhcp_start) and _valid_ipv4(payload.dhcp_end)):
                     raise HTTPException(status_code=422, detail="dhcp_start/dhcp_end invalides")
                 dhcp_xml = f"<dhcp><range start='{payload.dhcp_start}' end='{payload.dhcp_end}'/></dhcp>"
-            bridge_dev = f"virbr-{payload.name[:10]}"
+            # BUG REEL trouve en testant le chantier 21 (2026-09-17) :
+            # "virbr-" (6) + name[:10] (10) = jusqu'a 16 caracteres, un de
+            # plus que la limite reelle du noyau pour un nom d'interface
+            # Linux (IFNAMSIZ=16 OCTETS INCLUANT LE NUL, donc 15 caracteres
+            # utilisables) -- tout nom de reseau de 10+ caracteres faisait
+            # echouer la creation avec "error creating bridge interface...
+            # Numerical result out of range" (ENAMETOOLONG traduit par
+            # libvirt), reproduit avec "hltest-uifw" (11 caracteres).
+            # Corrige : name[:9], 6+9=15, tient toujours dans la limite.
+            bridge_dev = f"virbr-{payload.name[:9]}"
             net_xml = f"""
             <network>
               <name>{payload.name}</name>
@@ -221,6 +286,15 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
         if not confirm:
             log_action(user["username"], "delete_network", name, "echec", "Confirmation manquante")
             raise HTTPException(status_code=400, detail="Ajoutez ?confirm=true pour confirmer la suppression")
+
+        # Nettoie le pare-feu reseau (chantier 21) AVANT de detruire le
+        # reseau -- remove_network_firewall a besoin de relire le pont
+        # depuis le XML libvirt encore en place pour retirer proprement le
+        # saut depuis HYPERLITENETFW.
+        try:
+            remove_network_firewall(conn, name)
+        except Exception as e:
+            print(f"[network_firewall] nettoyage échoué pour '{name}' (suppression poursuivie) : {e!r}", flush=True)
 
         try:
             if net.isActive():
