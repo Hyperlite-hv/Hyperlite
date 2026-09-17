@@ -96,7 +96,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 28 | Notifications sortantes (email/webhook) | ✅ dans `master` — `app/core/notifications.py`, point d'entree unique via `log_action()` (voir section dédiée) : couvre automatiquement node_statut_change/ha_alert/create_vm/delete_vm/migrate_vm/backup_vm/restore_backup/hyperlite_update sans toucher leurs sites d'appel. Onglet Notifications (Datacenter). Testé réellement avec un vrai récepteur webhook local (déclenchement automatique ET bouton "Tester" confirmés) |
 | 29 | Politique de rétention des sauvegardes | ✅ dans `master` — **en fait déjà partiellement implémentée depuis le chantier 13** (`retention_count`, "garder les N plus récentes"), mais seulement pour les sauvegardes planifiées ; un backup manuel n'était jamais purgé. Corrigé + 3 bugs de concurrence réels trouvés en testant, voir section dédiée |
 | 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui JWT de session uniquement, pas de second facteur, pas de jeton dédié à l'automatisation (Terraform/scripts) |
-| 31 | Robustesse SQLite : audit log asynchrone | ⬜ pas commencé — trouvé en testant le chantier 29 (2026-09-17), **a réellement affecté l'utilisateur en session active**. `log_action()` est appelée par la quasi-totalité des endpoints, y compris les simples `GET` en lecture seule — il n'existe presque pas de "lecteur pur" dans cette app, chaque requête HTTP est aussi une écriture SQLite. Le mode WAL (chantier 11/13) résout lecteur-contre-écrivain, pas écrivain-contre-écrivain (un seul écrivain à la fois même en WAL) — sous charge concurrente réelle, `database is locked` peut ressurgir malgré le timeout 30s déjà en place. Piste : file d'écriture asynchrone pour l'audit log (thread dédié + queue) plutôt que l'INSERT synchrone dans la requête elle-même |
+| 31 | Robustesse SQLite : audit log asynchrone | ✅ dans `master` — `app/core/audit.py` : un thread dédié possède désormais l'écriture de `audit_log` (file + `queue.Queue`), chaque requête dépose son entrée et repart immédiatement au lieu d'écrire SQLite elle-même. Clôture de tâche (`task_id`) restée synchrone (des appelants relisent le statut juste après). Notifications (chantier 28) aussi passées en arrière-plan (réseau, jusqu'à 10s de timeout par canal — ne doit jamais bloquer la réponse HTTP). **Testé réellement** : 20 requêtes concurrentes puis création VM + sauvegarde + 15 lectures concurrentes, zéro `database is locked` dans les deux cas (le scénario exact qui avait fait planter le dashboard réel d'Antho pendant le test du chantier 29) |
 
 **Chantier 7, en attente d'un usage réel** : le système de mise à jour
 actuel est basé sur `git pull`. Antho a demandé, une fois la liste
@@ -106,7 +106,9 @@ Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 **Séquencement demandé le 2026-09-17 ("va au-delà de Proxmox", implémenter
 étape par étape avec tests à chaque fois)** : 26 (stockage partagé) ✅ → 27
 (migration à chaud) ✅ → 17 (HA, dépend de 26/27 pour avoir du sens réel) ✅ →
-28 (notifications) ✅ → 29 (rétention sauvegardes) ✅ → **30 (2FA + jetons API) ← prochain** →
+28 (notifications) ✅ → 29 (rétention sauvegardes) ✅ → 31 (audit log
+asynchrone, inséré ici sur demande explicite d'Antho le 2026-09-17 après
+avoir impacté sa session active) ✅ → **30 (2FA + jetons API) ← prochain** →
 21 (pare-feu datacenter) → 19 (nettoyage VM inactives) → 20 (SSO) → 16
 (doc récap, en dernier). Si tu reprends cette session : regarde d'abord
 quel chantier de cette liste a le statut le plus avancé dans le tableau
