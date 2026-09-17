@@ -94,8 +94,9 @@ de 16 chantiers triés par charge de travail croissante.
 | 26 | Stockage réseau partagé (pools NFS) | ✅ dans `master` — `POST`/`DELETE /storage` (pools `dir`/`netfs`), UI dans l'onglet Stockage. Testé de bout en bout avec un vrai serveur NFS (curl + UI). 2 bugs préexistants trouvés en testant : `POOL_STATE_NAMES` désynchronisé de l'énum libvirt réelle (tous les pools actifs s'affichaient "en_construction"), `mapPool()` qui codait `type` en dur à `"dir"` côté frontend — corrigés |
 | 27 | Migration à chaud de VM entre nœuds | ✅ dans `master` — `POST /vms/{name}/migrate` (admin uniquement), bouton "Migrer" dans l'onglet Résumé de la VM. **Testé réellement de bout en bout entre kvm-lab et serveur-antho (deux vraies machines physiques, sites différents, via Tailscale)** : une VM active a réellement migré à chaud, vérifié des deux côtés (`virsh list`). Voir la section dédiée plus bas pour le détail des 5 bugs réels trouvés en testant et la limite connue (sens nœud distant → kvm-lab non supporté) |
 | 28 | Notifications sortantes (email/webhook) | ✅ dans `master` — `app/core/notifications.py`, point d'entree unique via `log_action()` (voir section dédiée) : couvre automatiquement node_statut_change/ha_alert/create_vm/delete_vm/migrate_vm/backup_vm/restore_backup/hyperlite_update sans toucher leurs sites d'appel. Onglet Notifications (Datacenter). Testé réellement avec un vrai récepteur webhook local (déclenchement automatique ET bouton "Tester" confirmés) |
-| 29 | Politique de rétention des sauvegardes | ⬜ pas commencé — demandé le 2026-09-17. Le chantier 13 fait des sauvegardes complètes mais sans purge automatique (garder N quotidiennes/hebdo/mensuelles) |
+| 29 | Politique de rétention des sauvegardes | ✅ dans `master` — **en fait déjà partiellement implémentée depuis le chantier 13** (`retention_count`, "garder les N plus récentes"), mais seulement pour les sauvegardes planifiées ; un backup manuel n'était jamais purgé. Corrigé + 3 bugs de concurrence réels trouvés en testant, voir section dédiée |
 | 30 | Sécurité du compte : 2FA (TOTP) + jetons API | ⬜ pas commencé — demandé le 2026-09-17. Aujourd'hui JWT de session uniquement, pas de second facteur, pas de jeton dédié à l'automatisation (Terraform/scripts) |
+| 31 | Robustesse SQLite : audit log asynchrone | ⬜ pas commencé — trouvé en testant le chantier 29 (2026-09-17), **a réellement affecté l'utilisateur en session active**. `log_action()` est appelée par la quasi-totalité des endpoints, y compris les simples `GET` en lecture seule — il n'existe presque pas de "lecteur pur" dans cette app, chaque requête HTTP est aussi une écriture SQLite. Le mode WAL (chantier 11/13) résout lecteur-contre-écrivain, pas écrivain-contre-écrivain (un seul écrivain à la fois même en WAL) — sous charge concurrente réelle, `database is locked` peut ressurgir malgré le timeout 30s déjà en place. Piste : file d'écriture asynchrone pour l'audit log (thread dédié + queue) plutôt que l'INSERT synchrone dans la requête elle-même |
 
 **Chantier 7, en attente d'un usage réel** : le système de mise à jour
 actuel est basé sur `git pull`. Antho a demandé, une fois la liste
@@ -105,7 +106,7 @@ Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 **Séquencement demandé le 2026-09-17 ("va au-delà de Proxmox", implémenter
 étape par étape avec tests à chaque fois)** : 26 (stockage partagé) ✅ → 27
 (migration à chaud) ✅ → 17 (HA, dépend de 26/27 pour avoir du sens réel) ✅ →
-28 (notifications) ✅ → **29 (rétention sauvegardes) ← prochain** → 30 (2FA + jetons API) →
+28 (notifications) ✅ → 29 (rétention sauvegardes) ✅ → **30 (2FA + jetons API) ← prochain** →
 21 (pare-feu datacenter) → 19 (nettoyage VM inactives) → 20 (SSO) → 16
 (doc récap, en dernier). Si tu reprends cette session : regarde d'abord
 quel chantier de cette liste a le statut le plus avancé dans le tableau
@@ -641,3 +642,66 @@ Mot de passe SMTP stocke en clair dans `notification_channels.config`
 (voir `.env` pour le secret JWT), reserve aux admins, meme niveau de
 confiance que le reste de la config serveur. A revisiter si Hyperlite
 gagne un jour un vrai coffre-fort de secrets.
+
+## Chantier 29 : rétention des sauvegardes (2026-09-17)
+
+**Découverte en reprenant ce chantier : il était en fait déjà PARTIELLEMENT
+fait depuis le chantier 13** (`retention_count` existait deja dans le
+schema `backup_jobs`, `_apply_retention()` existait deja dans
+`app/core/backups.py`) -- correction de mon propre diagnostic precedent
+("aucune purge automatique") qui etait inexact. Ce qui manquait
+reellement : la retention n'etait appliquee QUE par le planificateur
+(`_scheduler_loop`), jamais pour un backup MANUEL (`POST
+/vms/{name}/backups`, sans `job_id`) -- une VM sauvegardee ponctuellement
+a la main (avec ou sans job planifie configure par ailleurs) accumulait
+des backups sans aucune limite. Corrige : `_apply_retention()` prend
+maintenant `vm_name` (pas `job_id`) et s'applique a TOUTES les sauvegardes
+de cette VM, appelee directement depuis `run_backup()` (couvre manuel ET
+planifie au meme endroit) -- ne fait rien si aucun `backup_jobs` n'est
+configure pour cette VM (pas de politique = pas de limite imposee).
+
+**3 bugs de concurrence REELS trouves en testant** (4 backups manuels
+declenches en rafale sur la meme VM) -- **ont impacte l'utilisateur reel
+en session active pendant le test** (erreurs 500 visibles sur
+`GET /networks`/`GET /storage`/`GET /vms` cote dashboard reel) :
+1. `sqlite3.OperationalError: database is locked`, malgre le mode WAL +
+   timeout 30s deja en place (chantier 11/13). **Cause racine identifiee** :
+   `log_action()` est appelee par la quasi-totalite des endpoints, MEME
+   les simples GET en lecture seule (ex. `list_networks` logge
+   `"list_networks"` a chaque appel) -- autrement dit, il n'existe quasiment
+   pas de "lecteur pur" dans cette app, chaque requete HTTP est AUSSI une
+   ecriture. Le mode WAL resout la contention LECTEUR-contre-ECRIVAIN,
+   PAS ecrivain-contre-ecrivain (un seul ecrivain a la fois, meme en WAL)
+   -- sous forte concurrence (plusieurs endpoints + un backup qui ecrit sa
+   progression frequemment), plusieurs "ecrivains" se bousculent reellement.
+   **Corrige partiellement** : backups serialises (`_backup_lock`, un seul
+   a la fois sur tout le serveur -- sense de toute facon, plusieurs
+   `qemu-img convert` simultanes sur le meme disque hote se battraient
+   deja pour la bande passante I/O) + throttle des ecritures de
+   progression (`qemu_img_convert_with_progress` n'ecrit plus que si le
+   pourcentage arrondi a change ET qu'au moins 0.5s s'est ecoulee --
+   qemu-img -p emet des lignes de progression tres frequemment, chacune
+   etait une ecriture SQLite). **PAS resolu completement** : le probleme
+   de fond (`log_action()` sur les endpoints en lecture) reste entier et
+   peut resurgir sous forte charge meme sans backup en cours -- **limite
+   connue, a traiter dans un futur chantier dedie** (ecriture d'audit
+   asynchrone/mise en file plutot que synchrone dans la requete, ou
+   separer une vraie connexion lecture seule qui ne logge pas). Verifie
+   apres correctif : rafale de 6 requetes concurrentes + 1 backup, plus
+   aucune erreur "locked" observee dans ce scenario reduit (le test a 4
+   backups simultanes n'a pas ete repete a l'identique pour eviter de
+   perturber davantage la session active de l'utilisateur reel).
+2. Processus `qemu-img` zombies (`<defunct>`, confirmes via `ps aux`) --
+   consequence directe du bug 1 : une exception `database is locked`
+   levee DANS la boucle de lecture de `update_task_progress()` faisait
+   sortir la fonction sans jamais atteindre `proc.wait()`, abandonnant le
+   processus enfant deja termine sans le "reaper". Corrige avec un
+   try/finally : `proc.wait()` se produit desormais TOUJOURS, quelle que
+   soit l'exception qui interrompt la lecture de la progression.
+3. (Lie au bug 1, meme cause) Une tache de backup pouvait rester bloquee
+   "en_cours" indefiniment si l'exception survenait apres la creation de
+   la ligne `backups` mais avant sa cloture -- couvert par le meme
+   try/finally + le `except Exception` deja present dans `run_backup`.
+
+Compte de test, VM de test, planification et sauvegardes de test
+supprimes a la fin (verifie : fichiers sur disque ET lignes en base).
