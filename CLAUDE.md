@@ -82,7 +82,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 14 | Onglet Automation (moteur de jobs) | ✅ dans `master` |
 | 15 | Multi-nœuds (qemu+ssh://) | ✅ dans `master` — testé en boucle sur kvm-lab lui-même (pas de second hôte disponible), pas de vrai test inter-sites |
 | 16 | Document récapitulatif final (PDF/Markdown) | ⬜ pas commencé — à faire en dernier |
-| 17 | Onglet HA (Load Balancing, Ceph) | ⬜ pas commencé — demandé le 2026-09-13. Dépend largement du chantier 15 (multi-nœuds) pour avoir du sens |
+| 17 | HA basique (détection panne nœud + récupération manuelle) | ✅ dans `master` — **scope volontairement prudent, PAS de fencing/STONITH** (voir section dédiée plus bas) : détecte un nœud tombé et alerte, la récupération reste toujours déclenchée par un admin, jamais automatique. **Testé réellement de bout en bout** sur kvm-lab + serveur-antho (panne simulée, alerte confirmée, VM protégée récupérée avec succès sur l'autre nœud, disque partagé intact) |
 | 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ dans `master` — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur) **ou image Docker Hub/registre OCI au choix** (`skopeo`+`umoci`, pas de démon Docker requis ; bootstrap post-pull systemd+openssh+sudo côté apt, openrc+openssh+sudo côté apk, création des nœuds `/dev` manquants — testé réellement sur `alpine:3.19` et `debian:12`), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié + champ de sélection d'image dans les deux formulaires de création. **systemd-networkd, pas ifupdown/isc-dhcp-client** (côté apt) : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). Pas encore fait : snapshots/clonage de conteneur, ACL granulaire (réservé admin pour l'instant), galerie de templates visuelle |
 | 23 | Export/Import de VM depuis un fichier disque | ✅ dans `master` — bouton "Exporter le disque" (menu d'actions VM, disque système uniquement, chaud ou froid selon l'état, réutilise le mécanisme du chantier 13), onglet Datacenter > Exports (liste/télécharge/supprime, téléchargement par ticket à usage unique), option "Importer un disque existant" dans le formulaire de création de VM (upload + sélection). Bug réel trouvé et corrigé en testant : un disque importé garde le netplan MAC-épinglé de son tout premier démarrage (cloud-init) — nouvelle MAC = plus aucune interface ne correspond, réseau mort. Corrigé via un ISO de "reseed" cloud-init (nouvel instance-id, même mécanisme que le clonage chantier 5) qui force cloud-init à régénérer son réseau. Testé réellement de bout en bout (export à chaud + import + SSH fonctionnel) |
 | 24 | Refonte tableau de bord + barre latérale façon Proxmox VE | ✅ dans `master` — rail de navigation (`SidebarRail.jsx`) ajouté à gauche de l'arbre Datacenter/Nœud/VM existant (purement additif, l'arbre reste les raccourcis VM), calqué sur les onglets Datacenter réels seulement (pas la liste complète de Proxmox). Nouvel onglet "Activité récente" (table `tasks` existante, pas encore exposée au niveau Datacenter). "Statut des VM" devient une vraie liste sur les états réels d'un domaine libvirt. **Pas de vérification visuelle possible depuis cette session (pas de navigateur connecté) — à confirmer par Antho** |
@@ -103,9 +103,9 @@ terminée, de le remplacer par quelque chose de plus proche du système de
 Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 
 **Séquencement demandé le 2026-09-17 ("va au-delà de Proxmox", implémenter
-étape par étape avec tests à chaque fois)** : 26 (stockage partagé) → 27
-(migration à chaud) → 17 (HA, dépend de 26/27 pour avoir du sens réel) →
-28 (notifications) → 29 (rétention sauvegardes) → 30 (2FA + jetons API) →
+étape par étape avec tests à chaque fois)** : 26 (stockage partagé) ✅ → 27
+(migration à chaud) ✅ → 17 (HA, dépend de 26/27 pour avoir du sens réel) ✅ →
+**28 (notifications) ← prochain**  → 29 (rétention sauvegardes) → 30 (2FA + jetons API) →
 21 (pare-feu datacenter) → 19 (nettoyage VM inactives) → 20 (SSO) → 16
 (doc récap, en dernier). Si tu reprends cette session : regarde d'abord
 quel chantier de cette liste a le statut le plus avancé dans le tableau
@@ -505,3 +505,100 @@ le font). Deja documente comme limitation deliberee du chantier 15/24
 ("visibilite seulement"), reconfirme ici en la percutant reellement --
 pas un nouveau bug, juste la preuve que la limite documentee est toujours
 d'actualite.
+
+## Chantier 17 : haute disponibilite basique (2026-09-17)
+
+**Scope volontairement prudent, PAS de fencing/STONITH.** Aucun mecanisme
+n'empeche un nœud "detecte hors ligne" d'etre en fait toujours vivant,
+juste injoignable (coupure reseau, libvirtd plante mais la VM tourne
+encore...). Sans fencing, redemarrer AUTOMATIQUEMENT une VM protegee
+ailleurs alors que l'original tourne encore sur le MEME disque partage
+causerait une vraie corruption de donnees. Hyperlite se limite donc a
+DETECTER (reutilise le poller existant de `cluster.py::_poll_nodes`) et
+ALERTER clairement -- la recuperation reste TOUJOURS declenchee par un
+admin humain (`POST /ha/{vm}/recover`), jamais automatique. Protection
+EXIGE que tous les disques de la VM soient deja sur un pool de stockage
+partage (chantier 26).
+
+Nouveau : `app/core/ha.py` (logique), `app/routers/ha.py` (endpoints
+`GET /ha`, `POST /ha/{vm}/enable`, `DELETE /ha/{vm}`,
+`POST /ha/{vm}/recover`), table `ha_protected_vms` (cache le XML du
+domaine + le nœud, resynchronise a chaque cycle du poller PENDANT que le
+nœud est joignable -- seul moyen d'avoir une config a redefinir ailleurs
+le jour ou il tombe vraiment). Onglet "HA" au niveau Datacenter + bouton
+"Protéger (HA)" sur la fiche de chaque VM.
+
+**Testé réellement de bout en bout** entre kvm-lab et serveur-antho (VM
+de test sur un pool NFS partagé entre les deux) :
+- Panne simulee (`systemctl stop libvirtd` sur serveur-antho, le
+  processus qemu de la VM continue de tourner independamment) : le
+  poller a detecte le nœud "hors_ligne" en ~35s, l'alerte HA est apparue
+  correctement dans l'audit et dans `GET /ha`.
+- **Premiere tentative de recuperation refusee par QEMU lui-meme**
+  ("Failed to get 'write' lock... Is another process using the image?")
+  -- exactement le garde-fou attendu : le processus qemu original tournait
+  ENCORE sur serveur-antho (libvirtd coupe, pas le processus lui-meme),
+  donc demarrer la meme VM ailleurs sur le meme disque aurait cause une
+  vraie corruption. La protection anti-split-brain de QEMU lui-meme a
+  fonctionne comme un filet de securite supplementaire, meme dans un
+  scenario ou l'admin aurait recupere sur un faux positif.
+- Une fois le processus original reellement arrete, **recuperation
+  reussie** : VM redefinie et demarree sur kvm-lab avec le disque partage
+  intact, sans aucune copie.
+
+**2 bugs reels trouves en testant** (en plus des bugs de montage NFS
+listes ci-dessous, trouves au meme moment) :
+1. Le XML du domaine ACTIF mis en cache (`domain.XMLDesc(0)`) contient un
+   type de machine et un CPU deja RESOLUS en versions concretes propres
+   au nœud qui faisait tourner la VM (ex. `machine='pc-i440fx-10.0'`,
+   `cpu mode='custom'` avec des dizaines de `feature policy='require'`)
+   -- la redefinition echoue sur un autre nœud avec une version de
+   QEMU/CPU differente ("does not support machine type" / "Host CPU does
+   not provide required features"). Corrige avec `_portable_xml()`
+   (`app/core/ha.py`) qui ramene le type de machine a l'alias generique
+   `pc` et le CPU a `host-model` avant la mise en cache -- sacrifie
+   l'optimisation de migrabilite du chantier 27 pour maximiser les
+   chances qu'une recuperation D'URGENCE reussisse (le seul but de ce
+   cache).
+2. `POST /vms`/`POST /vms/{name}/stop`/`DELETE /vms/{name}` n'acceptent
+   toujours pas de parametre `node` (confirme en re-percutant la limite
+   deja documentee du chantier 15/24) -- impossible de creer/nettoyer une
+   VM de test sur un nœud distant via l'API standard, il a fallu passer
+   par des appels libvirt directs pour le test. **Consequence reelle plus
+   large** : sans un moyen de choisir le pool de stockage a la creation
+   d'une VM (non plus expose aujourd'hui), personne ne peut realistiquement
+   utiliser la protection HA sans deplacer un disque a la main en dehors
+   de l'UI -- lacune a combler dans un futur chantier (choix du pool +
+   actions VM multi-nœuds), documentee ici plutot que laissee invisible.
+
+**2 bugs NFS reels trouves en testant un partage reellement inter-machines**
+(kvm-lab <-> serveur-antho, pas juste en boucle sur kvm-lab comme le test
+initial du chantier 26) -- corriges dans `app/routers/storage.py::_build_pool_xml` :
+1. Sur un client NFS Debian 13/trixie (serveur-antho), le montage echoue
+   systematiquement avec "NFS: mount program didn't pass remote address"
+   -- meme un `mount(8)` manuel sans l'option `addr=` echoue pareil,
+   avec elle il reussit. Semble etre une regression du chemin de montage
+   recent (fsconfig/nouvelle API de montage du noyau). Ajoutee
+   systematiquement, inoffensive sur un client plus ancien.
+2. Meme avec `addr=`, le montage echouait ensuite avec "NFS: Version
+   unavailable" -- la negociation automatique de version NFS echoue sur
+   ce client. `vers=4.2` ajoute explicitement.
+3. **Piege XML rencontre en corrigeant les deux points ci-dessus** :
+   l'element libvirt qui porte ces options s'appelle `mount_opts` (PAS
+   `mountopts`) et vit dans son PROPRE espace de noms XML
+   (`http://libvirt.org/schemas/storagepool/fs/1.0`, verifie dans
+   `/usr/share/libvirt/schemas/storagepool.rng` sur cette machine, pas
+   dans la documentation en ligne). Un premier essai via
+   `ET.SubElement(pool_el, "{namespace}mount_opts")` produisait un XML
+   syntaxiquement valide (`<pool xmlns:ns0="..."><ns0:mount_opts>`) mais
+   **silencieusement ignore par libvirt** (verifie : l'element etait
+   absent du XML relu juste apres `defineXML()`, sans aucune erreur).
+   Seule la forme "xmlns=... declare directement SUR l'element" (espace
+   de noms par defaut LOCAL, pas un prefixe racine) est effectivement
+   prise en compte -- `ElementTree` ne genere jamais cette forme precise,
+   corrige en assemblant ce fragment comme une chaine (valeurs deja
+   validees/resolues, jamais du texte utilisateur brut) plutot que via
+   `ET.SubElement`.
+
+Compte de test, VM de test, pools NFS et export supprimes des deux
+nœuds a la fin des tests.
