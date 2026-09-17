@@ -1,0 +1,76 @@
+#!/bin/bash
+# Publication automatique du depot APT (chantier 7bis, 2026-09-17) --
+# meme principe que l'infrastructure de build INTERNE de Proxmox : la cle
+# de signature GPG ne quitte JAMAIS cette machine (kvm-lab), aucune CI
+# tierce (GitHub Actions...) n'y a jamais acces. En echange, rien a
+# retenir manuellement : ce hook se declenche automatiquement des que
+# `master` avance sur kvm-lab (apres `git pull`, y compris un simple
+# fast-forward -- comportement standard de post-merge).
+#
+# Installation (pas automatique, `.git/hooks/` n'est jamais suivi par
+# Git) :
+#   ln -sf ../../scripts/git-hooks/post-merge /root/hyperlite/.git/hooks/post-merge
+#   chmod +x /root/hyperlite/.git/hooks/post-merge
+#
+# Version generee automatiquement (horodatage a la minute) plutot que de
+# compter sur un chantier qui penserait a incrementer VERSION a la main --
+# chaque commit distinct sur master obtient sa propre version publiee.
+# Tourne en ARRIERE-PLAN (detache du process git lui-meme) : un `git pull`
+# ne doit jamais rester bloque une minute+ le temps du build+signature.
+
+REPO_DIR="$(git rev-parse --show-toplevel)"
+cd "$REPO_DIR" || exit 0
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+[ "$BRANCH" != "master" ] && exit 0
+
+(
+    LOG="/root/hyperlite-backups/apt-publish.log"
+    mkdir -p /root/hyperlite-backups
+    MARKER="$REPO_DIR/.last-published-commit"
+    CURRENT_COMMIT="$(git rev-parse HEAD)"
+
+    # Deja publie pour ce commit exact -- evite un rebuild/republish inutile
+    # si post-merge se declenche plusieurs fois sans nouveau contenu reel
+    # (ex. un `git pull` qui ne rapporte rien de neuf).
+    if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$CURRENT_COMMIT" ]; then
+        exit 0
+    fi
+
+    {
+        echo "[post-merge $(date -u +%FT%TZ)] Nouveau commit master ($CURRENT_COMMIT), publication automatique..."
+
+        echo "$(date -u +%Y.%m.%d.%H%M)" > VERSION
+
+        bash installer/build-deb.sh
+        bash installer/build-apt-repo.sh
+
+        # Republie sur gh-pages via un worktree temporaire (meme mecanique
+        # que la publication initiale du chantier 7bis).
+        WORKTREE="$(mktemp -d)"
+        git worktree add "$WORKTREE" gh-pages
+        rsync -a --delete --exclude=.git installer/apt-repo/ "$WORKTREE/"
+        (
+            cd "$WORKTREE" || exit 1
+            if ! git diff --quiet || [ -n "$(git status --porcelain)" ]; then
+                git add -A
+                git commit -m "Publication automatique $(cat "$REPO_DIR/VERSION") (post-merge kvm-lab, commit ${CURRENT_COMMIT:0:8})" --quiet
+                git push origin gh-pages
+            fi
+        )
+        git worktree remove "$WORKTREE" --force
+
+        # Committe le bump de VERSION sur master lui-meme -- SANS CA, kvm-lab
+        # resterait avec un arbre de travail "sale" (VERSION modifie mais pas
+        # commite) en permanence, ce qui casserait silencieusement le bouton
+        # de mise a jour EXISTANT de kvm-lab (mode Git, _is_dirty() bloque
+        # toute mise a jour des que le moindre fichier est modifie).
+        git add VERSION
+        git commit -m "Version $(cat VERSION) (publication automatique post-merge)" --quiet
+        git push origin master --quiet
+
+        git rev-parse HEAD > "$MARKER"
+        echo "[post-merge] Dépôt APT republié avec succès : version $(cat VERSION)"
+    } >> "$LOG" 2>&1
+) &
+disown
