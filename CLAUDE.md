@@ -1076,3 +1076,72 @@ corrige dans cette passe -- a traiter si ca se presente reellement.
 
 VM de test et paquets/versions de test (`.1`, `.2`) supprimes a la fin ;
 seule la version reelle `2026.09.17` reste publiee sur `gh-pages`.
+
+### Durcissement post-chantier (2026-09-17, meme jour) : adoption reelle + bugs trouves
+
+Antho a demande explicitement de durcir ce mecanisme ("il faut absolument
+bosser sur tout ces points... comme proxmox") apres l'avoir adopte pour de
+vrai sur **serveur-antho** (premiere machine EN PRODUCTION migree du
+mecanisme Git vers `apt`, pas juste une VM jetable).
+
+**Adoption reelle sur serveur-antho** : sauvegarde complete prise AVANT
+tout (`pre-apt-adoption-*.tar.gz`, stockee localement sur la machine),
+depot+cle ajoutes, `apt install hyperlite` (premiere installation cote
+dpkg, "mise a jour" cote postinst puisque `.env` existait deja -- secrets
+preserves, confirme en se reconnectant avec le meme mot de passe apres),
+`.git` renomme (`.git.bak-preapt-<date>`, pas supprime) pour que
+`_install_method()` detecte enfin "apt" au lieu de "git". Aucune VM
+n'etait active sur ce nœud au moment de l'operation (verifie avant de
+commencer) -- risque reel limite a l'interface Hyperlite elle-meme, pas a
+des charges de travail en production.
+
+**Bug reel trouve en testant sur cette machine precise** (premiere en
+locale FRANCAISE, contrairement a la VM de test precedente) :
+`apt-cache policy` traduit ses champs (`Candidat :` au lieu de
+`Candidate:`), donc `_check_update_apt()` echouait SILENCIEUSEMENT --
+`a_jour` toujours faux, aucune erreur visible, juste une detection qui ne
+marchait jamais. Corrige en forcant `LC_ALL=C`/`LANG=C` sur toute commande
+apt/dpkg dont CE FICHIER analyse la sortie -- `dpkg-query -f='...'` n'etait
+pas concerne (deja machine-readable) mais force aussi par coherence.
+**Testé réellement sur la machine ou le bug a ete trouve** : `serveur-antho`
+mis a jour via le VRAI bouton (`POST /update/apply`, appele en HTTP comme
+le ferait l'UI) vers la version corrigee, `/update/check` rapporte
+ensuite correctement `a_jour: true`. Fait interessant observe en testant :
+la tache de mise a jour est restee `en_cours` a 5% pendant ~4 minutes 30
+(pas bloquee -- le `tar` de sauvegarde d'un `/root/hyperlite` de plusieurs
+Go, avec de vraies ISO/data dessus, prend simplement du temps sur cette
+machine reelle) ; verifie en observant le processus `tar` reellement actif
+via `ps aux` avant de conclure que ce n'etait pas un vrai blocage.
+
+**Publication automatique** (point 2 des lacunes identifiees) :
+`scripts/git-hooks/post-merge` -- **jamais de CI tierce (GitHub Actions)
+pour ca**, decision explicite avec Antho ("que fait Proxmox ? entre les
+deux ?") : Proxmox ne s'appuie pas non plus sur une CI publique, ils ont
+leur propre infrastructure de build qui signe elle-meme, la cle ne
+quittant jamais leurs machines. Meme principe ici : un hook Git **local a
+kvm-lab** (jamais suivi par Git, `.git/hooks/` est local par nature --
+installe via un symlink vers ce script trace, voir les instructions en
+tete de fichier) se declenche a chaque `git pull`/merge sur `master` : si
+le commit HEAD n'a pas deja ete publie (`.last-published-commit`, jamais
+commite), il genere une VERSION horodatee automatiquement (pas besoin
+qu'un chantier pense a l'incrementer a la main), reconstruit et republie
+le paquet+depot en ARRIERE-PLAN (detache, ne bloque jamais un `git pull`),
+puis **committe et pousse lui-meme** le bump de `VERSION` sur `master` --
+sans ca, l'arbre de travail de kvm-lab resterait "sale" en permanence
+(`VERSION` modifie non commite), ce qui aurait cassé SILENCIEUSEMENT le
+bouton de mise a jour EXISTANT de kvm-lab (mode Git, `_is_dirty()` bloque
+tout des que le moindre fichier est modifie -- consequence identifiee et
+evitee AVANT de tester, pas decouverte apres coup).
+
+**Reste a faire pour un vrai "comme Proxmox" complet** (pas traite dans
+cette passe, documente pour la suite) :
+- L'ISO d'installation (`installer/build-iso.sh`/`preseed.cfg`) embarque
+  toujours l'ancien mecanisme (code + `.git`, mise a jour via `git pull`)
+  -- une appliance fraiche installee aujourd'hui depuis l'ISO ne serait
+  PAS sur `apt`. Migrer l'installeur lui-meme reste a faire.
+- Cle de signature GPG sans phrase de passe, stockee uniquement sur
+  kvm-lab (`/root/.hyperlite-apt-gpg`) -- acceptable pour un usage perso
+  (et coherent avec le choix "jamais sur une CI tierce" ci-dessus), a
+  reconsiderer avant de distribuer ce depot a des tiers.
+- Pas d'interface pour revenir a une version anterieure precise (possible
+  en ligne de commande `apt install hyperlite=<version>`, rien dans l'UI).
