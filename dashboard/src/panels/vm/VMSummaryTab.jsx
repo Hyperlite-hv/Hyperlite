@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Play, Square, Power, RotateCw, Trash2, Copy, Layers, ArrowRightLeft, ShieldCheck, ShieldOff } from "lucide-react";
+import { Play, Square, Power, RotateCw, Trash2, Copy, Layers, ArrowRightLeft, ShieldCheck, ShieldOff, Timer } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricChart from "../../components/MetricChart";
 import MetricsHistoryCard from "../../components/MetricsHistoryCard";
@@ -12,7 +12,10 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { chartColors } from "../../theme/colors";
 import { formatUptime, formatMo, formatKbps } from "../../utils/format";
-import { cloneVM, createTemplateFromVM, migrateVM, fetchHaProtected, enableHa, disableHa } from "../../api/client";
+import {
+  cloneVM, createTemplateFromVM, migrateVM, fetchHaProtected, enableHa, disableHa,
+  fetchVMAutoCleanup, setVMAutoCleanup, disableVMAutoCleanup,
+} from "../../api/client";
 
 export default function VMSummaryTab({ resource: vm }) {
   const [confirm, setConfirm] = useState(null); // "stop" | "force-stop" | "delete" | null
@@ -21,6 +24,10 @@ export default function VMSummaryTab({ resource: vm }) {
   const [migrating, setMigrating] = useState(false);
   const [haProtected, setHaProtected] = useState(false);
   const [haBusy, setHaBusy] = useState(false);
+  const [autoCleanup, setAutoCleanup] = useState(null); // { active, inactive_days, ... } | null (chargement)
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupDays, setCleanupDays] = useState(7);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const loadAll = useInfraStore((s) => s.loadAll);
   const select = useInfraStore((s) => s.select);
@@ -61,6 +68,46 @@ export default function VMSummaryTab({ resource: vm }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [vm?.nom]);
+
+  // Chantier 19 : recharge le statut a chaque changement de VM (pas de
+  // liste globale comme la HA -- endpoint dedie par VM, voir
+  // app/routers/vms.py::get_vm_auto_cleanup_route).
+  useEffect(() => {
+    if (!vm?.nom) return;
+    let cancelled = false;
+    fetchVMAutoCleanup(vm.nom)
+      .then((c) => { if (!cancelled) { setAutoCleanup(c); if (c.active) setCleanupDays(c.inactive_days); } })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [vm?.nom]);
+
+  async function handleSetCleanup() {
+    setCleanupBusy(true);
+    try {
+      await setVMAutoCleanup(vm.nom, cleanupDays);
+      pushToast({ kind: "success", title: "Nettoyage automatique activé", message: `${vm.nom} -- ${cleanupDays} jour(s) d'inactivité` });
+      setAutoCleanup({ active: true, inactive_days: cleanupDays });
+      setCleanupOpen(false);
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec", message: e.message });
+    } finally {
+      setCleanupBusy(false);
+    }
+  }
+
+  async function handleDisableCleanup() {
+    setCleanupBusy(true);
+    try {
+      await disableVMAutoCleanup(vm.nom);
+      pushToast({ kind: "success", title: "Nettoyage automatique désactivé", message: vm.nom });
+      setAutoCleanup({ active: false });
+      setCleanupOpen(false);
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec", message: e.message });
+    } finally {
+      setCleanupBusy(false);
+    }
+  }
 
   async function handleToggleHa() {
     setHaBusy(true);
@@ -185,6 +232,13 @@ export default function VMSummaryTab({ resource: vm }) {
           >
             {haProtected ? <ShieldCheck size={14} /> : <ShieldOff size={14} />} {haBusy ? "..." : haProtected ? "Protégée HA" : "Protéger (HA)"}
           </button>
+          <button
+            className={autoCleanup?.active ? "btn-secondary text-status-warning" : "btn-secondary"}
+            title="Supprime automatiquement cette VM après N jours d'arrêt continu (une VM en marche n'est jamais concernée)"
+            onClick={() => setCleanupOpen((o) => !o)}
+          >
+            <Timer size={14} /> {autoCleanup?.active ? `Nettoyage auto (${autoCleanup.inactive_days}j)` : "Nettoyage auto"}
+          </button>
           <button className="btn-danger ml-auto" disabled={vm.etat === "actif"} onClick={() => setConfirm("delete")}>
             <Trash2 size={14} /> Supprimer
           </button>
@@ -205,6 +259,28 @@ export default function VMSummaryTab({ resource: vm }) {
           <p className="w-full text-xs text-anthracite-400">
             Migration à chaud : la VM continue de tourner pendant le transfert. Si le disque n'est pas sur un pool partagé
             (chantier 26), il est copié pendant la migration — peut prendre du temps selon sa taille.
+          </p>
+        </div>
+      )}
+
+      {cleanupOpen && (
+        <div className="card flex flex-wrap items-center gap-3 p-4">
+          <span className="text-sm text-anthracite-200">Supprimer <b className="text-anthracite-100">{vm.nom}</b> après</span>
+          <input
+            type="number" min={1} max={365} className="input w-20"
+            value={cleanupDays} onChange={(e) => setCleanupDays(Number(e.target.value))}
+          />
+          <span className="text-sm text-anthracite-200">jour(s) d'arrêt continu</span>
+          <button className="btn-primary" disabled={cleanupBusy} onClick={handleSetCleanup}>
+            {cleanupBusy ? "..." : autoCleanup?.active ? "Mettre à jour" : "Activer"}
+          </button>
+          {autoCleanup?.active && (
+            <button className="btn-danger" disabled={cleanupBusy} onClick={handleDisableCleanup}>Désactiver</button>
+          )}
+          <button className="btn-secondary" onClick={() => setCleanupOpen(false)}>Fermer</button>
+          <p className="w-full text-xs text-anthracite-400">
+            Le compteur ne court que pendant que la VM est arrêtée (redémarrer la remet à zéro) et une VM protégée HA n'est jamais concernée.
+            Une alerte est envoyée ~24h avant la suppression réelle.
           </p>
         </div>
       )}
@@ -274,6 +350,12 @@ export default function VMSummaryTab({ resource: vm }) {
           <div><dt className="text-anthracite-400 text-xs">Adresse IP</dt><dd className="text-anthracite-100">{vm.ip || "--"}</dd></div>
           <div><dt className="text-anthracite-400 text-xs">OS détecté</dt><dd className="text-anthracite-100">{vm.os || "--"}</dd></div>
           <div><dt className="text-anthracite-400 text-xs">Utilisateur SSH</dt><dd className="text-anthracite-100">{vm.utilisateur_ssh || "inconnu"}</dd></div>
+          <div>
+            <dt className="text-anthracite-400 text-xs">Nettoyage automatique</dt>
+            <dd className={autoCleanup?.active ? "text-status-warning" : "text-anthracite-100"}>
+              {autoCleanup?.active ? `Actif -- ${autoCleanup.inactive_days}j d'arrêt` : "Inactif"}
+            </dd>
+          </div>
         </dl>
       </div>
 

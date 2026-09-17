@@ -80,6 +80,26 @@ export default function StepResources({ form, patch }) {
           </div>
         </div>
       )}
+
+      <div className="rounded-md border border-anthracite-600 px-3 py-2.5">
+        <label className="flex items-center gap-2 text-sm text-anthracite-200">
+          <input
+            type="checkbox" checked={form.autoCleanupEnabled}
+            onChange={(e) => patch({ autoCleanupEnabled: e.target.checked })}
+          />
+          Supprimer automatiquement cette VM si elle reste arrêtée trop longtemps
+        </label>
+        {form.autoCleanupEnabled && (
+          <div className="mt-2 flex items-center gap-2 text-sm text-anthracite-300">
+            Après
+            <input
+              type="number" min={1} max={365} className="input w-20"
+              value={form.autoCleanupDays} onChange={(e) => patch({ autoCleanupDays: Number(e.target.value) })}
+            />
+            jour(s) d'arrêt continu. Une VM en marche n'est jamais concernée, et une alerte est envoyée ~24h avant la suppression.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
