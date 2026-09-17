@@ -25,7 +25,7 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" != "master" ] && exit 0
 
 (
-    LOG="/root/hyperlite-backups/apt-publish.log"
+    LOG="/root/hyperlite-backups/publish.log"
     mkdir -p /root/hyperlite-backups
     MARKER="$REPO_DIR/.last-published-commit"
     CURRENT_COMMIT="$(git rev-parse HEAD)"
@@ -68,6 +68,44 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
         git add VERSION
         git commit -m "Version $(cat VERSION) (publication automatique post-merge)" --quiet
         git push origin master --quiet
+
+        # Reconstruit et republie aussi l'ISO d'installation (2026-09-17,
+        # demande explicite d'Antho -- "je veux que chaque changement soit
+        # aussi dans l'iso, constamment") -- meme cadence automatique que le
+        # depot APT ci-dessus. ~25s de build (mesure reellement), largement
+        # negligeable en arriere-plan a chaque merge. Release GitHub UNIQUE
+        # et STABLE ("appliance-iso-latest", pas un nouveau tag par commit --
+        # eviterait d'accumuler des dizaines de releases de ~950 Mo chacune)
+        # : le lien de telechargement ne change JAMAIS, seul le fichier et
+        # les notes sont remplaces a chaque publication. Le tag git sous-
+        # jacent n'est PAS redeplace a chaque fois (juste le fichier +
+        # notes) -- deplacer un tag existant demande un force-push meme pour
+        # un tag, juge pas necessaire ici : la trace du commit exact est
+        # deja dans les notes de la release, pas besoin qu'elle soit aussi
+        # dans le tag lui-meme.
+        bash installer/build-iso.sh installer/hyperlite-appliance-amd64.iso
+        ISO_TAG="appliance-iso-latest"
+        ISO_NOTES="ISO d'installation automatisee de l'appliance Hyperlite (Debian 13, installeur preseed) -- reconstruite et republiee automatiquement a CHAQUE changement sur master (lien de telechargement stable, toujours la derniere version).
+
+Version au moment de cette publication : $(cat VERSION) (commit ${CURRENT_COMMIT:0:8}).
+
+Une fois installee, l'appliance s'auto-gere ensuite via apt (meme depot que ci-dessus, voir dists/) -- le bouton 'Verifier les mises a jour' du dashboard fonctionne normalement des le premier demarrage, independamment de la date de cette ISO.
+
+Installation :
+sudo dd if=hyperlite-appliance-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
+(ou Rufus / balenaEtcher sous Windows)
+
+Identifiants par defaut apres install : root / hyperlite (a changer immediatement).
+
+Une seule confirmation manuelle requise pendant l'installation (ecran de confirmation LVM -- garde-fou volontaire de Debian Installer contre la perte de donnees, non contournable par preseed)."
+
+        if gh release view "$ISO_TAG" >/dev/null 2>&1; then
+            gh release upload "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --clobber
+            gh release edit "$ISO_TAG" --notes "$ISO_NOTES"
+        else
+            gh release create "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --title "Appliance ISO (dernière version)" --notes "$ISO_NOTES" --target master
+        fi
+        echo "[post-merge] ISO republiée avec succès (release $ISO_TAG, version $(cat VERSION))"
 
         git rev-parse HEAD > "$MARKER"
         echo "[post-merge] Dépôt APT republié avec succès : version $(cat VERSION)"
