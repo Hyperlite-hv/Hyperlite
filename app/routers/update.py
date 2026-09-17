@@ -48,6 +48,20 @@ def _run(cmd, cwd=None, timeout=180):
     return subprocess.run(cmd, cwd=str(cwd or REPO_DIR), capture_output=True, text=True, timeout=timeout)
 
 
+# BUG REEL trouve en testant sur une vraie machine en locale francaise
+# (serveur-antho, 2026-09-17) : `apt-cache policy` traduit ses champs
+# ("Candidat :" au lieu de "Candidate:") des que LANG/LC_ALL n'est pas en
+# anglais -- le parsing de _check_update_apt() echouait SILENCIEUSEMENT
+# (aucune erreur, juste `commit_distant: null` et `a_jour: false` a
+# tort). Force la locale C pour toute commande apt/dpkg dont la SORTIE est
+# analysee par ce fichier (dpkg-query -f='...' n'est pas concerne, deja
+# machine-readable quelle que soit la locale, mais force ici aussi par
+# coherence/prudence).
+def _run_c(cmd, timeout=180):
+    env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
+    return subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True, text=True, timeout=timeout, env=env)
+
+
 def _current_commit():
     r = _run(["git", "rev-parse", "HEAD"])
     return r.stdout.strip() if r.returncode == 0 else None
@@ -75,21 +89,21 @@ def _is_dirty():
 def _install_method():
     if (REPO_DIR / ".git").exists():
         return "git"
-    r = _run(["dpkg-query", "-W", "-f=${Status}", "hyperlite"])
+    r = _run_c(["dpkg-query", "-W", "-f=${Status}", "hyperlite"])
     if r.returncode == 0 and "install ok installed" in r.stdout:
         return "apt"
     return "git"  # etat indetermine : repli sur le comportement historique
 
 
 def _dpkg_installed_version():
-    r = _run(["dpkg-query", "-W", "-f=${Version}", "hyperlite"])
+    r = _run_c(["dpkg-query", "-W", "-f=${Version}", "hyperlite"])
     return r.stdout.strip() if r.returncode == 0 else None
 
 
 def _check_update_apt():
     installed = _dpkg_installed_version()
     try:
-        upd = _run(["apt-get", "update"], timeout=60)
+        upd = _run_c(["apt-get", "update"], timeout=60)
     except subprocess.TimeoutExpired:
         return {"verifiable": False, "erreur": "Délai dépassé en contactant le dépôt APT (réseau ?)", "commit_local": installed}
     if upd.returncode != 0:
@@ -99,7 +113,7 @@ def _check_update_apt():
             "commit_local": installed,
         }
 
-    policy = _run(["apt-cache", "policy", "hyperlite"])
+    policy = _run_c(["apt-cache", "policy", "hyperlite"])
     candidate = None
     for line in policy.stdout.splitlines():
         line = line.strip()
@@ -294,7 +308,7 @@ def _run_update_job_apt(task_id, username):
         tarball = _backup(task_id)
 
         step(20, "Mise à jour de l'index APT")
-        upd = _run(["apt-get", "update"])
+        upd = _run_c(["apt-get", "update"])
         if upd.returncode != 0:
             raise RuntimeError(f"apt-get update a échoué : {upd.stderr.strip()[:400]}")
 
@@ -308,7 +322,7 @@ def _run_update_job_apt(task_id, username):
         # plein milieu de son propre postinst. Ce flag dit au postinst de
         # NE PAS redemarrer, et c'est ce thread qui s'en charge juste apres,
         # de la meme facon detachee que le chemin Git (Popen + sleep 2).
-        env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1"}
+        env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
         install = subprocess.run(
             ["apt-get", "install", "--only-upgrade", "-y", "hyperlite"],
             cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300, env=env,
