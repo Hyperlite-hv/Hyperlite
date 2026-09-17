@@ -100,16 +100,46 @@ def _dpkg_installed_version():
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+# BUG REEL trouve et diagnostique a fond en testant une vraie installation
+# sur serveur-antho (2026-09-17, voir installer/postinstall.sh pour
+# l'analyse complete) : `apt-get update` echouait de facon PERSISTANTE
+# (confirme sur 30 essais repartis sur 10+ minutes, encore incoherent plus
+# d'1h20 apres la derniere publication, verifie EN INTERROGEANT
+# DIRECTEMENT LA MACHINE HOTE) avec "taille incoherente" -- pas une simple
+# fenetre de propagation transitoire, mais une absence structurelle de
+# coherence forte entre fichiers lies sur le CDN multi-nœuds de GitHub
+# Pages. **Corrige a la racine, pas contourne ici** : le depot est
+# desormais servi directement par kvm-lab (nginx, sans CDN intermediaire,
+# voir postinstall.sh) -- cette fonction garde un retry MODESTE en
+# defense en profondeur pour un simple alea reseau (coupure Tailscale
+# passagere...), plus pour contourner une incoherence structurelle qui
+# n'existe plus a cette echelle de temps.
+def _apt_update_with_retry(attempts, delay_s, timeout=60):
+    last = None
+    for i in range(attempts):
+        try:
+            last = _run_c(["apt-get", "update"], timeout=timeout)
+        except subprocess.TimeoutExpired:
+            last = None
+            continue
+        if last.returncode == 0:
+            return last
+        if i < attempts - 1:
+            time.sleep(delay_s)
+    return last
+
+
 def _check_update_apt():
     installed = _dpkg_installed_version()
-    try:
-        upd = _run_c(["apt-get", "update"], timeout=60)
-    except subprocess.TimeoutExpired:
-        return {"verifiable": False, "erreur": "Délai dépassé en contactant le dépôt APT (réseau ?)", "commit_local": installed}
-    if upd.returncode != 0:
+    # Cote /update/check (appel interactif, l'utilisateur attend devant
+    # l'UI) : peu de tentatives, delai court -- une vraie panne reseau doit
+    # remonter vite, pas faire attendre inutilement sur un simple clic.
+    upd = _apt_update_with_retry(attempts=4, delay_s=8, timeout=25)
+    if upd is None or upd.returncode != 0:
+        detail = upd.stderr.strip()[:400] if upd is not None else "délai dépassé"
         return {
             "verifiable": False,
-            "erreur": f"Impossible de contacter le dépôt APT : {upd.stderr.strip()[:400]}",
+            "erreur": f"Impossible de contacter le dépôt APT : {detail}",
             "commit_local": installed,
         }
 
@@ -308,9 +338,14 @@ def _run_update_job_apt(task_id, username):
         tarball = _backup(task_id)
 
         step(20, "Mise à jour de l'index APT")
-        upd = _run_c(["apt-get", "update"])
-        if upd.returncode != 0:
-            raise RuntimeError(f"apt-get update a échoué : {upd.stderr.strip()[:400]}")
+        # Voir _apt_update_with_retry ci-dessus : depot servi directement
+        # par kvm-lab (sans CDN), un retry modeste suffit desormais --
+        # legerement plus patient que /update/check car tache de fond
+        # (l'utilisateur voit deja une barre de progression).
+        upd = _apt_update_with_retry(attempts=6, delay_s=10, timeout=30)
+        if upd is None or upd.returncode != 0:
+            detail = upd.stderr.strip()[:400] if upd is not None else "délai dépassé"
+            raise RuntimeError(f"apt-get update a échoué : {detail}")
 
         step(40, "Installation de la nouvelle version (apt-get install)")
         # HYPERLITE_SKIP_RESTART : le postinst du paquet redemarre NORMALEMENT
