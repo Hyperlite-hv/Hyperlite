@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { LogIn, ShieldCheck, KeyRound } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import HyperliteLogo from "../components/HyperliteLogo";
+import { fetchSsoStatus } from "../api/client";
 
 export default function LoginScreen() {
   const login = useAuthStore((s) => s.login);
@@ -10,6 +11,22 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Chantier 20 (SSO) : le bouton n'apparaît que si un IdP est configuré
+  // ET activé côté serveur (GET /auth/sso/status, public — l'écran de
+  // connexion ne sait encore rien de qui que ce soit). Un échec côté
+  // /auth/sso/callback revient ici via "?sso_error=..." (voir
+  // app/routers/sso.py) plutôt qu'une page d'erreur brute.
+  const [ssoEnabled, setSsoEnabled] = useState(false);
+  useEffect(() => {
+    fetchSsoStatus().then((r) => setSsoEnabled(!!r.enabled)).catch(() => {});
+    const params = new URLSearchParams(window.location.search);
+    const ssoError = params.get("sso_error");
+    if (ssoError) {
+      setError(ssoError);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   // Chantier 30 (2FA, 2026-09-17) : quand /auth/login renvoie require_2fa,
   // on bascule sur une deuxieme etape (saisie du code TOTP) plutot que de
@@ -96,6 +113,17 @@ export default function LoginScreen() {
         <button type="submit" disabled={loading} className="btn-primary mt-5 w-full justify-center">
           <LogIn size={15} /> {loading ? "Connexion..." : "Se connecter"}
         </button>
+
+        {ssoEnabled && (
+          <>
+            <div className="my-4 flex items-center gap-3 text-xs text-anthracite-500">
+              <div className="h-px flex-1 bg-anthracite-600" /> ou <div className="h-px flex-1 bg-anthracite-600" />
+            </div>
+            <a href="/auth/sso/login" className="btn-secondary w-full justify-center">
+              <KeyRound size={15} /> Se connecter avec SSO
+            </a>
+          </>
+        )}
       </form>
     </div>
   );

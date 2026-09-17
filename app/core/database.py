@@ -45,6 +45,15 @@ def init_db():
         for ddl in (
             "ALTER TABLE users ADD COLUMN totp_secret TEXT",
             "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
+            # SSO (chantier 20, 2026-09-17) : 'local' (mot de passe Hyperlite,
+            # comportement historique) ou 'sso' (provisionne automatiquement
+            # par app/core/sso.py -- mot de passe local rendu inutilisable,
+            # role re-resolu a chaque connexion depuis les groupes de l'IdP).
+            # Distinguer les deux est indispensable pour ne JAMAIS laisser
+            # une connexion SSO ecraser un compte local existant (voir
+            # sso.py::provision_user) -- l'admin local doit rester un
+            # secours fiable meme si l'IdP est mal configure.
+            "ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'",
         ):
             try:
                 conn.execute(ddl)
@@ -387,6 +396,35 @@ def init_db():
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 last_notified_version TEXT,
                 last_checked_at TEXT
+            )
+        """)
+        # SSO OIDC (chantier 20, 2026-09-17) -- ligne UNIQUE (id=1), meme
+        # pattern que update_check_state ci-dessus. client_secret stocke en
+        # clair : meme niveau de confiance que le mot de passe SMTP du
+        # chantier 28 (reserve admin, pas de coffre-fort de secrets dans ce
+        # projet, voir CLAUDE.md).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sso_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                enabled INTEGER NOT NULL DEFAULT 0,
+                issuer TEXT NOT NULL DEFAULT '',
+                client_id TEXT NOT NULL DEFAULT '',
+                client_secret TEXT NOT NULL DEFAULT '',
+                redirect_uri TEXT NOT NULL DEFAULT '',
+                scope TEXT NOT NULL DEFAULT 'openid profile email groups',
+                group_claim TEXT NOT NULL DEFAULT 'groups',
+                admin_groups TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        # Etats CSRF/nonce du flux OIDC Authorization Code -- a usage
+        # UNIQUE (supprime des sa consommation, voir sso.py::consume_state)
+        # et de courte duree de vie (STATE_TTL_S, purge au passage plutot
+        # qu'un scheduler dedie pour une table aussi ephemere).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sso_login_state (
+                state TEXT PRIMARY KEY,
+                nonce TEXT NOT NULL,
+                created_at REAL NOT NULL
             )
         """)
         conn.commit()
