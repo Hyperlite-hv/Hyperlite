@@ -93,6 +93,14 @@ log "=== 5/8 : service hyperlite (systemd) ==="
 cp "$INSTALLER_DIR/hyperlite.service" /etc/systemd/system/hyperlite.service
 systemctl enable hyperlite.service
 
+# nfs-kernel-server (chantier 26) : le paquet Debian l'active par defaut a
+# l'installation (verifie reellement en testant sur kvm-lab), ce qui
+# exposerait un service NFS en ecoute sur chaque appliance meme sans aucun
+# export configure -- desactive ici, un nœud qui veut vraiment servir du
+# NFS le reactivera lui-meme au moment de configurer un export (pas geree
+# par l'UI Hyperlite pour l'instant, seul le CLIENT netfs l'est).
+systemctl disable nfs-server.service 2>/dev/null || true
+
 log "=== 6/8 : libvirt (reseau NAT par defaut) ==="
 systemctl enable libvirtd.service
 # Le reseau virtuel "default" (NAT, virbr0) est defini par le paquet
