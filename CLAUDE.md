@@ -86,7 +86,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ dans `master` — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur) **ou image Docker Hub/registre OCI au choix** (`skopeo`+`umoci`, pas de démon Docker requis ; bootstrap post-pull systemd+openssh+sudo côté apt, openrc+openssh+sudo côté apk, création des nœuds `/dev` manquants — testé réellement sur `alpine:3.19` et `debian:12`), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié + champ de sélection d'image dans les deux formulaires de création. **systemd-networkd, pas ifupdown/isc-dhcp-client** (côté apt) : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). Pas encore fait : snapshots/clonage de conteneur, ACL granulaire (réservé admin pour l'instant), galerie de templates visuelle |
 | 23 | Export/Import de VM depuis un fichier disque | ✅ dans `master` — bouton "Exporter le disque" (menu d'actions VM, disque système uniquement, chaud ou froid selon l'état, réutilise le mécanisme du chantier 13), onglet Datacenter > Exports (liste/télécharge/supprime, téléchargement par ticket à usage unique), option "Importer un disque existant" dans le formulaire de création de VM (upload + sélection). Bug réel trouvé et corrigé en testant : un disque importé garde le netplan MAC-épinglé de son tout premier démarrage (cloud-init) — nouvelle MAC = plus aucune interface ne correspond, réseau mort. Corrigé via un ISO de "reseed" cloud-init (nouvel instance-id, même mécanisme que le clonage chantier 5) qui force cloud-init à régénérer son réseau. Testé réellement de bout en bout (export à chaud + import + SSH fonctionnel) |
 | 24 | Refonte tableau de bord + barre latérale façon Proxmox VE | ✅ dans `master` — rail de navigation (`SidebarRail.jsx`) ajouté à gauche de l'arbre Datacenter/Nœud/VM existant (purement additif, l'arbre reste les raccourcis VM), calqué sur les onglets Datacenter réels seulement (pas la liste complète de Proxmox). Nouvel onglet "Activité récente" (table `tasks` existante, pas encore exposée au niveau Datacenter). "Statut des VM" devient une vraie liste sur les états réels d'un domaine libvirt. **Pas de vérification visuelle possible depuis cette session (pas de navigateur connecté) — à confirmer par Antho** |
-| 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ⬜ pas commencé — demandé le 2026-09-13 |
+| 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ✅ dans `master` — `app/core/vm_cleanup.py`, opt-in par VM (à la création ou après coup, `PUT /vms/{name}/auto-cleanup`). Le compteur ne court que pendant que la VM est ARRÊTÉE (jamais une VM en marche), jamais une VM protégée HA, avertissement ~24h avant suppression réelle (notifications, chantier 28). **Testé réellement** : cycle de vérification déclenché manuellement avec des horodatages simulés (au-delà/en-deçà du seuil) — avertissement, suppression réelle (VM + disque + entrées DB), et les deux garde-fous (VM active, VM HA) vérifiés un par un. UI (assistant de création + panneau sur la fiche VM) testée dans un vrai navigateur |
 | 20 | SSO (LDAP/OIDC/SAML — à préciser) | ⬜ pas commencé — demandé le 2026-09-13. Aujourd'hui authentification locale uniquement (`app/core/security.py`, JWT) |
 | 21 | Pare-feu réseau/cluster | ✅ dans `master` — `app/core/network_firewall.py`. Distinct du pare-feu **par VM** (nwfilter) : filtre au niveau du **pont** (chaîne FORWARD du noyau, iptables), donc couvre toutes les VM d'un réseau présentes ET futures. Réutilise le même `FirewallConfig`/`FirewallRule` que le pare-feu par VM (même UI, `FirewallRulesEditor.jsx` factorisé). **Testé réellement avec du vrai trafic** (conteneur LXC jetable sur un réseau de test, `nsenter` dans sa netns) : ping externe bloqué par défaut, autorisé après règle, confirmé au niveau paquets (`iptables -v`). 2 bugs réels trouvés en testant, voir section dédiée |
 | 22 | Onglet "Système" sur le node | ✅ déjà fait avant cette demande — `dashboard/src/panels/node/NodeSystemTab.jsx`, branché dans `CentralPanel.jsx` (id `system`, "Résumé système"), données réelles (`/health` + historique métriques du chantier 10) |
@@ -109,8 +109,8 @@ Proxmox (dépôt APT / paquets versionnés) — à ne pas oublier.
 28 (notifications) ✅ → 29 (rétention sauvegardes) ✅ → 31 (audit log
 asynchrone, inséré ici sur demande explicite d'Antho le 2026-09-17 après
 avoir impacté sa session active) ✅ → 30 (2FA + jetons API) ✅ → 21
-(pare-feu datacenter) ✅ → **19 (nettoyage VM inactives) ← prochain** →
-20 (SSO) → 16 (doc récap, en dernier). **Chantier 12 (kickstart) explicitement
+(pare-feu datacenter) ✅ → 19 (nettoyage VM inactives) ✅ →
+**20 (SSO) ← prochain** → 16 (doc récap, en dernier). **Chantier 12 (kickstart) explicitement
 exclu de cette séquence** (demande d'Antho le 2026-09-17, "fait tout dans
 l'ordre sauf le kickstart") -- de toute façon piloté par le collègue sur
 `/root/hyperlite-ami`, voir "Répartition en cours" plus bas, ne pas y
@@ -871,3 +871,82 @@ l'enfant `/sbin/init`, pas celui du fichier `.pid` de libvirt) :
 Compte de test, conteneur de test et reseau de test supprimes a la fin
 (verifie : `iptables -nL HYPERLITENETFW` vide, chaine dediee absente de
 `nft list ruleset`, table `network_firewall` vide en base).
+
+## Chantier 19 : suppression automatique des VM inactives (2026-09-17)
+
+Option **opt-in**, VM par VM (case a cocher + seuil en jours dans
+l'assistant de creation, ou activable/modifiable/desactivable apres coup
+via le panneau "Nettoyage auto" sur la fiche VM, `PUT`/`DELETE
+/vms/{name}/auto-cleanup`) -- rien ne change pour une VM qui n'active pas
+l'option, comportement par defaut inchange.
+
+`app/core/vm_cleanup.py` : un cycle horaire (`CHECK_INTERVAL_S = 3600` --
+un seuil se compte en JOURS, pas besoin de plus frequent) parcourt
+`vm_auto_cleanup` (SQLite, `last_active_at` reinitialise a chaque
+demarrage de VM via `app/core/vm_meta.py::touch_vm_activity`, appelee
+depuis `start_vm`). Trois regles de securite, dans cet ordre, chacune un
+simple "skip" pour CETTE VM sans jamais interrompre le cycle pour les
+autres :
+1. **VM actuellement en marche** : jamais touchee, quel que soit le seuil
+   -- le compteur ne court que pendant l'ARRET (une VM qui tourne en
+   continu n'est par definition jamais "inactive").
+2. **VM protegee HA** (chantier 17, `ha.get_protected()`) : jamais
+   supprimee automatiquement -- une VM HA est par definition consideree
+   critique, l'oppose exact d'une VM jetable.
+3. **Avertissement ~24h avant** (reutilise `log_action()` +
+   `NOTIFY_EVENTS` du chantier 28, nouvelle entree `auto_cleanup_warning`)
+   -- pas de suppression surprise des le premier cycle qui detecte le
+   depassement du seuil. La suppression reelle reutilise l'evenement
+   `delete_vm` DEJA notifie (chantier 28), le texte du message distingue
+   "suppression automatique" du cas manuel.
+
+**Refactor associe** (`app/routers/vms.py`) : la sequence reelle de
+suppression (capture des disques/interfaces, `undefineFlags`, liberation
+des IP fixes, nettoyage des metadonnees) a ete extraite de l'endpoint
+`DELETE /vms/{name}` dans une fonction partagee `_perform_vm_deletion()`,
+reutilisee telle quelle par le nettoyage automatique -- aucune divergence
+possible entre une suppression manuelle (confirmee par un admin) et une
+suppression automatique (declenchee par le scheduler), memes etapes
+exactes. Comportement de l'endpoint HTTP existant inchange (refactor pur,
+pas de nouvelle logique dans le chemin manuel).
+
+**Testé réellement** (VM jetable, horodatages `last_active_at` manipules
+directement en base pour simuler l'ecoulement de plusieurs jours sans
+attendre -- `check_once()` appelee directement plutot que d'attendre un
+vrai cycle horaire) :
+- Seuil approche (dans la fenetre d'avertissement) : `warned_at` rempli,
+  entree d'audit `auto_cleanup_warning` creee, VM TOUJOURS presente.
+- Seuil depasse : VM reellement supprimee de libvirt, fichier disque
+  supprime du disque, ligne `vm_auto_cleanup` nettoyee, entree d'audit
+  `delete_vm` avec le message "Suppression automatique : arrêtée depuis
+  N+ jours" -- confirme que le meme evenement seraeit notifie via le
+  mecanisme du chantier 28 (webhook/email) sans code specifique
+  supplementaire.
+- **Garde-fou VM active** : ligne poussee tres loin dans le passe (200h,
+  bien au-dela d'un seuil de 24h) sur une VM demarree -- jamais touchee,
+  toujours "running" apres le cycle.
+- **Garde-fou VM HA** : ligne synthetique inseree dans
+  `ha_protected_vms` (bypass volontaire du vrai flux d'activation qui
+  exige du stockage NFS partage, chantier 26 -- deja teste separement ;
+  ici seule la regle de securite `get_protected()` cote `vm_cleanup.py`
+  est verifiee) -- jamais touchee malgre un seuil largement depasse.
+- Endpoints `GET`/`PUT`/`DELETE /vms/{name}/auto-cleanup` verifies
+  directement (activation, lecture, desactivation).
+- **UI testee dans un vrai navigateur** (Playwright) : case a cocher +
+  seuil dans l'assistant de creation, creation reelle d'une VM avec
+  l'option activee, statut affiche sur la fiche VM ("Actif -- 3j
+  d'arrêt"), modification du seuil (3 -> 10 jours) et desactivation
+  depuis le panneau, tout confirme visuellement et par le contenu reel
+  renvoye par l'API.
+
+Piege de test rencontre (pas un bug applicatif) : `check_once()` appelee
+depuis un script Python EPHEMERE (un process qui se termine juste apres)
+ne laissait pas le temps au thread d'ecriture asynchrone de l'audit log
+(chantier 31, `queue.Queue` + thread dedie) de persister l'entree avant
+que le process ne quitte -- resolu en appelant explicitement
+`audit._AUDIT_QUEUE.join()` avant de sortir du script de test. Sans objet
+dans le vrai service (process long-vivant).
+
+Compte de test et VM de test supprimes a la fin (verifie : VM absente de
+`virsh list --all`, fichier disque absent, lignes `vm_auto_cleanup`/
+`ha_protected_vms` de test absentes de la base).

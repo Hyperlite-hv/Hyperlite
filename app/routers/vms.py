@@ -30,6 +30,7 @@ from app.core.vm_meta import (
     set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user,
     mark_provisioning, get_provisioning, clear_provisioning,
     set_vm_os_label, get_vm_os_label, delete_vm_os_label, rename_vm_os_label,
+    set_vm_auto_cleanup, get_vm_auto_cleanup, delete_vm_auto_cleanup, touch_vm_activity,
 )
 from app.core.permissions import delete_acl_for_vm, remove_vm_from_all_pools
 from app.core.network_alloc import generate_mac, allocate_static_ip, release_static_ip
@@ -290,6 +291,12 @@ class VMCreate(BaseModel):
     # (deja un OS installe dessus) au lieu de l'image Debian 12 preinstallee
     # ou d'un ISO d'installation -- mutuellement exclusif avec `iso`.
     import_disk: str | None = None
+    # Suppression automatique des VM inactives (chantier 19) : opt-in,
+    # None/absent = jamais activee (comportement inchange par defaut). Le
+    # compteur ne court que pendant que la VM est ARRETEE (voir
+    # touch_vm_activity, appelee a chaque demarrage) -- une VM qui tourne
+    # en continu n'est jamais consideree "inactive" quel que soit le seuil.
+    auto_cleanup_days: int | None = Field(None, ge=1, le=365)
 
 
 @router.post("", status_code=201)
@@ -478,6 +485,8 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             else "Debian 12"
         )
         set_vm_os_label(payload.name, os_label)
+        if payload.auto_cleanup_days:
+            set_vm_auto_cleanup(payload.name, payload.auto_cleanup_days)
         log_action(user["username"], "create_vm", payload.name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
@@ -503,6 +512,7 @@ def start_vm(name: str, user: dict = Depends(require_vm_privilege("vm.power"))):
             msg = describe_exception(e)
             log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Impossible de démarrer la VM : {msg}")
+        touch_vm_activity(name)  # chantier 19 : reinitialise le compteur d'inactivite
         log_action(user["username"], "start_vm", name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
@@ -567,6 +577,69 @@ def restart_vm(name: str, force: bool = False, user: dict = Depends(require_vm_p
         conn.close()
 
 
+def _perform_vm_deletion(conn, domain, name):
+    """Sequence reelle de suppression (disques + IP reservee + metadonnees) --
+    partagee entre DELETE /vms/{name} (confirmation utilisateur) et le
+    nettoyage automatique des VM inactives (chantier 19,
+    app/core/vm_cleanup.py) : aucune divergence possible entre les deux
+    chemins. L'appelant doit avoir DEJA verifie que la VM est inactive --
+    cette fonction ne le revalide pas. Peut lever libvirt.libvirtError
+    (undefine echoue) : a charge de l'appelant de la traduire."""
+    # Capture AVANT l'undefine (plus interrogeable apres) de TOUS les
+    # disques et TOUTES les interfaces -- pas seulement les premiers : une
+    # VM multi-disques/multi-NIC (fonctionnalites deja livrees, voir
+    # roadmap) ne doit pas laisser de fichier qcow2 orphelin ni de
+    # reservation DHCP fantome pour ses disques/interfaces au-dela du
+    # premier. Bug reel trouve et corrige le 2026-09-13 (repere en testant
+    # le clonage multi-disques du chantier 5 : le disque secondaire d'une
+    # VM supprimee restait sur le disque hote, provoquant un conflit de
+    # nom au clonage suivant).
+    disk_paths_to_remove = []
+    ifaces_to_release = []
+    try:
+        root = ET.fromstring(domain.XMLDesc())
+        for disk_el in root.findall(".//devices/disk"):
+            if disk_el.get("device") != "disk":
+                continue
+            source_el = disk_el.find("source")
+            if source_el is not None and source_el.get("file"):
+                disk_paths_to_remove.append(Path(source_el.get("file")))
+        for iface in root.findall(".//interface[@type='network']"):
+            mac_el, source_el = iface.find("mac"), iface.find("source")
+            if mac_el is not None and source_el is not None and source_el.get("network"):
+                ifaces_to_release.append((source_el.get("network"), mac_el.get("address")))
+    except (libvirt.libvirtError, ET.ParseError):
+        pass
+
+    # VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA : sans ce flag, undefine()
+    # echoue purement et simplement des qu'il reste un ou plusieurs
+    # snapshots ("cannot delete inactive domain with N snapshots"), meme
+    # partiellement supprimes -- bug reproduit et confirme le 2026-09-13
+    # (voir chantier 4 snapshots). Sans danger ici : le fichier qcow2 qui
+    # contenait les snapshots internes est de toute facon supprime juste
+    # apres (unlink plus bas), la VM elle-meme est deja irrevocablement
+    # confirmee supprimee.
+    domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA)
+
+    for iface_network, iface_mac in ifaces_to_release:
+        try:
+            release_static_ip(conn, iface_network, iface_mac)
+        except libvirt.libvirtError:
+            pass
+
+    for disk_path in disk_paths_to_remove:
+        disk_path.unlink(missing_ok=True)
+    (IMAGES_DIR / f"{name}-cloudinit.iso").unlink(missing_ok=True)
+    (IMAGES_DIR / f"{name}-oemdrv.iso").unlink(missing_ok=True)
+    (IMAGES_DIR / f"{name}-autoinstall.iso").unlink(missing_ok=True)
+    delete_vm_ssh_user(name)
+    delete_vm_os_label(name)
+    clear_provisioning(name)
+    delete_acl_for_vm(name)
+    remove_vm_from_all_pools(name)
+    delete_vm_auto_cleanup(name)
+
+
 @router.delete("/{name}")
 def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
@@ -584,73 +657,66 @@ def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_rol
             log_action(user["username"], "delete_vm", name, "echec", "Confirmation manquante", task_id=task_id)
             raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
 
-        # Capture mac+reseau AVANT l'undefine (plus interrogeable apres) pour
-        # liberer la reservation d'IP fixe (voir network_alloc.py) -- sinon
-        # la plage DHCP se remplit d'entrees orphelines au fil des VM
-        # supprimees.
-        iface_mac, iface_network = None, None
-        # Capture AVANT l'undefine (plus interrogeable apres) de TOUS les
-        # disques et TOUTES les interfaces -- pas seulement les premiers :
-        # une VM multi-disques/multi-NIC (fonctionnalites deja livrees, voir
-        # roadmap) ne doit pas laisser de fichier qcow2 orphelin ni de
-        # reservation DHCP fantome pour ses disques/interfaces au-dela du
-        # premier. Bug reel trouve et corrige le 2026-09-13 (repere en testant
-        # le clonage multi-disques du chantier 5 : le disque secondaire d'une
-        # VM supprimee restait sur le disque hote, provoquant un conflit de
-        # nom au clonage suivant).
-        disk_paths_to_remove = []
-        ifaces_to_release = []
         try:
-            root = ET.fromstring(domain.XMLDesc())
-            for disk_el in root.findall(".//devices/disk"):
-                if disk_el.get("device") != "disk":
-                    continue
-                source_el = disk_el.find("source")
-                if source_el is not None and source_el.get("file"):
-                    disk_paths_to_remove.append(Path(source_el.get("file")))
-            for iface in root.findall(".//interface[@type='network']"):
-                mac_el, source_el = iface.find("mac"), iface.find("source")
-                if mac_el is not None and source_el is not None and source_el.get("network"):
-                    ifaces_to_release.append((source_el.get("network"), mac_el.get("address")))
-        except (libvirt.libvirtError, ET.ParseError):
-            pass
-
-        try:
-            # VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA : sans ce flag, undefine()
-            # echoue purement et simplement des qu'il reste un ou plusieurs
-            # snapshots ("cannot delete inactive domain with N snapshots"),
-            # meme partiellement supprimes -- bug reproduit et confirme le
-            # 2026-09-13 (voir chantier 4 snapshots). Sans danger ici : le
-            # fichier qcow2 qui contenait les snapshots internes est de toute
-            # facon supprime juste apres (unlink plus bas), la VM elle-meme
-            # est deja irrevocablement confirmee supprimee (?confirm=true).
-            domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA)
+            _perform_vm_deletion(conn, domain, name)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_vm", name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Impossible de supprimer la VM : {msg}")
 
-        for iface_network, iface_mac in ifaces_to_release:
-            try:
-                release_static_ip(conn, iface_network, iface_mac)
-            except libvirt.libvirtError:
-                pass
-
-        for disk_path in disk_paths_to_remove:
-            disk_path.unlink(missing_ok=True)
-        (IMAGES_DIR / f"{name}-cloudinit.iso").unlink(missing_ok=True)
-        (IMAGES_DIR / f"{name}-oemdrv.iso").unlink(missing_ok=True)
-        (IMAGES_DIR / f"{name}-autoinstall.iso").unlink(missing_ok=True)
-        delete_vm_ssh_user(name)
-        delete_vm_os_label(name)
-        clear_provisioning(name)
-        delete_acl_for_vm(name)
-        remove_vm_from_all_pools(name)
-
         log_action(user["username"], "delete_vm", name, "succes", task_id=task_id)
         return {"message": f"VM '{name}' supprimée"}
     finally:
         conn.close()
+
+
+# --- Suppression automatique des VM inactives (chantier 19, 2026-09-17) ---
+# Gestion post-creation (activer/reconfigurer/desactiver) -- la creation
+# elle-meme se fait via VMCreate.auto_cleanup_days plus haut. Meme niveau
+# de privilege que le pare-feu par VM (vm.hardware) : c'est un reglage de
+# la VM, pas une action a portee cluster comme la migration.
+
+class AutoCleanupConfig(BaseModel):
+    inactive_days: int = Field(ge=1, le=365)
+
+
+@router.get("/{name}/auto-cleanup")
+def get_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    conn = open_conn()
+    try:
+        try:
+            conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+    finally:
+        conn.close()
+    config = get_vm_auto_cleanup(name)
+    if not config:
+        return {"active": False}
+    return {"active": True, **config}
+
+
+@router.put("/{name}/auto-cleanup")
+def set_vm_auto_cleanup_route(name: str, payload: AutoCleanupConfig, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    conn = open_conn()
+    try:
+        try:
+            conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_auto_cleanup", name, "echec", "VM introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+    finally:
+        conn.close()
+    set_vm_auto_cleanup(name, payload.inactive_days)
+    log_action(user["username"], "set_auto_cleanup", name, "succes", f"seuil {payload.inactive_days} jour(s)")
+    return {"message": f"Nettoyage automatique activé ({payload.inactive_days} jour(s) d'inactivité)"}
+
+
+@router.delete("/{name}/auto-cleanup")
+def disable_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    delete_vm_auto_cleanup(name)
+    log_action(user["username"], "disable_auto_cleanup", name, "succes")
+    return {"message": "Nettoyage automatique désactivé"}
 
 
 class DiskAttach(BaseModel):

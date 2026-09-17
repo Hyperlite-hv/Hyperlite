@@ -361,4 +361,20 @@ def init_db():
                 rules_json TEXT NOT NULL
             )
         """)
+        # Suppression automatique des VM inactives (chantier 19) : option
+        # opt-in a la creation ("supprimer si arretee depuis N jours").
+        # last_active_at reinitialise a chaque demarrage de la VM (voir
+        # app/core/vm_meta.py::touch_vm_activity) -- le compteur ne court
+        # que pendant que la VM est ARRETEE. warned_at trace un
+        # avertissement deja envoye (chantier 28) pour ne pas le repeter a
+        # chaque cycle horaire du scheduler avant la suppression reelle.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_auto_cleanup (
+                vm_name TEXT PRIMARY KEY,
+                inactive_days INTEGER NOT NULL,
+                last_active_at TEXT NOT NULL,
+                warned_at TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
         conn.commit()

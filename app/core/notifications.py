@@ -29,6 +29,10 @@ NOTIFY_EVENTS = {
     "migrate_vm": "Migration de VM",
     "backup_vm": "Sauvegarde de VM",
     "restore_backup": "Restauration de sauvegarde",
+    # "delete_vm" (deja ci-dessus) couvre aussi la suppression automatique
+    # d'une VM inactive (chantier 19) -- meme evenement cote notification,
+    # le texte du message distingue "suppression automatique" du cas manuel.
+    "auto_cleanup_warning": "Avertissement de suppression automatique (VM inactive)",
 }
 
 
