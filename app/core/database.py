@@ -377,4 +377,16 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
+        # Verification automatique et periodique des mises a jour
+        # (app/core/update_check.py, 2026-09-17) -- ligne UNIQUE (id=1) :
+        # memorise la derniere version distante deja notifiee, pour ne
+        # notifier qu'UNE FOIS par version disponible plutot qu'a chaque
+        # cycle horaire tant que personne n'a applique la mise a jour.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS update_check_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                last_notified_version TEXT,
+                last_checked_at TEXT
+            )
+        """)
         conn.commit()
