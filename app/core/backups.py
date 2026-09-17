@@ -42,6 +42,21 @@ from app.core.vm_builder import IMAGES_DIR
 DEFAULT_BACKUP_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "backups"
 SCHEDULER_INTERVAL_S = 300  # verifie les jobs dus toutes les 5 minutes -- suffisant, la granularite est l'heure (HH:MM)
 
+# BUG REEL trouve en testant ce chantier (verification de la retention,
+# 2026-09-17) : 4 backups manuels declenches en rafale sur la meme VM ont
+# fait planter des requetes SANS AUCUN RAPPORT (ex. GET /networks) avec
+# 'database is locked', malgre le mode WAL + timeout 30s deja en place
+# (chantier 11/13) -- 4 threads qui martelent la base en meme temps
+# (insert/update de progression frequents pendant qemu-img convert, puis
+# potentiellement plusieurs DELETE de retention simultanes) suffit a
+# depasser meme un timeout genereux sous cette charge. Plutot que
+# d'augmenter encore le timeout (repousse le probleme sans le resoudre),
+# les backups sont serialises : un seul a la fois, les autres attendent
+# leur tour. Sensé de toute facon independamment du probleme SQLite --
+# plusieurs qemu-img convert simultanes sur le meme disque hote se
+# battent deja pour la bande passante I/O.
+_backup_lock = threading.Lock()
+
 _PROGRESS_RE = re.compile(r"\((\d+(?:\.\d+)?)/100%\)")
 
 
@@ -79,14 +94,48 @@ def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
         ["qemu-img", "convert", "-p", "-O", "qcow2", str(source), str(dest)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
     )
-    last_pct = 0
-    for line in proc.stdout:
-        m = _PROGRESS_RE.search(line)
-        if m:
-            last_pct = float(m.group(1))
-            update_task_progress(task_id, int(base_pct + span_pct * last_pct / 100))
-    stderr = proc.stderr.read()
-    proc.wait()
+    # BUG REEL trouve en testant la retention (4 backups concurrents,
+    # 2026-09-17) : un 'database is locked' remonte depuis
+    # update_task_progress() DANS cette boucle laissait le processus
+    # qemu-img deja termine mais jamais "wait()" -- zombie orphelin
+    # (confirme via `ps aux`, plusieurs <defunct> apres le test). try/
+    # finally : proc.wait() se produit TOUJOURS, meme si la lecture de
+    # stdout ou update_task_progress() leve une exception -- le processus
+    # est reap en tout cas, l'exception continue de se propager ensuite
+    # normalement (gere par l'appelant, voir run_backup).
+    try:
+        last_pct = 0
+        last_reported = -1
+        last_write_time = 0.0
+        for line in proc.stdout:
+            m = _PROGRESS_RE.search(line)
+            if m:
+                last_pct = float(m.group(1))
+                reported = int(base_pct + span_pct * last_pct / 100)
+                # THROTTLE ajoute en corrigeant le meme bug de concurrence
+                # (voir commentaire sur _backup_lock plus haut) : qemu-img
+                # -p emet une ligne de progression tres frequemment (voire
+                # plusieurs fois par seconde sur un disque rapide), et
+                # chaque update_task_progress() est une ECRITURE SQLite --
+                # sur cette base, meme un simple GET fait sa propre
+                # ecriture (log_action() est appele partout, y compris
+                # pour les lectures), donc le mode WAL ne protege pas
+                # contre CE genre de contention ecrivain-contre-ecrivain
+                # (WAL resout lecteur-contre-ecrivain, pas les deux sens).
+                # N'ecrit que si le pourcentage ARRONDI a change ET qu'au
+                # moins 0.5s s'est ecoulee depuis la derniere ecriture --
+                # reduit le volume d'ecritures de backup d'un ou deux
+                # ordres de grandeur sans perdre de granularite utile pour
+                # une barre de progression (personne ne distingue 47% de
+                # 48% affiche 10x par seconde).
+                now = time.monotonic()
+                if reported != last_reported and now - last_write_time >= 0.5:
+                    update_task_progress(task_id, reported)
+                    last_reported = reported
+                    last_write_time = now
+        stderr = proc.stderr.read()
+    finally:
+        proc.wait()
     if proc.returncode != 0:
         raise RuntimeError(f"qemu-img convert a échoué : {stderr.strip()[:400]}")
 
@@ -178,7 +227,16 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
 def run_backup(vm_name, target_dir=None, job_id=None, username="system"):
     """Lance un backup (choisit chaud/froid selon l'etat reel de la VM) et
     renvoie l'id de la ligne `backups` creee. Synchrone -- appele depuis un
-    thread par l'endpoint (backup manuel) ou par le planificateur."""
+    thread par l'endpoint (backup manuel) ou par le planificateur.
+
+    _backup_lock : un seul backup a la fois sur TOUT le serveur (toutes VM
+    confondues), voir le commentaire au-dessus de _backup_lock -- un
+    appelant concurrent attend simplement son tour plutot que d'echouer."""
+    with _backup_lock:
+        return _run_backup_locked(vm_name, target_dir, job_id, username)
+
+
+def _run_backup_locked(vm_name, target_dir, job_id, username):
     target_root = Path(target_dir) if target_dir else DEFAULT_BACKUP_DIR
     conn = open_conn()
     try:
@@ -219,6 +277,25 @@ def run_backup(vm_name, target_dir=None, job_id=None, username="system"):
                 db.commit()
             finish_task(task_id, "termine")
             log_action(username, "backup_vm", vm_name, "succes", f"{mode}, {total_size} octets -> {dest_dir}")
+            # BUG REEL trouve en verifiant ce chantier (2026-09-17) : la
+            # retention (retention_count, deja dans le schema depuis le
+            # chantier 13) n'etait appliquee QUE par le planificateur
+            # (_scheduler_loop), jamais pour un backup MANUEL (POST
+            # /vms/{name}/backups, sans job_id) -- une VM sans job planifie
+            # mais sauvegardee ponctuellement a la main accumulait des
+            # backups sans AUCUNE limite. Applique maintenant ici, au meme
+            # endroit pour les deux cas (manuel et planifie), sur TOUTES
+            # les sauvegardes de cette VM (pas seulement celles du meme
+            # job_id) -- un retention_count configure pour une VM doit
+            # plafonner le nombre total de ses sauvegardes, pas juste
+            # celles issues d'un job precis. Ne fait rien si aucun
+            # backup_jobs n'existe pour cette VM (pas de politique
+            # configuree = pas de limite imposee, comportement inchange
+            # pour un usage 100% manuel sans planification).
+            with get_conn() as db:
+                job_row = db.execute("SELECT retention_count FROM backup_jobs WHERE vm_name = ?", (vm_name,)).fetchone()
+            if job_row:
+                _apply_retention(vm_name, job_row["retention_count"])
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
             with get_conn() as db:
@@ -305,11 +382,15 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
         conn.close()
 
 
-def _apply_retention(job_id, retention_count):
+def _apply_retention(vm_name, retention_count):
+    """Par VM, pas par job_id (voir le commentaire dans run_backup) : un
+    retention_count configure pour une VM plafonne le nombre TOTAL de ses
+    sauvegardes terminees, qu'elles viennent d'un job planifie ou d'un
+    declenchement manuel."""
     with get_conn() as db:
         rows = db.execute(
-            "SELECT id, chemin FROM backups WHERE job_id = ? AND statut = 'termine' ORDER BY cree_le DESC",
-            (job_id,),
+            "SELECT id, chemin FROM backups WHERE vm_name = ? AND statut = 'termine' ORDER BY cree_le DESC",
+            (vm_name,),
         ).fetchall()
         for row in rows[retention_count:]:
             shutil.rmtree(row["chemin"], ignore_errors=True)
@@ -345,8 +426,10 @@ def _scheduler_loop():
                 ).fetchall()
             for job in due:
                 try:
+                    # La retention est desormais appliquee DANS run_backup()
+                    # elle-meme (voir son corps) -- couvre aussi les backups
+                    # manuels de cette VM, pas seulement ceux du planificateur.
                     run_backup(job["vm_name"], job["cible_dir"], job_id=job["id"], username="scheduler")
-                    _apply_retention(job["id"], job["retention_count"])
                 except Exception as e:
                     log_action("scheduler", "backup_job_echec", job["vm_name"], "echec", str(e))
                 next_run = _next_run(job["frequence"], job["heure"], now)
