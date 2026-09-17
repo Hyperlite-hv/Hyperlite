@@ -15,7 +15,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-from app.core.libvirt_utils import open_conn, get_vm_uptime_s
+from app.core.libvirt_utils import open_conn, get_vm_uptime_s, uses_shared_storage
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task, update_task_progress
@@ -1516,60 +1516,10 @@ class MigrateRequest(BaseModel):
     target_node: str
 
 
-def _pool_target_path(pool):
-    try:
-        root = ET.fromstring(pool.XMLDesc(0))
-        return root.get("type"), root.findtext("target/path")
-    except (libvirt.libvirtError, ET.ParseError):
-        return None, None
-
-
-def _domain_disk_paths(domain):
-    root = ET.fromstring(domain.XMLDesc(0))
-    paths = []
-    for disk_el in root.findall(".//devices/disk"):
-        if disk_el.get("device") != "disk":
-            continue
-        source_el = disk_el.find("source")
-        path = source_el.get("file") if source_el is not None else None
-        if path:
-            paths.append(path)
-    return paths
-
-
-def _uses_shared_storage(src_conn, dest_conn, domain):
-    """True seulement si CHAQUE disque de la VM vit sur un pool 'netfs'
-    (chantier 26) qui existe ET est actif sur le nœud de destination, SOUS
-    LE MEME NOM -- condition suffisante en pratique puisque le chemin de
-    montage local d'un pool netfs est toujours derive du nom du pool (voir
-    create_pool, app/routers/storage.py), donc un meme nom des deux cotes
-    implique le meme export NFS monte au meme endroit. Si un seul disque ne
-    remplit pas cette condition, la migration copiera TOUS les disques
-    (VIR_MIGRATE_NON_SHARED_DISK) -- plus lent mais fonctionne quand meme,
-    plutot que d'echouer ou de ne copier qu'une partie."""
-    disk_paths = _domain_disk_paths(domain)
-    if not disk_paths:
-        return True  # rien a copier (VM sans disque fichier, rare)
-
-    src_pools = list(src_conn.listAllStoragePools())
-    for path in disk_paths:
-        matched = None
-        for pool in src_pools:
-            pool_type, target_path = _pool_target_path(pool)
-            if target_path and path.startswith(target_path.rstrip("/") + "/"):
-                matched = (pool.name(), pool_type)
-                break
-        if not matched or matched[1] != "netfs":
-            return False
-        pool_name, _ = matched
-        try:
-            dest_pool = dest_conn.storagePoolLookupByName(pool_name)
-        except libvirt.libvirtError:
-            return False
-        dest_type, _ = _pool_target_path(dest_pool)
-        if dest_type != "netfs" or not dest_pool.isActive():
-            return False
-    return True
+# _pool_target_path/_domain_disk_paths/_uses_shared_storage deplacees dans
+# app/core/libvirt_utils.py (chantier 17, HA) -- partagees avec la
+# detection de stockage partage necessaire a la protection HA. Voir
+# pool_type_and_target_path/domain_disk_paths/uses_shared_storage.
 
 
 def _migration_progress_job(stop_event, task_id, node, vm_name):
@@ -1729,7 +1679,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
                 if Path(cdrom_path).exists():
                     _copy_file_to_node(cdrom_path, target_node, cdrom_path)
 
-        shared = _uses_shared_storage(src_conn, dest_conn, domain)
+        shared = uses_shared_storage(src_conn, dest_conn, domain)
         # BUG REEL trouve en testant (grave : plantait le thread AVANT
         # meme le premier appel a jobInfo, hors du except libvirt.libvirtError
         # ci-dessous -- une tache restait bloquee "en_cours" pour toujours,

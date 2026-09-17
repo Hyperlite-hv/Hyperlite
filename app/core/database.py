@@ -278,4 +278,22 @@ def init_db():
                 username TEXT NOT NULL
             )
         """)
+        # HA (chantier 17) : VM "protegees" -- domain_xml est un CACHE
+        # rafraichi periodiquement (voir app/core/ha.py::sync_protected_vms)
+        # PENDANT que le nœud source est joignable, seul moyen de redefinir
+        # la VM ailleurs si ce nœud tombe reellement en panne (on ne peut
+        # plus lui demander son XML une fois injoignable). Protection
+        # EXIGE un stockage partage (chantier 26) verifie a l'activation ET
+        # a chaque resynchronisation -- sans ca, aucune garantie que le
+        # disque soit seulement lisible depuis un autre nœud.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ha_protected_vms (
+                vm_name TEXT PRIMARY KEY,
+                node TEXT NOT NULL,
+                domain_xml TEXT,
+                enabled_by TEXT NOT NULL,
+                enabled_at TEXT NOT NULL,
+                last_synced_at TEXT
+            )
+        """)
         conn.commit()

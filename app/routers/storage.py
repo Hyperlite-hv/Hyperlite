@@ -1,5 +1,7 @@
 import re
+import socket
 import xml.etree.ElementTree as ET
+from xml.sax import saxutils
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -100,9 +102,63 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
         ET.SubElement(source_el, "host", name=payload.nfs_host)
         ET.SubElement(source_el, "dir", path=payload.nfs_export_path)
         ET.SubElement(source_el, "format", type="nfs")
+        # BUG REEL trouve en testant un partage NFS reellement inter-
+        # machines (chantier 17, HA) : sur un client NFS Debian 13/trixie
+        # (nfs-utils + noyau recents, verifie sur serveur-antho), le
+        # montage echoue systematiquement avec "NFS: mount program didn't
+        # pass remote address" -- un mount(8) manuel SANS l'option 'addr='
+        # explicite echoue de la meme facon, AVEC elle il reussit. Semble
+        # etre une regression du chemin de montage recent (fsconfig/nouvelle
+        # API de montage du noyau) qui ne deduit plus l'adresse depuis le
+        # nom d'hote fourni. Ajoutee systematiquement -- inoffensive sur un
+        # client NFS plus ancien qui n'en a pas besoin. 'addr' veut une IP,
+        # pas un nom d'hote -- gethostbyname() sur une IP litterale la
+        # renvoie telle quelle (no-op), pas besoin de detecter le cas au
+        # prealable.
+        #
+        # DEUXIEME bug trouve dans la foulee (meme test reel, client NFS
+        # Debian 13/trixie) : meme avec 'addr=' correctement transmis,
+        # le montage echoue ensuite avec "NFS: Version unavailable" tant
+        # que la version NFS n'est pas fixee explicitement -- la
+        # negociation automatique echoue silencieusement sur ce client.
+        # 'vers=4.2' ajoute pour la meme raison.
+        #
+        # L'element s'appelle 'mount_opts' (PAS 'mountopts', erreur faite
+        # une premiere fois -- silencieusement ignore par libvirt sans
+        # rien dans l'erreur pour l'indiquer) et vit dans son PROPRE espace
+        # de noms XML (verifie dans /usr/share/libvirt/schemas/
+        # storagepool.rng sur cette machine, pas dans la documentation en
+        # ligne). TROISIEME piege trouve en testant : construit via
+        # ET.SubElement avec un tag qualifie '{namespace}mount_opts',
+        # ET.tostring() serialise ca en declarant le namespace comme un
+        # PREFIXE sur la racine <pool xmlns:ns0="..."> puis <ns0:mount_opts>
+        # -- syntaxiquement correct, mais libvirt sur cette version
+        # (Debian 13/serveur-antho) l'ignore silencieusement quand meme
+        # (verifie : l'element est absent du XML RELU juste apres
+        # defineXML). Seule la forme "xmlns=... sur l'element lui-meme"
+        # (namespace par defaut LOCAL, pas un prefixe racine) est
+        # effectivement prise en compte -- ET ne genere jamais cette forme
+        # precise. Le reste du document reste construit via ElementTree
+        # (echappement automatique, voir plus haut) ; seul ce fragment est
+        # assemble comme chaine, avec des valeurs deja validees (regex
+        # NFS_HOST_RE plus haut) ou resolues via gethostbyname -- jamais du
+        # texte utilisateur brut.
+        try:
+            addr = socket.gethostbyname(payload.nfs_host)
+        except OSError:
+            addr = payload.nfs_host  # echec de resolution : tente quand meme avec la valeur fournie telle quelle
+        mount_opts_xml = (
+            f'<mount_opts xmlns="http://libvirt.org/schemas/storagepool/fs/1.0">'
+            f'<option name="addr={saxutils.escape(addr)}"/><option name="vers=4.2"/></mount_opts>'
+        )
+    else:
+        mount_opts_xml = ""
     target_el = ET.SubElement(pool_el, "target")
     ET.SubElement(target_el, "path").text = target_path
-    return ET.tostring(pool_el, encoding="unicode")
+    pool_xml = ET.tostring(pool_el, encoding="unicode")
+    if mount_opts_xml:
+        pool_xml = pool_xml.replace("</source>", "</source>" + mount_opts_xml, 1)
+    return pool_xml
 
 
 @router.post("", status_code=201)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Play, Square, Power, RotateCw, Trash2, Copy, Layers, ArrowRightLeft } from "lucide-react";
+import { Play, Square, Power, RotateCw, Trash2, Copy, Layers, ArrowRightLeft, ShieldCheck, ShieldOff } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricChart from "../../components/MetricChart";
 import MetricsHistoryCard from "../../components/MetricsHistoryCard";
@@ -12,13 +12,15 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { chartColors } from "../../theme/colors";
 import { formatUptime, formatMo, formatKbps } from "../../utils/format";
-import { cloneVM, createTemplateFromVM, migrateVM } from "../../api/client";
+import { cloneVM, createTemplateFromVM, migrateVM, fetchHaProtected, enableHa, disableHa } from "../../api/client";
 
 export default function VMSummaryTab({ resource: vm }) {
   const [confirm, setConfirm] = useState(null); // "stop" | "force-stop" | "delete" | null
   const [migrateOpen, setMigrateOpen] = useState(false);
   const [migrateTarget, setMigrateTarget] = useState("");
   const [migrating, setMigrating] = useState(false);
+  const [haProtected, setHaProtected] = useState(false);
+  const [haBusy, setHaBusy] = useState(false);
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const loadAll = useInfraStore((s) => s.loadAll);
   const select = useInfraStore((s) => s.select);
@@ -47,6 +49,37 @@ export default function VMSummaryTab({ resource: vm }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provStatus?.failed]);
+
+  // Chantier 17 (HA) : verifie si CETTE VM est protegee -- GET /ha renvoie
+  // toutes les VM protegees, pas de endpoint par-VM dedie (liste courte en
+  // pratique, un filtre cote client suffit).
+  useEffect(() => {
+    if (!vm?.nom) return;
+    let cancelled = false;
+    fetchHaProtected()
+      .then((rows) => { if (!cancelled) setHaProtected(rows.some((r) => r.vm_name === vm.nom)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [vm?.nom]);
+
+  async function handleToggleHa() {
+    setHaBusy(true);
+    try {
+      if (haProtected) {
+        await disableHa(vm.nom);
+        pushToast({ kind: "success", title: "Protection HA désactivée", message: vm.nom });
+        setHaProtected(false);
+      } else {
+        await enableHa(vm.nom, vm.node);
+        pushToast({ kind: "success", title: "Protection HA activée", message: vm.nom });
+        setHaProtected(true);
+      }
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec", message: e.message });
+    } finally {
+      setHaBusy(false);
+    }
+  }
 
   if (!vm) return null;
   const provisioning = provStatus?.provisioning;
@@ -143,6 +176,14 @@ export default function VMSummaryTab({ resource: vm }) {
             onClick={() => setMigrateOpen((o) => !o)}
           >
             <ArrowRightLeft size={14} /> Migrer
+          </button>
+          <button
+            className={haProtected ? "btn-secondary text-status-running" : "btn-secondary"}
+            disabled={haBusy}
+            title={haProtected ? "Désactiver la protection HA (récupération manuelle en cas de panne du nœud)" : "Activer la protection HA -- exige un disque sur un pool de stockage partagé (chantier 26)"}
+            onClick={handleToggleHa}
+          >
+            {haProtected ? <ShieldCheck size={14} /> : <ShieldOff size={14} />} {haBusy ? "..." : haProtected ? "Protégée HA" : "Protéger (HA)"}
           </button>
           <button className="btn-danger ml-auto" disabled={vm.etat === "actif"} onClick={() => setConfirm("delete")}>
             <Trash2 size={14} /> Supprimer

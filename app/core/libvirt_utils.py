@@ -86,6 +86,70 @@ def ensure_default_pool(conn):
     return pool
 
 
+def pool_type_and_target_path(pool):
+    """(type, chemin cible) d'un pool de stockage, ou (None, None) si
+    illisible -- partage entre la migration (chantier 27) et la HA
+    (chantier 17), toutes deux ayant besoin de savoir si un disque vit sur
+    du stockage PARTAGE (pool 'netfs', chantier 26)."""
+    try:
+        root = ET.fromstring(pool.XMLDesc(0))
+        return root.get("type"), root.findtext("target/path")
+    except (libvirt.libvirtError, ET.ParseError):
+        return None, None
+
+
+def domain_disk_paths(domain):
+    """Chemins de tous les disques FICHIER (device='disk', pas les CD-ROM)
+    d'un domaine -- ignore delibirement les CD-ROM/ISO, jamais consideres
+    comme du stockage 'partage' au sens de ce projet."""
+    root = ET.fromstring(domain.XMLDesc(0))
+    paths = []
+    for disk_el in root.findall(".//devices/disk"):
+        if disk_el.get("device") != "disk":
+            continue
+        source_el = disk_el.find("source")
+        path = source_el.get("file") if source_el is not None else None
+        if path:
+            paths.append(path)
+    return paths
+
+
+def uses_shared_storage(src_conn, dest_conn, domain):
+    """True seulement si CHAQUE disque de la VM vit sur un pool 'netfs'
+    (chantier 26) qui existe ET est actif sur `dest_conn`, SOUS LE MEME NOM
+    -- condition suffisante en pratique puisque le chemin de montage local
+    d'un pool netfs est toujours derive du nom du pool (voir create_pool,
+    app/routers/storage.py), donc un meme nom des deux cotes implique le
+    meme export NFS monte au meme endroit. Utilise par la migration a
+    chaud (chantier 27, ou 'dest_conn' est le nœud cible reel) ET par la
+    HA (chantier 17, ou c'est une condition PREALABLE a la protection --
+    une VM dont le disque n'est pas partage ne peut pas etre recuperee
+    sur un autre nœud si le nœud source tombe reellement en panne)."""
+    disk_paths = domain_disk_paths(domain)
+    if not disk_paths:
+        return True  # rien a copier/partager (VM sans disque fichier, rare)
+
+    src_pools = list(src_conn.listAllStoragePools())
+    for path in disk_paths:
+        matched = None
+        for pool in src_pools:
+            pool_type, target_path = pool_type_and_target_path(pool)
+            if target_path and path.startswith(target_path.rstrip("/") + "/"):
+                matched = (pool.name(), pool_type)
+                break
+        if not matched or matched[1] != "netfs":
+            return False
+        pool_name, _ = matched
+        try:
+            dest_pool = dest_conn.storagePoolLookupByName(pool_name)
+        except libvirt.libvirtError:
+            return False
+        dest_type, _ = pool_type_and_target_path(dest_pool)
+        if dest_type != "netfs" or not dest_pool.isActive():
+            return False
+    return True
+
+
 def get_disk_paths_in_use(conn):
     """Retourne l'ensemble des chemins de fichiers disque actuellement references
     par au moins une VM (active ou non), pour empecher la suppression d'un volume utilise."""
