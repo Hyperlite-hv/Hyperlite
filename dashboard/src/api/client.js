@@ -411,6 +411,21 @@ export async function deleteNotificationChannel(id) {
 export async function testNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}/test`, { method: "POST" });
 }
+
+// Chantier 20 (SSO OIDC) : voir app/core/sso.py / app/routers/sso.py.
+// fetchSsoStatus() est appele SANS jeton (ecran de connexion, personne
+// n'est encore authentifie) -- realFetch n'ajoute l'en-tete Authorization
+// que si un token est present, donc reutilisable tel quel ici.
+export async function fetchSsoStatus() {
+  return realFetch("/auth/sso/status");
+}
+export async function fetchSsoConfig() {
+  return realFetch("/auth/sso/config");
+}
+export async function updateSsoConfig(payload) {
+  return realFetch("/auth/sso/config", { method: "PUT", ...jsonBody(payload) });
+}
+
 export async function createVM(payload) {
   return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
 }

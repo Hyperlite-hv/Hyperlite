@@ -35,6 +35,32 @@ export const useAuthStore = create((set, get) => ({
   error: null,
 
   async restoreSession() {
+    // Chantier 20 (SSO) : /auth/sso/callback redirige le navigateur vers
+    // "/?sso_token=..." apres une connexion reussie -- un jeton de
+    // session Hyperlite normal (meme format qu'un login classique), pas
+    // un mecanisme special. Prioritaire sur le localStorage (un retour de
+    // SSO doit toujours remplacer une session locale perimee), et
+    // nettoye immediatement l'URL (history.replaceState) pour ne jamais
+    // laisser un jeton de session trainer dans l'historique du
+    // navigateur/les logs d'acces.
+    const params = new URLSearchParams(window.location.search);
+    const ssoToken = params.get("sso_token");
+    if (ssoToken) {
+      window.history.replaceState({}, "", window.location.pathname);
+      setAuthToken(ssoToken);
+      try {
+        const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${ssoToken}` } });
+        if (!res.ok) throw new Error("jeton SSO invalide");
+        const me = await res.json();
+        applySession(set, ssoToken, me.username, me.role, !!me.totp_enabled);
+        return;
+      } catch (e) {
+        setAuthToken(null);
+        set({ status: "anonymous", error: "Connexion SSO échouée" });
+        return;
+      }
+    }
+
     const token = localStorage.getItem(KEY_TOKEN);
     if (!token) {
       set({ status: "anonymous" });
