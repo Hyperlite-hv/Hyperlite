@@ -1,13 +1,18 @@
 #!/bin/bash
 # Execute CHROOTE dans le systeme cible (via d-i preseed/late_command +
 # in-target, voir preseed.cfg) juste apres l'installation de base Debian et
-# des paquets listes dans pkgsel/include (libvirt/KVM/python3 deja presents
-# a ce stade). Deploie Hyperlite et prepare le premier demarrage.
+# des paquets listes dans pkgsel/include (libvirt/KVM/python3/curl/gnupg
+# deja presents a ce stade).
 #
-# A ce point : /root/hyperlite-installer contient une copie du contenu de
-# installer/ tel qu'embarque dans l'ISO (voir build-iso.sh), y compris
-# hyperlite-src/ (le code applicatif : app/, dashboard/dist/, requirements.txt)
-# et hyperlite-root-password (mot de passe root genere par partman-auto.sh).
+# REECRIT le 2026-09-17 (chantier "apt install comme Proxmox") : Hyperlite
+# n'est plus embarque en source dans l'ISO (plus de hyperlite-src/, plus de
+# `git init`) -- installe directement via le VRAI depot APT publie
+# (https://twikles.github.io/hyperlite/, voir installer/build-apt-repo.sh),
+# exactement comme le ferait un admin qui tape la commande a la main. Une
+# appliance fraiche est donc NATIVEMENT geree par apt des le premier
+# demarrage -- plus besoin de reconstruire/reflasher un ISO entier a chaque
+# nouvelle version (l'objectif d'origine du chantier 7, enfin atteint
+# proprement).
 set -e
 
 log() { echo "[hyperlite-postinstall] $*"; }
@@ -22,60 +27,88 @@ APP_DIR=/root/hyperlite
 # echouer ici (set -e) si ce fichier venait a manquer.
 ROOT_PASSWORD=$(cat "$INSTALLER_DIR/hyperlite-root-password" 2>/dev/null || echo "hyperlite")
 
-log "=== 1/8 : deploiement du code Hyperlite ==="
-mkdir -p "$APP_DIR"
-cp -r "$INSTALLER_DIR/hyperlite-src/." "$APP_DIR/"
-mkdir -p "$APP_DIR/data/isos" "$APP_DIR/data/templates" "$APP_DIR/data/tls" "$APP_DIR/data/ssh"
-# ensure-tls-cert.sh/write-motd.sh sont maintenant DANS hyperlite-src/scripts/
-# (suivis par git, comme scripts/update_watchdog.sh) -- copies par le cp -r
-# ci-dessus, plus besoin de copie separee. ATTENTION (bug reel trouve en
-# testant une vraie mise a jour sur le serveur physique d'Antho) : les
-# copier separement ici, hors de l'arbre git, les rendait "non suivis" pour
-# toujours ("git status --porcelain" affichait "?? scripts/..."), donc
-# l'arbre restait "sale" en permanence et le bouton mise a jour restait
-# bloque sur TOUTE appliance. Verifie que le rsync a bien conserve le bit
-# executable (devrait deja etre le cas, -a le preserve) :
-chmod +x "$APP_DIR/scripts/ensure-tls-cert.sh" "$APP_DIR/scripts/write-motd.sh"
+log "=== 1/6 : dépôt APT Hyperlite ==="
+# BUG REEL trouve en testant une vraie installation (comportement standard
+# et documente de l'installeur Debian, pas specifique a ce depot) :
+# l'installeur ajoute AUTOMATIQUEMENT le CD-ROM d'installation comme
+# source APT dans /etc/apt/sources.list -- `apt-get update` echoue alors
+# globalement avec "Le depot cdrom://... n'a pas de fichier Release" MEME
+# SI toutes les autres sources (dont la notre) sont recuperees avec
+# succes, puisqu'apt renvoie un code d'erreur des qu'UNE SEULE source
+# echoue, peu importe laquelle. Retire cette ligne avant tout apt-get
+# update -- plus besoin du CD-ROM comme source une fois les depots
+# Debian standards + le notre configures.
+sed -i '/^deb cdrom:/d' /etc/apt/sources.list
 
-# /root en 700 empeche l'utilisateur libvirt-qemu (proprietaire du process
-# qemu des VM) de traverser jusqu'a data/isos/*.iso pour les monter comme
-# CD-ROM -- bug reel rencontre et corrige sur kvm-lab, applique ici des le
-# depart pour ne pas le redecouvrir a la premiere ISO montee.
-chmod o+x /root
+# BUG REEL trouve et DIAGNOSTIQUE A FOND en testant une vraie installation
+# sur serveur-antho (2026-09-17) : `apt-get update` echouait de facon
+# PERSISTANTE (confirme sur 30 essais repartis sur plus de 10 minutes,
+# TOUJOURS le meme ecart) avec "Le fichier a une taille incoherente" en
+# pointant vers le depot GitHub Pages -- PAS une fenetre de propagation
+# transitoire comme suppose au debut : verifie EN INTERROGEANT DIRECTEMENT
+# LA MACHINE HOTE (serveur-antho, pas la VM de test, plus de 1h20 apres la
+# derniere publication) qu'InRelease et Packages restaient incoherents
+# entre eux. GitHub Pages est un CDN multi-nœuds SANS garantie de
+# coherence forte entre plusieurs fichiers lies publies dans le meme
+# commit -- ce n'est pas un defaut ponctuel corrigible par un budget de
+# retry, aussi genereux soit-il, c'est une propriete structurelle de cette
+# infrastructure pour ce cas d'usage precis (verifier des checksums entre
+# fichiers separes).
+#
+# FIX ROBUSTE (pas un contournement) : plutot que de continuer a esperer
+# qu'un budget de retry toujours plus grand finisse par suffire, le depot
+# est servi directement depuis kvm-lab (nginx, port 8899, lie uniquement a
+# son IP Tailscale 100.88.184.24 -- jamais expose sur l'internet public)
+# -- aucun CDN entre l'origine et le client, coherence garantie par
+# construction (un seul fichier sur disque, jamais deux copies
+# desynchronisees). Toutes les machines concernees (kvm-lab, serveur-antho,
+# les appliances qu'Antho deploie lui-meme) sont deja sur ce meme reseau
+# Tailscale. Le depot public GitHub Pages (https://twikles.github.io/hyperlite)
+# reste publie en parallele (utile hors Tailscale, ex. une distribution a
+# des tiers plus tard) mais n'est plus la source utilisee ici.
+curl -fsSL http://100.88.184.24:8899/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] http://100.88.184.24:8899 stable main" > /etc/apt/sources.list.d/hyperlite.list
+apt-get update || { log "ERREUR : apt-get update a échoué (kvm-lab injoignable en Tailscale ?)"; exit 1; }
 
-log "=== 2/8 : environnement Python (venv) ==="
-python3 -m venv "$APP_DIR/venv"
-"$APP_DIR/venv/bin/pip" install --no-input --upgrade pip --quiet
-"$APP_DIR/venv/bin/pip" install --no-input -r "$APP_DIR/requirements.txt" --quiet
+log "=== 2/6 : installation d'Hyperlite (apt install hyperlite) ==="
+# Le postinst du paquet (installer/deb/postinst) fait tout le travail
+# applicatif lui-meme : cree le venv, installe requirements.txt, genere des
+# secrets propres a CETTE machine (.env absent = premiere installation),
+# installe/active/demarre le service systemd. Rien de plus a faire ici pour
+# l'application elle-meme.
+DEBIAN_FRONTEND=noninteractive apt-get install -y hyperlite
 
-log "=== 3/8 : secrets propres a cette machine ==="
-# Chaque appliance genere SES PROPRES secrets (cle JWT, cle SSH d'automation,
-# certificat TLS, mot de passe admin) -- rien n'est jamais reutilise depuis
-# la machine ayant construit l'ISO. C'est le meme code que sur kvm-lab
-# (voir app/core/security.py, SECRET_KEY = env HYPERLITE_SECRET_KEY) : sans
-# valeur explicite en .env, une cle aleatoire DIFFERENTE serait regeneree a
-# chaque redemarrage du service, deconnectant tous les utilisateurs a
-# chaque restart -- on la fixe donc une fois ici, de facon definitive.
-SECRET_KEY=$(openssl rand -hex 32)
-cat > "$APP_DIR/.env" <<ENVEOF
-HYPERLITE_SECRET_KEY=$SECRET_KEY
-HYPERLITE_INITIAL_ADMIN_PASSWORD=$ROOT_PASSWORD
-ENVEOF
-chmod 600 "$APP_DIR/.env"
-
-# Cle SSH d'automation (voir app/core/vm_builder.py::_ensure_automation_keypair)
-# : generee ici plutot que laissee a la premiere VM creee, pour eviter
-# qu'une image ISO reutilisee sur plusieurs machines ne finisse, par erreur
-# de build, avec la meme cle sur toutes -- generation explicite et fraiche a
-# chaque installation.
-ssh-keygen -t ed25519 -N "" -f "$APP_DIR/data/ssh/hyperlite_automation" -C "hyperlite-automation" -q
-chmod 700 "$APP_DIR/data/ssh"
-chmod 600 "$APP_DIR/data/ssh/hyperlite_automation"
-
-log "=== 4/8 : mot de passe root Linux ==="
+log "=== 3/6 : mot de passe root Linux + admin Hyperlite (alignés, simples) ==="
+# Demande explicite d'Antho POUR L'APPLIANCE ISO precisement : un mot de
+# passe simple et IDENTIQUE pour la toute premiere connexion (root Linux et
+# admin Hyperlite), a changer immediatement apres -- volontairement pas
+# aleatoire, pour une premiere prise en main facile façon "boote, attends,
+# c'est installe".
 echo "root:$ROOT_PASSWORD" | chpasswd
-# Conserve pour affichage post-redemarrage (write-motd.sh) et consultation
-# manuelle si besoin -- lisible uniquement par root.
+
+# BUG REEL trouve en testant une vraie installation (2026-09-17) : la
+# premiere version de cette etape faisait un UPDATE SQL direct sur la
+# table users, en supposant qu'elle existait deja (creee par le postinst
+# du paquet .deb qui demarre le service) -- mais DANS LE CHROOT
+# d'installation, systemctl est bride par policy-rc.d ("Running in
+# chroot, ignoring command 'start'", comportement standard et VOULU de
+# Debian pendant une installation, pas un bug corrigible) : le service
+# n'a donc jamais reellement demarre, et la base de donnees (schema +
+# compte admin, crees par seed_admin() au premier demarrage de l'appli)
+# n'existe pas encore a ce stade -- "sqlite3.OperationalError: no such
+# table: users". Corrige en appelant seed_admin() (app/core/seed.py)
+# directement ICI plutot que d'attendre un demarrage qui ne peut pas
+# avoir lieu dans ce contexte : deja idempotent (ne fait rien si un admin
+# existe deja -- sans consequence si le vrai premier demarrage, plus tard
+# hors chroot, l'appelle a nouveau) et lit deja
+# HYPERLITE_INITIAL_ADMIN_PASSWORD depuis l'environnement -- exactement
+# le mecanisme prevu pour ce cas precis, cree la DB ET le compte admin
+# avec le bon mot de passe en une seule operation.
+HYPERLITE_INITIAL_ADMIN_PASSWORD="$ROOT_PASSWORD" "$APP_DIR/venv/bin/python3" -c "
+import sys; sys.path.insert(0, '$APP_DIR')
+from app.core.seed import seed_admin
+seed_admin()
+"
 echo "$ROOT_PASSWORD" > /root/.hyperlite-initial-password
 chmod 600 /root/.hyperlite-initial-password
 
@@ -89,10 +122,6 @@ PermitRootLogin yes
 PasswordAuthentication yes
 EOF
 
-log "=== 5/8 : service hyperlite (systemd) ==="
-cp "$INSTALLER_DIR/hyperlite.service" /etc/systemd/system/hyperlite.service
-systemctl enable hyperlite.service
-
 # nfs-kernel-server (chantier 26) : le paquet Debian l'active par defaut a
 # l'installation (verifie reellement en testant sur kvm-lab), ce qui
 # exposerait un service NFS en ecoute sur chaque appliance meme sans aucun
@@ -101,7 +130,7 @@ systemctl enable hyperlite.service
 # par l'UI Hyperlite pour l'instant, seul le CLIENT netfs l'est).
 systemctl disable nfs-server.service 2>/dev/null || true
 
-log "=== 6/8 : libvirt (reseau NAT par defaut) ==="
+log "=== 4/6 : libvirt (réseau NAT par défaut) ==="
 systemctl enable libvirtd.service
 # Le reseau virtuel "default" (NAT, virbr0) est defini par le paquet
 # libvirt-daemon-system mais pas toujours demarre/autostart selon la
@@ -110,20 +139,19 @@ systemctl enable libvirtd.service
 virsh net-autostart default 2>/dev/null || true
 virsh net-start default 2>/dev/null || true
 
-log "=== 7/8 : MOTD de bienvenue (identifiants + URL, a chaque boot) ==="
-# Regenere a chaque demarrage (ExecStartPre, voir hyperlite.service) car
-# l'IP DHCP peut changer d'un boot a l'autre -- meme principe que l'ecran
-# final de l'installeur Proxmox ("Please point your browser to
-# https://IP:8006"), mais tenu a jour dynamiquement plutot qu'affiche une
-# seule fois a l'installation.
-"$APP_DIR/scripts/write-motd.sh" || true
+log "=== 5/6 : redémarrage (mot de passe/MOTD à jour) ==="
+# Le service a deja ete demarre UNE fois par le postinst du paquet
+# (etape 2 ci-dessus), avec l'ancien mot de passe admin aleatoire -- un
+# redemarrage regenere le MOTD (ExecStartPre, voir hyperlite.service) avec
+# le mot de passe DEFINITIF ecrit a l'etape 3, pour que le bandeau de
+# bienvenue affiche la bonne valeur des le premier login.
+systemctl restart hyperlite.service
 
-log "=== 8/8 : nettoyage ==="
+log "=== 6/6 : nettoyage ==="
 # On efface le mot de passe en clair copie depuis l'environnement live, il
 # ne subsiste plus qu'en hash (DB Hyperlite) et dans /root/.hyperlite-initial-password
 # (meme fichier, but explicite, plutot qu'un fichier au nom generique oublie
 # dans un repertoire d'installeur).
 shred -u "$INSTALLER_DIR/hyperlite-root-password" 2>/dev/null || rm -f "$INSTALLER_DIR/hyperlite-root-password"
-rm -rf "$INSTALLER_DIR/hyperlite-src"
 
-log "postinstall termine -- mot de passe root/admin : $ROOT_PASSWORD"
+log "terminé"

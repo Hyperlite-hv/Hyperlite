@@ -51,70 +51,25 @@ log "=== 2/6 : extraction de l'ISO de base ==="
 xorriso -osirrox on -indev "$BASE_ISO" -extract / "$EXTRACT_DIR" >/dev/null
 chmod -R u+w "$EXTRACT_DIR"
 
-log "=== 3/6 : injection des fichiers Hyperlite ==="
+log "=== 3/6 : injection des fichiers d'installation Hyperlite ==="
 HL_DIR="$EXTRACT_DIR/hyperlite"
-mkdir -p "$HL_DIR/hyperlite-src"
+mkdir -p "$HL_DIR"
 
-# ensure-tls-cert.sh/write-motd.sh ne sont PLUS copies ici depuis
-# installer/ (bug reel trouve en testant une vraie mise a jour sur le
-# serveur physique d'Antho) : postinstall.sh les recopiait separement dans
-# $APP_DIR/scripts/, un chemin JAMAIS ajoute au commit git initial --
-# "git status" les voyait donc comme fichiers non suivis ("??"), rendant
-# l'arbre "sale" en PERMANENCE et bloquant le bouton mise a jour sur TOUTE
-# appliance installee depuis cet ISO, definitivement (jusqu'a une premiere
-# mise a jour manuelle qui les aurait fait disparaitre du diff, mais
-# jamais avant). Corrige a la racine : ces deux scripts vivent maintenant
-# dans scripts/ (comme update_watchdog.sh deja suivi par git), donc inclus
-# automatiquement par le rsync de hyperlite-src/ ci-dessous et commites
-# des le premier commit -- plus besoin de copie separee ni cote build-iso.sh
-# ni cote postinstall.sh.
+# REECRIT le 2026-09-17 (chantier "apt install comme Proxmox") : plus de
+# hyperlite-src/ ni de `git init` embarque -- l'ISO n'embarque plus AUCUN
+# code applicatif, seulement les scripts d'installation. Hyperlite lui-meme
+# est installe par postinstall.sh via `apt install hyperlite` depuis le
+# vrai depot publie (https://twikles.github.io/hyperlite/), exactement
+# comme le ferait un admin a la main -- une appliance fraiche est donc
+# NATIVEMENT geree par apt des le premier demarrage. Avantage direct par
+# rapport a l'ancien mecanisme (commit Git unique embarque) : plus besoin
+# de reconstruire/reflasher un ISO entier a chaque nouvelle version pour
+# que les mises a jour marchent, ET l'ISO elle-meme est bien plus legere
+# (plus de code source + historique Git a embarquer).
 cp "$SCRIPT_DIR/preseed.cfg" "$HL_DIR/preseed.cfg"
 cp "$SCRIPT_DIR/partman-auto.sh" "$HL_DIR/partman-auto.sh"
 cp "$SCRIPT_DIR/postinstall.sh" "$HL_DIR/postinstall.sh"
-cp "$SCRIPT_DIR/hyperlite.service" "$HL_DIR/hyperlite.service"
 chmod +x "$HL_DIR"/*.sh
-
-# Code applicatif : app/ (backend) + dashboard/dist/ (deja buildee, voir
-# `npm run build`) + requirements.txt -- JAMAIS le venv/.git/.env/hyperlite.db
-# ni data/ssh|tls|isos de LA MACHINE QUI CONSTRUIT L'ISO : ce sont des
-# secrets/donnees d'instance propres a kvm-lab, chaque appliance genere les
-# siens au premier demarrage (voir postinstall.sh + ensure-tls-cert.sh).
-if [ ! -d "$HYPERLITE_ROOT/dashboard/dist" ]; then
-    echo "ERREUR : dashboard/dist introuvable -- lancer 'npm run build' dans dashboard/ avant de construire l'ISO"
-    exit 1
-fi
-rsync -a \
-    --exclude venv --exclude .git --exclude .env --exclude hyperlite.db \
-    --exclude data/ssh --exclude data/tls --exclude data/isos \
-    --exclude installer --exclude '__pycache__' --exclude '*.pyc' \
-    --exclude dashboard/node_modules --exclude .claude \
-    "$HYPERLITE_ROOT/" "$HL_DIR/hyperlite-src/"
-
-log "=== 3.6/6 : initialisation d'un depot Git dans le code embarque ==="
-# Sans ca, le bouton "Verifier les mises a jour" (chantier 7, git fetch/pull)
-# ne fonctionne PAS sur une appliance installee depuis cet ISO : sans .git,
-# ce n'est pas un depot -- il fallait jusqu'ici reconstruire et reflasher un
-# ISO entier a chaque nouvelle version. Un `git clone` complet de
-# l'historique n'est PAS utilise ici (ISO plus volumineuse, et l'historique
-# de developpement de kvm-lab n'a pas a etre distribue avec chaque
-# appliance) : un commit UNIQUE representant l'etat exact du code embarque
-# suffit -- app/routers/update.py fait un `git reset --hard origin/<branche>`
-# a la mise a jour, qui ne depend PAS d'un historique commun avec le depot
-# distant (contrairement a un merge/rebase). Premiere mise a jour seulement :
-# le "changelog" affiche avant application peut etre vide/non significatif
-# (historique local et distant disjoints tant qu'aucune vraie mise a jour
-# n'a encore ete faite depuis cette appliance) -- limite connue, sans
-# consequence sur le mecanisme d'application lui-meme.
-(
-    cd "$HL_DIR/hyperlite-src"
-    git init -q
-    git config user.email "appliance@hyperlite.local"
-    git config user.name "Hyperlite Appliance Builder"
-    git remote add origin "https://github.com/twikles/hyperlite.git"
-    git add -A
-    git commit -q -m "Instantane embarque dans l'ISO appliance (base pour les mises a jour ulterieures via /update/check)"
-)
-log "depot Git initialise ($(cd "$HL_DIR/hyperlite-src" && git rev-parse --short HEAD))"
 
 log "=== 3.5/6 : preseed embarque directement dans l'initrd ==="
 # CAUSE RACINE (trouvee en inspectant /var/log/installer/syslog sur une VRAIE
