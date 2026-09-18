@@ -1344,6 +1344,28 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
 # suivant GET /tasks/{id}, plutot que de bloquer la requete ou d'afficher un
 # faux pourcentage.
 
+def _zvol_disks_of_domain(domain):
+    """Liste (pool, nom_zvol) de tous les disques BLOC (zvols ZFS,
+    backlog stockage 2026-09-18) d'un domaine -- une VM créée sur un pool
+    ZFS (voir create_vm) a TOUS ses disques en zvols dans le MEME pool,
+    jamais de mélange avec des fichiers qcow2 dans ce projet. Utilisé
+    pour router les snapshots vers le mécanisme natif ZFS plutôt que le
+    snapshot interne qcow2 (qui ne s'applique qu'aux disques FICHIER)."""
+    root = ET.fromstring(domain.XMLDesc())
+    specs = []
+    for disk_el in root.findall(".//devices/disk"):
+        if disk_el.get("type") != "block" or disk_el.get("device") != "disk":
+            continue
+        source_el = disk_el.find("source")
+        dev = source_el.get("dev") if source_el is not None else None
+        if not dev:
+            continue
+        parts = dev.strip("/").split("/")
+        if len(parts) >= 4 and parts[0] == "dev" and parts[1] == "zvol":
+            specs.append((parts[2], "/".join(parts[3:])))
+    return specs
+
+
 def _snapshot_summary(snap):
     xml_desc = snap.getXMLDesc()
     root = ET.fromstring(xml_desc)
@@ -1373,8 +1395,30 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
         except libvirt.libvirtError:
             log_action(user["username"], "list_snapshots", name, "echec", "VM introuvable")
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
-        snaps = domain.listAllSnapshots()
-        result = [_snapshot_summary(s) for s in snaps]
+
+        zvol_specs = _zvol_disks_of_domain(domain)
+        if zvol_specs:
+            # VM sur pool ZFS (backlog stockage 2026-09-18) : un snapshot
+            # "logique" par NOM, fusionné sur tous les zvols de la VM --
+            # on prend la liste du premier zvol comme référence (tous les
+            # zvols d'une même VM sont snapshottés ensemble par
+            # snapshot_zvols(), donc les mêmes noms existent partout sauf
+            # incohérence externe rarissime).
+            pool0, name0 = zvol_specs[0]
+            result = [
+                {
+                    "nom": s["nom"],
+                    "description": None,
+                    "date_creation": str(s["creation_epoch"]),
+                    "etat_vm": "disque_seul",
+                    "actuel": False,
+                    "parent": None,
+                }
+                for s in zfs_storage.list_zvol_snapshots(pool0, name0)
+            ]
+        else:
+            snaps = domain.listAllSnapshots()
+            result = [_snapshot_summary(s) for s in snaps]
         log_action(user["username"], "list_snapshots", name, "succes")
         return result
     finally:
@@ -1407,6 +1451,21 @@ def _create_snapshot_job(task_id, username, vm_name, snap_name, snap_xml):
         conn.close()
 
 
+def _create_zvol_snapshot_job(task_id, username, zvol_specs, snap_name):
+    """Equivalent ZFS de _create_snapshot_job() -- quasi-instantané en
+    pratique (contrairement au snapshot qcow2+mémoire qui peut prendre
+    plusieurs secondes), tourne quand même en tâche de fond pour garder
+    exactement le même contrat d'API (task_id, 202) des deux côtés,
+    aucun changement frontend nécessaire."""
+    try:
+        zfs_storage.snapshot_zvols(zvol_specs, snap_name)
+        finish_task(task_id, "termine")
+        log_action(username, "create_snapshot", snap_name, "succes")
+    except zfs_storage.ZfsError as e:
+        finish_task(task_id, "echec", e.message)
+        log_action(username, "create_snapshot", snap_name, "echec", e.message)
+
+
 @router.post("/{name}/snapshots", status_code=202)
 def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     conn = open_conn()
@@ -1421,6 +1480,21 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
         if name_error:
             log_action(user["username"], "create_snapshot", payload.name, "echec", name_error)
             raise HTTPException(status_code=422, detail=name_error)
+
+        zvol_specs = _zvol_disks_of_domain(domain)
+        if zvol_specs:
+            # VM sur pool ZFS (backlog stockage 2026-09-18) : mecanisme
+            # natif ZFS, voir zfs_storage.py -- snapshot DISQUE SEUL
+            # uniquement (jamais la memoire, contrairement au chemin
+            # qcow2 ci-dessous quand la VM tourne), documente cote
+            # frontend/API plutot que silencieusement different.
+            task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
+            threading.Thread(
+                target=_create_zvol_snapshot_job,
+                args=(task_id, user["username"], zvol_specs, payload.name),
+                daemon=True,
+            ).start()
+            return {"task_id": task_id, "nom": payload.name, "statut": "en_cours"}
 
         try:
             domain.snapshotLookupByName(payload.name)
@@ -1468,6 +1542,16 @@ def _restore_snapshot_job(task_id, username, vm_name, snapshot_name):
         conn.close()
 
 
+def _restore_zvol_snapshot_job(task_id, username, zvol_specs, snapshot_name):
+    try:
+        zfs_storage.rollback_zvols(zvol_specs, snapshot_name)
+        finish_task(task_id, "termine")
+        log_action(username, "restore_snapshot", snapshot_name, "succes")
+    except zfs_storage.ZfsError as e:
+        finish_task(task_id, "echec", e.message)
+        log_action(username, "restore_snapshot", snapshot_name, "echec", e.message)
+
+
 @router.post("/{name}/snapshots/{snapshot_name}/restore", status_code=202)
 def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     conn = open_conn()
@@ -1477,6 +1561,31 @@ def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user:
         except libvirt.libvirtError:
             log_action(user["username"], "restore_snapshot", name, "echec", "VM introuvable")
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        zvol_specs = _zvol_disks_of_domain(domain)
+        if zvol_specs:
+            # SECURITE (backlog stockage 2026-09-18) : contrairement au
+            # snapshot interne qcow2 (libvirt gere lui-meme le cas "VM
+            # active" pour revertToSnapshot), un `zfs rollback` sur un
+            # zvol activement ouvert par le processus qemu d'une VM EN
+            # MARCHE desynchroniserait le cache du noyau invite de l'etat
+            # reel du disque -- corruption quasi certaine, jamais teste
+            # ni suppose sur car. VM DOIT etre arretee avant un rollback
+            # ZFS, verifie explicitement plutot que de laisser echouer
+            # (ou pire, reussir silencieusement) de facon dangereuse.
+            if domain.isActive():
+                log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "VM active (arrêt requis pour un rollback ZFS)")
+                raise HTTPException(status_code=409, detail="La VM doit être arrêtée avant de restaurer un snapshot ZFS (contrairement au snapshot qcow2, un rollback ZFS ne peut pas se faire à chaud)")
+            if not confirm:
+                log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Confirmation manquante")
+                raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la restauration")
+            task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
+            threading.Thread(
+                target=_restore_zvol_snapshot_job,
+                args=(task_id, user["username"], zvol_specs, snapshot_name),
+                daemon=True,
+            ).start()
+            return {"task_id": task_id, "statut": "en_cours", "message": f"Restauration de '{name}' vers '{snapshot_name}' en cours"}
 
         try:
             domain.snapshotLookupByName(snapshot_name)
@@ -1505,7 +1614,8 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
     # Reste synchrone (pas de thread/tache en arriere-plan) : contrairement a
     # create/restore, supprimer un snapshot interne est quasi-instantane meme
     # avec un enfant (libvirt reparente l'enfant automatiquement), teste et
-    # confirme sur ce host le 2026-09-13.
+    # confirme sur ce host le 2026-09-13. `zfs destroy` d'un snapshot est du
+    # meme ordre de grandeur (quasi-instantane), meme choix pour les VM ZFS.
     conn = open_conn()
     task_id = create_task("delete_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
     try:
@@ -1514,6 +1624,16 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
         except libvirt.libvirtError:
             log_action(user["username"], "delete_snapshot", name, "echec", "VM introuvable", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+
+        zvol_specs = _zvol_disks_of_domain(domain)
+        if zvol_specs:
+            try:
+                zfs_storage.delete_zvol_snapshot(zvol_specs, snapshot_name)
+            except zfs_storage.ZfsError as e:
+                log_action(user["username"], "delete_snapshot", snapshot_name, "echec", e.message, task_id=task_id)
+                raise HTTPException(status_code=500, detail=f"Erreur de suppression : {e.message}")
+            log_action(user["username"], "delete_snapshot", snapshot_name, "succes", task_id=task_id)
+            return {"message": f"Snapshot '{snapshot_name}' supprimé"}
 
         try:
             snap = domain.snapshotLookupByName(snapshot_name)
