@@ -427,4 +427,22 @@ def init_db():
                 created_at REAL NOT NULL
             )
         """)
+        # Sauvegardes de conteneurs (backlog 2026-09-18) -- version
+        # deliberement plus simple que `backups` (VM, chantier 13) : pas de
+        # job_id/planification/mode chaud-froid, un conteneur doit toujours
+        # etre ARRETE pour etre sauvegarde (systeme de fichiers, pas de
+        # disque qcow2 a copier a chaud). Manuel uniquement pour l'instant.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS container_backups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                container_name TEXT NOT NULL,
+                chemin TEXT NOT NULL,
+                taille_octets INTEGER,
+                cree_le TEXT NOT NULL,
+                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'termine', 'echec')),
+                task_id TEXT,
+                erreur TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_container_backups_name ON container_backups(container_name, cree_le)")
         conn.commit()
