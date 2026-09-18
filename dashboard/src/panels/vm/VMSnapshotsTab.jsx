@@ -54,6 +54,19 @@ export default function VMSnapshotsTab({ resource: vm }) {
   if (!vm) return null;
   if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400">Chargement...</div>;
 
+  // VM sur pool ZFS (backlog stockage 2026-09-18, phase 3) : lu
+  // directement depuis vm.stockage_zfs (GET /vms, app/routers/vms.py::
+  // _domain_summary). BUG REEL trouvé en testant dans un vrai
+  // navigateur : la première version déduisait ça depuis la liste des
+  // snapshots EXISTANTS (etat_vm=='disque_seul') -- faux pour le TOUT
+  // PREMIER snapshot d'une VM (liste encore vide pendant sa création),
+  // le texte qcow2 ("mémoire incluse automatiquement") s'affichait donc
+  // à tort le temps de ce tout premier snapshot. Le texte qcow2 est de
+  // toute façon faux pour ces VM dans l'absolu -- un snapshot ZFS ne
+  // grossit jamais un fichier qcow2 (il n'y en a pas) et n'inclut JAMAIS
+  // la mémoire, même VM active au moment du snapshot.
+  const isZfsBacked = Boolean(vm.stockage_zfs);
+
   async function handleCreate() {
     setBusy(true);
     const name = `snap-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
@@ -115,8 +128,10 @@ export default function VMSnapshotsTab({ resource: vm }) {
         <div className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2">
           <AlertTriangle size={15} className="text-status-warning shrink-0 mt-0.5" />
           <p className="text-xs text-anthracite-200">
-            {snapshots.length} snapshots actifs sur cette VM. Chaque snapshot conservé ralentit le disque et fait grossir le
-            fichier qcow2 — supprimez ceux qui ne sont plus utiles dès que possible.
+            {snapshots.length} snapshots actifs sur cette VM.{" "}
+            {isZfsBacked
+              ? "Chaque snapshot ZFS conservé occupe de l'espace sur le pool — supprimez ceux qui ne sont plus utiles dès que possible."
+              : "Chaque snapshot conservé ralentit le disque et fait grossir le fichier qcow2 — supprimez ceux qui ne sont plus utiles dès que possible."}
           </p>
         </div>
       )}
@@ -135,7 +150,9 @@ export default function VMSnapshotsTab({ resource: vm }) {
           </div>
           <ProgressBar indeterminate statut="en_cours" />
           <p className="text-[11px] text-anthracite-500">
-            Peut prendre plusieurs secondes si la VM tourne (la mémoire est incluse automatiquement).
+            {isZfsBacked
+              ? "Snapshot ZFS natif (disque seul, quasi instantané)."
+              : "Peut prendre plusieurs secondes si la VM tourne (la mémoire est incluse automatiquement)."}
           </p>
         </div>
       )}
@@ -151,7 +168,9 @@ export default function VMSnapshotsTab({ resource: vm }) {
               </div>
               <div className="text-xs text-anthracite-400 truncate">
                 {s.description || "--"} {s.date_creation ? `-- ${s.date_creation}` : ""}
-                {s.etat_vm && ` -- VM ${s.etat_vm === "running" ? "en marche (mémoire incluse)" : "arrêtée (disque seul)"}`}
+                {s.etat_vm === "disque_seul"
+                  ? " -- ZFS, disque seul (jamais la mémoire)"
+                  : s.etat_vm && ` -- VM ${s.etat_vm === "running" ? "en marche (mémoire incluse)" : "arrêtée (disque seul)"}`}
               </div>
             </div>
             {isAdmin && (
