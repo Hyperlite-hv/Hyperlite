@@ -29,6 +29,9 @@ function initialForm(nodes, networks) {
     username: "",
     password: "",
     network: networks[0]?.nom || "default",
+    // Choix du pool de stockage (backlog 2026-09-18) : vide = pool
+    // 'default', comportement historique inchangé.
+    storagePool: "",
     autoCleanupEnabled: false,
     autoCleanupDays: 7,
   };
@@ -37,6 +40,7 @@ function initialForm(nodes, networks) {
 export default function VMWizard({ open, onClose }) {
   const nodes = useInfraStore((s) => s.nodes);
   const networks = useInfraStore((s) => s.networks);
+  const storagePools = useInfraStore((s) => s.storagePools);
   const addTask = useInfraStore((s) => s.addTask);
   const completeTask = useInfraStore((s) => s.completeTask);
   const loadAll = useInfraStore((s) => s.loadAll);
@@ -64,6 +68,7 @@ export default function VMWizard({ open, onClose }) {
       disks: form.disks, network: form.network, username: form.username,
       password: form.password, iso: form.iso || null,
       import_disk: form.importDisk || null,
+      storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? form.autoCleanupDays : null,
     };
     const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
@@ -109,7 +114,7 @@ export default function VMWizard({ open, onClose }) {
         </div>
 
         <div className="max-h-[55vh] overflow-y-auto px-5 py-2">
-          <Step form={form} patch={patch} nodes={nodes} networks={networks} />
+          <Step form={form} patch={patch} nodes={nodes} networks={networks} storagePools={storagePools} />
         </div>
 
         <div className="flex justify-between border-t border-anthracite-600 px-5 py-3">

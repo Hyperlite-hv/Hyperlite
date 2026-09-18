@@ -6,7 +6,13 @@ import { detectOsFamily } from "../../utils/osFamily";
 // Le compte utilisateur reste necessaire sans ISO (cloud-init) ET avec un ISO
 // reconnu (installation automatisee, meme logique que detect_os_family cote
 // backend) -- seule l'installation manuelle (ISO non reconnu) s'en passe.
-export default function StepResources({ form, patch }) {
+export default function StepResources({ form, patch, storagePools = [] }) {
+  // Choix du pool de stockage (backlog 2026-09-18) : seuls dir/netfs sont
+  // supportes cote backend (types de pool crees par ce projet exposant un
+  // chemin de fichiers classique, voir app/routers/vms.py::create_vm) --
+  // et seulement les pools ACTIFS, un pool inactif ferait echouer la
+  // creation de la VM.
+  const selectablePools = storagePools.filter((p) => ["dir", "netfs"].includes(p.type) && p.etat === "actif");
   const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
   const importMode = form.importDisk != null;
   function updateDisk(i, size_gb) {
@@ -59,6 +65,21 @@ export default function StepResources({ form, patch }) {
           <Plus size={13} /> Ajouter un disque
         </button>
       </div>
+
+      {selectablePools.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-anthracite-300">Pool de stockage</label>
+          <select className="input mt-1" value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
+            <option value="">Par défaut (local)</option>
+            {selectablePools.map((p) => (
+              <option key={p.nom} value={p.nom}>{p.nom} ({p.type}, {p.disponible_go} Go libres)</option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-anthracite-500">
+            Choisir un pool de stockage réseau (netfs) partagé permet ensuite de protéger cette VM en HA ou de la migrer à chaud.
+          </p>
+        </div>
+      )}
 
       {importMode ? (
         <div className="rounded-md border border-anthracite-600 px-3 py-2.5 text-sm text-anthracite-300">
