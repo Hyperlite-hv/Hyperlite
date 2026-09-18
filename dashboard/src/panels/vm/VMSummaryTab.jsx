@@ -181,13 +181,11 @@ export default function VMSummaryTab({ resource: vm }) {
     }
   }
 
-  // "kvm-lab" comme destination exclu quand la VM est deja sur un nœud
-  // DISTANT (limite reelle et connue, voir CLAUDE.md : la migration
-  // peer-to-peer est initiee par le libvirtd SOURCE, qui n'a pas de
-  // confiance SSH inverse vers kvm-lab -- seul kvm-lab -> nœud distant est
-  // teste et supporte). Evite de proposer une destination qui echouera a
-  // coup sur plutot que de laisser l'utilisateur decouvrir l'erreur.
-  const migrationTargets = nodes.filter((n) => n.id !== vm.node && n.etat === "online" && !(vm.node !== "kvm-lab" && n.id === "kvm-lab"));
+  // "kvm-lab" comme destination (meme depuis un nœud DISTANT) n'est plus
+  // exclu depuis le backlog 2026-09-18 : confiance SSH inverse etablie
+  // automatiquement a l'enregistrement de chaque nœud (voir
+  // app/core/cluster.py::ensure_reverse_trust).
+  const migrationTargets = nodes.filter((n) => n.id !== vm.node && n.etat === "online");
 
   return (
     <div className="space-y-5">
