@@ -23,6 +23,12 @@ ALL_PRIVILEGES = {
     "vm.resize": "Redimensionner (CPU / RAM / disque)",
     "vm.hardware": "Matériel (disques, interfaces réseau, lecteur CD)",
     "vm.clone": "Cloner la VM (crée une nouvelle VM et consomme de l'espace disque)",
+    # Conteneurs LXC (backlog 2026-09-18, chantier 18) -- catalogue distinct
+    # de vm.* (ressource differente, meme si `has_container_privilege`
+    # reutilise les MEMES roles predefinis ci-dessous, voir plus bas).
+    "container.view": "Consulter (état, IP)",
+    "container.power": "Démarrer / arrêter",
+    "container.console": "Terminal SSH web",
 }
 
 # Roles predefinis, scopes, attribuables via une ACL (distincts des roles
@@ -33,17 +39,20 @@ ROLES = {
     "lecteur": {
         "label": "Lecteur",
         "description": "Consultation (état, métriques, journal) sur la ressource attribuée.",
-        "privileges": {"vm.view"},
+        "privileges": {"vm.view", "container.view"},
     },
     "operateur": {
         "label": "Operateur",
         "description": "Démarrer / arrêter / redémarrer, console graphique et terminal SSH, sur la ressource attribuée.",
-        "privileges": {"vm.view", "vm.power", "vm.console"},
+        "privileges": {"vm.view", "vm.power", "vm.console", "container.view", "container.power", "container.console"},
     },
     "gestionnaire": {
         "label": "Gestionnaire",
         "description": "Opérateur + snapshots, redimensionnement CPU/RAM/disque, matériel (disques/réseau) -- sans création ni suppression de VM.",
-        "privileges": {"vm.view", "vm.power", "vm.console", "vm.snapshot", "vm.resize", "vm.hardware"},
+        "privileges": {
+            "vm.view", "vm.power", "vm.console", "vm.snapshot", "vm.resize", "vm.hardware",
+            "container.view", "container.power", "container.console",
+        },
     },
 }
 
@@ -296,6 +305,38 @@ def has_privilege(user, vm_name, privilege):
             or (row["resource_type"] == "pool" and row["resource_id"].isdigit() and int(row["resource_id"]) in pool_ids)
         )
         if not resource_ok:
+            continue
+        if privilege in get_role_privileges(row["role"]):
+            return True
+    return False
+
+
+def has_container_privilege(user, container_name, privilege):
+    """Equivalent de has_privilege() pour les conteneurs LXC (backlog
+    2026-09-18, chantier 18) -- meme catalogue de roles (lecteur/
+    operateur/gestionnaire/personnalise), resource_type='container' dans
+    l'ACL plutot que 'vm'. PAS de regroupement par pool pour les
+    conteneurs dans cette premiere passe (les pools de app/routers/
+    pools.py sont un concept VM uniquement, "VM ajoutee au pool") --
+    limitation assumee, documentee plutot que silencieusement absente."""
+    if user["role"] == "admin":
+        return True
+    if user["role"] == "observateur" and privilege == "container.view":
+        return True  # meme principe que vm.view : lecture globale pour observateur, pas le terminal
+
+    group_ids = set(get_user_groups(user["username"]))
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT role, resource_type, resource_id, subject_type, subject_id FROM acl WHERE resource_type = 'container'"
+        ).fetchall()
+
+    for row in rows:
+        subject_ok = (
+            (row["subject_type"] == "user" and row["subject_id"] == user["username"])
+            or (row["subject_type"] == "group" and row["subject_id"].isdigit() and int(row["subject_id"]) in group_ids)
+        )
+        if not subject_ok or row["resource_id"] != container_name:
             continue
         if privilege in get_role_privileges(row["role"]):
             return True
