@@ -263,10 +263,40 @@ def _compute_migratable_cpu_xml():
 
         return local_conn.baselineCPU(cpu_xmls, libvirt.VIR_CONNECT_BASELINE_CPU_MIGRATABLE)
     except libvirt.libvirtError:
-        return None
+        # BUG D'ENVIRONNEMENT REEL (voir docstring ci-dessus, 'Unknown CPU
+        # model') -- automatise depuis le backlog 2026-09-18 : repli sur un
+        # CPU GENERIQUE portable plutot que host-model seul. host-model
+        # reste fige sur le CPU exact du nœud createur (incompatible avec
+        # l'autre par construction, aucune migration possible sans edition
+        # manuelle du XML) ; un CPU generique, meme moins optimal, permet
+        # au moins une migration REELLE sans intervention -- verifie
+        # fonctionnel entre kvm-lab et serveur-antho avant d'automatiser ce
+        # contournement (voir _generic_portable_cpu_xml()).
+        return _generic_portable_cpu_xml()
     finally:
         if local_conn is not None:
             local_conn.close()
+
+
+def _generic_portable_cpu_xml():
+    """CPU 'qemu64' generique, avec svm/vmx explicitement desactives --
+    repli de DERNIER RECOURS (backlog 2026-09-18) quand baselineCPU()
+    echoue completement entre les nœuds du cluster (bases de modeles CPU
+    incompatibles, voir _compute_migratable_cpu_xml ci-dessus). `svm`
+    (virtualisation AMD) fait partie des fonctions ACTIVEES PAR DEFAUT du
+    modele 'qemu64' sur cette version de QEMU -- casse le demarrage sur un
+    hote Intel si on ne le desactive pas explicitement (constate en
+    testant ce contournement a la main avant de l'automatiser ici). `vmx`
+    desactive aussi par symetrie/prudence -- jamais rencontre comme
+    probleme reel, mais desactiver une fonction deja absente est un
+    no-op sans risque."""
+    return (
+        "<cpu mode='custom' match='exact'>"
+        "<model fallback='forbid'>qemu64</model>"
+        "<feature policy='disable' name='svm'/>"
+        "<feature policy='disable' name='vmx'/>"
+        "</cpu>"
+    )
 
 
 def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None, mac=None, kernel_path=None, initrd_path=None, kernel_cmdline=None):
