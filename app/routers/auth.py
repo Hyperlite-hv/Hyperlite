@@ -2,7 +2,7 @@ import re
 import sqlite3
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
@@ -33,6 +33,19 @@ LOGIN_MAX_ATTEMPTS = 5
 LOGIN_WINDOW_S = 300  # fenetre glissante sur laquelle les echecs comptent
 _login_failures = {}  # username -> [timestamps des echecs recents]
 
+# Rate-limiting PAR IP (2026-09-18, backlog du chantier 11 -- "reste a
+# explorer" note a l'epoque). Le verrou par COMPTE ci-dessus ne protege
+# pas contre un attaquant qui essaie plein de NOMS D'UTILISATEUR
+# differents depuis la meme source (le verrou par compte ne se declenche
+# jamais si chaque compte n'est tente qu'une ou deux fois) -- un verrou
+# par IP, plus large (plus de tentatives tolerees : une IP peut
+# legitimement porter plusieurs utilisateurs derriere un NAT/proxy),
+# couvre ce cas distinct. Meme mecanisme en memoire, meme limite connue
+# (reinitialise au redemarrage).
+LOGIN_IP_MAX_ATTEMPTS = 20
+LOGIN_IP_WINDOW_S = 300
+_login_failures_by_ip = {}  # ip -> [timestamps des echecs recents]
+
 
 def _login_locked_out(username):
     now = time.time()
@@ -43,6 +56,21 @@ def _login_locked_out(username):
 
 def _login_record_failure(username):
     _login_failures.setdefault(username, []).append(time.time())
+
+
+def _client_ip(request: Request):
+    return request.client.host if request.client else "inconnu"
+
+
+def _login_ip_locked_out(ip):
+    now = time.time()
+    recent = [t for t in _login_failures_by_ip.get(ip, []) if now - t < LOGIN_IP_WINDOW_S]
+    _login_failures_by_ip[ip] = recent
+    return len(recent) >= LOGIN_IP_MAX_ATTEMPTS
+
+
+def _login_ip_record_failure(ip):
+    _login_failures_by_ip.setdefault(ip, []).append(time.time())
 
 
 class UserCreate(BaseModel):
@@ -74,7 +102,14 @@ class TokenCreate(BaseModel):
 
 
 @router.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    ip = _client_ip(request)
+    if _login_ip_locked_out(ip):
+        log_action(form_data.username, "login", "auth", "echec", f"IP verrouillée ({LOGIN_IP_MAX_ATTEMPTS} échecs récents depuis {ip})")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Trop de tentatives échouées depuis cette adresse, réessayez dans {LOGIN_IP_WINDOW_S // 60} minutes",
+        )
     if _login_locked_out(form_data.username):
         log_action(form_data.username, "login", "auth", "echec", f"Verrouillé ({LOGIN_MAX_ATTEMPTS} échecs récents)")
         raise HTTPException(
@@ -84,6 +119,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
         _login_record_failure(form_data.username)
+        _login_ip_record_failure(ip)
         log_action(form_data.username, "login", "auth", "echec", "Identifiants invalides")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identifiants invalides")
     _login_failures.pop(form_data.username, None)
@@ -103,11 +139,18 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 
 @router.post("/login/2fa")
-def login_2fa(payload: Login2FA):
+def login_2fa(request: Request, payload: Login2FA):
     """Deuxieme etape du login quand /auth/login a renvoye require_2fa.
     Reutilise le meme verrou anti-brute-force que /auth/login (par
-    username) -- un code TOTP est a 6 chiffres (1M combinaisons), pas
-    negligeable a laisser deviner sans limite."""
+    username ET par IP) -- un code TOTP est a 6 chiffres (1M
+    combinaisons), pas negligeable a laisser deviner sans limite."""
+    ip = _client_ip(request)
+    if _login_ip_locked_out(ip):
+        log_action("system", "login", "auth", "echec", f"IP verrouillée ({LOGIN_IP_MAX_ATTEMPTS} échecs récents depuis {ip})")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Trop de tentatives échouées depuis cette adresse, réessayez dans {LOGIN_IP_WINDOW_S // 60} minutes",
+        )
     try:
         claims = jwt.decode(payload.pre_auth_token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
@@ -128,6 +171,7 @@ def login_2fa(payload: Login2FA):
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     if not verify_code(user["totp_secret"], payload.code):
         _login_record_failure(username)
+        _login_ip_record_failure(ip)
         log_action(username, "login", "auth", "echec", "Code 2FA invalide")
         raise HTTPException(status_code=401, detail="Code invalide")
 
