@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Trash2, Plus, HardDrive, Network } from "lucide-react";
+import { Trash2, Plus, HardDrive, Network, Layers } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 import { fetchIsoTemplates, deleteIso, createStoragePool, deleteStoragePool } from "../../api/client";
 
-const EMPTY_FORM = { name: "", type: "dir", node: "kvm-lab", path: "", nfs_host: "", nfs_export_path: "" };
+// "zfs" (backlog stockage 2026-09-18) : pool ZFS gere hors libvirt (voir
+// app/core/zfs_storage.py), adosse pour l'instant a un fichier loopback
+// (size_gb) -- mono-nœud, toujours cree sur l'hote local (kvm-lab), le
+// selecteur de nœud est ignoré côté backend pour ce type.
+const EMPTY_FORM = { name: "", type: "dir", node: "kvm-lab", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20" };
 
 // Pools : vue agregee de GET /storage sur tous les noeuds -- reel pour kvm-lab.
 // Images ISO : vraie liste/upload/suppression via GET/POST/DELETE /isos.
@@ -45,7 +49,9 @@ export default function StorageTab() {
     try {
       const payload = form.type === "dir"
         ? { name: form.name, type: "dir", path: form.path || null }
-        : { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path };
+        : form.type === "netfs"
+        ? { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path }
+        : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       // node "kvm-lab" = hote local (voir convention fetchNodes()/open_conn) :
       // le backend n'accepte que le nom d'un nœud distant enregistré, jamais
       // "kvm-lab" lui-même.
@@ -116,6 +122,13 @@ export default function StorageTab() {
               >
                 <Network size={14} /> Partage NFS
               </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, type: "zfs" })}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${form.type === "zfs" ? "border-accent-blue bg-accent-blue/10 text-accent-blue" : "border-anthracite-600 text-anthracite-300"}`}
+              >
+                <Layers size={14} /> ZFS
+              </button>
             </div>
 
             {form.type === "dir" ? (
@@ -123,7 +136,7 @@ export default function StorageTab() {
                 <label className="text-xs font-medium text-anthracite-300">Chemin local (optionnel)</label>
                 <input className="input mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (auto si vide)" />
               </div>
-            ) : (
+            ) : form.type === "netfs" ? (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-anthracite-300">Hôte du serveur NFS</label>
@@ -133,6 +146,12 @@ export default function StorageTab() {
                   <label className="text-xs font-medium text-anthracite-300">Chemin exporté</label>
                   <input className="input mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/partage" />
                 </div>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs font-medium text-anthracite-300">Taille (Go, fichier loopback)</label>
+                <input type="number" min="1" max="4096" className="input mt-1" required value={form.size_gb} onChange={(e) => setForm({ ...form, size_gb: e.target.value })} />
+                <p className="mt-1 text-xs text-anthracite-400">Pool ZFS créé sur l'hôte local uniquement, adossé à un fichier — les VM créées dessus utilisent des disques bloc bruts (zvols).</p>
               </div>
             )}
 
@@ -151,7 +170,7 @@ export default function StorageTab() {
             <div key={`${p.node}-${p.nom}`} className="grid grid-cols-6 gap-2 px-4 py-2.5 text-sm items-center">
               <span className="text-anthracite-100">{p.nom}</span>
               <span className="text-anthracite-300">{p.node}</span>
-              <span className="text-anthracite-300">{p.type === "netfs" ? "NFS" : p.type}</span>
+              <span className="text-anthracite-300">{p.type === "netfs" ? "NFS" : p.type === "zfs" ? "ZFS" : p.type}</span>
               <span className="text-anthracite-300">{p.capacite_go} Go</span>
               <span className="text-anthracite-300">{p.disponible_go} Go</span>
               <span className="text-right">

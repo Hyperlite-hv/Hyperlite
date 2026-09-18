@@ -23,8 +23,9 @@ from app.core.error_messages import describe_exception
 from app.core.vm_builder import (
     validate_name, validate_username, create_disk, create_disk_from_import, create_cloudinit_iso, create_cloudinit_reseed_iso,
     build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
-    strip_install_boot_override,
+    strip_install_boot_override, create_zvol_disk,
 )
+from app.core import zfs_storage
 from app.core.unattended_install import detect_os_family, build_seed_iso, extract_casper_kernel
 from app.core.vm_meta import (
     set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user,
@@ -384,7 +385,16 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         # necessiterait un mecanisme de creation de volume different, hors
         # scope de ce correctif.
         target_dir = None
-        if payload.storage_pool and payload.storage_pool != "default":
+        # Pool ZFS (backlog stockage 2026-09-18) : pas un pool libvirt (voir
+        # app/core/zfs_storage.py), donc verifie AVANT toute tentative de
+        # lookup libvirt -- qui echouerait simplement avec "introuvable"
+        # pour un nom qui n'existe que cote ZFS. Mono-noeud pour l'instant :
+        # seulement l'hote LOCAL (meme limite que list_pools/delete_pool,
+        # app/routers/storage.py).
+        zfs_pool_name = None
+        if payload.storage_pool and payload.storage_pool != "default" and zfs_storage.pool_exists(payload.storage_pool):
+            zfs_pool_name = payload.storage_pool
+        elif payload.storage_pool and payload.storage_pool != "default":
             try:
                 pool = conn.storagePoolLookupByName(payload.storage_pool)
             except libvirt.libvirtError:
@@ -419,7 +429,22 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             pass
 
         try:
-            if import_mode:
+            if zfs_pool_name:
+                # Zvols bruts (backlog stockage 2026-09-18) : chaque chemin
+                # est un peripherique /dev/zvol/... marque 'block' pour
+                # build_domain_xml (voir create_zvol_disk, vm_builder.py),
+                # jamais un chemin de fichier qcow2.
+                if import_mode:
+                    disk_paths = [(create_zvol_disk(zfs_pool_name, payload.name, 0, 1, import_source=import_disk_path), "block")] + [
+                        (create_zvol_disk(zfs_pool_name, payload.name, i, disk.size_gb), "block")
+                        for i, disk in enumerate(payload.disks[1:], start=1)
+                    ]
+                else:
+                    disk_paths = [
+                        (create_zvol_disk(zfs_pool_name, payload.name, i, disk.size_gb, blank=(install_mode and i == 0)), "block")
+                        for i, disk in enumerate(payload.disks)
+                    ]
+            elif import_mode:
                 # Disque 0 = conversion du fichier importe (qemu-img detecte
                 # le format source tout seul) ; disques supplementaires
                 # eventuels toujours vierges comme d'habitude.
@@ -486,6 +511,9 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             msg = f"Erreur lors de la preparation du disque/cloud-init : {e.stderr or e}"
             log_action(user["username"], "create_vm", payload.name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=msg)
+        except zfs_storage.ZfsError as e:
+            log_action(user["username"], "create_vm", payload.name, "echec", e.message, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Erreur ZFS lors de la préparation du disque : {e.message}")
         except ValueError as e:
             log_action(user["username"], "create_vm", payload.name, "echec", str(e), task_id=task_id)
             raise HTTPException(status_code=422, detail=str(e))
@@ -663,12 +691,25 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     OWN_GENERATED_ISO_NAMES = {f"{name}-cloudinit.iso", f"{name}-oemdrv.iso", f"{name}-autoinstall.iso"}
 
     disk_paths_to_remove = []
+    # Disques BLOC (zvols ZFS, backlog stockage 2026-09-18) : source='dev',
+    # pas 'file' -- traites a part (suppression via `zfs destroy`, pas
+    # Path.unlink()), voir plus bas. Toujours locaux pour l'instant (gestion
+    # ZFS mono-nœud, meme limite que create_vm/storage.py) : jamais attendus
+    # dans le chemin de suppression a distance (node= vers un autre nœud).
+    zvol_paths_to_remove = []
     ifaces_to_release = []
     try:
         root = ET.fromstring(domain.XMLDesc())
         for disk_el in root.findall(".//devices/disk"):
             source_el = disk_el.find("source")
-            source_file = source_el.get("file") if source_el is not None else None
+            if source_el is None:
+                continue
+            if disk_el.get("type") == "block":
+                source_dev = source_el.get("dev")
+                if source_dev and disk_el.get("device") == "disk":
+                    zvol_paths_to_remove.append(source_dev)
+                continue
+            source_file = source_el.get("file")
             if not source_file:
                 continue
             if disk_el.get("device") == "disk":
@@ -713,6 +754,18 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     else:
         for disk_path in disk_paths_to_remove:
             disk_path.unlink(missing_ok=True)
+        for zvol_path in zvol_paths_to_remove:
+            # '/dev/zvol/<pool>/<nom>' -- pool = 3e segment, nom = le reste
+            # (un nom de zvol ne contient jamais lui-meme de '/', voir
+            # validate_zfs_name). Best-effort : une VM deja partiellement
+            # nettoyee (zvol supprime a la main hors Hyperlite) ne doit pas
+            # faire echouer toute la suppression.
+            parts = zvol_path.strip("/").split("/")
+            if len(parts) >= 4 and parts[0] == "dev" and parts[1] == "zvol":
+                try:
+                    zfs_storage.delete_zvol(parts[2], "/".join(parts[3:]))
+                except zfs_storage.ZfsError:
+                    pass
     delete_vm_ssh_user(name)
     delete_vm_os_label(name)
     clear_provisioning(name)

@@ -105,6 +105,43 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     return disk_path
 
 
+def create_zvol_disk(zfs_pool, vm_name, index, disk_gb, blank=False, import_source=None):
+    """Équivalent zvol de create_disk()/create_disk_from_import() (backlog
+    stockage 2026-09-18, pool ZFS géré par app/core/zfs_storage.py) : crée
+    un zvol brut au lieu d'un fichier qcow2, puis y écrit l'image cloud
+    Debian ou le disque importé via `qemu-img convert -O raw` -- qemu-img
+    sait écrire directement sur un périphérique bloc, aucune étape
+    intermédiaire nécessaire. Retourne un chemin PÉRIPHÉRIQUE
+    (/dev/zvol/<pool>/<nom>), pas un chemin de fichier -- à charge de
+    build_domain_xml() de l'attacher en <disk type='block'>, pas
+    type='file'.
+
+    `import_source` : taille dérivée du disque source (comme
+    create_disk_from_import, qui ignore aussi toute taille demandée) --
+    un zvol doit être créé à une taille explicite en octets, contrairement
+    à un qcow2 qui hérite implicitement de la taille virtuelle de son
+    fichier source."""
+    from app.core import zfs_storage
+    zvol_name = vm_name if index == 0 else f"{vm_name}-{index + 1}"
+    if import_source is not None:
+        info = subprocess.run(
+            ["qemu-img", "info", "--output=json", str(import_source)],
+            check=True, capture_output=True, text=True,
+        )
+        import json
+        virtual_size = json.loads(info.stdout)["virtual-size"]
+        size_gb = max(1, -(-virtual_size // (1024 ** 3)))  # arrondi au Go superieur
+        dev_path = zfs_storage.create_zvol(zfs_pool, zvol_name, size_gb)
+        subprocess.run(["qemu-img", "convert", "-O", "raw", str(import_source), dev_path], check=True, capture_output=True, text=True)
+        return dev_path
+
+    dev_path = zfs_storage.create_zvol(zfs_pool, zvol_name, disk_gb)
+    if index == 0 and not blank:
+        ensure_base_image()
+        subprocess.run(["qemu-img", "convert", "-O", "raw", str(BASE_IMAGE), dev_path], check=True, capture_output=True, text=True)
+    return dev_path
+
+
 def create_disk_from_import(vm_name, source_path, target_dir=None):
     """Cree le disque systeme (index 0) d'une VM a partir d'un fichier
     disque deja uploade (voir app/routers/vm_disks.py, chantier 23) plutot
@@ -310,11 +347,33 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
     # peripherique, seuls le disque systeme et l'ISO d'installation portent
     # un <boot order>, l'ISO de reponses n'en porte aucun et n'est donc
     # jamais tente comme peripherique de demarrage.
+    # Chaque element de disk_paths est soit un chemin de FICHIER (str/Path,
+    # comportement historique, qcow2) soit un tuple (chemin, 'block') pour
+    # un zvol ZFS brut (backlog stockage 2026-09-18, voir
+    # create_zvol_disk()) -- une VM peut librement melanger les deux (ex.
+    # disque systeme sur zvol + disque supplementaire qcow2 classique).
+    # <disk type='block'> + driver raw + <source dev=...> au lieu de
+    # type='file'/<source file=...> : c'est la difference XML qui permet a
+    # un peripherique bloc brut (zvol aujourd'hui, RBD Ceph demain --
+    # meme forme, seule la source du chemin change) d'etre attache comme
+    # n'importe quel autre disque.
     disks_xml = ""
-    for i, disk_path in enumerate(disk_paths):
+    for i, disk_entry in enumerate(disk_paths):
+        if isinstance(disk_entry, (tuple, list)):
+            disk_path, disk_kind = disk_entry
+        else:
+            disk_path, disk_kind = disk_entry, "file"
         dev = f"sd{SCSI_LETTERS[i]}"
         boot_order = " <boot order='1'/>" if i == 0 else ""
-        disks_xml += f"""
+        if disk_kind == "block":
+            disks_xml += f"""
+    <disk type='block' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source dev='{disk_path}'/>
+      <target dev='{dev}' bus='scsi'/>{boot_order}
+    </disk>"""
+        else:
+            disks_xml += f"""
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{disk_path}'/>

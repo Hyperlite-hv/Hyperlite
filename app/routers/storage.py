@@ -12,6 +12,7 @@ from app.core.vm_builder import validate_name
 from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
+from app.core import zfs_storage
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
@@ -64,12 +65,22 @@ def _pool_summary(pool):
 @router.get("")
 def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
     """node : meme convention que GET /vms (chantier 15) -- liste les pools
-    d'un noeud distant enregistre plutot que de l'hote local."""
+    d'un noeud distant enregistre plutot que de l'hote local.
+
+    Pools ZFS (backlog stockage 2026-09-18) fusionnes dans la meme liste
+    (type='zfs') pour un affichage unifie cote UI -- mais uniquement
+    quand `node` designe l'hote LOCAL : contrairement aux pools libvirt
+    (dir/netfs), la gestion ZFS de ce chantier est encore mono-noeud
+    (appels `zpool`/`zfs` directs sur CE serveur, pas de gestion a
+    distance via SSH -- voir app/core/zfs_storage.py). Un pool ZFS d'un
+    noeud distant enregistre n'est donc pas visible ici pour l'instant."""
     conn = open_conn(node)
     try:
         ensure_default_pool(conn)
         pools = conn.listAllStoragePools()
         result = [_pool_summary(p) for p in pools]
+        if not node or node == "local":
+            result += zfs_storage.list_pools()
         log_action(user["username"], "list_storage_pools", "storage", "succes")
         return result
     finally:
@@ -84,10 +95,15 @@ class PoolCreate(BaseModel):
     # sur un pool netfs est visible identiquement depuis n'importe quel
     # nœud qui monte le meme export, pas besoin de le copier au moment de
     # migrer une VM.
-    type: str = Field(pattern="^(dir|netfs)$")
+    # "zfs" (backlog stockage 2026-09-18) : pool ZFS gere hors libvirt (voir
+    # app/core/zfs_storage.py), adosse pour l'instant a un fichier loopback
+    # (`size_gb`) plutot qu'un disque dedie -- choix explicite d'Antho pour
+    # valider le mecanisme sans toucher au LVM existant d'un nœud.
+    type: str = Field(pattern="^(dir|netfs|zfs)$")
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
     nfs_host: str | None = None  # pool "netfs" : hote du serveur NFS
     nfs_export_path: str | None = None  # pool "netfs" : chemin exporte cote serveur
+    size_gb: int | None = Field(None, ge=1, le=4096)  # pool "zfs" : taille du fichier loopback
 
 
 def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
@@ -168,6 +184,21 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
         log_action(user["username"], "create_storage_pool", payload.name, "echec", name_error)
         raise HTTPException(status_code=422, detail=name_error)
 
+    if payload.type == "zfs":
+        if node and node != "local":
+            raise HTTPException(status_code=422, detail="Un pool ZFS ne peut être créé que sur l'hôte local (gestion mono-nœud pour l'instant)")
+        if not payload.size_gb:
+            raise HTTPException(status_code=422, detail="size_gb est requis pour un pool ZFS")
+        if not zfs_storage.is_available():
+            raise HTTPException(status_code=422, detail="ZFS n'est pas installé sur cet hôte (paquets zfsutils-linux/zfs-dkms)")
+        try:
+            pool = zfs_storage.create_pool(payload.name, payload.size_gb)
+        except zfs_storage.ZfsError as e:
+            log_action(user["username"], "create_storage_pool", payload.name, "echec", e.message)
+            raise HTTPException(status_code=500, detail=f"Erreur de création du pool ZFS : {e.message}")
+        log_action(user["username"], "create_storage_pool", payload.name, "succes")
+        return pool
+
     if payload.type == "dir":
         target_path = payload.path or f"/var/lib/libvirt/hyperlite-pools/{payload.name}"
         if not POOL_PATH_RE.match(target_path):
@@ -228,6 +259,18 @@ def delete_pool(pool_name: str, node: str | None = None, confirm: bool = False, 
     if not confirm:
         raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
 
+    # Un pool ZFS n'est PAS un pool libvirt (voir zfs_storage.py) -- routé
+    # à part avant toute tentative de lookup côté libvirt, qui échouerait
+    # simplement avec "introuvable" pour un nom qui n'existe que côté ZFS.
+    if (not node or node == "local") and zfs_storage.pool_exists(pool_name):
+        try:
+            zfs_storage.delete_pool(pool_name)
+        except zfs_storage.ZfsError as e:
+            log_action(user["username"], "delete_storage_pool", pool_name, "echec", e.message)
+            raise HTTPException(status_code=409, detail=e.message)
+        log_action(user["username"], "delete_storage_pool", pool_name, "succes")
+        return {"message": f"Pool ZFS '{pool_name}' supprimé"}
+
     conn = open_conn(node)
     try:
         try:
@@ -261,6 +304,14 @@ def delete_pool(pool_name: str, node: str | None = None, confirm: bool = False, 
 def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
     conn = open_conn()
     try:
+        if zfs_storage.pool_exists(pool_name):
+            in_use = get_disk_paths_in_use(conn)
+            result = zfs_storage.list_zvols(pool_name)
+            for vol in result:
+                vol["utilise"] = vol["chemin"] in in_use
+            log_action(user["username"], "list_volumes", pool_name, "succes")
+            return result
+
         try:
             pool = conn.storagePoolLookupByName(pool_name)
         except libvirt.libvirtError:
@@ -290,6 +341,19 @@ class VolumeCreate(BaseModel):
 
 @router.post("/{pool_name}/volumes", status_code=201)
 def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(require_role("admin"))):
+    if zfs_storage.pool_exists(pool_name):
+        name_error = zfs_storage.validate_zfs_name(payload.name)
+        if name_error:
+            log_action(user["username"], "create_volume", payload.name, "echec", name_error)
+            raise HTTPException(status_code=422, detail=name_error)
+        try:
+            path = zfs_storage.create_zvol(pool_name, payload.name, payload.size_gb)
+        except zfs_storage.ZfsError as e:
+            log_action(user["username"], "create_volume", payload.name, "echec", e.message)
+            raise HTTPException(status_code=500, detail=f"Erreur de création du zvol : {e.message}")
+        log_action(user["username"], "create_volume", payload.name, "succes")
+        return {"nom": payload.name, "chemin": path, "capacite_go": float(payload.size_gb)}
+
     conn = open_conn()
     try:
         try:
@@ -341,6 +405,26 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
 
 @router.delete("/{pool_name}/volumes/{volume_name}")
 def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+    if zfs_storage.pool_exists(pool_name):
+        conn = open_conn()
+        try:
+            in_use = get_disk_paths_in_use(conn)
+        finally:
+            conn.close()
+        if zfs_storage.device_path(pool_name, volume_name) in in_use:
+            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume utilisé par une VM")
+            raise HTTPException(status_code=409, detail=f"Le volume '{volume_name}' est utilisé par une VM, suppression refusée")
+        if not confirm:
+            log_action(user["username"], "delete_volume", volume_name, "echec", "Confirmation manquante")
+            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
+        try:
+            zfs_storage.delete_zvol(pool_name, volume_name)
+        except zfs_storage.ZfsError as e:
+            log_action(user["username"], "delete_volume", volume_name, "echec", e.message)
+            raise HTTPException(status_code=404 if "introuvable" in e.message else 500, detail=e.message)
+        log_action(user["username"], "delete_volume", volume_name, "succes")
+        return {"message": f"Volume '{volume_name}' supprimé"}
+
     conn = open_conn()
     try:
         try:
