@@ -109,6 +109,12 @@ function mapVm(v, nodeId) {
     disque_go: null, disque_utilise_go: null,
     ip: v.ip, utilisateur_ssh: v.utilisateur_ssh, uuid: v.uuid,
     os: v.os, uptime_s: v.uptime_s,
+    // BUG REEL trouve en testant l'onglet Snapshots d'une VM sur pool
+    // ZFS dans un vrai navigateur (backlog stockage 2026-09-18, phase 3) :
+    // ce mappage whitelistait les champs sans stockage_zfs (ajoute cote
+    // backend, app/routers/vms.py::_domain_summary), donc silencieusement
+    // perdu ici -- VMSnapshotsTab.jsx recevait toujours `undefined`.
+    stockage_zfs: v.stockage_zfs,
   };
 }
 
