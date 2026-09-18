@@ -1481,3 +1481,33 @@ supplémentaires trouvés EN TESTANT chaque correctif, documentés dans
 les commits/PR individuels (#42 à #49). Propagé aux deux machines à
 chaque étape via le mécanisme de mise à jour apt existant (chantier
 7bis), jamais de déploiement manuel.
+
+## Trois derniers points (2026-09-18, suite du backlog)
+
+Après explication détaillée des trois points restants, Antho a demandé
+de les traiter aussi. Décision de sécurité clarifiée avant de toucher au
+fencing (question posée explicitement, IPMI/PDU absents de ce matériel).
+
+- **Galerie de templates visuelle (conteneurs)** -- purement cosmétique,
+  grille de cartes (icône + description) remplaçant le simple champ
+  texte pour les images courantes, recherche texte conservée en dessous.
+- **CPU générique automatique** (chantier 27) -- `_compute_migratable_cpu_xml()`
+  retombe désormais sur un CPU `qemu64` générique (`svm`/`vmx` désactivés)
+  quand `baselineCPU()` échoue, au lieu de `host-model` seul. Le
+  contournement manuel (`virsh edit`) nécessaire jusqu'ici entre kvm-lab
+  et serveur-antho n'est plus nécessaire. Testé : VM créée sans
+  intervention → migration immédiate réussie.
+- **Fencing SSH pour la HA** (chantier 17) -- `_attempt_ssh_fence()`,
+  appelée en tout début de `recover()` : tente de confirmer/tuer le
+  processus qemu original via SSH direct (pas libvirt, qui a justement
+  échoué) avant toute récupération. Fencing "faible" assumé (pas de
+  carte de gestion à distance sur ce matériel) : échoue proprement sans
+  bloquer la récupération si le nœud est aussi injoignable en SSH -- le
+  verrou d'écriture natif de QEMU reste le filet de sécurité ultime dans
+  ce cas. Récupération TOUJOURS déclenchée manuellement par un admin,
+  fencing réussi ou non. Bug réel trouvé en testant : `pgrep -af`
+  s'auto-matchait via sa propre invocation SSH (faux PID "trouvé" même
+  après un kill réellement réussi) -- corrigé en filtrant sur le nom du
+  binaire (`qemu-system`).
+
+Chaque point testé réellement (PR #52, #53).
