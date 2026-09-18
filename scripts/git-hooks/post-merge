@@ -1,11 +1,13 @@
 #!/bin/bash
 # Publication automatique du depot APT (chantier 7bis, 2026-09-17) --
 # meme principe que l'infrastructure de build INTERNE de Proxmox : la cle
-# de signature GPG ne quitte JAMAIS cette machine (kvm-lab), aucune CI
+# de signature GPG ne quitte JAMAIS cette machine (poste de dev/
+# publication dedie -- kvm-lab a l'origine, hl-devhub depuis le
+# demantelement de kvm-lab le 2026-09-18, voir CLAUDE.md), aucune CI
 # tierce (GitHub Actions...) n'y a jamais acces. En echange, rien a
 # retenir manuellement : ce hook se declenche automatiquement des que
-# `master` avance sur kvm-lab (apres `git pull`, y compris un simple
-# fast-forward -- comportement standard de post-merge).
+# `master` avance sur cette machine (apres `git pull`, y compris un
+# simple fast-forward -- comportement standard de post-merge).
 #
 # Installation (pas automatique, `.git/hooks/` n'est jamais suivi par
 # Git) :
@@ -42,22 +44,45 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
         echo "$(date -u +%Y.%m.%d.%H%M)" > VERSION
 
-        bash installer/build-deb.sh
-        bash installer/build-apt-repo.sh
+        # BUG REEL trouve en migrant ce hook de kvm-lab vers hl-devhub
+        # (2026-09-18, premier vrai test sur une machine fraiche) : sans
+        # verification explicite du code de sortie de chaque etape, un
+        # ECHEC REEL (ex. xorriso absent, identite git non configuree)
+        # etait suivi par des messages "republie avec succes" quand meme
+        # -- les lignes suivantes du script continuaient a s'executer et
+        # les echo finaux etaient inconditionnels. Corrige : chaque etape
+        # critique verifie desormais son propre resultat avant de
+        # continuer/annoncer un succes.
+        if ! bash installer/build-deb.sh; then
+            echo "[post-merge] ERREUR : build-deb.sh a echoue, publication annulee"
+            exit 1
+        fi
+        if ! bash installer/build-apt-repo.sh; then
+            echo "[post-merge] ERREUR : build-apt-repo.sh a echoue, publication annulee"
+            exit 1
+        fi
 
         # Republie sur gh-pages via un worktree temporaire (meme mecanique
-        # que la publication initiale du chantier 7bis).
+        # que la publication initiale du chantier 7bis). Best-effort
+        # DELIBERE (echec non fatal pour le reste du script) : ce miroir
+        # n'est de toute facon pas la source utilisee par postinstall.sh
+        # (voir CLAUDE.md, incoherence CDN de GitHub Pages) -- mais
+        # desormais annonce comme tel plutot que silencieusement ignore.
         WORKTREE="$(mktemp -d)"
         git worktree add "$WORKTREE" gh-pages
         rsync -a --delete --exclude=.git installer/apt-repo/ "$WORKTREE/"
-        (
+        if (
             cd "$WORKTREE" || exit 1
             if ! git diff --quiet || [ -n "$(git status --porcelain)" ]; then
                 git add -A
-                git commit -m "Publication automatique $(cat "$REPO_DIR/VERSION") (post-merge kvm-lab, commit ${CURRENT_COMMIT:0:8})" --quiet
+                git commit -m "Publication automatique $(cat "$REPO_DIR/VERSION") (post-merge hl-devhub, commit ${CURRENT_COMMIT:0:8})" --quiet
                 git push origin gh-pages
             fi
-        )
+        ); then
+            echo "[post-merge] Miroir gh-pages republié"
+        else
+            echo "[post-merge] AVERTISSEMENT : échec de la republication sur gh-pages (non bloquant, dépôt nginx reste la source utilisée)"
+        fi
         git worktree remove "$WORKTREE" --force
 
         # Committe le bump de VERSION sur master lui-meme -- SANS CA, kvm-lab
@@ -67,7 +92,10 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
         # toute mise a jour des que le moindre fichier est modifie).
         git add VERSION
         git commit -m "Version $(cat VERSION) (publication automatique post-merge)" --quiet
-        git push origin master --quiet
+        if ! git push origin master --quiet; then
+            echo "[post-merge] ERREUR : push du bump VERSION sur master a échoué -- l'arbre de travail va rester sale (VERSION commité localement mais pas poussé), à corriger manuellement"
+            exit 1
+        fi
 
         # Reconstruit et republie aussi l'ISO d'installation (2026-09-17,
         # demande explicite d'Antho -- "je veux que chaque changement soit
@@ -83,7 +111,12 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
         # un tag, juge pas necessaire ici : la trace du commit exact est
         # deja dans les notes de la release, pas besoin qu'elle soit aussi
         # dans le tag lui-meme.
-        bash installer/build-iso.sh installer/hyperlite-appliance-amd64.iso
+        if bash installer/build-iso.sh installer/hyperlite-appliance-amd64.iso && [ -f installer/hyperlite-appliance-amd64.iso ]; then
+            ISO_BUILT=1
+        else
+            ISO_BUILT=0
+            echo "[post-merge] AVERTISSEMENT : build-iso.sh a échoué ou n'a produit aucun fichier -- ISO NON republiée cette fois (la release GitHub garde son contenu précédent, pas de mensonge sur le statut)"
+        fi
         ISO_TAG="appliance-iso-latest"
         ISO_NOTES="ISO d'installation automatisee de l'appliance Hyperlite (Debian 13, installeur preseed) -- reconstruite et republiee automatiquement a CHAQUE changement sur master (lien de telechargement stable, toujours la derniere version).
 
@@ -99,13 +132,21 @@ Identifiants par defaut apres install : root / hyperlite (a changer immediatemen
 
 Une seule confirmation manuelle requise pendant l'installation (ecran de confirmation LVM -- garde-fou volontaire de Debian Installer contre la perte de donnees, non contournable par preseed)."
 
-        if gh release view "$ISO_TAG" >/dev/null 2>&1; then
-            gh release upload "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --clobber
-            gh release edit "$ISO_TAG" --notes "$ISO_NOTES"
-        else
-            gh release create "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --title "Appliance ISO (dernière version)" --notes "$ISO_NOTES" --target master
+        if [ "$ISO_BUILT" = "1" ]; then
+            if gh release view "$ISO_TAG" >/dev/null 2>&1; then
+                if gh release upload "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --clobber && gh release edit "$ISO_TAG" --notes "$ISO_NOTES"; then
+                    echo "[post-merge] ISO republiée avec succès (release $ISO_TAG, version $(cat VERSION))"
+                else
+                    echo "[post-merge] ERREUR : échec de l'upload/édition de la release ISO existante"
+                fi
+            else
+                if gh release create "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --title "Appliance ISO (dernière version)" --notes "$ISO_NOTES" --target master; then
+                    echo "[post-merge] ISO republiée avec succès (release $ISO_TAG, version $(cat VERSION))"
+                else
+                    echo "[post-merge] ERREUR : échec de la création de la release ISO"
+                fi
+            fi
         fi
-        echo "[post-merge] ISO republiée avec succès (release $ISO_TAG, version $(cat VERSION))"
 
         git rev-parse HEAD > "$MARKER"
         echo "[post-merge] Dépôt APT republié avec succès : version $(cat VERSION)"
