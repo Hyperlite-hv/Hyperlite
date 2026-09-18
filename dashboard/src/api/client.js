@@ -629,6 +629,25 @@ export async function createContainerTerminalTicket(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
 
+// Backlog 2026-09-18 : clonage + sauvegarde/restauration de conteneur
+// (pas de snapshot instantané possible, le pilote LXC de libvirt ne le
+// supporte pas -- voir app/core/container_builder.py).
+export async function cloneContainer(name, newName) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
+export async function fetchContainerBackups() {
+  return realFetch("/containers/backups");
+}
+export async function createContainerBackup(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/backups`, { method: "POST" });
+}
+export async function deleteContainerBackup(id) {
+  return realFetch(`/containers/backups/${id}?confirm=true`, { method: "DELETE" });
+}
+export async function restoreContainerBackup(id, newName = null) {
+  return realFetch(`/containers/backups/${id}/restore`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
+
 // Chantier 30 (2FA + jetons API, 2026-09-17) -- en libre-service, chaque
 // utilisateur gere son propre compte (pas besoin d'etre admin).
 export async function setup2FA() {

@@ -282,6 +282,123 @@ def delete_container_rootfs(name):
     shutil.rmtree(container_rootfs_path(name), ignore_errors=True)
 
 
+# Backlog 2026-09-18 (clonage/sauvegarde de conteneur, "a ajouter dans une
+# iteration suivante" -- voir l'en-tete du router). CONFIRME en testant
+# (virsh -c lxc:///system snapshot-create-as) que le pilote LXC de cette
+# version de libvirt ne supporte PAS du tout virDomainSnapshotCreateXML
+# ("this function is not supported by the connection driver") -- pas de
+# snapshot instantane possible comme pour les VM (chantier 4, disque
+# qcow2). Deux mecanismes bases sur le systeme de fichiers a la place,
+# coherents avec le fait qu'un conteneur est un simple repertoire, pas un
+# disque virtuel :
+# - clone_container_rootfs() : copie complete (equivalent du clonage VM,
+#   chantier 5) -- conteneur ARRETE requis (meme regle que le clonage VM).
+# - backup/restore : archive tar (equivalent des sauvegardes VM, chantier
+#   13, mais fichier par fichier plutot qu'un disque qcow2).
+
+def clone_container_rootfs(name, new_name):
+    """Copie complete du rootfs (cp -a, memes garanties que
+    create_container_rootfs : permissions/liens symboliques/peripheriques
+    speciaux prealables). PUIS reinitialise ce qui ne doit jamais etre
+    partage entre original et clone -- meme raisonnement que le clonage VM
+    (chantier 5) : cles hote SSH et machine-id identiques entre les deux
+    tant que rien ne force leur regeneration. Conserve en revanche le
+    compte utilisateur/mot de passe existants (le rootfs copie les a deja),
+    exactement comme le clonage VM ne recree pas non plus le compte."""
+    src = container_rootfs_path(name)
+    if not src.exists():
+        raise ValueError(f"Système de fichiers du conteneur '{name}' introuvable")
+    dest = container_rootfs_path(new_name)
+    if dest.exists():
+        raise ValueError(f"Le conteneur '{new_name}' a déjà un système de fichiers sur disque")
+    subprocess.run(["cp", "-a", str(src), str(dest)], check=True, capture_output=True, text=True)
+    _reset_container_identity(dest, new_name)
+    return dest
+
+
+def _reset_container_identity(rootfs, new_hostname):
+    """Reinitialise tout ce qui ne doit jamais etre partage entre deux
+    conteneurs copies depuis le meme rootfs (clone, ou restauration d'une
+    sauvegarde sous un NOUVEAU nom -- voir restore_container_rootfs) : meme
+    raisonnement que le clonage VM (chantier 5). Conserve en revanche le
+    compte utilisateur/mot de passe existants (deja sur le rootfs copie)."""
+    (rootfs / "etc" / "hostname").write_text(new_hostname + "\n")
+    hosts_path = rootfs / "etc" / "hosts"
+    if hosts_path.exists():
+        lines = hosts_path.read_text().splitlines(keepends=True)
+        lines = [l for l in lines if "127.0.1.1" not in l]
+        hosts_path.write_text(f"127.0.1.1 {new_hostname}\n" + "".join(lines))
+
+    # Cles hote SSH -- BUG REEL trouve en testant (l'hypothese initiale
+    # etait fausse) : supprimer les cles puis compter sur ssh.service pour
+    # les regenerer tout seul au demarrage NE FONCTIONNE PAS sur ce rootfs
+    # (base debootstrap) -- confirme par une vraie tentative de connexion
+    # SSH refusee juste apres demarrage du clone ("Connection refused",
+    # sshd ne demarre pas du tout sans cles presentes). Les cles de la
+    # base ont ete generees UNE FOIS par le postinst du paquet
+    # openssh-server au moment du debootstrap (ssh-keygen -A, execute a
+    # l'INSTALLATION, pas a chaque demarrage) -- il faut donc le refaire
+    # explicitement ici, pas supposer un mecanisme de regeneration qui
+    # n'existe pas dans cet environnement.
+    ssh_dir = rootfs / "etc" / "ssh"
+    if ssh_dir.exists():
+        for key_file in ssh_dir.glob("ssh_host_*"):
+            key_file.unlink(missing_ok=True)
+        subprocess.run(["chroot", str(rootfs), "ssh-keygen", "-A"], check=True, capture_output=True, text=True)
+
+    # machine-id vide (PAS supprime : systemd le veut present mais vide
+    # pour declencher une regeneration au premier demarrage, voir
+    # machine-id(5)) -- evite des identifiants D-Bus/journald partages
+    # entre les deux.
+    machine_id = rootfs / "etc" / "machine-id"
+    if machine_id.exists():
+        machine_id.write_text("")
+
+
+def backup_container_rootfs(name, dest_tar_path):
+    """Archive tar complete du rootfs -- equivalent des sauvegardes VM
+    (chantier 13) mais fichier par fichier (pas de disque qcow2 a copier
+    pour un conteneur). Conteneur ARRETE requis par l'appelant (coherence
+    du contenu archive, meme regle que le clonage) -- pas revalide ici."""
+    src = container_rootfs_path(name)
+    if not src.exists():
+        raise ValueError(f"Système de fichiers du conteneur '{name}' introuvable")
+    subprocess.run(
+        ["tar", "-czf", str(dest_tar_path), "-C", str(src.parent), src.name],
+        check=True, capture_output=True, text=True,
+    )
+
+
+def restore_container_rootfs(tar_path, name, original_name=None):
+    """Restaure une archive backup_container_rootfs() vers un rootfs de
+    conteneur -- soit en ECRASANT le rootfs existant du meme nom (restauration
+    "sur place", conteneur deja arrete/supprime avant l'appel), soit vers un
+    nom different (restauration "sous un nouveau nom", meme principe que
+    restore_backup(mode='new') pour les VM, chantier 13).
+
+    `original_name` (nom du conteneur au moment de LA SAUVEGARDE) : BUG REEL
+    trouve en testant -- sans reinitialiser l'identite quand `name` differe
+    de l'original, le conteneur restaure gardait l'ANCIEN hostname/cles SSH
+    hote a l'interieur du rootfs (confirme par SSH : `hostname` renvoyait
+    encore l'ancien nom), incoherent avec son nouveau nom de domaine
+    libvirt. Meme reinitialisation que clone_container_rootfs() -- mais
+    UNIQUEMENT si le nom change reellement (une restauration "sur place"
+    sous le MEME nom n'a pas besoin d'y toucher, l'identite est deja
+    correcte pour ce nom)."""
+    dest = container_rootfs_path(name)
+    if dest.exists():
+        raise ValueError(f"Le conteneur '{name}' a déjà un système de fichiers sur disque")
+    with tempfile.TemporaryDirectory(dir=str(CONTAINERS_DIR)) as tmp:
+        subprocess.run(["tar", "-xzf", str(tar_path), "-C", tmp], check=True, capture_output=True, text=True)
+        extracted = list(Path(tmp).iterdir())
+        if len(extracted) != 1 or not extracted[0].is_dir():
+            raise ValueError("Archive invalide (structure inattendue)")
+        shutil.move(str(extracted[0]), str(dest))
+    if original_name and original_name != name:
+        _reset_container_identity(dest, name)
+    return dest
+
+
 def _hash_password(password):
     return sha512_crypt.hash(password)
 

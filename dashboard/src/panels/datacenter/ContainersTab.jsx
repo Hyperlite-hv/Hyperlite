@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Box, Plus, Trash2, Play, Square, TerminalSquare, Star } from "lucide-react";
+import { Box, Plus, Trash2, Play, Square, TerminalSquare, Star, Copy, Archive, RotateCcw } from "lucide-react";
 import {
   fetchContainers, createContainer, startContainer, stopContainer, deleteContainer, searchDockerHub,
+  cloneContainer, fetchContainerBackups, createContainerBackup, deleteContainerBackup, restoreContainerBackup,
 } from "../../api/client";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -12,9 +13,10 @@ import ConfirmDialog from "../../components/ConfirmDialog";
 // chantier 18) -- conteneurs LXC via le pilote LXC natif de libvirt, en
 // plus des VM QEMU/KVM existantes. Premiere version : pas de galerie de
 // templates/images (une seule base Debian 12 debootstrappee au premier
-// conteneur cree, mise en cache cote serveur), pas de snapshots/clonage
-// pour l'instant -- a etendre plus tard si besoin, comme les autres
-// chantiers de cette liste ont ete livres par etapes.
+// conteneur cree, mise en cache cote serveur). Clonage + sauvegarde/
+// restauration ajoutes en backlog (2026-09-18) -- pas de snapshot
+// instantane possible, le pilote LXC de libvirt ne le supporte pas du
+// tout (confirme en testant).
 const DEFAULT_FORM = { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: "default", image: "" };
 
 export default function ContainersTab() {
@@ -27,6 +29,7 @@ export default function ContainersTab() {
   const [toDelete, setToDelete] = useState(null);
   const [dockerQuery, setDockerQuery] = useState("");
   const [dockerResults, setDockerResults] = useState([]);
+  const [backups, setBackups] = useState(null);
 
   useEffect(() => {
     if (!dockerQuery.trim()) { setDockerResults([]); return; }
@@ -39,8 +42,11 @@ export default function ContainersTab() {
   const reload = useCallback(() => {
     fetchContainers().then(setContainers).catch((e) => pushToast({ kind: "error", title: "Erreur conteneurs", message: e.message }));
   }, [pushToast]);
+  const reloadBackups = useCallback(() => {
+    fetchContainerBackups().then(setBackups).catch(() => setBackups([]));
+  }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { reload(); reloadBackups(); }, [reload, reloadBackups]);
   useEffect(() => {
     if (!creating) return;
     const id = setInterval(reload, 5000);
@@ -75,6 +81,51 @@ export default function ContainersTab() {
       pushToast({ kind: "success", title: "Conteneur supprimé", message: toDelete.nom });
       setToDelete(null);
       await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec", message: e.message });
+    }
+  }
+
+  async function handleClone(ct) {
+    const newName = window.prompt(`Nom de la copie de '${ct.nom}' :`, `${ct.nom}-clone`);
+    if (!newName || !newName.trim()) return;
+    try {
+      await cloneContainer(ct.nom, newName.trim());
+      pushToast({ kind: "success", title: "Conteneur cloné", message: `${ct.nom} → ${newName.trim()}` });
+      await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec du clonage", message: e.message });
+    }
+  }
+
+  async function handleBackup(ct) {
+    try {
+      await createContainerBackup(ct.nom);
+      pushToast({ kind: "success", title: "Sauvegarde lancée", message: ct.nom });
+      setTimeout(reloadBackups, 2000);
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec de la sauvegarde", message: e.message });
+    }
+  }
+
+  async function handleRestoreBackup(b) {
+    const newName = window.prompt(`Restaurer la sauvegarde de '${b.container_name}' sous quel nom ?`, `${b.container_name}-restauré`);
+    if (!newName || !newName.trim()) return;
+    try {
+      await restoreContainerBackup(b.id, newName.trim());
+      pushToast({ kind: "success", title: "Conteneur restauré", message: newName.trim() });
+      await reload();
+    } catch (e) {
+      pushToast({ kind: "error", title: "Échec de la restauration", message: e.message });
+    }
+  }
+
+  async function handleDeleteBackup(b) {
+    if (!window.confirm(`Supprimer définitivement cette sauvegarde de '${b.container_name}' ?`)) return;
+    try {
+      await deleteContainerBackup(b.id);
+      pushToast({ kind: "success", title: "Sauvegarde supprimée" });
+      await reloadBackups();
     } catch (e) {
       pushToast({ kind: "error", title: "Échec", message: e.message });
     }
@@ -167,10 +218,42 @@ export default function ContainersTab() {
             {isAdmin && ct.etat === "actif" && (
               <button className="btn-secondary" title="Arrêter" onClick={() => handleStop(ct)}><Square size={13} /></button>
             )}
+            {isAdmin && ct.etat !== "actif" && (
+              <button className="btn-secondary" title="Cloner" onClick={() => handleClone(ct)}><Copy size={13} /></button>
+            )}
+            {isAdmin && ct.etat !== "actif" && (
+              <button className="btn-secondary" title="Sauvegarder" onClick={() => handleBackup(ct)}><Archive size={13} /></button>
+            )}
             {isAdmin && <button className="btn-danger" title="Supprimer" onClick={() => setToDelete(ct)}><Trash2 size={13} /></button>}
           </div>
         ))}
       </div>
+
+      {isAdmin && backups && backups.length > 0 && (
+        <div className="card">
+          <div className="px-4 py-2.5 border-b border-anthracite-600">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
+              <Archive size={15} /> Sauvegardes de conteneurs
+            </h3>
+          </div>
+          <div className="divide-y divide-anthracite-600">
+            {backups.map((b) => (
+              <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <div className="flex-1 min-w-0">
+                  <div className="text-anthracite-100 truncate">{b.container_name}</div>
+                  <div className="text-xs text-anthracite-400">
+                    {new Date(b.cree_le).toLocaleString()} — {b.taille_octets ? `${(b.taille_octets / 1024 / 1024).toFixed(0)} Mo` : "..."} — {b.statut}
+                  </div>
+                </div>
+                {b.statut === "termine" && (
+                  <button className="btn-secondary" title="Restaurer" onClick={() => handleRestoreBackup(b)}><RotateCcw size={13} /></button>
+                )}
+                <button className="btn-danger" title="Supprimer" onClick={() => handleDeleteBackup(b)}><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!toDelete}
