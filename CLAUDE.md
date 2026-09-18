@@ -1433,3 +1433,49 @@ rechargement de page, bouton SSO qui apparaît ensuite sur l'écran de
 connexion. Compte de test et IdP jetable supprimés à la fin, config SSO
 remise à `enabled: false` (aucun vrai IdP configuré pour l'instant --
 à faire par Antho via l'onglet Datacenter > SSO le jour où il en a un).
+
+## Backlog de robustesse post-roadmap (2026-09-18)
+
+Après la clôture de la roadmap vSphere/vCenter (31 chantiers + chantiers
+20/16), Antho a demandé explicitement de traiter le backlog des limites
+documentées ("les limites connues documentées"). Ordre convenu à
+l'avance (front-loaded, Antho non disponible pendant l'exécution) :
+
+1. **Collision de nom de pont réseau** (chantier 21) -- remplace la
+   troncature par prefixe + hash SHA-1 du nom complet. Testé : 3 réseaux
+   colliseurs créés simultanément, 3 ponts distincts confirmés.
+2. **Rate-limiting par IP** sur `/auth/login`/`/auth/login/2fa` (chantier
+   11, "reste à explorer") -- en plus du verrou par compte existant.
+   Testé : 20 usernames différents depuis la même IP → 21e bloquée.
+3. **Chiffrement des secrets au repos** (mot de passe SMTP, client secret
+   OIDC) -- Fernet, clé dans `.env`. Limite honnête documentée dans
+   `app/core/secrets_crypto.py` : protège contre une fuite du seul
+   `hyperlite.db`, pas un accès complet au système de fichiers. Bug
+   sécurité réel trouvé au passage : `GET /notifications/channels`
+   n'était protégé que par une authentification simple, exposait le mot
+   de passe SMTP en clair à tout compte, même observateur -- corrigé.
+4. **Choix du pool de stockage à la création de VM** (chantier 17) --
+   débloque un vrai usage de la HA sans déplacer un disque à la main.
+5. **Confiance SSH inverse** (chantier 27) -- migration nœud distant ->
+   kvm-lab, clé dédiée par nœud (jamais partagée), restreinte par
+   `from=`. Testé réellement entre kvm-lab et serveur-antho.
+6. **Audit sécurité des routers restants** (chantier 11) -- groups.py/
+   pools.py/acl.py/dashboard.py relus ligne à ligne : tous corrects
+   (admin-only ou intentionnellement ouverts), aucune faille trouvée.
+7. **Actions VM multi-nœuds** (start/stop/restart/delete distants) --
+   bug réel trouvé : le frontend résolvait déjà le nœud mais ne le
+   transmettait jamais à l'API. Combiné avec le point 5, a aussi révélé
+   et corrigé un bug de migration PRÉ-EXISTANT (chantier 27) : le disque
+   source n'était jamais nettoyé après une migration réussie en stockage
+   non partagé, dans les deux sens, depuis le tout début du chantier 27.
+8. **Snapshots/clonage + ACL granulaire de conteneur** (chantier 18) --
+   confirmé que libvirt-lxc ne supporte aucun snapshot instantané ;
+   clonage (copie rootfs) et sauvegarde/restauration (tar) à la place.
+   ACL étendue aux conteneurs (même système que les VM).
+
+**Chaque point testé réellement contre l'infrastructure physique
+(kvm-lab + serveur-antho), pas seulement relu** -- plusieurs bugs réels
+supplémentaires trouvés EN TESTANT chaque correctif, documentés dans
+les commits/PR individuels (#42 à #49). Propagé aux deux machines à
+chaque étape via le mécanisme de mise à jour apt existant (chantier
+7bis), jamais de déploiement manuel.
