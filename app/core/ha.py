@@ -1,26 +1,42 @@
 """Haute disponibilite basique (chantier 17 de la roadmap vSphere/vCenter,
 2026-09-17) -- equivalent tres reduit de vSphere HA/Proxmox HA.
 
-Scope DELIBEREMENT prudent (explique en detail dans CLAUDE.md) : ce
-mecanisme n'a AUCUN fencing/STONITH -- rien n'empeche un nœud "detecte hors
-ligne" d'etre en fait toujours vivant, juste injoignable (simple coupure
-reseau, redemarrage en cours...). Sans fencing, redemarrer
-AUTOMATIQUEMENT une VM protegee ailleurs alors que l'original tourne
-encore sur le MEME disque partage causerait une vraie corruption de
-donnees (deux processus QEMU ecrivant sur le meme fichier qcow2 en meme
-temps -- le pire scenario possible pour un outil cense proteger les
-donnees). Hyperlite se limite donc a :
+Scope DELIBEREMENT prudent (explique en detail dans CLAUDE.md) : rien
+n'empeche un nœud "detecte hors ligne" d'etre en fait toujours vivant,
+juste injoignable (simple coupure reseau, redemarrage en cours...). Sans
+protection, redemarrer AUTOMATIQUEMENT une VM protegee ailleurs alors que
+l'original tourne encore sur le MEME disque partage causerait une vraie
+corruption de donnees (deux processus QEMU ecrivant sur le meme fichier
+qcow2 en meme temps -- le pire scenario possible pour un outil cense
+proteger les donnees). Hyperlite se limite donc a :
  1. DETECTER qu'un nœud portant une VM protegee est tombe (reutilise le
     poller existant, voir cluster.py::_poll_nodes) et le signaler
     clairement (alerte visible + entree d'audit).
- 2. Laisser un ADMIN HUMAIN -- qui a un contexte que Hyperlite n'a pas
+ 2. FENCING best-effort par SSH (backlog 2026-09-18, `_attempt_ssh_fence()`
+    ci-dessous) : AVANT toute recuperation, tente de confirmer/forcer
+    l'arret du processus qemu original en se connectant directement en
+    SSH au nœud "hors ligne" -- PAS via libvirt (c'est justement la
+    connexion libvirt qui a echoue, voir cluster.py::test_node_connection ;
+    tres souvent parce que libvirtd a plante alors que le processus qemu,
+    lui, continue de tourner independamment -- exactement le scenario
+    reellement rencontre en testant ce chantier). Reste un fencing
+    "faible" (pas de coupure d'alimentation IPMI/PDU, aucune carte de
+    gestion a distance sur ce materiel) : si le nœud est AUSSI injoignable
+    en SSH, le fencing echoue et c'est note comme tel, mais **ne bloque
+    PAS** la recuperation -- le verrou d'ecriture natif de QEMU
+    (Failed to get 'write' lock...) reste le filet de securite ultime,
+    deja confirme efficace en testant (voir plus bas).
+ 3. Laisser un ADMIN HUMAIN -- qui a un contexte que Hyperlite n'a pas
     (le nœud redemarre-t-il juste ? est-il vraiment mort ?) -- declencher
-    la recuperation en un clic. Jamais automatique.
+    la recuperation en un clic. Jamais automatique, meme apres un fencing
+    SSH reussi (decision explicite d'Antho : le controle humain reste
+    avant toute action qui change l'etat du cluster).
 
 Protection EXIGE que tous les disques de la VM soient deja sur un pool de
 stockage partage (chantier 26, netfs) : sans ca, aucune garantie que le
 disque soit seulement lisible depuis un autre nœud en cas de bascule.
 """
+import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
@@ -170,8 +186,11 @@ def sync_protected_vms():
 
 def alert_for_down_node(node_name):
     """Appele par cluster.py::_poll_nodes des qu'un nœud PASSE a l'etat
-    'hors_ligne' -- signale chaque VM protegee qui s'y trouvait, SANS RIEN
-    FAIRE D'AUTOMATIQUE (voir docstring du module : pas de fencing)."""
+    'hors_ligne' -- signale chaque VM protegee qui s'y trouvait, SANS
+    tenter de fencing ici (le fencing SSH, voir _attempt_ssh_fence()
+    plus bas, n'a lieu qu'au moment ou un admin declenche reellement
+    recover() -- pas a chaque cycle de detection, qui serait bien plus
+    frequent et bruyant pour un gain nul tant que personne ne recupere)."""
     for row in list_protected():
         if row["node"] != node_name:
             continue
@@ -179,6 +198,79 @@ def alert_for_down_node(node_name):
             "system", "ha_alert", row["vm_name"], "echec",
             f"Nœud '{node_name}' hors ligne — VM protégée, récupération manuelle disponible (onglet HA)",
         )
+
+
+def _attempt_ssh_fence(node_name, vm_name):
+    """Fencing best-effort par SSH (backlog 2026-09-18, voir docstring du
+    module). PAS de libvirt ici -- le nœud est detecte "hors ligne" par un
+    echec de CETTE connexion precise (cluster.py::test_node_connection),
+    donc la retenter n'apporterait rien ; on interroge directement le
+    processus au niveau du noyau. Repere le(s) PID qemu de cette VM par sa
+    ligne de commande : libvirt lance toujours qemu avec `-name
+    guest=<nom>,...`, un motif stable quelle que soit la version de
+    QEMU/libvirt.
+
+    Retourne (fenced: bool, detail: str). fenced=True veut dire "confirme
+    qu'aucun processus qemu de cette VM ne tourne plus la-bas" (kill
+    reussi OU deja absent) -- fenced=False veut dire fencing impossible
+    (nœud injoignable meme en SSH, ou kill echoue), mais NE DOIT JAMAIS
+    bloquer recover() : le verrou d'ecriture natif de QEMU reste le filet
+    de securite ultime dans ce cas (deja confirme efficace en testant le
+    chantier 17 lui-meme)."""
+    from app.core.cluster import get_node, get_cluster_private_key_path
+
+    node = get_node(node_name)
+    if not node:
+        return False, "nœud introuvable dans la table `nodes`"
+
+    key_path = str(get_cluster_private_key_path())
+    ssh_opts = [
+        "-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "ConnectTimeout=8",
+    ]
+    ssh_target = f"{node['ssh_user']}@{node['hostname']}"
+    # BUG REEL trouve en testant : `pgrep -af` matchait sa PROPRE
+    # invocation (sshd execute la commande distante via un `bash -c
+    # "pgrep -af 'guest=<nom>,' | ..."` dont la ligne de commande contient
+    # ELLE-MEME le motif recherche) -- un faux PID "trouve" a chaque appel,
+    # y compris apres un kill reellement reussi (confirme separement via
+    # `virsh domstate` : la VM etait bien eteinte alors que la
+    # "reverification" pretendait encore un PID actif). Corrige en filtrant
+    # sur le nom du binaire (2e champ, juste apres le PID) : seul le
+    # veritable processus qemu commence par 'qemu-system', jamais
+    # 'bash'/'pgrep' qui s'auto-matchent.
+    find_cmd = f"pgrep -af 'guest={vm_name},' | awk '$2 ~ /qemu-system/ {{print $1}}'"
+
+    def _find_pids():
+        try:
+            r = subprocess.run(
+                ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), ssh_target, find_cmd],
+                capture_output=True, text=True, timeout=12,
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            return None, f"SSH injoignable : {e}"
+        # pgrep renvoie 1 (pas d'erreur) quand rien ne correspond -- seul
+        # un code >1 indique un vrai probleme (SSH/commande distante).
+        if r.returncode not in (0, 1):
+            return None, f"SSH injoignable ou erreur : {(r.stderr or '').strip()[:200]}"
+        return [p for p in r.stdout.split() if p.isdigit()], None
+
+    pids, err = _find_pids()
+    if pids is None:
+        return False, err
+    if not pids:
+        return True, "aucun processus qemu trouvé pour cette VM (déjà arrêté)"
+
+    subprocess.run(
+        ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), ssh_target, "kill -9 " + " ".join(pids)],
+        capture_output=True, text=True, timeout=12,
+    )
+    remaining, err2 = _find_pids()
+    if remaining is None:
+        return False, f"kill envoyé (PID {','.join(pids)}) mais vérification impossible : {err2}"
+    if remaining:
+        return False, f"processus toujours actif après kill (PID {','.join(remaining)})"
+    return True, f"processus qemu tué avec succès (PID {','.join(pids)})"
 
 
 def recover(vm_name, target_node, username):
@@ -189,6 +281,18 @@ def recover(vm_name, target_node, username):
         raise RuntimeError("Le nœud de destination doit être différent du nœud protégé actuel")
     if not row["domain_xml"]:
         raise RuntimeError("Aucune configuration en cache pour cette VM — jamais synchronisée avec succès")
+
+    # Fencing best-effort AVANT toute action (backlog 2026-09-18, voir
+    # docstring du module) -- journalise systematiquement, que ca reussisse
+    # ou non : l'admin doit pouvoir voir si la mort du processus original a
+    # ete reellement confirmee ou si la recuperation ne s'appuie que sur le
+    # verrou d'ecriture natif de QEMU (deja un filet de securite reel,
+    # confirme en testant, mais moins fort qu'une confirmation active).
+    fenced, fence_detail = _attempt_ssh_fence(row["node"], vm_name)
+    log_action(
+        username, "ha_fence", vm_name, "succes" if fenced else "echec",
+        f"Nœud '{row['node']}' : {fence_detail}",
+    )
 
     conn = open_conn(_conn_key(target_node))
     try:
