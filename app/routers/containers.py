@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_conn
 from app.core.libvirt_utils import open_lxc_conn
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_role, require_container_privilege
 from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.error_messages import describe_exception
@@ -123,7 +123,7 @@ def list_container_backups(user: dict = Depends(get_current_user)):
 
 
 @router.get("/{name}")
-def get_container(name: str, user: dict = Depends(get_current_user)):
+def get_container(name: str, user: dict = Depends(require_container_privilege("container.view"))):
     conn = open_lxc_conn()
     try:
         try:
@@ -194,7 +194,7 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
 
 
 @router.post("/{name}/start")
-def start_container(name: str, user: dict = Depends(require_role("admin"))):
+def start_container(name: str, user: dict = Depends(require_container_privilege("container.power"))):
     conn = open_lxc_conn()
     try:
         try:
@@ -211,7 +211,7 @@ def start_container(name: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/{name}/stop")
-def stop_container(name: str, force: bool = False, user: dict = Depends(require_role("admin"))):
+def stop_container(name: str, force: bool = False, user: dict = Depends(require_container_privilege("container.power"))):
     conn = open_lxc_conn()
     try:
         try:
@@ -458,7 +458,7 @@ TERMINAL_TICKET_TTL = 30
 
 
 @router.post("/{name}/terminal-ticket")
-def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin"))):
+def create_terminal_ticket(name: str, user: dict = Depends(require_container_privilege("container.console"))):
     conn = open_lxc_conn()
     try:
         try:
