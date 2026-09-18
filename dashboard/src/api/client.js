@@ -344,17 +344,27 @@ export async function deleteUser(username) {
 }
 
 // ---- Actions VM (endpoints reels) ----
-export async function startVM(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/start`, { method: "POST" });
+// node (backlog 2026-09-18, actions VM multi-nœuds) : "kvm-lab" ou omis =
+// hôte local (comportement historique inchangé), sinon le nom d'un nœud
+// distant enregistré -- même convention que fetchVMs()/migrateVM().
+export async function startVM(name, node = null) {
+  const q = node && node !== "kvm-lab" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/start${q}`, { method: "POST" });
 }
-export async function stopVM(name, force = false) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/stop?force=${force}`, { method: "POST" });
+export async function stopVM(name, force = false, node = null) {
+  const params = new URLSearchParams({ force: String(force) });
+  if (node && node !== "kvm-lab") params.set("node", node);
+  return realFetch(`/vms/${encodeURIComponent(name)}/stop?${params}`, { method: "POST" });
 }
-export async function restartVM(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/restart?force=true`, { method: "POST" });
+export async function restartVM(name, node = null) {
+  const params = new URLSearchParams({ force: "true" });
+  if (node && node !== "kvm-lab") params.set("node", node);
+  return realFetch(`/vms/${encodeURIComponent(name)}/restart?${params}`, { method: "POST" });
 }
-export async function deleteVM(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
+export async function deleteVM(name, node = null) {
+  const params = new URLSearchParams({ confirm: "true" });
+  if (node && node !== "kvm-lab") params.set("node", node);
+  return realFetch(`/vms/${encodeURIComponent(name)}?${params}`, { method: "DELETE" });
 }
 export async function cloneVM(name, newName) {
   return realFetch(`/vms/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
