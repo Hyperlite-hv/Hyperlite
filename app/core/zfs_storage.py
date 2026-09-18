@@ -56,7 +56,21 @@ def validate_zfs_name(name):
 
 
 def _run(*args, check=True):
-    proc = subprocess.run(list(args), capture_output=True, text=True)
+    # BUG REEL trouve en testant sur serveur-antho (ZFS pas installe sur
+    # cette machine, contrairement a kvm-lab ou le paquet avait ete
+    # installe pour developper ce chantier) : sans ce garde-fou, un
+    # FileNotFoundError brut (binaire zpool/zfs absent) remontait tel
+    # quel jusqu'a GET /storage -- CASSANT L'ENDPOINT ENTIER (pas
+    # seulement la partie ZFS) avec une 500 sur une machine qui n'a
+    # simplement pas encore ZFS. Meme classe de bug que le "git absent"
+    # du chantier 7bis, pas anticipee ici malgre is_available() deja
+    # ecrit -- jamais reellement branche dans ce point d'entree commun.
+    try:
+        proc = subprocess.run(list(args), capture_output=True, text=True)
+    except FileNotFoundError:
+        if check:
+            raise ZfsError("ZFS n'est pas installé sur cet hôte (binaire 'zfs'/'zpool' introuvable)")
+        return subprocess.CompletedProcess(args, 127, "", "zfs/zpool introuvable")
     if check and proc.returncode != 0:
         raise ZfsError((proc.stderr or proc.stdout or f"Échec de la commande {' '.join(args)}").strip())
     return proc
