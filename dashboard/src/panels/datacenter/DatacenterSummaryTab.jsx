@@ -51,7 +51,7 @@ function formatHeure(iso) {
   return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-// CPU/RAM/reseau reels du noeud local ("kvm-lab") via GET /host/metrics/history
+// CPU/RAM/reseau reels du noeud local ("local") via GET /host/metrics/history
 // (collecte continue, chantier 10) -- fetchNodes() (api/client.js) pose
 // volontairement ces champs a null (pas expose par GET /dashboard), ce qui
 // affichait "n/a" en permanence ici meme apres le chantier 10. Meme source
@@ -89,10 +89,10 @@ export default function DatacenterSummaryTab() {
   }));
 
   // Fusionne les vraies metriques locales dans la liste des noeuds (le
-  // noeud local est toujours id "kvm-lab", voir fetchNodes()) avant tout
+  // noeud local est toujours id "local", voir fetchNodes()) avant tout
   // calcul -- une seule source de verite pour l'agregat ET le detail
   // par-noeud plus bas.
-  const enrichedNodes = nodes.map((n) => (n.id !== "kvm-lab" || !latest ? n : {
+  const enrichedNodes = nodes.map((n) => (n.id !== "local" || !latest ? n : {
     ...n,
     cpu_utilisation: latest.cpu_pct != null ? latest.cpu_pct / 100 : n.cpu_utilisation,
     memoire_totale_mo: latest.mem_total_mb ?? n.memoire_totale_mo,
@@ -307,7 +307,7 @@ export default function DatacenterSummaryTab() {
               {recentTasks && recentTasks.map((t) => (
                 <tr key={t.id}>
                   <td className="py-2.5 pr-2 font-mono text-xs text-anthracite-300">{formatHeure(t.cree_le)}</td>
-                  <td className="py-2.5 pr-2 text-anthracite-200">{t.node || "kvm-lab"}</td>
+                  <td className="py-2.5 pr-2 text-anthracite-200">{t.node || "local"}</td>
                   <td className="py-2.5 pr-2 text-anthracite-200">{t.username || "--"}</td>
                   <td className="py-2.5 pr-2 text-anthracite-100">
                     {TASK_LABELS[t.type] || t.type}

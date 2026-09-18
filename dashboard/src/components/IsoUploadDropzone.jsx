@@ -30,7 +30,7 @@ export default function IsoUploadDropzone({ onDone }) {
 
   const startUpload = useCallback((file) => {
     if (!file) return;
-    const taskId = addTask({ type: "upload_iso", cible: file.name, node: "kvm-lab" });
+    const taskId = addTask({ type: "upload_iso", cible: file.name, node: "local" });
     setUpload({ file, loaded: 0, speed: 0, etaS: Infinity, statut: "en_cours" });
 
     const fd = new FormData();

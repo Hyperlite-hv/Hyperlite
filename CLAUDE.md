@@ -1929,3 +1929,41 @@ toast d'erreur générique déjà câblé sur les échecs de tâche, ç'aurait
 été un échec silencieux du point de vue de l'utilisateur).
 
 Compte de test, VM et pool supprimés à la fin.
+
+## Renommage du sentinel frontend "kvm-lab" -> "local" (2026-09-18)
+
+Trouvé en auditant le VRAI dashboard de serveur-antho dans un vrai
+navigateur (Playwright, `test-audit-antho.js` dans
+`/root/hyperlite-ui-test/`, ciblant directement `https://100.95.115.103:8000`
+depuis kvm-lab plutôt que d'installer Playwright sur serveur-antho) :
+**l'onglet Stockage de serveur-antho affichait "kvm-lab" dans la colonne
+"Nœud" pour SES PROPRES pools locaux** -- kvm-lab n'existe plus et n'a
+jamais eu de rapport avec serveur-antho. Cause : `dashboard/src/api/
+client.js` utilisait la chaîne littérale `"kvm-lab"` comme identifiant
+SENTINELLE interne pour "l'hôte qui fait tourner cette instance
+Hyperlite" (comparaisons `node !== "kvm-lab"` dans une dizaine
+d'endroits, jamais un vrai nom de machine) -- géré indépendamment du
+VRAI nom d'hôte (`d.hyperviseur.nom`, correctement affiché ailleurs,
+ex. la table "Nœuds" du tableau de bord). Ce sentinel fuitait
+directement dans certaines colonnes/libellés qui affichent `p.node`/
+`v.node` tel quel plutôt que le nom résolu.
+
+**Corrigé** : renommé en `"local"` partout (recherche exhaustive
+`grep -rn "kvm-lab"` sur `dashboard/src/`), mécanique et sans risque --
+c'est un simple identifiant de comparaison interne, jamais interprété
+par le backend (qui traite déjà `node` omis/`undefined` comme "hôte
+local"). Fichiers touchés : `client.js` (la définition + toutes les
+comparaisons), `StorageTab.jsx`, `DatacenterSummaryTab.jsx`,
+`VmDiskUploadDropzone.jsx`, `IsoUploadDropzone.jsx`. Également corrigé
+au passage : `NodesTab.jsx` affichait littéralement "Hyperlite pilote
+uniquement kvm-lab pour l'instant" en l'absence de nœud distant
+enregistré -- reformulé en "cet hôte" (générique, correct quelle que
+soit la machine qui héberge réellement l'instance).
+
+**Testé réellement** (pas seulement `npm run build`) : script Playwright
+rejoué sur kvm-lab après le correctif -- table Stockage affiche
+désormais "local" pour les pools locaux et "serveur-antho" pour les
+pools distants (au lieu de "kvm-lab" pour les deux catégories locales,
+peu importe la machine réelle), sélection d'une VM existante toujours
+fonctionnelle, zéro erreur console/réseau. **Pas encore repropagé sur
+serveur-antho** au moment d'écrire cette note -- prochaine étape.
