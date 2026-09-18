@@ -132,6 +132,115 @@ def test_node_connection(hostname, ssh_user, ssh_port):
         conn.close()
 
 
+REVERSE_KEY_DIR = CLUSTER_SSH_KEY_DIR / "reverse"
+REVERSE_REMOTE_DIR = "/root/.hyperlite-reverse"
+REVERSE_KEY_TAG = "hyperlite-reverse"  # marqueur en fin de ligne authorized_keys, pour retrouver/nettoyer nos propres entrees
+
+
+def _authorized_keys_path():
+    return Path("/root/.ssh/authorized_keys")
+
+
+def _run_ssh(node, args, timeout=15):
+    key_path = str(get_cluster_private_key_path())
+    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    target = f"{node['ssh_user']}@{node['hostname']}"
+    return subprocess.run(
+        ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), target, *args],
+        capture_output=True, text=True, timeout=timeout,
+    )
+
+
+def ensure_reverse_trust(node):
+    """Confiance SSH DANS LE SENS INVERSE (nœud distant -> kvm-lab),
+    necessaire pour qu'une migration a chaud INITIEE depuis un nœud
+    distant puisse ramener une VM vers kvm-lab -- la migration peer-to-
+    peer est toujours initiee par le libvirtd SOURCE, qui doit pouvoir se
+    connecter LUI-MEME vers la destination (voir la limite connue
+    documentee dans app/routers/vms.py::migrate_vm avant ce correctif).
+    Jusqu'ici, seule la confiance kvm-lab -> nœud distant existait (cle
+    UNIQUE partagee par tous les nœuds, `hyperlite_cluster`).
+
+    Design volontairement DIFFERENT de cette cle unique : reutiliser la
+    MEME cle partagee pour le sens inverse donnerait a CHAQUE nœud
+    compromis un acces root direct a kvm-lab (qui porte la cle de
+    signature GPG, la base de donnees complete, tous les secrets) --
+    inacceptable. Genere donc une paire de cles DEDIEE A CE NŒUD, poussee
+    UNIQUEMENT sur ce nœud (jamais partagee), autorisee sur kvm-lab avec
+    une restriction `from=` a l'adresse de CE nœud precis -- une cle
+    volee sur un nœud ne peut etre reutilisee que depuis l'adresse de ce
+    meme nœud, pas depuis n'importe ou.
+
+    Best-effort total : appelee automatiquement a l'enregistrement d'un
+    nœud, mais un echec ici ne doit JAMAIS faire echouer l'enregistrement
+    lui-meme (la direction kvm-lab -> nœud, largement la plus utilisee,
+    reste fonctionnelle independamment)."""
+    REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    priv = REVERSE_KEY_DIR / f"{node['name']}_ed25519"
+    pub = REVERSE_KEY_DIR / f"{node['name']}_ed25519.pub"
+    if not priv.exists():
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", f"hyperlite-reverse-{node['name']}"],
+            check=True, capture_output=True, text=True,
+        )
+        priv.chmod(0o600)
+    pub_line = pub.read_text().strip()
+
+    # 1) Pousse la cle PRIVEE sur le nœud distant (via la confiance
+    # EXISTANTE kvm-lab -> nœud) -- c'est LA-BAS que le libvirtd source en
+    # aura besoin au moment de la migration.
+    mkdir_r = _run_ssh(node, ["mkdir", "-p", REVERSE_REMOTE_DIR])
+    if mkdir_r.returncode != 0:
+        raise RuntimeError(f"Impossible de créer {REVERSE_REMOTE_DIR} sur {node['name']} : {mkdir_r.stderr.strip()}")
+    key_path = str(get_cluster_private_key_path())
+    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    scp_r = subprocess.run(
+        ["scp", *ssh_opts, "-P", str(node["ssh_port"]), str(priv), f"{node['ssh_user']}@{node['hostname']}:{REVERSE_REMOTE_DIR}/id_ed25519"],
+        capture_output=True, text=True, timeout=15,
+    )
+    if scp_r.returncode != 0:
+        raise RuntimeError(f"Échec de la copie de la clé sur {node['name']} : {scp_r.stderr.strip()}")
+    _run_ssh(node, ["chmod", "600", f"{REVERSE_REMOTE_DIR}/id_ed25519"])
+
+    # 2) Autorise la cle PUBLIQUE sur kvm-lab, restreinte a l'adresse de ce
+    # nœud precis -- idempotent (ne duplique pas si deja present, ex. un
+    # second appel apres une modification du nœud).
+    auth_path = _authorized_keys_path()
+    auth_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    existing = auth_path.read_text() if auth_path.exists() else ""
+    marker = f"{REVERSE_KEY_TAG}-{node['name']}"
+    if marker not in existing:
+        line = f'from="{node["hostname"]}",no-port-forwarding,no-X11-forwarding,no-agent-forwarding {pub_line} {marker}\n'
+        with open(auth_path, "a") as f:
+            f.write(line)
+        auth_path.chmod(0o600)
+
+
+def revoke_reverse_trust(node_name):
+    """Nettoyage best-effort a la suppression d'un nœud (voir remove_node) :
+    retire l'entree authorized_keys correspondante sur kvm-lab (toujours
+    possible, fichier local) et la paire de cles locale -- ne tente PAS de
+    joindre le nœud distant pour supprimer la cle privee la-bas (il peut
+    deja etre injoignable, la raison meme pour laquelle on le retire) : la
+    cle laissee sur le nœud devient simplement inutile des que l'entree
+    authorized_keys correspondante n'existe plus sur kvm-lab."""
+    marker = f"{REVERSE_KEY_TAG}-{node_name}"
+    auth_path = _authorized_keys_path()
+    if auth_path.exists():
+        lines = [l for l in auth_path.read_text().splitlines(keepends=True) if marker not in l]
+        auth_path.write_text("".join(lines))
+    (REVERSE_KEY_DIR / f"{node_name}_ed25519").unlink(missing_ok=True)
+    (REVERSE_KEY_DIR / f"{node_name}_ed25519.pub").unlink(missing_ok=True)
+
+
+def get_reverse_key_remote_path():
+    """Chemin (SUR LE NŒUD DISTANT, pas sur kvm-lab) de la cle privee
+    poussee par ensure_reverse_trust() -- utilise par migrate_vm() pour
+    construire l'URI de destination quand kvm-lab est la cible d'une
+    migration initiee par un nœud distant."""
+    return f"{REVERSE_REMOTE_DIR}/id_ed25519"
+
+
 def register_node(name, hostname, ssh_user, ssh_port, username):
     ok, message = test_node_connection(hostname, ssh_user, ssh_port)
     if not ok:
@@ -152,13 +261,22 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
         except Exception:
             raise RuntimeError(f"Un nœud '{name}' existe déjà")
     log_action(username, "register_node", name, "succes", f"{ssh_user}@{hostname}:{ssh_port}")
-    return get_node(name)
+    node = get_node(name)
+    # Best-effort (voir docstring d'ensure_reverse_trust) -- la migration
+    # nœud distant -> kvm-lab reste une fonctionnalite secondaire, ne doit
+    # jamais faire echouer l'enregistrement du nœud lui-meme.
+    try:
+        ensure_reverse_trust(node)
+    except Exception as e:
+        log_action(username, "register_node", name, "succes", f"Confiance SSH inverse non établie (migration nœud->kvm-lab indisponible) : {e}")
+    return node
 
 
 def remove_node(name, username):
     with get_conn() as conn:
         conn.execute("DELETE FROM nodes WHERE name = ?", (name,))
         conn.commit()
+    revoke_reverse_trust(name)
     log_action(username, "remove_node", name, "succes")
 
 

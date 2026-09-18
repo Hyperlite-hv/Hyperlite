@@ -1844,8 +1844,25 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         # `hostname` enregistre que celui utilise pour la connexion
         # qemu+ssh:// elle-meme).
         if dest_node_key is None:
-            dest_uri = "qemu:///system"
             local_addr = _local_migrate_uri_host()
+            if source_node and source_node != "kvm-lab":
+                # Migration nœud distant -> kvm-lab (backlog 2026-09-18,
+                # confiance SSH inverse -- voir cluster.py::ensure_reverse_trust).
+                # "qemu:///system" tel quel serait interprete PAR LE
+                # LIBVIRTD SOURCE (celui du nœud distant, cette URI est
+                # executee LA-BAS) comme "moi-meme" -- exactement le bug
+                # deja documente ("Attempt to migrate guest to the same
+                # host"). Il faut une URI qemu+ssh:// EXPLICITE vers
+                # kvm-lab, authentifiee avec la cle dediee poussee sur CE
+                # nœud a son enregistrement (jamais la cle partagee
+                # kvm-lab -> nœuds, voir la docstring d'ensure_reverse_trust
+                # pour le pourquoi).
+                from app.core.cluster import get_reverse_key_remote_path
+                if not local_addr:
+                    raise RuntimeError("Adresse Tailscale de kvm-lab introuvable -- migration nœud distant -> kvm-lab impossible sans elle")
+                dest_uri = f"qemu+ssh://root@{local_addr}/system?keyfile={get_reverse_key_remote_path()}&no_verify=1&sshauth=privkey"
+            else:
+                dest_uri = "qemu:///system"
             migrate_params = {"migrate_uri": f"tcp://{local_addr}"} if local_addr else {}
         else:
             dest_node = get_node(dest_node_key)
@@ -1890,19 +1907,16 @@ def migrate_vm(name: str, payload: MigrateRequest, node: str | None = None, user
     au-dela de ce qu'une ACL scopee a une VM est censee couvrir."""
     if payload.target_node == (node or "kvm-lab"):
         raise HTTPException(status_code=422, detail="Le nœud de destination doit être différent du nœud source")
-    # LIMITE CONNUE, documentee plutot que masquee (voir CLAUDE.md) : migrer
-    # DEPUIS un nœud distant VERS kvm-lab echoue reellement -- la migration
-    # peer-to-peer est initiee par le libvirtd SOURCE (celui du nœud
-    # distant), qui a besoin de pouvoir se connecter LUI-MEME vers kvm-lab
-    # (confiance SSH inverse, jamais mise en place -- seule kvm-lab -> nœud
-    # distant existe, voir cluster.py). Le sens inverse (le cas normal :
-    # migrer DEPUIS kvm-lab, ou tourne Hyperlite, VERS un nœud distant) est
-    # teste et fonctionne reellement.
-    if node and payload.target_node == "kvm-lab":
-        raise HTTPException(
-            status_code=422,
-            detail="Migration non supportée : depuis un nœud distant vers kvm-lab. Migrez depuis kvm-lab vers un nœud distant à la place (sens supporté).",
-        )
+    # Migration nœud distant -> kvm-lab (backlog 2026-09-18) : longtemps
+    # bloquee ici (voir CLAUDE.md, historique) car la migration peer-to-
+    # peer est initiee par le libvirtd SOURCE, qui a besoin de pouvoir se
+    # connecter LUI-MEME vers kvm-lab -- desormais possible via une
+    # confiance SSH inverse dediee, etablie automatiquement a
+    # l'enregistrement de chaque nœud (voir cluster.py::ensure_reverse_trust,
+    # cle PROPRE a ce nœud, jamais partagee). Si cette confiance n'a pas pu
+    # etre etablie (nœud enregistre avant ce correctif, ou echec best-effort
+    # a l'epoque), la migration echouera avec une erreur SSH claire cote
+    # tache plutot qu'un refus a priori ici.
 
     src_conn = open_conn(node)
     try:
