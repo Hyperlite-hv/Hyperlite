@@ -1853,3 +1853,79 @@ compte admin temporaire supprimé à la fin) :
 **Pas encore fait** : réplication `zfs send`/`receive` entre kvm-lab
 (désormais démantelé -- donc entre serveur-antho et un futur second
 nœud ZFS, potentiellement le serveur de Nicolas) et intégration HA.
+
+### Audit UI réel (Playwright) du flux ZFS complet (2026-09-18)
+
+Fait pendant que kvm-lab était bloqué sur les deux points ci-dessus
+(Secure Boot serveur-antho, accès Nicolas) -- seule machine avec ZFS
+fonctionnel encore joignable, donc dernière fenêtre pour vérifier
+visuellement ce qui n'avait été testé jusqu'ici que via l'API brute.
+Script `test-zfs.js` dans `/root/hyperlite-ui-test/` (même méthode que
+le chantier 25 : compte admin temporaire, Chromium headless réel).
+
+**3 bugs réels trouvés en lisant `VMSnapshotsTab.jsx` AVANT même
+d'ouvrir un navigateur** (relecture attentive suite au constat que le
+composant affichait du texte qcow2 générique pour tous les snapshots) :
+1. Le libellé "arrêtée (disque seul)" s'affichait pour un snapshot ZFS
+   même si la VM tournait réellement au moment du snapshot -- le
+   frontend ne reconnaissait que `etat_vm === "running"` (valeur qcow2),
+   pas `"disque_seul"` (valeur ZFS).
+2. Le texte d'avertissement (3+ snapshots) et la note de progression
+   pendant la création mentionnaient "grossit le fichier qcow2" /
+   "mémoire incluse automatiquement" -- faux pour une VM ZFS (pas de
+   fichier qcow2 du tout, jamais de mémoire capturée).
+
+**1 bug réel supplémentaire trouvé en TESTANT réellement dans le
+navigateur** (pas visible à la seule lecture de code) : la détection
+"VM sur pool ZFS" côté frontend, déduite de la liste des snapshots
+EXISTANTS (`snapshots.some(s => s.etat_vm === "disque_seul")`), est
+FORCÉMENT fausse pour le TOUT PREMIER snapshot d'une VM (liste encore
+vide au moment de sa création) -- le texte qcow2 trompeur s'affichait
+donc malgré tout le temps de cette toute première création. Corrigé à
+la racine : `stockage_zfs` (booléen) ajouté à `_domain_summary()`
+(`app/routers/vms.py`, donc `GET /vms`/`GET /vms/{name}`) plutôt que
+déduit côté frontend d'un état dérivé. **Piège rencontré en corrigeant
+ça** : `mapVm()` (`dashboard/src/api/client.js`) fait une liste blanche
+explicite des champs conservés depuis la réponse backend -- le nouveau
+champ était silencieusement perdu tant qu'il n'était pas ajouté
+explicitement à cette liste, malgré le backend le renvoyant
+correctement (vérifié via `curl` direct, qui montrait `stockage_zfs:
+true`, avant de comprendre que le frontend le jetait).
+
+**Piège de script de test rencontré (pas applicatif)**, à retenir pour
+tout futur script Playwright sur ce projet, en plus de celui déjà
+documenté au chantier 25 (`hasText` = sous-chaîne) :
+- Le tout premier clic du script (`text=Datacenter`, pensé comme un
+  simple "aller à la vue Datacenter") touchait en fait le NŒUD DE
+  L'ARBRE "Datacenter" de la sidebar (`ResourceTreeNode.jsx` couple
+  `select()` ET `setExpanded(e => !e)` sur le MÊME clic) -- repliait
+  l'arbre pour tout le reste du script, sans aucune erreur visible
+  avant le tout premier clic sur une VM (qui échouait silencieusement
+  en timeout, l'élément n'existant simplement plus dans le DOM
+  affiché). Un second clic sur ce même nœud le rouvre.
+- Le formulaire de création de pool (`StorageTab.jsx`) est un vrai
+  `<form>` -- scoper les locators de boutons à `page.locator("form")`
+  évite tout collision `hasText` avec le header (ex. le pseudo-bouton
+  "ZFS" matchait d'abord `zfsui_admin` dans le menu utilisateur,
+  `hasText` étant insensible à la casse : "ZFS" ⊂ "zfsui_admin").
+  Résultat concret avant correction : un pool nommé "ZFS" créé en
+  type `dir` sans qu'aucune étape ne signale l'erreur.
+- La création d'une VM sur un pool ZFS est RÉELLEMENT plus lente
+  (~37-38s mesurées, `qemu-img convert -O raw` vers le zvol via un
+  pool loopback) qu'une VM qcow2 classique -- un délai fixe de
+  quelques secondes après le clic "Créer la VM" est insuffisant,
+  attendre la fermeture réelle de la modale (ou la tâche `terminee`)
+  est indispensable.
+
+**Testé et confirmé visuellement, pas seulement via l'API** : type
+"ZFS" affiché dans la table des pools, sélecteur de pool dans
+l'assistant de création de VM proposant bien le pool ZFS, libellé
+"ZFS, disque seul (jamais la mémoire)" correct sur un snapshot pris VM
+active, toast d'erreur clair ("La VM doit être arrêtée avant de
+restaurer...") visible à l'écran lors d'une tentative de restauration
+sur VM active -- le garde-fou backend existait déjà, mais rien ne le
+montrait auparavant à l'utilisateur avant ce test (vérifié : sans le
+toast d'erreur générique déjà câblé sur les échecs de tâche, ç'aurait
+été un échec silencieux du point de vue de l'utilisateur).
+
+Compte de test, VM et pool supprimés à la fin.
