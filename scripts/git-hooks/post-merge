@@ -68,8 +68,22 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
         # n'est de toute facon pas la source utilisee par postinstall.sh
         # (voir CLAUDE.md, incoherence CDN de GitHub Pages) -- mais
         # desormais annonce comme tel plutot que silencieusement ignore.
+        # BUG REEL trouve en testant sur hl-devhub : `git worktree add
+        # "$WORKTREE" gh-pages` ne fait avancer la branche LOCALE
+        # `gh-pages` qu'a la toute PREMIERE execution (elle est alors
+        # creee en suivant origin/gh-pages) -- les executions suivantes
+        # reutilisent cette branche locale FIGEE a ce point de depart,
+        # meme si `origin/gh-pages` a avance depuis (ex. une autre
+        # machine qui publie aussi, exactement le cas rencontre pendant
+        # la periode de transition kvm-lab -> hl-devhub). Resultat : push
+        # rejete ("fetch first"). Corrige avec `-B` : force la branche
+        # locale `gh-pages` a correspondre a `origin/gh-pages` a CHAQUE
+        # execution avant d'y appliquer les nouveaux fichiers -- sans
+        # risque, ce n'est qu'un miroir genere (rsync --delete complet a
+        # chaque fois), aucun historique local a preserver.
+        git fetch origin gh-pages --quiet
         WORKTREE="$(mktemp -d)"
-        git worktree add "$WORKTREE" gh-pages
+        git worktree add "$WORKTREE" -B gh-pages origin/gh-pages
         rsync -a --delete --exclude=.git installer/apt-repo/ "$WORKTREE/"
         if (
             cd "$WORKTREE" || exit 1
