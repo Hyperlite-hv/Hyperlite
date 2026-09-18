@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
+import hashlib
 import libvirt
 import re
 import xml.etree.ElementTree as ET
@@ -224,8 +225,17 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
             # echouer la creation avec "error creating bridge interface...
             # Numerical result out of range" (ENAMETOOLONG traduit par
             # libvirt), reproduit avec "hltest-uifw" (11 caracteres).
-            # Corrige : name[:9], 6+9=15, tient toujours dans la limite.
-            bridge_dev = f"virbr-{payload.name[:9]}"
+            # Premier correctif (name[:9], 6+9=15) laissait une collision
+            # residuelle documentee dans CLAUDE.md : deux noms de reseau
+            # partageant leurs 9 premiers caracteres (ex. "guest-wifi-1" et
+            # "guest-wifi-2") generaient le MEME nom de pont, la creation
+            # du second echouant avec "existe deja" -- corrige ici en
+            # remplacant la simple troncature par un prefixe court (4
+            # caracteres, garde un peu de lisibilite) + un hash SHA-1 du
+            # nom COMPLET (5 caracteres hex) : deux reseaux ne collisionnent
+            # que si leurs noms complets sont strictement identiques, deja
+            # rejete plus haut ("existe deja") avant d'arriver ici.
+            bridge_dev = f"virbr-{payload.name[:4]}{hashlib.sha1(payload.name.encode()).hexdigest()[:5]}"
             net_xml = f"""
             <network>
               <name>{payload.name}</name>
