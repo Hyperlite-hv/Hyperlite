@@ -28,10 +28,29 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.core.audit import log_action
-from app.core.security import require_role
+from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
+from app.core.host_capabilities import get_local_capabilities
+from app.core.error_messages import describe_exception
 
 router = APIRouter(prefix="/host", tags=["host"])
+
+
+@router.get("/capabilities")
+def host_capabilities(user: dict = Depends(get_current_user)):
+    """Profil de capacites de l'hote LOCAL (mandat portabilite
+    2026-09-18, chantier 1 -- voir CLAUDE.md). Fondation pour les limites
+    de VM dynamiques, la page "Compatibilité et capacités" et le
+    diagnostic de compatibilite de cluster -- voir app/core/
+    host_capabilities.py pour le detail de chaque sous-profil."""
+    try:
+        result = get_local_capabilities()
+    except Exception as e:
+        msg = describe_exception(e)
+        log_action(user["username"], "get_host_capabilities", "local", "echec", msg)
+        raise HTTPException(status_code=500, detail=f"Erreur de découverte des capacités : {msg}")
+    log_action(user["username"], "get_host_capabilities", "local", "succes")
+    return result
 
 # Meme pattern ticket-court-duree-de-vie-a-usage-unique que TERMINAL_TICKETS
 # dans app/routers/vms.py (VM console/terminal) : un jeton JWT classique
