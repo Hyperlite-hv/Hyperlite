@@ -1965,5 +1965,156 @@ rejoué sur kvm-lab après le correctif -- table Stockage affiche
 désormais "local" pour les pools locaux et "serveur-antho" pour les
 pools distants (au lieu de "kvm-lab" pour les deux catégories locales,
 peu importe la machine réelle), sélection d'une VM existante toujours
-fonctionnelle, zéro erreur console/réseau. **Pas encore repropagé sur
-serveur-antho** au moment d'écrire cette note -- prochaine étape.
+fonctionnelle, zéro erreur console/réseau. **Repropagé sur serveur-antho
+et reconfirmé visuellement là-bas** (audit Playwright rejoué contre son
+vrai dashboard après mise à jour) -- au passage, trouvé et corrigé un
+vrai trou de process : les 3 derniers merges (#61/#62/#63) n'avaient
+jamais été `git pull`-és sur `hl-devhub`, donc jamais republiés depuis
+la migration -- toujours penser à repasser sur hl-devhub après CHAQUE
+merge, pas seulement kvm-lab avant.
+
+## Portabilité et robustesse infrastructure -- mandat durable (2026-09-18)
+
+Antho a donné une spécification complète et formelle (voir historique
+de conversation pour le texte intégral) : Hyperlite ne doit plus être
+conçu implicitement pour SON environnement actuel, mais installable et
+exploitable sur des infrastructures très différentes (homelab mono-
+nœud, mini-PC contraint, serveur pro multi-NIC/multi-disque, cluster
+multi-nœuds, stockage local ou partagé, environnement partiellement
+hors ligne) **sans jamais modifier le code source**. **Ceci est un
+principe d'architecture DURABLE pour tout le reste du projet**, pas un
+chantier ponctuel -- à garder en tête pour CHAQUE futur chantier
+touchant l'installeur, le cluster, le stockage ou le réseau, pas
+seulement les points listés ci-dessous.
+
+Résumé des règles (détail complet dans la mémoire Claude Code,
+`feedback_portability_architecture_mandate.md`, et dans le message
+original d'Antho) : détection systématique des capacités plutôt que
+supposition, aucune configuration codée en dur (IP, nom d'interface,
+chemin de pool, nom de bridge, quantités fixes de CPU/RAM/stockage...),
+trois profils de déploiement (homelab/standard/avancé -- des réglages
+par défaut différents, PAS trois produits différents), preflight check
+avant toute installation/ajout de nœud, dégradation contrôlée plutôt
+qu'échec global, interfaces d'abstraction stables (virtualisation/
+stockage/réseau/sauvegardes/métriques/auth/notifications), diagnostic
+de compatibilité de cluster avant migration/ajout de nœud, page UI
+"Compatibilité et capacités" par nœud, mises à jour versionnées
+réversibles.
+
+### Constat honnête (2026-09-18, avant de commencer) : où en est Hyperlite
+
+**Déjà partiellement conforme** (à ne pas refaire de zéro) :
+- Multi-nœuds réel (chantier 15, `qemu+ssh://`), pas figé mono-nœud.
+- HA déjà pensée en dégradation contrôlée (détecte + alerte, jamais
+  d'action automatique destructive, chantier 17).
+- CPU "plus petit dénominateur commun" déjà calculé dynamiquement pour
+  la migration (`_compute_migratable_cpu_xml`), avec repli générique
+  documenté plutôt qu'un échec brut (backlog 2026-09-18).
+- Choix du pool de stockage à la création de VM déjà découplé (dir/
+  netfs/zfs, chantier 17/26/ZFS phase 1).
+- Mécanisme de mise à jour déjà versionné avec sauvegarde + rollback
+  watchdog (chantier 7/7bis).
+
+**Absent ou clairement en violation, trouvé en confrontant le code réel
+à ce mandat** (pas une liste théorique -- vérifié dans `app/routers/
+vms.py` avant d'écrire cette note) :
+- **AUCUN module de découverte de capacités matérielles** -- rien ne
+  normalise "que peut faire cet hôte" nulle part.
+- **Violation concrète et flagrante des limites codées en dur** :
+  `VMCreate`/`VMUpdate` (`app/routers/vms.py`) plafonnent `vcpu` à
+  **1-2** et `memory_mb` à **256-2048** EN DUR, quelle que soit la
+  machine réelle -- serveur-antho (12 vCPU/15 Go RAM réels) ne peut
+  aujourd'hui créer QUE des VM à 2 vCPU/2 Go max, alors qu'il pourrait
+  largement plus. Exactement l'exemple donné par le mandat ("une
+  quantité fixe de CPU, RAM ou stockage" codée en dur).
+- Pas de profils de déploiement, pas de preflight check structuré et
+  rapporté (l'installeur a des vérifications éparses via preseed, pas
+  un rapport clair satisfait/avertissement/désactivé/bloquant).
+- Pas de page "Compatibilité et capacités".
+- Pas de couche d'abstraction stable -- le code métier appelle
+  directement libvirt/zfs/iptables un peu partout, pas d'adaptateurs.
+- Diagnostic de compatibilité de cluster limité au seul CPU (pas
+  QEMU/libvirt version, formats de disque, firmwares...).
+
+### Feuille de route proposée (séquencée, testée à chaque étape comme
+tout le reste de ce projet -- PAS un big-bang)
+
+1. **Module de découverte de capacités hôte** (`app/core/
+   host_capabilities.py`) -- fondation dont tout le reste dépend :
+   CPU (arch, cœurs/threads, extensions virtu, NUMA), mémoire totale/
+   disponible, disques/systèmes de fichiers, interfaces réseau/bridges/
+   VLAN, version QEMU/libvirt réelle, Secure Boot, paquets/dépendances
+   présents. Nouvel endpoint `GET /nodes/{node}/capabilities` (et
+   variante locale). Testable IMMÉDIATEMENT sur 3 machines réellement
+   différentes déjà disponibles (kvm-lab tant qu'il est là, serveur-
+   antho -- HP EliteDesk mini-PC réel, hl-devhub -- VM imbriquée) : un
+   vrai test de portabilité gratuit, pas besoin d'attendre un nouveau
+   matériel.
+2. **Limites de VM dérivées du profil réel** (corrige la violation
+   trouvée ci-dessus) -- remplace les bornes 1-2 vCPU/256-2048 Mo codées
+   en dur par des limites calculées depuis le profil de capacités de
+   chantier 1 (ex. jusqu'à N-1 cœurs réels, jusqu'à 80% de la RAM
+   disponible), configurable/override possible. Teste concrètement le
+   module du point 1.
+3. **Preflight check structuré** pour l'installeur (`installer/`) --
+   rapport clair satisfait/avertissement/fonctionnalités désactivées/
+   bloquant, jamais un état partiellement configuré en cas d'échec.
+4. **Page "Compatibilité et capacités"** (UI, par nœud) -- consomme le
+   module du point 1, affiche capacités détectées/fonctionnalités
+   actives/limitations/différences entre nœuds.
+5. **Profils de déploiement** (homelab/standard/avancé) -- réglages par
+   défaut de l'assistant d'installation/de création de VM selon le
+   profil détecté ou choisi, pas trois produits séparés.
+6. **Diagnostic de compatibilité de cluster étendu** (au-delà du CPU
+   déjà fait) -- versions QEMU/libvirt, formats de disque, firmwares,
+   avant migration/ajout de nœud, avec message exploitable.
+7. **Couches d'abstraction stables** (virtualisation/stockage/réseau/
+   sauvegardes/métriques/auth/notifications) -- refactor progressif,
+   le plus gros chantier, à faire en dernier une fois les fondations
+   (1-6) en place et éprouvées.
+
+Chantiers 1 et 2 démarrés dans la foulée de cette note. Le reste de la
+feuille de route sera traité un chantier à la fois, chacun avec sa
+propre branche/PR et un test réel contre l'infrastructure disponible,
+exactement comme tout le reste de ce document.
+
+### Chantier 1 : découverte de capacités hôte (2026-09-18)
+
+`app/core/host_capabilities.py` -- CPU (architecture/modèle/cœurs/
+virtualisation matérielle/topologie NUMA, via les capacités XML de
+libvirt, transparent local ET distant), mémoire totale/disponible
+(`/proc/meminfo`), stockage (disques/partitions via `lsblk -J`, usage
+réel du pool par défaut), réseau (interfaces OS + réseaux libvirt),
+version QEMU/libvirt réelle, conteneurs LXC disponibles, Secure Boot
+(lecture directe de la variable EFI, sans dépendre de `mokutil` --
+justement le point qui a bloqué ZFS sur serveur-antho), binaires clés
+présents (`qemu-img`/`zfs`/`git`/`xorriso`/...). `GET /host/
+capabilities` (hôte local) et `GET /nodes/{name}/capabilities` (nœud
+distant enregistré, combine l'API libvirt native -- transparente via
+qemu+ssh:// -- et un unique probe SSH pour les informations OS qui ne
+passent pas par libvirt).
+
+**Piège trouvé en testant réellement sur les deux machines
+disponibles** (pas en relisant le code) : un premier jet renvoyait
+`zfs_disponible: true` sur serveur-antho simplement parce que le
+binaire `zfs` est installé -- **alors que le module noyau ne charge
+toujours pas** (Secure Boot, MOK pas encore enrôlé par Antho, voir plus
+haut). Exactement le genre de limitation silencieuse que ce mandat
+interdit explicitement. Corrigé : trois champs distincts
+(`zfs_installe` / `zfs_module_charge` / `zfs_disponible` = ET logique
+des deux) au lieu d'un seul booléen trompeur -- vérifié `lsmod` en
+local ET à distance (pas un appel `zpool` qui pourrait lui-même
+attendre/échouer différemment).
+
+**Testé réellement sur deux machines physiques différentes** (pas de
+mock) : kvm-lab (2 vCPU, 8 Go RAM, Secure Boot absent -- BIOS legacy,
+ZFS pleinement fonctionnel) et serveur-antho via le chemin SSH+libvirt
+distant (12 vCPU réels, 15 Go RAM, Secure Boot ACTIF confirmé,
+QEMU/libvirt réellement différents -- 11.3M/10.0.13 contre 9.0M/7.2.22
+sur kvm-lab --, ZFS installé mais non fonctionnel, `gh`/`nginx`
+absents contrairement à kvm-lab) -- les deux profils reflètent
+fidèlement les différences réelles entre les machines, pas des valeurs
+inventées ou copiées d'une machine à l'autre.
+
+Fondation pour les chantiers suivants (limites de VM dérivées, page
+"Compatibilité et capacités", diagnostic de compatibilité de cluster).
