@@ -1751,11 +1751,105 @@ chantier 7bis "Durcissement post-chantier").
   l'hôte "local" de sa propre instance), donc rien à nettoyer côté
   cluster. À vérifier malgré tout si des références résiduelles
   apparaissent (notifications, HA...).
-- **Reprise des tests ZFS (phase 1/2)** : à faire directement sur
-  **serveur-antho** (machine physique réelle, pas hl-devhub qui est une
-  VM dédiée dev/publication seulement) -- ZFS pas encore installé
-  là-bas, à faire en premier (même paquets que documentés plus haut pour
-  kvm-lab : composant `contrib` + `zfsutils-linux`/`zfs-dkms`/
-  `linux-headers`).
+- **ZFS sur serveur-antho : BLOQUÉ sur Secure Boot, pas juste "pas
+  installé".** `zfsutils-linux`/`zfs-dkms` installés avec succès
+  (composant `contrib` ajouté à `/etc/apt/sources.list` -- format
+  ancien style `deb ... main contrib non-free-firmware`, pas
+  `debian.sources` comme sur kvm-lab/bookworm), MAIS le module `zfs`
+  refuse de charger : `modprobe: ERROR: could not insert 'zfs': Key was
+  rejected by service`. Cause confirmée (`mokutil --sb-state` ->
+  `SecureBoot enabled`) : serveur-antho est un **HP EliteDesk 800 G6
+  Mini PC** (`dmidecode`), pas du matériel serveur -- aucun IPMI/BMC
+  détecté (`/dev/ipmi*` absent, aucune interface réseau de gestion
+  dédiée), donc **aucun accès KVM à distance possible** sur cette
+  machine, contrairement à un vrai serveur (Dell iDRAC/HP iLO/
+  Supermicro IPMI). La clé MOK auto-signée par DKMS doit être enrôlée
+  manuellement via l'écran "MOK Management" au prochain démarrage --
+  cet écran s'affiche AVANT que Linux démarre (donc avant que SSH soit
+  disponible), nécessite un clavier+écran physiquement branchés.
+  **Préparé à l'avance** : `mokutil --import /var/lib/dkms/mok.pub`
+  déjà exécuté avec le mot de passe `Hyperlite-MOK-2026` (visible dans
+  ce fichier volontairement -- usage unique, invalidé après confirmation
+  à l'écran MOK, aucune valeur de sécurité durable à protéger). `hl-devhub`
+  mise en autostart (`virsh autostart`) pour redémarrer automatiquement
+  après le reboot. **Reste à faire par Antho** : la prochaine fois qu'il
+  est physiquement devant la machine, redémarrer et valider l'écran MOK
+  (Enroll MOK -> Continue -> Yes -> mot de passe ci-dessus) -- une seule
+  fois, définitif ensuite pour tous les futurs modules DKMS. Puis
+  reprendre les tests ZFS (phase 1/2, création pool+VM sur zvol) sur
+  serveur-antho pour de vrai.
 - Comptes de test temporaires (`devvm_admin` sur serveur-antho) à
   supprimer une fois cette session de migration terminée.
+
+## Backlog stockage entreprise, phase 3 : snapshots ZFS natifs (2026-09-18)
+
+Suite directe de la phase 1/2 (pools + VM sur zvols) -- implémentée et
+testée sur kvm-lab **avant son démantèlement effectif** (toujours
+joignable au moment de ce chantier, malgré l'annonce de sa migration
+imminente -- travail livré en petits incréments commit+push+merge
+immédiats plutôt qu'en un seul gros changement différé, exactement pour
+limiter le risque de perte si la machine disparaissait en cours de
+route).
+
+**Mécanisme NATIF ZFS** (`zfs snapshot`/`rollback`, `app/core/
+zfs_storage.py`), complètement distinct du snapshot INTERNE qcow2
+utilisé pour les VM classiques (chantier 4, `domain.snapshotCreateXML`)
+-- un disque bloc brut (zvol) n'a aucun format de fichier avec support
+de snapshot intégré, libvirt n'a donc rien à proposer dessus. Routage
+transparent côté API : `_zvol_disks_of_domain()` (`app/routers/vms.py`)
+détecte si une VM a des disques `type='block'` (zvols) et bascule vers
+le mécanisme ZFS -- **mêmes endpoints exacts** (`GET/POST/DELETE
+/vms/{name}/snapshots`, `POST .../restore`), même forme de réponse,
+**aucun changement frontend nécessaire** (`VMSnapshotsTab.jsx` inchangé).
+
+**Deux différences de sémantique réelles, assumées et documentées plutôt
+que masquées** :
+1. **Pas de capture mémoire** -- un snapshot ZFS ne capture QUE l'état du
+   disque (équivalent à couper le courant à cet instant précis,
+   cohérent au niveau système de fichiers grâce au journal, mais jamais
+   un état "reprend exactement où on s'était arrêté"), contrairement au
+   snapshot interne qcow2 qui inclut la mémoire vive quand la VM tourne.
+   Sans conséquence pratique pour la CRÉATION (un snapshot ZFS est
+   atomique et cohérent quel que soit ce qui écrit sur le disque au même
+   instant -- pris tel quel, même VM active).
+2. **Restauration exige la VM ARRÊTÉE** -- contrairement au snapshot
+   qcow2 (libvirt gère lui-même le cas "VM active" pour
+   `revertToSnapshot`), un `zfs rollback` sur un zvol activement ouvert
+   par le processus qemu d'une VM en marche désynchroniserait le cache
+   du noyau invité de l'état réel du disque -- corruption quasi
+   certaine. Vérifié explicitement (`domain.isActive()`) avant tout
+   rollback ZFS, refusé avec un message clair (409) plutôt que risqué.
+3. **Rollback linéaire, pas arborescent** -- `zfs rollback -r` (utilisé
+   ici) détruit définitivement tout snapshot plus récent que la cible,
+   contrairement aux snapshots qcow2 internes qui permettent de naviguer
+   librement entre plusieurs points sans en perdre aucun. Assumé :
+   correspond au modèle mental "revenir en arrière dans le temps"
+   attendu par la plupart des utilisateurs, sans la complexité d'un vrai
+   arbre de versions.
+
+**Snapshot atomique multi-disques** : `snapshot_zvols()` prend TOUS les
+zvols d'une VM dans UNE SEULE commande `zfs snapshot pool/v1@nom
+pool/v2@nom` -- important pour une VM multi-disques, les disques doivent
+tous refléter exactement le même instant, pas une suite de snapshots
+pris l'un après l'autre (fenêtre de cohérence).
+
+**Testé réellement de bout en bout sur kvm-lab** (VM sur pool ZFS,
+compte admin temporaire supprimé à la fin) :
+- Fichier marqueur écrit dans la VM (`ETAT-AVANT-SNAPSHOT`), snapshot
+  créé via l'API **pendant que la VM tournait** (confirme qu'un
+  snapshot ZFS live est bien sûr/atomique) -- vérifié à la fois côté API
+  (`GET .../snapshots`) et côté `zfs list -t snapshot` réel.
+- Fichier marqueur modifié (`ETAT-APRES-SNAPSHOT-MODIFIE`).
+- **Tentative de restauration VM ACTIVE correctement refusée** (409,
+  message clair) -- garde-fou de sécurité confirmé fonctionnel, pas
+  juste écrit.
+- VM arrêtée, restauration relancée -- **succès**, VM redémarrée,
+  fichier marqueur confirmé revenu à `ETAT-AVANT-SNAPSHOT` -- preuve
+  réelle que le rollback ZFS a bien fonctionné, pas seulement que la
+  commande n'a pas planté.
+- Suppression du snapshot vérifiée (`zfs list -t snapshot` vide après).
+- VM et pool de test supprimés à la fin, compte de test supprimé.
+
+**Pas encore fait** : réplication `zfs send`/`receive` entre kvm-lab
+(désormais démantelé -- donc entre serveur-antho et un futur second
+nœud ZFS, potentiellement le serveur de Nicolas) et intégration HA.
