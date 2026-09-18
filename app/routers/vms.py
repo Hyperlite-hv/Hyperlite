@@ -81,6 +81,15 @@ def _domain_summary(domain):
         "utilisateur_ssh": get_vm_ssh_user(domain.name()),
         "uptime_s": get_vm_uptime_s(domain.name()) if active else None,
         "os": get_vm_os_label(domain.name()),
+        # BUG REEL trouve en testant l'UI des snapshots dans un vrai
+        # navigateur (backlog stockage 2026-09-18, phase 3) : le frontend
+        # deduisait "VM sur pool ZFS" depuis la liste des snapshots
+        # EXISTANTS (etat_vm=='disque_seul') -- faux pour le TOUT PREMIER
+        # snapshot d'une VM (liste encore vide, rien a en deduire), donc
+        # le texte qcow2 ("mémoire incluse automatiquement") s'affichait
+        # a tort pendant sa creation. Expose directement ici plutot que
+        # de laisser le frontend deviner depuis un etat derive.
+        "stockage_zfs": bool(_zvol_disks_of_domain(domain)),
     }
 
 
