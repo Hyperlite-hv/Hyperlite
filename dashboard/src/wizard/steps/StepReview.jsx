@@ -17,6 +17,7 @@ export default function StepReview({ form, nodes }) {
     ["vCPU", form.vcpu],
     ["Mémoire", `${form.memory_mb} Mo`],
     ["Réseau", form.network],
+    ["Pool de stockage", form.storagePool || "Par défaut (local)"],
     ["Utilisateur", "Déjà présent sur le disque importé"],
   ] : [
     ["Nœud", nodeName],
@@ -27,6 +28,7 @@ export default function StepReview({ form, nodes }) {
     ["Mémoire", `${form.memory_mb} Mo`],
     ["Disques", `${form.disks.map((d) => `${d.size_gb} Go`).join(" + ")} (${totalDisk} Go total)`],
     ["Réseau", form.network],
+    ["Pool de stockage", form.storagePool || "Par défaut (local)"],
     manualInstall ? ["Utilisateur", "Créé pendant l'installation"] : ["Utilisateur", form.username || "--"],
   ];
 
