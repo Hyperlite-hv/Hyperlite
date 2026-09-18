@@ -93,7 +93,7 @@ de 16 chantiers triés par charge de travail croissante.
 | 15 | Multi-nœuds (qemu+ssh://) | ✅ dans `master` — testé en boucle sur kvm-lab lui-même (pas de second hôte disponible), pas de vrai test inter-sites |
 | 16 | Document récapitulatif final (PDF/Markdown) | ✅ dans `master` — Markdown, [`docs/RECAPITULATIF.md`](docs/RECAPITULATIF.md). Dernier chantier de cette roadmap, tous les autres sont maintenant traités |
 | 17 | HA basique (détection panne nœud + récupération manuelle) | ✅ dans `master` — **scope volontairement prudent, PAS de fencing/STONITH** (voir section dédiée plus bas) : détecte un nœud tombé et alerte, la récupération reste toujours déclenchée par un admin, jamais automatique. **Testé réellement de bout en bout** sur kvm-lab + serveur-antho (panne simulée, alerte confirmée, VM protégée récupérée avec succès sur l'autre nœud, disque partagé intact) |
-| 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ dans `master` — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur) **ou image Docker Hub/registre OCI au choix** (`skopeo`+`umoci`, pas de démon Docker requis ; bootstrap post-pull systemd+openssh+sudo côté apt, openrc+openssh+sudo côté apk, création des nœuds `/dev` manquants — testé réellement sur `alpine:3.19` et `debian:12`), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié + champ de sélection d'image dans les deux formulaires de création. **systemd-networkd, pas ifupdown/isc-dhcp-client** (côté apt) : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). Pas encore fait : snapshots/clonage de conteneur, ACL granulaire (réservé admin pour l'instant), galerie de templates visuelle |
+| 18 | Conteneurs (LXC) et tout l'outillage associé | ✅ dans `master` — pilote LXC natif de libvirt (lxc:///system), image de base Debian 12 via debootstrap (cache, clonage rapide par conteneur) **ou image Docker Hub/registre OCI au choix** (`skopeo`+`umoci`, pas de démon Docker requis ; bootstrap post-pull systemd+openssh+sudo côté apt, openrc+openssh+sudo côté apk, création des nœuds `/dev` manquants — testé réellement sur `alpine:3.19` et `debian:12`), terminal web SSH (même clé d'automatisation que les VM), sudo NOPASSWD, onglet Datacenter dédié + champ de sélection d'image dans les deux formulaires de création. **systemd-networkd, pas ifupdown/isc-dhcp-client** (côté apt) : le profil AppArmor de libvirtd sur cet hôte bloque un signal vers dhclient, cassait `destroy`/suppression (trouvé et corrigé en testant). ~~Pas encore fait : snapshots/clonage de conteneur, ACL granulaire~~ **FAIT** (backlog 2026-09-18, PR #48/#49 -- clonage+sauvegarde/restauration à défaut de vrai snapshot instantané, libvirt-lxc ne le supporte pas du tout). Reste : galerie de templates visuelle |
 | 23 | Export/Import de VM depuis un fichier disque | ✅ dans `master` — bouton "Exporter le disque" (menu d'actions VM, disque système uniquement, chaud ou froid selon l'état, réutilise le mécanisme du chantier 13), onglet Datacenter > Exports (liste/télécharge/supprime, téléchargement par ticket à usage unique), option "Importer un disque existant" dans le formulaire de création de VM (upload + sélection). Bug réel trouvé et corrigé en testant : un disque importé garde le netplan MAC-épinglé de son tout premier démarrage (cloud-init) — nouvelle MAC = plus aucune interface ne correspond, réseau mort. Corrigé via un ISO de "reseed" cloud-init (nouvel instance-id, même mécanisme que le clonage chantier 5) qui force cloud-init à régénérer son réseau. Testé réellement de bout en bout (export à chaud + import + SSH fonctionnel) |
 | 24 | Refonte tableau de bord + barre latérale façon Proxmox VE | ✅ dans `master` — rail de navigation (`SidebarRail.jsx`) ajouté à gauche de l'arbre Datacenter/Nœud/VM existant (purement additif, l'arbre reste les raccourcis VM), calqué sur les onglets Datacenter réels seulement (pas la liste complète de Proxmox). Nouvel onglet "Activité récente" (table `tasks` existante, pas encore exposée au niveau Datacenter). "Statut des VM" devient une vraie liste sur les états réels d'un domaine libvirt. **Pas de vérification visuelle possible depuis cette session (pas de navigateur connecté) — à confirmer par Antho** |
 | 19 | Suppression automatique des VM inactives (option à la création, ex. 7 jours sans usage) | ✅ dans `master` — `app/core/vm_cleanup.py`, opt-in par VM (à la création ou après coup, `PUT /vms/{name}/auto-cleanup`). Le compteur ne court que pendant que la VM est ARRÊTÉE (jamais une VM en marche), jamais une VM protégée HA, avertissement ~24h avant suppression réelle (notifications, chantier 28). **Testé réellement** : cycle de vérification déclenché manuellement avec des horodatages simulés (au-delà/en-deçà du seuil) — avertissement, suppression réelle (VM + disque + entrées DB), et les deux garde-fous (VM active, VM HA) vérifiés un par un. UI (assistant de création + panneau sur la fiche VM) testée dans un vrai navigateur |
@@ -190,9 +190,10 @@ avant tout `systemctl restart hyperlite`.
   timeout de connexion porté à 30s) suite à un vrai `database is locked`
   rencontré en testant le chantier 13 -- corrige la contention SQLite citée
   plus haut comme piège connu.
-- Reste à explorer si quelqu'un reprend l'audit : rate-limiting par IP (pas
-  seulement par compte), revue des autres routers (`groups.py`, `pools.py`,
-  `acl.py`, `dashboard.py`) pas encore passés en revue ligne à ligne.
+- ~~Reste à explorer : rate-limiting par IP, revue des autres routers~~
+  **FAIT** (backlog 2026-09-18 : rate-limiting par IP, PR #43 ;
+  `groups.py`/`pools.py`/`acl.py`/`dashboard.py` relus ligne à ligne,
+  tous corrects, aucun correctif nécessaire).
 
 ### Notes diverses (2026-09-13)
 - **Mot de passe root/admin de l'appliance ISO fixé à `hyperlite`** (au lieu
@@ -479,21 +480,21 @@ lecture de code.
 
 ### Limite connue, non contournee (documentee plutot que masquee)
 
-**Migrer un nœud DISTANT vers kvm-lab ne fonctionne pas.** La migration
-peer-to-peer est initiee par le libvirtd SOURCE (celui du nœud distant),
-qui doit pouvoir se connecter LUI-MEME vers kvm-lab -- ca demande une
-confiance SSH INVERSE (nœud distant -> kvm-lab) qui n'existe pas (seule
-kvm-lab -> nœud distant est mise en place, voir `cluster.py`). Tente en
-reel, echoue avec `Attempt to migrate guest to the same host` (le
-libvirtd source interprete `qemu:///system` comme lui-meme). **Bloque
-explicitement cote backend** (`422` avec message clair, pas une
-tentative qui echoue en silence dans un thread) et **filtre cote
-frontend** (la sidebar de migration ne propose meme pas kvm-lab comme
-destination si la VM est deja distante). Le sens normal (depuis kvm-lab,
-ou tourne Hyperlite, vers un nœud distant) est le sens teste et
-fonctionnel -- c'est aussi le sens que l'UI utilise dans l'immense
-majorite des cas reels (un seul kvm-lab, plusieurs nœuds geres depuis
-lui).
+**Migrer un nœud DISTANT vers kvm-lab -- CORRIGE depuis (backlog
+2026-09-18, PR #46).** La migration peer-to-peer est initiee par le
+libvirtd SOURCE (celui du nœud distant), qui doit pouvoir se connecter
+LUI-MEME vers kvm-lab -- ca demandait une confiance SSH INVERSE (nœud
+distant -> kvm-lab) qui n'existait pas (seule kvm-lab -> nœud distant
+etait mise en place, voir `cluster.py`). Desormais etablie automatiquement
+a l'enregistrement de chaque nœud (`ensure_reverse_trust()`, cle DEDIEE
+par nœud, jamais partagee, restreinte par `from=`) -- voir la section
+dediee "Backlog de robustesse post-roadmap" plus bas pour le detail
+complet (dont 3 bugs reels supplementaires trouves et corriges au meme
+moment : disque source jamais nettoye apres migration, ISO cloud-init
+non copiee dans ce sens, fichier destination devant pre-exister pour ce
+sens precis). Le blocage explicite cote backend et le filtre cote
+frontend ont ete retires. Le sens kvm-lab -> nœud distant reste
+evidemment toujours fonctionnel.
 
 **CPU heterogene entre nœuds** : ajoute `_compute_migratable_cpu_xml()`
 (`vm_builder.py`) -- calcule un CPU "plus petit denominateur commun" via
@@ -517,14 +518,16 @@ un hote Intel, d'ou le `disable` explicite). Pas d'automatisation de ce
 contournement dans l'UI pour l'instant -- documente ici pour la
 prochaine fois plutot que redecouvert a chaque fois.
 
-**Actions VM (start/stop/delete/etc.) toujours locales uniquement** :
-confirme en testant le nettoyage post-migration -- `POST /vms/{name}/stop`
-et `DELETE /vms/{name}` n'acceptent PAS de parametre `node` (seul
-`GET /vms`/`GET /vms/{name}` et maintenant `POST /vms/{name}/migrate`
-le font). Deja documente comme limitation deliberee du chantier 15/24
-("visibilite seulement"), reconfirme ici en la percutant reellement --
-pas un nouveau bug, juste la preuve que la limite documentee est toujours
-d'actualite.
+**Actions VM (start/stop/delete/etc.) toujours locales uniquement --
+CORRIGE depuis (backlog 2026-09-18, PR #47).** `start`/`stop`/`restart`/
+`DELETE /vms/{name}` acceptent desormais tous un parametre `node`, comme
+`GET /vms`/`GET /vms/{name}` et `POST /vms/{name}/migrate` le faisaient
+deja. Voir la section dediee "Backlog de robustesse post-roadmap" plus
+bas -- a aussi revele un bug frontend reel (le nœud etait deja resolu
+cote client mais jamais transmis a l'appel API) et, combine au point
+precedent (confiance SSH inverse), un bug de migration PRE-EXISTANT
+depuis ce chantier 27 (disque source jamais nettoye apres une migration
+reussie, dans les deux sens).
 
 ## Chantier 17 : haute disponibilite basique (2026-09-17)
 
@@ -875,11 +878,10 @@ l'enfant `/sbin/init`, pas celui du fichier `.pid` de libvirt) :
    (`ENAMETOOLONG` traduit par libvirt) -- reproduit avec un nom de test
    de 11 caracteres (`hltest-uifw`), un cas tres probable en usage reel
    (ex. "production", "guest-wifi"). Corrige : `name[:9]` (6+9=15).
-   Collision residuelle non traitee : deux noms de reseau partageant
-   leurs 9 premiers caracteres genereraient le meme nom de pont (echec
-   "existe deja" a la creation du second) -- limite pre-existante,
-   documentee plutot que corrigee (necessiterait un nom de pont derive
-   par hash, hors scope de ce correctif ponctuel).
+   Collision residuelle (deux noms de reseau partageant leurs 9 premiers
+   caracteres generaient le meme nom de pont) **corrigee depuis** dans le
+   backlog du 2026-09-18 (voir plus bas, PR #42) -- prefixe court + hash
+   SHA-1 du nom complet plutot qu'une simple troncature.
 
 Compte de test, conteneur de test et reseau de test supprimes a la fin
 (verifie : `iptables -nL HYPERLITENETFW` vide, chaine dediee absente de
