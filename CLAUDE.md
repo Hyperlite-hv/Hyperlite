@@ -1511,3 +1511,119 @@ fencing (question posée explicitement, IPMI/PDU absents de ce matériel).
   binaire (`qemu-system`).
 
 Chaque point testé réellement (PR #52, #53).
+
+## Backlog stockage entreprise (2026-09-18) : ZFS sur zvols, phase 1/2
+
+Après la clôture des 31+ chantiers de la roadmap vSphere/vCenter, Antho a
+demandé une nouvelle roadmap visant un niveau plus proche de l'entreprise
+("au moins les 80%"), avec un gros effort sur le **stockage** en
+particulier. Discussion explicite avant de commencer :
+
+- **ZFS avant Ceph** -- Ceph nécessite un nombre impair de nœuds (3+) pour
+  un quorum de moniteurs réellement sûr ; avec seulement kvm-lab et
+  serveur-antho (2 nœuds), un déploiement Ceph serait non testable
+  honnêtement dans ce projet ("toujours tester en conditions réelles").
+  Antho a d'abord suggéré Ceph aussi pour la mise en prod long terme,
+  confirmé ensuite ("ok ca me va on met ceph pour plus tard") après
+  discussion : **Ceph explicitement reporté à l'arrivée d'un 3e nœud
+  physique**, pas commencé maintenant.
+- **zvols bruts plutôt que qcow2-sur-dataset ZFS** -- décision explicite
+  d'Antho ("utilise zvols"), pour une raison de réutilisabilité
+  architecturale future : un zvol (`/dev/zvol/<pool>/<nom>`) et un
+  périphérique RBD Ceph (`/dev/rbdN`, futur) se présentent TOUS LES DEUX
+  à une VM comme un périphérique bloc brut sur l'hôte -- construire cette
+  forme d'attachement une fois (voir `<disk type='block'>` ci-dessous)
+  est directement réutilisable plus tard pour Ceph/RBD, seule la source
+  du chemin de périphérique change.
+- **Pools ZFS sur fichiers loopback pour l'instant** (choix confirmé
+  d'Antho) -- ni kvm-lab ni serveur-antho n'ont de disque/partition libre
+  dédié ; **surtout, ne JAMAIS toucher/réduire le volume group LVM
+  existant `hyperlite-vg`** qui porte la racine réelle de serveur-antho
+  (risque déjà identifié par le passé). `zpool create <nom> <fichier>`
+  accepte nativement un fichier régulier comme vdev (pas besoin de
+  `losetup` explicite) -- ZFS réel, juste pas encore sur un disque dédié ;
+  transparent à remplacer par un vrai périphérique bloc plus tard.
+
+**Pourquoi pas l'API de pool de stockage libvirt** (comme les pools
+dir/netfs existants, chantier 26) : vérifié sur kvm-lab
+(`/usr/lib/x86_64-linux-gnu/libvirt/storage-backend/`) qu'aucun pilote
+`zfs` n'est compilé dans le paquet libvirt installé (9.0.0, Debian 12).
+Un paquet séparé existe (`libvirt-daemon-driver-storage-zfs`) mais son
+support de création de volume est historiquement limité (liste des zvols
+PRÉ-EXISTANTS seulement, pas de `vol-create-as` fiable) -- non utilisé.
+ZFS est donc géré **entièrement par appels directs `zpool`/`zfs` en
+sous-processus** (`app/core/zfs_storage.py`, même style que
+`app/core/network_firewall.py` pour iptables), jamais via
+`virStoragePool`/`virStorageVol`. Aucune table SQLite dédiée : l'état vit
+entièrement dans ZFS lui-même (`zpool list`/`zfs list`), interrogé à
+chaque appel -- même philosophie que `app/routers/storage.py`, qui ne
+fait déjà confiance qu'à l'état réel de libvirt.
+
+**Paquets installés sur kvm-lab** (composant `contrib` ajouté à
+`/etc/apt/sources.list.d/debian.sources`, requis par la licence CDDL de
+ZFS) : `zfsutils-linux`, `zfs-dkms` (+ `linux-headers-$(uname -r)`),
+`libvirt-daemon-driver-storage-zfs` (installé par prudence, pas utilisé
+pour l'instant -- voir ci-dessus). Module noyau chargé (`modprobe zfs`),
+persistant au redémarrage via les unités systemd `zfs.target`/
+`zfs-import-cache.service` installées par le paquet. **Pas encore propagé
+à serveur-antho** -- à faire (mêmes paquets + composant contrib) le jour
+où ce nœud doit lui aussi héberger des pools ZFS.
+
+**Périmètre livré (phase 1/2 -- pools + VM sur zvol)** :
+- `POST/DELETE /storage` (type `"zfs"`, `size_gb` pour la taille du
+  fichier loopback) + fusion dans `GET /storage` (liste unifiée avec les
+  pools dir/netfs existants, même forme de champs). Mono-nœud pour
+  l'instant (toujours l'hôte local) -- même limite que le reste de ce
+  chantier, documentée dans le code plutôt que masquée.
+- `POST/DELETE /storage/{pool}/volumes` réutilisés pour les zvols (mêmes
+  endpoints que les volumes qcow2 classiques, routage interne selon le
+  type de pool détecté).
+- `storage_pool` sur `POST /vms` accepte désormais un pool ZFS : les
+  disques sont créés en zvols (`create_zvol_disk()`,
+  `app/core/vm_builder.py`) plutôt qu'en fichiers qcow2, écriture de
+  l'image cloud Debian (ou du disque importé, chantier 23) directement
+  sur le périphérique bloc via `qemu-img convert -O raw` -- pas d'étape
+  de fichier intermédiaire. `build_domain_xml()` accepte maintenant un
+  disque comme tuple `(chemin, "block")` en plus d'un simple chemin de
+  fichier (comportement historique inchangé) : génère `<disk
+  type='block'><driver type='raw'/><source dev='...'/>` au lieu de
+  `type='file'`.
+- Suppression de VM (`_perform_vm_deletion`, réutilisée par le nettoyage
+  automatique du chantier 19) étendue pour détecter les disques bloc dans
+  le XML du domaine et supprimer le zvol correspondant (`zfs destroy -r`,
+  purge aussi les snapshots ZFS orphelins) au lieu d'un simple
+  `Path.unlink()`.
+
+**Testé réellement de bout en bout sur kvm-lab** (compte admin temporaire
+créé directement en base, supprimé à la fin) : création d'un pool ZFS de
+8 Go (fichier loopback), création d'une VM dessus via l'API réelle,
+domaine XML vérifié (`<disk type='block'>` + `<source
+dev='/dev/zvol/...'/>`), démarrage réel, **vraie IP DHCP obtenue,
+connexion SSH réussie, écriture d'un fichier confirmée** -- disque
+bloc brut réellement lisible/inscriptible par l'OS invité, pas juste un
+domaine qui démarre. `df -h` dans la VM confirme que le module
+`growpart` de cloud-init a bien étendu la partition racine aux 3 Go
+complets du zvol (comportement identique à un disque qcow2 classique).
+Suppression de la VM vérifiée : zvol disparu (`zfs list` vide). Suppression
+du pool vérifiée : `zpool list` échoue proprement ("no such pool"),
+fichier loopback supprimé du disque.
+
+**Pas encore fait, prochaines étapes de ce chantier stockage** (annoncé à
+Antho avant de commencer, pas encore commencé) :
+- **Snapshots ZFS natifs** pour les VM sur zvol (`zfs snapshot`/
+  `rollback`) -- mécanisme distinct des snapshots internes qcow2 du
+  chantier 4, qui ne s'appliquent pas à un disque bloc brut.
+  - **Réplication** `zfs send`/`receive` entre kvm-lab et serveur-antho,
+  en vue de renforcer la HA (chantier 17) avec un chemin de reprise pour
+  des VM sur stockage ZFS local, sans dépendre du stockage partagé NFS
+  (chantier 26) comme condition préalable actuelle.
+- **Intégration HA** -- VM répliquée par ZFS comme alternative au
+  stockage partagé NFS pour la protection HA.
+- **Limite connue non traitée pour l'instant** : une VM sur zvol n'est
+  PAS migrable à chaud (chantier 27) -- `domain_disk_paths()`
+  (`app/core/libvirt_utils.py`) ne lit que l'attribut `file` des disques,
+  pas `dev`, donc un disque bloc n'est actuellement jamais détecté par le
+  code de migration. Sans conséquence immédiate (échoue proprement en
+  ignorant simplement le disque plutôt que de corrompre quoi que ce
+  soit), mais à corriger explicitement avant d'annoncer la migration
+  comme supportée pour ce type de VM.
