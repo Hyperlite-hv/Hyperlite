@@ -7,12 +7,11 @@ import { detectOsFamily } from "../../utils/osFamily";
 // reconnu (installation automatisee, meme logique que detect_os_family cote
 // backend) -- seule l'installation manuelle (ISO non reconnu) s'en passe.
 export default function StepResources({ form, patch, storagePools = [] }) {
-  // Choix du pool de stockage (backlog 2026-09-18) : seuls dir/netfs sont
-  // supportes cote backend (types de pool crees par ce projet exposant un
-  // chemin de fichiers classique, voir app/routers/vms.py::create_vm) --
-  // et seulement les pools ACTIFS, un pool inactif ferait echouer la
-  // creation de la VM.
-  const selectablePools = storagePools.filter((p) => ["dir", "netfs"].includes(p.type) && p.etat === "actif");
+  // Choix du pool de stockage (backlog 2026-09-18) : dir/netfs (chemin de
+  // fichiers qcow2 classique) ou zfs (zvols bruts, backlog stockage
+  // 2026-09-18, voir app/routers/vms.py::create_vm) -- et seulement les
+  // pools ACTIFS, un pool inactif ferait echouer la creation de la VM.
+  const selectablePools = storagePools.filter((p) => ["dir", "netfs", "zfs"].includes(p.type) && p.etat === "actif");
   const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
   const importMode = form.importDisk != null;
   function updateDisk(i, size_gb) {
