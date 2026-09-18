@@ -16,11 +16,20 @@ CACHE_DIR="$SCRIPT_DIR/.iso-cache"
 
 # Debian 13 (trixie), stable courante au moment de l'ecriture de ce script --
 # recoit les mises a jour de securite, contrairement a bookworm (12) deja
-# archivee. A ajuster ici si une version plus recente sort.
-DEBIAN_VERSION="13.6.0"
+# archivee. A ajuster ici si une version plus recente sort -- Debian publie
+# des revisions de point regulierement (tous les 2 mois environ), et
+# "current/" sur cdimage.debian.org ne garde JAMAIS les anciennes revisions
+# (le fichier disparait, 404 sur l'ancienne version) : PAS une pin figee
+# pour toujours, a rafraichir manuellement si ce script echoue avec un 404,
+# via `curl https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/
+# SHA256SUMS | grep netinst` pour la version+SHA256 reels du moment. BUG
+# REEL rencontre en testant ce chantier (13.6.0 -> 404, remplace par 13.7.0
+# le 2026-09-18, migration kvm-lab -> hl-devhub) : premiere fois que ce pin
+# a ete atteint en conditions reelles depuis l'ecriture du script.
+DEBIAN_VERSION="13.7.0"
 ISO_NAME="debian-${DEBIAN_VERSION}-amd64-netinst.iso"
 ISO_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/${ISO_NAME}"
-ISO_SHA256="65273beed27b2df543b68b65630ba525cfbad8df2b12035732b2dff87d6664e7"
+ISO_SHA256="a7ef94ac2fb9a7fec454552abd629b7cc9d5155c886165a45649f5ce6167e355"
 
 log() { echo "[build-iso] $*"; }
 
