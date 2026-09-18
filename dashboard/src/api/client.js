@@ -40,7 +40,14 @@ export async function fetchDashboardSummary() {
 export async function fetchNodes() {
   const d = await fetchDashboardSummary();
   const localNode = {
-    id: "kvm-lab",
+    // "local" (renomme depuis "kvm-lab" le 2026-09-18, demantelement de
+    // ce nœud) : identifiant SENTINELLE interne pour "l'hote qui fait
+    // tourner cette instance Hyperlite", jamais un vrai nom de machine --
+    // le vrai nom reel (d.hyperviseur.nom, ex. "hyperlite.home") reste
+    // affiche normalement partout (champ `nom` juste en dessous), seul
+    // cet `id` sert aux comparaisons internes (voir mapVm/mapPool plus
+    // bas + toutes les verifications `node !== "local"`).
+    id: "local",
     nom: d.hyperviseur.nom,
     etat: d.hyperviseur.connecte ? "online" : "erreur",
     // CPU/RAM totale non exposees par GET /dashboard aujourd'hui -- valeurs
@@ -63,7 +70,7 @@ export async function fetchNodes() {
 
   // Noeuds distants enregistres (chantier 15) -- AUPARAVANT absents d'ici :
   // cette fonction ne renvoyait toujours qu'un unique noeud synthetique
-  // "kvm-lab", donc un noeud distant reellement enregistre et fonctionnel
+  // "local", donc un noeud distant reellement enregistre et fonctionnel
   // cote backend (GET /nodes) restait invisible dans l'arbre principal --
   // bug reel signale en testant un vrai second noeud physique (seul
   // l'onglet dedie "Noeuds", qui interroge /nodes directement, le montrait).
@@ -120,10 +127,10 @@ function mapVm(v, nodeId) {
 
 export async function fetchVMs() {
   const localVms = await realFetch("/vms");
-  let result = localVms.map((v) => mapVm(v, "kvm-lab"));
+  let result = localVms.map((v) => mapVm(v, "local"));
 
   // Noeuds distants enregistres (chantier 15) -- AUPARAVANT jamais
-  // interroges ici (node force en dur a "kvm-lab" pour tout le monde), donc
+  // interroges ici (node force en dur a "local" pour tout le monde), donc
   // les VM d'un noeud distant n'apparaissaient jamais dans l'arbre
   // principal malgre un enregistrement reussi cote backend -- bug reel
   // signale en testant un vrai second noeud physique. GET /vms accepte
@@ -153,7 +160,7 @@ function mapPool(p, nodeId) {
 
 export async function fetchStoragePools() {
   const localPools = await realFetch("/storage");
-  let result = localPools.map((p) => mapPool(p, "kvm-lab"));
+  let result = localPools.map((p) => mapPool(p, "local"));
 
   try {
     const remotes = await fetchRemoteNodes();
@@ -350,35 +357,35 @@ export async function deleteUser(username) {
 }
 
 // ---- Actions VM (endpoints reels) ----
-// node (backlog 2026-09-18, actions VM multi-nœuds) : "kvm-lab" ou omis =
+// node (backlog 2026-09-18, actions VM multi-nœuds) : "local" ou omis =
 // hôte local (comportement historique inchangé), sinon le nom d'un nœud
 // distant enregistré -- même convention que fetchVMs()/migrateVM().
 export async function startVM(name, node = null) {
-  const q = node && node !== "kvm-lab" ? `?node=${encodeURIComponent(node)}` : "";
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/start${q}`, { method: "POST" });
 }
 export async function stopVM(name, force = false, node = null) {
   const params = new URLSearchParams({ force: String(force) });
-  if (node && node !== "kvm-lab") params.set("node", node);
+  if (node && node !== "local") params.set("node", node);
   return realFetch(`/vms/${encodeURIComponent(name)}/stop?${params}`, { method: "POST" });
 }
 export async function restartVM(name, node = null) {
   const params = new URLSearchParams({ force: "true" });
-  if (node && node !== "kvm-lab") params.set("node", node);
+  if (node && node !== "local") params.set("node", node);
   return realFetch(`/vms/${encodeURIComponent(name)}/restart?${params}`, { method: "POST" });
 }
 export async function deleteVM(name, node = null) {
   const params = new URLSearchParams({ confirm: "true" });
-  if (node && node !== "kvm-lab") params.set("node", node);
+  if (node && node !== "local") params.set("node", node);
   return realFetch(`/vms/${encodeURIComponent(name)}?${params}`, { method: "DELETE" });
 }
 export async function cloneVM(name, newName) {
   return realFetch(`/vms/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
-// Chantier 27 (migration a chaud) : sourceNode "kvm-lab" (ou omis) = hote
+// Chantier 27 (migration a chaud) : sourceNode "local" (ou omis) = hote
 // local, meme convention que le reste (open_conn(node), fetchVMs...).
 export async function migrateVM(name, targetNode, sourceNode) {
-  const qs = sourceNode && sourceNode !== "kvm-lab" ? `?node=${encodeURIComponent(sourceNode)}` : "";
+  const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
 }
 // Chantier 17 (HA) : voir app/core/ha.py -- pas de fencing, recuperation
@@ -387,7 +394,7 @@ export async function fetchHaProtected() {
   return realFetch("/ha");
 }
 export async function enableHa(name, node) {
-  return realFetch(`/ha/${encodeURIComponent(name)}/enable`, { method: "POST", ...jsonBody({ node: node && node !== "kvm-lab" ? node : null }) });
+  return realFetch(`/ha/${encodeURIComponent(name)}/enable`, { method: "POST", ...jsonBody({ node: node && node !== "local" ? node : null }) });
 }
 export async function disableHa(name) {
   return realFetch(`/ha/${encodeURIComponent(name)}`, { method: "DELETE" });
