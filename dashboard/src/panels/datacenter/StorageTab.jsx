@@ -9,7 +9,7 @@ import { fetchIsoTemplates, deleteIso, createStoragePool, deleteStoragePool } fr
 // app/core/zfs_storage.py), adosse pour l'instant a un fichier loopback
 // (size_gb) -- mono-nœud, toujours cree sur l'hote local (kvm-lab), le
 // selecteur de nœud est ignoré côté backend pour ce type.
-const EMPTY_FORM = { name: "", type: "dir", node: "kvm-lab", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20" };
+const EMPTY_FORM = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20" };
 
 // Pools : vue agregee de GET /storage sur tous les noeuds -- reel pour kvm-lab.
 // Images ISO : vraie liste/upload/suppression via GET/POST/DELETE /isos.
@@ -52,10 +52,10 @@ export default function StorageTab() {
         : form.type === "netfs"
         ? { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
-      // node "kvm-lab" = hote local (voir convention fetchNodes()/open_conn) :
+      // node "local" = hote local (voir convention fetchNodes()/open_conn) :
       // le backend n'accepte que le nom d'un nœud distant enregistré, jamais
-      // "kvm-lab" lui-même.
-      const node = form.node === "kvm-lab" ? undefined : form.node;
+      // "local" lui-même.
+      const node = form.node === "local" ? undefined : form.node;
       await createStoragePool(payload, node);
       pushToast({ kind: "success", title: "Pool créé", message: form.name });
       setForm(EMPTY_FORM);
@@ -72,7 +72,7 @@ export default function StorageTab() {
     if (pool.nom === "default") return;
     if (!window.confirm(`Supprimer le pool '${pool.nom}' ? Le pool doit être vide.`)) return;
     try {
-      await deleteStoragePool(pool.nom, pool.node === "kvm-lab" ? undefined : pool.node);
+      await deleteStoragePool(pool.nom, pool.node === "local" ? undefined : pool.node);
       pushToast({ kind: "success", title: "Pool supprimé", message: pool.nom });
       refreshAll();
     } catch (e) {

@@ -181,9 +181,9 @@ export default function VMSummaryTab({ resource: vm }) {
     }
   }
 
-  // "kvm-lab" comme destination (meme depuis un nœud DISTANT) n'est plus
-  // exclu depuis le backlog 2026-09-18 : confiance SSH inverse etablie
-  // automatiquement a l'enregistrement de chaque nœud (voir
+  // L'hôte local comme destination (meme depuis un nœud DISTANT) n'est
+  // plus exclu depuis le backlog 2026-09-18 : confiance SSH inverse
+  // etablie automatiquement a l'enregistrement de chaque nœud (voir
   // app/core/cluster.py::ensure_reverse_trust).
   const migrationTargets = nodes.filter((n) => n.id !== vm.node && n.etat === "online");
 
