@@ -6,6 +6,7 @@ import {
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, createAcl, deleteAcl,
   fetchPrivileges, fetchCustomRoles, createCustomRole, deleteCustomRole,
+  fetchContainers,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -28,13 +29,15 @@ export default function PermissionsTab() {
   const [privileges, setPrivileges] = useState(null);
   const [customRoles, setCustomRoles] = useState(null);
   const [acl, setAcl] = useState(null);
+  const [containers, setContainers] = useState(null);
 
   const reloadAll = useCallback(async () => {
     try {
-      const [u, g, p, r, pv, cr, a] = await Promise.all([
+      const [u, g, p, r, pv, cr, a, ct] = await Promise.all([
         fetchUsers(), fetchGroups(), fetchPools(), fetchAclRoles(), fetchPrivileges(), fetchCustomRoles(), fetchAcl(),
+        fetchContainers(),
       ]);
-      setUsers(u); setGroups(g); setPools(p); setRoles(r); setPrivileges(pv); setCustomRoles(cr); setAcl(a);
+      setUsers(u); setGroups(g); setPools(p); setRoles(r); setPrivileges(pv); setCustomRoles(cr); setAcl(a); setContainers(ct);
     } catch (e) {
       pushToast({ kind: "error", title: "Erreur permissions", message: e.message });
     }
@@ -68,7 +71,7 @@ export default function PermissionsTab() {
       <GroupsSection groups={groups} reload={reloadAll} pushToast={pushToast} />
       <PoolsSection pools={pools} vms={vms} reload={reloadAll} pushToast={pushToast} />
       <CustomRolesSection customRoles={customRoles} privileges={privileges} reload={reloadAll} pushToast={pushToast} />
-      <AclSection acl={acl} roles={allRoles} groups={groups} pools={pools} vms={vms} users={users} reload={reloadAll} pushToast={pushToast} />
+      <AclSection acl={acl} roles={allRoles} groups={groups} pools={pools} vms={vms} containers={containers} users={users} reload={reloadAll} pushToast={pushToast} />
     </div>
   );
 }
@@ -469,7 +472,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
   );
 }
 
-function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }) {
+function AclSection({ acl, roles, groups, pools, vms, containers, users, reload, pushToast }) {
   const [subjectType, setSubjectType] = useState("user");
   const [subjectId, setSubjectId] = useState("");
   const [role, setRole] = useState("");
@@ -544,15 +547,20 @@ function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }
               <select className="input text-xs py-1.5" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
                 <option value="vm">Une VM</option>
                 <option value="pool">Un pool</option>
+                <option value="container">Un conteneur</option>
               </select>
             </div>
           </div>
           <div className="flex gap-2 mb-3">
             <select className="input" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
-              <option value="">{resourceType === "vm" ? "Choisir une VM..." : "Choisir un pool..."}</option>
+              <option value="">
+                {resourceType === "vm" ? "Choisir une VM..." : resourceType === "pool" ? "Choisir un pool..." : "Choisir un conteneur..."}
+              </option>
               {resourceType === "vm"
                 ? vms.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)
-                : pools.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                : resourceType === "pool"
+                ? pools.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)
+                : (containers || []).map((c) => <option key={c.nom} value={c.nom}>{c.nom}</option>)}
             </select>
             <button className="btn-primary shrink-0" disabled={busy || !subjectId || !resourceId} onClick={handleCreate}>
               <Plus size={14} /> Attribuer
@@ -570,7 +578,9 @@ function AclSection({ acl, roles, groups, pools, vms, users, reload, pushToast }
                   <div className="text-anthracite-100">
                     <span className="font-medium">{a.subject_type === "group" ? `Groupe ${a.subject_label}` : a.subject_label}</span>
                     <span className="text-anthracite-400"> -- {roles[a.role]?.label || a.role} -- </span>
-                    <span>{a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_label}</span>
+                    <span>
+                      {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Conteneur ${a.resource_label}` : a.resource_label}
+                    </span>
                   </div>
                   <button className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
                     <Trash2 size={14} />

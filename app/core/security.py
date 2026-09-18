@@ -120,3 +120,18 @@ def require_vm_privilege(privilege):
             )
         return user
     return checker
+
+
+def require_container_privilege(privilege):
+    """Equivalent de require_vm_privilege() pour les conteneurs LXC
+    (backlog 2026-09-18) -- voir app/core/permissions.py::has_container_privilege."""
+    from app.core.permissions import has_container_privilege  # import tardif : evite un cycle
+
+    async def checker(name: str, user: dict = Depends(get_current_user)):
+        if not has_container_privilege(user, name, privilege):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Droits insuffisants sur le conteneur '{name}' (privilège requis : {privilege})",
+            )
+        return user
+    return checker
