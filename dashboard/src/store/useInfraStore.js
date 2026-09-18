@@ -219,7 +219,15 @@ export const useInfraStore = create((set, get) => ({
       // qui fait ensuite echouer les actions suivantes (ex. suppression,
       // qui refuse a juste titre une VM encore active cote serveur) sans
       // que rien n'explique pourquoi a l'utilisateur.
-      const result = await apiFn(vmName, ...(action === "stop" ? [force] : []));
+      // node (backlog 2026-09-18, actions VM multi-nœuds) : jusqu'ici
+      // resolu ci-dessus (const node = vm?.node) mais jamais transmis a
+      // l'appel API lui-meme -- une VM affichee comme distante agissait
+      // donc TOUJOURS sur l'hote local par erreur (silencieuse : le nom de
+      // VM pouvait tout simplement ne pas exister localement -> 404, ou
+      // pire, coincider avec une VM locale homonyme).
+      const result = action === "stop"
+        ? await apiFn(vmName, force, node)
+        : await apiFn(vmName, node);
       set((s) => ({
         vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: result.etat, ip: result.ip } : v))
           .filter((v) => !(action === "delete" && v.nom === vmName)),

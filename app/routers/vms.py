@@ -15,7 +15,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-from app.core.libvirt_utils import open_conn, get_vm_uptime_s, uses_shared_storage, pool_type_and_target_path
+from app.core.libvirt_utils import open_conn, get_vm_uptime_s, uses_shared_storage, pool_type_and_target_path, domain_disk_paths
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task, update_task_progress
@@ -541,8 +541,8 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/{name}/start")
-def start_vm(name: str, user: dict = Depends(require_vm_privilege("vm.power"))):
-    conn = open_conn()
+def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
+    conn = open_conn(node)
     task_id = create_task("start_vm", name, node=conn.getHostname(), username=user["username"])
     try:
         try:
@@ -567,8 +567,8 @@ def start_vm(name: str, user: dict = Depends(require_vm_privilege("vm.power"))):
 
 
 @router.post("/{name}/stop")
-def stop_vm(name: str, force: bool = False, user: dict = Depends(require_vm_privilege("vm.power"))):
-    conn = open_conn()
+def stop_vm(name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
+    conn = open_conn(node)
     action_name = "force_stop_vm" if force else "stop_vm"
     task_id = create_task(action_name, name, node=conn.getHostname(), username=user["username"])
     try:
@@ -596,8 +596,8 @@ def stop_vm(name: str, force: bool = False, user: dict = Depends(require_vm_priv
 
 
 @router.post("/{name}/restart")
-def restart_vm(name: str, force: bool = False, user: dict = Depends(require_vm_privilege("vm.power"))):
-    conn = open_conn()
+def restart_vm(name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
+    conn = open_conn(node)
     task_id = create_task("restart_vm", name, node=conn.getHostname(), username=user["username"])
     try:
         try:
@@ -624,14 +624,24 @@ def restart_vm(name: str, force: bool = False, user: dict = Depends(require_vm_p
         conn.close()
 
 
-def _perform_vm_deletion(conn, domain, name):
+def _perform_vm_deletion(conn, domain, name, node=None):
     """Sequence reelle de suppression (disques + IP reservee + metadonnees) --
     partagee entre DELETE /vms/{name} (confirmation utilisateur) et le
     nettoyage automatique des VM inactives (chantier 19,
     app/core/vm_cleanup.py) : aucune divergence possible entre les deux
     chemins. L'appelant doit avoir DEJA verifie que la VM est inactive --
     cette fonction ne le revalide pas. Peut lever libvirt.libvirtError
-    (undefine echoue) : a charge de l'appelant de la traduire."""
+    (undefine echoue) : a charge de l'appelant de la traduire.
+
+    `node` (backlog 2026-09-18, actions VM multi-nœuds) : None = VM locale
+    (comportement historique, suppression des fichiers via Path.unlink()
+    LOCAL). Sur un nœud DISTANT, `conn` est une connexion qemu+ssh:// mais
+    les chemins de disque restent des chemins sur le FILESYSTEME DISTANT --
+    un unlink() local supprimerait potentiellement le mauvais fichier (ou
+    rien du tout) sur kvm-lab. BUG REEL identifie EN CONCEVANT ce backlog
+    (jamais atteint par un test avant, DELETE n'acceptait pas encore `node`
+    jusqu'ici) : la suppression a distance passe donc par SSH (meme cle
+    cluster que le reste, voir _copy_file_to_node) plutot que par unlink()."""
     # Capture AVANT l'undefine (plus interrogeable apres) de TOUS les
     # disques et TOUTES les interfaces -- pas seulement les premiers : une
     # VM multi-disques/multi-NIC (fonctionnalites deja livrees, voir
@@ -688,8 +698,21 @@ def _perform_vm_deletion(conn, domain, name):
         except libvirt.libvirtError:
             pass
 
-    for disk_path in disk_paths_to_remove:
-        disk_path.unlink(missing_ok=True)
+    if node:
+        from app.core.cluster import get_node, get_cluster_private_key_path
+        remote_node = get_node(node)
+        if remote_node:
+            key_path = str(get_cluster_private_key_path())
+            ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+            ssh_target = f"{remote_node['ssh_user']}@{remote_node['hostname']}"
+            for disk_path in disk_paths_to_remove:
+                subprocess.run(
+                    ["ssh", *ssh_opts, "-p", str(remote_node["ssh_port"]), ssh_target, "rm", "-f", str(disk_path)],
+                    capture_output=True, text=True, timeout=15,
+                )
+    else:
+        for disk_path in disk_paths_to_remove:
+            disk_path.unlink(missing_ok=True)
     delete_vm_ssh_user(name)
     delete_vm_os_label(name)
     clear_provisioning(name)
@@ -699,8 +722,8 @@ def _perform_vm_deletion(conn, domain, name):
 
 
 @router.delete("/{name}")
-def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
-    conn = open_conn()
+def delete_vm(name: str, confirm: bool = False, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    conn = open_conn(node)
     task_id = create_task("delete_vm", name, node=conn.getHostname(), username=user["username"])
     try:
         try:
@@ -716,7 +739,7 @@ def delete_vm(name: str, confirm: bool = False, user: dict = Depends(require_rol
             raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
 
         try:
-            _perform_vm_deletion(conn, domain, name)
+            _perform_vm_deletion(conn, domain, name, node=node)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_vm", name, "echec", msg, task_id=task_id)
@@ -1687,6 +1710,37 @@ def _cdrom_source_paths(domain):
     return paths
 
 
+def _delete_paths_on_node(paths, node_name):
+    """Best-effort : supprime une liste de fichiers, LOCALEMENT si
+    node_name est None/"kvm-lab", via SSH (cle cluster) sinon -- meme
+    logique que _perform_vm_deletion (backlog 2026-09-18), reutilisee ici
+    pour nettoyer le disque SOURCE apres une migration reussie en
+    stockage NON partage. BUG REEL trouve en testant les actions VM
+    multi-nœuds (sans rapport direct, decouvert au passage) : une
+    migration VIR_MIGRATE_NON_SHARED_DISK copie le disque vers la
+    destination mais NE SUPPRIME JAMAIS le fichier source -- chaque
+    migration laissait un qcow2 + ISO cloud-init orphelins sur le nœud
+    d'origine, silencieusement, a chaque fois."""
+    if not paths:
+        return
+    if not node_name or node_name == "kvm-lab":
+        for p in paths:
+            Path(p).unlink(missing_ok=True)
+        return
+    from app.core.cluster import get_node, get_cluster_private_key_path
+    remote_node = get_node(node_name)
+    if not remote_node:
+        return
+    key_path = str(get_cluster_private_key_path())
+    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    ssh_target = f"{remote_node['ssh_user']}@{remote_node['hostname']}"
+    for p in paths:
+        subprocess.run(
+            ["ssh", *ssh_opts, "-p", str(remote_node["ssh_port"]), ssh_target, "rm", "-f", str(p)],
+            capture_output=True, text=True, timeout=15,
+        )
+
+
 def _copy_file_to_node(local_path, node_name, remote_path):
     """scp best-effort d'un fichier LOCAL vers le meme chemin absolu sur un
     nœud distant, via la cle SSH dediee au cluster (meme cle que les
@@ -1720,6 +1774,33 @@ def _copy_file_to_node(local_path, node_name, remote_path):
     )
     if scp_r.returncode != 0:
         raise RuntimeError(f"Copie de '{Path(local_path).name}' vers {node_name} échouée : {scp_r.stderr.strip()[:300]}")
+
+
+def _copy_file_from_node(node_name, remote_path, local_path):
+    """Symetrique de _copy_file_to_node -- scp d'un fichier depuis un nœud
+    distant vers kvm-lab (LOCAL), meme cle SSH dediee au cluster. Necessaire
+    pour la migration nœud distant -> kvm-lab (backlog 2026-09-18, confiance
+    SSH inverse) : la MEME limitation que documentee pour le sens aller
+    s'applique en miroir ici -- VIR_MIGRATE_NON_SHARED_DISK ne copie que les
+    disques device='disk', jamais les CD-ROM/ISO. BUG REEL trouve en testant
+    CE backlog precisement (masque jusqu'ici par le bug ORPHELIN corrige au
+    meme moment : un fichier cloud-init.iso laisse par erreur sur kvm-lab
+    apres une precedente migration aller donnait l'illusion que le sens
+    retour fonctionnait, alors que rien ne copiait vraiment ce fichier)."""
+    from app.core.cluster import get_node, get_cluster_private_key_path
+    node = get_node(node_name)
+    if not node:
+        raise RuntimeError(f"Nœud '{node_name}' introuvable")
+    key_path = str(get_cluster_private_key_path())
+    Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+    ssh_target = f"{node['ssh_user']}@{node['hostname']}"
+    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    scp_r = subprocess.run(
+        ["scp", *ssh_opts, "-P", str(node["ssh_port"]), f"{ssh_target}:{remote_path}", local_path],
+        capture_output=True, text=True, timeout=300,
+    )
+    if scp_r.returncode != 0:
+        raise RuntimeError(f"Copie de '{Path(remote_path).name}' depuis {node_name} échouée : {scp_r.stderr.strip()[:300]}")
 
 
 def _domain_network_names(domain):
@@ -1795,13 +1876,73 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
         _ensure_networks_active(dest_conn, _domain_network_names(domain))
 
+        # Chemins des disques SOURCE, captures AVANT la migration (backlog
+        # 2026-09-18) : necessaires pour nettoyer le disque d'origine APRES
+        # une migration reussie en stockage non partage (voir plus bas) --
+        # le domaine source est UNDEFINE (VIR_MIGRATE_UNDEFINE_SOURCE) une
+        # fois la migration terminee, plus interrogeable a ce moment-la.
+        source_disk_paths = domain_disk_paths(domain)
+
+        # BUG REEL trouve en testant CE backlog precisement (migration
+        # nœud distant -> kvm-lab, stockage NON partage) : "Cannot access
+        # storage file ... No such file or directory" -- confirme via
+        # recherche (wiki.libvirt.org/Migration_fails_because_disk_image_
+        # cannot_be_found.html) que certaines combinaisons de version
+        # libvirt exigent que le fichier destination existe DEJA avant le
+        # transfert NON_SHARED_DISK, la creation automatique cote
+        # destination ne se declenchant pas de facon fiable dans ce sens
+        # precis (fonctionne bien dans le sens kvm-lab -> nœud distant,
+        # jamais rencontre ce probleme la). Corrige en PRE-CREANT les
+        # fichiers qcow2 vierges de la bonne taille sur kvm-lab avant
+        # d'appeler migrateToURI3 -- taille lue via domain.blockInfo() (API
+        # libvirt, fonctionne a travers la connexion distante, pas besoin
+        # d'un acces fichier direct qui se heurterait de toute facon au
+        # verrou d'ecriture d'un disque de VM ACTIVE).
+        if source_node and source_node != "kvm-lab" and dest_node_key is None:
+            root_for_targets = ET.fromstring(domain.XMLDesc(0))
+            for disk_el in root_for_targets.findall(".//devices/disk"):
+                if disk_el.get("device") != "disk":
+                    continue
+                source_el, target_el = disk_el.find("source"), disk_el.find("target")
+                path = source_el.get("file") if source_el is not None else None
+                dev = target_el.get("dev") if target_el is not None else None
+                if not path or not dev or Path(path).exists():
+                    continue
+                try:
+                    capacity = domain.blockInfo(dev)[0]
+                    subprocess.run(
+                        ["qemu-img", "create", "-f", "qcow2", path, str(capacity)],
+                        check=True, capture_output=True, text=True,
+                    )
+                except (libvirt.libvirtError, subprocess.CalledProcessError):
+                    pass  # best-effort -- migrateToURI3 remontera une erreur claire si la pre-creation echoue
+
         # ISO cloud-init/CD-ROM attachees : jamais copiees par libvirt
-        # (voir _copy_file_to_node) -- seulement gere depuis un nœud SOURCE
-        # local, Hyperlite n'a pas d'acces fichier direct a un nœud distant.
+        # (VIR_MIGRATE_NON_SHARED_DISK ne copie que device='disk') -- gere
+        # ici manuellement dans LES DEUX SENS (backlog 2026-09-18 : le sens
+        # inverse nœud distant -> kvm-lab a ete ajoute en meme temps que la
+        # confiance SSH inverse, voir cluster.py::ensure_reverse_trust).
+        # BUG REEL trouve en testant precisement ce sens : sans cette
+        # copie, la migration echoue ('impossible d'acceder au fichier de
+        # stockage') des que le domaine destination reference une ISO
+        # absente sur kvm-lab -- masque un temps par le bug ORPHELIN
+        # corrige au meme moment (un fichier cloud-init.iso oublie sur
+        # kvm-lab par une migration ALLER precedente donnait l'illusion
+        # que le retour marchait, en coincidant par hasard avec le meme
+        # chemin attendu).
+        copied_cdrom_paths = []
         if not source_node or source_node == "kvm-lab":
             for cdrom_path in _cdrom_source_paths(domain):
                 if Path(cdrom_path).exists():
                     _copy_file_to_node(cdrom_path, target_node, cdrom_path)
+                    copied_cdrom_paths.append(cdrom_path)
+        else:
+            for cdrom_path in _cdrom_source_paths(domain):
+                try:
+                    _copy_file_from_node(source_node, cdrom_path, cdrom_path)
+                    copied_cdrom_paths.append(cdrom_path)
+                except RuntimeError:
+                    pass  # ISO absente/injoignable cote source -- laisse migrateToURI3 echouer avec une erreur claire plutot que de deviner
 
         shared = uses_shared_storage(src_conn, dest_conn, domain)
         # BUG REEL trouve en testant (grave : plantait le thread AVANT
@@ -1871,6 +2012,22 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
         progress_thread.start()
         domain.migrateToURI3(dest_uri, migrate_params, flags)
+
+        # Nettoyage du disque SOURCE (backlog 2026-09-18, bug reel trouve
+        # en testant les actions VM multi-nœuds) : VIR_MIGRATE_NON_SHARED_DISK
+        # copie vers la destination mais NE SUPPRIME JAMAIS le fichier
+        # d'origine -- chaque migration en stockage non partage laissait un
+        # qcow2 orphelin sur le nœud source, systematiquement, sans que
+        # rien ne le signale. Uniquement si `not shared` : un disque sur
+        # stockage PARTAGE ne doit evidemment jamais etre supprime (c'est
+        # le MEME fichier vu par les deux nœuds).
+        if not shared:
+            _delete_paths_on_node(source_disk_paths, source_node)
+            # cdrom copiees plus haut (uniquement le sens kvm-lab -> nœud
+            # distant, voir copied_cdrom_paths) -- le fichier source (sur
+            # kvm-lab, donc toujours un unlink LOCAL ici) devient inutile
+            # une fois la copie sur la destination confirmee reussie.
+            _delete_paths_on_node(copied_cdrom_paths, source_node)
 
         stop_event.set()
         update_task_progress(task_id, 100)
