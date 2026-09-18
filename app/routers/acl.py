@@ -12,8 +12,8 @@ class AclCreate(BaseModel):
     subject_type: str  # "user" | "group"
     subject_id: str    # username, ou id de groupe (en texte)
     role: str           # "lecteur" | "operateur" | "gestionnaire" | "custom:<id>"
-    resource_type: str  # "vm" | "pool"
-    resource_id: str    # nom de VM, ou id de pool (en texte)
+    resource_type: str  # "vm" | "pool" | "container" (container : backlog 2026-09-18, pas de regroupement par pool pour l'instant)
+    resource_id: str    # nom de VM/conteneur, ou id de pool (en texte)
 
 
 class CustomRoleCreate(BaseModel):
@@ -73,8 +73,8 @@ def list_acl(user: dict = Depends(require_role("admin"))):
 def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
     if payload.subject_type not in ("user", "group"):
         raise HTTPException(status_code=422, detail="subject_type doit être 'user' ou 'group'")
-    if payload.resource_type not in ("vm", "pool"):
-        raise HTTPException(status_code=422, detail="resource_type doit être 'vm' ou 'pool'")
+    if payload.resource_type not in ("vm", "pool", "container"):
+        raise HTTPException(status_code=422, detail="resource_type doit être 'vm', 'pool' ou 'container'")
     if not perm.role_exists(payload.role):
         raise HTTPException(status_code=422, detail=f"Rôle inconnu : {payload.role}")
     acl_id = perm.create_acl(

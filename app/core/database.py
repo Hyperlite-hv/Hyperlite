@@ -277,10 +277,33 @@ def init_db():
                 subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                 subject_id TEXT NOT NULL,
                 role TEXT NOT NULL,
-                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool')),
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container')),
                 resource_id TEXT NOT NULL
             )
         """)
+        # Migration (backlog 2026-09-18, ACL conteneurs) : les bases
+        # existantes ont ete crees avec l'ancien CHECK (resource_type IN
+        # ('vm','pool')) -- CREATE TABLE IF NOT EXISTS ci-dessus est un
+        # no-op sur une table deja presente, SQLite ne supporte pas de
+        # modifier un CHECK existant via ALTER TABLE. Reconstruction de la
+        # table (idempotente : ne fait rien si deja migree).
+        existing_acl_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'"
+        ).fetchone()
+        if existing_acl_sql and "'container'" not in existing_acl_sql["sql"]:
+            conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
+            conn.execute("""
+                CREATE TABLE acl (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
+                    subject_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container')),
+                    resource_id TEXT NOT NULL
+                )
+            """)
+            conn.execute("INSERT INTO acl SELECT * FROM acl_pre_container_migration")
+            conn.execute("DROP TABLE acl_pre_container_migration")
         # Roles personnalises : memes attributions ACL que les roles predefinis
         # (lecteur/operateur/gestionnaire), mais l'utilisateur choisit lui-meme
         # le sous-ensemble de privileges (voir app/core/permissions.py
