@@ -269,3 +269,90 @@ def zvol_in_use_paths():
         for zvol in list_zvols(pool["nom"]):
             paths.add(zvol["chemin"])
     return paths
+
+
+# --- Snapshots (backlog stockage 2026-09-18, phase 3) ---------------------
+#
+# Mecanisme NATIF ZFS (`zfs snapshot`/`rollback`), completement distinct du
+# snapshot INTERNE qcow2 utilise pour les VM classiques (chantier 4,
+# domain.snapshotCreateXML) -- un disque bloc brut (zvol) n'a aucun format
+# de fichier avec support de snapshot integre, libvirt n'a donc rien a
+# proposer dessus. Difference de SEMANTIQUE importante, documentee cote
+# routeur plutot que masquee : un snapshot ZFS ne capture QUE l'etat du
+# DISQUE (equivalent a "couper le courant" a cet instant precis, restaure
+# comme apres un redemarrage brutal -- coherent au niveau systeme de
+# fichiers grace au journal, mais jamais un etat "reprend exactement ou
+# on s'etait arrete") -- jamais la memoire vive de la VM, contrairement au
+# snapshot interne qcow2 qui inclut la memoire quand la VM tourne.
+
+
+def snapshot_zvols(specs, snap_name):
+    """Cree un snapshot ATOMIQUE (une seule commande `zfs snapshot` avec
+    plusieurs cibles) sur tous les zvols de `specs` (liste de tuples
+    (pool, zvol_name)) -- important pour une VM multi-disques : les
+    disques doivent tous refleter EXACTEMENT le meme instant, pas une
+    suite de snapshots pris l'un apres l'autre (fenetre de coherence)."""
+    if not specs:
+        raise ZfsError("Aucun zvol à snapshotter")
+    targets = [f"{pool}/{name}@{snap_name}" for pool, name in specs]
+    for pool, name in specs:
+        if _run("zfs", "list", "-H", f"{pool}/{name}@{snap_name}", check=False).returncode == 0:
+            raise ZfsError(f"Un snapshot '{snap_name}' existe déjà pour '{pool}/{name}'")
+    _run("zfs", "snapshot", *targets)
+
+
+def list_zvol_snapshots(pool_name, zvol_name):
+    """Snapshots d'UN zvol -- l'appelant (vms.py) agrège sur tous les
+    zvols d'une VM et fusionne par nom pour présenter UN snapshot logique
+    par nom de VM, même forme que list_snapshots (chantier 4)."""
+    full_name = f"{pool_name}/{zvol_name}"
+    proc = _run("zfs", "list", "-t", "snapshot", "-H", "-p", "-o", "name,creation", "-r", full_name, check=False)
+    if proc.returncode != 0:
+        return []
+    result = []
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2:
+            continue
+        full, creation = parts
+        if "@" not in full:
+            continue
+        result.append({"nom": full.split("@", 1)[1], "creation_epoch": int(creation)})
+    return result
+
+
+def rollback_zvols(specs, snap_name):
+    """Restaure tous les zvols de `specs` vers `snap_name`. `-r` : force
+    la suppression de tout snapshot PLUS RECENT que la cible sur ce zvol
+    -- ZFS refuse sinon un rollback vers un point qui n'est pas le plus
+    recent (protection native contre une perte de donnees accidentelle).
+    LIMITE reelle par rapport au snapshot interne qcow2 (chantier 4, qui
+    permet de naviguer librement entre snapshots sans en perdre aucun) :
+    restaurer un snapshot ZFS ancien detruit DEFINITIVEMENT tout snapshot
+    plus recent pris depuis -- linéaire, pas arborescent. Assumé et
+    documenté plutôt que masqué : correspond au modèle mental "revenir en
+    arrière dans le temps" attendu par la plupart des utilisateurs, sans
+    la complexité d'un vrai arbre de versions."""
+    if not specs:
+        raise ZfsError("Aucun zvol à restaurer")
+    for pool, name in specs:
+        full = f"{pool}/{name}"
+        if _run("zfs", "list", "-H", f"{full}@{snap_name}", check=False).returncode != 0:
+            raise ZfsError(f"Snapshot '{snap_name}' introuvable pour '{full}'")
+    for pool, name in specs:
+        _run("zfs", "rollback", "-r", f"{pool}/{name}@{snap_name}")
+
+
+def delete_zvol_snapshot(specs, snap_name):
+    """Supprime `snap_name` sur tous les zvols de `specs` -- best-effort
+    par zvol (continue même si l'un des zvols n'a pas ce snapshot, ex.
+    ajouté après coup à la VM) plutôt que d'échouer sur le premier
+    manquant."""
+    errors = []
+    for pool, name in specs:
+        full = f"{pool}/{name}@{snap_name}"
+        proc = _run("zfs", "destroy", full, check=False)
+        if proc.returncode != 0 and "dataset does not exist" not in (proc.stderr or ""):
+            errors.append(proc.stderr.strip() or f"échec sur {full}")
+    if errors:
+        raise ZfsError("; ".join(errors))
