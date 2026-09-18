@@ -8,9 +8,11 @@ import { useInfraStore } from "../../store/useInfraStore";
 
 // Reel : GET/POST/DELETE /nodes (voir app/routers/nodes.py, chantier 15) --
 // gestion multi-noeuds via qemu+ssh:// (pas d'agent a deployer, voir la
-// discussion d'architecture dans app/core/cluster.py). "kvm-lab" (ce noeud)
-// reste géré séparément (arborescence Datacenter existante) -- cette vue
-// liste les noeuds DISTANTS enregistrés en plus de lui.
+// discussion d'architecture dans app/core/cluster.py). L'hôte LOCAL (celui
+// qui fait tourner cette instance Hyperlite, quel qu'il soit -- kvm-lab à
+// l'origine, démantelé le 2026-09-18, potentiellement serveur-antho ou un
+// autre aujourd'hui) reste géré séparément (arborescence Datacenter
+// existante) -- cette vue liste les nœuds DISTANTS enregistrés en plus de lui.
 export default function NodesTab() {
   const isAdmin = useAuthStore(selectIsAdmin);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -111,7 +113,7 @@ export default function NodesTab() {
       )}
 
       <div className="card divide-y divide-anthracite-600">
-        {nodes.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucun nœud distant enregistré — Hyperlite pilote uniquement kvm-lab pour l'instant.</div>}
+        {nodes.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucun nœud distant enregistré — Hyperlite pilote uniquement cet hôte pour l'instant.</div>}
         {nodes.map((n) => {
           const s = summaries[n.name];
           return (
