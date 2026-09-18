@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Box, Plus, Trash2, Play, Square, TerminalSquare, Star, Copy, Archive, RotateCcw } from "lucide-react";
+import {
+  Box, Plus, Trash2, Play, Square, TerminalSquare, Star, Copy, Archive, RotateCcw,
+  Globe, Database, Zap, FileCode, Layers, Search, Check,
+} from "lucide-react";
 import {
   fetchContainers, createContainer, startContainer, stopContainer, deleteContainer, searchDockerHub,
   cloneContainer, fetchContainerBackups, createContainerBackup, deleteContainerBackup, restoreContainerBackup,
@@ -11,13 +14,37 @@ import ConfirmDialog from "../../components/ConfirmDialog";
 
 // Reel : GET/POST/DELETE /containers (voir app/routers/containers.py,
 // chantier 18) -- conteneurs LXC via le pilote LXC natif de libvirt, en
-// plus des VM QEMU/KVM existantes. Premiere version : pas de galerie de
-// templates/images (une seule base Debian 12 debootstrappee au premier
-// conteneur cree, mise en cache cote serveur). Clonage + sauvegarde/
+// plus des VM QEMU/KVM existantes. Une seule base Debian 12
+// debootstrappee au premier conteneur cree (mise en cache cote serveur).
+// Galerie de templates ajoutee en backlog (2026-09-18) : purement
+// visuelle, n'importe quelle image Docker Hub/OCI fonctionnait deja via
+// la recherche texte (conservee en dessous pour tout ce qui n'est pas
+// dans la galerie). Clonage + sauvegarde/
 // restauration ajoutes en backlog (2026-09-18) -- pas de snapshot
 // instantane possible, le pilote LXC de libvirt ne le supporte pas du
 // tout (confirme en testant).
 const DEFAULT_FORM = { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: "default", image: "" };
+
+// Galerie de templates (backlog 2026-09-18, "idée notée" du chantier 18 --
+// purement visuel : n'importe quelle image Docker Hub/OCI fonctionnait déjà
+// via la recherche texte, ceci ne fait que présenter les plus courantes
+// sous forme de cartes plutôt qu'une simple liste de résultats de recherche.
+// La recherche texte reste disponible en dessous pour tout le reste.
+const TEMPLATE_GALLERY = [
+  { key: "", label: "Debian 12", desc: "Image locale, la plus rapide à créer", Icon: Box },
+  { key: "ubuntu:24.04", label: "Ubuntu", desc: "Distribution générale", Icon: Box },
+  { key: "alpine:3.19", label: "Alpine", desc: "Distribution minimale", Icon: Box },
+  { key: "nginx:latest", label: "Nginx", desc: "Serveur web / reverse proxy", Icon: Globe },
+  { key: "httpd:latest", label: "Apache", desc: "Serveur web", Icon: Globe },
+  { key: "postgres:16", label: "PostgreSQL", desc: "Base de données relationnelle", Icon: Database },
+  { key: "mysql:8", label: "MySQL", desc: "Base de données relationnelle", Icon: Database },
+  { key: "mariadb:11", label: "MariaDB", desc: "Base de données relationnelle", Icon: Database },
+  { key: "mongo:latest", label: "MongoDB", desc: "Base de données documents", Icon: Database },
+  { key: "redis:latest", label: "Redis", desc: "Cache / clé-valeur en mémoire", Icon: Zap },
+  { key: "node:22", label: "Node.js", desc: "Runtime JavaScript", Icon: FileCode },
+  { key: "python:3.12", label: "Python", desc: "Runtime Python", Icon: FileCode },
+  { key: "wordpress:latest", label: "WordPress", desc: "CMS", Icon: Layers },
+];
 
 export default function ContainersTab() {
   const isAdmin = useAuthStore(selectIsAdmin);
@@ -152,20 +179,39 @@ export default function ContainersTab() {
       )}
 
       {creating && (
-        <div className="card p-4 space-y-3">
-          <div className="grid grid-cols-4 gap-2">
-            <input className="input" placeholder="Nom" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <input className="input" type="number" min={1} max={16} placeholder="vCPU" value={form.vcpu} onChange={(e) => setForm((f) => ({ ...f, vcpu: Number(e.target.value) }))} />
-            <input className="input" type="number" min={128} step={128} placeholder="RAM (Mo)" value={form.memory_mb} onChange={(e) => setForm((f) => ({ ...f, memory_mb: Number(e.target.value) }))} />
-            <input className="input" placeholder="Réseau" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
-            <input className="input" placeholder="Utilisateur" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
-            <input className="input" type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
-            <div className="col-span-2 relative">
+        <div className="card p-4 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-anthracite-300 mb-1.5 block">Image</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {TEMPLATE_GALLERY.map((t) => {
+                const selected = form.image === t.key;
+                return (
+                  <button
+                    type="button"
+                    key={t.label}
+                    onClick={() => { setForm((f) => ({ ...f, image: t.key })); setDockerQuery(""); setDockerResults([]); }}
+                    className={`relative flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors ${
+                      selected ? "border-accent-blue bg-accent-blue/10" : "border-anthracite-600 hover:border-anthracite-500"
+                    }`}
+                  >
+                    <t.Icon size={16} className={selected ? "text-accent-blue shrink-0 mt-0.5" : "text-anthracite-400 shrink-0 mt-0.5"} />
+                    <div className="min-w-0">
+                      <div className="text-sm text-anthracite-100 truncate">{t.label}</div>
+                      <div className="text-[11px] text-anthracite-500 truncate">{t.desc}</div>
+                    </div>
+                    {selected && <Check size={13} className="absolute right-2 top-2 text-accent-blue" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative mt-2">
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-anthracite-500" />
               <input
-                className="input w-full"
-                placeholder="Image Docker Hub (vide = base locale Debian 12) — cherchez ou tapez une référence, ex. apache, ubuntu:22.04"
-                value={form.image}
-                onChange={(e) => { setForm((f) => ({ ...f, image: e.target.value })); setDockerQuery(e.target.value); }}
+                className="input w-full pl-8"
+                placeholder="Autre image Docker Hub — cherchez ou tapez une référence, ex. traefik, ghcr.io/foo/bar:tag"
+                value={dockerQuery}
+                onChange={(e) => { setDockerQuery(e.target.value); setForm((f) => ({ ...f, image: e.target.value })); }}
               />
               {dockerResults.length > 0 && (
                 <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-md border border-anthracite-600 bg-anthracite-800 divide-y divide-anthracite-600 shadow-lg">
@@ -189,6 +235,18 @@ export default function ContainersTab() {
                 </div>
               )}
             </div>
+            {form.image && !TEMPLATE_GALLERY.some((t) => t.key === form.image) && (
+              <p className="mt-1 text-[11px] text-anthracite-500">Image sélectionnée : <span className="text-anthracite-300">{form.image}</span></p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            <input className="input" placeholder="Nom" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <input className="input" type="number" min={1} max={16} placeholder="vCPU" value={form.vcpu} onChange={(e) => setForm((f) => ({ ...f, vcpu: Number(e.target.value) }))} />
+            <input className="input" type="number" min={128} step={128} placeholder="RAM (Mo)" value={form.memory_mb} onChange={(e) => setForm((f) => ({ ...f, memory_mb: Number(e.target.value) }))} />
+            <input className="input" placeholder="Réseau" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
+            <input className="input" placeholder="Utilisateur" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+            <input className="input" type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
           </div>
           <div className="flex justify-end gap-2">
             <button className="btn-secondary" onClick={() => setCreating(false)}>Annuler</button>
