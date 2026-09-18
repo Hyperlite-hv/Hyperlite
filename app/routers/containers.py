@@ -1,36 +1,43 @@
-"""Conteneurs LXC (chantier 18) : CRUD + cycle de vie + terminal web, en
-version volontairement plus reduite que app/routers/vms.py pour cette
-premiere livraison (pas de snapshots/clonage/pare-feu par conteneur pour
-l'instant -- a ajouter dans une iteration suivante si besoin). Reserve aux
-administrateurs comme les autres endpoints de creation de ressources
-(isos.py, templates.py) : pas encore d'ACL granulaire par conteneur comme
-pour les VM (app/core/permissions.py), qui reste a etendre plus tard."""
+"""Conteneurs LXC (chantier 18) : CRUD + cycle de vie + terminal web +
+clonage/sauvegarde (backlog 2026-09-18, voir plus bas -- pas de snapshot
+instantane possible, le pilote LXC de libvirt ne le supporte pas du tout).
+Toujours pas de pare-feu par conteneur. Reserve aux administrateurs comme
+les autres endpoints de creation de ressources (isos.py, templates.py) :
+pas encore d'ACL granulaire par conteneur comme pour les VM
+(app/core/permissions.py), qui reste a etendre plus tard."""
 import asyncio
 import json
 import secrets
 import subprocess
+import threading
 import time
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from pathlib import Path
 
 import asyncssh
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from app.core.database import get_conn
 from app.core.libvirt_utils import open_lxc_conn
 from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
-from app.core.tasks import create_task
+from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.error_messages import describe_exception
 from app.core.vm_builder import (
     validate_name, validate_username, get_or_create_automation_pubkey, get_automation_private_key_path,
 )
 from app.core.container_builder import (
     create_container_rootfs, configure_container_rootfs, delete_container_rootfs,
-    build_container_xml,
+    build_container_xml, clone_container_rootfs, backup_container_rootfs, restore_container_rootfs,
 )
 from app.core.container_meta import set_container_ssh_user, get_container_ssh_user, delete_container_ssh_user
 from app.core.network_alloc import generate_mac
 from app.core.docker_hub import search_images
+
+CONTAINER_BACKUP_DIR = Path("/root/hyperlite-container-backups")
 
 router = APIRouter(prefix="/containers", tags=["containers"])
 
@@ -100,6 +107,19 @@ def search_docker_hub(q: str = "", user: dict = Depends(get_current_user)):
         return search_images(q)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+# IMPORTANT : doit rester enregistree AVANT @router.get("/{name}") ci-dessous
+# -- BUG REEL trouve en testant (routage FastAPI/Starlette resout par ordre
+# d'enregistrement, pas par specificite) : GET /containers/backups etait
+# intercepte par GET /{name} (deja enregistre plus haut a l'origine),
+# renvoyant "Conteneur 'backups' introuvable" au lieu de la liste des
+# sauvegardes.
+@router.get("/backups")
+def list_container_backups(user: dict = Depends(get_current_user)):
+    with get_conn() as db:
+        rows = db.execute("SELECT * FROM container_backups ORDER BY cree_le DESC").fetchall()
+    return [dict(r) for r in rows]
 
 
 @router.get("/{name}")
@@ -230,6 +250,203 @@ def delete_container(name: str, user: dict = Depends(require_role("admin"))):
         delete_container_ssh_user(name)
         log_action(user["username"], "delete_container", name, "succes")
         return {"ok": True}
+    finally:
+        conn.close()
+
+
+# ---- Clonage + sauvegarde/restauration (backlog 2026-09-18) ----
+# Pas de snapshot instantane possible : confirme en testant que le pilote
+# LXC de libvirt ne supporte pas virDomainSnapshotCreateXML (voir
+# app/core/container_builder.py pour le detail). Clonage = copie complete
+# du rootfs (equivalent chantier 5) ; sauvegarde = archive tar (equivalent
+# chantier 13, sans planification/retention pour cette premiere passe).
+
+class CloneContainerRequest(BaseModel):
+    new_name: str
+
+
+@router.post("/{name}/clone", status_code=201)
+def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depends(require_role("admin"))):
+    conn = open_lxc_conn()
+    task_id = create_task("clone_container", name, node=conn.getHostname(), username=user["username"])
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "clone_container", name, "echec", "conteneur source introuvable", task_id=task_id)
+            raise HTTPException(status_code=404, detail=f"Conteneur '{name}' introuvable")
+
+        name_error = validate_name(payload.new_name)
+        if name_error:
+            log_action(user["username"], "clone_container", name, "echec", name_error, task_id=task_id)
+            raise HTTPException(status_code=422, detail=name_error)
+
+        try:
+            conn.lookupByName(payload.new_name)
+            log_action(user["username"], "clone_container", name, "echec", f"'{payload.new_name}' existe déjà", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"Un conteneur '{payload.new_name}' existe déjà")
+        except libvirt.libvirtError:
+            pass
+
+        if domain.isActive():
+            log_action(user["username"], "clone_container", name, "echec", "conteneur actif", task_id=task_id)
+            raise HTTPException(status_code=409, detail="Arrêtez le conteneur avant de le cloner")
+
+        try:
+            rootfs = clone_container_rootfs(name, payload.new_name)
+        except (subprocess.CalledProcessError, ValueError) as e:
+            msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
+            log_action(user["username"], "clone_container", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Échec de la copie du système de fichiers : {msg}")
+
+        source_root = ET.fromstring(domain.XMLDesc(0))
+        vcpu = int(source_root.findtext("vcpu") or "1")
+        memory_kb = int(source_root.findtext("memory") or str(512 * 1024))
+        mac = generate_mac(conn)
+        xml = build_container_xml(payload.new_name, vcpu, memory_kb // 1024, rootfs, network=_domain_network(domain), mac=mac)
+        try:
+            new_domain = conn.defineXML(xml)
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            delete_container_rootfs(payload.new_name)
+            log_action(user["username"], "clone_container", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Échec de définition du conteneur cloné : {msg}")
+
+        ssh_user = get_container_ssh_user(name)
+        if ssh_user:
+            set_container_ssh_user(payload.new_name, ssh_user)
+        log_action(user["username"], "clone_container", name, "succes", f"-> {payload.new_name}", task_id=task_id)
+        return _summary(new_domain)
+    finally:
+        conn.close()
+
+
+def _domain_network(domain):
+    root = ET.fromstring(domain.XMLDesc(0))
+    iface = root.find(".//devices/interface[@type='network']/source")
+    return iface.get("network") if iface is not None else "default"
+
+
+class ContainerBackupRunning(Exception):
+    pass
+
+
+_container_backup_lock = threading.Lock()  # meme raisonnement que _backup_lock des VM (chantier 29) : un seul a la fois
+
+
+def _run_container_backup_job(task_id, username, container_name):
+    now = datetime.now(timezone.utc)
+    CONTAINER_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{container_name}-{now.strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
+    dest_path = CONTAINER_BACKUP_DIR / filename
+    with get_conn() as db:
+        cur = db.execute(
+            "INSERT INTO container_backups (container_name, chemin, cree_le, statut, task_id) VALUES (?, ?, ?, 'en_cours', ?)",
+            (container_name, str(dest_path), now.isoformat(), task_id),
+        )
+        db.commit()
+        backup_id = cur.lastrowid
+    try:
+        with _container_backup_lock:
+            update_task_progress(task_id, 10)
+            backup_container_rootfs(container_name, dest_path)
+            update_task_progress(task_id, 90)
+        size = dest_path.stat().st_size
+        with get_conn() as db:
+            db.execute(
+                "UPDATE container_backups SET statut = 'termine', taille_octets = ? WHERE id = ?",
+                (size, backup_id),
+            )
+            db.commit()
+        finish_task(task_id, "termine")
+        log_action(username, "backup_container", container_name, "succes")
+    except Exception as e:
+        dest_path.unlink(missing_ok=True)
+        with get_conn() as db:
+            db.execute("UPDATE container_backups SET statut = 'echec', erreur = ? WHERE id = ?", (str(e)[:500], backup_id))
+            db.commit()
+        finish_task(task_id, "echec", str(e)[:500])
+        log_action(username, "backup_container", container_name, "echec", str(e)[:500])
+
+
+@router.post("/{name}/backups", status_code=202)
+def create_container_backup(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_lxc_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Conteneur '{name}' introuvable")
+        if domain.isActive():
+            raise HTTPException(status_code=409, detail="Arrêtez le conteneur avant de le sauvegarder (pas de sauvegarde à chaud pour les conteneurs)")
+    finally:
+        conn.close()
+    task_id = create_task("backup_container", name, username=user["username"])
+    threading.Thread(target=_run_container_backup_job, args=(task_id, user["username"], name), daemon=True).start()
+    return {"task_id": task_id}
+
+
+@router.delete("/backups/{backup_id}")
+def delete_container_backup(backup_id: int, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Ajoutez ?confirm=true pour confirmer la suppression")
+    with get_conn() as db:
+        row = db.execute("SELECT * FROM container_backups WHERE id = ?", (backup_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Sauvegarde introuvable")
+        Path(row["chemin"]).unlink(missing_ok=True)
+        db.execute("DELETE FROM container_backups WHERE id = ?", (backup_id,))
+        db.commit()
+    log_action(user["username"], "delete_container_backup", row["container_name"], "succes")
+    return {"message": "Sauvegarde supprimée"}
+
+
+class RestoreContainerRequest(BaseModel):
+    new_name: str | None = None  # None = restaure SOUS LE MEME NOM (le conteneur d'origine doit deja etre supprime)
+
+
+@router.post("/backups/{backup_id}/restore", status_code=201)
+def restore_container_backup(backup_id: int, payload: RestoreContainerRequest, user: dict = Depends(require_role("admin"))):
+    with get_conn() as db:
+        row = db.execute("SELECT * FROM container_backups WHERE id = ?", (backup_id,)).fetchone()
+    if not row or row["statut"] != "termine":
+        raise HTTPException(status_code=404, detail="Sauvegarde introuvable ou incomplète")
+    target_name = payload.new_name or row["container_name"]
+    name_error = validate_name(target_name)
+    if name_error:
+        raise HTTPException(status_code=422, detail=name_error)
+
+    conn = open_lxc_conn()
+    try:
+        try:
+            conn.lookupByName(target_name)
+            raise HTTPException(status_code=409, detail=f"Un conteneur '{target_name}' existe déjà -- supprimez-le d'abord ou choisissez un autre nom")
+        except libvirt.libvirtError:
+            pass
+
+        try:
+            rootfs = restore_container_rootfs(Path(row["chemin"]), target_name, original_name=row["container_name"])
+        except (subprocess.CalledProcessError, ValueError) as e:
+            msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
+            raise HTTPException(status_code=500, detail=f"Échec de restauration : {msg}")
+
+        # LIMITE CONNUE : vcpu/memoire d'origine non conserves dans
+        # l'archive (contrairement au clonage, qui les lit directement
+        # depuis le domaine source encore defini) -- retombe sur les
+        # valeurs par defaut, ajustables ensuite comme pour tout conteneur.
+        mac = generate_mac(conn)
+        xml = build_container_xml(target_name, 1, 512, rootfs, network="default", mac=mac)
+        try:
+            domain = conn.defineXML(xml)
+        except libvirt.libvirtError as e:
+            delete_container_rootfs(target_name)
+            raise HTTPException(status_code=500, detail=f"Échec de définition du conteneur restauré : {describe_exception(e)}")
+
+        ssh_user = get_container_ssh_user(row["container_name"])
+        if ssh_user:
+            set_container_ssh_user(target_name, ssh_user)
+        log_action(user["username"], "restore_container_backup", target_name, "succes", f"depuis sauvegarde #{backup_id}")
+        return _summary(domain)
     finally:
         conn.close()
 
