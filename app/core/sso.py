@@ -36,6 +36,7 @@ from jose.exceptions import JWTError
 
 from app.core.database import get_conn
 from app.core.security import hash_password
+from app.core import secrets_crypto
 
 STATE_TTL_S = 600  # 10 min -- le temps de s'authentifier chez l'IdP, pas plus
 HTTP_TIMEOUT_S = 10
@@ -49,14 +50,25 @@ class LocalAccountConflict(Exception):
 
 
 def get_config():
+    """Dechiffre client_secret pour l'usage INTERNE (echange de code
+    aupres de l'IdP, exchange_code() ci-dessous) -- app/routers/sso.py
+    ne renvoie JAMAIS ce champ tel quel a un client (voir GET /config,
+    qui le remplace par client_secret_set: bool)."""
     with get_conn() as db:
         row = db.execute("SELECT * FROM sso_config WHERE id = 1").fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        if d.get("client_secret"):
+            d["client_secret"] = secrets_crypto.decrypt(d["client_secret"])
+        return d
 
 
 def set_config(**fields):
     if not fields:
         return
+    if "client_secret" in fields and fields["client_secret"]:
+        fields["client_secret"] = secrets_crypto.encrypt(fields["client_secret"])
     with get_conn() as db:
         existing = db.execute("SELECT id FROM sso_config WHERE id = 1").fetchone()
         if existing:

@@ -19,7 +19,21 @@ def list_events(user: dict = Depends(get_current_user)):
 
 @router.get("/channels")
 def list_channels(user: dict = Depends(get_current_user)):
-    return notif.list_channels()
+    # notif.list_channels() dechiffre le mot de passe SMTP pour l'usage
+    # INTERNE (envoi reel) -- jamais renvoye tel quel a un client, meme
+    # admin (2026-09-18, meme principe que le client secret OIDC du
+    # chantier 20 : un secret ecrit une fois n'est plus jamais relu en
+    # clair). AVANT ce correctif, n'importe quel utilisateur authentifie
+    # (y compris observateur, lecture seule) pouvait lire le mot de passe
+    # SMTP en clair via cet endpoint -- bug reel trouve en chiffrant les
+    # secrets au repos (chiffrer en base puis le redonner en clair a
+    # l'affichage n'aurait servi a rien).
+    channels = notif.list_channels()
+    for c in channels:
+        if c["type"] == "email" and c["config"].get("smtp_password"):
+            c["config"]["smtp_password_set"] = True
+            c["config"]["smtp_password"] = None
+    return channels
 
 
 class ChannelCreate(BaseModel):
