@@ -15,7 +15,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-from app.core.libvirt_utils import open_conn, get_vm_uptime_s, uses_shared_storage
+from app.core.libvirt_utils import open_conn, get_vm_uptime_s, uses_shared_storage, pool_type_and_target_path
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task, update_task_progress
@@ -291,6 +291,16 @@ class VMCreate(BaseModel):
     # (deja un OS installe dessus) au lieu de l'image Debian 12 preinstallee
     # ou d'un ISO d'installation -- mutuellement exclusif avec `iso`.
     import_disk: str | None = None
+    # Choix du pool de stockage (backlog 2026-09-18) : None/absent = pool
+    # 'default' (comportement historique, /var/lib/libvirt/images),
+    # inchangé par défaut. Nécessaire pour qu'une VM protégée HA
+    # (chantier 17) ou destinée à la migration à chaud (chantier 27)
+    # puisse réellement être créée sur du stockage partagé (chantier 26)
+    # sans déplacer son disque à la main après coup -- lacune identifiée
+    # et documentée en testant le chantier 17 ("sans un moyen de choisir
+    # le pool à la création, personne ne peut réalistiquement utiliser
+    # la protection HA").
+    storage_pool: str | None = None
     # Suppression automatique des VM inactives (chantier 19) : opt-in,
     # None/absent = jamais activee (comportement inchange par defaut). Le
     # compteur ne court que pendant que la VM est ARRETEE (voir
@@ -364,6 +374,34 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         except libvirt.libvirtError:
             errors.append(f"Réseau '{payload.network}' introuvable")
 
+        # Resolution du pool de stockage choisi (backlog 2026-09-18) --
+        # None/absent = pool 'default', deja garanti present/actif par
+        # ensure_default_pool() au demarrage du service, pas besoin de le
+        # relookup ici. Restreint aux types 'dir'/'netfs' : ce sont les
+        # seuls types de pool crees par ce projet (app/routers/storage.py,
+        # chantier 26) qui exposent un chemin de FICHIERS classique
+        # attendu par qemu-img -- un pool 'logical' (LVM) ou autre
+        # necessiterait un mecanisme de creation de volume different, hors
+        # scope de ce correctif.
+        target_dir = None
+        if payload.storage_pool and payload.storage_pool != "default":
+            try:
+                pool = conn.storagePoolLookupByName(payload.storage_pool)
+            except libvirt.libvirtError:
+                errors.append(f"Pool de stockage '{payload.storage_pool}' introuvable")
+                pool = None
+            if pool is not None:
+                if not pool.isActive():
+                    errors.append(f"Pool de stockage '{payload.storage_pool}' inactif")
+                else:
+                    pool_type, pool_path = pool_type_and_target_path(pool)
+                    if pool_type not in ("dir", "netfs"):
+                        errors.append(f"Pool de stockage '{payload.storage_pool}' de type '{pool_type}' non supporté pour la création de VM (dir/netfs uniquement)")
+                    elif not pool_path:
+                        errors.append(f"Pool de stockage '{payload.storage_pool}' : chemin illisible")
+                    else:
+                        target_dir = Path(pool_path)
+
         if errors:
             log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
@@ -385,13 +423,13 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
                 # Disque 0 = conversion du fichier importe (qemu-img detecte
                 # le format source tout seul) ; disques supplementaires
                 # eventuels toujours vierges comme d'habitude.
-                disk_paths = [create_disk_from_import(payload.name, import_disk_path)] + [
-                    create_disk(payload.name, disk.size_gb, index=i)
+                disk_paths = [create_disk_from_import(payload.name, import_disk_path, target_dir=target_dir)] + [
+                    create_disk(payload.name, disk.size_gb, index=i, target_dir=target_dir)
                     for i, disk in enumerate(payload.disks[1:], start=1)
                 ]
             else:
                 disk_paths = [
-                    create_disk(payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0))
+                    create_disk(payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0), target_dir=target_dir)
                     for i, disk in enumerate(payload.disks)
                 ]
             cloudinit_path = None
@@ -417,8 +455,17 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
                 cloudinit_path = create_cloudinit_iso(
                     payload.name, username=payload.username,
                     password=payload.password, ssh_pubkey=ssh_pubkey,
+                    target_dir=target_dir,
                 )
             elif automated_install:
+                # LIMITE CONNUE (backlog 2026-09-18) : build_seed_iso() vit
+                # dans app/core/unattended_install.py, piloté séparément
+                # (chantier 12, voir CLAUDE.md "Répartition en cours") --
+                # ne pas y toucher sans coordination. Cet ISO de réponses
+                # reste donc toujours sur le pool 'default' même si
+                # `storage_pool` cible autre chose ; sans conséquence pour
+                # la HA/migration (l'ISO n'est nécessaire qu'à
+                # l'installation initiale, jamais relu ensuite).
                 ssh_pubkey = get_or_create_automation_pubkey()
                 seed_iso_path = build_seed_iso(
                     os_family, payload.name,
@@ -594,16 +641,30 @@ def _perform_vm_deletion(conn, domain, name):
     # le clonage multi-disques du chantier 5 : le disque secondaire d'une
     # VM supprimee restait sur le disque hote, provoquant un conflit de
     # nom au clonage suivant).
+    # ISO generees par Hyperlite lui-meme pour CETTE VM (cloud-init/kickstart/
+    # autoinstall) -- reconnues par leur nom de fichier, jamais par leur
+    # repertoire : depuis le backlog "choix du pool de stockage" (2026-09-18),
+    # ces ISO peuvent vivre sur N'IMPORTE QUEL pool (voir create_vm), plus
+    # forcement IMAGES_DIR. Bug reel trouve en testant CE backlog : la
+    # premiere version de ce correctif reconstruisait encore le chemin a la
+    # main via IMAGES_DIR, laissant l'ISO cloud-init orpheline sur tout
+    # pool non-default apres suppression -- corrige en capturant le chemin
+    # REEL depuis le XML du domaine, comme deja fait pour les disques.
+    OWN_GENERATED_ISO_NAMES = {f"{name}-cloudinit.iso", f"{name}-oemdrv.iso", f"{name}-autoinstall.iso"}
+
     disk_paths_to_remove = []
     ifaces_to_release = []
     try:
         root = ET.fromstring(domain.XMLDesc())
         for disk_el in root.findall(".//devices/disk"):
-            if disk_el.get("device") != "disk":
-                continue
             source_el = disk_el.find("source")
-            if source_el is not None and source_el.get("file"):
-                disk_paths_to_remove.append(Path(source_el.get("file")))
+            source_file = source_el.get("file") if source_el is not None else None
+            if not source_file:
+                continue
+            if disk_el.get("device") == "disk":
+                disk_paths_to_remove.append(Path(source_file))
+            elif disk_el.get("device") == "cdrom" and Path(source_file).name in OWN_GENERATED_ISO_NAMES:
+                disk_paths_to_remove.append(Path(source_file))
         for iface in root.findall(".//interface[@type='network']"):
             mac_el, source_el = iface.find("mac"), iface.find("source")
             if mac_el is not None and source_el is not None and source_el.get("network"):
@@ -629,9 +690,6 @@ def _perform_vm_deletion(conn, domain, name):
 
     for disk_path in disk_paths_to_remove:
         disk_path.unlink(missing_ok=True)
-    (IMAGES_DIR / f"{name}-cloudinit.iso").unlink(missing_ok=True)
-    (IMAGES_DIR / f"{name}-oemdrv.iso").unlink(missing_ok=True)
-    (IMAGES_DIR / f"{name}-autoinstall.iso").unlink(missing_ok=True)
     delete_vm_ssh_user(name)
     delete_vm_os_label(name)
     clear_provisioning(name)

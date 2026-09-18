@@ -72,13 +72,17 @@ def ensure_base_image():
     return BASE_IMAGE
 
 
-def create_disk(vm_name, disk_gb, index=0, blank=False):
+def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     """Cree un disque qcow2 pour la VM. Le disque d'index 0 (systeme) est base sur
     l'image cloud Debian par defaut ; les disques suivants sont toujours vierges
     (stockage supplementaire). `blank=True` force un disque 0 vierge malgre tout --
     utilise quand une VM demarre sur un ISO d'installation (voir create_vm) : il n'y
-    a alors rien a preinstaller, l'utilisateur installe son propre OS dessus."""
-    disk_path = IMAGES_DIR / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
+    a alors rien a preinstaller, l'utilisateur installe son propre OS dessus.
+    `target_dir` (backlog 2026-09-18, choix du pool de stockage a la creation) :
+    chemin du pool choisi, resolu par l'appelant via libvirt -- IMAGES_DIR
+    (pool 'default') si non precise, comportement inchange."""
+    target_dir = target_dir or IMAGES_DIR
+    disk_path = target_dir / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
     if index == 0 and not blank:
         ensure_base_image()
         subprocess.run(
@@ -101,14 +105,16 @@ def create_disk(vm_name, disk_gb, index=0, blank=False):
     return disk_path
 
 
-def create_disk_from_import(vm_name, source_path):
+def create_disk_from_import(vm_name, source_path, target_dir=None):
     """Cree le disque systeme (index 0) d'une VM a partir d'un fichier
     disque deja uploade (voir app/routers/vm_disks.py, chantier 23) plutot
     que de l'image cloud Debian par defaut ou d'un disque vierge -- chemin
     "importer une VM depuis un disque" du formulaire de creation, alternatif
     a ISO+kickstart. `qemu-img convert` detecte tout seul le format source
-    (raw/vmdk/vdi/vhd/qcow2/...), rien a lui preciser."""
-    disk_path = IMAGES_DIR / f"{vm_name}.qcow2"
+    (raw/vmdk/vdi/vhd/qcow2/...), rien a lui preciser. `target_dir` : voir
+    create_disk()."""
+    target_dir = target_dir or IMAGES_DIR
+    disk_path = target_dir / f"{vm_name}.qcow2"
     subprocess.run(
         ["qemu-img", "convert", "-O", "qcow2", str(source_path), str(disk_path)],
         check=True, capture_output=True, text=True,
@@ -116,7 +122,7 @@ def create_disk_from_import(vm_name, source_path):
     return disk_path
 
 
-def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
+def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_dir=None):
     # Repertoire temporaire a permissions restreintes (0700, cree par mkdtemp),
     # toujours nettoye ensuite : user-data contient le mot de passe en clair de
     # la VM et ne doit pas survivre sur le disque hote au-dela de cette fonction.
@@ -150,7 +156,7 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None):
         user_data.write_text("\n".join(ud) + "\n")
         meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
 
-        iso_path = IMAGES_DIR / f"{vm_name}-cloudinit.iso"
+        iso_path = (target_dir or IMAGES_DIR) / f"{vm_name}-cloudinit.iso"
         subprocess.run(
             ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
             check=True,
