@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 
 from app.core.database import get_conn
+from app.core import secrets_crypto
 
 NOTIFY_EVENTS = {
     "node_statut_change": "Changement d'état d'un nœud",
@@ -42,12 +43,18 @@ def _now():
 
 
 def list_channels():
+    """Renvoie le mot de passe SMTP DECHIFFRE -- usage INTERNE uniquement
+    (envoi reel via send_to_channel/notify). Ne JAMAIS exposer ce
+    resultat tel quel via l'API (voir app/routers/notifications.py, qui
+    redige le mot de passe avant de repondre au client)."""
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM notification_channels ORDER BY id").fetchall()
     result = []
     for r in rows:
         d = dict(r)
         d["config"] = json.loads(d["config"])
+        if d["type"] == "email" and d["config"].get("smtp_password"):
+            d["config"]["smtp_password"] = secrets_crypto.decrypt(d["config"]["smtp_password"])
         d["events"] = json.loads(d["events"])
         d["enabled"] = bool(d["enabled"])
         result.append(d)
@@ -56,6 +63,9 @@ def list_channels():
 
 def create_channel(type_, name, config, events, username):
     now = _now()
+    config = dict(config)
+    if type_ == "email" and config.get("smtp_password"):
+        config["smtp_password"] = secrets_crypto.encrypt(config["smtp_password"])
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO notification_channels (type, name, config, events, enabled, created_by, created_at) "
