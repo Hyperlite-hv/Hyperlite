@@ -1,53 +1,52 @@
-"""Suppression automatique des VM inactives (chantier 19, 2026-09-17) --
-option opt-in a la creation ("supprimer si arretee depuis N jours"),
-pensee pour les VM de lab/test qu'on oublie de nettoyer. Desactivee par
-defaut, VM par VM.
+"""Automatic deletion of inactive VMs. An opt-in option chosen at creation
+("delete if stopped for N days"), meant for lab and test VMs that get
+forgotten. Disabled by default, VM by VM.
 
-Regles de securite (verifiees dans cet ordre, chacune un motif de "skip"
-silencieux pour CETTE VM -- ne doit jamais interrompre le cycle pour les
-autres) :
-- VM actuellement EN COURS D'EXECUTION : jamais supprimee, quel que soit
-  le seuil -- le compteur ne s'incremente que pendant que la VM est
-  ARRETEE (voir app/core/vm_meta.py::touch_vm_activity, appelee a chaque
-  demarrage, qui repart a zero).
-- VM protegee par la HA (chantier 17) : jamais supprimee automatiquement
-  -- une VM HA est par definition consideree critique, l'oppose exact
-  d'une VM jetable.
-- Avertissement (notification, chantier 28) ~24h avant la suppression
-  reelle -- pas de suppression surprise des le premier cycle qui detecte
-  le depassement du seuil.
+Safety rules (checked in this order, each one a silent "skip" for THIS VM that
+must never interrupt the cycle for the others):
+- A VM that is currently RUNNING is never deleted, whatever the threshold: the
+  counter only advances while the VM is STOPPED (see
+  app/core/vm_meta.py::touch_vm_activity, called on every start, which resets
+  it).
+- A VM protected by HA is never deleted automatically: an HA VM is by
+  definition considered critical, the exact opposite of a disposable VM.
+- A warning (notification) is sent ~24 h before the real deletion, so there is
+  no surprise deletion on the first cycle that detects the threshold being
+  exceeded.
+
 """
+
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import libvirt
 
-from app.core.libvirt_utils import open_conn
-from app.core.vm_meta import list_all_auto_cleanup, delete_vm_auto_cleanup
 from app.core.audit import log_action
 from app.core.database import get_conn
+from app.core.libvirt_utils import open_conn
+from app.core.vm_meta import delete_vm_auto_cleanup, list_all_auto_cleanup
 
-CHECK_INTERVAL_S = 3600  # un seuil se compte en JOURS -- pas besoin de plus frequent qu'horaire
+CHECK_INTERVAL_S = 3600  # a threshold is counted in DAYS, hourly is frequent enough
 WARNING_HOURS_BEFORE = 24
 
 
 def _age_hours(iso_ts):
     dt = datetime.fromisoformat(iso_ts)
-    return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+    return (datetime.now(UTC) - dt).total_seconds() / 3600
 
 
 def _mark_warned(vm_name):
     with get_conn() as db:
         db.execute(
             "UPDATE vm_auto_cleanup SET warned_at = ? WHERE vm_name = ?",
-            (datetime.now(timezone.utc).isoformat(), vm_name),
+            (datetime.now(UTC).isoformat(), vm_name),
         )
         db.commit()
 
 
 def check_once():
-    from app.core.ha import get_protected  # import tardif : evite un cycle au chargement du module
+    from app.core.ha import get_protected  # late import: avoids a cycle when the module loads
     from app.routers.vms import _perform_vm_deletion
 
     rows = list_all_auto_cleanup()
@@ -61,41 +60,41 @@ def check_once():
             try:
                 domain = conn.lookupByName(vm_name)
             except libvirt.libvirtError:
-                # VM deja supprimee par un autre chemin (admin, DELETE
-                # /vms/{name} classique) -- nettoie l'entree orpheline
-                # plutot que de la retenter indefiniment a chaque cycle.
+                # VM already deleted through another path (an admin, the regular DELETE
+                # /vms/{name}): clean up the orphaned entry instead of retrying it forever on
+                # every cycle.
                 delete_vm_auto_cleanup(vm_name)
                 continue
 
             if domain.isActive():
-                continue  # le compteur ne court que pendant l'arret
+                continue  # the counter only runs while the VM is stopped
 
             if get_protected(vm_name):
-                continue  # VM HA : jamais touchee automatiquement
+                continue  # HA VM: never touched automatically
 
             age_h = _age_hours(row["last_active_at"])
             threshold_h = row["inactive_days"] * 24
 
             if age_h < threshold_h - WARNING_HOURS_BEFORE:
-                continue  # encore loin du seuil, rien a faire
+                continue  # still far from the threshold, nothing to do
 
             if age_h < threshold_h:
                 if not row["warned_at"]:
                     _mark_warned(vm_name)
                     msg = (
-                        f"VM '{vm_name}' sera supprimée automatiquement dans ~24h "
-                        f"(arrêtée depuis {row['inactive_days']}+ jours, seuil configuré à la création)"
+                        f"VM '{vm_name}' will be deleted automatically in ~24 h "
+                        f"(stopped for {row['inactive_days']}+ days, threshold set at creation)"
                     )
                     log_action("system", "auto_cleanup_warning", vm_name, "succes", msg)
                 continue
 
-            # Seuil depasse : suppression reelle.
+            # Threshold exceeded: real deletion.
             try:
                 _perform_vm_deletion(conn, domain, vm_name)
-                msg = f"Suppression automatique : arrêtée depuis {row['inactive_days']}+ jours (seuil configuré à la création)"
+                msg = f"Automatic deletion: stopped for {row['inactive_days']}+ days (threshold set at creation)"
                 log_action("system", "delete_vm", vm_name, "succes", msg)
             except Exception as e:
-                log_action("system", "delete_vm", vm_name, "echec", f"Suppression automatique échouée : {e!r}")
+                log_action("system", "delete_vm", vm_name, "echec", f"Automatic deletion failed: {e!r}")
     finally:
         conn.close()
 
@@ -105,7 +104,7 @@ def _loop():
         try:
             check_once()
         except Exception as e:
-            print(f"[vm_cleanup] cycle échoué : {e!r}", flush=True)
+            print(f"[vm_cleanup] cycle failed: {e!r}", flush=True)
         time.sleep(CHECK_INTERVAL_S)
 
 

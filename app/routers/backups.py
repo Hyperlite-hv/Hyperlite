@@ -1,19 +1,24 @@
-"""Endpoints backup natif (chantier 13). La logique reelle (qemu-img,
-snapshot externe transitoire, planification) vit dans app/core/backups.py --
-ce fichier ne fait que valider les entrees, verifier les droits et
-orchestrer en tache de fond."""
+"""Native VM backup endpoints. The actual logic (qemu-img, transient
+external snapshot, scheduling) lives in app/core/backups.py; this file only
+validates input, checks permissions and orchestrates the background task."""
+
+import logging
 import threading
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.audit import log_action
 from app.core.backups import (
-    DEFAULT_BACKUP_DIR, _next_run, restore_backup, run_backup,
+    DEFAULT_BACKUP_DIR,
+    _next_run,
+    restore_backup,
+    run_backup,
 )
 from app.core.database import get_conn
 from app.core.security import get_current_user, require_role, require_vm_privilege
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["backups"])
 
@@ -38,37 +43,40 @@ class BackupRequest(BaseModel):
 
 @router.post("/vms/{name}/backups", status_code=202)
 def create_backup(name: str, payload: BackupRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    # Reutilise le privilege vm.snapshot (proteger l'etat d'une VM, meme
-    # esprit) plutot que d'introduire encore un nouveau privilege dedie.
+    # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit)
+    # rather than introducing yet another dedicated privilege.
     def job():
         try:
             run_backup(name, payload.target_dir, username=user["username"])
         except Exception:
-            pass  # deja journalise/trace dans run_backup (task + audit_log)
+            logger.debug(
+                "Ignored exception in job()", exc_info=True
+            )  # already logged and tracked in run_backup (task + audit_log)
 
     threading.Thread(target=job, daemon=True).start()
     log_action(user["username"], "backup_vm_requested", name, "succes")
-    return {"message": f"Sauvegarde de '{name}' lancée en arrière-plan"}
+    return {"message": f"Backup of '{name}' started in the background"}
 
 
 @router.delete("/backups/{backup_id}")
 def delete_backup(backup_id: int, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     import shutil
+
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Sauvegarde introuvable")
+            raise HTTPException(status_code=404, detail="Backup not found")
         if not confirm:
-            raise HTTPException(status_code=400, detail="Ajoutez ?confirm=true pour confirmer la suppression")
+            raise HTTPException(status_code=400, detail="Add ?confirm=true to confirm the deletion")
         shutil.rmtree(row["chemin"], ignore_errors=True)
         conn.execute("DELETE FROM backups WHERE id = ?", (backup_id,))
         conn.commit()
     log_action(user["username"], "delete_backup", row["vm_name"], "succes", f"backup #{backup_id}")
-    return {"message": "Sauvegarde supprimée"}
+    return {"message": "Backup deleted"}
 
 
 class RestoreRequest(BaseModel):
-    mode: str = Field(description="'overwrite' (écrase la VM d'origine) ou 'new' (nouvelle VM)")
+    mode: str = Field(description="'overwrite' (replaces the original VM) or 'new' (new VM)")
     new_name: str | None = None
 
 
@@ -77,17 +85,17 @@ def restore_backup_endpoint(backup_id: int, payload: RestoreRequest, user: dict 
     with get_conn() as conn:
         row = conn.execute("SELECT vm_name FROM backups WHERE id = ?", (backup_id,)).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Sauvegarde introuvable")
+        raise HTTPException(status_code=404, detail="Backup not found")
 
     def job():
         try:
             restore_backup(backup_id, payload.mode, payload.new_name, username=user["username"])
         except Exception:
-            pass  # deja journalise dans restore_backup
+            logger.debug("Ignored exception in job()", exc_info=True)  # already logged in restore_backup
 
     threading.Thread(target=job, daemon=True).start()
     log_action(user["username"], "restore_backup_requested", row["vm_name"], "succes", f"mode={payload.mode}")
-    return {"message": "Restauration lancée en arrière-plan"}
+    return {"message": "Restore started in the background"}
 
 
 class ScheduleRequest(BaseModel):
@@ -107,12 +115,14 @@ def get_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm
 @router.put("/vms/{name}/backup-schedule")
 def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     if payload.frequence not in ("quotidien", "hebdomadaire", "mensuel"):
-        raise HTTPException(status_code=422, detail="frequence invalide")
+        raise HTTPException(status_code=422, detail="Invalid frequency")
     try:
         hh, mm = payload.heure.split(":")
-        assert 0 <= int(hh) <= 23 and 0 <= int(mm) <= 59
-    except (ValueError, AssertionError):
-        raise HTTPException(status_code=422, detail="heure invalide (attendu HH:MM)")
+        valid_time = 0 <= int(hh) <= 23 and 0 <= int(mm) <= 59
+    except ValueError:
+        valid_time = False
+    if not valid_time:
+        raise HTTPException(status_code=422, detail="Invalid time (expected HH:MM)")
 
     target = payload.cible_dir or str(DEFAULT_BACKUP_DIR)
     next_run = _next_run(payload.frequence, payload.heure)
@@ -125,7 +135,7 @@ def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depend
             (name, payload.frequence, payload.heure, target, payload.retention_count, next_run.isoformat()),
         )
         conn.commit()
-    log_action(user["username"], "set_backup_schedule", name, "succes", f"{payload.frequence} à {payload.heure}")
+    log_action(user["username"], "set_backup_schedule", name, "succes", f"{payload.frequence} at {payload.heure}")
     return get_backup_schedule(name, user=user)
 
 
@@ -135,4 +145,4 @@ def delete_backup_schedule(name: str, user: dict = Depends(require_vm_privilege(
         conn.execute("DELETE FROM backup_jobs WHERE vm_name = ?", (name,))
         conn.commit()
     log_action(user["username"], "delete_backup_schedule", name, "succes")
-    return {"message": "Planification supprimée"}
+    return {"message": "Schedule deleted"}

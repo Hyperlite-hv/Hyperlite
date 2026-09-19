@@ -1,11 +1,10 @@
 fastapi==0.141.1
-uvicorn[standard]==0.52.4
+uvicorn[standard]==0.53.0
 libvirt-python==12.7.0
 python-multipart==0.0.32
-python-jose==3.5.0
-passlib==1.7.4
-bcrypt==4.0.1
+PyJWT==2.14.0
+bcrypt==5.0.0
 asyncssh==2.24.0
-pyotp==2.9.0
+pyotp==2.10.0
 qrcode==7.4.2
 cryptography==50.0.1

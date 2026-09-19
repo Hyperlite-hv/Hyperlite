@@ -1,22 +1,22 @@
-"""Export/Import de VM par fichier disque (chantier 23, 2026-09-13). Une
-sauvegarde (chantier 13, app/core/backups.py) reste sur cet hote, pensee
-pour une restauration locale ; un export produit au contraire un fichier
-qcow2 telechargeable destine a QUITTER l'hote (migration vers un autre
-serveur, archive externe, partage) -- et symetriquement, un disque importe
-(voir app/routers/vm_disks.py) est un fichier arrive d'ailleurs, utilise
-pour creer une nouvelle VM directement, sans passer par ISO+kickstart.
+"""VM export/import through a disk file. A backup (app/core/backups.py) stays
+on this host and is meant for local restoration; an export instead produces a
+downloadable qcow2 file meant to LEAVE the host (migration to another server,
+external archive, sharing). Symmetrically, an imported disk (see
+app/routers/vm_disks.py) is a file that came from elsewhere and is used to
+create a new VM directly, without going through ISO + kickstart.
 
-Reutilise les briques du chantier 13 (domain_disk_paths,
-qemu_img_convert_with_progress, backup_cold/backup_hot avec leur mecanisme
-chaud/froid deja teste) plutot que de redupliquer la logique -- restreint
-volontairement au disque systeme (index 0, "sda") : une VM multi-disques
-complete releve de la sauvegarde (chantier 13), pas de ce chantier. Cote
-import, aucune tentative d'injecter cloud-init/cle SSH dans le disque
-importe (contrairement aux VM crees depuis zero) : on ne sait rien de son
-contenu (OS, systeme de fichiers, comptes existants) -- il demarre tel
-quel, l'acces se fait avec les identifiants deja presents dessus."""
+It reuses the building blocks of the backup module (domain_disk_paths,
+qemu_img_convert_with_progress, backup_cold/backup_hot with their tested
+hot/cold mechanism) instead of duplicating the logic. It is deliberately
+restricted to the system disk (index 0, "sda"): backing up a whole multi-disk
+VM is the job of the backup feature. On import, no attempt is made to inject
+cloud-init or an SSH key into the imported disk (unlike VMs created from
+scratch): nothing is known about its content (OS, filesystem, existing
+accounts), so it boots as is and is accessed with the credentials already on
+it."""
+
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import libvirt
@@ -35,26 +35,32 @@ def list_exports():
     result = []
     for p in sorted(EXPORTS_DIR.glob("*.qcow2"), key=lambda p: p.stat().st_mtime, reverse=True):
         st = p.stat()
-        result.append({"nom": p.name, "taille_octets": st.st_size, "modifie_le": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()})
+        result.append(
+            {
+                "nom": p.name,
+                "taille_octets": st.st_size,
+                "modifie_le": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+            }
+        )
     return result
 
 
 def run_export(vm_name, username="system"):
-    """Synchrone -- appele depuis un thread par l'endpoint (voir
-    app/routers/vm_export.py), meme schema que run_backup()."""
+    """Synchronous: called from a thread by the endpoint (see
+    app/routers/vm_export.py), same pattern as run_backup()."""
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(vm_name)
         except libvirt.libvirtError:
-            raise RuntimeError(f"VM '{vm_name}' introuvable")
+            raise RuntimeError(f"VM '{vm_name}' not found") from None
 
         all_disks = domain_disk_paths(domain)
         if not all_disks:
-            raise RuntimeError("Aucun disque trouvé sur cette VM")
+            raise RuntimeError("No disk found on this VM")
         disk0 = all_disks[:1]
 
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         task_id = create_task("export_vm", vm_name, node=conn.getHostname(), username=username)
         work_dir = EXPORTS_DIR / f".tmp-{vm_name}-{stamp}"
         work_dir.mkdir(parents=True, exist_ok=True)

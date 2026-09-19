@@ -1,6 +1,8 @@
 import os
-import libvirt
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import libvirt
 from fastapi import HTTPException
 
 LIBVIRT_URI = "qemu:///system"
@@ -8,57 +10,56 @@ LXC_URI = "lxc:///system"
 
 
 def open_lxc_conn():
-    """Connexion dediee aux conteneurs (chantier 18) : libvirt expose LXC via
-    une URI/pilote SEPARE de qemu:///system (meme demon libvirtd, mais les
-    domaines VM et conteneur ne partagent pas la meme liste -- un
-    connexion qemu:///system ne verra jamais un conteneur, et inversement).
-    Pas de support multi-noeud pour l'instant (contrairement a open_conn) :
-    conteneurs locaux uniquement dans cette premiere version."""
+    """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
+    SEPARATE from qemu:///system (same libvirtd daemon, but VM and container
+    domains do not share the same list: a qemu:///system connection never
+    sees a container, and vice versa). There is no multi-node support for now
+    (unlike open_conn): local containers only in this first version."""
     conn = libvirt.open(LXC_URI)
     if conn is None:
-        raise HTTPException(status_code=500, detail="Connexion libvirt (LXC) impossible")
+        raise HTTPException(status_code=500, detail="Unable to open the libvirt (LXC) connection")
     return conn
 
 
 def open_conn(node_name=None):
-    """node_name=None (par defaut) : connexion locale inchangee, EXACTEMENT
-    comme avant le chantier 15 -- tous les appels existants (des dizaines,
-    dans tous les routers) continuent de fonctionner sans aucune
-    modification. node_name='<nom enregistre>' : connexion distante via
-    qemu+ssh:// (voir app/core/cluster.py) vers un noeud du chantier 15."""
+    """node_name=None (the default): unchanged local connection, so every existing
+    call (dozens, across all routers) keeps working without any change.
+    node_name='<registered name>': remote connection through qemu+ssh://
+    (see app/core/cluster.py) to a registered cluster node."""
     if node_name and node_name != "local":
         from app.core.cluster import build_libvirt_uri, get_node
+
         node = get_node(node_name)
         if not node:
-            raise HTTPException(status_code=404, detail=f"Nœud '{node_name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
         uri = build_libvirt_uri(node)
     else:
         uri = LIBVIRT_URI
     conn = libvirt.open(uri)
     if conn is None:
-        raise HTTPException(status_code=500, detail="Connexion libvirt impossible")
+        raise HTTPException(status_code=500, detail="Unable to open the libvirt connection")
     return conn
 
 
 def get_vm_uptime_s(vm_name):
-    """Duree depuis le demarrage du PROCESSUS qemu de cette VM (pas l'uptime
-    interne de l'OS invite, que libvirt n'expose pas sans qemu-guest-agent --
-    meme convention que Proxmox). Lit le fichier PID que libvirt ecrit pour
-    chaque domaine actif, puis le champ "starttime" de /proc/<pid>/stat
-    (22e champ, en ticks d'horloge depuis le boot de l'HOTE) pour en deduire
-    l'age du processus par difference avec /proc/uptime. Retourne None si la
-    VM est arretee ou si l'info n'est pas lisible (pas une erreur bloquante,
-    juste un uptime inconnu affiche en degrade cote dashboard)."""
+    """Time since the start of this VM's qemu PROCESS (not the guest OS's internal
+    uptime, which libvirt does not expose without qemu-guest-agent; same
+    convention as Proxmox). Reads the PID file that libvirt writes for every
+    active domain, then the "starttime" field of /proc/<pid>/stat (field 22,
+    in clock ticks since the HOST boot) to derive the process age by
+    difference with /proc/uptime. Returns None when the VM is stopped or the
+    information cannot be read (not a blocking error, just an unknown uptime
+    shown in degraded form on the dashboard)."""
     try:
-        pid = int(open(f"/run/libvirt/qemu/{vm_name}.pid").read().strip())
-        stat = open(f"/proc/{pid}/stat").read()
-        # Le nom du process (2e champ) est entre parentheses et peut contenir
-        # des espaces -- on repart du dernier ')' pour retrouver les champs
-        # suivants de facon fiable plutot que de decouper naivement sur ' '.
+        pid = int(Path(f"/run/libvirt/qemu/{vm_name}.pid").read_text().strip())
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        # The process name (2nd field) is in parentheses and may contain spaces, so we
+        # restart from the last ')' to find the following fields reliably instead of
+        # naively splitting on ' '.
         after_comm = stat.rsplit(")", 1)[1].split()
-        starttime_ticks = int(after_comm[22 - 3])  # champ 22, l'etat (champ 3) est after_comm[0]
+        starttime_ticks = int(after_comm[22 - 3])  # field 22; the state (field 3) is after_comm[0]
         clk_tck = os.sysconf("SC_CLK_TCK")
-        host_uptime_s = float(open("/proc/uptime").read().split()[0])
+        host_uptime_s = float(Path("/proc/uptime").read_text().split()[0])
         uptime = host_uptime_s - (starttime_ticks / clk_tck)
         return int(uptime) if uptime >= 0 else None
     except (OSError, ValueError, IndexError):
@@ -66,7 +67,7 @@ def get_vm_uptime_s(vm_name):
 
 
 def ensure_default_pool(conn):
-    """Cree et demarre le pool de stockage 'default' s'il n'existe pas deja."""
+    """Create and start the 'default' storage pool if it does not exist yet."""
     try:
         pool = conn.storagePoolLookupByName("default")
     except libvirt.libvirtError:
@@ -87,10 +88,9 @@ def ensure_default_pool(conn):
 
 
 def pool_type_and_target_path(pool):
-    """(type, chemin cible) d'un pool de stockage, ou (None, None) si
-    illisible -- partage entre la migration (chantier 27) et la HA
-    (chantier 17), toutes deux ayant besoin de savoir si un disque vit sur
-    du stockage PARTAGE (pool 'netfs', chantier 26)."""
+    """(type, target path) of a storage pool, or (None, None) if unreadable. Shared
+    between migration and HA, both needing to know whether a disk lives on
+    SHARED storage (a 'netfs' pool)."""
     try:
         root = ET.fromstring(pool.XMLDesc(0))
         return root.get("type"), root.findtext("target/path")
@@ -99,9 +99,9 @@ def pool_type_and_target_path(pool):
 
 
 def domain_disk_paths(domain):
-    """Chemins de tous les disques FICHIER (device='disk', pas les CD-ROM)
-    d'un domaine -- ignore delibirement les CD-ROM/ISO, jamais consideres
-    comme du stockage 'partage' au sens de ce projet."""
+    """Paths of all FILE disks (device='disk', not CD-ROMs) of a domain. CD-ROMs and
+    ISOs are deliberately ignored: they are never considered "shared" storage
+    in the sense of this project."""
     root = ET.fromstring(domain.XMLDesc(0))
     paths = []
     for disk_el in root.findall(".//devices/disk"):
@@ -115,19 +115,17 @@ def domain_disk_paths(domain):
 
 
 def uses_shared_storage(src_conn, dest_conn, domain):
-    """True seulement si CHAQUE disque de la VM vit sur un pool 'netfs'
-    (chantier 26) qui existe ET est actif sur `dest_conn`, SOUS LE MEME NOM
-    -- condition suffisante en pratique puisque le chemin de montage local
-    d'un pool netfs est toujours derive du nom du pool (voir create_pool,
-    app/routers/storage.py), donc un meme nom des deux cotes implique le
-    meme export NFS monte au meme endroit. Utilise par la migration a
-    chaud (chantier 27, ou 'dest_conn' est le nœud cible reel) ET par la
-    HA (chantier 17, ou c'est une condition PREALABLE a la protection --
-    une VM dont le disque n'est pas partage ne peut pas etre recuperee
-    sur un autre nœud si le nœud source tombe reellement en panne)."""
+    """True only if EVERY disk of the VM lives on a 'netfs' pool that exists AND is
+    active on `dest_conn`, UNDER THE SAME NAME. That is sufficient in practice
+    because the local mount path of a netfs pool is always derived from the
+    pool name (see create_pool, app/routers/storage.py), so the same name on
+    both sides implies the same NFS export mounted at the same place. Used by
+    live migration (where 'dest_conn' is the real target node) AND by HA
+    (where it is a PRECONDITION of protection: a VM whose disk is not shared
+    cannot be recovered on another node if the source node really fails)."""
     disk_paths = domain_disk_paths(domain)
     if not disk_paths:
-        return True  # rien a copier/partager (VM sans disque fichier, rare)
+        return True  # nothing to copy or share (a VM without a file disk, rare)
 
     src_pools = list(src_conn.listAllStoragePools())
     for path in disk_paths:
@@ -151,8 +149,8 @@ def uses_shared_storage(src_conn, dest_conn, domain):
 
 
 def get_disk_paths_in_use(conn):
-    """Retourne l'ensemble des chemins de fichiers disque actuellement references
-    par au moins une VM (active ou non), pour empecher la suppression d'un volume utilise."""
+    """Return the set of disk file paths currently referenced by at least one VM
+    (running or not), to prevent deleting a volume that is in use."""
     paths = set()
     for domain in conn.listAllDomains():
         try:
@@ -170,9 +168,9 @@ def get_disk_paths_in_use(conn):
 
 
 def ensure_isolated_network(conn):
-    """Cree et demarre un reseau isole de demonstration s'il n'existe pas deja
-    (aucune balise <forward> => pas de connectivite externe, utile pour distinguer
-    NAT / bridge / isole)."""
+    """Create and start an isolated demo network if it does not exist yet (no
+    <forward> element => no external connectivity, useful to tell NAT / bridge
+    / isolated apart)."""
     try:
         net = conn.networkLookupByName("hyperlite-isolated")
     except libvirt.libvirtError:
@@ -195,10 +193,10 @@ def ensure_isolated_network(conn):
 
 
 def ensure_vnc_graphics(conn, domain):
-    # S'assure qu'un domaine dispose d'un peripherique graphique VNC.
-    # Si absent et que le domaine est arrete, l'ajoute et redefinit le domaine.
-    # Renvoie True si une modification a ete faite, False sinon (deja present,
-    # ou domaine actif -> impossible a ajouter a chaud de maniere fiable).
+    # Make sure a domain has a VNC graphics device. If it is missing and the domain
+    # is stopped, add it and redefine the domain. Returns True if a change was made,
+    # False otherwise (already present, or domain running: reliably adding one on
+    # the fly is not possible).
     root = ET.fromstring(domain.XMLDesc(0))
     devices_el = root.find(".//devices")
     if devices_el is None:

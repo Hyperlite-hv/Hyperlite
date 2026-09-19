@@ -1,17 +1,16 @@
-import subprocess
 import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
-from app.core.security import get_current_user, require_role
+from app.core import templates_store
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
+from app.core.security import get_current_user, require_role
 from app.core.vm_builder import IMAGES_DIR, validate_name
-from app.core import templates_store
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -22,7 +21,7 @@ def list_templates(user: dict = Depends(get_current_user)):
 
 
 class ConvertRequest(BaseModel):
-    template_name: Optional[str] = None
+    template_name: str | None = None
 
 
 @router.post("/from-vm/{name}", status_code=201)
@@ -31,21 +30,21 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
     try:
         validate_name(tpl_name)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if templates_store.exists(tpl_name):
-        raise HTTPException(status_code=409, detail=f"Un template '{tpl_name}' existe déjà")
+        raise HTTPException(status_code=409, detail=f"A template '{tpl_name}' already exists")
 
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "convert_to_template", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "convert_to_template", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if domain.isActive():
             log_action(user["username"], "convert_to_template", name, "echec", "VM active")
-            raise HTTPException(status_code=409, detail="Arrêtez la VM avant de la convertir en template")
+            raise HTTPException(status_code=409, detail="Stop the VM before converting it to a template")
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
@@ -61,8 +60,8 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
                     disk_source = src.get("file")
                 break
         if not disk_source:
-            log_action(user["username"], "convert_to_template", name, "echec", "disque introuvable")
-            raise HTTPException(status_code=500, detail="Disque source introuvable")
+            log_action(user["username"], "convert_to_template", name, "echec", "disk not found")
+            raise HTTPException(status_code=500, detail="Source disk not found")
 
         target_disk = templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"])
 
@@ -71,7 +70,7 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
         except libvirt.libvirtError as exc:
             templates_store.delete_template(tpl_name)
             log_action(user["username"], "convert_to_template", name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Échec de l'undefine : {exc}")
+            raise HTTPException(status_code=500, detail=f"Undefine failed: {exc}") from exc
 
         shutil.move(disk_source, str(target_disk))
 
@@ -83,41 +82,45 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
 
 class DeployRequest(BaseModel):
     new_name: str
-    network: Optional[str] = None
+    network: str | None = None
 
 
 @router.post("/{template_name}/deploy", status_code=201)
 def deploy_template(template_name: str, payload: DeployRequest, user: dict = Depends(require_role("admin"))):
     tpl = templates_store.get_template(template_name)
     if tpl is None:
-        raise HTTPException(status_code=404, detail=f"Template '{template_name}' introuvable")
+        raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
 
     try:
         validate_name(payload.new_name)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     conn = open_conn()
     try:
         try:
             conn.lookupByName(payload.new_name)
-            log_action(user["username"], "deploy_template", template_name, "echec", f"'{payload.new_name}' existe déjà")
-            raise HTTPException(status_code=409, detail=f"Une VM '{payload.new_name}' existe déjà")
+            log_action(
+                user["username"], "deploy_template", template_name, "echec", f"'{payload.new_name}' already exists"
+            )
+            raise HTTPException(status_code=409, detail=f"A VM '{payload.new_name}' already exists")
         except libvirt.libvirtError:
             pass
 
         new_disk_path = IMAGES_DIR / f"{payload.new_name}.qcow2"
         if new_disk_path.exists():
-            raise HTTPException(status_code=409, detail="Un fichier disque porte déjà ce nom")
+            raise HTTPException(status_code=409, detail="A disk file with this name already exists")
 
         try:
             subprocess.run(
                 ["qemu-img", "convert", "-O", "qcow2", tpl["disk_path"], str(new_disk_path)],
-                check=True, capture_output=True, text=True,
+                check=True,
+                capture_output=True,
+                text=True,
             )
         except subprocess.CalledProcessError as exc:
-            log_action(user["username"], "deploy_template", template_name, "echec", f"copie disque : {exc.stderr}")
-            raise HTTPException(status_code=500, detail="Échec de la copie du disque")
+            log_action(user["username"], "deploy_template", template_name, "echec", f"disk copy: {exc.stderr}")
+            raise HTTPException(status_code=500, detail="Disk copy failed") from exc
 
         root = ET.fromstring(tpl["xml"])
         name_el = root.find("name")
@@ -155,7 +158,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
         except libvirt.libvirtError as exc:
             new_disk_path.unlink(missing_ok=True)
             log_action(user["username"], "deploy_template", template_name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Échec de la définition : {exc}")
+            raise HTTPException(status_code=500, detail=f"Domain definition failed: {exc}") from exc
 
         log_action(user["username"], "deploy_template", template_name, "succes", f"-> {payload.new_name}")
         return {"template": template_name, "vm": new_domain.name(), "etat": "arretee"}
@@ -167,9 +170,9 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
 def delete_template_endpoint(template_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     tpl = templates_store.get_template(template_name)
     if tpl is None:
-        raise HTTPException(status_code=404, detail=f"Template '{template_name}' introuvable")
+        raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
     if not confirm:
-        raise HTTPException(status_code=400, detail="Confirmation requise (?confirm=true)")
+        raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
     templates_store.delete_template(template_name)
     log_action(user["username"], "delete_template", template_name, "succes")
     return {"template": template_name, "supprime": True}

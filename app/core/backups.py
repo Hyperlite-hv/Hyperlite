@@ -1,33 +1,33 @@
-"""Backup natif des VM (chantier 13 de la roadmap vSphere/vCenter,
-2026-09-13) -- absent jusqu'ici (seuls les snapshots qcow2 existaient,
-chantier 4, et ils ne survivent PAS a la perte du disque source : meme
-fichier). Un backup est une copie complete et autonome, stockee ailleurs.
+"""Native VM backup. Before this, only qcow2 snapshots existed, and they do NOT
+survive the loss of the source disk (same file). A backup is a complete,
+self-contained copy stored elsewhere.
 
-Deux modes :
-  - "froid" (VM arretee) : simple copie du/des disque(s) qcow2 via
-    qemu-img convert (support natif de la conversion/compression qcow2).
-  - "chaud" (VM active) : snapshot EXTERNE (nouveau fichier overlay,
-    chaine de backing files) pour figer le disque source a un instant T
-    sans arreter la VM, copie du fichier fige, puis blockCommit+pivot pour
-    fusionner l'overlay dans le disque courant et supprimer le snapshot --
-    exactement le mecanisme prototype et teste au chantier 4 (a l'epoque
-    ecarte pour les snapshots eux-memes a cause de la limite de
-    restauration de libvirt/QEMU sur les snapshots externes, mais cette
-    limite ne s'applique pas ici : on ne restaure jamais l'overlay
-    directement, on l'utilise juste comme point de coherence transitoire
-    avant de le refusionner).
+Two modes:
+  - "cold" (VM stopped): a plain copy of the qcow2 disk(s) with qemu-img
+    convert (native support for qcow2 conversion and compression).
+  - "hot" (VM running): an EXTERNAL snapshot (a new overlay file, a backing
+    file chain) freezes the source disk at an instant T without stopping the
+    VM, the frozen file is copied, then blockCommit + pivot merge the overlay
+    back into the current disk and remove the snapshot. Snapshots themselves
+    avoid this mechanism because of libvirt/QEMU's restore limitation on
+    external snapshots, but that limit does not apply here: the overlay is never
+    restored directly, it is only used as a transient consistency point before
+    being merged back.
 
-Progression REELLE (contrairement aux snapshots, chantier 4, ou aucune stat
-n'existe) : `qemu-img convert -p` ecrit un pourcentage sur stdout, parse ici
-pour alimenter update_task_progress().
+Progress is REAL (unlike snapshots, where no statistic exists):
+`qemu-img convert -p` writes a percentage on stdout, parsed here to feed
+update_task_progress().
+
 """
+
+import contextlib
 import hashlib
 import re
 import shutil
 import subprocess
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import libvirt
@@ -40,28 +40,25 @@ from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
 
 DEFAULT_BACKUP_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "backups"
-SCHEDULER_INTERVAL_S = 300  # verifie les jobs dus toutes les 5 minutes -- suffisant, la granularite est l'heure (HH:MM)
+SCHEDULER_INTERVAL_S = 300  # checks due jobs every 5 minutes: enough, the granularity is the hour (HH:MM)
 
-# BUG REEL trouve en testant ce chantier (verification de la retention,
-# 2026-09-17) : 4 backups manuels declenches en rafale sur la meme VM ont
-# fait planter des requetes SANS AUCUN RAPPORT (ex. GET /networks) avec
-# 'database is locked', malgre le mode WAL + timeout 30s deja en place
-# (chantier 11/13) -- 4 threads qui martelent la base en meme temps
-# (insert/update de progression frequents pendant qemu-img convert, puis
-# potentiellement plusieurs DELETE de retention simultanes) suffit a
-# depasser meme un timeout genereux sous cette charge. Plutot que
-# d'augmenter encore le timeout (repousse le probleme sans le resoudre),
-# les backups sont serialises : un seul a la fois, les autres attendent
-# leur tour. Sensé de toute facon independamment du probleme SQLite --
-# plusieurs qemu-img convert simultanes sur le meme disque hote se
-# battent deja pour la bande passante I/O.
+# Backups are serialized: only one at a time, the others wait their turn. Firing
+# 4 manual backups in a burst on the same VM used to make UNRELATED requests
+# (e.g. GET /networks) fail with 'database is locked' despite WAL mode and the
+# 30 s timeout: 4 threads hammering the database at once (frequent progress
+# updates during qemu-img convert, then possibly several simultaneous retention
+# DELETEs) is enough to exceed even a generous timeout. Rather than raising the
+# timeout again (which postpones the problem without solving it), backups run
+# one by one. That also makes sense independently of SQLite, since several
+# simultaneous qemu-img convert runs on the same host disk already fight for I/O
+# bandwidth.
 _backup_lock = threading.Lock()
 
 _PROGRESS_RE = re.compile(r"\((\d+(?:\.\d+)?)/100%\)")
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _sha256_of(path):
@@ -74,6 +71,7 @@ def _sha256_of(path):
 
 def domain_disk_paths(domain):
     import xml.etree.ElementTree as ET
+
     root = ET.fromstring(domain.XMLDesc(0))
     paths = []
     for disk in root.findall(".//devices/disk"):
@@ -87,22 +85,22 @@ def domain_disk_paths(domain):
 
 
 def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
-    """Copie via qemu-img convert -p, parse la progression reelle sur stdout
-    et la reporte dans la tache (base_pct/span_pct permettent d'appeler ca
-    plusieurs fois -- ex. plusieurs disques -- sans que chacun reparte de 0%)."""
+    """Copy with qemu-img convert -p, parse the real progress on stdout and report it
+    in the task (base_pct/span_pct allow calling this several times, e.g. for
+    several disks, without each one restarting from 0%)."""
     proc = subprocess.Popen(
         ["qemu-img", "convert", "-p", "-O", "qcow2", str(source), str(dest)],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
     )
-    # BUG REEL trouve en testant la retention (4 backups concurrents,
-    # 2026-09-17) : un 'database is locked' remonte depuis
-    # update_task_progress() DANS cette boucle laissait le processus
-    # qemu-img deja termine mais jamais "wait()" -- zombie orphelin
-    # (confirme via `ps aux`, plusieurs <defunct> apres le test). try/
-    # finally : proc.wait() se produit TOUJOURS, meme si la lecture de
-    # stdout ou update_task_progress() leve une exception -- le processus
-    # est reap en tout cas, l'exception continue de se propager ensuite
-    # normalement (gere par l'appelant, voir run_backup).
+    # try/finally: proc.wait() ALWAYS happens, even if reading stdout or
+    # update_task_progress() raises. Otherwise an exception raised from this loop
+    # (e.g. a 'database is locked' from update_task_progress()) left the finished
+    # qemu-img process never waited for, an orphan zombie. The process is reaped
+    # either way, and the exception keeps propagating normally (handled by the
+    # caller, see run_backup).
     try:
         last_pct = 0
         last_reported = -1
@@ -112,22 +110,15 @@ def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
             if m:
                 last_pct = float(m.group(1))
                 reported = int(base_pct + span_pct * last_pct / 100)
-                # THROTTLE ajoute en corrigeant le meme bug de concurrence
-                # (voir commentaire sur _backup_lock plus haut) : qemu-img
-                # -p emet une ligne de progression tres frequemment (voire
-                # plusieurs fois par seconde sur un disque rapide), et
-                # chaque update_task_progress() est une ECRITURE SQLite --
-                # sur cette base, meme un simple GET fait sa propre
-                # ecriture (log_action() est appele partout, y compris
-                # pour les lectures), donc le mode WAL ne protege pas
-                # contre CE genre de contention ecrivain-contre-ecrivain
-                # (WAL resout lecteur-contre-ecrivain, pas les deux sens).
-                # N'ecrit que si le pourcentage ARRONDI a change ET qu'au
-                # moins 0.5s s'est ecoulee depuis la derniere ecriture --
-                # reduit le volume d'ecritures de backup d'un ou deux
-                # ordres de grandeur sans perdre de granularite utile pour
-                # une barre de progression (personne ne distingue 47% de
-                # 48% affiche 10x par seconde).
+                # THROTTLE: qemu-img -p emits a progress line very often (even several times per
+                # second on a fast disk), and every update_task_progress() is a SQLite WRITE. On
+                # this database even a plain GET performs its own write (log_action() is called
+                # everywhere, including for reads), so WAL mode does not protect against this
+                # kind of writer-versus-writer contention (WAL solves reader-versus-writer, not
+                # both directions). It only writes when the ROUNDED percentage has changed AND at
+                # least 0.5 s has elapsed since the last write, which cuts the backup write volume
+                # by one or two orders of magnitude without losing any granularity useful for a
+                # progress bar (nobody can tell 47% from 48% displayed 10 times per second).
                 now = time.monotonic()
                 if reported != last_reported and now - last_write_time >= 0.5:
                     update_task_progress(task_id, reported)
@@ -137,13 +128,13 @@ def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
     finally:
         proc.wait()
     if proc.returncode != 0:
-        raise RuntimeError(f"qemu-img convert a échoué : {stderr.strip()[:400]}")
+        raise RuntimeError(f"qemu-img convert failed: {stderr.strip()[:400]}")
 
 
 def backup_cold(domain, vm_name, dest_dir, task_id, disks=None):
     disks = disks if disks is not None else domain_disk_paths(domain)
     if not disks:
-        raise RuntimeError("Aucun disque trouvé sur cette VM")
+        raise RuntimeError("No disk found on this VM")
     dest_paths = []
     span = 90 / len(disks)
     for i, (dev, source) in enumerate(disks):
@@ -154,28 +145,26 @@ def backup_cold(domain, vm_name, dest_dir, task_id, disks=None):
 
 
 def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
-    """Snapshot externe transitoire par disque -> copie du fichier gele ->
-    blockCommit+pivot pour re-fusionner -- la VM continue de tourner sans
-    interruption pendant toute l'operation (juste un tres bref gel au
-    moment de la creation du snapshot lui-meme, comme n'importe quel
-    snapshot externe QEMU). `disks` : sous-ensemble optionnel (ex. un seul
-    disque pour un export, voir app/core/vm_export.py) -- toute la VM par
-    defaut."""
+    """Transient external snapshot per disk -> copy of the frozen file -> blockCommit
+    + pivot to merge back. The VM keeps running without interruption during the
+    whole operation (only a very brief freeze when the snapshot itself is
+    created, like any QEMU external snapshot). `disks`: an optional subset (e.g.
+    a single disk for an export, see app/core/vm_export.py); the whole VM by
+    default."""
     all_disks = domain_disk_paths(domain)
     if not all_disks:
-        raise RuntimeError("Aucun disque trouvé sur cette VM")
+        raise RuntimeError("No disk found on this VM")
     disks = disks if disks is not None else all_disks
     target_devs = {dev for dev, _ in disks}
 
-    import xml.etree.ElementTree as ET
     overlay_paths = {}
     disk_xml_parts = []
-    # Un disque APPARTENANT a la VM mais absent de `disks` (export partiel,
-    # voir app/core/vm_export.py) doit rester explicitement exclu
-    # (snapshot='no') -- sinon libvirt lui applique quand meme son
-    # comportement de snapshot par defaut (interne), qu'on ne nettoierait
-    # jamais puisque la boucle de fusion plus bas ne parcourt que `disks`.
-    for dev, source in all_disks:
+    # A disk that BELONGS to the VM but is absent from `disks` (a partial export, see
+    # app/core/vm_export.py) must remain explicitly excluded (snapshot='no'):
+    # otherwise libvirt still applies its default (internal) snapshot behaviour to
+    # it, which would never be cleaned up since the merge loop below only walks
+    # `disks`.
+    for dev, _source in all_disks:
         if dev in target_devs:
             overlay = IMAGES_DIR / f"{vm_name}.backup-{int(time.time())}.{dev}.qcow2"
             overlay_paths[dev] = overlay
@@ -193,16 +182,15 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
         span = 70 / len(disks)
         for i, (dev, source) in enumerate(disks):
             dest = dest_dir / f"{dev}.qcow2"
-            # On copie la base GELEE (le fichier `source` original, plus
-            # touche par la VM tant que l'overlay est actif) -- pas
-            # l'overlay, qui continue de grossir avec l'activite de la VM.
+            # We copy the FROZEN base (the original `source` file, no longer touched by the VM
+            # while the overlay is active), not the overlay, which keeps growing with the VM's
+            # activity.
             qemu_img_convert_with_progress(source, dest, task_id, base_pct=15 + i * span, span_pct=span)
             dest_paths.append(dest)
     finally:
-        # Fusion de l'overlay dans la base pour CHAQUE disque, meme si la
-        # copie a echoue sur l'un d'eux -- ne jamais laisser la VM tourner
-        # indefiniment sur un overlay transitoire (chaine qui grossit sans
-        # fin, orpheline si Hyperlite redemarre entre-temps).
+        # Merge the overlay back into the base for EVERY disk, even if the copy failed on
+        # one of them: never leave the VM running indefinitely on a transient overlay (a
+        # chain that grows without end, orphaned if Hyperlite restarts in the meantime).
         for dev, source in disks:
             try:
                 domain.blockCommit(dev, str(source), None, 0, libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
@@ -214,10 +202,8 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
                 domain.blockJobAbort(dev, libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT)
             except libvirt.libvirtError as e:
                 log_action("system", "backup_commit_warning", vm_name, "echec", f"{dev}: {describe_exception(e)}")
-        try:
+        with contextlib.suppress(libvirt.libvirtError):
             snap.delete(libvirt.VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
-        except libvirt.libvirtError:
-            pass
         for overlay in overlay_paths.values():
             Path(overlay).unlink(missing_ok=True)
 
@@ -225,13 +211,13 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
 
 
 def run_backup(vm_name, target_dir=None, job_id=None, username="system"):
-    """Lance un backup (choisit chaud/froid selon l'etat reel de la VM) et
-    renvoie l'id de la ligne `backups` creee. Synchrone -- appele depuis un
-    thread par l'endpoint (backup manuel) ou par le planificateur.
+    """Run a backup (choosing hot or cold according to the real state of the VM) and
+    return the id of the `backups` row created. Synchronous: called from a
+    thread by the endpoint (manual backup) or by the scheduler.
 
-    _backup_lock : un seul backup a la fois sur TOUT le serveur (toutes VM
-    confondues), voir le commentaire au-dessus de _backup_lock -- un
-    appelant concurrent attend simplement son tour plutot que d'echouer."""
+    _backup_lock: only one backup at a time on the WHOLE server (all VMs
+    combined), see the comment above _backup_lock. A concurrent caller simply
+    waits its turn instead of failing."""
     with _backup_lock:
         return _run_backup_locked(vm_name, target_dir, job_id, username)
 
@@ -243,7 +229,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         try:
             domain = conn.lookupByName(vm_name)
         except libvirt.libvirtError:
-            raise RuntimeError(f"VM '{vm_name}' introuvable")
+            raise RuntimeError(f"VM '{vm_name}' not found") from None
 
         mode = "chaud" if domain.isActive() else "froid"
         stamp = _now().strftime("%Y%m%dT%H%M%SZ")
@@ -277,21 +263,13 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
                 db.commit()
             finish_task(task_id, "termine")
             log_action(username, "backup_vm", vm_name, "succes", f"{mode}, {total_size} octets -> {dest_dir}")
-            # BUG REEL trouve en verifiant ce chantier (2026-09-17) : la
-            # retention (retention_count, deja dans le schema depuis le
-            # chantier 13) n'etait appliquee QUE par le planificateur
-            # (_scheduler_loop), jamais pour un backup MANUEL (POST
-            # /vms/{name}/backups, sans job_id) -- une VM sans job planifie
-            # mais sauvegardee ponctuellement a la main accumulait des
-            # backups sans AUCUNE limite. Applique maintenant ici, au meme
-            # endroit pour les deux cas (manuel et planifie), sur TOUTES
-            # les sauvegardes de cette VM (pas seulement celles du meme
-            # job_id) -- un retention_count configure pour une VM doit
-            # plafonner le nombre total de ses sauvegardes, pas juste
-            # celles issues d'un job precis. Ne fait rien si aucun
-            # backup_jobs n'existe pour cette VM (pas de politique
-            # configuree = pas de limite imposee, comportement inchange
-            # pour un usage 100% manuel sans planification).
+            # Retention (retention_count, part of the schema) is applied HERE, in the same
+            # place for manual and scheduled backups, and on ALL the backups of this VM (not
+            # only those of the same job_id): a retention_count configured for a VM must cap
+            # the total number of its backups, not just those coming from one specific job.
+            # It does nothing when no backup_jobs row exists for this VM (no configured
+            # policy means no imposed limit, so a 100% manual usage without scheduling is
+            # unchanged).
             with get_conn() as db:
                 job_row = db.execute("SELECT retention_count FROM backup_jobs WHERE vm_name = ?", (vm_name,)).fetchone()
             if job_row:
@@ -311,20 +289,20 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
 
 
 def restore_backup(backup_id, mode, new_name=None, username="system"):
-    """mode='overwrite' : ecrase les disques de la VM d'origine (doit etre
-    arretee). mode='new' : definit une nouvelle VM a partir de la sauvegarde,
-    avec un nouvel UUID/MAC (meme logique que le clonage, chantier 5)."""
+    """mode='overwrite': overwrite the disks of the original VM (it must be
+    stopped). mode='new': define a new VM from the backup, with a new UUID/MAC
+    (the same logic as cloning)."""
     with get_conn() as db:
         row = db.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
     if not row:
-        raise RuntimeError("Sauvegarde introuvable")
+        raise RuntimeError("Backup not found")
     if row["statut"] != "termine":
-        raise RuntimeError("Cette sauvegarde n'est pas dans un état restaurable (échec ou en cours)")
+        raise RuntimeError("This backup is not in a restorable state (failed or in progress)")
 
     src_dir = Path(row["chemin"])
     disk_files = sorted(src_dir.glob("*.qcow2"))
     if not disk_files:
-        raise RuntimeError("Aucun fichier disque trouvé dans cette sauvegarde")
+        raise RuntimeError("No disk file found in this backup")
 
     conn = open_conn()
     task_id = create_task("restore_backup", row["vm_name"], node=conn.getHostname(), username=username)
@@ -334,29 +312,32 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
             try:
                 domain = conn.lookupByName(target_name)
             except libvirt.libvirtError:
-                raise RuntimeError(f"VM d'origine '{target_name}' introuvable -- utilisez la restauration vers un nouvel emplacement")
+                raise RuntimeError(
+                    f"Original VM '{target_name}' not found: use the restore to a new location"
+                ) from None
             if domain.isActive():
-                raise RuntimeError("Arrêtez la VM avant de restaurer par-dessus")
+                raise RuntimeError("Stop the VM before restoring over it")
             existing_disks = domain_disk_paths(domain)
-            for i, (dev, dest_path) in enumerate(existing_disks):
+            for i, (_dev, dest_path) in enumerate(existing_disks):
                 src = disk_files[min(i, len(disk_files) - 1)]
                 update_task_progress(task_id, int(10 + 80 * i / max(len(existing_disks), 1)))
                 shutil.copyfile(src, dest_path)
             finish_task(task_id, "termine")
-            log_action(username, "restore_backup", target_name, "succes", f"écrasement depuis backup #{backup_id}")
+            log_action(username, "restore_backup", target_name, "succes", f"overwrite from backup #{backup_id}")
             return {"vm": target_name, "mode": "overwrite"}
 
         elif mode == "new":
-            from app.routers.vms import IMAGES_DIR as _IMAGES_DIR  # evite import circulaire au chargement du module
-            from app.core.vm_builder import validate_name, build_domain_xml
+            from app.core.vm_builder import build_domain_xml, validate_name
+            from app.routers.vms import IMAGES_DIR as _IMAGES_DIR  # avoids a circular import when the module loads
+
             if not new_name:
-                raise RuntimeError("new_name requis pour une restauration vers un nouvel emplacement")
+                raise RuntimeError("new_name is required for a restore to a new location")
             err = validate_name(new_name)
             if err:
                 raise RuntimeError(err)
             try:
                 conn.lookupByName(new_name)
-                raise RuntimeError(f"Une VM '{new_name}' existe déjà")
+                raise RuntimeError(f"A VM '{new_name}' already exists")
             except libvirt.libvirtError:
                 pass
 
@@ -371,10 +352,10 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
             xml = build_domain_xml(new_name, 1, 1024, new_disk_paths, None, "default")
             conn.defineXML(xml)
             finish_task(task_id, "termine")
-            log_action(username, "restore_backup", new_name, "succes", f"nouvelle VM depuis backup #{backup_id}")
+            log_action(username, "restore_backup", new_name, "succes", f"new VM from backup #{backup_id}")
             return {"vm": new_name, "mode": "new"}
         else:
-            raise RuntimeError("mode invalide (attendu 'overwrite' ou 'new')")
+            raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
     except Exception as e:
         finish_task(task_id, "echec", str(e))
         raise
@@ -383,10 +364,9 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
 
 
 def _apply_retention(vm_name, retention_count):
-    """Par VM, pas par job_id (voir le commentaire dans run_backup) : un
-    retention_count configure pour une VM plafonne le nombre TOTAL de ses
-    sauvegardes terminees, qu'elles viennent d'un job planifie ou d'un
-    declenchement manuel."""
+    """Per VM, not per job_id (see the comment in run_backup): a retention_count
+    configured for a VM caps the TOTAL number of its finished backups, whether
+    they come from a scheduled job or from a manual trigger."""
     with get_conn() as db:
         rows = db.execute(
             "SELECT id, chemin FROM backups WHERE vm_name = ? AND statut = 'termine' ORDER BY cree_le DESC",
@@ -426,9 +406,8 @@ def _scheduler_loop():
                 ).fetchall()
             for job in due:
                 try:
-                    # La retention est desormais appliquee DANS run_backup()
-                    # elle-meme (voir son corps) -- couvre aussi les backups
-                    # manuels de cette VM, pas seulement ceux du planificateur.
+                    # Retention is now applied INSIDE run_backup() itself (see its body), which also
+                    # covers the manual backups of this VM, not only those of the scheduler.
                     run_backup(job["vm_name"], job["cible_dir"], job_id=job["id"], username="scheduler")
                 except Exception as e:
                     log_action("scheduler", "backup_job_echec", job["vm_name"], "echec", str(e))
@@ -440,7 +419,7 @@ def _scheduler_loop():
                     )
                     db.commit()
         except Exception as e:
-            print(f"[backups] scheduler tick échoué : {e!r}", flush=True)
+            print(f"[backups] scheduler tick failed: {e!r}", flush=True)
         time.sleep(SCHEDULER_INTERVAL_S)
 
 
