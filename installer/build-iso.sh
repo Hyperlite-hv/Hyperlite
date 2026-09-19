@@ -82,6 +82,11 @@ fi
 if [ -f "$SCRIPT_DIR/apt-repo/hyperlite-archive-keyring.asc" ]; then
     cp "$SCRIPT_DIR/apt-repo/hyperlite-archive-keyring.asc" "$HL_DIR/"
 fi
+{
+    echo "version=$(cat "$HYPERLITE_ROOT/VERSION")"
+    echo "commit=$(git -C "$HYPERLITE_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "built_at=$(date -u +%FT%TZ)"
+} > "$HL_DIR/build-info"
 cp "$SCRIPT_DIR/preseed.cfg" "$HL_DIR/preseed.cfg"
 cp "$SCRIPT_DIR/partman-auto.sh" "$HL_DIR/partman-auto.sh"
 cp "$SCRIPT_DIR/postinstall.sh" "$HL_DIR/postinstall.sh"
