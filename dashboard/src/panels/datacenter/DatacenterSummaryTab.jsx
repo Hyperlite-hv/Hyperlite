@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Server, MonitorPlay, Square, AlertTriangle, Cpu, MemoryStick, Network, Clock, Plus } from "lucide-react";
 import StatTile from "../../components/StatTile";
 import StatusBadge from "../../components/StatusBadge";
@@ -58,7 +59,7 @@ function formatHeure(iso) {
 // metrics yet): remote nodes without data stay "n/a" and simply do not count in the
 // average/sum (sumDefined already filters out the nulls).
 export default function DatacenterSummaryTab() {
-  const { nodes, vms, navigateTo } = useInfraStore((s) => ({ nodes: s.nodes, vms: s.vms, navigateTo: s.navigateTo }));
+  const { nodes, vms, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, navigateTo: s.navigateTo })));
   const [metricRows, setMetricRows] = useState(null);
   const [recentTasks, setRecentTasks] = useState(null);
 
