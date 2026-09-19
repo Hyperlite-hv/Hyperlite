@@ -92,7 +92,7 @@ export default function VMTable({ vms }) {
             <span className="font-mono text-anthracite-200">{formatMo(vm.memoire_mo)}</span>
             <span className="truncate font-mono text-anthracite-200">{vm.ip || "—"}</span>
             <span className="font-mono text-anthracite-200">{vm.disque_go != null ? formatGo(vm.disque_go) : "—"}</span>
-            <button
+            <button aria-label="More actions"
               className="text-right text-anthracite-400 hover:text-anthracite-100"
               onClick={(e) => { e.stopPropagation(); setMenu({ vm, anchorRect: e.currentTarget.getBoundingClientRect() }); }}
             >

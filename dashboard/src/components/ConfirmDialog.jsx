@@ -4,7 +4,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel = "Co
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
-      <div className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="card w-full max-w-sm p-5" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3">
           <div className={`mt-0.5 rounded-full p-1.5 ${danger ? "bg-status-error/15 text-status-error" : "bg-accent-blue/15 text-accent-blue"}`}>
             <AlertTriangle size={18} />

@@ -129,7 +129,7 @@ export default function AutomationTab() {
                   <option value="stdout_contains">Output contains</option>
                 </select>
                 <input className="input w-24" placeholder={s.condition_type === "exit_code" ? "0" : "pattern"} value={s.condition_valeur || ""} onChange={(e) => updateStep(i, { condition_valeur: e.target.value })} />
-                <button className="btn-danger" onClick={() => removeStep(i)}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger" onClick={() => removeStep(i)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
@@ -162,7 +162,7 @@ export default function AutomationTab() {
                 <>
                   <button className="btn-secondary" onClick={() => handleRun(job, true)} title="Dry-run">Dry run</button>
                   <button className="btn-primary" onClick={() => handleRun(job, false)}><Play size={13} /> Run</button>
-                  {!job.predefined_key && <button className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
+                  {!job.predefined_key && <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
                 </>
               )}
               <button className="text-anthracite-400" onClick={() => toggleExpand(job)}>

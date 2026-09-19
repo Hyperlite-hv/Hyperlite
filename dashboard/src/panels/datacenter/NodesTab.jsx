@@ -122,7 +122,7 @@ export default function NodesTab() {
               {n.statut === "en_ligne"
                 ? <span className="flex items-center gap-1 text-xs text-status-running"><Wifi size={13} /> online</span>
                 : <span className="flex items-center gap-1 text-xs text-status-error"><WifiOff size={13} /> offline</span>}
-              {isAdmin && <button className="btn-danger" onClick={() => handleDelete(n)}><Trash2 size={13} /></button>}
+              {isAdmin && <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(n)}><Trash2 size={13} /></button>}
             </div>
           );
         })}

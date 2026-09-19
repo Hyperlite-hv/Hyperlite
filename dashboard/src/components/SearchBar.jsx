@@ -18,7 +18,7 @@ export default function SearchBar() {
         onChange={(e) => setSearchQuery(e.target.value)}
       />
       {searchQuery && (
-        <button
+        <button aria-label="Close"
           className="absolute right-2.5 top-1/2 -translate-y-1/2 text-anthracite-400 hover:text-anthracite-100"
           onClick={() => setSearchQuery("")}
         >

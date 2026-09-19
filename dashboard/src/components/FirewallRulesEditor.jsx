@@ -79,7 +79,7 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
               />
             )}
             {isAdmin && (
-              <button className="btn-danger ml-auto" onClick={() => removeRule(i)}><Trash2 size={13} /></button>
+              <button aria-label="Delete" className="btn-danger ml-auto" onClick={() => removeRule(i)}><Trash2 size={13} /></button>
             )}
           </div>
         ))}
