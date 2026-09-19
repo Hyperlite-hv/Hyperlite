@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn
+from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
 from app.core.vm_builder import validate_name
@@ -56,7 +57,7 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
         finish_task(task_id, "echec", str(exc))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    dest = ISOS_DIR / filename
+    dest = safe_child(ISOS_DIR, filename)
     try:
         try:
             with open(dest, "wb") as out:
@@ -80,7 +81,7 @@ def delete_iso(filename: str, confirm: bool = False, user: dict = Depends(requir
     filename = Path(filename).name
     if not filename.lower().endswith(".iso"):
         raise HTTPException(status_code=422, detail="Invalid file name")
-    path = ISOS_DIR / filename
+    path = safe_child(ISOS_DIR, filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"ISO '{filename}' not found")
     if not confirm:

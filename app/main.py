@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -152,7 +153,13 @@ async def generic_exception_handler(request: Request, exc: Exception):
 def on_startup():
     pwd = seed_admin()
     if pwd:
-        print(f"=== Admin account created: admin / {pwd} (note this password) ===", flush=True)
+        # Never log the password: store it in a root-only file and log only where it is.
+        pw_file = Path(__file__).resolve().parent.parent / "data" / "initial-admin-password.txt"
+        pw_file.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(pw_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(pwd + "\n")
+        print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
     start_metrics_collector()
     start_backup_scheduler()
     ensure_lb_job_exists()

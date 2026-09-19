@@ -27,6 +27,7 @@ import tempfile
 from pathlib import Path
 
 from app.core.passwords import sha512_crypt_hash
+from app.core.safe_paths import safe_child
 
 CONTAINERS_DIR = Path("/var/lib/libvirt/containers")
 BASE_ROOTFS = CONTAINERS_DIR / "base" / "debian-12"
@@ -75,7 +76,7 @@ def ensure_base_rootfs():
 
 
 def container_rootfs_path(name):
-    return CONTAINERS_DIR / name
+    return safe_child(CONTAINERS_DIR, name)
 
 
 # ---- Images pulled from a registry (Docker Hub or other) ----
@@ -93,7 +94,7 @@ IMAGE_REF_SAFE_RE = re.compile(r"[^a-zA-Z0-9]+")
 
 
 def _image_cache_dir(image_ref):
-    return PULLED_IMAGES_DIR / IMAGE_REF_SAFE_RE.sub("_", image_ref)
+    return safe_child(PULLED_IMAGES_DIR, IMAGE_REF_SAFE_RE.sub("_", image_ref))
 
 
 def pull_image_rootfs(image_ref):
