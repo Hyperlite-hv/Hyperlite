@@ -6,7 +6,7 @@ const RANGES = [
   { key: "1h", label: "1 h" },
   { key: "24h", label: "24 h" },
   { key: "7j", label: "Week" },
-  { key: "30j", label: "Mois" },
+  { key: "30j", label: "Month" },
 ];
 
 // Real: GET /vms/{name}/metrics/history or /host/metrics/history (see
