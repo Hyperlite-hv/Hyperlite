@@ -33,14 +33,14 @@ export default function StepTemplate({ form, patch }) {
       <div className="flex gap-2">
         <button
           type="button"
-          className={!importMode ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+          className={!importMode ? "btn-primary flex-1 py-1.5! text-xs" : "btn-secondary flex-1 py-1.5! text-xs"}
           onClick={() => patch({ importDisk: "" })}
         >
           Base image / ISO
         </button>
         <button
           type="button"
-          className={importMode ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+          className={importMode ? "btn-primary flex-1 py-1.5! text-xs" : "btn-secondary flex-1 py-1.5! text-xs"}
           onClick={() => patch({ iso: "", importDisk: disks[0]?.nom || "__pending__" })}
         >
           Import an existing disk

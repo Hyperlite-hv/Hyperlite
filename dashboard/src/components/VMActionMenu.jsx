@@ -90,7 +90,7 @@ export default function VMActionMenu({ vm, anchorRect, onClose }) {
           >
             {item.label}
             {item.key && (
-              <span className="ml-auto rounded border border-anthracite-500 px-1 font-mono text-[10px] text-anthracite-400">{item.key}</span>
+              <span className="ml-auto rounded-sm border border-anthracite-500 px-1 font-mono text-[10px] text-anthracite-400">{item.key}</span>
             )}
           </button>
         )

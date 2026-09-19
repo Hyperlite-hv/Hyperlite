@@ -95,7 +95,7 @@ export default function Header() {
 
       <div className="flex items-center gap-2 shrink-0" ref={menuAreaRef}>
         {isAdmin && (
-          <button aria-label="Add" className="btn-primary !rounded-full" onClick={() => setWizardOpen(true)}>
+          <button aria-label="Add" className="btn-primary rounded-full!" onClick={() => setWizardOpen(true)}>
             <Plus size={15} /> <span className="hidden sm:inline">Create VM</span>
           </button>
         )}
@@ -138,7 +138,7 @@ export default function Header() {
             className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 hover:bg-anthracite-700"
             onClick={() => setOpenMenu((m) => (m === "user" ? null : "user"))}
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent-blue to-[#4338CA] text-xs font-bold text-white">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-linear-to-br from-accent-blue to-[#4338CA] text-xs font-bold text-white">
               {initials(username)}
             </span>
             <span className="hidden text-[12.5px] font-semibold text-anthracite-100 sm:inline">{username}</span>

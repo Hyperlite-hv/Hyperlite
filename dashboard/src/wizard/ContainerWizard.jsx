@@ -83,14 +83,14 @@ export default function ContainerWizard({ open, onClose }) {
             <div className="mt-1 flex gap-2">
               <button
                 type="button"
-                className={form.image === "" ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+                className={form.image === "" ? "btn-primary flex-1 py-1.5! text-xs" : "btn-secondary flex-1 py-1.5! text-xs"}
                 onClick={() => patch({ image: "" })}
               >
                 Debian 12 (local base)
               </button>
               <button
                 type="button"
-                className={form.image !== "" ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
+                className={form.image !== "" ? "btn-primary flex-1 py-1.5! text-xs" : "btn-secondary flex-1 py-1.5! text-xs"}
                 onClick={() => patch({ image: form.image || "alpine:3.19" })}
               >
                 Docker Hub image
@@ -117,7 +117,7 @@ export default function ContainerWizard({ open, onClose }) {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 text-sm text-anthracite-100">
                             <span className="truncate">{r.nom}</span>
-                            {r.officielle && <span className="shrink-0 rounded bg-accent-blue/20 px-1 text-[10px] text-accent-blue">official</span>}
+                            {r.officielle && <span className="shrink-0 rounded-sm bg-accent-blue/20 px-1 text-[10px] text-accent-blue">official</span>}
                           </div>
                           {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
                         </div>

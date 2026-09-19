@@ -55,7 +55,7 @@ export default function ResourceTree() {
   }, [nodes, vms, storagePools, treeFilter, searchQuery]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col border-t border-white/[0.06] mt-1 pt-2">
+    <div className="flex min-h-0 flex-1 flex-col border-t border-white/6 mt-1 pt-2">
       <div className="flex gap-0.5 mx-2.5 mb-1.5 p-0.5 rounded-md bg-black/20">
         {FILTERS.map((f) => (
           <button
