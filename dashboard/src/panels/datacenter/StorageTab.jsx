@@ -70,10 +70,17 @@ export default function StorageTab() {
 
   async function handleDeletePool(pool) {
     if (pool.nom === "default") return;
-    if (!window.confirm(`Supprimer le pool '${pool.nom}' ? Le pool doit être vide.`)) return;
+    // Pools dir/NFS : on ne retire que la DEFINITION du pool, jamais les
+    // fichiers (le serveur refuse si une VM en utilise). Autres types : le
+    // pool doit etre vide, comportement historique.
+    const fsBacked = pool.type === "dir" || pool.type === "netfs";
+    const msg = fsBacked
+      ? `Retirer le pool '${pool.nom}' d'Hyperlite ?\n\nSes fichiers ne sont PAS supprimés (seule la définition du pool disparaît).`
+      : `Supprimer le pool '${pool.nom}' ? Le pool doit être vide.`;
+    if (!window.confirm(msg)) return;
     try {
-      await deleteStoragePool(pool.nom, pool.node === "local" ? undefined : pool.node);
-      pushToast({ kind: "success", title: "Pool supprimé", message: pool.nom });
+      await deleteStoragePool(pool.nom, pool.node === "local" ? undefined : pool.node, fsBacked);
+      pushToast({ kind: "success", title: "Pool retiré", message: pool.nom });
       refreshAll();
     } catch (e) {
       pushToast({ kind: "error", title: "Échec de la suppression", message: e.message });

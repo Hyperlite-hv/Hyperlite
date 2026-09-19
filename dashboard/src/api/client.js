@@ -526,8 +526,9 @@ export async function createStoragePool(payload, node) {
   const qs = node ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/storage${qs}`, { method: "POST", ...jsonBody(payload) });
 }
-export async function deleteStoragePool(poolName, node) {
+export async function deleteStoragePool(poolName, node, detacher = false) {
   const params = new URLSearchParams({ confirm: "true" });
+  if (detacher) params.set("detacher", "true");
   if (node) params.set("node", node);
   return realFetch(`/storage/${encodeURIComponent(poolName)}?${params.toString()}`, { method: "DELETE" });
 }
