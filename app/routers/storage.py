@@ -1,43 +1,42 @@
+import contextlib
 import re
 import socket
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
 
+import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-import libvirt
 
-from app.core.libvirt_utils import open_conn, ensure_default_pool, get_disk_paths_in_use
-from app.core.vm_builder import validate_name
-from app.core.security import get_current_user, require_role
+from app.core import zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core import zfs_storage
+from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, open_conn
+from app.core.security import get_current_user, require_role
+from app.core.vm_builder import validate_name
 from app.core.vm_limits import validate_vm_resources
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
-# BUG REEL trouve le 2026-09-17 en testant la creation d'un pool NFS (tous
-# les pools, y compris "default" deja actif depuis des jours, s'affichaient
-# "en_construction") : cette table ne correspondait PAS a l'enumeration
-# reelle de libvirt (virStoragePoolState -- verifie via
-# libvirt.VIR_STORAGE_POOL_*, seulement 5 valeurs 0-4, pas 6). Sans impact
-# visible avant aujourd'hui car aucun ecran n'affichait encore ce champ
-# "etat" -- corrige avant de l'exposer dans l'UI de gestion des pools.
+# This table did not match libvirt's real enumeration (virStoragePoolState,
+# checked through libvirt.VIR_STORAGE_POOL_*: only 5 values, 0-4, not 6). Every
+# pool, including an already active "default", was displayed as
+# "en_construction". It had no visible effect while no screen displayed this
+# "state" field.
 POOL_STATE_NAMES = {
-    0: "inactif",       # VIR_STORAGE_POOL_INACTIVE
+    0: "inactif",  # VIR_STORAGE_POOL_INACTIVE
     1: "en_construction",  # VIR_STORAGE_POOL_BUILDING
-    2: "actif",          # VIR_STORAGE_POOL_RUNNING
-    3: "degrade",         # VIR_STORAGE_POOL_DEGRADED
-    4: "inaccessible",    # VIR_STORAGE_POOL_INACCESSIBLE
+    2: "actif",  # VIR_STORAGE_POOL_RUNNING
+    3: "degrade",  # VIR_STORAGE_POOL_DEGRADED
+    4: "inaccessible",  # VIR_STORAGE_POOL_INACCESSIBLE
 }
 
-# Nom d'hote/IP (chantier 26, pool NFS) : lettres/chiffres/points/tirets --
-# suffisant pour un hostname ou une IPv4/IPv6 simple, exclut tout caractere
-# qui pourrait avoir un sens special ailleurs.
+# Host name/IP (NFS pool): letters/digits/dots/dashes. Enough for a hostname or
+# a simple IPv4/IPv6 address, and it excludes any character that could have a
+# special meaning elsewhere.
 NFS_HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.:_-]{0,253})$")
-# Chemin absolu (export NFS cote serveur, ou repertoire local d'un pool
-# "dir") : pas d'espace ni de caracteres XML/shell speciaux.
+# Absolute path (server-side NFS export, or the local directory of a "dir"
+# pool): no spaces or special XML/shell characters.
 POOL_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.-]{0,255}$")
 
 
@@ -57,24 +56,23 @@ def _pool_summary(pool):
         "type": _pool_type(pool),
         "etat": POOL_STATE_NAMES.get(state, "inconnu"),
         "autostart": bool(pool.autostart()),
-        "capacite_go": round(capacity / (1024 ** 3), 2),
-        "allocation_go": round(allocation / (1024 ** 3), 2),
-        "disponible_go": round(available / (1024 ** 3), 2),
+        "capacite_go": round(capacity / (1024**3), 2),
+        "allocation_go": round(allocation / (1024**3), 2),
+        "disponible_go": round(available / (1024**3), 2),
     }
 
 
 @router.get("")
 def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
-    """node : meme convention que GET /vms (chantier 15) -- liste les pools
-    d'un noeud distant enregistre plutot que de l'hote local.
+    """node: the same convention as GET /vms: list the pools of a registered remote
+    node instead of the local host.
 
-    Pools ZFS (backlog stockage 2026-09-18) fusionnes dans la meme liste
-    (type='zfs') pour un affichage unifie cote UI -- mais uniquement
-    quand `node` designe l'hote LOCAL : contrairement aux pools libvirt
-    (dir/netfs), la gestion ZFS de ce chantier est encore mono-noeud
-    (appels `zpool`/`zfs` directs sur CE serveur, pas de gestion a
-    distance via SSH -- voir app/core/zfs_storage.py). Un pool ZFS d'un
-    noeud distant enregistre n'est donc pas visible ici pour l'instant."""
+    ZFS pools are merged into the same list (type='zfs') for a unified display
+    in the UI, but only when `node` designates the LOCAL host: unlike libvirt
+    pools (dir/netfs), ZFS management is still single-node (direct `zpool`/`zfs`
+    calls on THIS server, no remote management over SSH; see
+    app/core/zfs_storage.py). A ZFS pool of a registered remote node is
+    therefore not visible here for now."""
     conn = open_conn(node)
     try:
         ensure_default_pool(conn)
@@ -90,28 +88,26 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
 
 class PoolCreate(BaseModel):
     name: str
-    # "dir" : repertoire local au nœud (comme le pool "default" existant).
-    # "netfs" : export NFS distant monte par libvirt (chantier 26, stockage
-    # partage) -- fondation du chantier 27 (migration a chaud), un disque
-    # sur un pool netfs est visible identiquement depuis n'importe quel
-    # nœud qui monte le meme export, pas besoin de le copier au moment de
-    # migrer une VM.
-    # "zfs" (backlog stockage 2026-09-18) : pool ZFS gere hors libvirt (voir
-    # app/core/zfs_storage.py), adosse pour l'instant a un fichier loopback
-    # (`size_gb`) plutot qu'un disque dedie -- choix explicite d'Antho pour
-    # valider le mecanisme sans toucher au LVM existant d'un nœud.
+    # "dir": a directory local to the node (like the existing "default" pool).
+    # "netfs": a remote NFS export mounted by libvirt (shared storage), the
+    # foundation of live migration: a disk on a netfs pool is visible identically from
+    # any node that mounts the same export, so it does not need to be copied when a VM
+    # is migrated.
+    # "zfs": a ZFS pool managed outside libvirt (see app/core/zfs_storage.py), backed
+    # for now by a loopback file (`size_gb`) rather than a dedicated disk, so the
+    # mechanism can be validated without touching a node's existing LVM.
     type: str = Field(pattern="^(dir|netfs|zfs)$")
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
-    nfs_host: str | None = None  # pool "netfs" : hote du serveur NFS
+    nfs_host: str | None = None  # "netfs" pool: NFS server host
     nfs_export_path: str | None = None  # pool "netfs" : chemin exporte cote serveur
-    size_gb: int | None = Field(None, ge=1)  # pool "zfs" : taille du fichier loopback
+    size_gb: int | None = Field(None, ge=1)  # "zfs" pool: size of the loopback file
 
 
 def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
-    """Construit le XML libvirt via ElementTree (echappement automatique)
-    plutot que par concatenation de chaines -- l'audit securite (chantier
-    11) avait justement trouve une injection XML dans la creation reseau
-    en mode pont pour cette raison, pas question de repeter l'erreur ici."""
+    """Build the libvirt XML with ElementTree (automatic escaping) rather than by
+    string concatenation: the security audit had found an XML injection in
+    bridge-mode network creation for exactly that reason, and the mistake must
+    not be repeated here."""
     pool_el = ET.Element("pool", type=payload.type)
     ET.SubElement(pool_el, "name").text = payload.name
     if payload.type == "netfs":
@@ -119,51 +115,39 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
         ET.SubElement(source_el, "host", name=payload.nfs_host)
         ET.SubElement(source_el, "dir", path=payload.nfs_export_path)
         ET.SubElement(source_el, "format", type="nfs")
-        # BUG REEL trouve en testant un partage NFS reellement inter-
-        # machines (chantier 17, HA) : sur un client NFS Debian 13/trixie
-        # (nfs-utils + noyau recents, verifie sur serveur-antho), le
-        # montage echoue systematiquement avec "NFS: mount program didn't
-        # pass remote address" -- un mount(8) manuel SANS l'option 'addr='
-        # explicite echoue de la meme facon, AVEC elle il reussit. Semble
-        # etre une regression du chemin de montage recent (fsconfig/nouvelle
-        # API de montage du noyau) qui ne deduit plus l'adresse depuis le
-        # nom d'hote fourni. Ajoutee systematiquement -- inoffensive sur un
-        # client NFS plus ancien qui n'en a pas besoin. 'addr' veut une IP,
-        # pas un nom d'hote -- gethostbyname() sur une IP litterale la
-        # renvoie telle quelle (no-op), pas besoin de detecter le cas au
-        # prealable.
+        # NFS mount options, found by testing a real NFS share between two machines:
         #
-        # DEUXIEME bug trouve dans la foulee (meme test reel, client NFS
-        # Debian 13/trixie) : meme avec 'addr=' correctement transmis,
-        # le montage echoue ensuite avec "NFS: Version unavailable" tant
-        # que la version NFS n'est pas fixee explicitement -- la
-        # negociation automatique echoue silencieusement sur ce client.
-        # 'vers=4.2' ajoute pour la meme raison.
+        # 1) On a recent Debian 13 NFS client (recent nfs-utils and kernel) the mount
+        # always fails with "NFS: mount program didn't pass remote address". A manual
+        # mount(8) WITHOUT an explicit 'addr=' option fails the same way, and it succeeds
+        # WITH it. This looks like a regression of the recent mount path (the new
+        # fsconfig kernel mount API), which no longer derives the address from the given
+        # host name. It is added systematically, harmless on an older NFS client that does
+        # not need it. 'addr' wants an IP, not a host name; gethostbyname() on a literal
+        # IP returns it unchanged (a no-op), so the case does not need to be detected
+        # beforehand.
         #
-        # L'element s'appelle 'mount_opts' (PAS 'mountopts', erreur faite
-        # une premiere fois -- silencieusement ignore par libvirt sans
-        # rien dans l'erreur pour l'indiquer) et vit dans son PROPRE espace
-        # de noms XML (verifie dans /usr/share/libvirt/schemas/
-        # storagepool.rng sur cette machine, pas dans la documentation en
-        # ligne). TROISIEME piege trouve en testant : construit via
-        # ET.SubElement avec un tag qualifie '{namespace}mount_opts',
-        # ET.tostring() serialise ca en declarant le namespace comme un
-        # PREFIXE sur la racine <pool xmlns:ns0="..."> puis <ns0:mount_opts>
-        # -- syntaxiquement correct, mais libvirt sur cette version
-        # (Debian 13/serveur-antho) l'ignore silencieusement quand meme
-        # (verifie : l'element est absent du XML RELU juste apres
-        # defineXML). Seule la forme "xmlns=... sur l'element lui-meme"
-        # (namespace par defaut LOCAL, pas un prefixe racine) est
-        # effectivement prise en compte -- ET ne genere jamais cette forme
-        # precise. Le reste du document reste construit via ElementTree
-        # (echappement automatique, voir plus haut) ; seul ce fragment est
-        # assemble comme chaine, avec des valeurs deja validees (regex
-        # NFS_HOST_RE plus haut) ou resolues via gethostbyname -- jamais du
-        # texte utilisateur brut.
+        # 2) Even with 'addr=' passed correctly, the mount then fails with "NFS: Version
+        # unavailable" unless the NFS version is fixed explicitly: automatic negotiation
+        # fails silently on this client. 'vers=4.2' is added for the same reason.
+        #
+        # 3) The libvirt element is 'mount_opts' (NOT 'mountopts', which libvirt ignores
+        # silently) and it lives in its OWN XML namespace (checked in
+        # /usr/share/libvirt/schemas/storagepool.rng, not in the online documentation).
+        # Built with ET.SubElement and a qualified '{namespace}mount_opts' tag,
+        # ET.tostring() declares the namespace as a PREFIX on the root
+        # (<pool xmlns:ns0="..."> then <ns0:mount_opts>). That is syntactically correct,
+        # but libvirt on this version still ignores it silently (the element is absent
+        # from the XML read back right after defineXML). Only the form with "xmlns=..."
+        # on the element itself (a LOCAL default namespace, not a root prefix) is honoured,
+        # and ElementTree never generates that exact form. The rest of the document is
+        # still built with ElementTree (automatic escaping, see above); only this fragment
+        # is assembled as a string, with values that are already validated (NFS_HOST_RE
+        # above) or resolved through gethostbyname, never raw user text.
         try:
             addr = socket.gethostbyname(payload.nfs_host)
         except OSError:
-            addr = payload.nfs_host  # echec de resolution : tente quand meme avec la valeur fournie telle quelle
+            addr = payload.nfs_host  # resolution failed: try anyway with the value as provided
         mount_opts_xml = (
             f'<mount_opts xmlns="http://libvirt.org/schemas/storagepool/fs/1.0">'
             f'<option name="addr={saxutils.escape(addr)}"/><option name="vers=4.2"/></mount_opts>'
@@ -187,68 +171,73 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
 
     if payload.type == "zfs":
         if node and node != "local":
-            raise HTTPException(status_code=422, detail="Un pool ZFS ne peut être créé que sur l'hôte local (gestion mono-nœud pour l'instant)")
+            raise HTTPException(
+                status_code=422,
+                detail="A ZFS pool can only be created on the local host (single-node management for now)",
+            )
         if not payload.size_gb:
-            raise HTTPException(status_code=422, detail="size_gb est requis pour un pool ZFS")
+            raise HTTPException(status_code=422, detail="size_gb is required for a ZFS pool")
         size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
         if size_errors:
             raise HTTPException(status_code=422, detail=size_errors)
         if not zfs_storage.is_available():
-            raise HTTPException(status_code=422, detail="ZFS n'est pas installé sur cet hôte (paquets zfsutils-linux/zfs-dkms)")
+            raise HTTPException(
+                status_code=422, detail="ZFS is not installed on this host (zfsutils-linux/zfs-dkms packages)"
+            )
         try:
             pool = zfs_storage.create_pool(payload.name, payload.size_gb)
         except zfs_storage.ZfsError as e:
             log_action(user["username"], "create_storage_pool", payload.name, "echec", e.message)
-            raise HTTPException(status_code=500, detail=f"Erreur de création du pool ZFS : {e.message}")
+            raise HTTPException(status_code=500, detail=f"ZFS pool creation error: {e.message}") from e
         log_action(user["username"], "create_storage_pool", payload.name, "succes")
         return pool
 
     if payload.type == "dir":
         target_path = payload.path or f"/var/lib/libvirt/hyperlite-pools/{payload.name}"
         if not POOL_PATH_RE.match(target_path):
-            raise HTTPException(status_code=422, detail="Chemin de pool invalide (doit être un chemin absolu, sans espace ni caractère spécial)")
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid pool path (must be an absolute path, without spaces or special characters)",
+            )
     else:
         if not payload.nfs_host or not payload.nfs_export_path:
-            raise HTTPException(status_code=422, detail="nfs_host et nfs_export_path sont requis pour un pool NFS")
+            raise HTTPException(status_code=422, detail="nfs_host and nfs_export_path are required for an NFS pool")
         if not NFS_HOST_RE.match(payload.nfs_host):
-            raise HTTPException(status_code=422, detail="Hôte NFS invalide")
+            raise HTTPException(status_code=422, detail="Invalid NFS host")
         if not POOL_PATH_RE.match(payload.nfs_export_path):
-            raise HTTPException(status_code=422, detail="Chemin d'export NFS invalide (doit être un chemin absolu)")
-        # Point de montage LOCAL au nœud (cote client NFS) -- distinct du
-        # chemin exporte cote serveur, jamais fourni par l'appelant pour
-        # eviter toute collision avec un repertoire systeme existant.
+            raise HTTPException(status_code=422, detail="Invalid NFS export path (must be an absolute path)")
+        # LOCAL mount point on the node (the NFS client side): distinct from the path
+        # exported on the server side, and never supplied by the caller, to avoid any
+        # collision with an existing system directory.
         target_path = f"/var/lib/libvirt/hyperlite-pools/{payload.name}"
 
     conn = open_conn(node)
     try:
         try:
             conn.storagePoolLookupByName(payload.name)
-            log_action(user["username"], "create_storage_pool", payload.name, "echec", "Pool déjà existant")
-            raise HTTPException(status_code=422, detail=f"Un pool '{payload.name}' existe déjà")
+            log_action(user["username"], "create_storage_pool", payload.name, "echec", "Pool already exists")
+            raise HTTPException(status_code=422, detail=f"A pool '{payload.name}' already exists")
         except libvirt.libvirtError:
             pass
 
         pool_xml = _build_pool_xml(payload, target_path)
         try:
             pool = conn.storagePoolDefineXML(pool_xml)
-            # build() cree le repertoire local ("dir") ou le point de montage
-            # ("netfs") -- necessaire avant create() sur un pool tout neuf.
-            # flags=0 : pas de reformatage destructif d'un support existant.
+            # build() creates the local directory ("dir") or the mount point ("netfs"),
+            # needed before create() on a brand new pool. flags=0: no destructive reformatting
+            # of an existing medium.
             pool.build(0)
             pool.create(0)
             pool.setAutostart(True)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "create_storage_pool", payload.name, "echec", msg)
-            # Nettoyage best-effort si la definition a reussi mais pas le
-            # demarrage (ex. export NFS injoignable) -- evite un pool
-            # "fantome" defini mais jamais utilisable qui bloquerait un
-            # nouvel essai avec le meme nom.
-            try:
+            # Best-effort cleanup if the definition succeeded but the start did not (e.g. an
+            # unreachable NFS export): avoids a "ghost" pool that is defined but never usable
+            # and would block a new attempt with the same name.
+            with contextlib.suppress(libvirt.libvirtError):
                 conn.storagePoolLookupByName(payload.name).undefine()
-            except libvirt.libvirtError:
-                pass
-            raise HTTPException(status_code=500, detail=f"Erreur de création du pool : {msg}")
+            raise HTTPException(status_code=500, detail=f"Pool creation error: {msg}") from e
 
         log_action(user["username"], "create_storage_pool", payload.name, "succes")
         return _pool_summary(pool)
@@ -257,7 +246,7 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
 
 
 def _vms_using_path(conn, target):
-    """Noms des VM dont un disque/CD-ROM se trouve sous `target`."""
+    """Names of the VMs that have a disk or CD-ROM under `target`."""
     if not target:
         return []
     prefix = target.rstrip("/") + "/"
@@ -276,61 +265,74 @@ def _vms_using_path(conn, target):
 
 
 @router.delete("/{pool_name}")
-def delete_pool(pool_name: str, node: str | None = None, confirm: bool = False, detacher: bool = False, user: dict = Depends(require_role("admin"))):
+def delete_pool(
+    pool_name: str,
+    node: str | None = None,
+    confirm: bool = False,
+    detacher: bool = False,
+    user: dict = Depends(require_role("admin")),
+):
     if pool_name == "default":
-        raise HTTPException(status_code=400, detail="Le pool 'default' ne peut pas être supprimé")
+        raise HTTPException(status_code=400, detail="The 'default' pool cannot be deleted")
     if not confirm:
-        raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
+        raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion")
 
-    # Un pool ZFS n'est PAS un pool libvirt (voir zfs_storage.py) -- routé
-    # à part avant toute tentative de lookup côté libvirt, qui échouerait
-    # simplement avec "introuvable" pour un nom qui n'existe que côté ZFS.
+    # A ZFS pool is NOT a libvirt pool (see zfs_storage.py): it is routed separately
+    # before any lookup on the libvirt side, which would simply fail with "not found"
+    # for a name that only exists on the ZFS side.
     if (not node or node == "local") and zfs_storage.pool_exists(pool_name):
         try:
             zfs_storage.delete_pool(pool_name)
         except zfs_storage.ZfsError as e:
             log_action(user["username"], "delete_storage_pool", pool_name, "echec", e.message)
-            raise HTTPException(status_code=409, detail=e.message)
+            raise HTTPException(status_code=409, detail=e.message) from e
         log_action(user["username"], "delete_storage_pool", pool_name, "succes")
-        return {"message": f"Pool ZFS '{pool_name}' supprimé"}
+        return {"message": f"ZFS pool '{pool_name}' deleted"}
 
     conn = open_conn(node)
     try:
         try:
             pool = conn.storagePoolLookupByName(pool_name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Pool de stockage '{pool_name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
 
         pool.refresh(0)
         volumes = pool.listAllVolumes()
         if volumes:
-            # `detacher` : retire seulement la DEFINITION du pool libvirt
-            # (destroy + undefine), JAMAIS les fichiers -- pour un pool
-            # dir/netfs ce n'est pas destructif. Cas reel : un pool dir cree
-            # automatiquement par virt-install sur /root voit tout /root
-            # comme des "volumes" et ne pouvait donc jamais etre supprime.
+            # `detacher` only removes the libvirt pool DEFINITION (destroy + undefine), NEVER
+            # the files: for a dir/netfs pool that is not destructive. A real case: a dir pool
+            # created automatically by virt-install on /root sees all of /root as "volumes"
+            # and could therefore never be deleted.
             root = ET.fromstring(pool.XMLDesc(0))
             if not detacher or root.get("type") not in ("dir", "netfs"):
-                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool non vide")
-                raise HTTPException(status_code=409, detail=f"Le pool '{pool_name}' contient encore {len(volumes)} fichier(s)/volume(s). Pour retirer le pool SANS supprimer ces fichiers, utilisez l'option « retirer sans supprimer les fichiers » (detacher=true, pools dir/NFS uniquement)")
+                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool not empty")
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Pool '{pool_name}' still contains {len(volumes)} file(s)/volume(s). To remove the pool WITHOUT deleting these files, use the \"remove without deleting the files\" option (detacher=true, dir/NFS pools only)"
+                    ),
+                )
             in_use = _vms_using_path(conn, root.findtext("target/path"))
             if in_use:
-                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool utilise par des VM")
-                raise HTTPException(status_code=409, detail=f"Des VM utilisent des fichiers de ce pool ({', '.join(in_use)}) : retirez-les ou déplacez leurs disques d'abord")
+                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool used by VMs")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
+                )
 
         try:
             if pool.isActive():
-                # netfs : demonte l'export. dir : ne touche pas au contenu du
-                # repertoire (deja verifie vide ci-dessus).
+                # netfs: unmounts the export. dir: does not touch the content of the directory
+                # (already checked empty above).
                 pool.destroy()
             pool.undefine()
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_storage_pool", pool_name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de suppression du pool : {msg}")
+            raise HTTPException(status_code=500, detail=f"Pool deletion error: {msg}") from e
 
         log_action(user["username"], "delete_storage_pool", pool_name, "succes")
-        return {"message": f"Pool '{pool_name}' supprimé"}
+        return {"message": f"Pool '{pool_name}' deleted"}
     finally:
         conn.close()
 
@@ -350,19 +352,21 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
         try:
             pool = conn.storagePoolLookupByName(pool_name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Pool de stockage '{pool_name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         pool.refresh(0)
         in_use = get_disk_paths_in_use(conn)
         result = []
         for vol in pool.listAllVolumes():
             vol_info = vol.info()
-            result.append({
-                "nom": vol.name(),
-                "chemin": vol.path(),
-                "capacite_go": round(vol_info[1] / (1024 ** 3), 3),
-                "allocation_go": round(vol_info[2] / (1024 ** 3), 3),
-                "utilise": vol.path() in in_use,
-            })
+            result.append(
+                {
+                    "nom": vol.name(),
+                    "chemin": vol.path(),
+                    "capacite_go": round(vol_info[1] / (1024**3), 3),
+                    "allocation_go": round(vol_info[2] / (1024**3), 3),
+                    "utilise": vol.path() in in_use,
+                }
+            )
         log_action(user["username"], "list_volumes", pool_name, "succes")
         return result
     finally:
@@ -388,7 +392,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
             path = zfs_storage.create_zvol(pool_name, payload.name, payload.size_gb)
         except zfs_storage.ZfsError as e:
             log_action(user["username"], "create_volume", payload.name, "echec", e.message)
-            raise HTTPException(status_code=500, detail=f"Erreur de création du zvol : {e.message}")
+            raise HTTPException(status_code=500, detail=f"zvol creation error: {e.message}") from e
         log_action(user["username"], "create_volume", payload.name, "succes")
         return {"nom": payload.name, "chemin": path, "capacite_go": float(payload.size_gb)}
 
@@ -397,10 +401,10 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         try:
             pool = conn.storagePoolLookupByName(pool_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_volume", payload.name, "echec", "Pool introuvable")
-            raise HTTPException(status_code=404, detail=f"Pool de stockage '{pool_name}' introuvable")
+            log_action(user["username"], "create_volume", payload.name, "echec", "Pool not found")
+            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
 
-        base_name = payload.name[:-len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
+        base_name = payload.name[: -len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
         name_error = validate_name(base_name)
         if name_error:
             log_action(user["username"], "create_volume", payload.name, "echec", name_error)
@@ -408,12 +412,12 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         filename = f"{base_name}.qcow2"
         try:
             pool.storageVolLookupByName(filename)
-            log_action(user["username"], "create_volume", filename, "echec", "Volume déjà existant")
-            raise HTTPException(status_code=422, detail=f"Un volume '{filename}' existe déjà dans ce pool")
+            log_action(user["username"], "create_volume", filename, "echec", "Volume already exists")
+            raise HTTPException(status_code=422, detail=f"A volume '{filename}' already exists in this pool")
         except libvirt.libvirtError:
             pass
 
-        size_bytes = payload.size_gb * (1024 ** 3)
+        size_bytes = payload.size_gb * (1024**3)
         vol_xml = f"""
         <volume>
           <name>{filename}</name>
@@ -428,14 +432,14 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "create_volume", filename, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de création du volume : {msg}")
+            raise HTTPException(status_code=500, detail=f"Volume creation error: {msg}") from e
 
         log_action(user["username"], "create_volume", filename, "succes")
         vol_info = vol.info()
         return {
             "nom": vol.name(),
             "chemin": vol.path(),
-            "capacite_go": round(vol_info[1] / (1024 ** 3), 3),
+            "capacite_go": round(vol_info[1] / (1024**3), 3),
         }
     finally:
         conn.close()
@@ -450,48 +454,54 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         finally:
             conn.close()
         if zfs_storage.device_path(pool_name, volume_name) in in_use:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume utilisé par une VM")
-            raise HTTPException(status_code=409, detail=f"Le volume '{volume_name}' est utilisé par une VM, suppression refusée")
+            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume used by a VM")
+            raise HTTPException(status_code=409, detail=f"Volume '{volume_name}' is used by a VM, deletion refused")
         if not confirm:
             log_action(user["username"], "delete_volume", volume_name, "echec", "Confirmation manquante")
-            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
+            raise HTTPException(
+                status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
+            )
         try:
             zfs_storage.delete_zvol(pool_name, volume_name)
         except zfs_storage.ZfsError as e:
             log_action(user["username"], "delete_volume", volume_name, "echec", e.message)
-            raise HTTPException(status_code=404 if "introuvable" in e.message else 500, detail=e.message)
+            raise HTTPException(
+                status_code=404 if isinstance(e, zfs_storage.ZfsNotFoundError) else 500, detail=e.message
+            ) from e
         log_action(user["username"], "delete_volume", volume_name, "succes")
-        return {"message": f"Volume '{volume_name}' supprimé"}
+        return {"message": f"Volume '{volume_name}' deleted"}
 
     conn = open_conn()
     try:
         try:
             pool = conn.storagePoolLookupByName(pool_name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Pool de stockage '{pool_name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         try:
             vol = pool.storageVolLookupByName(volume_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume introuvable")
-            raise HTTPException(status_code=404, detail=f"Volume '{volume_name}' introuvable")
+            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume not found")
+            raise HTTPException(status_code=404, detail=f"Volume '{volume_name}' not found") from None
 
         in_use = get_disk_paths_in_use(conn)
         if vol.path() in in_use:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume utilisé par une VM")
-            raise HTTPException(status_code=409, detail=f"Le volume '{volume_name}' est utilisé par une VM, suppression refusée")
+            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume used by a VM")
+            raise HTTPException(status_code=409, detail=f"Volume '{volume_name}' is used by a VM, deletion refused")
 
         if not confirm:
             log_action(user["username"], "delete_volume", volume_name, "echec", "Confirmation manquante")
-            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
+            raise HTTPException(
+                status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
+            )
 
         try:
             vol.delete(0)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_volume", volume_name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {msg}")
+            raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
 
         log_action(user["username"], "delete_volume", volume_name, "succes")
-        return {"message": f"Volume '{volume_name}' supprimé"}
+        return {"message": f"Volume '{volume_name}' deleted"}
     finally:
         conn.close()

@@ -1,31 +1,33 @@
-"""Verification automatique et periodique des mises a jour Hyperlite
-(2026-09-17, suite directe du chantier 7bis/ISO-apt) -- demande explicite
-d'Antho ("il faut tout harmonise que tout soit bien a jour") apres avoir
-trouve serveur-antho silencieusement desynchronise de plusieurs versions :
-son depot APT pointait vers un miroir GitHub Pages perime (voir CLAUDE.md,
-"ISO appliance : installation via apt"), et rien ne signalait l'ecart tant
-qu'un admin ne cliquait pas lui-meme sur "Verifier les mises a jour".
+"""Periodic automatic check for Hyperlite updates.
 
-Meme principe de prudence que le chantier 17 (HA) : ce module DETECTE et
-ALERTE, il n'applique JAMAIS de mise a jour tout seul -- une mise a jour
-redemarre le service (meme si les VM actives ne sont pas touchees, voir
-app/routers/update.py), pas anodin sans supervision humaine explicite.
+Prompted by finding a production node silently several versions behind: its
+APT repository pointed at a stale mirror, and nothing flagged the gap until an
+admin clicked "Check for updates" by hand.
 
-Reutilise directement check_update() (meme logique que GET /update/check,
-git ou apt selon _install_method()) plutot que de dupliquer la detection.
-Notifie via le point d'entree unique de audit.py::log_action() (chantier
-28) UNE SEULE FOIS par version distante detectee (update_check_state,
-table a une ligne) -- pas a chaque cycle horaire tant que personne n'a
-applique la mise a jour, sinon un webhook/email par heure indefiniment.
+Same cautious principle as HA: this module DETECTS and ALERTS, it NEVER applies
+an update by itself. An update restarts the service (running VMs are not
+affected, see app/routers/update.py), which is not something to do without
+explicit human supervision.
+
+It reuses check_update() directly (same logic as GET /update/check, git or apt
+depending on _install_method()) instead of duplicating the detection. It
+notifies through the single entry point audit.py::log_action(), ONCE per
+detected remote version (update_check_state, a one-row table), not on every
+hourly cycle while nobody applies the update, which would send one webhook or
+email per hour indefinitely.
+
 """
+
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.audit import log_action
 from app.core.database import get_conn
 
-CHECK_INTERVAL_S = 3600  # meme cadence que vm_cleanup.py -- une derive de version se compte en heures/jours, pas besoin de plus frequent
+CHECK_INTERVAL_S = (
+    3600  # same cadence as vm_cleanup.py: version drift is counted in hours or days, no need to check more often
+)
 
 
 def _get_last_notified():
@@ -35,7 +37,7 @@ def _get_last_notified():
 
 
 def _mark_notified(version):
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with get_conn() as db:
         db.execute(
             """
@@ -50,7 +52,7 @@ def _mark_notified(version):
 
 
 def _touch_checked_at():
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with get_conn() as db:
         db.execute(
             """
@@ -64,7 +66,7 @@ def _touch_checked_at():
 
 
 def check_once():
-    from app.routers.update import check_update  # import tardif : evite un cycle au chargement du module
+    from app.routers.update import check_update  # late import: avoids a cycle when the module loads
 
     result = check_update(user={"role": "admin"})
     _touch_checked_at()
@@ -74,7 +76,7 @@ def check_once():
 
     remote = result.get("commit_distant")
     if not remote or _get_last_notified() == remote:
-        return  # pas de version distante exploitable, ou deja notifie pour CETTE version
+        return  # no usable remote version, or already notified for THIS version
 
     msg = f"Nouvelle version Hyperlite disponible : {remote} (version actuelle : {result.get('commit_local')})"
     log_action("system", "update_available", "hyperlite", "succes", msg)
@@ -86,7 +88,7 @@ def _loop():
         try:
             check_once()
         except Exception as e:
-            print(f"[update_check] cycle échoué : {e!r}", flush=True)
+            print(f"[update_check] cycle failed: {e!r}", flush=True)
         time.sleep(CHECK_INTERVAL_S)
 
 

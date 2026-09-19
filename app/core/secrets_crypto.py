@@ -1,24 +1,21 @@
-"""Chiffrement au repos des secrets stockes en base (2026-09-18,
-backlog du chantier 28/20) -- le mot de passe SMTP (chantier 28) et le
-client secret OIDC (chantier 20) etaient stockes en clair dans
-`hyperlite.db`, documente a l'epoque comme acceptable ("pas de
-coffre-fort de secrets dans ce projet").
+"""Encryption at rest for secrets stored in the database (the SMTP password
+and the OIDC client secret).
 
-**Limite honnete, a ne pas se cacher** : la cle de chiffrement vit dans
-le MEME fichier `.env` que le reste de la config, sur le MEME disque que
-`hyperlite.db` -- un attaquant avec un acces COMPLET au systeme de
-fichiers n'est PAS arrete par ce chiffrement (ce projet n'a pas de
-coffre-fort externe/KMS, et n'en aura probablement jamais vu l'echelle).
-Protection reelle et non nulle contre un scenario plus etroit mais
-realiste : une fuite du SEUL fichier `hyperlite.db` (sauvegarde copiee/
-partagee sans le `.env` qui l'accompagne, extraction SQL limitee,
-dump partiel...).
+Honest limitation: the encryption key lives in the SAME `.env` file as the
+rest of the configuration, on the SAME disk as `hyperlite.db`. An attacker
+with FULL access to the filesystem is NOT stopped by this encryption (the
+project has no external vault or KMS). It does provide real protection against
+a narrower but realistic scenario: a leak of the `hyperlite.db` file alone (a
+backup copied or shared without its `.env`, a limited SQL extraction, a
+partial dump).
 
-Fernet (module `cryptography`, deja present -- dependance transitive de
-python-jose[cryptography] deja utilise par security.py/sso.py) : AES-128
-en mode CBC + HMAC-SHA256, chiffrement authentifie, format eprouve et
-simple plutot que de reinventer un schema.
+Fernet (from the `cryptography` package, already a dependency and used
+elsewhere for PyJWT in security.py and sso.py): AES-128 in CBC mode plus
+HMAC-SHA256, authenticated encryption, a proven and simple format rather than
+a home-made scheme.
+
 """
+
 import os
 from pathlib import Path
 
@@ -30,16 +27,14 @@ _fernet = None
 
 
 def _read_key_from_env_file():
-    """Le service tourne sous systemd (EnvironmentFile=.env, voir
-    hyperlite.service) -- os.environ la contient toujours pour LUI. Mais
-    un script/outil lance a la main (hors systemd, ex. un test) ne
-    l'herite PAS automatiquement meme si .env contient deja la variable
-    -- BUG REEL rencontre en testant ce chantier : un tel script a
-    regenere une DEUXIEME cle et l'a re-appendue a .env (repli sur
-    os.environ seul, jamais verifie le fichier lui-meme), rendant les
-    secrets deja chiffres avec la premiere cle illisibles pour ce
-    process. Corrige en lisant le fichier directement en dernier
-    recours, AVANT de conclure qu'aucune cle n'existe encore."""
+    """The service runs under systemd (EnvironmentFile=.env, see
+    hyperlite.service), so os.environ always contains the key for it. A script
+    started by hand (outside systemd, e.g. a test) does NOT inherit it
+    automatically even when .env already holds the variable: such a script
+    once generated a SECOND key and appended it to .env (it only looked at
+    os.environ, never at the file), making secrets already encrypted with the
+    first key unreadable. Fixed by reading the file directly as a last resort,
+    BEFORE concluding that no key exists yet."""
     if not ENV_PATH.exists():
         return None
     for line in ENV_PATH.read_text().splitlines():
@@ -53,11 +48,9 @@ def _load_or_create_key():
     if key:
         os.environ[_KEY_VAR] = key
         return key.encode()
-    # Vraiment aucune cle nulle part (premiere fois que CETTE machine
-    # rencontre ce besoin) -- en genere une et la PERSISTE immediatement
-    # dans .env : une cle perdue au prochain redemarrage rendrait tout
-    # secret deja chiffre illisible pour toujours (aucune autre copie
-    # nulle part).
+    # No key anywhere (first time this machine needs one): generate one and PERSIST
+    # it in .env immediately. A key lost at the next restart would make every
+    # already encrypted secret unreadable forever (there is no other copy).
     new_key = Fernet.generate_key()
     with open(ENV_PATH, "a") as f:
         f.write(f"\n{_KEY_VAR}={new_key.decode()}\n")
@@ -80,12 +73,11 @@ def encrypt(plaintext):
 
 
 def decrypt(value):
-    """Repli SILENCIEUX sur la valeur telle quelle si le dechiffrement
-    echoue -- couvre la migration depuis une valeur DEJA EN BASE avant ce
-    chantier (jamais chiffree, donc pas un jeton Fernet valide) : plutot
-    que de faire planter un envoi SMTP/une connexion OIDC existante,
-    l'ancienne valeur en clair continue de fonctionner jusqu'a la
-    prochaine fois qu'un admin la modifie (qui la chiffrera alors)."""
+    """Silently fall back to the value as is if decryption fails. This covers
+    values stored before encryption existed (never encrypted, so not a valid
+    Fernet token): rather than crashing an existing SMTP send or OIDC login,
+    the old plaintext value keeps working until an admin next edits it (which
+    then encrypts it)."""
     if not value:
         return value
     try:

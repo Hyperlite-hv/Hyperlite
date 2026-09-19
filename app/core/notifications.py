@@ -1,52 +1,53 @@
-"""Notifications sortantes (chantier 28 de la roadmap vSphere/vCenter,
-2026-09-17). Jusqu'ici, tout evenement notable (panne de nœud, alerte HA,
-mise a jour, echec de tache...) ne vivait QUE dans l'audit log interne --
-rien ne sortait de l'application. Deux canaux geres : webhook generique
-(POST JSON -- compatible Discord/Slack/ntfy/n'importe quel receveur HTTP)
-et email (SMTP). Pas de dependance externe : urllib + smtplib (stdlib),
-pas de nouvelle entree dans requirements.txt.
+"""Outbound notifications. Every notable event (node failure, HA alert,
+update, task failure...) used to live ONLY in the internal audit log: nothing
+left the application. Two channel types are supported: a generic webhook (JSON
+POST, compatible with Discord, Slack, ntfy or any HTTP receiver) and email
+(SMTP). No external dependency: urllib + smtplib from the standard library.
 
-N'ENVOIE PAS pour chaque appel de log_action() (bruit ingerable -- une
-erreur de validation utilisateur n'est pas un evenement d'infrastructure)
-: seulement pour les `action` listees dans NOTIFY_EVENTS, curatee
-manuellement plutot que devinee a l'avance -- a etendre au besoin.
+It does NOT send for every log_action() call (unmanageable noise: a user
+validation error is not an infrastructure event), only for the `action` values
+listed in NOTIFY_EVENTS, curated by hand rather than guessed in advance. Extend
+it as needed.
+
 """
+
 import json
 import smtplib
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
 
-from app.core.database import get_conn
 from app.core import secrets_crypto
+from app.core.database import get_conn
+from app.core.http_safety import require_http_url
 
 NOTIFY_EVENTS = {
-    "node_statut_change": "Changement d'état d'un nœud",
-    "ha_alert": "Alerte HA (nœud protégé tombé)",
-    "hyperlite_update": "Mise à jour Hyperlite",
-    "update_available": "Nouvelle version Hyperlite disponible (à appliquer)",
-    "create_vm": "Création de VM",
-    "delete_vm": "Suppression de VM",
+    "node_statut_change": "Node state change",
+    "ha_alert": "HA alert (protected node down)",
+    "hyperlite_update": "Hyperlite update",
+    "update_available": "New Hyperlite version available (to be applied)",
+    "create_vm": "VM creation",
+    "delete_vm": "VM deletion",
     "migrate_vm": "Migration de VM",
-    "backup_vm": "Sauvegarde de VM",
-    "restore_backup": "Restauration de sauvegarde",
-    # "delete_vm" (deja ci-dessus) couvre aussi la suppression automatique
-    # d'une VM inactive (chantier 19) -- meme evenement cote notification,
-    # le texte du message distingue "suppression automatique" du cas manuel.
-    "auto_cleanup_warning": "Avertissement de suppression automatique (VM inactive)",
+    "backup_vm": "VM backup",
+    "restore_backup": "Backup restore",
+    # "delete_vm" (already above) also covers the automatic deletion of an
+    # inactive VM: same notification event, and the message text tells an
+    # "automatic deletion" apart from a manual one.
+    "auto_cleanup_warning": "Automatic deletion warning (inactive VM)",
 }
 
 
 def _now():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def list_channels():
-    """Renvoie le mot de passe SMTP DECHIFFRE -- usage INTERNE uniquement
-    (envoi reel via send_to_channel/notify). Ne JAMAIS exposer ce
-    resultat tel quel via l'API (voir app/routers/notifications.py, qui
-    redige le mot de passe avant de repondre au client)."""
+    """Return the DECRYPTED SMTP password: INTERNAL use only (actual sending through
+    send_to_channel/notify). NEVER expose this result as is through the API
+    (see app/routers/notifications.py, which redacts the password before
+    answering the client)."""
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM notification_channels ORDER BY id").fetchall()
     result = []
@@ -93,14 +94,21 @@ def _send_webhook(config, title, message, event, result):
     url = config.get("url")
     if not url:
         raise ValueError("URL manquante")
-    payload = json.dumps({
-        "event": event, "title": title, "message": message, "result": result,
-        "source": "hyperlite", "ts": _now(),
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    require_http_url(url)
+    payload = json.dumps(
+        {
+            "event": event,
+            "title": title,
+            "message": message,
+            "result": result,
+            "source": "hyperlite",
+            "ts": _now(),
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")  # noqa: S310 -- URL scheme validated by require_http_url() or a constant https URL
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 -- scheme validated by require_http_url
         if resp.status >= 300:
-            raise RuntimeError(f"Réponse HTTP {resp.status}")
+            raise RuntimeError(f"HTTP response {resp.status}")
 
 
 def _send_email(config, title, message, event, result):
@@ -113,7 +121,7 @@ def _send_email(config, title, message, event, result):
     msg["Subject"] = f"[Hyperlite] {title}"
     msg["From"] = config["from_addr"]
     msg["To"] = config["to_addr"]
-    msg.set_content(f"{message}\n\n-- \nÉvénement : {event}\nRésultat : {result}\nHyperlite")
+    msg.set_content(f"{message}\n\n-- \nEvent: {event}\nResult: {result}\nHyperlite")
 
     host, port = config["smtp_host"], int(config["smtp_port"])
     use_tls = config.get("use_tls", True)
@@ -130,8 +138,8 @@ _SENDERS = {"webhook": _send_webhook, "email": _send_email}
 
 
 def send_to_channel(channel, title, message, event="test", result="succes"):
-    """Envoie sur UN canal precis -- utilise aussi par le bouton 'Tester'
-    de l'UI (event='test', jamais filtre par NOTIFY_EVENTS)."""
+    """Send to ONE specific channel. Also used by the UI's "Test" button
+    (event='test', never filtered by NOTIFY_EVENTS)."""
     sender = _SENDERS.get(channel["type"])
     if not sender:
         raise ValueError(f"Type de canal inconnu : {channel['type']}")
@@ -139,11 +147,10 @@ def send_to_channel(channel, title, message, event="test", result="succes"):
 
 
 def notify(event, title, message, result="succes"):
-    """Point d'entree utilise par le reste de l'app (cluster.py, ha.py,
-    audit.py...) -- best-effort total : une erreur d'envoi sur UN canal
-    n'empeche jamais les autres, et ne remonte JAMAIS d'exception a
-    l'appelant (l'envoi d'une notification ne doit jamais faire echouer
-    l'operation qui l'a declenchee)."""
+    """Entry point used by the rest of the application (cluster.py, ha.py,
+    audit.py...). Fully best-effort: a sending error on ONE channel never
+    prevents the others and NEVER raises to the caller (sending a notification
+    must never make the operation that triggered it fail)."""
     if event not in NOTIFY_EVENTS:
         return
     try:
@@ -154,7 +161,8 @@ def notify(event, title, message, result="succes"):
         try:
             send_to_channel(channel, title, message, event, result)
         except Exception as e:
-            # Import tardif : audit.py pourrait un jour appeler notify()
-            # directement, evite un cycle si jamais.
+            # Late import: audit.py might one day call notify() directly, this avoids a
+            # cycle if so.
             from app.core.audit import log_action
+
             log_action("system", "notification_echec", channel["name"], "echec", str(e)[:300])

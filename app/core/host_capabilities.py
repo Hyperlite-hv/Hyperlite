@@ -1,17 +1,17 @@
-"""Découverte de capacités hôte (mandat portabilité 2026-09-18, chantier 1
--- voir CLAUDE.md "Portabilité et robustesse infrastructure"). Construit un
-profil normalisé de ce qu'un hôte (local ou distant, via le même
-mécanisme SSH/qemu+ssh:// que le reste du cluster, chantier 15) peut
-réellement faire -- fondation dont dépendent les chantiers suivants
-(limites de VM dérivées, page "Compatibilité et capacités", diagnostic de
-compatibilité de cluster).
+"""Host capability discovery. Builds a normalized profile of what a host
+(local or remote, through the same SSH/qemu+ssh:// mechanism as the rest of the
+cluster) can actually do. It is the foundation of the VM limits derived from the
+host, the "Compatibility and capabilities" page and the cluster compatibility
+diagnostic.
 
-Principe directeur du mandat : détection plutôt que supposition. Chaque
-sous-fonction est best-effort et ne lève jamais -- une commande/fichier
-absent renvoie `None`/`False` explicite plutôt que de faire échouer tout
-le profil (dégradation contrôlée, pas d'échec global)."""
+Guiding principle: detect rather than assume. Every sub-function is best-effort
+and never raises: a missing command or file returns an explicit `None`/`False`
+instead of failing the whole profile (controlled degradation, no global
+failure)."""
+
 import importlib
 import json
+import logging
 import os
 import platform
 import subprocess
@@ -21,8 +21,10 @@ from shutil import which
 
 import libvirt
 
+logger = logging.getLogger(__name__)
 
-# --- Local uniquement (lectures /proc, /sys) --------------------------
+# --- Local only (reads of /proc and /sys) --------------------------
+
 
 def _cpu_capabilities_local(conn):
     caps_xml = conn.getCapabilities()
@@ -31,22 +33,16 @@ def _cpu_capabilities_local(conn):
     arch = host_cpu.findtext("arch") if host_cpu is not None else platform.machine()
     model = host_cpu.findtext("model") if host_cpu is not None else None
 
-    # Virtualisation materielle disponible : deduite de la presence d'un
-    # domaine capability type='kvm' dans les capacites libvirt -- plus
-    # fiable qu'un parsing manuel de /proc/cpuinfo (deja verifie par
-    # libvirt lui-meme, y compris les cas ou /dev/kvm existe mais n'est
-    # pas utilisable pour une raison quelconque).
+    # Hardware virtualization availability: deduced from the presence of a
+    # capability domain of type='kvm' in the libvirt capabilities. This is more
+    # reliable than parsing /proc/cpuinfo by hand (libvirt has already verified it,
+    # including the cases where /dev/kvm exists but is unusable for some reason).
     kvm_disponible = any(
-        dom.get("type") == "kvm"
-        for guest in root.findall("guest")
-        for dom in guest.findall("arch/domain")
+        dom.get("type") == "kvm" for guest in root.findall("guest") for dom in guest.findall("arch/domain")
     )
 
     numa_cells = root.findall(".//topology/cells/cell")
-    numa_detail = [
-        {"id": cell.get("id"), "cpus": len(cell.findall(".//cpus/cpu"))}
-        for cell in numa_cells
-    ]
+    numa_detail = [{"id": cell.get("id"), "cpus": len(cell.findall(".//cpus/cpu"))} for cell in numa_cells]
 
     return {
         "architecture": arch,
@@ -67,7 +63,7 @@ def _memory_capabilities_local():
                 if key in ("MemTotal", "MemAvailable"):
                     info[key] = int(rest.strip().split()[0])  # kB
     except (OSError, ValueError, IndexError):
-        pass
+        logger.debug("Ignored exception in _memory_capabilities_local()", exc_info=True)
     return {
         "totale_mo": round(info["MemTotal"] / 1024) if "MemTotal" in info else None,
         "disponible_mo": round(info["MemAvailable"] / 1024) if "MemAvailable" in info else None,
@@ -75,52 +71,55 @@ def _memory_capabilities_local():
 
 
 def _zfs_module_loaded_local():
-    """Le binaire `zfs` peut etre installe SANS que le module noyau soit
-    reellement charge (ex. Secure Boot actif refusant un module DKMS
-    auto-signe -- rencontre reellement sur serveur-antho le 2026-09-18,
-    voir CLAUDE.md). Verifier seulement le binaire (`which zfs`) aurait
-    annonce ZFS "disponible" alors que toute creation de pool y echoue
-    en pratique -- exactement le genre de limitation silencieuse que le
-    mandat portabilite interdit. `lsmod` est le signal direct et fiable
-    (pas d'appel `zpool` qui pourrait lui-meme echouer/attendre)."""
+    """The `zfs` binary can be installed WITHOUT the kernel module actually being
+    loaded (e.g. Secure Boot refusing a self-signed DKMS module, seen on a real
+    machine). Checking only the binary (`which zfs`) would have reported ZFS as
+    "available" while every pool creation fails in practice, exactly the kind
+    of silent limitation the portability mandate forbids. `lsmod` is the
+    direct, reliable signal (no `zpool` call, which could itself fail or hang)."""
     try:
         proc = subprocess.run(["lsmod"], capture_output=True, text=True, timeout=3)
-        return proc.returncode == 0 and any(line.split()[0] == "zfs" for line in proc.stdout.splitlines() if line.split())
+        return proc.returncode == 0 and any(
+            line.split()[0] == "zfs" for line in proc.stdout.splitlines() if line.split()
+        )
     except (OSError, subprocess.TimeoutExpired):
         return False
 
 
 def _storage_capabilities_local():
     from app.core import zfs_storage
+
     zfs_installe = zfs_storage.is_available()
     zfs_module_charge = _zfs_module_loaded_local() if zfs_installe else False
     result = {
         "zfs_installe": zfs_installe,
         "zfs_module_charge": zfs_module_charge,
-        # "disponible" = reellement utilisable maintenant, pas juste
-        # installe -- c'est CE champ que le reste du code (limites
-        # derivees, page Compatibilite...) doit utiliser pour decider si
-        # ZFS est proposable a l'utilisateur.
+        # "available" = really usable right now, not just installed. This is the field
+        # the rest of the code (derived limits, the Compatibility page...) must use to
+        # decide whether ZFS can be offered to the user.
         "zfs_disponible": zfs_installe and zfs_module_charge,
         "blocs": None,
     }
     try:
         proc = subprocess.run(
             ["lsblk", "-J", "-o", "NAME,SIZE,FSTYPE,MOUNTPOINT,TYPE"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if proc.returncode == 0:
             result["blocs"] = json.loads(proc.stdout).get("blockdevices")
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        pass
+        logger.debug("Ignored exception in _storage_capabilities_local()", exc_info=True)
 
     default_dir = Path("/var/lib/libvirt/images")
     probe_path = default_dir if default_dir.exists() else Path("/")
     try:
         import shutil as _shutil
+
         usage = _shutil.disk_usage(probe_path)
-        result["pool_defaut_total_go"] = round(usage.total / (1024 ** 3), 1)
-        result["pool_defaut_disponible_go"] = round(usage.free / (1024 ** 3), 1)
+        result["pool_defaut_total_go"] = round(usage.total / (1024**3), 1)
+        result["pool_defaut_disponible_go"] = round(usage.free / (1024**3), 1)
     except OSError:
         result["pool_defaut_total_go"] = None
         result["pool_defaut_disponible_go"] = None
@@ -138,30 +137,32 @@ def _network_capabilities_local(conn):
                 etat = (path / "operstate").read_text().strip()
             except OSError:
                 etat = "inconnu"
-            interfaces.append({
-                "nom": name,
-                "pont": (path / "bridge").exists(),
-                "vlan": (path / "phy80211").exists() is False and Path(f"/proc/net/vlan/{name}").exists(),
-                "etat": etat,
-            })
+            interfaces.append(
+                {
+                    "nom": name,
+                    "pont": (path / "bridge").exists(),
+                    "vlan": (path / "phy80211").exists() is False and Path(f"/proc/net/vlan/{name}").exists(),
+                    "etat": etat,
+                }
+            )
     except OSError:
-        pass
+        logger.debug("Ignored exception in _network_capabilities_local()", exc_info=True)
 
     reseaux_libvirt = []
     try:
         for net in conn.listAllNetworks():
             reseaux_libvirt.append({"nom": net.name(), "actif": bool(net.isActive())})
     except libvirt.libvirtError:
-        pass
+        logger.debug("Ignored exception in _network_capabilities_local()", exc_info=True)
 
     return {"interfaces": interfaces, "reseaux_libvirt": reseaux_libvirt}
 
 
 def _secure_boot_state_local():
-    """Lecture directe de la variable EFI plutot que `mokutil` (pas
-    toujours installe, voir le blocage reel rencontre sur serveur-antho
-    le 2026-09-18) -- portable a toute machine UEFI sans dependance
-    externe. 4 premiers octets = attributs UEFI, dernier octet = valeur."""
+    """Direct read of the EFI variable rather than `mokutil` (not always installed,
+    see the real blocking case seen with ZFS under Secure Boot): portable to
+    any UEFI machine without an external dependency. The first 4 bytes are the
+    UEFI attributes, the last byte is the value."""
     if not Path("/sys/firmware/efi").exists():
         return "bios_legacy"
     efivars = Path("/sys/firmware/efi/efivars")
@@ -173,6 +174,7 @@ def _secure_boot_state_local():
             if len(data) >= 5:
                 return "active" if data[-1] == 1 else "inactive"
         except OSError:
+            logger.debug("Ignored exception in _secure_boot_state_local()", exc_info=True)
             continue
     return "uefi_inconnu"
 
@@ -180,11 +182,12 @@ def _secure_boot_state_local():
 def _software_capabilities_local():
     binaries = ["qemu-img", "virsh", "zfs", "zpool", "git", "gh", "xorriso", "nginx"]
     result = {b: which(b) is not None for b in binaries}
-    # Imports REELS dans le process Hyperlite lui-meme (pas un simple
-    # find_spec) : sans WebSocket, shell hote / consoles VM / terminaux
-    # echouent silencieusement cote navigateur (bug reel serveur-antho
-    # 2026-09-19, uvicorn sans l'extra [standard]).
+    # REAL imports in the Hyperlite process itself (not a simple find_spec): without
+    # WebSocket support, the host shell, VM consoles and terminals fail silently on
+    # the browser side (a real bug seen when uvicorn was installed without its
+    # [standard] extra).
     from app.core import preflight
+
     deps = {}
     for mod, _dist, _gravite, _feat in preflight.PYTHON_MODULES:
         try:
@@ -199,6 +202,7 @@ def _software_capabilities_local():
             ws = mod
             break
         except Exception:
+            logger.debug("Ignored exception in _software_capabilities_local()", exc_info=True)
             continue
     deps["websocket"] = ws is not None
     result["bibliotheque_websocket"] = ws is not None
@@ -227,10 +231,10 @@ def _virt_capabilities_local(conn):
 
 
 def get_local_capabilities():
-    """Profil de capacites de CET hote (celui qui execute ce code)."""
+    """Capability profile of THIS host (the one running this code)."""
     conn = libvirt.open("qemu:///system")
     if conn is None:
-        raise RuntimeError("Connexion libvirt locale impossible")
+        raise RuntimeError("Unable to open the local libvirt connection")
     try:
         return {
             "cpu": _cpu_capabilities_local(conn),
@@ -245,15 +249,15 @@ def get_local_capabilities():
         conn.close()
 
 
-# --- Distant (SSH + libvirt via qemu+ssh://, meme mecanisme que le
-# reste du cluster, chantier 15) ---------------------------------------
+# --- Remote (SSH + libvirt through qemu+ssh://, the same mechanism as the rest
+# of the cluster) ---------------------------------------
 
-# Script shell UNIQUE (un seul aller-retour SSH, comme partout ailleurs
-# dans ce projet -- ex. app/core/ha.py::_attempt_ssh_fence) plutot que
-# plusieurs commandes separees : chaque ligne de sortie est prefixee par
-# une etiquette stable, parsee cote Python. best-effort : une commande
-# absente sur l'hote distant produit une ligne vide pour cette etiquette
-# plutot que de faire echouer tout le script (grace a `|| true`/`2>/dev/null`).
+# A SINGLE shell script (one SSH round trip, like everywhere else in this
+# project, e.g. app/core/ha.py::_attempt_ssh_fence) rather than several separate
+# commands: every output line is prefixed with a stable label, parsed on the
+# Python side. Best-effort: a command that is missing on the remote host yields an
+# empty line for its label instead of failing the whole script (thanks to
+# `|| true` / `2>/dev/null`).
 _REMOTE_PROBE_SCRIPT = r"""
 echo "MEMTOTAL:$(grep -m1 MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')"
 echo "MEMAVAIL:$(grep -m1 MemAvailable /proc/meminfo 2>/dev/null | awk '{print $2}')"
@@ -279,40 +283,49 @@ def _parse_remote_probe(stdout):
 
 
 def get_remote_capabilities(node_name):
-    """Profil de capacites d'un nœud DISTANT enregistre -- combine
-    l'API libvirt (fonctionne nativement via qemu+ssh://, transparent
-    pour le CPU/NUMA/version/LXC) et un unique probe SSH pour les
-    informations qui ne passent pas par libvirt (memoire, binaires,
-    Secure Boot, usage disque -- memes limites connues que le reste du
-    cluster : necessite que la confiance SSH cluster soit deja etablie,
-    voir app/core/cluster.py)."""
-    from app.core.cluster import get_node, get_cluster_private_key_path
+    """Capability profile of a registered REMOTE node. It combines the libvirt API
+    (which works natively through qemu+ssh://, transparent for
+    CPU/NUMA/version/LXC) and a single SSH probe for the information that does
+    not go through libvirt (memory, binaries, Secure Boot, disk usage). The
+    same known limits as the rest of the cluster apply: the cluster SSH trust
+    must already be established, see app/core/cluster.py."""
+    from app.core.cluster import get_node, node_ssh_options
     from app.core.libvirt_utils import open_conn
 
     node = get_node(node_name)
     if not node:
-        raise ValueError(f"Nœud '{node_name}' introuvable")
+        raise ValueError(f"Node '{node_name}' not found")
 
     conn = open_conn(node_name)
     try:
         libvirt_part = {
-            "cpu": _cpu_capabilities_local(conn),  # meme fonction : ne lit QUE via `conn`, deja transparent a distance
+            "cpu": _cpu_capabilities_local(
+                conn
+            ),  # same function: reads ONLY through `conn`, already transparent for remote hosts
             "virtualisation": _virt_capabilities_local(conn),
-            "reseau": {"reseaux_libvirt": [
-                {"nom": n.name(), "actif": bool(n.isActive())} for n in conn.listAllNetworks()
-            ], "interfaces": None},  # interfaces OS non disponibles sans SSH, voir ci-dessous
+            "reseau": {
+                "reseaux_libvirt": [{"nom": n.name(), "actif": bool(n.isActive())} for n in conn.listAllNetworks()],
+                "interfaces": None,
+            },  # OS interfaces are not available without SSH, see below
         }
     finally:
         conn.close()
 
-    ssh_part = {"memoire": {"totale_mo": None, "disponible_mo": None}, "securite": {"secure_boot": None}, "logiciel": {}, "stockage": {"zfs_installe": None, "zfs_module_charge": None, "zfs_disponible": None, "blocs": None}}
+    ssh_part = {
+        "memoire": {"totale_mo": None, "disponible_mo": None},
+        "securite": {"secure_boot": None},
+        "logiciel": {},
+        "stockage": {"zfs_installe": None, "zfs_module_charge": None, "zfs_disponible": None, "blocs": None},
+    }
     try:
-        key_path = str(get_cluster_private_key_path())
-        ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+        ssh_opts = node_ssh_options()
         target = f"{node['ssh_user']}@{node['hostname']}"
         proc = subprocess.run(
             ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), target, "bash", "-s"],
-            input=_REMOTE_PROBE_SCRIPT, capture_output=True, text=True, timeout=15,
+            input=_REMOTE_PROBE_SCRIPT,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if proc.returncode == 0:
             v = _parse_remote_probe(proc.stdout)
@@ -323,10 +336,17 @@ def get_remote_capabilities(node_name):
                 "disponible_mo": round(int(mem_avail) / 1024) if mem_avail and mem_avail.isdigit() else None,
             }
             sb = v.get("SECUREBOOT", "")
-            ssh_part["securite"] = {"secure_boot": (
-                "active" if sb == "1" else "inactive" if sb == "0" else
-                "bios_legacy" if sb == "bios_legacy" else "uefi_inconnu"
-            )}
+            ssh_part["securite"] = {
+                "secure_boot": (
+                    "active"
+                    if sb == "1"
+                    else "inactive"
+                    if sb == "0"
+                    else "bios_legacy"
+                    if sb == "bios_legacy"
+                    else "uefi_inconnu"
+                )
+            }
             ssh_part["logiciel"] = {
                 b: v.get(f"BIN_{b}") == "1"
                 for b in ("qemu-img", "virsh", "zfs", "zpool", "git", "gh", "xorriso", "nginx")
@@ -338,10 +358,12 @@ def get_remote_capabilities(node_name):
             ssh_part["stockage"]["zfs_disponible"] = zfs_installe and zfs_module_charge
             disk = v.get("DISKUSAGE", "").split()
             if len(disk) == 2 and disk[0].isdigit() and disk[1].isdigit():
-                ssh_part["stockage"]["pool_defaut_total_go"] = round(int(disk[0]) / (1024 ** 2), 1)
-                ssh_part["stockage"]["pool_defaut_disponible_go"] = round(int(disk[1]) / (1024 ** 2), 1)
+                ssh_part["stockage"]["pool_defaut_total_go"] = round(int(disk[0]) / (1024**2), 1)
+                ssh_part["stockage"]["pool_defaut_disponible_go"] = round(int(disk[1]) / (1024**2), 1)
     except (OSError, subprocess.TimeoutExpired):
-        pass  # best-effort : profil partiel (libvirt seul) plutot qu'un echec total
+        logger.debug(
+            "Ignored exception in get_remote_capabilities()", exc_info=True
+        )  # best-effort: a partial profile (libvirt only) rather than a total failure
 
     return {
         "cpu": libvirt_part["cpu"],
@@ -355,9 +377,9 @@ def get_remote_capabilities(node_name):
 
 
 def get_capabilities(node_name=None):
-    """Point d'entree unique : profil local si node_name est None/"local",
-    profil distant sinon -- meme convention que open_conn()/le reste du
-    projet (chantier 15)."""
+    """Single entry point: the local profile if node_name is None/"local", the
+    remote profile otherwise (the same convention as open_conn() and the rest
+    of the project)."""
     if not node_name or node_name == "local":
         return get_local_capabilities()
     return get_remote_capabilities(node_name)

@@ -1,50 +1,45 @@
-"""Gestion multi-nœuds (chantier 15 de la roadmap vSphere/vCenter,
-2026-09-13) -- equivalent de vCenter pilotant plusieurs hotes ESXi depuis
-une seule interface. Pose les bases d'un futur clustering (PAS du vMotion/
-DRS, hors scope, voir chantier 8).
+"""Multi-node management: the equivalent of vCenter driving several ESXi hosts
+from a single interface. It lays the foundation for future clustering (NOT
+vMotion/DRS, which are out of scope).
 
-Decision d'architecture (options presentees comme demande avant de choisir) :
+Architecture decision (two options were weighed):
 
-  A) Connexion libvirt distante directe (qemu+ssh://) -- RETENUE.
-     + Aucun agent a deployer/maintenir sur les noeuds distants : le seul
-       prerequis est un demon SSH + libvirt/QEMU-KVM deja en place (souvent
-       deja le cas sur un hote destine a heberger des VM).
-     + Reutilise integralement le code existant : chaque routeur appelle
-       deja open_conn(), etendre cette seule fonction avec un parametre
-       node_name (voir libvirt_utils.py) suffit a rendre CE QUI EXISTE DEJA
-       multi-noeuds-capable, sans reecrire vms.py/network.py/storage.py.
-     - Sensible a la latence reseau (chaque appel libvirt fait un aller-
-       retour SSH) -- acceptable pour du pilotage/consultation, pourrait
-       devenir genant pour des operations tres frequentes (polling metriques
-       serre) sur un lien lent.
-     - Le processus hyperlite lui-meme doit joindre le noeud en SSH pour
-       CHAQUE operation (pas de mise en cache de connexion pour l'instant
-       dans cette premiere version) -- une coupure reseau fait echouer
-       l'operation en cours, proprement (voir _describe/health check), pas
-       un crash.
+  A) Direct remote libvirt connection (qemu+ssh://). CHOSEN.
+     + No agent to deploy or maintain on the remote nodes: the only
+       prerequisite is an SSH daemon plus libvirt/QEMU-KVM already in place
+       (often already the case on a host meant to run VMs).
+     + It fully reuses the existing code: every router already calls
+       open_conn(), so extending that single function with a node_name
+       parameter (see libvirt_utils.py) makes EVERYTHING THAT EXISTS
+       multi-node capable, without rewriting vms.py/network.py/storage.py.
+     - Sensitive to network latency (each libvirt call is an SSH round trip):
+       fine for management and monitoring, potentially annoying for very
+       frequent operations (tight metrics polling) over a slow link.
+     - The hyperlite process itself must reach the node over SSH for EVERY
+       operation (no connection caching in this first version): a network
+       outage makes the operation in progress fail cleanly, not crash.
 
-  B) Agent Hyperlite deploye sur chaque noeud distant (API locale consommee
-     par le noeud principal) -- ECARTEE pour cette taille de projet.
-     + Plus robuste/decouple : l'agent peut mettre en cache, retenter,
-       exposer une API deja pensee pour du distant plutot que de detourner
-       une API pensee pour du local.
-     + Latence eventuellement meilleure (traitement local, reponse condensee).
-     - Un second binaire a construire, versionner, deployer et mettre a jour
-       sur CHAQUE noeud (rejoint le sujet du chantier 7 -- multiplierait le
-       probleme de mise a jour par le nombre de noeuds).
-     - Duplique une bonne partie de la logique deja ecrite cote "local"
-       (app/core/*, app/routers/*) plutot que de la reutiliser.
+  B) A Hyperlite agent deployed on every remote node (a local API consumed by
+     the main node). REJECTED for a project of this size.
+     + More robust and decoupled: the agent can cache, retry, and expose an API
+       designed for remote use instead of repurposing one designed for local.
+     + Possibly better latency (local processing, condensed responses).
+     - A second binary to build, version, deploy and update on EVERY node,
+       multiplying the update problem by the number of nodes.
+     - It duplicates much of the logic already written on the "local" side
+       (app/core/*, app/routers/*) instead of reusing it.
 
-  Verdict : (A) est le choix pragmatique pour la taille actuelle
-  d'Hyperlite -- zero nouveau composant a deployer, reutilisation maximale
-  du code existant. A reconsiderer si la latence SSH devient un vrai
-  probleme en usage reel, ou si le nombre de noeuds grandit beaucoup
-  (dizaines) au point ou la robustesse d'un agent deviendrait rentable.
+  Verdict: (A) is the pragmatic choice for the current size of Hyperlite: no
+  new component to deploy and maximum reuse of existing code. Reconsider it if
+  SSH latency becomes a real problem in practice, or if the number of nodes
+  grows (dozens) to the point where an agent's robustness would pay off.
+
 """
+
 import subprocess
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import libvirt
@@ -58,17 +53,19 @@ POLL_INTERVAL_S = 60
 
 
 def _ensure_cluster_keypair():
-    """Cle SSH DEDIEE au cluster, distincte de la cle d'automatisation VM
-    (hyperlite_automation) -- une cle qui ouvre un acces root sur d'autres
-    HOTES physiques ne doit jamais etre la meme que celle installee dans des
-    VM invitees potentiellement moins sensibles."""
+    """SSH key DEDICATED to the cluster, distinct from the VM automation key
+    (hyperlite_automation). A key that opens root access on other physical
+    HOSTS must never be the same one as the key installed in guest VMs, which
+    are potentially less sensitive."""
     CLUSTER_SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     priv = CLUSTER_SSH_KEY_DIR / "hyperlite_cluster"
     pub = CLUSTER_SSH_KEY_DIR / "hyperlite_cluster.pub"
     if not priv.exists():
         subprocess.run(
             ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", "hyperlite-cluster"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         priv.chmod(0o600)
     return priv, pub
@@ -84,17 +81,72 @@ def get_cluster_private_key_path():
     return priv
 
 
+def node_ssh_options(extra=None):
+    """ssh/scp options for connecting to a registered cluster node.
+
+    Uses the dedicated cluster key and trust-on-first-use host key checking:
+    an unknown host key is recorded on first contact, a CHANGED key is
+    refused (possible man-in-the-middle, or the node was reinstalled -- in
+    that case remove the node and add it again). Host keys live in the
+    service user's default known_hosts file so that libvirt's own ssh
+    transport, which shells out to `ssh`, shares the same trust store."""
+    return [
+        "-i",
+        str(get_cluster_private_key_path()),
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "BatchMode=yes",
+        *(extra or []),
+    ]
+
+
+def _known_hosts_target(node):
+    port = str(node["ssh_port"])
+    return node["hostname"] if port == "22" else f"[{node['hostname']}]:{port}"
+
+
+def ensure_known_host(node):
+    """Record the node's SSH host key on first use (idempotent).
+
+    libvirt's ssh transport cannot prompt, so an unknown host would fail with
+    an opaque error; learning the key here (trust on first use) keeps
+    existing registrations working after the switch from unchecked host keys.
+    A key that is already recorded is never overwritten."""
+    known = subprocess.run(["ssh-keygen", "-F", _known_hosts_target(node)], capture_output=True, text=True)
+    if known.returncode == 0:
+        return
+    subprocess.run(
+        [
+            "ssh",
+            *node_ssh_options(["-o", "ConnectTimeout=8"]),
+            "-p",
+            str(node["ssh_port"]),
+            f"{node['ssh_user']}@{node['hostname']}",
+            "true",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+
+def forget_known_host(node):
+    """Drop a removed node's recorded host key so it can be re-added after a reinstall."""
+    subprocess.run(["ssh-keygen", "-R", _known_hosts_target(node)], capture_output=True, text=True)
+
+
 def build_libvirt_uri(node):
-    """qemu+ssh://<user>@<host>:<port>/system, avec la cle dediee du cluster
-    et sans verification stricte de known_hosts -- meme compromis deja
-    accepte pour le terminal SSH web (StrictHostKeyChecking=no) : simplicite
-    d'ajout d'un noeud vs risque MITM sur un reseau interne de confiance.
-    A durcir (verification explicite de l'empreinte) si Hyperlite est un
-    jour expose au-dela d'un LAN de confiance."""
+    """qemu+ssh://<user>@<host>:<port>/system using the dedicated cluster key.
+
+    Host keys are verified through ssh's default known_hosts (see
+    node_ssh_options). The key is learned here on first use because libvirt's
+    ssh transport cannot prompt; every code path that opens a connection to a
+    node goes through this function."""
+    ensure_known_host(node)
     key_path = get_cluster_private_key_path()
     return (
-        f"qemu+ssh://{node['ssh_user']}@{node['hostname']}:{node['ssh_port']}/system"
-        f"?keyfile={key_path}&no_verify=1&sshauth=privkey"
+        f"qemu+ssh://{node['ssh_user']}@{node['hostname']}:{node['ssh_port']}/system?keyfile={key_path}&sshauth=privkey"
     )
 
 
@@ -111,9 +163,8 @@ def list_nodes():
 
 
 def test_node_connection(hostname, ssh_user, ssh_port):
-    """Tente une vraie connexion libvirt distante et verifie qu'il s'agit
-    bien d'un hote QEMU/KVM -- pas juste "le port SSH repond", comme deja
-    fait pour la verification de bout en bout du Kickstart (chantier 12)."""
+    """Try a real remote libvirt connection and check that it is a QEMU/KVM
+    host: not just "the SSH port answers"."""
     fake_node = {"hostname": hostname, "ssh_user": ssh_user, "ssh_port": ssh_port}
     uri = build_libvirt_uri(fake_node)
     try:
@@ -121,12 +172,12 @@ def test_node_connection(hostname, ssh_user, ssh_port):
     except libvirt.libvirtError as e:
         return False, str(e)
     if conn is None:
-        return False, "Connexion refusée (raison inconnue)"
+        return False, "Connection refused (unknown reason)"
     try:
         hv_type = conn.getType()
         hostname_reelle = conn.getHostname()
         if hv_type != "QEMU":
-            return False, f"Hyperviseur '{hv_type}' détecté, QEMU/KVM attendu"
+            return False, f"Hypervisor '{hv_type}' detected, QEMU/KVM expected"
         return True, hostname_reelle
     finally:
         conn.close()
@@ -134,7 +185,9 @@ def test_node_connection(hostname, ssh_user, ssh_port):
 
 REVERSE_KEY_DIR = CLUSTER_SSH_KEY_DIR / "reverse"
 REVERSE_REMOTE_DIR = "/root/.hyperlite-reverse"
-REVERSE_KEY_TAG = "hyperlite-reverse"  # marqueur en fin de ligne authorized_keys, pour retrouver/nettoyer nos propres entrees
+REVERSE_KEY_TAG = (
+    "hyperlite-reverse"  # marker at the end of an authorized_keys line, to find and clean up our own entries
+)
 
 
 def _authorized_keys_path():
@@ -142,102 +195,110 @@ def _authorized_keys_path():
 
 
 def _run_ssh(node, args, timeout=15):
-    key_path = str(get_cluster_private_key_path())
-    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    ssh_opts = node_ssh_options()
     target = f"{node['ssh_user']}@{node['hostname']}"
     return subprocess.run(
         ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), target, *args],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
 
 
 def ensure_reverse_trust(node):
-    """Confiance SSH DANS LE SENS INVERSE (nœud distant -> kvm-lab),
-    necessaire pour qu'une migration a chaud INITIEE depuis un nœud
-    distant puisse ramener une VM vers kvm-lab -- la migration peer-to-
-    peer est toujours initiee par le libvirtd SOURCE, qui doit pouvoir se
-    connecter LUI-MEME vers la destination (voir la limite connue
-    documentee dans app/routers/vms.py::migrate_vm avant ce correctif).
-    Jusqu'ici, seule la confiance kvm-lab -> nœud distant existait (cle
-    UNIQUE partagee par tous les nœuds, `hyperlite_cluster`).
+    """SSH trust in the REVERSE direction (remote node -> local host), needed so
+    that a live migration INITIATED from a remote node can bring a VM back to
+    the local host: peer-to-peer migration is always initiated by the SOURCE
+    libvirtd, which must be able to connect ITSELF to the destination. Without
+    it, only the local host -> remote node trust exists (a SINGLE key shared by
+    all nodes, `hyperlite_cluster`).
 
-    Design volontairement DIFFERENT de cette cle unique : reutiliser la
-    MEME cle partagee pour le sens inverse donnerait a CHAQUE nœud
-    compromis un acces root direct a kvm-lab (qui porte la cle de
-    signature GPG, la base de donnees complete, tous les secrets) --
-    inacceptable. Genere donc une paire de cles DEDIEE A CE NŒUD, poussee
-    UNIQUEMENT sur ce nœud (jamais partagee), autorisee sur kvm-lab avec
-    une restriction `from=` a l'adresse de CE nœud precis -- une cle
-    volee sur un nœud ne peut etre reutilisee que depuis l'adresse de ce
-    meme nœud, pas depuis n'importe ou.
+    The design deliberately DIFFERS from that single key: reusing the SAME
+    shared key for the reverse direction would give EVERY compromised node
+    direct root access to the local host (which holds the GPG signing key, the
+    complete database and every secret), which is unacceptable. So it generates
+    a key pair DEDICATED TO THIS NODE, pushed ONLY to this node (never shared),
+    and authorized on the local host with a `from=` restriction to THIS node's
+    address: a key stolen from one node can only be reused from that same
+    node's address, not from anywhere.
 
-    Best-effort total : appelee automatiquement a l'enregistrement d'un
-    nœud, mais un echec ici ne doit JAMAIS faire echouer l'enregistrement
-    lui-meme (la direction kvm-lab -> nœud, largement la plus utilisee,
-    reste fonctionnelle independamment)."""
+    Fully best-effort: called automatically when a node is registered, but a
+    failure here must NEVER make the registration itself fail (the local host ->
+    node direction, by far the most used, keeps working independently)."""
     REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     priv = REVERSE_KEY_DIR / f"{node['name']}_ed25519"
     pub = REVERSE_KEY_DIR / f"{node['name']}_ed25519.pub"
     if not priv.exists():
         subprocess.run(
             ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", f"hyperlite-reverse-{node['name']}"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         priv.chmod(0o600)
     pub_line = pub.read_text().strip()
 
-    # 1) Pousse la cle PRIVEE sur le nœud distant (via la confiance
-    # EXISTANTE kvm-lab -> nœud) -- c'est LA-BAS que le libvirtd source en
-    # aura besoin au moment de la migration.
+    # 1) Push the PRIVATE key to the remote node (through the EXISTING local host ->
+    # node trust): that is where the source libvirtd will need it at migration time.
     mkdir_r = _run_ssh(node, ["mkdir", "-p", REVERSE_REMOTE_DIR])
     if mkdir_r.returncode != 0:
-        raise RuntimeError(f"Impossible de créer {REVERSE_REMOTE_DIR} sur {node['name']} : {mkdir_r.stderr.strip()}")
-    key_path = str(get_cluster_private_key_path())
-    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+        raise RuntimeError(f"Unable to create {REVERSE_REMOTE_DIR} on {node['name']}: {mkdir_r.stderr.strip()}")
+    ssh_opts = node_ssh_options()
     scp_r = subprocess.run(
-        ["scp", *ssh_opts, "-P", str(node["ssh_port"]), str(priv), f"{node['ssh_user']}@{node['hostname']}:{REVERSE_REMOTE_DIR}/id_ed25519"],
-        capture_output=True, text=True, timeout=15,
+        [
+            "scp",
+            *ssh_opts,
+            "-P",
+            str(node["ssh_port"]),
+            str(priv),
+            f"{node['ssh_user']}@{node['hostname']}:{REVERSE_REMOTE_DIR}/id_ed25519",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     if scp_r.returncode != 0:
-        raise RuntimeError(f"Échec de la copie de la clé sur {node['name']} : {scp_r.stderr.strip()}")
+        raise RuntimeError(f"Failed to copy the key to {node['name']}: {scp_r.stderr.strip()}")
     _run_ssh(node, ["chmod", "600", f"{REVERSE_REMOTE_DIR}/id_ed25519"])
 
-    # 2) Autorise la cle PUBLIQUE sur kvm-lab, restreinte a l'adresse de ce
-    # nœud precis -- idempotent (ne duplique pas si deja present, ex. un
-    # second appel apres une modification du nœud).
+    # 2) Authorize the PUBLIC key on the local host, restricted to this specific
+    # node's address. Idempotent (no duplicate if already present, e.g. a second call
+    # after a change to the node).
     auth_path = _authorized_keys_path()
     auth_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     existing = auth_path.read_text() if auth_path.exists() else ""
     marker = f"{REVERSE_KEY_TAG}-{node['name']}"
     if marker not in existing:
-        line = f'from="{node["hostname"]}",no-port-forwarding,no-X11-forwarding,no-agent-forwarding {pub_line} {marker}\n'
+        line = (
+            f'from="{node["hostname"]}",no-port-forwarding,no-X11-forwarding,no-agent-forwarding {pub_line} {marker}\n'
+        )
         with open(auth_path, "a") as f:
             f.write(line)
         auth_path.chmod(0o600)
 
 
 def revoke_reverse_trust(node_name):
-    """Nettoyage best-effort a la suppression d'un nœud (voir remove_node) :
-    retire l'entree authorized_keys correspondante sur kvm-lab (toujours
-    possible, fichier local) et la paire de cles locale -- ne tente PAS de
-    joindre le nœud distant pour supprimer la cle privee la-bas (il peut
-    deja etre injoignable, la raison meme pour laquelle on le retire) : la
-    cle laissee sur le nœud devient simplement inutile des que l'entree
-    authorized_keys correspondante n'existe plus sur kvm-lab."""
+    """Best-effort cleanup when a node is removed (see remove_node): remove the
+    matching authorized_keys entry on the local host (always possible, it is a
+    local file) and the local key pair. It does NOT try to reach the remote
+    node to delete the private key there (it may already be unreachable, the
+    very reason it is being removed): the key left on the node simply becomes
+    useless as soon as the matching authorized_keys entry no longer exists on
+    the local host."""
     marker = f"{REVERSE_KEY_TAG}-{node_name}"
     auth_path = _authorized_keys_path()
     if auth_path.exists():
-        lines = [l for l in auth_path.read_text().splitlines(keepends=True) if marker not in l]
+        lines = [line for line in auth_path.read_text().splitlines(keepends=True) if marker not in line]
         auth_path.write_text("".join(lines))
     (REVERSE_KEY_DIR / f"{node_name}_ed25519").unlink(missing_ok=True)
     (REVERSE_KEY_DIR / f"{node_name}_ed25519.pub").unlink(missing_ok=True)
 
 
 def get_reverse_key_remote_path():
-    """Chemin (SUR LE NŒUD DISTANT, pas sur kvm-lab) de la cle privee
-    poussee par ensure_reverse_trust() -- utilise par migrate_vm() pour
-    construire l'URI de destination quand kvm-lab est la cible d'une
-    migration initiee par un nœud distant."""
+    """Path (ON THE REMOTE NODE, not on the local host) of the private key pushed
+    by ensure_reverse_trust(). Used by migrate_vm() to build the destination URI
+    when the local host is the target of a migration initiated by a remote
+    node."""
     return f"{REVERSE_REMOTE_DIR}/id_ed25519"
 
 
@@ -245,11 +306,11 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
     ok, message = test_node_connection(hostname, ssh_user, ssh_port)
     if not ok:
         raise RuntimeError(
-            f"Connexion impossible : {message}. Vérifiez que la clé publique du cluster est "
-            f"installée dans ~{ssh_user}/.ssh/authorized_keys sur {hostname} (GET /nodes/cluster-pubkey "
-            f"pour la récupérer) et que libvirtd y tourne."
+            f"Connection failed: {message}. Check that the cluster public key is "
+            f"installed in ~{ssh_user}/.ssh/authorized_keys on {hostname} (GET /nodes/cluster-pubkey "
+            f"to retrieve it) and that libvirtd is running there."
         )
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with get_conn() as conn:
         try:
             conn.execute(
@@ -259,32 +320,41 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
             )
             conn.commit()
         except Exception:
-            raise RuntimeError(f"Un nœud '{name}' existe déjà")
+            raise RuntimeError(f"A node '{name}' already exists") from None
     log_action(username, "register_node", name, "succes", f"{ssh_user}@{hostname}:{ssh_port}")
     node = get_node(name)
-    # Best-effort (voir docstring d'ensure_reverse_trust) -- la migration
-    # nœud distant -> kvm-lab reste une fonctionnalite secondaire, ne doit
-    # jamais faire echouer l'enregistrement du nœud lui-meme.
+    # Best-effort (see the ensure_reverse_trust docstring): migration from a remote
+    # node to the local host is a secondary feature and must never make the node
+    # registration itself fail.
     try:
         ensure_reverse_trust(node)
     except Exception as e:
-        log_action(username, "register_node", name, "succes", f"Confiance SSH inverse non établie (migration nœud->kvm-lab indisponible) : {e}")
+        log_action(
+            username,
+            "register_node",
+            name,
+            "succes",
+            f"Reverse SSH trust not established (node -> local host migration unavailable): {e}",
+        )
     return node
 
 
 def remove_node(name, username):
+    node = get_node(name)
     with get_conn() as conn:
         conn.execute("DELETE FROM nodes WHERE name = ?", (name,))
         conn.commit()
+    if node:
+        forget_known_host(node)
     revoke_reverse_trust(name)
     log_action(username, "remove_node", name, "succes")
 
 
 def node_summary(node_name):
-    """CPU/RAM/stockage/VM du noeud -- meme forme que GET /dashboard local
-    (app/routers/dashboard.py), pour que le front puisse reutiliser le meme
-    rendu quel que soit le noeud affiche."""
-    from app.core.libvirt_utils import open_conn, ensure_default_pool
+    """CPU/RAM/storage/VMs of the node, in the same shape as the local
+    GET /dashboard (app/routers/dashboard.py), so the frontend can reuse the
+    same rendering whichever node is shown."""
+    from app.core.libvirt_utils import ensure_default_pool, open_conn
 
     conn = open_conn(node_name)
     try:
@@ -293,7 +363,7 @@ def node_summary(node_name):
         try:
             pool = ensure_default_pool(conn)
             pool.refresh(0)
-            _, capacity, allocation, available = pool.info()
+            _, capacity, _allocation, available = pool.info()
         except libvirt.libvirtError:
             capacity = available = None
         return {
@@ -301,8 +371,8 @@ def node_summary(node_name):
             "connecte": conn.isAlive() == 1,
             "vms_actives": active,
             "vms_arretees": len(domains) - active,
-            "stockage_capacite_go": round(capacity / (1024 ** 3), 1) if capacity else None,
-            "stockage_disponible_go": round(available / (1024 ** 3), 1) if available else None,
+            "stockage_capacite_go": round(capacity / (1024**3), 1) if capacity else None,
+            "stockage_disponible_go": round(available / (1024**3), 1) if available else None,
         }
     finally:
         conn.close()
@@ -320,30 +390,31 @@ def _poll_nodes():
                     prev = conn.execute("SELECT statut FROM nodes WHERE id = ?", (node["id"],)).fetchone()
                     conn.execute(
                         "UPDATE nodes SET statut = ?, derniere_verification = ? WHERE id = ?",
-                        (new_statut, datetime.now(timezone.utc).isoformat(), node["id"]),
+                        (new_statut, datetime.now(UTC).isoformat(), node["id"]),
                     )
                     conn.commit()
                 if prev and prev["statut"] != new_statut:
                     log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
                     if new_statut == "hors_ligne":
-                        # HA (chantier 17) : signale les VM protegees de ce
-                        # nœud DES la detection -- import tardif, evite un
-                        # cycle (ha.py importe deja depuis libvirt_utils.py).
+                        # HA: report the protected VMs of this node as soon as it is detected as down.
+                        # Late import, avoids a cycle (ha.py already imports from libvirt_utils.py).
                         from app.core.ha import alert_for_down_node
+
                         try:
                             alert_for_down_node(node["name"])
                         except Exception as ha_exc:
-                            print(f"[cluster] alerte HA échouée pour {node['name']} : {ha_exc!r}", flush=True)
-            # HA : resynchronise le cache des VM protegees pendant que leur
-            # nœud est joignable -- meme cadence que le poll des nœuds
-            # (POLL_INTERVAL_S), pas besoin d'une boucle dediee separee.
+                            print(f"[cluster] HA alert failed for {node['name']}: {ha_exc!r}", flush=True)
+            # HA: resynchronize the cache of protected VMs while their node is reachable.
+            # Same cadence as the node poll (POLL_INTERVAL_S), no need for a separate
+            # dedicated loop.
             try:
                 from app.core.ha import sync_protected_vms
+
                 sync_protected_vms()
             except Exception as ha_exc:
-                print(f"[cluster] resynchronisation HA échouée : {ha_exc!r}", flush=True)
+                print(f"[cluster] HA resynchronization failed: {ha_exc!r}", flush=True)
         except Exception as e:
-            print(f"[cluster] poll échoué : {e!r}", flush=True)
+            print(f"[cluster] poll failed: {e!r}", flush=True)
         time.sleep(POLL_INTERVAL_S)
 
 

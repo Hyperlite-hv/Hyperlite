@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
 import libvirt
+from fastapi import APIRouter, Depends
 
-from app.core.libvirt_utils import open_conn, ensure_default_pool
+from app.core.libvirt_utils import ensure_default_pool, open_conn
 from app.core.security import get_current_user
 
 router = APIRouter(tags=["dashboard"])
@@ -19,8 +19,8 @@ def _get_free_memory_kb():
 
 
 def _get_host_uptime_s():
-    # /proc/uptime : "<secondes depuis le boot> <secondes idle cumulees>",
-    # le premier nombre est ce qu'on veut.
+    # /proc/uptime: "<seconds since boot> <cumulative idle seconds>"; the first
+    # number is the one we want.
     try:
         with open("/proc/uptime") as f:
             return int(float(f.read().split()[0]))
@@ -46,9 +46,9 @@ def dashboard(user: dict = Depends(get_current_user)):
         try:
             pool = ensure_default_pool(conn)
             pool.refresh(0)
-            _, capacity, allocation, available = pool.info()
+            _, capacity, _allocation, available = pool.info()
         except libvirt.libvirtError:
-            capacity = allocation = available = None
+            capacity = available = None
 
         return {
             "hyperviseur": {
@@ -64,8 +64,8 @@ def dashboard(user: dict = Depends(get_current_user)):
             },
             "memoire_disponible_mo": round(mem_available_kb / 1024, 1) if mem_available_kb else None,
             "stockage": {
-                "capacite_go": round(capacity / (1024 ** 3), 2) if capacity else None,
-                "disponible_go": round(available / (1024 ** 3), 2) if available else None,
+                "capacite_go": round(capacity / (1024**3), 2) if capacity else None,
+                "disponible_go": round(available / (1024**3), 2) if available else None,
             },
             "etat_infrastructure": "ok" if connected else "degrade",
         }

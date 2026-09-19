@@ -1,22 +1,22 @@
-"""Installation automatisee depuis un ISO (Kickstart pour la famille RHEL,
-autoinstall/NoCloud pour Ubuntu) : construit un petit "ISO de reponses" que
-l'installeur detecte tout seul au demarrage pour creer le compte utilisateur
-et y installer la cle SSH d'automatisation Hyperlite, exactement comme le
-fait deja le cloud-init des VM Debian.
+"""Unattended installation from an ISO (Kickstart for the RHEL family,
+autoinstall/NoCloud for Ubuntu): builds a small "answers ISO" that the
+installer detects by itself at boot to create the user account and install
+the Hyperlite automation SSH key, exactly as the cloud-init of Debian VMs
+already does.
 
-Kickstart (RHEL et derives) n'a besoin d'aucun argument de boot : Anaconda
-detecte tout seul le volume OEMDRV au demarrage. Ubuntu/autoinstall, en
-revanche, a besoin du mot-cle "autoinstall" sur la ligne de commande noyau
-pour sauter sa confirmation manuelle unique ("Continue with autoinstall?") --
-voir extract_casper_kernel plus bas, qui extrait /casper/vmlinuz et
-/casper/initrd de l'ISO pour les demarrer directement via libvirt
-(<os><kernel>/<initrd>/<cmdline>), meme principe que le menu de boot construit
-pour l'installeur Hyperlite Appliance (voir installer/build-iso.sh).
+Kickstart (RHEL and derivatives) needs no boot argument: Anaconda detects the
+OEMDRV volume by itself at startup. Ubuntu/autoinstall, on the other hand,
+needs the "autoinstall" keyword on the kernel command line to skip its single
+manual confirmation ("Continue with autoinstall?"). See extract_casper_kernel
+below, which extracts /casper/vmlinuz and /casper/initrd from the ISO to boot
+them directly through libvirt (<os><kernel>/<initrd>/<cmdline>), the same
+principle as the boot menu built for the Hyperlite Appliance installer (see
+installer/build-iso.sh).
 
-Limite assumee : chaque famille d'OS a son propre format de reponses ; seules
-RHEL (et derives Anaconda : CentOS/Rocky/AlmaLinux/Fedora) et Ubuntu
-(installeur Subiquity, ISO "live-server") sont couvertes. Un ISO non reconnu
-retombe sur l'installation manuelle existante (voir vms.create_vm)."""
+Known limitation: each OS family has its own answer file format; only RHEL
+(and Anaconda derivatives: CentOS/Rocky/AlmaLinux/Fedora) and Ubuntu (the
+Subiquity installer, "live-server" ISO) are covered. An unrecognized ISO falls
+back to the existing manual installation (see vms.create_vm)."""
 
 import shutil
 import subprocess
@@ -24,18 +24,17 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from passlib.hash import sha512_crypt
+from app.core.passwords import sha512_crypt_hash
 
 from .vm_builder import IMAGES_DIR
 
 KICKSTART_FAMILIES = ("rhel", "centos", "rocky", "almalinux", "alma-", "fedora")
 AUTOINSTALL_FAMILIES = ("ubuntu",)
 
-# Cache des noyaux/initrd casper extraits : une seule extraction par ISO
-# (reutilise pour toutes les VM creees depuis le meme fichier), pas une a
-# chaque creation de VM. Sous data/ comme le reste des caches/donnees propres
-# a Hyperlite (data/isos, data/ssh, data/tls), pas sous le repertoire systeme
-# de libvirt.
+# Cache of the extracted casper kernels/initrds: one extraction per ISO (reused
+# for every VM created from the same file), not one per VM creation. It lives
+# under data/ like the other caches and data owned by Hyperlite (data/isos,
+# data/ssh, data/tls), not under libvirt's system directory.
 CASPER_CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "casper-cache"
 
 
@@ -50,15 +49,15 @@ def detect_os_family(iso_filename):
 
 
 def _hash_password(password):
-    return sha512_crypt.hash(password)
+    return sha512_crypt_hash(password)
 
 
 def build_kickstart_iso(vm_name, username, password, ssh_pubkey):
-    """ISO labellisee OEMDRV contenant ks.cfg : Anaconda (RHEL/CentOS/Rocky/Alma/
-    Fedora) detecte automatiquement un volume OEMDRV au demarrage et l'utilise
-    comme source de kickstart, sans aucun argument de boot a fournir. La cle SSH
-    est ecrite via %post plutot que la directive `sshkey` (pas supportee sur
-    toutes les versions d'Anaconda, %post l'est partout depuis RHEL6)."""
+    """ISO labelled OEMDRV containing ks.cfg: Anaconda (RHEL/CentOS/Rocky/Alma/
+    Fedora) automatically detects an OEMDRV volume at boot and uses it as the
+    kickstart source, with no boot argument to provide. The SSH key is written
+    through %post rather than the `sshkey` directive (not supported by every
+    Anaconda version, whereas %post has worked everywhere since RHEL 6)."""
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-kickstart-"))
     try:
         pwd_hash = _hash_password(password)
@@ -99,7 +98,9 @@ systemctl enable sshd
         iso_path = IMAGES_DIR / f"{vm_name}-oemdrv.iso"
         subprocess.run(
             ["genisoimage", "-o", str(iso_path), "-V", "OEMDRV", "-r", "-J", str(ks_path)],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         return iso_path
     finally:
@@ -107,22 +108,20 @@ systemctl enable sshd
 
 
 def extract_casper_kernel(iso_path):
-    """Extrait /casper/vmlinuz et /casper/initrd de l'ISO Ubuntu live-server
-    pour les demarrer directement via libvirt (<os><kernel>/<initrd>), en
-    ajoutant "autoinstall" sur la ligne de commande -- seul moyen de sauter
-    la confirmation manuelle unique de Subiquity ("Continue with
-    autoinstall?"), le mot-cle doit etre present des le demarrage du noyau,
-    pas seulement dans l'ISO de reponses (voir build_autoinstall_iso).
-    Ligne de commande verifiee directement dans le grub.cfg reel de l'ISO
-    Ubuntu 26.04 : `linux /casper/vmlinuz  ---` + `initrd /casper/initrd`,
-    aucun autre parametre requis.
+    """Extract /casper/vmlinuz and /casper/initrd from the Ubuntu live-server ISO
+    to boot them directly through libvirt (<os><kernel>/<initrd>), adding
+    "autoinstall" to the command line. This is the only way to skip Subiquity's
+    single manual confirmation ("Continue with autoinstall?"): the keyword must
+    be present from kernel boot, not only in the answers ISO (see
+    build_autoinstall_iso). The command line was checked directly in the real
+    grub.cfg of the Ubuntu 26.04 ISO: `linux /casper/vmlinuz  ---` +
+    `initrd /casper/initrd`, no other parameter required.
 
-    Extraction mise en cache par nom de fichier ISO (reutilisee pour toutes
-    les VM creees depuis le meme fichier) plutot que refaite a chaque
-    creation de VM -- l'extraction lit ~200 Mo depuis un ISO de plusieurs Go,
-    pas instantane.
+    The extraction is cached by ISO file name (reused for every VM created
+    from the same file) instead of being redone at each VM creation: it reads
+    ~200 MB from an ISO of several GB, which is not instantaneous.
 
-    Retourne (kernel_path, initrd_path)."""
+    Returns (kernel_path, initrd_path)."""
     cache_dir = CASPER_CACHE_DIR / Path(iso_path).stem
     kernel_path = cache_dir / "vmlinuz"
     initrd_path = cache_dir / "initrd"
@@ -133,19 +132,21 @@ def extract_casper_kernel(iso_path):
     for member, dest in (("/casper/vmlinuz", kernel_path), ("/casper/initrd", initrd_path)):
         subprocess.run(
             ["xorriso", "-osirrox", "on", "-indev", str(iso_path), "-extract", member, str(dest)],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
     return kernel_path, initrd_path
 
 
 def build_autoinstall_iso(vm_name, username, password, ssh_pubkey):
-    """ISO NoCloud (label cidata, meme outil cloud-localds que le cloud-init
-    Debian) contenant un autoinstall.yaml : Subiquity (installeur "live-server"
-    d'Ubuntu) detecte cette source toute seule par etiquette de volume. Le mot-cle
-    "autoinstall" doit EN PLUS etre present sur la ligne de commande noyau (voir
-    extract_casper_kernel) pour sauter la confirmation manuelle unique
-    ("Continue with autoinstall?") -- la seule presence de ce fichier ne
-    suffit pas a elle seule."""
+    """NoCloud ISO (label cidata, the same cloud-localds tool as the Debian
+    cloud-init) containing an autoinstall.yaml: Subiquity (Ubuntu's
+    "live-server" installer) detects this source by itself through the volume
+    label. The "autoinstall" keyword must ALSO be present on the kernel command
+    line (see extract_casper_kernel) to skip the single manual confirmation
+    ("Continue with autoinstall?"): the presence of this file alone is not
+    enough."""
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-autoinstall-"))
     try:
         pwd_hash = _hash_password(password)
@@ -189,7 +190,9 @@ autoinstall:
         iso_path = IMAGES_DIR / f"{vm_name}-autoinstall.iso"
         subprocess.run(
             ["cloud-localds", str(iso_path), str(workdir / "user-data"), str(workdir / "meta-data")],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         return iso_path
     finally:
@@ -201,4 +204,4 @@ def build_seed_iso(os_family, vm_name, username, password, ssh_pubkey):
         return build_kickstart_iso(vm_name, username, password, ssh_pubkey)
     if os_family == "autoinstall":
         return build_autoinstall_iso(vm_name, username, password, ssh_pubkey)
-    raise ValueError(f"Famille d'OS non gérée : {os_family}")
+    raise ValueError(f"Unsupported OS family: {os_family}")

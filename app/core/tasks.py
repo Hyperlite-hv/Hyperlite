@@ -1,28 +1,27 @@
-"""Suivi persiste des taches (creation VM, demarrage/arret, upload ISO, ...),
-sur le modele du "Recent Tasks" de vCenter : chaque tache porte une heure de
-creation, une heure de debut et une heure de fin distinctes, avec la duree
-totale derivable des deux dernieres.
+"""Persistent task tracking (VM creation, start/stop, ISO upload, ...),
+modelled on vCenter's "Recent Tasks": each task carries distinct creation,
+start and end times, from which the total duration can be derived.
 
-Aujourd'hui tous les endpoints sont synchrones (la requete HTTP fait le
-travail elle-meme) : cree_le == debut_le au moment de create_task(). Le
-decoupage existe des maintenant pour que les futurs jobs asynchrones
-(kickstart, backups planifies, moteur d'automation) puissent poser cree_le a
-la soumission puis debut_le plus tard, quand un worker prend reellement la
-main dessus -- sans avoir a retoucher ce schema.
+There is no real job queue yet, so a task starts as soon as it is created
+(cree_le == debut_le in create_task()). The two columns are kept separate so
+that a future queue can set cree_le at submission and debut_le when a worker
+actually picks the task up, without a schema change.
+
 """
+
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.database import get_conn
 
 
 def _now():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def create_task(type_, cible=None, node=None, username=None):
-    """Cree une tache et la marque immediatement 'en_cours' (voir docstring
-    du module : pas encore de vraie file d'attente aujourd'hui)."""
+    """Create a task and mark it 'en_cours' immediately (see the module
+    docstring: there is no real queue yet)."""
     task_id = str(uuid.uuid4())
     now = _now()
     with get_conn() as conn:
@@ -42,9 +41,9 @@ def update_task_progress(task_id, progres):
 
 
 def _finish_task_in(conn, task_id, statut, error_message=None):
-    """Cloture une tache sur une connexion deja ouverte -- utilise par
-    log_action() pour que l'ecriture audit_log + tasks reste dans le meme
-    commit plutot que d'ouvrir une seconde connexion SQLite par appel."""
+    """Close a task on an already open connection. Used by log_action() so that
+    the audit_log and tasks writes share one commit instead of opening a
+    second SQLite connection per call."""
     conn.execute(
         "UPDATE tasks SET statut = ?, progres = 100, fin_le = ?, erreur = ? WHERE id = ?",
         (statut, _now(), error_message, task_id),

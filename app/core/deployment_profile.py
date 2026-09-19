@@ -1,13 +1,14 @@
-"""Profils de deploiement (mandat portabilite, chantier 5 -- voir CLAUDE.md).
+"""Deployment profiles.
 
-Trois jeux de REGLAGES PAR DEFAUT (homelab / standard / avance), pas trois
-produits : le meme code tourne partout, seuls quelques parametres
-d'exploitation changent. Le profil actif est, par priorite :
-  1. variable d'environnement HYPERLITE_PROFILE (override de l'admin systeme)
-  2. choix explicite de l'admin dans l'UI (table deployment_profile)
-  3. profil RECOMMANDE, detecte depuis le materiel reel (mode "auto")
-Les overrides fins existants (HYPERLITE_VM_MAX_*, chantier 2) restent
-prioritaires sur tout ce qui est calcule ici."""
+Three sets of DEFAULT SETTINGS (homelab / standard / advanced), not three
+products: the same code runs everywhere and only a few operating parameters
+change. The active profile is, by priority:
+  1. the HYPERLITE_PROFILE environment variable (system administrator override)
+  2. an explicit administrator choice in the UI (deployment_profile table)
+  3. the RECOMMENDED profile, detected from the actual hardware ("auto" mode)
+The finer-grained overrides (HYPERLITE_VM_MAX_*) still take precedence over
+anything computed here."""
+
 import os
 
 from app.core.database import get_conn
@@ -15,7 +16,7 @@ from app.core.database import get_conn
 PROFILES = {
     "homelab": {
         "libelle": "Homelab",
-        "description": "Machine modeste (mini-PC, peu de RAM) : marge hôte plus large, collecte de métriques espacée pour ménager SQLite et le CPU.",
+        "description": "Modest machine (mini PC, little RAM): larger host margin and less frequent metrics collection to spare SQLite and the CPU.",
         "memory_host_share": 0.75,
         "disk_free_share": 0.85,
         "metrics_interval_s": 30,
@@ -23,15 +24,15 @@ PROFILES = {
     },
     "standard": {
         "libelle": "Standard",
-        "description": "Serveur courant : réglages historiques d'Hyperlite.",
+        "description": "Typical server: Hyperlite's historical settings.",
         "memory_host_share": 0.8,
         "disk_free_share": 0.9,
         "metrics_interval_s": 15,
         "vm_defaults": {"vcpu": 2, "memory_mb": 2048, "disk_gb": 20},
     },
     "avance": {
-        "libelle": "Avancé",
-        "description": "Gros serveur : allocation plus agressive, métriques plus fines, VM plus généreuses par défaut.",
+        "libelle": "Advanced",
+        "description": "Large server: more aggressive allocation, finer metrics, more generous default VM sizes.",
         "memory_host_share": 0.9,
         "disk_free_share": 0.95,
         "metrics_interval_s": 10,
@@ -81,7 +82,9 @@ def set_choice(choice):
     with get_conn() as db:
         db.execute(
             "INSERT INTO deployment_profile (id, profil) VALUES (1, ?) "
-            "ON CONFLICT(id) DO UPDATE SET profil = excluded.profil", (choice,))
+            "ON CONFLICT(id) DO UPDATE SET profil = excluded.profil",
+            (choice,),
+        )
         db.commit()
 
 
@@ -91,7 +94,7 @@ def env_override():
 
 
 def get_active():
-    """{actif, source, recommande, choix, reglages}. Ne leve jamais."""
+    """{actif, source, recommande, choix, reglages}. Never raises."""
     recommande = recommend_profile()
     forced = env_override()
     choix = _stored_choice()
@@ -101,8 +104,14 @@ def get_active():
         actif, source = choix, "choisi"
     else:
         actif, source = recommande, "detecte"
-    return {"actif": actif, "source": source, "recommande": recommande, "choix": choix,
-            "variable": "HYPERLITE_PROFILE" if forced else None, "reglages": PROFILES[actif]}
+    return {
+        "actif": actif,
+        "source": source,
+        "recommande": recommande,
+        "choix": choix,
+        "variable": "HYPERLITE_PROFILE" if forced else None,
+        "reglages": PROFILES[actif],
+    }
 
 
 def settings():
