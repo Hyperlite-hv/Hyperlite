@@ -18,6 +18,7 @@ import ContainersTab from "../panels/datacenter/ContainersTab";
 import JournalTab from "../panels/datacenter/JournalTab";
 import ExportsTab from "../panels/datacenter/ExportsTab";
 import ActivityTab from "../panels/datacenter/ActivityTab";
+import CompatibilityTab from "../panels/datacenter/CompatibilityTab";
 
 import NodeSummaryTab from "../panels/node/NodeSummaryTab";
 import NodeSystemTab from "../panels/node/NodeSystemTab";
@@ -25,6 +26,7 @@ import NodeNetworkTab from "../panels/node/NodeNetworkTab";
 import NodeDiskTab from "../panels/node/NodeDiskTab";
 import NodeTasksTab from "../panels/node/NodeTasksTab";
 import NodeShellTab from "../panels/node/NodeShellTab";
+import NodeCompatibilityTab from "../panels/node/NodeCompatibilityTab";
 
 import VMSummaryTab from "../panels/vm/VMSummaryTab";
 import VMConsoleTab from "../panels/vm/VMConsoleTab";
@@ -46,6 +48,7 @@ const DATACENTER_TABS = [
   { id: "containers", label: "Conteneurs", Component: ContainersTab },
   { id: "nodes", label: "Nœuds", Component: NodesTab },
   { id: "ha", label: "HA", Component: HaTab },
+  { id: "compat", label: "Compatibilité", Component: CompatibilityTab },
   { id: "notifications", label: "Notifications", Component: NotificationsTab },
   { id: "sso", label: "SSO", Component: SSOTab },
   { id: "journal", label: "Journal", Component: JournalTab },
@@ -57,6 +60,7 @@ const NODE_TABS = [
   { id: "network", label: "Réseau", Component: NodeNetworkTab },
   { id: "disk", label: "Stockage disque", Component: NodeDiskTab },
   { id: "tasks", label: "Tâches", Component: NodeTasksTab },
+  { id: "compat", label: "Compatibilité", Component: NodeCompatibilityTab },
   { id: "shell", label: "Shell", Component: NodeShellTab },
 ];
 
