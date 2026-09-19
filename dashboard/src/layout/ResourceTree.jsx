@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import ResourceTreeNode from "./ResourceTreeNode";
 import { useInfraStore } from "../store/useInfraStore";
 
@@ -42,10 +43,10 @@ function filterTree(node, query) {
 }
 
 export default function ResourceTree() {
-  const { nodes, vms, storagePools, treeFilter, setTreeFilter, searchQuery } = useInfraStore((s) => ({
+  const { nodes, vms, storagePools, treeFilter, setTreeFilter, searchQuery } = useInfraStore(useShallow((s) => ({
     nodes: s.nodes, vms: s.vms, storagePools: s.storagePools,
     treeFilter: s.treeFilter, setTreeFilter: s.setTreeFilter, searchQuery: s.searchQuery,
-  }));
+  })));
 
   const tree = useMemo(() => {
     const children = treeFilter === "pool" ? buildByPool(vms, storagePools) : buildByServer(nodes, vms, storagePools);
