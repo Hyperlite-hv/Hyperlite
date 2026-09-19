@@ -5,9 +5,9 @@ import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { fetchVMLimits, setVMLimits } from "../../api/client";
 import { useHostLimits } from "../../hooks/useHostLimits";
 
-// Reel : PATCH /vms/{name} (ajoute pour permettre ce qui manquait le plus --
-// changer vCPU/RAM d'une VM existante sans devoir la recreer). Necessite la
-// VM arretee, comme cote Proxmox pour un redimensionnement hors-ligne.
+// Real: PATCH /vms/{name} (added to allow what was missing the most: changing the
+// vCPU/RAM of an existing VM without having to recreate it). Requires the VM to
+// be stopped, as with an offline resize on Proxmox.
 export default function VMOptionsTab({ resource: vm }) {
   const isAdmin = useAuthStore(selectIsAdmin);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -26,8 +26,8 @@ export default function VMOptionsTab({ resource: vm }) {
     setBusy(true);
     try {
       await updateVMResources(vm.nom, { vcpu, memory_mb: memoryMb });
-    } catch (e) {
-      // erreur deja poussee en toast par le store
+    } catch {
+      // error already pushed as a toast by the store
     } finally {
       setBusy(false);
     }
@@ -37,13 +37,13 @@ export default function VMOptionsTab({ resource: vm }) {
     <div className="space-y-4">
       <div className="card divide-y divide-anthracite-600">
         <div className="flex items-center justify-between px-4 py-3">
-          <div className="text-sm text-anthracite-100">Nom d'hôte</div>
+          <div className="text-sm text-anthracite-100">Hostname</div>
           <div className="text-sm text-anthracite-300 font-mono">{vm.nom}</div>
         </div>
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             <div className="text-sm text-anthracite-100">vCPU</div>
-            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.vcpu.min} à ${hostLimits.vcpu.max}` : "Limite fixée par l'hôte"} -- VM arrêtée requise</div>
+            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.vcpu.min} to ${hostLimits.vcpu.max}` : "Limit set by the host"} -- stopped VM required</div>
           </div>
           <input
             type="number" min={hostLimits?.vcpu.min ?? 1} max={hostLimits?.vcpu.max} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
@@ -52,8 +52,8 @@ export default function VMOptionsTab({ resource: vm }) {
         </div>
         <div className="flex items-center justify-between px-4 py-3">
           <div>
-            <div className="text-sm text-anthracite-100">Mémoire (Mo)</div>
-            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.memoire_mo.min} à ${hostLimits.memoire_mo.max}` : "Limite fixée par l'hôte"} -- VM arrêtée requise</div>
+            <div className="text-sm text-anthracite-100">Memory (MB)</div>
+            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.memoire_mo.min} to ${hostLimits.memoire_mo.max}` : "Limit set by the host"} -- stopped VM required</div>
           </div>
           <input
             type="number" min={hostLimits?.memoire_mo.min ?? 256} max={hostLimits?.memoire_mo.max} step={128} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
@@ -62,9 +62,9 @@ export default function VMOptionsTab({ resource: vm }) {
         </div>
         {isAdmin && (
           <div className="flex items-center justify-end px-4 py-3">
-            {vm.etat === "actif" && <span className="mr-auto text-xs text-anthracite-500">Arrêtez la VM pour modifier ses ressources.</span>}
+            {vm.etat === "actif" && <span className="mr-auto text-xs text-anthracite-500">Stop the VM to change its resources.</span>}
             <button className="btn-primary" disabled={!dirty || busy || vm.etat === "actif"} onClick={handleSave}>
-              <Save size={13} /> Enregistrer
+              <Save size={13} /> Save
             </button>
           </div>
         )}
@@ -75,10 +75,9 @@ export default function VMOptionsTab({ resource: vm }) {
   );
 }
 
-// Reel : GET/PUT /vms/{name}/limits (cgroups via libvirt, voir
-// app/routers/vms.py -- chantier 6). S'applique a chaud ET a froid (pas
-// besoin d'arreter la VM, contrairement au redimensionnement vCPU/RAM
-// ci-dessus qui touche a la config figee du domaine).
+// Real: GET/PUT /vms/{name}/limits (cgroups through libvirt, see
+// app/routers/vms.py). Applies live AND when stopped (no need to stop the VM,
+// unlike the vCPU/RAM resize above, which touches the frozen domain config).
 function VMLimitsCard({ vm, isAdmin, pushToast }) {
   const [limits, setLimits] = useState(null);
   const [shares, setShares] = useState(1024);
@@ -92,7 +91,7 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
       setShares(l.cpu_shares);
       setCpuLimitPct(l.cpu_limit_pct ?? "");
       setMemHardLimitMb(l.mem_hard_limit_mb ?? "");
-    }).catch((e) => pushToast({ kind: "error", title: "Erreur limites", message: e.message }));
+    }).catch((e) => pushToast({ kind: "error", title: "Limits error", message: e.message }));
   }, [vm.nom, pushToast]);
 
   useEffect(() => { load(); }, [load]);
@@ -112,9 +111,9 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
         mem_hard_limit_mb: memHardLimitMb === "" ? null : Number(memHardLimitMb),
       });
       setLimits(updated);
-      pushToast({ kind: "success", title: "Limites appliquées", message: vm.nom });
+      pushToast({ kind: "success", title: "Limits applied", message: vm.nom });
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -122,13 +121,13 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
     <div className="card divide-y divide-anthracite-600">
       <div className="flex items-center gap-2 px-4 py-3">
         <Gauge size={14} className="text-anthracite-400" />
-        <div className="text-sm font-medium text-anthracite-100">Limites et priorité (cgroups)</div>
+        <div className="text-sm font-medium text-anthracite-100">Limits and priority (cgroups)</div>
       </div>
 
       <div className="flex items-center justify-between px-4 py-3">
         <div>
-          <div className="text-sm text-anthracite-100">Priorité CPU (shares)</div>
-          <div className="text-xs text-anthracite-400">Relative aux autres VM en cas de contention réelle de l'hôte -- 1024 = normal.</div>
+          <div className="text-sm text-anthracite-100">CPU priority (shares)</div>
+          <div className="text-xs text-anthracite-400">Relative to the other VMs under real host contention. 1024 = normal.</div>
         </div>
         <input type="number" min={2} max={262144} className="input w-28" disabled={!isAdmin}
           value={shares} onChange={(e) => setShares(e.target.value)} />
@@ -136,27 +135,27 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
 
       <div className="flex items-center justify-between px-4 py-3">
         <div>
-          <div className="text-sm text-anthracite-100">Limite CPU max (% par vCPU)</div>
-          <div className="text-xs text-anthracite-400">Plafond dur, même si l'hôte est inactif. Vide = illimité.</div>
+          <div className="text-sm text-anthracite-100">Max CPU limit (% per vCPU)</div>
+          <div className="text-xs text-anthracite-400">Hard cap, even if the host is idle. Empty = unlimited.</div>
         </div>
-        <input type="number" min={1} max={100} placeholder="illimité" className="input w-28" disabled={!isAdmin}
+        <input type="number" min={1} max={100} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
           value={cpuLimitPct} onChange={(e) => setCpuLimitPct(e.target.value)} />
       </div>
 
       <div className="flex items-center justify-between px-4 py-3">
         <div>
-          <div className="text-sm text-anthracite-100">Limite RAM (Mo)</div>
-          <div className="text-xs text-anthracite-400">Plafond dur cgroup, distinct de la RAM allouée ci-dessus. Vide = illimité.</div>
+          <div className="text-sm text-anthracite-100">RAM limit (MB)</div>
+          <div className="text-xs text-anthracite-400">Hard cgroup cap, distinct from the RAM allocated above. Empty = unlimited.</div>
         </div>
-        <input type="number" min={64} placeholder="illimité" className="input w-28" disabled={!isAdmin}
+        <input type="number" min={64} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
           value={memHardLimitMb} onChange={(e) => setMemHardLimitMb(e.target.value)} />
       </div>
 
       {isAdmin && (
         <div className="flex items-center justify-end px-4 py-3">
-          <span className="mr-auto text-xs text-anthracite-500">Consultez l'usage réel dans l'onglet Résumé.</span>
+          <span className="mr-auto text-xs text-anthracite-500">See real usage in the Summary tab.</span>
           <button className="btn-primary" disabled={!dirty || busy} onClick={handleSave}>
-            <Save size={13} /> Appliquer
+            <Save size={13} /> Apply
           </button>
         </div>
       )}

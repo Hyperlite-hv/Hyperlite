@@ -3,10 +3,11 @@ import { Monitor, TerminalSquare, Plug, Unplug } from "lucide-react";
 import { createConsoleTicket, createTerminalTicket } from "../api/client";
 import { ensureXtermLoaded, wsUrl } from "../utils/loadXterm";
 
-// Relais WebSocket reel (VNC via noVNC, terminal via xterm.js) vers une VM --
-// meme flux ticket + WS que le backend existant. Extrait de VMConsoleTab pour
-// etre reutilise tel quel par la fenetre de console dediee (src/console/ConsoleWindow.jsx)
-// ET par le lanceur integre a l'onglet Console d'une VM.
+// Real WebSocket relay (VNC through noVNC, terminal through xterm.js) to a VM,
+// using the same ticket + WS flow as the existing backend. Extracted from
+// VMConsoleTab so it can be reused as is by the dedicated console window
+// (src/console/ConsoleWindow.jsx) AND by the launcher embedded in a VM's Console
+// tab.
 export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) {
   const [mode, setMode] = useState(initialMode);
   const [status, setStatus] = useState("idle"); // idle | connecting | connected | error
@@ -19,9 +20,9 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
   const resizeHandlerRef = useRef(null);
 
   function cleanup() {
-    if (rfbRef.current) { try { rfbRef.current.disconnect(); } catch (e) { /* ignore */ } rfbRef.current = null; }
-    if (wsRef.current) { try { wsRef.current.close(); } catch (e) { /* ignore */ } wsRef.current = null; }
-    if (termRef.current) { try { termRef.current.dispose(); } catch (e) { /* ignore */ } termRef.current = null; }
+    if (rfbRef.current) { try { rfbRef.current.disconnect(); } catch { /* ignore */ } rfbRef.current = null; }
+    if (wsRef.current) { try { wsRef.current.close(); } catch { /* ignore */ } wsRef.current = null; }
+    if (termRef.current) { try { termRef.current.dispose(); } catch { /* ignore */ } termRef.current = null; }
     if (resizeHandlerRef.current) { window.removeEventListener("resize", resizeHandlerRef.current); resizeHandlerRef.current = null; }
     if (screenRef.current) screenRef.current.innerHTML = "";
     setStatus("idle");
@@ -34,27 +35,27 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
     try {
       const ticket = await createConsoleTicket(vmName);
       const url = wsUrl(`/vms/${encodeURIComponent(vmName)}/console?ticket=${encodeURIComponent(ticket.ticket)}`);
-      // Contourne l'analyse statique de Rollup (qui tenterait sinon de resoudre
-      // ce chemin comme un module du bundle) : rfb.js vit dans public/novnc/,
-      // hors du graphe de modules, et doit etre charge tel quel au runtime.
+      // Bypasses Rollup's static analysis (which would otherwise try to resolve this
+      // path as a bundle module): rfb.js lives in public/novnc/, outside the module
+      // graph, and must be loaded as is at runtime.
       const rfbUrl = new URL("/novnc/core/rfb.js", window.location.origin).href;
       const mod = await import(/* @vite-ignore */ rfbUrl);
       const RFB = mod.default;
       screenRef.current.innerHTML = "";
       const rfb = new RFB(screenRef.current, url);
-      rfb.scaleViewport = true; // remplit le conteneur au lieu d'afficher la resolution native de la VM en tout petit
+      rfb.scaleViewport = true; // fills the container instead of showing the VM's native resolution tiny
       rfbRef.current = rfb;
       rfb.addEventListener("connect", () => {
         setStatus("connected");
-        // La resolution distante n'est connue qu'a la connexion etablie : re-assigner
-        // scaleViewport ici force noVNC a recalculer l'echelle avec la vraie taille
-        // (le faire seulement au moment de la construction ne suffit pas, la taille
-        // distante vaut encore 0 a cet instant-la).
+        // The remote resolution is only known once the connection is established:
+        // re-assigning scaleViewport here forces noVNC to recompute the scale with the
+        // real size (doing it only at construction time is not enough, the remote size
+        // is still 0 at that point).
         rfb.scaleViewport = true;
       });
       rfb.addEventListener("disconnect", () => setStatus("idle"));
       rfb.addEventListener("credentialsrequired", () => {
-        setError("Cette VM demande des identifiants VNC non gérés par Hyperlite.");
+        setError("This VM requires VNC credentials that Hyperlite does not manage.");
         setStatus("error");
       });
     } catch (e) {
@@ -87,8 +88,8 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
         ws.send("\x00" + JSON.stringify({ cols: term.cols, rows: term.rows }));
       };
       ws.onmessage = (ev) => term.write(ev.data);
-      ws.onclose = () => { term.write("\r\n\x1b[33m[connexion terminée]\x1b[0m\r\n"); setStatus("idle"); };
-      ws.onerror = () => setError("Erreur de connexion au terminal.");
+      ws.onclose = () => { term.write("\r\n\x1b[33m[connection closed]\x1b[0m\r\n"); setStatus("idle"); };
+      ws.onerror = () => setError("Terminal connection error.");
 
       term.onData((data) => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
       term.onResize(({ cols, rows }) => { if (ws.readyState === WebSocket.OPEN) ws.send("\x00" + JSON.stringify({ cols, rows })); });
@@ -104,12 +105,11 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
     if (mode === "vnc") connectVnc(); else connectTerminal();
   }
 
-  // Connexion automatique : plus besoin de cliquer "Se connecter" a la main,
-  // des que la VM est active on se connecte tout seul (au montage, a un
-  // changement d'onglet VNC/terminal, ou des que la VM demarre alors que la
-  // console etait deja ouverte). Ne redeclenche pas de reconnexion en boucle
-  // sur une simple coupure (status change seul, hors des dependances) --
-  // seulement sur un vrai changement de VM/mode/etat actif.
+  // Automatic connection: no need to click "Connect" by hand, as soon as the VM is
+  // active we connect on our own (on mount, on a VNC/terminal tab change, or as soon
+  // as the VM starts while the console was already open). Does not trigger a
+  // reconnection loop on a simple drop (status change alone, outside the
+  // dependencies), only on a real change of VM/mode/active state.
   useEffect(() => {
     if (vmActive && status === "idle") connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -123,26 +123,26 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
             onClick={() => { cleanup(); setMode("vnc"); }}
             className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${mode === "vnc" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
           >
-            <Monitor size={13} /> Console graphique (VNC)
+            <Monitor size={13} /> Graphical console (VNC)
           </button>
           <button
             onClick={() => { cleanup(); setMode("terminal"); }}
             className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${mode === "terminal" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
           >
-            <TerminalSquare size={13} /> Terminal SSH
+            <TerminalSquare size={13} /> SSH terminal
           </button>
         </div>
 
         {status === "connected" ? (
-          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Déconnecter</button>
+          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Disconnect</button>
         ) : (
           <button className="btn-primary ml-auto" disabled={!vmActive || status === "connecting"} onClick={connect}>
-            <Plug size={13} /> {status === "connecting" ? "Connexion..." : "Se connecter"}
+            <Plug size={13} /> {status === "connecting" ? "Connecting..." : "Connect"}
           </button>
         )}
       </div>
 
-      {!vmActive && <p className="text-xs text-anthracite-500">La VM doit être démarrée.</p>}
+      {!vmActive && <p className="text-xs text-anthracite-500">The VM must be started.</p>}
       {error && <p className="text-xs text-status-error">{error}</p>}
 
       <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-anthracite-600">

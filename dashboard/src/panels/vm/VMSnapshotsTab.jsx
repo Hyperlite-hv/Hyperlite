@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Camera, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import ProgressBar from "../../components/ProgressBar";
@@ -6,15 +6,15 @@ import { fetchSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, fetchT
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
 
-// Reel : GET/POST /vms/{name}/snapshots + POST .../restore?confirm=true +
-// DELETE .../{snapshot_name}. Reecrit le 2026-09-13 (chantier 4) :
-// - create/restore repondent maintenant 202 + un task_id (l'operation tourne
-//   en arriere-plan cote backend, potentiellement plusieurs secondes le temps
-//   de (de)serialiser la memoire de la VM) -- on suit la vraie tache via
-//   GET /tasks/{id} (voir api/client.js, chantier 1) au lieu de bloquer sur
-//   le fetch ou d'inventer un pourcentage que libvirt n'expose pas.
-// - `parent` est un vrai champ renvoye par le backend (getParent()), pas
-//   invente cote front : sert a indenter l'arbre de snapshots imbriques.
+// Real: GET/POST /vms/{name}/snapshots + POST .../restore?confirm=true + DELETE
+// .../{snapshot_name}.
+// - create/restore answer 202 + a task_id (the operation runs in the background on
+//   the backend, potentially for several seconds while the VM memory is
+//   (de)serialized). We follow the real task through GET /tasks/{id} (see
+//   api/client.js) instead of blocking on the fetch or inventing a percentage that
+//   libvirt does not expose.
+// - `parent` is a real field returned by the backend (getParent()), not invented on
+//   the frontend: it is used to indent the tree of nested snapshots.
 function formatElapsed(startedAt) {
   const s = Math.round((Date.now() - startedAt) / 1000);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -26,17 +26,17 @@ export default function VMSnapshotsTab({ resource: vm }) {
   const [snapshots, setSnapshots] = useState(null);
   const [pending, setPending] = useState(null); // { action: "restore"|"delete", snap }
   const [busy, setBusy] = useState(false);
-  const [job, setJob] = useState(null); // { label, startedAt } pendant un create/restore en cours
+  const [job, setJob] = useState(null); // { label, startedAt } while a create/restore is in progress
   const [, forceTick] = useState(0);
 
   const reload = useCallback(async () => {
     try { setSnapshots(await fetchSnapshots(vm.nom)); }
-    catch (e) { pushToast({ kind: "error", title: "Erreur snapshots", message: e.message }); }
+    catch (e) { pushToast({ kind: "error", title: "Snapshots error", message: e.message }); }
   }, [vm?.nom, pushToast]);
 
   useEffect(() => { if (vm?.nom) reload(); }, [vm?.nom, reload]);
 
-  // Rafraichit juste le compteur "Xs écoulées" pendant qu'un job tourne.
+  // Only refreshes the "Xs elapsed" counter while a job is running.
   useEffect(() => {
     if (!job) return;
     const id = setInterval(() => forceTick((n) => n + 1), 1000);
@@ -52,36 +52,33 @@ export default function VMSnapshotsTab({ resource: vm }) {
   }, []);
 
   if (!vm) return null;
-  if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400">Chargement...</div>;
+  if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
 
-  // VM sur pool ZFS (backlog stockage 2026-09-18, phase 3) : lu
-  // directement depuis vm.stockage_zfs (GET /vms, app/routers/vms.py::
-  // _domain_summary). BUG REEL trouvé en testant dans un vrai
-  // navigateur : la première version déduisait ça depuis la liste des
-  // snapshots EXISTANTS (etat_vm=='disque_seul') -- faux pour le TOUT
-  // PREMIER snapshot d'une VM (liste encore vide pendant sa création),
-  // le texte qcow2 ("mémoire incluse automatiquement") s'affichait donc
-  // à tort le temps de ce tout premier snapshot. Le texte qcow2 est de
-  // toute façon faux pour ces VM dans l'absolu -- un snapshot ZFS ne
-  // grossit jamais un fichier qcow2 (il n'y en a pas) et n'inclut JAMAIS
-  // la mémoire, même VM active au moment du snapshot.
+  // VM on a ZFS pool: read directly from vm.stockage_zfs (GET /vms,
+  // app/routers/vms.py::_domain_summary). The first version deduced it from the list
+  // of EXISTING snapshots (etat_vm=='disque_seul'), which is wrong for the VERY FIRST
+  // snapshot of a VM (an empty list while it is being created), so the qcow2 wording
+  // ("memory included automatically") was wrongly shown during that very first
+  // snapshot. The qcow2 wording is wrong for these VMs in the absolute anyway: a ZFS
+  // snapshot never grows a qcow2 file (there is none) and NEVER includes memory, even
+  // if the VM is running when the snapshot is taken.
   const isZfsBacked = Boolean(vm.stockage_zfs);
 
   async function handleCreate() {
     setBusy(true);
     const name = `snap-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
     try {
-      const { task_id } = await createSnapshot(vm.nom, name, "Créé depuis le dashboard");
-      setJob({ label: `Création de « ${name} »`, startedAt: Date.now() });
+      const { task_id } = await createSnapshot(vm.nom, name, "Created from the dashboard");
+      setJob({ label: `Creating "${name}"`, startedAt: Date.now() });
       const t = await waitTask(task_id);
       if (t.statut === "termine") {
-        pushToast({ kind: "success", title: "Snapshot créé", message: name });
+        pushToast({ kind: "success", title: "Snapshot created", message: name });
       } else {
-        pushToast({ kind: "error", title: "Échec de la création", message: t.erreur || "Erreur inconnue" });
+        pushToast({ kind: "error", title: "Creation failed", message: t.erreur || "Unknown error" });
       }
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de la création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally { setBusy(false); setJob(null); }
   }
 
@@ -91,21 +88,21 @@ export default function VMSnapshotsTab({ resource: vm }) {
     try {
       if (pending.action === "delete") {
         await deleteSnapshot(vm.nom, pending.snap.nom);
-        pushToast({ kind: "success", title: "Snapshot supprimé", message: pending.snap.nom });
+        pushToast({ kind: "success", title: "Snapshot deleted", message: pending.snap.nom });
         await reload();
       } else {
         const { task_id } = await restoreSnapshot(vm.nom, pending.snap.nom);
-        setJob({ label: `Restauration vers « ${pending.snap.nom} »`, startedAt: Date.now() });
+        setJob({ label: `Restoring to "${pending.snap.nom}"`, startedAt: Date.now() });
         const t = await waitTask(task_id);
         if (t.statut === "termine") {
-          pushToast({ kind: "success", title: "Snapshot restauré", message: pending.snap.nom });
+          pushToast({ kind: "success", title: "Snapshot restored", message: pending.snap.nom });
         } else {
-          pushToast({ kind: "error", title: "Échec de la restauration", message: t.erreur || "Erreur inconnue" });
+          pushToast({ kind: "error", title: "Restore failed", message: t.erreur || "Unknown error" });
         }
         await reload();
       }
     } catch (e) {
-      pushToast({ kind: "error", title: "Echec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally {
       setBusy(false);
       setJob(null);
@@ -113,8 +110,8 @@ export default function VMSnapshotsTab({ resource: vm }) {
     }
   }
 
-  // Profondeur d'indentation d'un snapshot dans l'arbre (via `parent`,
-  // remonte jusqu'a la racine) -- affichage simple, pas de vraie vue graphe.
+  // Indentation depth of a snapshot in the tree (through `parent`, up to the root):
+  // a simple display, not a real graph view.
   const depthOf = (snap, seen = new Set()) => {
     if (!snap.parent || seen.has(snap.nom)) return 0;
     seen.add(snap.nom);
@@ -128,17 +125,17 @@ export default function VMSnapshotsTab({ resource: vm }) {
         <div className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2">
           <AlertTriangle size={15} className="text-status-warning shrink-0 mt-0.5" />
           <p className="text-xs text-anthracite-200">
-            {snapshots.length} snapshots actifs sur cette VM.{" "}
+            {snapshots.length} active snapshots on this VM.{" "}
             {isZfsBacked
-              ? "Chaque snapshot ZFS conservé occupe de l'espace sur le pool — supprimez ceux qui ne sont plus utiles dès que possible."
-              : "Chaque snapshot conservé ralentit le disque et fait grossir le fichier qcow2 — supprimez ceux qui ne sont plus utiles dès que possible."}
+              ? "Every ZFS snapshot kept takes space on the pool: delete the ones that are no longer useful as soon as possible."
+              : "Every snapshot kept slows the disk down and grows the qcow2 file: delete the ones that are no longer useful as soon as possible."}
           </p>
         </div>
       )}
 
       {isAdmin && (
         <button className="btn-primary" disabled={busy} onClick={handleCreate}>
-          <Camera size={14} /> Créer un snapshot
+          <Camera size={14} /> Create a snapshot
         </button>
       )}
 
@@ -146,36 +143,36 @@ export default function VMSnapshotsTab({ resource: vm }) {
         <div className="card p-3 space-y-1.5">
           <div className="flex items-center justify-between text-sm">
             <span className="text-anthracite-100">{job.label}</span>
-            <span className="text-xs text-anthracite-400">{formatElapsed(job.startedAt)} écoulées</span>
+            <span className="text-xs text-anthracite-400">{formatElapsed(job.startedAt)} elapsed</span>
           </div>
           <ProgressBar indeterminate statut="en_cours" />
           <p className="text-[11px] text-anthracite-500">
             {isZfsBacked
-              ? "Snapshot ZFS natif (disque seul, quasi instantané)."
-              : "Peut prendre plusieurs secondes si la VM tourne (la mémoire est incluse automatiquement)."}
+              ? "Native ZFS snapshot (disk only, nearly instantaneous)."
+              : "May take several seconds if the VM is running (memory is included automatically)."}
           </p>
         </div>
       )}
 
       <div className="card divide-y divide-anthracite-600">
-        {snapshots.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucun snapshot.</div>}
+        {snapshots.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No snapshots.</div>}
         {snapshots.map((s) => (
           <div key={s.nom} className="flex items-center gap-3 px-4 py-2.5" style={{ paddingLeft: `${16 + depthOf(s) * 20}px` }}>
             <Camera size={14} className="text-anthracite-400 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm text-anthracite-100">
-                {s.nom} {s.actuel && <span className="ml-1 rounded bg-accent-blue/20 px-1.5 py-0.5 text-[10px] text-accent-blue">actuel</span>}
+                {s.nom} {s.actuel && <span className="ml-1 rounded bg-accent-blue/20 px-1.5 py-0.5 text-[10px] text-accent-blue">current</span>}
               </div>
               <div className="text-xs text-anthracite-400 truncate">
                 {s.description || "--"} {s.date_creation ? `-- ${s.date_creation}` : ""}
                 {s.etat_vm === "disque_seul"
-                  ? " -- ZFS, disque seul (jamais la mémoire)"
-                  : s.etat_vm && ` -- VM ${s.etat_vm === "running" ? "en marche (mémoire incluse)" : "arrêtée (disque seul)"}`}
+                  ? " -- ZFS, disk only (never memory)"
+                  : s.etat_vm && ` -- VM ${s.etat_vm === "running" ? "running (memory included)" : "stopped (disk only)"}`}
               </div>
             </div>
             {isAdmin && (
               <>
-                <button className="btn-secondary" disabled={busy} onClick={() => setPending({ action: "restore", snap: s })}><RotateCcw size={13} /> Restaurer</button>
+                <button className="btn-secondary" disabled={busy} onClick={() => setPending({ action: "restore", snap: s })}><RotateCcw size={13} /> Restore</button>
                 <button className="btn-danger" disabled={busy} onClick={() => setPending({ action: "delete", snap: s })}><Trash2 size={13} /></button>
               </>
             )}
@@ -185,9 +182,9 @@ export default function VMSnapshotsTab({ resource: vm }) {
 
       <ConfirmDialog
         open={!!pending}
-        title={pending?.action === "delete" ? `Supprimer '${pending.snap.nom}' ?` : `Restaurer '${pending?.snap.nom}' ?`}
-        message={pending?.action === "delete" ? "Cette action est irréversible." : "L'état actuel de la VM sera remplacé par celui du snapshot."}
-        confirmLabel={pending?.action === "delete" ? "Supprimer" : "Restaurer"}
+        title={pending?.action === "delete" ? `Delete '${pending.snap.nom}'?` : `Restore '${pending?.snap.nom}'?`}
+        message={pending?.action === "delete" ? "This action is irreversible." : "The current state of the VM will be replaced by that of the snapshot."}
+        confirmLabel={pending?.action === "delete" ? "Delete" : "Restore"}
         danger={pending?.action === "delete"}
         onCancel={() => setPending(null)}
         onConfirm={confirmAction}

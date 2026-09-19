@@ -3,10 +3,9 @@ import { useInfraStore } from "../store/useInfraStore";
 import { statusColor } from "../theme/colors";
 import { exportVM } from "../api/client";
 
-// Menu d'actions ancre pres de la carte VM cliquee (ecran 6a de la refonte
-// 2026-09-13) : memes entrees que la palette ⌘K existante (SearchBar),
-// affichees au clic plutot que de forcer a connaitre les raccourcis --
-// "⌘K devient une commodite, plus un prerequis" (note de la maquette).
+// Actions menu anchored near the clicked VM card: the same entries as the existing
+// ⌘K palette (SearchBar), shown on click instead of forcing users to know the
+// shortcuts. ⌘K becomes a convenience, no longer a prerequisite.
 export default function VMActionMenu({ vm, anchorRect, onClose }) {
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const navigateTo = useInfraStore((s) => s.navigateTo);
@@ -16,8 +15,8 @@ export default function VMActionMenu({ vm, anchorRect, onClose }) {
 
   function doExport() {
     exportVM(vm.nom)
-      .then(() => pushToast({ kind: "success", title: "Export lancé", message: `${vm.nom} — disponible dans Datacenter › Exports une fois terminé` }))
-      .catch((e) => pushToast({ kind: "error", title: "Échec de l'export", message: e.message }));
+      .then(() => pushToast({ kind: "success", title: "Export started", message: `${vm.nom}: available in Datacenter › Exports once finished` }))
+      .catch((e) => pushToast({ kind: "error", title: "Export failed", message: e.message }));
     onClose();
   }
 
@@ -45,22 +44,22 @@ export default function VMActionMenu({ vm, anchorRect, onClose }) {
 
   const items = active
     ? [
-        { label: "Ouvrir la console", key: "C", onClick: () => go("console") },
-        { label: "Créer un instantané", key: "S", onClick: () => go("snapshots") },
-        { label: "Modifier le matériel", onClick: () => go("hardware") },
-        { label: "Cloner", onClick: () => go("options") },
-        { label: "Exporter le disque", onClick: doExport },
+        { label: "Open the console", key: "C", onClick: () => go("console") },
+        { label: "Create a snapshot", key: "S", onClick: () => go("snapshots") },
+        { label: "Edit hardware", onClick: () => go("hardware") },
+        { label: "Clone", onClick: () => go("options") },
+        { label: "Export the disk", onClick: doExport },
         { divider: true },
-        { label: "Redémarrer", onClick: () => run("restart") },
-        { label: "Arrêter", danger: true, onClick: () => run("stop") },
+        { label: "Restart", onClick: () => run("restart") },
+        { label: "Stop", danger: true, onClick: () => run("stop") },
       ]
     : [
-        { label: "Démarrer", primary: true, onClick: () => run("start") },
-        { label: "Modifier le matériel", onClick: () => go("hardware") },
-        { label: "Cloner", onClick: () => go("options") },
-        { label: "Exporter le disque", onClick: doExport },
+        { label: "Start", primary: true, onClick: () => run("start") },
+        { label: "Edit hardware", onClick: () => go("hardware") },
+        { label: "Clone", onClick: () => go("options") },
+        { label: "Export the disk", onClick: doExport },
         { divider: true },
-        { label: "Supprimer…", danger: true, onClick: () => go("summary") },
+        { label: "Delete…", danger: true, onClick: () => go("summary") },
       ];
 
   const top = anchorRect ? anchorRect.bottom + 6 : 0;
@@ -75,7 +74,7 @@ export default function VMActionMenu({ vm, anchorRect, onClose }) {
       <div className="flex items-center gap-2 px-3.5 py-1.5">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor(vm.etat) }} />
         <span className="text-[12.5px] font-semibold text-anthracite-100">{vm.nom}</span>
-        <span className="ml-auto font-mono text-[10px] text-anthracite-400">{vm.vcpu} vCPU · {vm.memoire_mo} Mo</span>
+        <span className="ml-auto font-mono text-[10px] text-anthracite-400">{vm.vcpu} vCPU · {vm.memoire_mo} MB</span>
       </div>
       <div className="my-0.5 h-px bg-anthracite-600" />
       {items.map((item, i) =>
@@ -97,7 +96,7 @@ export default function VMActionMenu({ vm, anchorRect, onClose }) {
         )
       )}
       <div className="mt-0.5 h-px bg-anthracite-600" />
-      <div className="px-3.5 pt-1.5 font-mono text-[10px] text-anthracite-400">Les mêmes actions sous ⌘K</div>
+      <div className="px-3.5 pt-1.5 font-mono text-[10px] text-anthracite-400">The same actions under ⌘K</div>
     </div>
   );
 }

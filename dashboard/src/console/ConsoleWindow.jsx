@@ -6,10 +6,10 @@ import LoginScreen from "../auth/LoginScreen";
 import { useAuthStore } from "../store/useAuthStore";
 import { fetchVM } from "../api/client";
 
-// Page autonome (pas d'AppShell, pas de sidebar/header) ouverte dans une
-// fenetre/onglet separe via window.open() -- voir VMConsoleTab.jsx. Meme
-// origine que le reste de l'app donc meme session (JWT en localStorage,
-// relu par useAuthStore comme partout ailleurs).
+// Standalone page (no AppShell, no sidebar/header) opened in a separate
+// window/tab through window.open(), see VMConsoleTab.jsx. Same origin as the rest
+// of the app, so the same session (JWT in localStorage, re-read by useAuthStore
+// like everywhere else).
 export default function ConsoleWindow() {
   const { name } = useParams();
   const [searchParams] = useSearchParams();
@@ -30,7 +30,7 @@ export default function ConsoleWindow() {
   }, [name, status]);
 
   if (status === "checking") {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Vérification de la session...</div>;
+    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Checking the session...</div>;
   }
   if (status === "anonymous") {
     return <LoginScreen />;
@@ -42,7 +42,7 @@ export default function ConsoleWindow() {
         <Server size={15} className="text-accent-blue" />
         <span className="text-sm font-semibold text-anthracite-100">{name}</span>
         {vm?.etat && <span className="text-xs text-anthracite-400">({vm.etat})</span>}
-        <button className="btn-secondary ml-auto" onClick={() => window.close()}>Fermer la fenêtre</button>
+        <button className="btn-secondary ml-auto" onClick={() => window.close()}>Close the window</button>
       </div>
       {error && <p className="text-xs text-status-error">{error}</p>}
       <div className="flex-1 min-h-0">

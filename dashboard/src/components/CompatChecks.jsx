@@ -1,14 +1,14 @@
 import { useState } from "react";
 
 const STYLE = {
-  blocking: ["text-status-error", "Bloquant"],
+  blocking: ["text-status-error", "Blocking"],
   warning: ["text-status-warning", "Attention"],
   ok: ["text-status-running", "OK"],
 };
 
-// Liste de controles de compatibilite (forme {statut, message, action?} de
-// app/core/cluster_compat.py) : les points non satisfaits d'abord, les OK
-// repliables pour ne pas noyer l'essentiel.
+// List of compatibility checks (shape {statut, message, action?} from
+// app/core/cluster_compat.py): unsatisfied items first, the OK ones collapsible so
+// they do not drown out the essentials.
 export default function CompatChecks({ report }) {
   const [showOk, setShowOk] = useState(false);
   if (!report) return null;
@@ -17,14 +17,14 @@ export default function CompatChecks({ report }) {
   const rows = showOk ? [...bad, ...ok] : bad;
   return (
     <div className="w-full space-y-1.5 text-sm">
-      {bad.length === 0 && <div className="text-status-running">Tous les contrôles de compatibilité sont satisfaits.</div>}
+      {bad.length === 0 && <div className="text-status-running">All compatibility checks passed.</div>}
       {rows.map((c, i) => {
         const [cls, label] = STYLE[c.statut];
         return (
           <div key={`${c.id}-${i}`} className="flex items-start justify-between gap-4">
             <div>
               <div className="text-anthracite-100">{c.message}</div>
-              {c.action && <div className="text-xs text-anthracite-300">Action : {c.action}</div>}
+              {c.action && <div className="text-xs text-anthracite-300">Action: {c.action}</div>}
             </div>
             <span className={`shrink-0 text-xs font-medium ${cls}`}>{label}</span>
           </div>
@@ -32,7 +32,7 @@ export default function CompatChecks({ report }) {
       })}
       {ok.length > 0 && (
         <button type="button" className="text-xs text-anthracite-300 underline" onClick={() => setShowOk((v) => !v)}>
-          {showOk ? "Masquer" : "Voir"} les {ok.length} contrôle(s) satisfait(s)
+          {showOk ? "Hide" : "Show"} the {ok.length} passed check(s)
         </button>
       )}
     </div>

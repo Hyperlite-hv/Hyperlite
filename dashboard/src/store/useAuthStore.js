@@ -1,9 +1,6 @@
 import { create } from "zustand";
 import { setAuthToken } from "../api/client";
 
-// Memes cles localStorage que l'ancien front vanilla-JS (app/static/app.js) --
-// une fois ce dashboard servi depuis la meme origine que le backend, une
-// session ouverte dans l'un est reconnue par l'autre.
 const KEY_TOKEN = "hyperlite_token";
 const KEY_USERNAME = "hyperlite_username";
 const KEY_ROLE = "hyperlite_role";
@@ -14,10 +11,10 @@ function clearStoredSession() {
   localStorage.removeItem(KEY_ROLE);
 }
 
-// Factorise entre login() et loginWith2FA() (chantier 30) -- fonction de
-// module plutot que methode du store : un store zustand est souvent
-// destructure (`const { login } = useAuthStore()`), un `this.xxx()` a
-// l'interieur d'une action perdrait alors sa liaison.
+// Shared between login() and loginWith2FA(): a module-level function rather than a
+// store method, because a zustand store is often destructured
+// (`const { login } = useAuthStore()`), so a `this.xxx()` inside an action would
+// lose its binding.
 function applySession(set, token, username, role, totpEnabled) {
   localStorage.setItem(KEY_TOKEN, token);
   localStorage.setItem(KEY_USERNAME, username);
@@ -35,14 +32,12 @@ export const useAuthStore = create((set, get) => ({
   error: null,
 
   async restoreSession() {
-    // Chantier 20 (SSO) : /auth/sso/callback redirige le navigateur vers
-    // "/?sso_token=..." apres une connexion reussie -- un jeton de
-    // session Hyperlite normal (meme format qu'un login classique), pas
-    // un mecanisme special. Prioritaire sur le localStorage (un retour de
-    // SSO doit toujours remplacer une session locale perimee), et
-    // nettoye immediatement l'URL (history.replaceState) pour ne jamais
-    // laisser un jeton de session trainer dans l'historique du
-    // navigateur/les logs d'acces.
+    // SSO: /auth/sso/callback redirects the browser to "/?sso_token=..." after a
+    // successful sign-in. It is a normal Hyperlite session token (same format as a
+    // classic login), not a special mechanism. It takes priority over localStorage (a
+    // return from SSO must always replace a stale local session), and the URL is
+    // cleaned immediately (history.replaceState) so a session token never lingers in
+    // the browser history/access logs.
     const params = new URLSearchParams(window.location.search);
     const ssoToken = params.get("sso_token");
     if (ssoToken) {
@@ -50,13 +45,13 @@ export const useAuthStore = create((set, get) => ({
       setAuthToken(ssoToken);
       try {
         const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${ssoToken}` } });
-        if (!res.ok) throw new Error("jeton SSO invalide");
+        if (!res.ok) throw new Error("invalid SSO token");
         const me = await res.json();
         applySession(set, ssoToken, me.username, me.role, !!me.totp_enabled);
         return;
-      } catch (e) {
+      } catch {
         setAuthToken(null);
-        set({ status: "anonymous", error: "Connexion SSO échouée" });
+        set({ status: "anonymous", error: "SSO sign-in failed" });
         return;
       }
     }
@@ -69,19 +64,18 @@ export const useAuthStore = create((set, get) => ({
     setAuthToken(token);
     try {
       const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error("session expiree");
+      if (!res.ok) throw new Error("session expired");
       const me = await res.json();
       set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, status: "authenticated" });
-    } catch (e) {
+    } catch {
       clearStoredSession();
       setAuthToken(null);
       set({ status: "anonymous" });
     }
   },
 
-  // Rappelee par AccountSecurityModal (chantier 30) apres activation/
-  // desactivation du 2FA, pour que le reste de l'UI (badge de statut) voie
-  // l'etat a jour sans devoir se reconnecter.
+  // Called by AccountSecurityModal after enabling/disabling 2FA, so the rest of the
+  // UI (status badge) sees the up-to-date state without having to sign in again.
   async refreshMe() {
     if (!get().token) return;
     const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${get().token}` } });
@@ -99,16 +93,15 @@ export const useAuthStore = create((set, get) => ({
       body,
     });
     let data = null;
-    try { data = await res.json(); } catch (e) { /* pas de corps */ }
+    try { data = await res.json(); } catch { /* no body */ }
     if (!res.ok) {
-      const msg = (data && data.detail) || "Identifiants invalides";
+      const msg = (data && data.detail) || "Invalid credentials";
       set({ error: msg });
       throw new Error(msg);
     }
-    // Chantier 30 (2FA, 2026-09-17) : mot de passe correct mais un code
-    // TOTP est encore requis -- pas de session ouverte tout de suite, on
-    // renvoie le jeton intermediaire a l'appelant (LoginScreen) qui affiche
-    // l'etape de saisie du code puis appelle loginWith2FA.
+    // 2FA: the password is correct but a TOTP code is still required. No session is
+    // opened right away, the intermediate token is returned to the caller
+    // (LoginScreen), which shows the code entry step and then calls loginWith2FA.
     if (data.require_2fa) {
       return { require2FA: true, preAuthToken: data.pre_auth_token };
     }
@@ -124,9 +117,9 @@ export const useAuthStore = create((set, get) => ({
       body: JSON.stringify({ pre_auth_token: preAuthToken, code }),
     });
     let data = null;
-    try { data = await res.json(); } catch (e) { /* pas de corps */ }
+    try { data = await res.json(); } catch { /* no body */ }
     if (!res.ok) {
-      const msg = (data && data.detail) || "Code invalide";
+      const msg = (data && data.detail) || "Invalid code";
       set({ error: msg });
       throw new Error(msg);
     }

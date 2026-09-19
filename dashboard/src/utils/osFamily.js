@@ -1,6 +1,6 @@
-// Miroir cote client de app/core/unattended_install.detect_os_family : sert
-// uniquement a adapter le texte du wizard (le backend refait sa propre
-// detection, c'est la seule qui compte pour le comportement reel).
+// Client-side mirror of app/core/unattended_install.detect_os_family: used only to
+// adapt the wizard text (the backend does its own detection, which is the only one
+// that matters for the real behaviour).
 const KICKSTART_FAMILIES = ["rhel", "centos", "rocky", "almalinux", "alma-", "fedora"];
 const AUTOINSTALL_FAMILIES = ["ubuntu"];
 

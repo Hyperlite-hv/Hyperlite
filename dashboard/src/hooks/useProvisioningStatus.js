@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchProvisioningStatus } from "../api/client";
 
-// Interroge GET /vms/{name}/provisioning (installation automatisee ISO en
-// cours -- Kickstart/autoinstall, voir app/core/unattended_install.py) pour
-// afficher une barre de progression indeterminee tant que le terminal SSH
-// n'est pas encore joignable. S'arrete de lui-meme des que le backend
-// signale la fin (provisioning: false).
+// Polls GET /vms/{name}/provisioning (unattended ISO installation in progress:
+// Kickstart/autoinstall, see app/core/unattended_install.py) to show an
+// indeterminate progress bar while the SSH terminal is not yet reachable. Stops on
+// its own as soon as the backend reports the end (provisioning: false).
 const POLL_MS = 6000;
 
 export function useProvisioningStatus(vmName, active) {
-  const [status, setStatus] = useState(null); // null = pas encore interroge
+  const [status, setStatus] = useState(null); // null = not queried yet
   const [justFinished, setJustFinished] = useState(false);
   const timerRef = useRef(null);
 
@@ -28,9 +27,9 @@ export function useProvisioningStatus(vmName, active) {
         if (s.provisioning) {
           timerRef.current = setTimeout(poll, POLL_MS);
         }
-      } catch (e) {
-        // VM peut-etre supprimee entre-temps, ou API momentanement indisponible :
-        // pas grave, on arrete juste de poller silencieusement.
+      } catch {
+        // The VM may have been deleted in the meantime, or the API momentarily
+        // unavailable: no big deal, we just stop polling silently.
       }
     }
     poll();

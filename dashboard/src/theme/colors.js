@@ -1,6 +1,5 @@
-// Recharts a besoin de couleurs CSS explicites (il ne lit pas les classes Tailwind).
-// Garder ces valeurs synchronisees avec tailwind.config.js si la palette change.
-// Refonte 2026-09-17 : indigo/blanc plutot que le violet-marine precedent.
+// Recharts needs explicit CSS colors (it does not read Tailwind classes). Keep
+// these values in sync with tailwind.config.js if the palette changes.
 export const chartColors = {
   cpu: "#4F46E5",
   ram: "#D97706",
@@ -21,9 +20,9 @@ export const statusColors = {
   warning: "#D97706",
   erreur: "#DC2626",
   error: "#DC2626",
-  // Etats reels d'un domaine libvirt (voir STATE_NAMES, app/routers/vms.py
-  // et app/routers/containers.py) au-dela du sous-ensemble actif/arrete
-  // deja couvert ci-dessus.
+  // Real states of a libvirt domain (see STATE_NAMES, app/routers/vms.py and
+  // app/routers/containers.py) beyond the active/stopped subset already covered
+  // above.
   en_pause: "#D97706",
   suspendu: "#D97706",
   bloque: "#DC2626",
