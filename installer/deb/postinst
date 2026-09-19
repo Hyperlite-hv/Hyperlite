@@ -16,7 +16,7 @@ FRESH_INSTALL=0
 [ ! -f "$APP_DIR/.env" ] && FRESH_INSTALL=1
 
 mkdir -p "$APP_DIR/data/isos" "$APP_DIR/data/templates" "$APP_DIR/data/tls" "$APP_DIR/data/ssh" \
-         "$APP_DIR/data/vm-exports" "$APP_DIR/data/imported-disks" "$APP_DIR/data/casper-cache"
+         "$APP_DIR/data/vm-exports" "$APP_DIR/data/imported-disks" "$APP_DIR/data/casper-cache" "$APP_DIR/data/tmp"
 chmod +x "$APP_DIR/scripts/"*.sh 2>/dev/null || true
 chmod o+x /root  # voir postinstall.sh -- necessaire pour que libvirt-qemu monte les ISO sous data/isos/
 
