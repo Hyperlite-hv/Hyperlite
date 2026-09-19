@@ -45,7 +45,7 @@ export default function AccountSecurityModal({ onClose }) {
       setConfirmCode("");
       await refreshMe();
     } catch (e) {
-      pushToast({ kind: "error", title: "Invalid code", message: e.message });
+      pushToast({ kind: "error", title: "Two-factor setup failed", message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -193,7 +193,7 @@ export default function AccountSecurityModal({ onClose }) {
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                 </button>
               </div>
-              <button className="text-xs text-anthracite-400 hover:text-anthracite-200" onClick={() => setFreshToken(null)}>Close</button>
+              <button className="text-xs text-anthracite-400 hover:text-anthracite-200" onClick={() => setFreshToken(null)}>Dismiss</button>
             </div>
           )}
 

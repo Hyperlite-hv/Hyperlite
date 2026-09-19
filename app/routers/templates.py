@@ -74,6 +74,10 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
             raise HTTPException(status_code=500, detail=f"Undefine failed: {exc}") from exc
 
         shutil.move(disk_source, str(target_disk))
+        # Deploying from a template drops the CD-ROM devices, so the helper ISOs of the source VM
+        # (cloud-init seed, unattended installation media) would stay behind as orphans.
+        for suffix in ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso"):
+            safe_child(IMAGES_DIR, f"{name}{suffix}").unlink(missing_ok=True)
 
         log_action(user["username"], "convert_to_template", name, "succes", f"template -> {tpl_name}")
         return {"template": tpl_name, "vm_source": name}
