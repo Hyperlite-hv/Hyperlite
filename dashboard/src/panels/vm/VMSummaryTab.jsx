@@ -262,7 +262,7 @@ export default function VMSummaryTab({ resource: vm }) {
       {migrateOpen && (
         <div className="card flex flex-wrap items-center gap-3 p-4">
           <span className="text-sm text-anthracite-200">Migrate <b className="text-anthracite-100">{vm.nom}</b> to</span>
-          <select className="input w-auto" value={migrateTarget} onChange={(e) => setMigrateTarget(e.target.value)}>
+          <select aria-label="Migration target node" className="input w-auto" value={migrateTarget} onChange={(e) => setMigrateTarget(e.target.value)}>
             <option value="">Choose a node…</option>
             {migrationTargets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
           </select>
@@ -288,7 +288,7 @@ export default function VMSummaryTab({ resource: vm }) {
       {cleanupOpen && (
         <div className="card flex flex-wrap items-center gap-3 p-4">
           <span className="text-sm text-anthracite-200">Delete <b className="text-anthracite-100">{vm.nom}</b> after</span>
-          <input
+          <input aria-label="Inactivity threshold in days"
             type="number" min={1} max={365} className="input w-20"
             value={cleanupDays} onChange={(e) => setCleanupDays(Number(e.target.value))}
           />

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { setAuthToken } from "../api/client";
+import { setAuthToken, setUnauthorizedHandler } from "../api/client";
 
 const KEY_TOKEN = "hyperlite_token";
 const KEY_USERNAME = "hyperlite_username";
@@ -20,7 +20,7 @@ function applySession(set, token, username, role, totpEnabled) {
   localStorage.setItem(KEY_USERNAME, username);
   localStorage.setItem(KEY_ROLE, role);
   setAuthToken(token);
-  set({ token, username, role, totpEnabled, status: "authenticated" });
+  set({ token, username, role, totpEnabled, status: "authenticated", error: null });
 }
 
 export const useAuthStore = create((set, get) => ({
@@ -136,3 +136,10 @@ export const useAuthStore = create((set, get) => ({
 export function selectIsAdmin(state) {
   return state.role === "admin";
 }
+
+setUnauthorizedHandler(() => {
+  if (useAuthStore.getState().status !== "authenticated") return;
+  clearStoredSession();
+  setAuthToken(null);
+  useAuthStore.setState({ token: null, username: null, role: null, status: "anonymous", error: "Your session has expired. Please sign in again." });
+});

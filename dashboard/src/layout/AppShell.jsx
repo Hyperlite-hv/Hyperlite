@@ -1,3 +1,4 @@
+import ConfirmHost from "../components/ConfirmHost";
 import { useEffect } from "react";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
@@ -47,6 +48,7 @@ export default function AppShell() {
         <TaskLogPanel />
       </div>
       <ToastContainer />
-    </div>
+      <ConfirmHost />
+</div>
   );
 }

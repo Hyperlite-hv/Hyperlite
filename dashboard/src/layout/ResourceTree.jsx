@@ -70,7 +70,9 @@ export default function ResourceTree() {
         ))}
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 pt-0.5">
-        <ResourceTreeNode node={tree} />
+        <div role="tree" aria-label="Resources">
+          <ResourceTreeNode node={tree} />
+        </div>
       </div>
     </div>
   );

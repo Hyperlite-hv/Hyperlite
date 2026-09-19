@@ -1,3 +1,5 @@
+import LoadingState from "../../components/LoadingState";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Users, Boxes, ShieldCheck, UserPlus } from "lucide-react";
 import {
@@ -100,6 +102,7 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
   }
 
   async function handleDelete(id, roleName) {
+    if (!(await confirmAction({ title: `Delete role '${roleName}'?`, message: "Assignments that use this role stop granting access.", confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deleteCustomRole(id);
@@ -122,11 +125,11 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
       <p className="text-xs text-anthracite-400 mb-3">Build a role by picking exactly the allowed actions, in addition to Reader/Operator/Manager.</p>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : (
         <>
           <div className="rounded-md border border-anthracite-600 p-3 mb-3">
-            <input className="input mb-2" placeholder="Role name (e.g. backups-only)" value={name} onChange={(e) => setName(e.target.value)} />
+            <input aria-label="Role name (e.g. backups-only)" className="input mb-2" placeholder="Role name (e.g. backups-only)" value={name} onChange={(e) => setName(e.target.value)} />
             <div className="grid grid-cols-1 gap-1.5 mb-2 sm:grid-cols-2">
               {Object.entries(privileges).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-xs text-anthracite-200 cursor-pointer">
@@ -150,7 +153,7 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
                     <span className="text-anthracite-100 font-medium">{r.label}</span>
                     <span className="text-anthracite-400"> -- {[...r.privileges].map((p) => privileges[p] || p).join(", ")}</span>
                   </div>
-                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
+                  <button aria-label={`Delete role ${r.label}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -194,7 +197,7 @@ function UsersSection({ users, reload, pushToast }) {
   }
 
   async function handleDelete(username) {
-    if (!window.confirm(`Delete user '${username}'?`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Delete user '${username}'?`, confirmLabel: "Confirm" }))) return;
     setBusy(true);
     try {
       await deleteUser(username);
@@ -213,9 +216,9 @@ function UsersSection({ users, reload, pushToast }) {
       </div>
 
       <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-4">
-        <input className="input" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
-        <input className="input" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-        <select className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+        <input aria-label="Username" className="input" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+        <input aria-label="Password (min. 4)" className="input" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <select aria-label="Role of the new user" className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
           <option value="observateur">observer</option>
           <option value="admin">admin</option>
         </select>
@@ -225,14 +228,14 @@ function UsersSection({ users, reload, pushToast }) {
       </div>
 
       {users == null ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : (
         <div className="divide-y divide-anthracite-600">
           {users.map((u) => (
             <div key={u.username} className="flex items-center justify-between py-2 text-sm">
-              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-500"> (you)</span>}</span>
+              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-400"> (you)</span>}</span>
               <div className="flex items-center gap-2">
-                <select
+                <select aria-label={`Role of ${u.username}`}
                   className="input text-xs py-1 w-auto"
                   value={u.role}
                   disabled={busy || u.username === me}
@@ -241,7 +244,7 @@ function UsersSection({ users, reload, pushToast }) {
                   <option value="observateur">observer</option>
                   <option value="admin">admin</option>
                 </select>
-                <button aria-label={u.username === me ? "You cannot delete yourself" : "Delete"}
+                <button aria-label={u.username === me ? "You cannot delete yourself" : `Delete user ${u.username}`}
                   className="text-anthracite-400 hover:text-status-error disabled:opacity-30 disabled:hover:text-anthracite-400"
                   disabled={busy || u.username === me}
                   title={u.username === me ? "You cannot delete yourself" : "Delete"}
@@ -277,6 +280,7 @@ function GroupsSection({ groups, reload, pushToast }) {
   }
 
   async function handleDelete(id, name) {
+    if (!(await confirmAction({ title: `Delete group '${name}'?`, message: "Rights granted to this group are lost for its members.", confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deleteGroup(id);
@@ -301,6 +305,7 @@ function GroupsSection({ groups, reload, pushToast }) {
   }
 
   async function handleRemoveMember(id, username) {
+    if (!(await confirmAction({ title: `Remove '${username}' from the group?`, message: "The user loses the rights granted through this group.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await removeGroupMember(id, username);
@@ -318,7 +323,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       </div>
 
       <div className="flex gap-2 mb-3">
-        <input className="input" placeholder="Group name (e.g. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <input aria-label="Group name (e.g. devs)" className="input" placeholder="Group name (e.g. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
           <Plus size={14} /> Create
@@ -326,7 +331,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       </div>
 
       {groups == null ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : groups.length === 0 ? (
         <p className="text-sm text-anthracite-400">No groups. Create a group to assign rights to several users at once.</p>
       ) : (
@@ -335,12 +340,12 @@ function GroupsSection({ groups, reload, pushToast }) {
             <div key={g.id} className="rounded-md border border-anthracite-600 p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-anthracite-100">{g.name}</span>
-                <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
+                <button aria-label={`Delete group ${g.name}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
                   <Trash2 size={14} />
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {g.membres.length === 0 && <span className="text-xs text-anthracite-500">No members</span>}
+                {g.membres.length === 0 && <span className="text-xs text-anthracite-400">No members</span>}
                 {g.membres.map((m) => (
                   <span key={m} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                     {m}
@@ -349,7 +354,7 @@ function GroupsSection({ groups, reload, pushToast }) {
                 ))}
               </div>
               <div className="flex gap-1.5">
-                <input className="input text-xs py-1" placeholder="username" value={memberInputs[g.id] || ""}
+                <input aria-label="username" className="input text-xs py-1" placeholder="username" value={memberInputs[g.id] || ""}
                   onChange={(e) => setMemberInputs((s) => ({ ...s, [g.id]: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleAddMember(g.id)} />
                 <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy} onClick={() => handleAddMember(g.id)}>Add</button>
@@ -381,6 +386,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
   }
 
   async function handleDelete(id, name) {
+    if (!(await confirmAction({ title: `Delete pool '${name}'?`, message: "Rights granted on this pool are lost. The VMs themselves are not touched.", confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deletePool(id);
@@ -404,6 +410,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
   }
 
   async function handleRemoveVm(id, vmName) {
+    if (!(await confirmAction({ title: `Remove '${vmName}' from the pool?`, message: "Rights granted through this pool no longer apply to this VM.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await removePoolMember(id, vmName);
@@ -422,7 +429,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       <p className="text-xs text-anthracite-400 mb-3">Group VMs (e.g. "Project-A") to assign them rights in one go, without listing them one by one.</p>
 
       <div className="flex gap-2 mb-3">
-        <input className="input" placeholder="Pool name (e.g. project-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <input aria-label="Pool name (e.g. project-a)" className="input" placeholder="Pool name (e.g. project-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
           <Plus size={14} /> Create
@@ -430,7 +437,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       </div>
 
       {pools == null ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : pools.length === 0 ? (
         <p className="text-sm text-anthracite-400">No pools.</p>
       ) : (
@@ -441,12 +448,12 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
               <div key={p.id} className="rounded-md border border-anthracite-600 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-anthracite-100">{p.name}</span>
-                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
+                  <button aria-label={`Delete pool ${p.name}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {p.vms.length === 0 && <span className="text-xs text-anthracite-500">No VMs</span>}
+                  {p.vms.length === 0 && <span className="text-xs text-anthracite-400">No VMs</span>}
                   {p.vms.map((v) => (
                     <span key={v} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                       {v}
@@ -456,7 +463,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                 </div>
                 {available.length > 0 && (
                   <div className="flex gap-1.5">
-                    <select className="input text-xs py-1" value={vmSelect[p.id] || ""} onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}>
+                    <select aria-label={`VM to add to pool ${p.nom}`} className="input text-xs py-1" value={vmSelect[p.id] || ""} onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}>
                       <option value="">Choose a VM...</option>
                       {available.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)}
                     </select>
@@ -499,6 +506,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
   }
 
   async function handleDelete(id) {
+    if (!(await confirmAction({ title: "Remove this assignment?", message: "The subject loses the access granted by this assignment.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await deleteAcl(id);
@@ -516,20 +524,20 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
       </div>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 mb-2 sm:grid-cols-4">
             <div>
               <label className="text-[11px] text-anthracite-400">Who</label>
-              <select className="input text-xs py-1.5" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
+              <select aria-label="Who" className="input text-xs py-1.5" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
                 <option value="user">User</option>
                 <option value="group">Group</option>
               </select>
             </div>
             <div>
               <label className="text-[11px] text-anthracite-400">&nbsp;</label>
-              <select className="input text-xs py-1.5" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+              <select aria-label="Subject" className="input text-xs py-1.5" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
                 <option value="">Choose...</option>
                 {subjectType === "user"
                   ? users.map((u) => <option key={u.username} value={u.username}>{u.username}</option>)
@@ -538,13 +546,13 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
             </div>
             <div>
               <label className="text-[11px] text-anthracite-400">Role</label>
-              <select className="input text-xs py-1.5" value={role} onChange={(e) => setRole(e.target.value)}>
+              <select aria-label="Role" className="input text-xs py-1.5" value={role} onChange={(e) => setRole(e.target.value)}>
                 {Object.entries(roles).map(([key, r]) => <option key={key} value={key}>{r.label}</option>)}
               </select>
             </div>
             <div>
               <label className="text-[11px] text-anthracite-400">On</label>
-              <select className="input text-xs py-1.5" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
+              <select aria-label="On" className="input text-xs py-1.5" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
                 <option value="vm">A VM</option>
                 <option value="pool">A pool</option>
                 <option value="container">A container</option>
@@ -552,7 +560,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
             </div>
           </div>
           <div className="flex gap-2 mb-3">
-            <select className="input" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
+            <select aria-label="Resource" className="input" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
               <option value="">
                 {resourceType === "vm" ? "Choose a VM..." : resourceType === "pool" ? "Choose a pool..." : "Choose a container..."}
               </option>
@@ -568,7 +576,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
           </div>
 
           {roles[role] && (
-            <p className="text-[11px] text-anthracite-500 mb-3">{roles[role].description}</p>
+            <p className="text-[11px] text-anthracite-400 mb-3">{roles[role].description}</p>
           )}
 
           {acl && acl.length > 0 ? (
@@ -582,7 +590,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
                       {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Conteneur ${a.resource_label}` : a.resource_label}
                     </span>
                   </div>
-                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
+                  <button aria-label="Remove assignment" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
                     <Trash2 size={14} />
                   </button>
                 </div>

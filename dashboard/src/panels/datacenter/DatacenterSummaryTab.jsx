@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Server, MonitorPlay, Square, AlertTriangle, Cpu, MemoryStick, Network, Clock, Plus } from "lucide-react";
@@ -193,7 +194,7 @@ export default function DatacenterSummaryTab() {
               <Plus size={14} /> Add a node
             </button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Nodes table">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
@@ -284,7 +285,7 @@ export default function DatacenterSummaryTab() {
             View the whole journal →
           </button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Recent tasks table">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
@@ -297,7 +298,7 @@ export default function DatacenterSummaryTab() {
             </thead>
             <tbody className="divide-y divide-anthracite-600">
               {recentTasks == null && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">Loading...</td></tr>
+                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400"><LoadingState /></td></tr>
               )}
               {recentTasks && recentTasks.length === 0 && (
                 <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">No recent activity.</td></tr>

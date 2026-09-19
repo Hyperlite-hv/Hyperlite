@@ -47,7 +47,7 @@ export default function VMTable({ vms }) {
         <div className="flex items-center gap-3">
           <h3 className="text-[16px] font-bold tracking-tight text-anthracite-100">Virtual machines</h3>
           <span className="font-mono text-xs text-anthracite-400">{filtered.length} of {vms.length}</span>
-          <input
+          <input aria-label="Filter…"
             className="input ml-auto w-[200px]" placeholder="Filter…"
             value={filter} onChange={(e) => setFilter(e.target.value)}
           />
@@ -64,7 +64,7 @@ export default function VMTable({ vms }) {
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Virtual machines table">
         <div style={{ display: "grid", gridTemplateColumns: COLUMNS }} className="border-b border-anthracite-700 px-3.5 py-2 font-mono text-[10px] tracking-wider text-anthracite-400">
           <span />
           <span>NAME</span><span>STATE</span><span>vCPU</span><span>MEMORY</span><span>IP ADDRESS</span><span>DISK</span><span />
@@ -77,7 +77,7 @@ export default function VMTable({ vms }) {
             className="items-center border-b border-anthracite-700 px-3.5 py-2.5 text-[13px] last:border-0 hover:bg-anthracite-700/40 cursor-pointer"
             onDoubleClick={() => setPanelVm(vm)}
           >
-            <input
+            <input aria-label={`Select ${vm.nom}`}
               type="checkbox" checked={selected.has(vm.nom)} onChange={() => toggleSelected(vm.nom)}
               onClick={(e) => e.stopPropagation()} className="h-3.5 w-3.5 accent-accent-blue"
             />

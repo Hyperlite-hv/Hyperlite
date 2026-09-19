@@ -32,17 +32,17 @@ export default function StepResources({ form, patch, storagePools = [] }) {
     <div className="space-y-4">
       <div>
         <label className="text-xs font-medium text-anthracite-300">VM name</label>
-        <input className="input mt-1" value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="e.g. web-03" />
+        <input aria-label="VM name" className="input mt-1" value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="e.g. web-03" />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-xs font-medium text-anthracite-300">vCPU{limits ? ` (${limits.vcpu.min}-${limits.vcpu.max})` : ""}</label>
-          <input type="number" min={limits?.vcpu.min ?? 1} max={limits?.vcpu.max} className="input mt-1" value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
+          <input aria-label="vCPU" type="number" min={limits?.vcpu.min ?? 1} max={limits?.vcpu.max} className="input mt-1" value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
         </div>
         <div>
           <label className="text-xs font-medium text-anthracite-300">Memory (MB{limits ? `, ${limits.memoire_mo.min}-${limits.memoire_mo.max}` : ""})</label>
-          <input type="number" min={limits?.memoire_mo.min ?? 256} max={limits?.memoire_mo.max} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
+          <input aria-label="Memory in MB" type="number" min={limits?.memoire_mo.min ?? 256} max={limits?.memoire_mo.max} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
         </div>
       </div>
       <OverallocationNote limits={limits} vcpu={form.vcpu} memoryMb={form.memory_mb} diskGb={Math.max(0, ...form.disks.map((d) => d.size_gb || 0))} />
@@ -54,11 +54,11 @@ export default function StepResources({ form, patch, storagePools = [] }) {
             <div key={i} className="flex items-center gap-2">
               <span className="w-10 font-mono text-xs text-anthracite-400">sd{String.fromCharCode(97 + i)}</span>
               {importMode && i === 0 ? (
-                <span className="input flex items-center text-anthracite-500">Size of the imported disk (ignored)</span>
+                <span className="input flex items-center text-anthracite-400">Size of the imported disk (ignored)</span>
               ) : (
-                <input type="number" min={1} max={limits?.disque_go.max} className="input" value={d.size_gb} onChange={(e) => updateDisk(i, Number(e.target.value))} />
+                <input aria-label={`Size of disk ${i + 1} in GB`} type="number" min={1} max={limits?.disque_go.max} className="input" value={d.size_gb} onChange={(e) => updateDisk(i, Number(e.target.value))} />
               )}
-              <button aria-label="Close" className="btn-secondary px-2" disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => removeDisk(i)}><X size={13} /></button>
+              <button aria-label={`Remove disk ${i + 1}`} className="btn-secondary px-2" disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => removeDisk(i)}><X size={13} /></button>
             </div>
           ))}
         </div>
@@ -70,13 +70,13 @@ export default function StepResources({ form, patch, storagePools = [] }) {
       {selectablePools.length > 0 && (
         <div>
           <label className="text-xs font-medium text-anthracite-300">Storage pool</label>
-          <select className="input mt-1" value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
+          <select aria-label="Storage pool" className="input mt-1" value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
             <option value="">Default (local)</option>
             {selectablePools.map((p) => (
               <option key={p.nom} value={p.nom}>{p.nom} ({p.type}, {p.disponible_go} GB free)</option>
             ))}
           </select>
-          <p className="mt-1 text-[11px] text-anthracite-500">
+          <p className="mt-1 text-[11px] text-anthracite-400">
             Choosing a shared network storage pool (netfs) then allows this VM to be protected with HA or live-migrated.
           </p>
         </div>
@@ -94,11 +94,11 @@ export default function StepResources({ form, patch, storagePools = [] }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-medium text-anthracite-300">User</label>
-            <input className="input mt-1" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="e.g. alice" />
+            <input aria-label="User" className="input mt-1" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="e.g. alice" />
           </div>
           <div>
             <label className="text-xs font-medium text-anthracite-300">Password</label>
-            <input type="password" className="input mt-1" value={form.password} onChange={(e) => patch({ password: e.target.value })} minLength={4} />
+            <input aria-label="Password" type="password" className="input mt-1" value={form.password} onChange={(e) => patch({ password: e.target.value })} minLength={4} />
           </div>
         </div>
       )}
@@ -114,7 +114,7 @@ export default function StepResources({ form, patch, storagePools = [] }) {
         {form.autoCleanupEnabled && (
           <div className="mt-2 flex items-center gap-2 text-sm text-anthracite-300">
             After
-            <input
+            <input aria-label="Inactivity threshold in days"
               type="number" min={1} max={365} className="input w-20"
               value={form.autoCleanupDays} onChange={(e) => patch({ autoCleanupDays: Number(e.target.value) })}
             />

@@ -1,3 +1,5 @@
+import { useModalBehavior } from "../../hooks/useModalBehavior";
+import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { Layers, Rocket, Trash2 } from "lucide-react";
 import { fetchTemplates, deployTemplate, deleteTemplate } from "../../api/client";
@@ -13,6 +15,7 @@ export default function TemplatesTab() {
   const loadAll = useInfraStore((s) => s.loadAll);
   const [templates, setTemplates] = useState(null);
   const [deployTarget, setDeployTarget] = useState(null);
+  const deployDialogRef = useModalBehavior(!!deployTarget, () => setDeployTarget(null));
   const [newName, setNewName] = useState("");
   const [pendingDelete, setPendingDelete] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -20,7 +23,7 @@ export default function TemplatesTab() {
   const reload = () => fetchTemplates().then(setTemplates).catch((e) => pushToast({ kind: "error", title: "Templates error", message: e.message }));
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (templates == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (templates == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   async function handleDeploy() {
     if (!newName.trim()) return;
@@ -64,10 +67,10 @@ export default function TemplatesTab() {
             </div>
             {isAdmin && (
               <>
-                <button className="btn-secondary" disabled={busy} onClick={() => { setDeployTarget(t); setNewName(`${t.nom}-01`); }}>
+                <button aria-label={`Deploy template ${t.nom}`} className="btn-secondary" disabled={busy} onClick={() => { setDeployTarget(t); setNewName(`${t.nom}-01`); }}>
                   <Rocket size={13} /> Deploy
                 </button>
-                <button aria-label="Delete" className="btn-danger" disabled={busy} onClick={() => setPendingDelete(t)}><Trash2 size={13} /></button>
+                <button aria-label={`Delete template ${t.nom}`} className="btn-danger" disabled={busy} onClick={() => setPendingDelete(t)}><Trash2 size={13} /></button>
               </>
             )}
           </div>
@@ -76,10 +79,10 @@ export default function TemplatesTab() {
 
       {deployTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setDeployTarget(null)}>
-          <div className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+          <div ref={deployDialogRef} role="dialog" aria-modal="true" aria-label={`Deploy ${deployTarget.nom}`} className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-anthracite-100 mb-3">Deploy "{deployTarget.nom}"</h3>
-            <label className="text-xs font-medium text-anthracite-300">Name of the new VM</label>
-            <input className="input mt-1" value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <label htmlFor="deploy-name" className="text-xs font-medium text-anthracite-300">Name of the new VM</label>
+            <input id="deploy-name" autoFocus className="input mt-1" value={newName} onChange={(e) => setNewName(e.target.value)} />
             <div className="mt-4 flex justify-end gap-2">
               <button className="btn-secondary" onClick={() => setDeployTarget(null)}>Cancel</button>
               <button className="btn-primary" disabled={busy || !newName.trim()} onClick={handleDeploy}>Deploy</button>

@@ -1,3 +1,4 @@
+import LoadingState from "./LoadingState";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
@@ -79,7 +80,7 @@ export default function VMDetailPanel({ vm, onClose }) {
               SNAPSHOTS{snapshots ? ` · ${snapshots.length}` : ""}
             </span>
             {snapshots == null ? (
-              <span className="text-xs text-anthracite-400">Loading...</span>
+              <span className="text-xs text-anthracite-400"><LoadingState /></span>
             ) : snapshots.length === 0 ? (
               <span className="text-xs text-anthracite-400">No snapshots.</span>
             ) : (

@@ -20,7 +20,7 @@
   --color-anthracite-900: rgb(var(--a-900));
   --color-anthracite-950: rgb(var(--a-950));
 
-  --color-status-running: #16a34a;
+  --color-status-running: #15803d;
   --color-status-stopped: #6b7280;
   --color-status-warning: #d97706;
   --color-status-error: #dc2626;
@@ -106,9 +106,9 @@
     --a-700: 238 239 246; /* hover / raised surfaces: neutral lavender-gray */
     --a-600: 236 238 246; /* borders / separators #ECEEF6 */
     --a-500: 220 223 236; /* secondary borders, "empty" gauge ring #DCDFEC */
-    --a-400: 156 163 175; /* secondary muted text #9CA3AF */
-    --a-300: 156 163 175; /* tertiary muted text / placeholder */
-    --a-200: 107 114 128; /* stronger secondary text #6B7280 */
+    --a-400: 91 100 114;  /* secondary muted text #5B6472 (AA on the page background) */
+    --a-300: 91 100 114;  /* tertiary muted text / placeholder */
+    --a-200: 75 85 99;    /* stronger secondary text #4B5563 */
     --a-100: 26 27 46;    /* main text: very dark navy #1A1B2E */
   }
 
@@ -121,8 +121,8 @@
     --a-700: 37 39 58;    /* hover / raised or selected cards */
     --a-600: 42 44 63;    /* #2A2C3F borders */
     --a-500: 58 61 87;    /* #3A3D57 secondary borders, "empty" gauge ring */
-    --a-400: 108 111 135; /* #6C6F87 muted text/labels (mono) */
-    --a-300: 108 111 135; /* tertiary muted text / placeholder */
+    --a-400: 150 153 178; /* #9699B2 muted text/labels (mono) */
+    --a-300: 150 153 178; /* tertiary muted text / placeholder */
     --a-200: 166 169 190; /* #A6A9BE secondary text */
     --a-100: 238 238 245; /* #EEEEF5 main text */
   }

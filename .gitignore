@@ -28,3 +28,5 @@ hyperlite.db
 data/tmp/
 .publish.env
 CLAUDE.local.md
+dashboard/e2e-report/
+dashboard/e2e-results/

@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Trash2, Plus, HardDrive, Network, Layers } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -33,6 +34,7 @@ export default function StorageTab() {
   useEffect(() => { reloadIsos(); }, [reloadIsos]);
 
   async function handleDelete(nom) {
+    if (!(await confirmAction({ title: `Delete ISO '${nom}'?`, message: "The file is permanently deleted from the server.", confirmLabel: "Delete" }))) return;
     try {
       await deleteIso(nom);
       pushToast({ kind: "success", title: "ISO deleted", message: nom });
@@ -75,7 +77,7 @@ export default function StorageTab() {
     const msg = fsBacked
       ? `Remove the pool '${pool.nom}' from Hyperlite?\n\nIts files are NOT deleted (only the pool definition goes away).`
       : `Delete the pool '${pool.nom}'? The pool must be empty.`;
-    if (!window.confirm(msg)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: msg, confirmLabel: "Confirm" }))) return;
     try {
       await deleteStoragePool(pool.nom, pool.node === "local" ? undefined : pool.node, fsBacked);
       pushToast({ kind: "success", title: "Pool removed", message: pool.nom });
@@ -102,11 +104,11 @@ export default function StorageTab() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Pool name</label>
-                <input className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. nfs-shared" />
+                <input aria-label="Pool name" className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. nfs-shared" />
               </div>
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Node</label>
-                <select className="input mt-1" value={form.node} onChange={(e) => setForm({ ...form, node: e.target.value })}>
+                <select aria-label="Node" className="input mt-1" value={form.node} onChange={(e) => setForm({ ...form, node: e.target.value })}>
                   {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
                 </select>
               </div>
@@ -139,23 +141,23 @@ export default function StorageTab() {
             {form.type === "dir" ? (
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Local path (optional)</label>
-                <input className="input mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (automatic if empty)" />
+                <input aria-label="Local path (optional)" className="input mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (automatic if empty)" />
               </div>
             ) : form.type === "netfs" ? (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-anthracite-300">NFS server host</label>
-                  <input className="input mt-1" required value={form.nfs_host} onChange={(e) => setForm({ ...form, nfs_host: e.target.value })} placeholder="e.g. 192.168.1.10" />
+                  <input aria-label="NFS server host" className="input mt-1" required value={form.nfs_host} onChange={(e) => setForm({ ...form, nfs_host: e.target.value })} placeholder="e.g. 192.168.1.10" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-anthracite-300">Exported path</label>
-                  <input className="input mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/share" />
+                  <input aria-label="Exported path" className="input mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/share" />
                 </div>
               </div>
             ) : (
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Size (GB, loopback file)</label>
-                <input type="number" min="1" max="4096" className="input mt-1" required value={form.size_gb} onChange={(e) => setForm({ ...form, size_gb: e.target.value })} />
+                <input aria-label="Size (GB, loopback file)" type="number" min="1" max="4096" className="input mt-1" required value={form.size_gb} onChange={(e) => setForm({ ...form, size_gb: e.target.value })} />
                 <p className="mt-1 text-xs text-anthracite-400">ZFS pool created on the local host only, backed by a file. VMs created on it use raw block disks (zvols).</p>
               </div>
             )}
@@ -180,7 +182,7 @@ export default function StorageTab() {
               <span className="text-anthracite-300">{p.disponible_go} GB</span>
               <span className="text-right">
                 {isAdmin && p.nom !== "default" && (
-                  <button aria-label="Delete" className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
+                  <button aria-label={`Delete pool ${p.nom}`} className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
                 )}
               </span>
             </div>
@@ -198,7 +200,7 @@ export default function StorageTab() {
               <span className="text-anthracite-100 flex-1 truncate">{iso.nom}</span>
               <span className="text-anthracite-400 text-xs">{iso.taille_mo} MB</span>
               {isAdmin && (
-                <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></button>
+                <button aria-label={`Delete ISO ${iso.nom}`} className="btn-danger" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></button>
               )}
             </div>
           ))}

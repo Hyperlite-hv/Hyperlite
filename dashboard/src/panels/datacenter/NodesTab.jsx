@@ -1,3 +1,5 @@
+import LoadingState from "../../components/LoadingState";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Server, Plus, Trash2, Copy, Wifi, WifiOff } from "lucide-react";
 import {
@@ -57,6 +59,7 @@ export default function NodesTab() {
   }
 
   async function handleDelete(node) {
+    if (!(await confirmAction({ title: `Remove node '${node.name}'?`, message: "Hyperlite stops managing this node. Its VMs are not deleted.", confirmLabel: "Remove" }))) return;
     try {
       await deleteRemoteNode(node.name);
       pushToast({ kind: "success", title: "Node removed", message: node.name });
@@ -66,11 +69,11 @@ export default function NodesTab() {
     }
   }
 
-  if (nodes == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (nodes == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-anthracite-500 max-w-2xl">
+      <p className="text-xs text-anthracite-400 max-w-2xl">
         Direct connection through remote libvirt (qemu+ssh://), with no agent to install on the node: libvirt/QEMU-KVM only has to be running there already and the cluster key below has to be authorized over SSH. This lays the groundwork for future clustering (no vMotion/DRS for now).
       </p>
 
@@ -95,9 +98,9 @@ export default function NodesTab() {
           )}
           <div className="text-xs text-anthracite-300">2. Enter its connection details:</div>
           <div className="grid grid-cols-4 gap-2">
-            <input className="input" placeholder="Name (e.g. node-2)" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <input className="input col-span-2" placeholder="IP address or hostname" value={form.hostname} onChange={(e) => setForm((f) => ({ ...f, hostname: e.target.value }))} />
-            <input className="input" placeholder="SSH user" value={form.ssh_user} onChange={(e) => setForm((f) => ({ ...f, ssh_user: e.target.value }))} />
+            <input aria-label="Name (e.g. node-2)" className="input" placeholder="Name (e.g. node-2)" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <input aria-label="IP address or hostname" className="input col-span-2" placeholder="IP address or hostname" value={form.hostname} onChange={(e) => setForm((f) => ({ ...f, hostname: e.target.value }))} />
+            <input aria-label="SSH user" className="input" placeholder="SSH user" value={form.ssh_user} onChange={(e) => setForm((f) => ({ ...f, ssh_user: e.target.value }))} />
           </div>
           <div className="flex justify-end gap-2">
             <button className="btn-secondary" onClick={() => setCreating(false)}>Cancel</button>
@@ -116,13 +119,13 @@ export default function NodesTab() {
             <div key={n.id} className="flex items-center gap-3 px-4 py-3 text-sm">
               <Server size={15} className="text-anthracite-400 shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="text-anthracite-100">{n.name} <span className="text-xs text-anthracite-500">({n.ssh_user}@{n.hostname}:{n.ssh_port})</span></div>
+                <div className="text-anthracite-100">{n.name} <span className="text-xs text-anthracite-400">({n.ssh_user}@{n.hostname}:{n.ssh_port})</span></div>
                 {s && <div className="text-xs text-anthracite-400">{s.vms_actives} running VM(s), {s.vms_arretees} stopped, {s.stockage_disponible_go ?? "?"} GB free / {s.stockage_capacite_go ?? "?"} GB</div>}
               </div>
               {n.statut === "en_ligne"
                 ? <span className="flex items-center gap-1 text-xs text-status-running"><Wifi size={13} /> online</span>
                 : <span className="flex items-center gap-1 text-xs text-status-error"><WifiOff size={13} /> offline</span>}
-              {isAdmin && <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(n)}><Trash2 size={13} /></button>}
+              {isAdmin && <button aria-label={`Remove node ${n.name}`} className="btn-danger" onClick={() => handleDelete(n)}><Trash2 size={13} /></button>}
             </div>
           );
         })}
