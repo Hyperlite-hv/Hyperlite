@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../store/useInfraStore";
 import Tabs from "../components/Tabs";
 import StatusBadge from "../components/StatusBadge";
@@ -81,11 +82,11 @@ function titleFor(selection, nodes, vms) {
 }
 
 export default function CentralPanel() {
-  const { selection, nodes, vms, pendingTab, clearPendingTab, activeTab, setActiveTab } = useInfraStore((s) => ({
+  const { selection, nodes, vms, pendingTab, clearPendingTab, activeTab, setActiveTab } = useInfraStore(useShallow((s) => ({
     selection: s.selection, nodes: s.nodes, vms: s.vms,
     pendingTab: s.pendingTab, clearPendingTab: s.clearPendingTab,
     activeTab: s.activeTab, setActiveTab: s.setActiveTab,
-  }));
+  })));
 
   // Two distinct effects, not a single one. With one useEffect having deps
   // [selection.type, selection.id], clicking a SidebarRail item while already on the
