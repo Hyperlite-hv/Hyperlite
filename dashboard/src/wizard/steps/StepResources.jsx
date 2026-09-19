@@ -42,7 +42,7 @@ export default function StepResources({ form, patch, storagePools = [] }) {
         </div>
         <div>
           <label className="text-xs font-medium text-anthracite-300">Memory (MB{limits ? `, ${limits.memoire_mo.min}-${limits.memoire_mo.max}` : ""})</label>
-          <input aria-label="Memory (MB )" type="number" min={limits?.memoire_mo.min ?? 256} max={limits?.memoire_mo.max} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
+          <input aria-label="Memory in MB" type="number" min={limits?.memoire_mo.min ?? 256} max={limits?.memoire_mo.max} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
         </div>
       </div>
       <OverallocationNote limits={limits} vcpu={form.vcpu} memoryMb={form.memory_mb} diskGb={Math.max(0, ...form.disks.map((d) => d.size_gb || 0))} />

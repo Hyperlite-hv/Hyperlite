@@ -1,3 +1,5 @@
+import { useModalBehavior } from "../hooks/useModalBehavior";
+import LoadingState from "./LoadingState";
 import { confirmAction } from "../store/useConfirmStore";
 import { useEffect, useState } from "react";
 import { X, ShieldCheck, ShieldOff, KeyRound, Plus, Trash2, Copy, Check } from "lucide-react";
@@ -11,6 +13,7 @@ import {
 // tab: these are settings of the signed-in ACCOUNT, not of the managed
 // infrastructure.
 export default function AccountSecurityModal({ onClose }) {
+  const dialogRef = useModalBehavior(true, onClose);
   const totpEnabled = useAuthStore((s) => s.totpEnabled);
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -109,7 +112,7 @@ export default function AccountSecurityModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6" role="dialog" aria-modal="true" aria-label="Account security">
+      <div ref={dialogRef} className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6" role="dialog" aria-modal="true" aria-label="Account security">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-anthracite-100">Account security</h3>
           <button aria-label="Close" onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
@@ -205,7 +208,7 @@ export default function AccountSecurityModal({ onClose }) {
           </form>
 
           <div className="divide-y divide-anthracite-600 rounded-md border border-anthracite-600">
-            {tokens == null && <div className="px-3 py-2 text-xs text-anthracite-400">Loading...</div>}
+            {tokens == null && <div className="px-3 py-2 text-xs text-anthracite-400"><LoadingState /></div>}
             {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-anthracite-400 text-center">No tokens.</div>}
             {tokens && tokens.map((t) => (
               <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">

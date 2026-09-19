@@ -9,7 +9,8 @@ export default function LoginScreen() {
   const loginWith2FA = useAuthStore((s) => s.loginWith2FA);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const storeError = useAuthStore((s) => s.error);
+  const [error, setError] = useState(storeError || "");
   const [loading, setLoading] = useState(false);
 
   // The button only appears if an IdP is configured AND enabled on the server side

@@ -1,3 +1,4 @@
+import LoadingState from "./LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck, Plus, Trash2, Save } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
@@ -20,7 +21,7 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
 
   useEffect(() => { reload(); }, [reload]);
 
-  if (!config) return <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>;
+  if (!config) return <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>;
 
   function updateRule(i, patch) {
     setConfig((c) => ({ ...c, rules: c.rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) }));

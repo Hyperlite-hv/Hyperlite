@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { Layers, Rocket, Trash2 } from "lucide-react";
 import { fetchTemplates, deployTemplate, deleteTemplate } from "../../api/client";
@@ -20,7 +21,7 @@ export default function TemplatesTab() {
   const reload = () => fetchTemplates().then(setTemplates).catch((e) => pushToast({ kind: "error", title: "Templates error", message: e.message }));
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (templates == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (templates == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   async function handleDeploy() {
     if (!newName.trim()) return;

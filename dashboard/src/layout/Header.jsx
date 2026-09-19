@@ -95,7 +95,7 @@ export default function Header() {
 
       <div className="flex items-center gap-2 shrink-0" ref={menuAreaRef}>
         {isAdmin && (
-          <button className="btn-primary rounded-full!" onClick={() => setWizardOpen(true)}>
+          <button aria-label="Create VM" className="btn-primary rounded-full!" onClick={() => setWizardOpen(true)}>
             <Plus size={15} /> <span className="hidden sm:inline">Create VM</span>
           </button>
         )}

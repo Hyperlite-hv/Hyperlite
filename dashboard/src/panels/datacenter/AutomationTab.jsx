@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Zap, Plus, Play, Trash2, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2 } from "lucide-react";
@@ -98,7 +99,7 @@ export default function AutomationTab() {
     }
   }
 
-  if (jobs == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (jobs == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   return (
     <div className="space-y-3">
@@ -175,7 +176,7 @@ export default function AutomationTab() {
             {expanded === job.id && (
               <div className="px-8 pb-3 space-y-2">
                 <div className="text-xs text-anthracite-400">Run history:</div>
-                {!runs[job.id] && <div className="text-xs text-anthracite-400">Loading...</div>}
+                {!runs[job.id] && <div className="text-xs text-anthracite-400"><LoadingState /></div>}
                 {runs[job.id] && runs[job.id].length === 0 && <div className="text-xs text-anthracite-400">No runs.</div>}
                 {runs[job.id] && runs[job.id].map((r) => (
                   <div key={r.id} className="text-xs">

@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { KeyRound, Save } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -46,7 +47,7 @@ export default function SSOTab() {
     }
   }
 
-  if (loading) return <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>;
+  if (loading) return <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>;
 
   return (
     <div className="space-y-5">

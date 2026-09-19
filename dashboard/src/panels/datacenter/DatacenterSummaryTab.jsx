@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Server, MonitorPlay, Square, AlertTriangle, Cpu, MemoryStick, Network, Clock, Plus } from "lucide-react";
@@ -297,7 +298,7 @@ export default function DatacenterSummaryTab() {
             </thead>
             <tbody className="divide-y divide-anthracite-600">
               {recentTasks == null && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">Loading...</td></tr>
+                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400"><LoadingState /></td></tr>
               )}
               {recentTasks && recentTasks.length === 0 && (
                 <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">No recent activity.</td></tr>

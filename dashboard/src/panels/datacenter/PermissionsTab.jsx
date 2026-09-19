@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Users, Boxes, ShieldCheck, UserPlus } from "lucide-react";
@@ -124,7 +125,7 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
       <p className="text-xs text-anthracite-400 mb-3">Build a role by picking exactly the allowed actions, in addition to Reader/Operator/Manager.</p>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : (
         <>
           <div className="rounded-md border border-anthracite-600 p-3 mb-3">
@@ -227,7 +228,7 @@ function UsersSection({ users, reload, pushToast }) {
       </div>
 
       {users == null ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : (
         <div className="divide-y divide-anthracite-600">
           {users.map((u) => (
@@ -243,7 +244,7 @@ function UsersSection({ users, reload, pushToast }) {
                   <option value="observateur">observer</option>
                   <option value="admin">admin</option>
                 </select>
-                <button aria-label={u.username === me ? "You cannot delete yourself" : "Delete"}
+                <button aria-label={u.username === me ? "You cannot delete yourself" : `Delete user ${u.username}`}
                   className="text-anthracite-400 hover:text-status-error disabled:opacity-30 disabled:hover:text-anthracite-400"
                   disabled={busy || u.username === me}
                   title={u.username === me ? "You cannot delete yourself" : "Delete"}
@@ -330,7 +331,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       </div>
 
       {groups == null ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : groups.length === 0 ? (
         <p className="text-sm text-anthracite-400">No groups. Create a group to assign rights to several users at once.</p>
       ) : (
@@ -436,7 +437,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       </div>
 
       {pools == null ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : pools.length === 0 ? (
         <p className="text-sm text-anthracite-400">No pools.</p>
       ) : (
@@ -523,7 +524,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
       </div>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400">Loading...</p>
+        <p className="text-sm text-anthracite-400"><LoadingState /></p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 mb-2 sm:grid-cols-4">

@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { CalendarClock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { fetchAllBackups } from "../../api/client";
@@ -19,7 +20,7 @@ export default function BackupsTab() {
     fetchAllBackups().then(setRows).catch((e) => pushToast({ kind: "error", title: "Backups error", message: e.message }));
   }, [pushToast]);
 
-  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   if (rows.length === 0) {
     return (

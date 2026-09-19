@@ -1,3 +1,4 @@
+import { useModalBehavior } from "../hooks/useModalBehavior";
 import { useEffect, useState } from "react";
 import { X, Check, Star } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
@@ -12,6 +13,7 @@ function initialForm(networks) {
 }
 
 export default function ContainerWizard({ open, onClose }) {
+  const dialogRef = useModalBehavior(open, () => { onClose(); reset(); });
   const networks = useInfraStore((s) => s.networks);
   const addTask = useInfraStore((s) => s.addTask);
   const completeTask = useInfraStore((s) => s.completeTask);
@@ -62,7 +64,7 @@ export default function ContainerWizard({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="card w-full max-w-md overflow-hidden" role="dialog" aria-modal="true" aria-label="Create a container">
+      <div ref={dialogRef} className="card w-full max-w-md overflow-hidden" role="dialog" aria-modal="true" aria-label="Create a container">
         <div className="flex items-center justify-between border-b border-anthracite-600 px-5 py-3">
           <h2 className="text-sm font-semibold text-anthracite-100">Create a container</h2>
           <button aria-label="Close" onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>

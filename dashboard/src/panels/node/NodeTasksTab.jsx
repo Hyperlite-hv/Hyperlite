@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, RefreshCw } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge";
@@ -118,7 +119,7 @@ export default function NodeTasksTab({ resource: node }) {
           <span>Duration</span>
         </div>
 
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
         {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No tasks on this node.</div>}
 
         {rows && rows.map((t) => (

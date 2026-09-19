@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Bell, Plus, Trash2, Send, Power, Webhook, Mail } from "lucide-react";
@@ -191,7 +192,7 @@ export default function NotificationsTab() {
         )}
 
         <div className="divide-y divide-anthracite-600">
-          {channels == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+          {channels == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
           {channels && channels.length === 0 && (
             <div className="px-4 py-6 text-sm text-anthracite-400 text-center">No channels configured.</div>
           )}

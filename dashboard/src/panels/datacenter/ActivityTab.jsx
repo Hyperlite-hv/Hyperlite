@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge";
@@ -77,7 +78,7 @@ export default function ActivityTab() {
           <span>Time</span><span>Task</span><span>Target</span><span>Node</span><span>User</span><span>Duration</span>
         </div>
 
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
         {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No recent activity.</div>}
 
         {rows && rows.map((t) => (

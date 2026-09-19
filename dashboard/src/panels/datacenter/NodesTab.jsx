@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Server, Plus, Trash2, Copy, Wifi, WifiOff } from "lucide-react";
@@ -68,7 +69,7 @@ export default function NodesTab() {
     }
   }
 
-  if (nodes == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (nodes == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   return (
     <div className="space-y-3">

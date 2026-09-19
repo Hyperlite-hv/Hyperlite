@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricsHistoryCard from "../../components/MetricsHistoryCard";
@@ -36,7 +37,7 @@ export default function NodeSystemTab({ resource: node }) {
     <div className="space-y-4">
       <div className="card divide-y divide-anthracite-600">
         {error && <div className="px-4 py-3 text-sm text-status-error">Error: {error}</div>}
-        {!health && !error && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {!health && !error && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
         {rows.map(([label, value]) => (
           <div key={label} className="flex items-center justify-between px-4 py-3 text-sm">
             <span className="text-anthracite-300">{label}</span>

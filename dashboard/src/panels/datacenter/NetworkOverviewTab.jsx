@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { Network, Plus, Trash2 } from "lucide-react";
 import {
@@ -75,7 +76,7 @@ export default function NetworkOverviewTab() {
     }
   }
 
-  if (networks == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (networks == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   return (
     <div className="space-y-3">

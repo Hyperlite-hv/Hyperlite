@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { PackageOpen, Download, Trash2 } from "lucide-react";
 import { fetchVmExports, downloadVmExport, deleteVmExport } from "../../api/client";
@@ -50,7 +51,7 @@ export default function ExportsTab() {
     }
   }
 
-  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   if (rows.length === 0) {
     return (

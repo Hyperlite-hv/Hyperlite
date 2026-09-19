@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Cpu, MemoryStick, HardDrive, Network, Trash2, Plus } from "lucide-react";
@@ -43,7 +44,7 @@ function DiskSection({ vmName, isAdmin }) {
 
   useEffect(() => { setNewName(`${vmName}-disk-${Date.now().toString().slice(-5)}`); reload(); }, [vmName, reload]);
 
-  if (disks == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (disks == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   const nextDev = nextScsiDev(disks);
 
@@ -142,7 +143,7 @@ function NetworkSection({ vmName, isAdmin }) {
 
   useEffect(() => { reload(); }, [vmName, reload]);
 
-  if (info == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (info == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   async function handleDetach(mac) {
     if (!(await confirmAction({ title: `Remove network interface ${mac}?`, message: "The VM loses this network interface.", confirmLabel: "Remove" }))) return;
