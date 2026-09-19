@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { fetchNodeCapabilitiesById, fetchHostPreflight } from "../../api/client";
+import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility } from "../../api/client";
+import CompatChecks from "../../components/CompatChecks";
 import { flattenCapabilities, deriveFeatures, NA } from "../../lib/capabilitiesView";
 
 const FEATURE_STYLE = {
@@ -32,6 +33,7 @@ export default function NodeCompatibilityTab({ resource: node }) {
   const isLocal = nodeId === "local";
   const [caps, setCaps] = useState(null);
   const [preflight, setPreflight] = useState(null);
+  const [pairCompat, setPairCompat] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -41,7 +43,11 @@ export default function NodeCompatibilityTab({ resource: node }) {
     setError(null);
     const jobs = [fetchNodeCapabilitiesById(nodeId).then(setCaps)];
     if (isLocal) jobs.push(fetchHostPreflight().then(setPreflight).catch(() => setPreflight(null)));
-    else setPreflight(null);
+    else {
+      setPreflight(null);
+      setPairCompat(null);
+      jobs.push(fetchNodeCompatibility(nodeId).then(setPairCompat).catch(() => setPairCompat(null)));
+    }
     Promise.all(jobs).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, [nodeId, isLocal]);
 
@@ -81,6 +87,12 @@ export default function NodeCompatibilityTab({ resource: node }) {
               </div>
             );
           })}
+        </Section>
+      )}
+
+      {pairCompat && (
+        <Section title="Compatibilité avec l'hôte local (source -> ce nœud)">
+          <div className="px-4 py-3"><CompatChecks report={pairCompat} /></div>
         </Section>
       )}
 

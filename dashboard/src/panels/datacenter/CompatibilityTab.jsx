@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { fetchNodeCapabilitiesById } from "../../api/client";
 import { compareNodes, NA } from "../../lib/capabilitiesView";
+import DeploymentProfileCard from "../../components/DeploymentProfileCard";
 
 // Tableau comparatif des nœuds (mandat portabilite, chantier 4) : met en
 // evidence ce qui DIFFERE entre machines -- prealable a une migration ou a
@@ -30,6 +31,7 @@ export default function CompatibilityTab() {
 
   return (
     <div className="space-y-4">
+      <DeploymentProfileCard />
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-anthracite-300">
           Comparaison des capacités détectées sur chaque nœud du cluster.
