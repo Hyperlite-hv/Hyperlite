@@ -2222,3 +2222,102 @@ code backend) :
   comparaison multi-nœuds n'a pas été vue dans l'UI avec deux nœuds
   enregistrés (un seul nœud disponible sur hl-devhub), seulement via la
   logique JS sur les deux vrais profils.
+
+### Chantier 5 : profils de déploiement (2026-09-19)
+
+`app/core/deployment_profile.py` : trois jeux de RÉGLAGES par défaut
+(homelab / standard / avancé), pas trois produits. Profil actif, par
+priorité : `HYPERLITE_PROFILE` (env) > choix d'un admin (table
+`deployment_profile`, `auto` par défaut) > profil RECOMMANDÉ détecté
+(avancé si >= 16 cœurs ou >= 64 Go ; homelab si <= 4 cœurs ou <= 8 Go ;
+sinon standard). Les overrides `HYPERLITE_VM_MAX_*` (chantier 2) restent
+prioritaires sur tout.
+- Réglages pilotés par le profil : part de RAM allouable à une VM (0.75 /
+  0.8 / 0.9) et de disque libre (0.85 / 0.9 / 0.95) dans `vm_limits.py`,
+  intervalle de collecte des métriques (30 / 15 / 10 s, relu à chaque tour
+  dans `metrics.py`, donc sans redémarrage), valeurs par défaut de
+  l'assistant de création de VM (bornées par les limites réelles de l'hôte).
+- `GET /host/profile` (auth), `PUT /host/profile` (admin, 400 si profil
+  inconnu, 409 si forcé par l'env). UI : carte « Profil de déploiement » en
+  tête de l'onglet Datacenter > Compatibilité ; l'assistant VM l'utilise.
+- **Changement de comportement** : un hôte détecté « homelab » a désormais
+  75 % (et non 80 %) de sa RAM allouable à une VM. Le profil standard
+  reproduit exactement les anciennes valeurs.
+- **Testé** : instance de dev sur hl-devhub (détecté homelab : 2 cœurs,
+  2 Go), choix avancé -> limites mémoire 1408 -> 1664 Mo, refus 400/401/409,
+  override env prioritaire, UI Playwright (carte, changement, assistant VM
+  à 2 vCPU / 1664 Mo / 28 Go), zéro erreur console/HTTP.
+- **Non fait** : rétention des sauvegardes et intervalles de sondage des
+  nœuds ne dépendent pas encore du profil.
+
+### Chantier 6 : diagnostic de compatibilité de cluster (2026-09-19)
+
+`app/core/cluster_compat.py` : contrôles {id, statut ok/warning/blocking,
+message, action} exécutés AVANT d'agir, sur deux connexions libvirt déjà
+ouvertes (local ou qemu+ssh://). Un contrôle qui plante devient un
+`warning` "vérification impossible", jamais un échec global.
+- **Entre deux hôtes** (`check_pair`) : architecture, versions QEMU/libvirt
+  (destination plus ancienne = avertissement), KVM, CPU physique source vs
+  destination (`compareCPU`).
+- **Pour une VM** (`check_vm_migration`) : état (active), nom libre, type de
+  machine supporté par la destination (le vrai blocage du chantier 17,
+  `pc-i440fx-10.0` inconnu de QEMU 7.2), CPU de la VM, firmware UEFI,
+  réseaux présents, disques (bloc/zvol = bloquant, format, copie vs pool
+  NFS partagé, espace libre destination), mémoire, périphériques hostdev.
+- `GET /vms/{name}/migration-check?target_node=` (admin, lecture seule) ;
+  `POST /vms/{name}/migrate` REFUSE (409, liste des blocages) sauf
+  `ignorer_verifications: true` (une heuristique peut se tromper, l'admin
+  garde le dernier mot) ; `GET /nodes/{name}/compatibility` ; l'ajout d'un
+  nœud renvoie aussi `compatibilite` (informatif, n'annule rien).
+- UI : le panneau « Migrer » affiche le diagnostic dès le choix de la cible
+  (bouton désactivé tant qu'il y a un blocage, case « ignorer ») ; la fiche
+  d'un nœud distant montre sa compatibilité avec l'hôte local.
+- **Bug corrigé au passage** : l'endpoint de migration comparait encore la
+  cible à l'ancienne sentinelle "kvm-lab" ; depuis le renommage en "local",
+  une migration local -> local passait le contrôle. Normalisé
+  (`_norm_node`).
+- **Testé** : (1) données RÉELLES serveur-antho (QEMU 10.0.13, VM
+  `pc-i440fx-10.0`) contre hl-devhub (QEMU 7.2.22) : machine inconnue,
+  modèle CPU `Skylake-Client-v3` inconnu, espace et mémoire insuffisants
+  détectés ; (2) HTTP de bout en bout via un nœud en boucle locale (SSH
+  vers soi-même) avec une VM transitoire réelle ; (3) faux objets pour
+  chaque mode de blocage (arch, KVM, UEFI, réseau, zvol, hostdev, mémoire,
+  CPU, contrôle qui plante) ; (4) Playwright (panneau de migration, case
+  ignorer, fiche nœud), zéro erreur.
+- **Limites** : un pont (`bridge`) n'est pas vérifiable à distance
+  (avertissement) ; `Unknown CPU model` reste un avertissement (compatibilité
+  non démontrable, pas un blocage prouvé) ; pas encore de diagnostic avant
+  l'ajout d'un nœud NON encore enregistré (il faut une connexion, donc
+  l'enregistrement d'abord).
+
+### Politique d'allocation des ressources de VM : liberté d'attribution (2026-09-19)
+
+Demande d'Antho : « être libre de faire ce qu'on veut en termes
+d'attributions » (ressources des VM, pas permissions). Les plafonds du
+chantier 2 (part de l'hôte) deviennent une POLITIQUE choisie par un admin
+(`app/core/vm_limits.py::POLICIES`, table `allocation_policy`) :
+- `limites` (défaut, comportement inchangé) : part de la RAM/du disque de
+  l'hôte, jusqu'au nombre de cœurs.
+- `surallocation` : jusqu'à 4x les cœurs, 1,5x la RAM, 3x le disque libre
+  (disques fins), 16 disques.
+- `libre` : aucun plafond imposé par Hyperlite (butées techniques absurdes
+  seulement : 4096 vCPU, 16 To de RAM, 1 Po, 64 disques) ; libvirt/QEMU
+  refusent eux-mêmes l'impossible avec leur vraie erreur.
+Priorité : `HYPERLITE_ALLOCATION` (env) > choix admin > `limites`. Les
+overrides `HYPERLITE_VM_MAX_*` restent prioritaires. `GET /host/limits`
+expose `politique` et `physique` ; `PUT /host/allocation` (admin, 400/409) ;
+sélecteur dans la carte « Profil de déploiement » (onglet Compatibilité) ;
+avertissement NON bloquant dans l'assistant de création quand les valeurs
+dépassent le physique. Les conteneurs n'ont plus de plafond fixe
+(16 vCPU / 32 Go) : même politique que les VM.
+- **Testé** : instance de dev (2 cœurs, 2 Go) : les 3 politiques changent
+  bien les limites (2 -> 8 -> 4096 vCPU) et le refus 422 devient acceptation
+  en `libre` ; une VM de 16 vCPU / 8 Go / 500 Go a réellement été CRÉÉE
+  sur cette machine (puis supprimée) ; 400 / 409 (env) ; Playwright (choix
+  dans l'UI, note de surallocation), zéro erreur.
+- **Non fait** : avertissement de surallocation dans l'onglet Options
+  d'une VM existante ; pas de suivi de l'allocation TOTALE cumulée de
+  toutes les VM (la politique borne UNE VM à la fois) ; les permissions
+  (ACL/rôles) n'ont pas été touchées.
+- **Attention** : en `libre`, un vCPU/RAM au-delà du physique peut empêcher
+  la VM de démarrer ou provoquer un OOM sur l'hôte.

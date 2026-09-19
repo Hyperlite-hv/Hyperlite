@@ -32,6 +32,8 @@ from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
 from app.core.host_capabilities import get_local_capabilities
 from app.core.vm_limits import compute_limits
+from app.core import deployment_profile
+from pydantic import BaseModel
 from app.core.error_messages import describe_exception
 
 router = APIRouter(prefix="/host", tags=["host"])
@@ -44,6 +46,63 @@ def host_vm_limits(user: dict = Depends(get_current_user)):
     par la validation backend. Chaque limite indique sa source
     (detecte/configuration/repli)."""
     return compute_limits()
+
+
+class ProfileChoice(BaseModel):
+    profil: str  # "auto" ou un nom de profil
+
+
+def _profile_payload():
+    active = deployment_profile.get_active()
+    limits = compute_limits(force=True)
+    d = dict(active["reglages"]["vm_defaults"])
+    # Valeurs par defaut de l'assistant de creation : jamais au-dela des
+    # limites reellement calculees pour cet hote.
+    d["vcpu"] = max(limits["vcpu"]["min"], min(d["vcpu"], limits["vcpu"]["max"]))
+    d["memory_mb"] = max(limits["memoire_mo"]["min"], min(d["memory_mb"], limits["memoire_mo"]["max"]))
+    d["disk_gb"] = max(limits["disque_go"]["min"], min(d["disk_gb"], limits["disque_go"]["max"]))
+    from app.core import vm_limits
+    return {**active, "vm_defaults_effectifs": d, "profils": deployment_profile.PROFILES,
+            "allocation": {**vm_limits.get_policy(), "politiques": vm_limits.POLICIES}}
+
+
+@router.get("/profile")
+def host_profile(user: dict = Depends(get_current_user)):
+    """Profil de deploiement actif (chantier 5 du mandat portabilite) :
+    homelab/standard/avance, recommande par detection du materiel ou choisi
+    par un admin. Voir app/core/deployment_profile.py."""
+    return _profile_payload()
+
+
+@router.put("/profile")
+def set_host_profile(payload: ProfileChoice, user: dict = Depends(require_role("admin"))):
+    choice = payload.profil.strip().lower()
+    if choice != "auto" and choice not in deployment_profile.PROFILES:
+        raise HTTPException(status_code=400, detail=f"Profil inconnu : {payload.profil} (auto, {', '.join(deployment_profile.PROFILES)})")
+    if deployment_profile.env_override():
+        raise HTTPException(status_code=409, detail="Le profil est forcé par la variable d'environnement HYPERLITE_PROFILE : elle est prioritaire sur ce choix.")
+    deployment_profile.set_choice(choice)
+    log_action(user["username"], "set_host_profile", "local", "succes", f"profil={choice}")
+    return _profile_payload()
+
+
+class AllocationChoice(BaseModel):
+    politique: str
+
+
+@router.put("/allocation")
+def set_host_allocation(payload: AllocationChoice, user: dict = Depends(require_role("admin"))):
+    """Politique d'allocation des ressources de VM (limites/surallocation/
+    libre) -- voir app/core/vm_limits.py."""
+    from app.core import vm_limits
+    choice = payload.politique.strip().lower()
+    if choice not in vm_limits.POLICIES:
+        raise HTTPException(status_code=400, detail=f"Politique inconnue : {payload.politique} ({', '.join(vm_limits.POLICIES)})")
+    if vm_limits.env_policy():
+        raise HTTPException(status_code=409, detail="La politique est forcée par la variable d'environnement HYPERLITE_ALLOCATION : elle est prioritaire sur ce choix.")
+    vm_limits.set_policy(choice)
+    log_action(user["username"], "set_host_allocation", "local", "succes", f"politique={choice}")
+    return _profile_payload()
 
 
 @router.get("/capabilities")
