@@ -2249,3 +2249,43 @@ prioritaires sur tout.
   à 2 vCPU / 1664 Mo / 28 Go), zéro erreur console/HTTP.
 - **Non fait** : rétention des sauvegardes et intervalles de sondage des
   nœuds ne dépendent pas encore du profil.
+
+### Chantier 6 : diagnostic de compatibilité de cluster (2026-09-19)
+
+`app/core/cluster_compat.py` : contrôles {id, statut ok/warning/blocking,
+message, action} exécutés AVANT d'agir, sur deux connexions libvirt déjà
+ouvertes (local ou qemu+ssh://). Un contrôle qui plante devient un
+`warning` "vérification impossible", jamais un échec global.
+- **Entre deux hôtes** (`check_pair`) : architecture, versions QEMU/libvirt
+  (destination plus ancienne = avertissement), KVM, CPU physique source vs
+  destination (`compareCPU`).
+- **Pour une VM** (`check_vm_migration`) : état (active), nom libre, type de
+  machine supporté par la destination (le vrai blocage du chantier 17,
+  `pc-i440fx-10.0` inconnu de QEMU 7.2), CPU de la VM, firmware UEFI,
+  réseaux présents, disques (bloc/zvol = bloquant, format, copie vs pool
+  NFS partagé, espace libre destination), mémoire, périphériques hostdev.
+- `GET /vms/{name}/migration-check?target_node=` (admin, lecture seule) ;
+  `POST /vms/{name}/migrate` REFUSE (409, liste des blocages) sauf
+  `ignorer_verifications: true` (une heuristique peut se tromper, l'admin
+  garde le dernier mot) ; `GET /nodes/{name}/compatibility` ; l'ajout d'un
+  nœud renvoie aussi `compatibilite` (informatif, n'annule rien).
+- UI : le panneau « Migrer » affiche le diagnostic dès le choix de la cible
+  (bouton désactivé tant qu'il y a un blocage, case « ignorer ») ; la fiche
+  d'un nœud distant montre sa compatibilité avec l'hôte local.
+- **Bug corrigé au passage** : l'endpoint de migration comparait encore la
+  cible à l'ancienne sentinelle "kvm-lab" ; depuis le renommage en "local",
+  une migration local -> local passait le contrôle. Normalisé
+  (`_norm_node`).
+- **Testé** : (1) données RÉELLES serveur-antho (QEMU 10.0.13, VM
+  `pc-i440fx-10.0`) contre hl-devhub (QEMU 7.2.22) : machine inconnue,
+  modèle CPU `Skylake-Client-v3` inconnu, espace et mémoire insuffisants
+  détectés ; (2) HTTP de bout en bout via un nœud en boucle locale (SSH
+  vers soi-même) avec une VM transitoire réelle ; (3) faux objets pour
+  chaque mode de blocage (arch, KVM, UEFI, réseau, zvol, hostdev, mémoire,
+  CPU, contrôle qui plante) ; (4) Playwright (panneau de migration, case
+  ignorer, fiche nœud), zéro erreur.
+- **Limites** : un pont (`bridge`) n'est pas vérifiable à distance
+  (avertissement) ; `Unknown CPU model` reste un avertissement (compatibilité
+  non démontrable, pas un blocage prouvé) ; pas encore de diagnostic avant
+  l'ajout d'un nœud NON encore enregistré (il faut une connexion, donc
+  l'enregistrement d'abord).

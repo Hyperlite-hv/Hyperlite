@@ -5,6 +5,7 @@ import MetricChart from "../../components/MetricChart";
 import MetricsHistoryCard from "../../components/MetricsHistoryCard";
 import { fetchVMMetricsHistory } from "../../api/client";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import CompatChecks from "../../components/CompatChecks";
 import ProvisioningBar from "../../components/ProvisioningBar";
 import { useLiveVMMetrics } from "../../hooks/useLiveVMMetrics";
 import { useProvisioningStatus } from "../../hooks/useProvisioningStatus";
@@ -13,7 +14,7 @@ import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { chartColors } from "../../theme/colors";
 import { formatUptime, formatMo, formatKbps } from "../../utils/format";
 import {
-  cloneVM, createTemplateFromVM, migrateVM, fetchHaProtected, enableHa, disableHa,
+  cloneVM, createTemplateFromVM, migrateVM, fetchMigrationCheck, fetchHaProtected, enableHa, disableHa,
   fetchVMAutoCleanup, setVMAutoCleanup, disableVMAutoCleanup,
 } from "../../api/client";
 
@@ -22,6 +23,8 @@ export default function VMSummaryTab({ resource: vm }) {
   const [migrateOpen, setMigrateOpen] = useState(false);
   const [migrateTarget, setMigrateTarget] = useState("");
   const [migrating, setMigrating] = useState(false);
+  const [migrateCheck, setMigrateCheck] = useState(null); // { loading, report, error }
+  const [ignoreChecks, setIgnoreChecks] = useState(false);
   const [haProtected, setHaProtected] = useState(false);
   const [haBusy, setHaBusy] = useState(false);
   const [autoCleanup, setAutoCleanup] = useState(null); // { active, inactive_days, ... } | null (chargement)
@@ -152,11 +155,24 @@ export default function VMSummaryTab({ resource: vm }) {
     }
   }
 
+  useEffect(() => {
+    setIgnoreChecks(false);
+    if (!migrateOpen || !migrateTarget) { setMigrateCheck(null); return undefined; }
+    let alive = true;
+    setMigrateCheck({ loading: true });
+    fetchMigrationCheck(vm.nom, migrateTarget, vm.node)
+      .then((report) => alive && setMigrateCheck({ report }))
+      .catch((e) => alive && setMigrateCheck({ error: e.message }));
+    return () => { alive = false; };
+  }, [migrateOpen, migrateTarget, vm.nom, vm.node]);
+
+  const migrateBlocked = Boolean(migrateCheck?.report?.resume?.bloquant) && !ignoreChecks;
+
   async function handleMigrate() {
     if (!migrateTarget) return;
     setMigrating(true);
     try {
-      await migrateVM(vm.nom, migrateTarget, vm.node);
+      await migrateVM(vm.nom, migrateTarget, vm.node, ignoreChecks);
       pushToast({ kind: "success", title: "Migration lancée", message: `${vm.nom} vers ${migrateTarget} — suivez la progression dans les tâches` });
       setMigrateOpen(false);
       setMigrateTarget("");
@@ -250,10 +266,19 @@ export default function VMSummaryTab({ resource: vm }) {
             <option value="">Choisir un nœud…</option>
             {migrationTargets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
           </select>
-          <button className="btn-primary" disabled={!migrateTarget || migrating} onClick={handleMigrate}>
+          <button className="btn-primary" disabled={!migrateTarget || migrating || migrateCheck?.loading || migrateBlocked} onClick={handleMigrate}>
             {migrating ? "Lancement..." : "Migrer"}
           </button>
           <button className="btn-secondary" onClick={() => setMigrateOpen(false)}>Annuler</button>
+          {migrateCheck?.loading && <p className="w-full text-xs text-anthracite-400">Vérification de la compatibilité…</p>}
+          {migrateCheck?.error && <p className="w-full text-xs text-status-warning">Diagnostic indisponible ({migrateCheck.error}) : la migration reste tentable, le serveur la vérifiera.</p>}
+          {migrateCheck?.report && <CompatChecks report={migrateCheck.report} />}
+          {migrateCheck?.report?.resume?.bloquant && (
+            <label className="flex w-full items-center gap-2 text-xs text-anthracite-300">
+              <input type="checkbox" checked={ignoreChecks} onChange={(e) => setIgnoreChecks(e.target.checked)} />
+              Ignorer les blocages détectés et tenter quand même la migration
+            </label>
+          )}
           <p className="w-full text-xs text-anthracite-400">
             Migration à chaud : la VM continue de tourner pendant le transfert. Si le disque n'est pas sur un pool partagé
             (chantier 26), il est copié pendant la migration — peut prendre du temps selon sa taille.
