@@ -1,0 +1,1 @@
+ssh -i /root/hyperlite/data/ssh/hyperlite_automation dev@192.168.122.2 'sudo git -C /root/hyperlite-review show chore/ci-workflows-local:.github/workflows/ci.yml'
