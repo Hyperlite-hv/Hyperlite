@@ -134,7 +134,7 @@ Installation:
 sudo dd if=hyperlite-appliance-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
 (or Rufus / balenaEtcher on Windows)
 
-The installer asks for the root password. The Hyperlite `admin` account gets a random initial password shown on the console banner and in /root/.hyperlite-initial-password.
+The installer asks for the root password. The Hyperlite admin account gets a random initial password shown on the console banner and in /root/.hyperlite-initial-password.
 
 A single manual confirmation is required during the installation (LVM confirmation screen: a deliberate Debian Installer safeguard against data loss, which cannot be bypassed by preseed)."
 
