@@ -13,6 +13,7 @@ from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core import zfs_storage
+from app.core.vm_limits import validate_vm_resources
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
@@ -103,7 +104,7 @@ class PoolCreate(BaseModel):
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
     nfs_host: str | None = None  # pool "netfs" : hote du serveur NFS
     nfs_export_path: str | None = None  # pool "netfs" : chemin exporte cote serveur
-    size_gb: int | None = Field(None, ge=1, le=4096)  # pool "zfs" : taille du fichier loopback
+    size_gb: int | None = Field(None, ge=1)  # pool "zfs" : taille du fichier loopback
 
 
 def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
@@ -189,6 +190,9 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
             raise HTTPException(status_code=422, detail="Un pool ZFS ne peut être créé que sur l'hôte local (gestion mono-nœud pour l'instant)")
         if not payload.size_gb:
             raise HTTPException(status_code=422, detail="size_gb est requis pour un pool ZFS")
+        size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
+        if size_errors:
+            raise HTTPException(status_code=422, detail=size_errors)
         if not zfs_storage.is_available():
             raise HTTPException(status_code=422, detail="ZFS n'est pas installé sur cet hôte (paquets zfsutils-linux/zfs-dkms)")
         try:
@@ -336,11 +340,14 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
 
 class VolumeCreate(BaseModel):
     name: str
-    size_gb: int = Field(ge=1, le=100)
+    size_gb: int = Field(ge=1)
 
 
 @router.post("/{pool_name}/volumes", status_code=201)
 def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(require_role("admin"))):
+    size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
+    if size_errors:
+        raise HTTPException(status_code=422, detail=size_errors)
     if zfs_storage.pool_exists(pool_name):
         name_error = zfs_storage.validate_zfs_name(payload.name)
         if name_error:
