@@ -130,7 +130,7 @@ def test_blank_api_token_names_are_rejected(client, auth_headers):
 def test_two_factor_login_flow(client, auth_headers):
     session = auth_headers("alice", "admin")
     secret = client.post("/auth/2fa/setup", headers=session).json()["secret"]
-    assert client.post("/auth/2fa/confirm", headers=session, json={"code": "abc"}).status_code == 401
+    assert client.post("/auth/2fa/confirm", headers=session, json={"code": "abc"}).status_code == 400
     assert client.post("/auth/2fa/confirm", headers=session, json={"code": pyotp.TOTP(secret).now()}).status_code == 200
 
     first_step = login(client, "alice")
@@ -153,7 +153,7 @@ def test_two_factor_can_only_be_disabled_with_the_password(client, auth_headers)
     session = auth_headers("alice")
     secret = client.post("/auth/2fa/setup", headers=session).json()["secret"]
     client.post("/auth/2fa/confirm", headers=session, json={"code": pyotp.TOTP(secret).now()})
-    assert client.post("/auth/2fa/disable", headers=session, json={"password": "wrong"}).status_code == 401
+    assert client.post("/auth/2fa/disable", headers=session, json={"password": "wrong"}).status_code == 400
     assert client.post("/auth/2fa/disable", headers=session, json={"password": PASSWORD}).status_code == 200
     assert "require_2fa" not in login(client, "alice").json()
 

@@ -29,7 +29,7 @@ NOTIFY_EVENTS = {
     "update_available": "New Hyperlite version available (to be applied)",
     "create_vm": "VM creation",
     "delete_vm": "VM deletion",
-    "migrate_vm": "Migration de VM",
+    "migrate_vm": "VM migration",
     "backup_vm": "VM backup",
     "restore_backup": "Backup restore",
     # "delete_vm" (already above) also covers the automatic deletion of an
