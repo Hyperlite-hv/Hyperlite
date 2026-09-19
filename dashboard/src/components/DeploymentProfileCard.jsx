@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchHostProfile, setHostProfile } from "../api/client";
+import { fetchHostProfile, setHostProfile, setHostAllocation } from "../api/client";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 import { useInfraStore } from "../store/useInfraStore";
 
@@ -25,7 +25,19 @@ export default function DeploymentProfileCard() {
     } finally { setBusy(false); }
   }, [pushToast]);
 
+  const chooseAllocation = useCallback(async (politique) => {
+    setBusy(true);
+    try {
+      setData(await setHostAllocation(politique));
+      pushToast({ kind: "success", title: "Politique d'allocation mise à jour", message: politique });
+    } catch (e) {
+      pushToast({ kind: "error", title: "Changement impossible", message: e.message });
+    } finally { setBusy(false); }
+  }, [pushToast]);
+
   if (!data) return null;
+  const alloc = data.allocation;
+  const allocForced = alloc.source === "configuration";
   const forced = data.source === "configuration";
   const options = [["auto", `Auto (recommandé : ${data.profils[data.recommande].libelle})`], ...Object.entries(data.profils).map(([k, p]) => [k, p.libelle])];
 
@@ -52,6 +64,16 @@ export default function DeploymentProfileCard() {
           VM par défaut : {data.vm_defaults_effectifs.vcpu} vCPU / {data.vm_defaults_effectifs.memory_mb} Mo / {data.vm_defaults_effectifs.disk_gb} Go
         </p>
         {forced && <p className="text-status-warning">Forcé par la variable d'environnement HYPERLITE_PROFILE : modifiable uniquement côté serveur.</p>}
+      </div>
+      <div className="border-t border-anthracite-600 px-4 py-3 space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-sm font-semibold text-anthracite-100">Attribution des ressources aux VM : {alloc.politiques[alloc.actif].libelle}</div>
+          <select className="input w-64" value={alloc.actif} disabled={!isAdmin || busy || allocForced} onChange={(e) => chooseAllocation(e.target.value)}>
+            {Object.entries(alloc.politiques).map(([k, p]) => <option key={k} value={k}>{p.libelle}</option>)}
+          </select>
+        </div>
+        <p className="text-sm text-anthracite-300">{alloc.politiques[alloc.actif].description}</p>
+        {allocForced && <p className="text-sm text-status-warning">Forcée par la variable d'environnement HYPERLITE_ALLOCATION : modifiable uniquement côté serveur.</p>}
       </div>
     </div>
   );
