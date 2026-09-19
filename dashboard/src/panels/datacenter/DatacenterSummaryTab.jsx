@@ -22,7 +22,7 @@ function sumDefined(items, key) {
 const VM_STATUS_ORDER = [
   { etat: "actif", label: "Running" },
   { etat: "arrete", label: "Stopped" },
-  { etat: "en_pause", label: "En pause" },
+  { etat: "en_pause", label: "Paused" },
   { etat: "suspendu", label: "Suspended" },
   { etat: "plante", label: "In error" },
 ];
