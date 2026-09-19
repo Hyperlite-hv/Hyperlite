@@ -2321,3 +2321,33 @@ dépassent le physique. Les conteneurs n'ont plus de plafond fixe
   (ACL/rôles) n'ont pas été touchées.
 - **Attention** : en `libre`, un vCPU/RAM au-delà du physique peut empêcher
   la VM de démarrer ou provoquer un OOM sur l'hôte.
+## Poste de travail Claude Code sur hl-devhub (2026-09-19)
+
+Claude Code CLI installé sur `hl-devhub` (`npm i -g @anthropic-ai/claude-code`,
+`/usr/local/bin/claude`) -- **l'authentification à son compte reste à faire
+par Antho** (`claude` en interactif, impossible à automatiser). Lancement :
+`ssh dev@192.168.122.2` (depuis le shell hôte de serveur-antho :
+`ssh -i /root/hyperlite/data/ssh/hyperlite_automation dev@192.168.122.2`),
+puis `sudo -i && cd /root/hyperlite && claude`. Le dépôt Git (dev + publication)
+est là ; `sudo` obligatoire car `/root/hyperlite` appartient à root.
+
+**Accès à serveur-antho depuis hl-devhub** : clé dédiée `/root/.ssh/id_ed25519`
+(commentaire `hl-devhub-to-antho`, root de hl-devhub), autorisée dans
+`/root/.ssh/authorized_keys` de serveur-antho avec `from="192.168.122.2"`.
+Hôte joignable à `root@192.168.122.1` (passerelle NAT libvirt). Flux de test :
+merge -> `git pull` sur hl-devhub (le hook publie) -> `ssh root@192.168.122.1
+'apt-get update -qq && apt-get install -y --only-upgrade hyperlite'` ->
+tests via `https://192.168.122.1:8000` avec un compte admin temporaire.
+**Mise à jour 2026-09-19** : hl-devhub n'a PAS de service Hyperlite de
+production, mais on y a installé libvirt/QEMU (`libvirt-daemon-system`,
+`qemu-kvm`, virtualisation imbriquée fonctionnelle), un venv
+(`/root/hyperlite/venv`) et Playwright + Chromium
+(`/root/hyperlite-ui-test/`). On peut donc y lancer une INSTANCE DE DEV
+jetable (`uvicorn app.main:app --host 127.0.0.1 --port 8001`, `.env` avec
+`HYPERLITE_INITIAL_ADMIN_PASSWORD`, login `admin`, formulaire
+`username=`/`password=`) et tester backend + UI sans toucher à serveur-antho.
+Toujours supprimer `.env`, `hyperlite.db*` et les VM/fichiers de test après.
+Le dépôt `hl-devhub` n'a pas de navigateur graphique, seulement Chromium
+headless. Piège : `pkill -f "uvicorn ..."` se tue lui-même via `bash -c`
+-- écrire `pkill -f "[u]vicorn ..."`.
+Le hook de kvm-lab a été retiré le 2026-09-19 : hl-devhub est le SEUL publieur.
