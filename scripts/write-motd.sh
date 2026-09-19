@@ -52,3 +52,7 @@ BANNER="
 
 echo "$BANNER" > /etc/issue
 echo "$BANNER" > /etc/motd
+
+# The service can start after getty has already shown its prompt (first boot after
+# installation): ask running gettys to re-read /etc/issue so the banner appears.
+agetty --reload 2>/dev/null || true
