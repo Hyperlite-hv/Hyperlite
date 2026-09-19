@@ -85,20 +85,20 @@ export default function NetworkOverviewTab() {
       {creating && (
         <div className="card p-4 space-y-2">
           <div className="grid grid-cols-2 gap-2">
-            <input className="input" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <select className="input" value={form.mode} onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}>
+            <input aria-label="Name" className="input" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <select aria-label="Network mode" className="input" value={form.mode} onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}>
               <option value="isole">Isolated (no external access)</option>
               <option value="nat">NAT (outbound through the host)</option>
               <option value="bridge">Bridge to an existing physical network</option>
             </select>
           </div>
           {form.mode === "bridge" ? (
-            <input className="input w-full" placeholder="Host bridge name (e.g. br0)" value={form.bridge_name} onChange={(e) => setForm((f) => ({ ...f, bridge_name: e.target.value }))} />
+            <input aria-label="Host bridge name (e.g. br0)" className="input w-full" placeholder="Host bridge name (e.g. br0)" value={form.bridge_name} onChange={(e) => setForm((f) => ({ ...f, bridge_name: e.target.value }))} />
           ) : (
             <div className="grid grid-cols-3 gap-2">
-              <input className="input" placeholder="Gateway (e.g. 192.168.150.1)" value={form.subnet_address} onChange={(e) => setForm((f) => ({ ...f, subnet_address: e.target.value }))} />
-              <input className="input" placeholder="DHCP start" value={form.dhcp_start} onChange={(e) => setForm((f) => ({ ...f, dhcp_start: e.target.value }))} />
-              <input className="input" placeholder="DHCP end" value={form.dhcp_end} onChange={(e) => setForm((f) => ({ ...f, dhcp_end: e.target.value }))} />
+              <input aria-label="Gateway (e.g. 192.168.150.1)" className="input" placeholder="Gateway (e.g. 192.168.150.1)" value={form.subnet_address} onChange={(e) => setForm((f) => ({ ...f, subnet_address: e.target.value }))} />
+              <input aria-label="DHCP start" className="input" placeholder="DHCP start" value={form.dhcp_start} onChange={(e) => setForm((f) => ({ ...f, dhcp_start: e.target.value }))} />
+              <input aria-label="DHCP end" className="input" placeholder="DHCP end" value={form.dhcp_end} onChange={(e) => setForm((f) => ({ ...f, dhcp_end: e.target.value }))} />
             </div>
           )}
           <div className="flex justify-end gap-2 pt-1">

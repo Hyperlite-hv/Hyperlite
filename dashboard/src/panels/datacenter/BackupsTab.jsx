@@ -26,7 +26,7 @@ export default function BackupsTab() {
       <div className="card flex flex-col items-center gap-2 p-8 text-center">
         <CalendarClock size={26} className="text-anthracite-400" />
         <p className="text-sm text-anthracite-300">No backups yet.</p>
-        <p className="text-xs text-anthracite-500 max-w-sm">
+        <p className="text-xs text-anthracite-400 max-w-sm">
           Start a manual backup or schedule one from the Backup tab of a VM.
         </p>
       </div>
@@ -34,7 +34,7 @@ export default function BackupsTab() {
   }
 
   return (
-    <div className="card divide-y divide-anthracite-600 max-h-[70vh] overflow-y-auto">
+    <div className="card divide-y divide-anthracite-600 max-h-[70vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Backups">
       <div className="grid grid-cols-[110px_1fr_80px_90px_1fr_50px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
         <span>Time</span><span>VM</span><span>Mode</span><span>Size</span><span>Location / cause</span><span>Status</span>
       </div>

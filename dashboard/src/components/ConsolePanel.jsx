@@ -142,7 +142,7 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
         )}
       </div>
 
-      {!vmActive && <p className="text-xs text-anthracite-500">The VM must be started.</p>}
+      {!vmActive && <p className="text-xs text-anthracite-400">The VM must be started.</p>}
       {error && <p className="text-xs text-status-error">{error}</p>}
 
       <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-anthracite-600">

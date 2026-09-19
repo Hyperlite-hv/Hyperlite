@@ -48,7 +48,7 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-anthracite-600">
         <ShieldCheck size={15} className="text-anthracite-400" />
         <h3 className="text-sm font-semibold text-anthracite-100">{title}</h3>
-        <select
+        <select aria-label="Default firewall policy"
           className="input ml-auto w-40" disabled={!isAdmin}
           value={config.default_policy} onChange={(e) => setConfig((c) => ({ ...c, default_policy: e.target.value }))}
         >
@@ -60,20 +60,20 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
         {config.rules.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No rules: all traffic follows the default policy.</div>}
         {config.rules.map((rule, i) => (
           <div key={i} className="flex items-center gap-2 px-4 py-2 text-sm">
-            <select className="input w-28" disabled={!isAdmin} value={rule.action} onChange={(e) => updateRule(i, { action: e.target.value })}>
+            <select aria-label="Rule action" className="input w-28" disabled={!isAdmin} value={rule.action} onChange={(e) => updateRule(i, { action: e.target.value })}>
               <option value="accept">Allow</option>
               <option value="drop">Block</option>
             </select>
-            <select className="input w-24" disabled={!isAdmin} value={rule.direction} onChange={(e) => updateRule(i, { direction: e.target.value })}>
+            <select aria-label="Rule direction" className="input w-24" disabled={!isAdmin} value={rule.direction} onChange={(e) => updateRule(i, { direction: e.target.value })}>
               <option value="in">Inbound</option>
               <option value="out">Outbound</option>
               <option value="inout">Both</option>
             </select>
-            <select className="input w-24" disabled={!isAdmin} value={rule.protocol} onChange={(e) => updateRule(i, { protocol: e.target.value })}>
+            <select aria-label="Rule protocol" className="input w-24" disabled={!isAdmin} value={rule.protocol} onChange={(e) => updateRule(i, { protocol: e.target.value })}>
               {PROTOCOLS.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
             </select>
             {(rule.protocol === "tcp" || rule.protocol === "udp") && (
-              <input
+              <input aria-label="port"
                 type="number" min={1} max={65535} placeholder="port" className="input w-24" disabled={!isAdmin}
                 value={rule.port ?? ""} onChange={(e) => updateRule(i, { port: e.target.value ? Number(e.target.value) : null })}
               />

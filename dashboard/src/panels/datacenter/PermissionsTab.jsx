@@ -126,7 +126,7 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
       ) : (
         <>
           <div className="rounded-md border border-anthracite-600 p-3 mb-3">
-            <input className="input mb-2" placeholder="Role name (e.g. backups-only)" value={name} onChange={(e) => setName(e.target.value)} />
+            <input aria-label="Role name (e.g. backups-only)" className="input mb-2" placeholder="Role name (e.g. backups-only)" value={name} onChange={(e) => setName(e.target.value)} />
             <div className="grid grid-cols-1 gap-1.5 mb-2 sm:grid-cols-2">
               {Object.entries(privileges).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-xs text-anthracite-200 cursor-pointer">
@@ -213,9 +213,9 @@ function UsersSection({ users, reload, pushToast }) {
       </div>
 
       <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-4">
-        <input className="input" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
-        <input className="input" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-        <select className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+        <input aria-label="Username" className="input" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+        <input aria-label="Password (min. 4)" className="input" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <select aria-label="Role of the new user" className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
           <option value="observateur">observer</option>
           <option value="admin">admin</option>
         </select>
@@ -230,9 +230,9 @@ function UsersSection({ users, reload, pushToast }) {
         <div className="divide-y divide-anthracite-600">
           {users.map((u) => (
             <div key={u.username} className="flex items-center justify-between py-2 text-sm">
-              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-500"> (you)</span>}</span>
+              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-400"> (you)</span>}</span>
               <div className="flex items-center gap-2">
-                <select
+                <select aria-label={`Role of ${u.username}`}
                   className="input text-xs py-1 w-auto"
                   value={u.role}
                   disabled={busy || u.username === me}
@@ -318,7 +318,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       </div>
 
       <div className="flex gap-2 mb-3">
-        <input className="input" placeholder="Group name (e.g. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <input aria-label="Group name (e.g. devs)" className="input" placeholder="Group name (e.g. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
           <Plus size={14} /> Create
@@ -340,7 +340,7 @@ function GroupsSection({ groups, reload, pushToast }) {
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {g.membres.length === 0 && <span className="text-xs text-anthracite-500">No members</span>}
+                {g.membres.length === 0 && <span className="text-xs text-anthracite-400">No members</span>}
                 {g.membres.map((m) => (
                   <span key={m} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                     {m}
@@ -349,7 +349,7 @@ function GroupsSection({ groups, reload, pushToast }) {
                 ))}
               </div>
               <div className="flex gap-1.5">
-                <input className="input text-xs py-1" placeholder="username" value={memberInputs[g.id] || ""}
+                <input aria-label="username" className="input text-xs py-1" placeholder="username" value={memberInputs[g.id] || ""}
                   onChange={(e) => setMemberInputs((s) => ({ ...s, [g.id]: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleAddMember(g.id)} />
                 <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy} onClick={() => handleAddMember(g.id)}>Add</button>
@@ -422,7 +422,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       <p className="text-xs text-anthracite-400 mb-3">Group VMs (e.g. "Project-A") to assign them rights in one go, without listing them one by one.</p>
 
       <div className="flex gap-2 mb-3">
-        <input className="input" placeholder="Pool name (e.g. project-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <input aria-label="Pool name (e.g. project-a)" className="input" placeholder="Pool name (e.g. project-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
           <Plus size={14} /> Create
@@ -446,7 +446,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {p.vms.length === 0 && <span className="text-xs text-anthracite-500">No VMs</span>}
+                  {p.vms.length === 0 && <span className="text-xs text-anthracite-400">No VMs</span>}
                   {p.vms.map((v) => (
                     <span key={v} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                       {v}
@@ -456,7 +456,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                 </div>
                 {available.length > 0 && (
                   <div className="flex gap-1.5">
-                    <select className="input text-xs py-1" value={vmSelect[p.id] || ""} onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}>
+                    <select aria-label={`VM to add to pool ${p.nom}`} className="input text-xs py-1" value={vmSelect[p.id] || ""} onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}>
                       <option value="">Choose a VM...</option>
                       {available.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)}
                     </select>
@@ -522,14 +522,14 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
           <div className="grid grid-cols-2 gap-2 mb-2 sm:grid-cols-4">
             <div>
               <label className="text-[11px] text-anthracite-400">Who</label>
-              <select className="input text-xs py-1.5" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
+              <select aria-label="Who" className="input text-xs py-1.5" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
                 <option value="user">User</option>
                 <option value="group">Group</option>
               </select>
             </div>
             <div>
               <label className="text-[11px] text-anthracite-400">&nbsp;</label>
-              <select className="input text-xs py-1.5" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+              <select aria-label="Subject" className="input text-xs py-1.5" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
                 <option value="">Choose...</option>
                 {subjectType === "user"
                   ? users.map((u) => <option key={u.username} value={u.username}>{u.username}</option>)
@@ -538,13 +538,13 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
             </div>
             <div>
               <label className="text-[11px] text-anthracite-400">Role</label>
-              <select className="input text-xs py-1.5" value={role} onChange={(e) => setRole(e.target.value)}>
+              <select aria-label="Role" className="input text-xs py-1.5" value={role} onChange={(e) => setRole(e.target.value)}>
                 {Object.entries(roles).map(([key, r]) => <option key={key} value={key}>{r.label}</option>)}
               </select>
             </div>
             <div>
               <label className="text-[11px] text-anthracite-400">On</label>
-              <select className="input text-xs py-1.5" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
+              <select aria-label="On" className="input text-xs py-1.5" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
                 <option value="vm">A VM</option>
                 <option value="pool">A pool</option>
                 <option value="container">A container</option>
@@ -552,7 +552,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
             </div>
           </div>
           <div className="flex gap-2 mb-3">
-            <select className="input" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
+            <select aria-label="Resource" className="input" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
               <option value="">
                 {resourceType === "vm" ? "Choose a VM..." : resourceType === "pool" ? "Choose a pool..." : "Choose a container..."}
               </option>
@@ -568,7 +568,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
           </div>
 
           {roles[role] && (
-            <p className="text-[11px] text-anthracite-500 mb-3">{roles[role].description}</p>
+            <p className="text-[11px] text-anthracite-400 mb-3">{roles[role].description}</p>
           )}
 
           {acl && acl.length > 0 ? (

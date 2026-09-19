@@ -193,7 +193,7 @@ export default function DatacenterSummaryTab() {
               <Plus size={14} /> Add a node
             </button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Nodes table">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
@@ -284,7 +284,7 @@ export default function DatacenterSummaryTab() {
             View the whole journal →
           </button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Recent tasks table">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">

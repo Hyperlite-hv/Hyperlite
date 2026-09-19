@@ -54,7 +54,7 @@ export default function ActivityTab() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <select
+        <select aria-label="Filter by status"
           value={statutFiltre}
           onChange={(e) => setStatutFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
@@ -72,7 +72,7 @@ export default function ActivityTab() {
         </button>
       </div>
 
-      <div className="card divide-y divide-anthracite-600 max-h-[70vh] overflow-y-auto">
+      <div className="card divide-y divide-anthracite-600 max-h-[70vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Recent activity">
         <div className="grid grid-cols-[150px_1fr_1fr_120px_110px_80px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
           <span>Time</span><span>Task</span><span>Target</span><span>Node</span><span>User</span><span>Duration</span>
         </div>

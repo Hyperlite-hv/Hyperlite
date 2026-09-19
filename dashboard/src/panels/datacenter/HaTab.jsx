@@ -90,7 +90,7 @@ export default function HaTab() {
               <div className="flex items-center justify-end gap-2">
                 {down && (
                   <>
-                    <select
+                    <select aria-label="Recovery node"
                       className="input w-auto text-xs py-1"
                       value={recoverTarget[r.vm_name] || ""}
                       onChange={(e) => setRecoverTarget({ ...recoverTarget, [r.vm_name]: e.target.value })}

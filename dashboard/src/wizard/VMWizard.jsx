@@ -125,7 +125,7 @@ export default function VMWizard({ open, onClose }) {
         </div>
         <div className="flex justify-between px-5 pt-1.5 pb-3">
           {STEPS.map((s, i) => (
-            <span key={s.id} className={`text-[11px] ${i === stepIndex ? "text-anthracite-100 font-medium" : "text-anthracite-500"}`}>{s.label}</span>
+            <span key={s.id} className={`text-[11px] ${i === stepIndex ? "text-anthracite-100 font-medium" : "text-anthracite-400"}`}>{s.label}</span>
           ))}
         </div>
 

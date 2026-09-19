@@ -126,7 +126,7 @@ export default function AccountSecurityModal({ onClose }) {
               <form onSubmit={handleDisable} className="flex items-end gap-2">
                 <div className="flex-1">
                   <label className="text-xs font-medium text-anthracite-300">Password (to disable)</label>
-                  <input type="password" className="input mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
+                  <input aria-label="Password (to disable)" type="password" className="input mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
                 </div>
                 <button type="submit" disabled={busy2fa} className="btn-danger">
                   <ShieldOff size={14} /> Disable
@@ -153,11 +153,11 @@ export default function AccountSecurityModal({ onClose }) {
                 className="mx-auto w-40 rounded-md bg-white p-2 [&_svg]:w-full [&_svg]:h-full"
                 dangerouslySetInnerHTML={{ __html: setupData.qr_code_svg }}
               />
-              <p className="text-center font-mono text-[11px] text-anthracite-500 break-all">{setupData.secret}</p>
+              <p className="text-center font-mono text-[11px] text-anthracite-400 break-all">{setupData.secret}</p>
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <label className="text-xs font-medium text-anthracite-300">6-digit code</label>
-                  <input
+                  <input aria-label="6-digit code"
                     className="input mt-1 text-center tracking-[0.3em]" autoFocus inputMode="numeric" maxLength={6}
                     value={confirmCode} onChange={(e) => setConfirmCode(e.target.value.replace(/\D/g, ""))}
                   />
@@ -196,7 +196,7 @@ export default function AccountSecurityModal({ onClose }) {
           <form onSubmit={handleCreateToken} className="flex items-end gap-2">
             <div className="flex-1">
               <label className="text-xs font-medium text-anthracite-300">Token name</label>
-              <input className="input mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
+              <input aria-label="Token name" className="input mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
             </div>
             <button type="submit" disabled={busyToken || !newTokenName.trim()} className="btn-secondary">
               <Plus size={14} /> Create
@@ -210,7 +210,7 @@ export default function AccountSecurityModal({ onClose }) {
               <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                 <div className="min-w-0 flex-1">
                   <div className="text-anthracite-100 truncate">{t.name}</div>
-                  <div className="text-anthracite-500 text-xs">
+                  <div className="text-anthracite-400 text-xs">
                     Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
                   </div>
                 </div>

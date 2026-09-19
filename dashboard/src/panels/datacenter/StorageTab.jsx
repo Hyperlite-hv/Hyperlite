@@ -102,11 +102,11 @@ export default function StorageTab() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Pool name</label>
-                <input className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. nfs-shared" />
+                <input aria-label="Pool name" className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. nfs-shared" />
               </div>
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Node</label>
-                <select className="input mt-1" value={form.node} onChange={(e) => setForm({ ...form, node: e.target.value })}>
+                <select aria-label="Node" className="input mt-1" value={form.node} onChange={(e) => setForm({ ...form, node: e.target.value })}>
                   {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
                 </select>
               </div>
@@ -139,23 +139,23 @@ export default function StorageTab() {
             {form.type === "dir" ? (
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Local path (optional)</label>
-                <input className="input mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (automatic if empty)" />
+                <input aria-label="Local path (optional)" className="input mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (automatic if empty)" />
               </div>
             ) : form.type === "netfs" ? (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-anthracite-300">NFS server host</label>
-                  <input className="input mt-1" required value={form.nfs_host} onChange={(e) => setForm({ ...form, nfs_host: e.target.value })} placeholder="e.g. 192.168.1.10" />
+                  <input aria-label="NFS server host" className="input mt-1" required value={form.nfs_host} onChange={(e) => setForm({ ...form, nfs_host: e.target.value })} placeholder="e.g. 192.168.1.10" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-anthracite-300">Exported path</label>
-                  <input className="input mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/share" />
+                  <input aria-label="Exported path" className="input mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/share" />
                 </div>
               </div>
             ) : (
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Size (GB, loopback file)</label>
-                <input type="number" min="1" max="4096" className="input mt-1" required value={form.size_gb} onChange={(e) => setForm({ ...form, size_gb: e.target.value })} />
+                <input aria-label="Size (GB, loopback file)" type="number" min="1" max="4096" className="input mt-1" required value={form.size_gb} onChange={(e) => setForm({ ...form, size_gb: e.target.value })} />
                 <p className="mt-1 text-xs text-anthracite-400">ZFS pool created on the local host only, backed by a file. VMs created on it use raw block disks (zvols).</p>
               </div>
             )}

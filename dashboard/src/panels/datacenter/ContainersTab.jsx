@@ -163,7 +163,7 @@ export default function ContainersTab() {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-anthracite-500 max-w-2xl">
+      <p className="text-xs text-anthracite-400 max-w-2xl">
         LXC containers (libvirt's native driver, independent of QEMU/KVM VMs): a minimal Debian 12 system, with terminal access through the same SSH automation key as VMs. The very first creation downloads and prepares the base image (a few minutes); the following ones are fast (local copy).
       </p>
 
@@ -192,7 +192,7 @@ export default function ContainersTab() {
                     <t.Icon size={16} className={selected ? "text-accent-blue shrink-0 mt-0.5" : "text-anthracite-400 shrink-0 mt-0.5"} />
                     <div className="min-w-0">
                       <div className="text-sm text-anthracite-100 truncate">{t.label}</div>
-                      <div className="text-[11px] text-anthracite-500 truncate">{t.desc}</div>
+                      <div className="text-[11px] text-anthracite-400 truncate">{t.desc}</div>
                     </div>
                     {selected && <Check size={13} className="absolute right-2 top-2 text-accent-blue" />}
                   </button>
@@ -201,8 +201,8 @@ export default function ContainersTab() {
             </div>
 
             <div className="relative mt-2">
-              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-anthracite-500" />
-              <input
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-anthracite-400" />
+              <input aria-label="Another Docker Hub image: search or type a reference, e.g. traefik, ghcr.io/foo/bar:tag"
                 className="input w-full pl-8"
                 placeholder="Another Docker Hub image: search or type a reference, e.g. traefik, ghcr.io/foo/bar:tag"
                 value={dockerQuery}
@@ -224,24 +224,24 @@ export default function ContainersTab() {
                         </div>
                         {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1 text-xs text-anthracite-500"><Star size={11} /> {r.etoiles}</div>
+                      <div className="flex shrink-0 items-center gap-1 text-xs text-anthracite-400"><Star size={11} /> {r.etoiles}</div>
                     </button>
                   ))}
                 </div>
               )}
             </div>
             {form.image && !TEMPLATE_GALLERY.some((t) => t.key === form.image) && (
-              <p className="mt-1 text-[11px] text-anthracite-500">Selected image: <span className="text-anthracite-300">{form.image}</span></p>
+              <p className="mt-1 text-[11px] text-anthracite-400">Selected image: <span className="text-anthracite-300">{form.image}</span></p>
             )}
           </div>
 
           <div className="grid grid-cols-4 gap-2">
-            <input className="input" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <input className="input" type="number" min={1} max={16} placeholder="vCPU" value={form.vcpu} onChange={(e) => setForm((f) => ({ ...f, vcpu: Number(e.target.value) }))} />
-            <input className="input" type="number" min={128} step={128} placeholder="RAM (MB)" value={form.memory_mb} onChange={(e) => setForm((f) => ({ ...f, memory_mb: Number(e.target.value) }))} />
-            <input className="input" placeholder="Network" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
-            <input className="input" placeholder="User" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
-            <input className="input" type="password" placeholder="Password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+            <input aria-label="Name" className="input" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <input aria-label="vCPU" className="input" type="number" min={1} max={16} placeholder="vCPU" value={form.vcpu} onChange={(e) => setForm((f) => ({ ...f, vcpu: Number(e.target.value) }))} />
+            <input aria-label="RAM (MB)" className="input" type="number" min={128} step={128} placeholder="RAM (MB)" value={form.memory_mb} onChange={(e) => setForm((f) => ({ ...f, memory_mb: Number(e.target.value) }))} />
+            <input aria-label="Network" className="input" placeholder="Network" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
+            <input aria-label="User" className="input" placeholder="User" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+            <input aria-label="Password" className="input" type="password" placeholder="Password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
           </div>
           <div className="flex justify-end gap-2">
             <button className="btn-secondary" onClick={() => setCreating(false)}>Cancel</button>

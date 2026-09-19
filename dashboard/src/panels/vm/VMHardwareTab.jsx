@@ -97,14 +97,14 @@ function DiskSection({ vmName, isAdmin }) {
       {isAdmin && (
         <div className="px-4 py-3 border-t border-anthracite-600 space-y-2">
           <div className="text-xs font-medium text-anthracite-300">Add a device</div>
-          <select className="input" value={source} onChange={(e) => setSource(e.target.value)}>
+          <select aria-label="Disk to attach" className="input" value={source} onChange={(e) => setSource(e.target.value)}>
             <option value="__new__">+ New disk...</option>
             {volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</option>)}
           </select>
           {source === "__new__" && (
             <div className="flex gap-2">
-              <input className="input flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="volume name" />
-              <input type="number" min={1} max={hostLimits?.disque_go.max} className="input w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
+              <input aria-label="volume name" className="input flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="volume name" />
+              <input aria-label="New disk size in GB" type="number" min={1} max={hostLimits?.disque_go.max} className="input w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
               <span className="self-center text-xs text-anthracite-400">GB</span>
             </div>
           )}
@@ -184,10 +184,10 @@ function NetworkSection({ vmName, isAdmin }) {
       </div>
       {isAdmin && (
         <div className="flex items-center gap-2 px-4 py-3 border-t border-anthracite-600">
-          <select className="input flex-1" value={addNet} onChange={(e) => setAddNet(e.target.value)}>
+          <select aria-label="Network to attach" className="input flex-1" value={addNet} onChange={(e) => setAddNet(e.target.value)}>
             {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({n.type})</option>)}
           </select>
-          <input
+          <input aria-label="VLAN (optional)"
             type="number" min={1} max={4094} placeholder="VLAN (optional)" className="input w-36"
             value={vlanTag} onChange={(e) => setVlanTag(e.target.value)}
           />

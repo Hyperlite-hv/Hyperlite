@@ -36,7 +36,7 @@ export default function JournalTab() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <select
+        <select aria-label="Filter by result"
           value={resultFiltre}
           onChange={(e) => setResultFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
@@ -45,7 +45,7 @@ export default function JournalTab() {
           <option value="succes">Success</option>
           <option value="echec">Failure</option>
         </select>
-        <select
+        <select aria-label="Filter by action type"
           value={actionFiltre}
           onChange={(e) => setActionFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
@@ -53,21 +53,21 @@ export default function JournalTab() {
           <option value="">All action types</option>
           {actions.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
-        <input
+        <input aria-label="User..."
           type="text"
           placeholder="User..."
           value={usernameFiltre}
           onChange={(e) => setUsernameFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100 w-32"
         />
-        <input
+        <input aria-label="Target (resource)..."
           type="text"
           placeholder="Target (resource)..."
           value={ressourceFiltre}
           onChange={(e) => setRessourceFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100 flex-1 min-w-[140px]"
         />
-        <input
+        <input aria-label="Show entries from"
           type="datetime-local"
           value={depuis}
           onChange={(e) => setDepuis(e.target.value)}
@@ -84,7 +84,7 @@ export default function JournalTab() {
       {entries == null && <div className="card p-4 text-sm text-anthracite-400">Loading...</div>}
 
       {entries && (
-        <div className="card divide-y divide-anthracite-600 max-h-[65vh] overflow-y-auto">
+        <div className="card divide-y divide-anthracite-600 max-h-[65vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Journal entries">
           <div className="grid grid-cols-[110px_100px_1fr_1fr_70px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
             <span>Time</span><span>User</span><span>Action</span><span>Resource / cause</span><span>Result</span>
           </div>
