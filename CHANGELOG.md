@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- ISO checksum and signature, build information recorded on installed systems, and `scripts/release.sh` for immutable versioned releases.
+
 - Automated tests (pytest), linting (ruff, ESLint), formatting checks and a CI workflow.
 - Project documentation, contribution guide, security policy and license (PolyForm Noncommercial 1.0.0).
 - Trust-on-first-use SSH host key checking for cluster nodes.

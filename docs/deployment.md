@@ -10,6 +10,19 @@ The repository configured on the installed system, used for later updates, defau
 
 Default locale and keyboard of the installer are French (`fr_FR.UTF-8`, `fr` keymap, Europe/Paris time zone); edit `installer/preseed.cfg` and the `APPEND_ARGS` in `installer/build-iso.sh` for other values.
 
+## Verifying and tracing an ISO
+
+Every published ISO comes with a SHA-256 checksum file and a detached signature made with the repository key (`hyperlite-archive-keyring.asc`):
+
+```bash
+sha256sum -c hyperlite-appliance-amd64.iso.sha256
+gpg --import hyperlite-archive-keyring.asc && gpg --verify hyperlite-appliance-amd64.iso.sig hyperlite-appliance-amd64.iso
+```
+
+An installed system records the build that installed it in `/etc/hyperlite-build-info` (package version, source commit, build date).
+
+Two kinds of releases exist: the moving `appliance-iso-latest` release, refreshed by the publishing hook at every change on `master`, and immutable versioned releases (`vX.Y.Z`) created on demand with `scripts/release.sh vX.Y.Z`, which tags the commit and attaches the ISO, checksum and signature, with notes taken from the `[Unreleased]` section of `CHANGELOG.md`.
+
 ## Installing the package
 
 The `hyperlite` Debian package installs the application in `/root/hyperlite` (the frontend is shipped already built), creates the virtual environment, generates secrets on first installation only, installs the systemd unit and starts the service. Its `postinst` runs a preflight check first and stops a fresh installation when a blocking requirement is missing. See the README for the commands.
