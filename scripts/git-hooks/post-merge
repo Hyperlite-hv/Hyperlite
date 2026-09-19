@@ -123,10 +123,21 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
             ISO_BUILT=0
             echo "[post-merge] WARNING: build-iso.sh failed or produced no file: ISO NOT republished this time (the GitHub release keeps its previous content, no false status)"
         fi
+        if [ "$ISO_BUILT" = "1" ]; then
+            bash scripts/sign-iso.sh installer/hyperlite-appliance-amd64.iso || echo "[post-merge] WARNING: checksum/signature step failed"
+        fi
+        ISO_ASSETS=(installer/hyperlite-appliance-amd64.iso)
+        for extra in installer/hyperlite-appliance-amd64.iso.sha256 installer/hyperlite-appliance-amd64.iso.sig; do
+            [ -f "$extra" ] && ISO_ASSETS+=("$extra")
+        done
         ISO_TAG="appliance-iso-latest"
         ISO_NOTES="Unattended installation ISO of the Hyperlite appliance (Debian 13, preseed installer), rebuilt and republished automatically at EVERY change on master (stable download link, always the latest version).
 
-Version at the time of this publication: $(cat VERSION) (commit ${CURRENT_COMMIT:0:8}).
+Version at the time of this publication: $(cat VERSION), source commit ${CURRENT_COMMIT}.
+
+SHA-256: $(cut -d' ' -f1 installer/hyperlite-appliance-amd64.iso.sha256 2>/dev/null || echo unavailable) (files hyperlite-appliance-amd64.iso.sha256 and .sig are attached; the signature is made with the repository key hyperlite-archive-keyring.asc). Installed systems record their build in /etc/hyperlite-build-info.
+
+This is the moving 'latest' build. Versioned, immutable releases are published separately (see the releases list).
 
 Once installed, the appliance manages itself through apt (the same repository as above, see dists/): the 'Check for updates' button of the dashboard works normally from the first boot, regardless of the date of this ISO.
 
@@ -140,13 +151,13 @@ A single manual confirmation is required during the installation (LVM confirmati
 
         if [ "$ISO_BUILT" = "1" ]; then
             if gh release view "$ISO_TAG" >/dev/null 2>&1; then
-                if gh release upload "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --clobber && gh release edit "$ISO_TAG" --notes "$ISO_NOTES"; then
+                if gh release upload "$ISO_TAG" "${ISO_ASSETS[@]}" --clobber && gh release edit "$ISO_TAG" --notes "$ISO_NOTES"; then
                     echo "[post-merge] ISO republished successfully (release $ISO_TAG, version $(cat VERSION))"
                 else
                     echo "[post-merge] ERROR: uploading/editing the existing ISO release failed"
                 fi
             else
-                if gh release create "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --title "Appliance ISO (latest)" --notes "$ISO_NOTES" --target master; then
+                if gh release create "$ISO_TAG" "${ISO_ASSETS[@]}" --title "Appliance ISO (latest)" --notes "$ISO_NOTES" --target master; then
                     echo "[post-merge] ISO republished successfully (release $ISO_TAG, version $(cat VERSION))"
                 else
                     echo "[post-merge] ERROR: creating the ISO release failed"

@@ -61,6 +61,9 @@ for attempt in 1 2 3 4 5; do
 done
 [ "$ok" = 1 ] || { log "ERROR: apt-get update failed (no network or Debian mirror unreachable?)"; exit 1; }
 
+# Record which ISO build installed this machine (version, source commit, build date).
+[ -f "$INSTALLER_DIR/build-info" ] && cp "$INSTALLER_DIR/build-info" /etc/hyperlite-build-info
+
 log "=== 2/6: installing Hyperlite ==="
 # The package is embedded in the ISO: installing it from the local file makes the
 # installation independent of the Hyperlite repository. Dependencies still come
