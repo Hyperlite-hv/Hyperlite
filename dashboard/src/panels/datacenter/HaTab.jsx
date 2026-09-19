@@ -99,7 +99,7 @@ export default function HaTab() {
                       {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
                     </select>
                     <button
-                      className="btn-primary !py-1"
+                      className="btn-primary py-1!"
                       disabled={!recoverTarget[r.vm_name] || busy === r.vm_name}
                       onClick={() => handleRecover(r.vm_name)}
                     >
@@ -107,7 +107,7 @@ export default function HaTab() {
                     </button>
                   </>
                 )}
-                <button className="btn-secondary !py-1" onClick={() => handleDisable(r.vm_name)}>
+                <button className="btn-secondary py-1!" onClick={() => handleDisable(r.vm_name)}>
                   <ShieldOff size={13} /> Disable
                 </button>
               </div>

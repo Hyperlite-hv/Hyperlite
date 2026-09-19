@@ -51,7 +51,7 @@ function NavItem({ tab, label, Icon }) {
       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12.5px] font-semibold transition-colors ${
         isActive
           ? "bg-accent-blue text-white shadow-[0_4px_14px_rgba(79,70,229,0.35)]"
-          : "text-chrome-400 hover:bg-white/[0.06] hover:text-chrome-100"
+          : "text-chrome-400 hover:bg-white/6 hover:text-chrome-100"
       }`}
     >
       <Icon size={16} className="shrink-0" />

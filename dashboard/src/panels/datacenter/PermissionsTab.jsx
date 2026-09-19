@@ -342,7 +342,7 @@ function GroupsSection({ groups, reload, pushToast }) {
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {g.membres.length === 0 && <span className="text-xs text-anthracite-500">No members</span>}
                 {g.membres.map((m) => (
-                  <span key={m} className="flex items-center gap-1 rounded bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
+                  <span key={m} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                     {m}
                     <button className="text-anthracite-400 hover:text-status-error" onClick={() => handleRemoveMember(g.id, m)}>x</button>
                   </span>
@@ -448,7 +448,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {p.vms.length === 0 && <span className="text-xs text-anthracite-500">No VMs</span>}
                   {p.vms.map((v) => (
-                    <span key={v} className="flex items-center gap-1 rounded bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
+                    <span key={v} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                       {v}
                       <button className="text-anthracite-400 hover:text-status-error" onClick={() => handleRemoveVm(p.id, v)}>x</button>
                     </span>

@@ -45,7 +45,7 @@ export default function MetricsHistoryCard({ title, fetcher }) {
             <button
               key={r.key}
               onClick={() => setRange(r.key)}
-              className={`rounded px-2.5 py-1 text-xs font-medium ${range === r.key ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
+              className={`rounded-sm px-2.5 py-1 text-xs font-medium ${range === r.key ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
             >
               {r.label}
             </button>
