@@ -26,3 +26,5 @@ hyperlite.db-wal
 hyperlite.db-shm
 hyperlite.db
 data/tmp/
+.publish.env
+CLAUDE.local.md

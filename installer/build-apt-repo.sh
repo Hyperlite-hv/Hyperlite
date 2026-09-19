@@ -1,16 +1,15 @@
 #!/bin/bash
-# Construit/actualise le depot APT signe (structure Debian classique --
-# dists/ + pool/, comme download.proxmox.com) a partir des .deb produits
-# par build-deb.sh. Sortie dans installer/apt-repo/, destinee a etre
-# publiee telle quelle sur GitHub Pages (branche gh-pages).
+# Builds/refreshes the signed APT repository (classic Debian layout: dists/ +
+# pool/, like download.proxmox.com) from the .deb files produced by
+# build-deb.sh. Output goes to installer/apt-repo/, meant to be published as is
+# (GitHub Pages gh-pages branch, or any static web server).
 #
-# Cle de signature GPG : generee UNE FOIS dans un trousseau ISOLE hors du
-# depot Git (/root/.hyperlite-apt-gpg, jamais commite) -- la cle privee ne
-# quitte jamais cette machine ; seule la cle PUBLIQUE est publiee (dans le
-# depot lui-meme, hyperlite-archive-keyring.asc) pour que n'importe quelle
-# appliance puisse verifier l'authenticite des paquets sans jamais avoir a
-# faire confiance au reseau/serveur de transport (meme principe que le
-# depot Proxmox no-subscription).
+# GPG signing key: generated ONCE in a keyring ISOLATED from the Git repository
+# (/root/.hyperlite-apt-gpg, never committed). The private key never leaves this
+# machine; only the PUBLIC key is published (in the repository itself,
+# hyperlite-archive-keyring.asc), so any appliance can verify the authenticity
+# of the packages without having to trust the transport network/server (the same
+# principle as the Proxmox no-subscription repository).
 set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,22 +24,22 @@ chmod 700 "$GNUPGHOME"
 export GNUPGHOME
 
 if ! gpg --list-secret-keys "$KEY_UID" >/dev/null 2>&1; then
-    log "génération de la clé de signature du dépôt (première fois)"
+    log "generating the repository signing key (first time)"
     gpg --batch --quiet --pinentry-mode loopback --passphrase '' --quick-generate-key "$KEY_UID" ed25519 sign 0
 fi
 KEY_ID=$(gpg --list-secret-keys --with-colons "$KEY_UID" | awk -F: '/^fpr:/ {print $10; exit}')
-log "clé de signature : $KEY_ID"
+log "signing key: $KEY_ID"
 
 mkdir -p "$APT_REPO/pool/main/h/hyperlite" "$APT_REPO/dists/stable/main/binary-amd64"
 
-log "ajout des .deb produits au pool (conserve l'historique pour permettre un downgrade)"
+log "adding the produced .deb files to the pool (keeps history so a downgrade stays possible)"
 cp -n "$REPO_DIR"/installer/hyperlite_*_amd64.deb "$APT_REPO/pool/main/h/hyperlite/" 2>/dev/null || true
 
-log "génération de Packages"
+log "generating Packages"
 ( cd "$APT_REPO" && dpkg-scanpackages --multiversion pool /dev/null > dists/stable/main/binary-amd64/Packages )
 gzip -9fk "$APT_REPO/dists/stable/main/binary-amd64/Packages"
 
-log "génération de Release"
+log "generating Release"
 ( cd "$APT_REPO/dists/stable" && apt-ftparchive \
     -o APT::FTPArchive::Release::Origin=Hyperlite \
     -o APT::FTPArchive::Release::Label=Hyperlite \
@@ -48,42 +47,35 @@ log "génération de Release"
     -o APT::FTPArchive::Release::Codename=stable \
     -o APT::FTPArchive::Release::Architectures=amd64 \
     -o APT::FTPArchive::Release::Components=main \
-    -o APT::FTPArchive::Release::Description="Dépôt de paquets Hyperlite" \
+    -o APT::FTPArchive::Release::Description="Hyperlite package repository" \
     release . > Release )
 
-log "signature (Release.gpg détachée + InRelease, comme un dépôt Debian réel)"
+log "signing (detached Release.gpg + InRelease, like a real Debian repository)"
 gpg --batch --yes --pinentry-mode loopback --passphrase '' --default-key "$KEY_ID" \
     -abs -o "$APT_REPO/dists/stable/Release.gpg" "$APT_REPO/dists/stable/Release"
 gpg --batch --yes --pinentry-mode loopback --passphrase '' --default-key "$KEY_ID" \
     --clearsign -o "$APT_REPO/dists/stable/InRelease" "$APT_REPO/dists/stable/Release"
 
-log "export de la clé publique (à installer sur chaque appliance)"
+log "exporting the public key (to install on each appliance)"
 gpg --batch --yes --armor --export "$KEY_ID" > "$APT_REPO/hyperlite-archive-keyring.asc"
 
 cat > "$APT_REPO/README.md" <<EOF
-# Dépôt APT Hyperlite
+# Hyperlite APT repository
 
-**Source recommandée (par défaut sur les appliances, voir installer/postinstall.sh)** :
-servie directement par kvm-lab en Tailscale, sans CDN intermédiaire -- seule
-source dont la cohérence InRelease/Packages est garantie (voir CLAUDE.md,
-section "GitHub Pages, incohérence CDN persistante" pour le pourquoi).
-Fonctionne uniquement pour une machine déjà sur le réseau Tailscale d'Antho :
+Replace \`<repository-url>\` with the address where this directory is served
+(for example \`https://twikles.github.io/hyperlite\` for the public mirror).
 
 \`\`\`bash
-curl -fsSL http://100.88.184.24:8899/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] http://100.88.184.24:8899 stable main" > /etc/apt/sources.list.d/hyperlite.list
+curl -fsSL <repository-url>/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] <repository-url> stable main" > /etc/apt/sources.list.d/hyperlite.list
 apt update && apt install hyperlite
 \`\`\`
 
-**Miroir public (GitHub Pages)** -- utile hors Tailscale, mais la cohérence
-entre InRelease et Packages n'est PAS garantie à tout instant (CDN
-multi-nœuds sans consistance forte, confirmé en conditions réelles) :
-
-\`\`\`bash
-curl -fsSL https://twikles.github.io/hyperlite/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] https://twikles.github.io/hyperlite stable main" > /etc/apt/sources.list.d/hyperlite.list
-apt update && apt install hyperlite
-\`\`\`
+Note on GitHub Pages: it is a multi-node CDN without strong consistency between
+files published in the same commit, so InRelease and Packages can be served out
+of sync for a while (\`apt update\` then fails with "File has unexpected size").
+Serving this directory from a single origin (for example nginx, see
+installer/hyperlite-apt-repo.nginx.conf) avoids the problem.
 EOF
 
-log "dépôt prêt dans $APT_REPO"
+log "repository ready in $APT_REPO"
