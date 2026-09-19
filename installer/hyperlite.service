@@ -10,10 +10,10 @@ WorkingDirectory=/root/hyperlite
 EnvironmentFile=/root/hyperlite/.env
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/root
-# Fichiers temporaires des envois multipart (ISO de plusieurs Go) sur le
-# disque de donnees, PAS dans /tmp : sur Debian recent /tmp est un tmpfs
-# (RAM/2), donc un ISO plus gros que lui echoue avec "error parsing the body"
-# (bug reel serveur-antho, RHEL 10 DVD > 7,8 Go de tmpfs).
+# Temporary files of multipart uploads (ISOs of several GB) go to the data disk,
+# NOT to /tmp: on recent Debian /tmp is a tmpfs (RAM/2), so an ISO larger than
+# it fails with "error parsing the body" (seen with a RHEL 10 DVD larger than
+# 7.8 GB of tmpfs).
 Environment=TMPDIR=/root/hyperlite/data/tmp
 ExecStartPre=/bin/mkdir -p /root/hyperlite/data/tmp
 ExecStartPre=/root/hyperlite/scripts/ensure-tls-cert.sh

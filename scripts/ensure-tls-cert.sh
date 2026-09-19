@@ -1,12 +1,12 @@
 #!/bin/bash
-# ExecStartPre de hyperlite.service. Genere le certificat TLS auto-signe au
-# tout premier demarrage (idempotent : ne touche a rien s'il existe deja).
+# ExecStartPre of hyperlite.service. Generates the self-signed TLS certificate on
+# the very first start (idempotent: touches nothing if it already exists).
 #
-# Difference volontaire avec un cert genere une fois pour toutes pendant
-# l'installation (chroot) : a ce stade-la, la machine n'a pas encore
-# d'adresse DHCP reelle sur le reseau final -- on ne peut pas savoir quelle
-# IP mettre dans le certificat. On le genere donc ici, au premier vrai boot,
-# une fois l'IP connue.
+# Deliberately different from a certificate generated once and for all during the
+# installation (chroot): at that point the machine has no real DHCP address on
+# the final network yet, so there is no way to know which IP to put in the
+# certificate. It is therefore generated here, on the first real boot, once the
+# IP is known.
 set -e
 
 TLS_DIR=/root/hyperlite/data/tls
@@ -20,15 +20,14 @@ mkdir -p "$TLS_DIR"
 chmod 700 "$TLS_DIR"
 
 HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
-# Premiere IPv4 non-loopback trouvee -- suffisant pour un certificat auto-signe
-# de confort (l'utilisateur devra de toute facon accepter l'avertissement
-# navigateur, comme sur Proxmox) ; pas la peine de lister toutes les IP.
-# hostname -I ne garantit pas l'ordre IPv4/IPv6 -- filtre explicitement une
-# adresse IPv4 (motif x.x.x.x), sinon le certificat peut finir avec une IPv6
-# dans son SAN alors que l'utilisateur se connecte en IPv4 (observe en test).
-# Meme course DHCP possible qu'avec write-motd.sh (network-online.target
-# peut se declarer atteint avant le bail DHCP reel) -- meme boucle de
-# tentatives avant d'abandonner sur 127.0.0.1.
+# First non-loopback IPv4 found: enough for a convenience self-signed certificate
+# (the user has to accept the browser warning anyway, as on Proxmox), no need to
+# list every IP. hostname -I does not guarantee IPv4/IPv6 order, so an IPv4
+# address (x.x.x.x pattern) is filtered explicitly; otherwise the certificate may
+# end up with an IPv6 in its SAN while the user connects over IPv4 (seen in
+# testing). The same DHCP race as with write-motd.sh is possible
+# (network-online.target can be reached before the real DHCP lease), hence the
+# same retry loop before falling back to 127.0.0.1.
 IP=""
 for _ in $(seq 1 20); do
     IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)

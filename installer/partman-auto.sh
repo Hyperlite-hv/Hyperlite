@@ -1,67 +1,45 @@
 #!/bin/sh
-# Execute par d-i preseed/include_command (PAS early_command -- voir
-# preseed.cfg). IMPORTANT, contre-intuitif : la sortie standard de
-# include_command n'est PAS relue comme du contenu preseed directement --
-# elle doit contenir le CHEMIN D'UN FICHIER a inclure, exactement comme
-# preseed/include (teste en pratique : imprimer le contenu preseed
-# directement sur stdout fait que d-i essaie de recuperer un fichier nomme
-# d'apres le PREMIER MOT de la sortie, ex. "d-i", d'ou l'erreur observee
-# "could not retrieve file:///cdrom/hyperlite/d-i"). On ecrit donc le
-# contenu dans un fichier temporaire et on n'imprime QUE son chemin.
+# Run by d-i preseed/include_command (NOT early_command, see preseed.cfg).
+# IMPORTANT, counter-intuitive: the standard output of include_command is NOT
+# re-read as preseed content directly. It must contain the PATH OF A FILE to
+# include, exactly like preseed/include (tested: printing preseed content
+# directly on stdout makes d-i try to fetch a file named after the FIRST WORD
+# of the output, e.g. "d-i", hence the observed error "could not retrieve
+# file:///cdrom/hyperlite/d-i"). The content is therefore written to a
+# temporary file and ONLY its path is printed.
 #
-# Interet de include_command malgre tout (plutot que early_command +
-# db_set direct) : le fichier ainsi inclus est charge par le MEME mecanisme
-# que preseed.cfg lui-meme, qui accepte des valeurs pour des composants pas
-# encore charges (ex. partman-auto) -- contrairement a un db_set direct
-# depuis early_command, qui echoue ("question doesn't exist", code retour
-# 10, teste et confirme en pratique) tant que le composant proprietaire n'a
-# pas encore ete charge par l'installeur a ce stade tres precoce.
+# Why include_command anyway (rather than early_command + a direct db_set): the
+# included file is loaded by the SAME mechanism as preseed.cfg itself, which
+# accepts values for components that are not loaded yet (e.g. partman-auto),
+# unlike a direct db_set from early_command, which fails ("question doesn't
+# exist", return code 10, tested and confirmed) as long as the owning component
+# has not been loaded by the installer at that very early stage.
 #
-# Genere aussi le mot de passe root aleatoire (affiche en fin d'installation,
-# voir postinstall.sh) et la strategie de partitionnement (RAID1+LVM si 2+
-# disques, LVM simple sinon) selon le materiel reellement detecte.
+# Also generates the partitioning strategy (RAID1+LVM with 2+ disks, plain LVM otherwise) from the hardware
+# actually detected.
 set -e
 
 OUT=/tmp/hyperlite-dynamic-preseed.cfg
 log() { echo "[hyperlite-partman] $*" > /dev/console 2>&1 || true; }
 
-# ---- Mot de passe root ----
-# Fixe et simple ("hyperlite") plutot qu'aleatoire, a la demande d'Antho --
-# pense pour une premiere connexion facile juste apres l'installation d'une
-# appliance fraiche, PAS pour rester tel quel en usage reel. Ecrit en clair
-# ici (pas -crypted) : le composant passwd du vrai installeur se charge du
-# hachage lui-meme, aucune dependance a mkpasswd/openssl necessaire.
+# ---- Disk detection ----
+# /proc/partitions rather than list-devices (partman-base d-i module): nothing
+# guarantees the latter is already loaded at this early stage, whereas
+# /proc/partitions is guaranteed to exist in any Linux kernel.
+# WHOLE-DISK patterns only (not partitions), per family: sda/vda/xvda/hda (no
+# trailing digit), nvme0n1 (no trailing "p1"), mmcblk0 (no trailing "p1", eMMC/SD
+# cards of some mini PCs).
 #
-# ATTENTION SECURITE (a documenter cote utilisateur, voir chantier 16) :
-# un mot de passe par defaut connu de tous grant un acces root complet a la
-# machine ET a l'interface Hyperlite -- exactement le genre de trou trouve
-# et corrige au chantier 11 pour d'autres mecanismes (brute-force sur
-# /auth/login, ACL...). A changer immediatement apres la premiere connexion,
-# comme n'importe quel autre appareil qui expedie avec des identifiants par
-# defaut (routeurs, NAS...).
-ROOT_PASS="hyperlite"
-echo "$ROOT_PASS" > /tmp/hyperlite-root-password
-log "mot de passe root fixe (hyperlite) -- a changer apres la premiere connexion"
-
-# ---- Detection des disques ----
-# /proc/partitions plutot que list-devices (module d-i partman-base) : rien
-# ne garantit que ce dernier soit deja charge a ce stade precoce, alors que
-# /proc/partitions est garanti present dans n'importe quel noyau Linux.
-# Motifs de DISQUE ENTIER uniquement (pas une partition) par famille :
-# sda/vda/xvda/hda (pas de chiffre final), nvme0n1 (pas de "p1" final),
-# mmcblk0 (pas de "p1" final, cartes eMMC/SD de certains mini-PC).
-#
-# EXCLUT explicitement les peripheriques AMOVIBLES (/sys/block/<dev>/removable
-# == 1) -- sur du vrai materiel, la cle USB de demarrage elle-meme apparait
-# souvent comme un disque SCSI classique (/dev/sda), indiscernable d'un vrai
-# disque cible par le seul motif de nom. Sans ce filtre, le script peut
-# choisir de partitionner LA CLE USB EN COURS DE DEMARRAGE -- constate en
-# test sur du vrai materiel ("Partition(s) 1, 2 on /dev/sda have been
-# written, but we have been unable to inform the kernel... probably because
-# it/they are in use", symptome exact d'un disque partitionne pendant qu'il
-# sert de support de boot actif). Les disques virtio/scsi en environnement
-# de TEST (QEMU) ne sont eux jamais marques removable, d'ou ce bug invisible
-# en VM et uniquement rencontre sur du vrai materiel.
+# Explicitly EXCLUDES REMOVABLE devices (/sys/block/<dev>/removable == 1): on
+# real hardware the boot USB stick itself often shows up as a regular SCSI disk
+# (/dev/sda), indistinguishable from a real target disk by its name pattern
+# alone. Without this filter the script may choose to partition THE USB STICK
+# THAT IS BEING BOOTED, as seen on real hardware ("Partition(s) 1, 2 on /dev/sda
+# have been written, but we have been unable to inform the kernel... probably
+# because it/they are in use", the exact symptom of a disk partitioned while it
+# serves as the active boot medium). Virtio/SCSI disks in a TEST environment
+# (QEMU) are never flagged removable, so this bug is invisible in a VM and only
+# shows up on real hardware.
 DISKS=$(awk '
     $4 ~ /^(sd|vd|xvd|hd)[a-z]+$/ { print $4 }
     $4 ~ /^nvme[0-9]+n[0-9]+$/    { print $4 }
@@ -73,15 +51,15 @@ DISKS=$(awk '
         if [ "$removable" != "1" ]; then
             result="${result}${result:+ }$dev"
         else
-            log "disque $dev ignore (amovible -- probablement le support de boot)"
+            log "disk $dev ignored (removable, probably the boot medium)"
         fi
     done
     printf '%s\n' "$result" | tr ' ' '\n' | sed '/^$/d' | sed 's|^|/dev/|'
 })
 DISK_COUNT=$(printf '%s\n' "$DISKS" | grep -c . || true)
-log "disques detectes : $DISK_COUNT ($(printf '%s' "$DISKS" | tr '\n' ' '))"
+log "detected disks: $DISK_COUNT ($(printf '%s' "$DISKS" | tr '\n' ' '))"
 
-# Suffixe de partition : /dev/sda -> /dev/sda2, mais /dev/nvme0n1 -> /dev/nvme0n1p2.
+# Partition suffix: /dev/sda -> /dev/sda2, but /dev/nvme0n1 -> /dev/nvme0n1p2.
 partsuffix() {
     case "$1" in
         *[0-9]) printf 'p' ;;
@@ -91,24 +69,23 @@ partsuffix() {
 if [ "$DISK_COUNT" -ge 2 ]; then
     D1=$(printf '%s\n' "$DISKS" | sed -n '1p')
     D2=$(printf '%s\n' "$DISKS" | sed -n '2p')
-    log "mode RAID1 : $D1 + $D2"
+    log "RAID1 mode: $D1 + $D2"
     S1=$(partsuffix "$D1")
     S2=$(partsuffix "$D2")
 
     {
-        # passwd/root-password* PAS ici -- voir preseed.cfg, deplace car
-        # include_command est consomme avant que l'udeb passwd/user-setup
-        # ne soit charge (bug reel trouve en testant un vrai boot).
+        # No passwd/root-password* here: see preseed.cfg (moved there because
+        # include_command is consumed before the passwd/user-setup udeb is
+        # loaded).
         echo "d-i partman-auto/disk string $D1 $D2"
         echo "d-i partman-auto/method string raid"
         echo "d-i partman-lvm/device_remove_lvm boolean true"
         echo "d-i partman-md/device_remove_md boolean true"
         echo "d-i partman-lvm/confirm boolean true"
         echo "d-i partman-lvm/confirm_nooverwrite boolean true"
-        # Heredoc a delimiteur QUOTE ('EOF') : aucune substitution shell,
-        # "\" en fin de ligne reste litteral (continuation lue par le
-        # PARSEUR PRESEED, pas par le shell) -- $iflabel/$reusemethod n'ont
-        # donc pas besoin d'etre echappes ici.
+        # Heredoc with a QUOTED delimiter ('EOF'): no shell substitution, and a
+        # trailing "\" stays literal (a continuation read by the PRESEED
+        # PARSER, not by the shell), so $iflabel/$reusemethod need no escaping.
         cat <<'EOF'
 d-i partman-auto/expert_recipe string                       \
       multiraid ::                                          \
@@ -123,18 +100,18 @@ d-i partman-auto/expert_recipe string                       \
 EOF
         echo "d-i partman-auto/choose_recipe select multiraid"
         echo "d-i partman-auto-raid/recipe string  1 2 0 ext4 /  ${D1}${S1}2#${D2}${S2}2  ."
-        # Le systeme demarre quand meme si le RAID est degrade (un disque en
-        # panne) plutot que de tomber sur un shell de secours inaccessible :
-        # mieux vaut un hyperviseur up en mode degrade qu'injoignable.
+        # The system still boots when the RAID is degraded (a failed disk)
+        # rather than dropping to an unreachable rescue shell: a hypervisor that
+        # is up in degraded mode beats one that is unreachable.
         echo "d-i mdadm/boot_degraded boolean true"
     } > "$OUT"
 else
     D1=$(printf '%s\n' "$DISKS" | sed -n '1p')
-    log "mode disque unique + LVM : $D1"
+    log "single disk + LVM mode: $D1"
 
     {
-        # passwd/root-password* PAS ici -- voir preseed.cfg (meme raison
-        # que la branche RAID1 ci-dessus).
+        # No passwd/root-password* here: see preseed.cfg (same reason as in the
+        # RAID1 branch above).
         echo "d-i partman-auto/disk string $D1"
         echo "d-i partman-auto/method string lvm"
         echo "d-i partman-auto/choose_recipe select atomic"
@@ -144,5 +121,5 @@ else
     } > "$OUT"
 fi
 
-log "fragment preseed genere ($DISK_COUNT disque(s)) -> $OUT"
+log "preseed fragment generated ($DISK_COUNT disk(s)) -> $OUT"
 echo "$OUT"
