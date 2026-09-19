@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 from app.core.libvirt_utils import open_conn, get_vm_uptime_s, uses_shared_storage, pool_type_and_target_path, domain_disk_paths
+from app.core import cluster_compat
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task, update_task_progress
@@ -1850,6 +1851,15 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
 
 class MigrateRequest(BaseModel):
     target_node: str
+    # Verifications de compatibilite (chantier 6) : une heuristique peut se
+    # tromper, l'admin garde le dernier mot -- ne desactive que le REFUS,
+    # les controles restent journalises.
+    ignorer_verifications: bool = False
+
+
+def _norm_node(n):
+    """None/'local'/'kvm-lab' (ancienne sentinelle) = hote local."""
+    return None if n in (None, "", "local", "kvm-lab") else n
 
 
 # _pool_target_path/_domain_disk_paths/_uses_shared_storage deplacees dans
@@ -2244,6 +2254,27 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             dest_conn.close()
 
 
+@router.get("/{name}/migration-check")
+def migration_check(name: str, target_node: str, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    """Diagnostic de compatibilite AVANT migration (chantier 6 du mandat
+    portabilite) : lecture seule, ne migre rien. Voir app/core/cluster_compat.py."""
+    if _norm_node(target_node) == _norm_node(node):
+        raise HTTPException(status_code=422, detail="Le nœud de destination doit être différent du nœud source")
+    src_conn = open_conn(_norm_node(node))
+    try:
+        try:
+            domain = src_conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        dst_conn = open_conn(_norm_node(target_node))
+        try:
+            return cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dst_conn, domain))
+        finally:
+            dst_conn.close()
+    finally:
+        src_conn.close()
+
+
 @router.post("/{name}/migrate", status_code=202)
 def migrate_vm(name: str, payload: MigrateRequest, node: str | None = None, user: dict = Depends(require_role("admin"))):
     """Migration a chaud vers un autre nœud (chantier 27, s'appuie sur le
@@ -2251,7 +2282,7 @@ def migrate_vm(name: str, payload: MigrateRequest, node: str | None = None, user
     (pas un privilege ACL par-VM comme vm.clone) : deplacer une VM change
     l'allocation de ressources d'un nœud DU CLUSTER ENTIER, une portee
     au-dela de ce qu'une ACL scopee a une VM est censee couvrir."""
-    if payload.target_node == (node or "kvm-lab"):
+    if _norm_node(payload.target_node) == _norm_node(node):
         raise HTTPException(status_code=422, detail="Le nœud de destination doit être différent du nœud source")
     # Migration nœud distant -> kvm-lab (backlog 2026-09-18) : longtemps
     # bloquee ici (voir CLAUDE.md, historique) car la migration peer-to-
@@ -2280,8 +2311,12 @@ def migrate_vm(name: str, payload: MigrateRequest, node: str | None = None, user
         # "kvm-lab" = convention frontend pour l'hote local, jamais une
         # ligne de la table `nodes` (voir _migrate_vm_job pour le meme
         # traitement, bug reel trouve en testant un aller-retour complet).
-        dest_conn = open_conn(None if payload.target_node == "kvm-lab" else payload.target_node)
+        dest_conn = open_conn(_norm_node(payload.target_node))
         try:
+            compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dest_conn, domain))
+            if compat["resume"]["bloquant"] and not payload.ignorer_verifications:
+                blocages = [c["message"] for c in compat["controles"] if c["statut"] == "blocking"]
+                raise HTTPException(status_code=409, detail="Migration refusée par le diagnostic de compatibilité : " + " ; ".join(blocages))
             try:
                 dest_conn.lookupByName(name)
                 raise HTTPException(status_code=409, detail=f"Une VM '{name}' existe déjà sur le nœud de destination")
