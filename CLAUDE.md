@@ -2165,3 +2165,25 @@ neuf ; `bibliotheque_websocket` ajouté au profil de capacités
 des `pip freeze` kvm-lab/serveur-antho : aucun autre écart. **Leçon pour
 le chantier 3 (preflight)** : vérifier les dépendances Python réellement
 importables, pas seulement les binaires.
+
+## Poste de travail Claude Code sur hl-devhub (2026-09-19)
+
+Claude Code CLI installé sur `hl-devhub` (`npm i -g @anthropic-ai/claude-code`,
+`/usr/local/bin/claude`) -- **l'authentification à son compte reste à faire
+par Antho** (`claude` en interactif, impossible à automatiser). Lancement :
+`ssh dev@192.168.122.2` (depuis le shell hôte de serveur-antho :
+`ssh -i /root/hyperlite/data/ssh/hyperlite_automation dev@192.168.122.2`),
+puis `sudo -i && cd /root/hyperlite && claude`. Le dépôt Git (dev + publication)
+est là ; `sudo` obligatoire car `/root/hyperlite` appartient à root.
+
+**Accès à serveur-antho depuis hl-devhub** : clé dédiée `/root/.ssh/id_ed25519`
+(commentaire `hl-devhub-to-antho`, root de hl-devhub), autorisée dans
+`/root/.ssh/authorized_keys` de serveur-antho avec `from="192.168.122.2"`.
+Hôte joignable à `root@192.168.122.1` (passerelle NAT libvirt). Flux de test :
+merge -> `git pull` sur hl-devhub (le hook publie) -> `ssh root@192.168.122.1
+'apt-get update -qq && apt-get install -y --only-upgrade hyperlite'` ->
+tests via `https://192.168.122.1:8000` avec un compte admin temporaire.
+**hl-devhub n'a ni service Hyperlite, ni libvirt, ni navigateur** : les tests
+UI Playwright/backend se font contre serveur-antho (Playwright était sur
+kvm-lab, `/root/hyperlite-ui-test/` -- à recopier/réinstaller sur hl-devhub).
+Le hook de kvm-lab a été retiré le 2026-09-19 : hl-devhub est le SEUL publieur.
