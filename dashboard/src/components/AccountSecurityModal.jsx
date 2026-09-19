@@ -1,3 +1,4 @@
+import { confirmAction } from "../store/useConfirmStore";
 import { useEffect, useState } from "react";
 import { X, ShieldCheck, ShieldOff, KeyRound, Plus, Trash2, Copy, Check } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
@@ -89,7 +90,7 @@ export default function AccountSecurityModal({ onClose }) {
   }
 
   async function handleDeleteToken(t) {
-    if (!window.confirm(`Revoke the token '${t.name}'? Any script using it will immediately lose access.`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Revoke the token '${t.name}'? Any script using it will immediately lose access.`, confirmLabel: "Confirm" }))) return;
     try {
       await deleteApiToken(t.id);
       pushToast({ kind: "success", title: "Token revoked", message: t.name });
@@ -214,7 +215,7 @@ export default function AccountSecurityModal({ onClose }) {
                     Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
                   </div>
                 </div>
-                <button aria-label="Delete" className="btn-danger py-1!" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
+                <button aria-label={`Revoke token ${t.name}`} className="btn-danger py-1!" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>

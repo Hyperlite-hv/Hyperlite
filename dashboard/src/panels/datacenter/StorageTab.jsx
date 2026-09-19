@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Trash2, Plus, HardDrive, Network, Layers } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -33,6 +34,7 @@ export default function StorageTab() {
   useEffect(() => { reloadIsos(); }, [reloadIsos]);
 
   async function handleDelete(nom) {
+    if (!(await confirmAction({ title: `Delete ISO '${nom}'?`, message: "The file is permanently deleted from the server.", confirmLabel: "Delete" }))) return;
     try {
       await deleteIso(nom);
       pushToast({ kind: "success", title: "ISO deleted", message: nom });
@@ -75,7 +77,7 @@ export default function StorageTab() {
     const msg = fsBacked
       ? `Remove the pool '${pool.nom}' from Hyperlite?\n\nIts files are NOT deleted (only the pool definition goes away).`
       : `Delete the pool '${pool.nom}'? The pool must be empty.`;
-    if (!window.confirm(msg)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: msg, confirmLabel: "Confirm" }))) return;
     try {
       await deleteStoragePool(pool.nom, pool.node === "local" ? undefined : pool.node, fsBacked);
       pushToast({ kind: "success", title: "Pool removed", message: pool.nom });
@@ -180,7 +182,7 @@ export default function StorageTab() {
               <span className="text-anthracite-300">{p.disponible_go} GB</span>
               <span className="text-right">
                 {isAdmin && p.nom !== "default" && (
-                  <button aria-label="Delete" className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
+                  <button aria-label={`Delete pool ${p.nom}`} className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
                 )}
               </span>
             </div>
@@ -198,7 +200,7 @@ export default function StorageTab() {
               <span className="text-anthracite-100 flex-1 truncate">{iso.nom}</span>
               <span className="text-anthracite-400 text-xs">{iso.taille_mo} MB</span>
               {isAdmin && (
-                <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></button>
+                <button aria-label={`Delete ISO ${iso.nom}`} className="btn-danger" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></button>
               )}
             </div>
           ))}

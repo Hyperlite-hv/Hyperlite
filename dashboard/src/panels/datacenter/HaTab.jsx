@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck, ShieldOff, LifeBuoy, RefreshCw } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge";
@@ -32,7 +33,7 @@ export default function HaTab() {
   }, [reload]);
 
   async function handleDisable(vmName) {
-    if (!window.confirm(`Disable HA protection for '${vmName}'?`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Disable HA protection for '${vmName}'?`, confirmLabel: "Confirm" }))) return;
     try {
       await disableHa(vmName);
       pushToast({ kind: "success", title: "Protection disabled", message: vmName });

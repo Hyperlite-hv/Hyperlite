@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Users, Boxes, ShieldCheck, UserPlus } from "lucide-react";
 import {
@@ -100,6 +101,7 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
   }
 
   async function handleDelete(id, roleName) {
+    if (!(await confirmAction({ title: `Delete role '${roleName}'?`, message: "Assignments that use this role stop granting access.", confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deleteCustomRole(id);
@@ -150,7 +152,7 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
                     <span className="text-anthracite-100 font-medium">{r.label}</span>
                     <span className="text-anthracite-400"> -- {[...r.privileges].map((p) => privileges[p] || p).join(", ")}</span>
                   </div>
-                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
+                  <button aria-label={`Delete role ${r.label}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -194,7 +196,7 @@ function UsersSection({ users, reload, pushToast }) {
   }
 
   async function handleDelete(username) {
-    if (!window.confirm(`Delete user '${username}'?`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Delete user '${username}'?`, confirmLabel: "Confirm" }))) return;
     setBusy(true);
     try {
       await deleteUser(username);
@@ -277,6 +279,7 @@ function GroupsSection({ groups, reload, pushToast }) {
   }
 
   async function handleDelete(id, name) {
+    if (!(await confirmAction({ title: `Delete group '${name}'?`, message: "Rights granted to this group are lost for its members.", confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deleteGroup(id);
@@ -301,6 +304,7 @@ function GroupsSection({ groups, reload, pushToast }) {
   }
 
   async function handleRemoveMember(id, username) {
+    if (!(await confirmAction({ title: `Remove '${username}' from the group?`, message: "The user loses the rights granted through this group.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await removeGroupMember(id, username);
@@ -335,7 +339,7 @@ function GroupsSection({ groups, reload, pushToast }) {
             <div key={g.id} className="rounded-md border border-anthracite-600 p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-anthracite-100">{g.name}</span>
-                <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
+                <button aria-label={`Delete group ${g.name}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -381,6 +385,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
   }
 
   async function handleDelete(id, name) {
+    if (!(await confirmAction({ title: `Delete pool '${name}'?`, message: "Rights granted on this pool are lost. The VMs themselves are not touched.", confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deletePool(id);
@@ -404,6 +409,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
   }
 
   async function handleRemoveVm(id, vmName) {
+    if (!(await confirmAction({ title: `Remove '${vmName}' from the pool?`, message: "Rights granted through this pool no longer apply to this VM.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await removePoolMember(id, vmName);
@@ -441,7 +447,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
               <div key={p.id} className="rounded-md border border-anthracite-600 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-anthracite-100">{p.name}</span>
-                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
+                  <button aria-label={`Delete pool ${p.name}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -499,6 +505,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
   }
 
   async function handleDelete(id) {
+    if (!(await confirmAction({ title: "Remove this assignment?", message: "The subject loses the access granted by this assignment.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await deleteAcl(id);
@@ -582,7 +589,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
                       {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Conteneur ${a.resource_label}` : a.resource_label}
                     </span>
                   </div>
-                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
+                  <button aria-label="Remove assignment" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
                     <Trash2 size={14} />
                   </button>
                 </div>

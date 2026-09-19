@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Cpu, MemoryStick, HardDrive, Network, Trash2, Plus } from "lucide-react";
 import {
@@ -47,6 +48,7 @@ function DiskSection({ vmName, isAdmin }) {
   const nextDev = nextScsiDev(disks);
 
   async function handleDetach(cible) {
+    if (!(await confirmAction({ title: `Detach disk ${cible}?`, message: "The disk is removed from this VM's configuration.", confirmLabel: "Detach" }))) return;
     setBusy(true);
     try {
       await detachDisk(vmName, cible);
@@ -88,7 +90,7 @@ function DiskSection({ vmName, isAdmin }) {
             <span className="text-anthracite-400 text-xs">{d.bus || "?"}</span>
             <span className="text-anthracite-300 flex-1 truncate">{d.type === "cdrom" ? "cloud-init / ISO" : d.source}</span>
             {isAdmin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && (
-              <button aria-label="Delete" className="btn-danger" disabled={busy} onClick={() => handleDetach(d.cible)}><Trash2 size={13} /></button>
+              <button aria-label={`Detach disk ${d.cible}`} className="btn-danger" disabled={busy} onClick={() => handleDetach(d.cible)}><Trash2 size={13} /></button>
             )}
           </div>
         ))}
@@ -143,6 +145,7 @@ function NetworkSection({ vmName, isAdmin }) {
   if (info == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
 
   async function handleDetach(mac) {
+    if (!(await confirmAction({ title: `Remove network interface ${mac}?`, message: "The VM loses this network interface.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await detachInterface(vmName, mac);
@@ -177,7 +180,7 @@ function NetworkSection({ vmName, isAdmin }) {
             <span className="text-anthracite-100">{iface.reseau || "--"}</span>
             <span className="text-anthracite-400 text-xs font-mono">{iface.mac}</span>
             {isAdmin && info.interfaces.length > 1 && (
-              <button aria-label="Delete" className="btn-danger ml-auto" disabled={busy} onClick={() => handleDetach(iface.mac)}><Trash2 size={13} /></button>
+              <button aria-label={`Remove interface ${iface.mac}`} className="btn-danger ml-auto" disabled={busy} onClick={() => handleDetach(iface.mac)}><Trash2 size={13} /></button>
             )}
           </div>
         ))}

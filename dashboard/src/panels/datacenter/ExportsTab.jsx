@@ -77,7 +77,7 @@ export default function ExportsTab() {
             <span className="text-anthracite-400 text-xs font-mono">{new Date(r.modifie_le).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
             <div className="flex justify-end gap-1.5">
               <button aria-label="Download" className="btn-secondary" title="Download" onClick={() => handleDownload(r.nom)}><Download size={13} /></button>
-              <button aria-label="Delete" className="btn-danger" title="Delete" onClick={() => setToDelete(r)}><Trash2 size={13} /></button>
+              <button aria-label={`Delete export ${r.nom}`} className="btn-danger" title="Delete" onClick={() => setToDelete(r)}><Trash2 size={13} /></button>
             </div>
           </div>
         ))}
