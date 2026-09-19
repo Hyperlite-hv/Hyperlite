@@ -173,7 +173,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
             {isAdmin && (
               <>
                 <button className="btn-secondary" disabled={busy} onClick={() => setPending({ action: "restore", snap: s })}><RotateCcw size={13} /> Restore</button>
-                <button className="btn-danger" disabled={busy} onClick={() => setPending({ action: "delete", snap: s })}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger" disabled={busy} onClick={() => setPending({ action: "delete", snap: s })}><Trash2 size={13} /></button>
               </>
             )}
           </div>

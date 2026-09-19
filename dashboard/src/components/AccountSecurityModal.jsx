@@ -108,10 +108,10 @@ export default function AccountSecurityModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6">
+      <div className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6" role="dialog" aria-modal="true" aria-label="Account security">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-anthracite-100">Account security</h3>
-          <button onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
+          <button aria-label="Close" onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
         </div>
 
         {/* --- 2FA --- */}
@@ -214,7 +214,7 @@ export default function AccountSecurityModal({ onClose }) {
                     Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
                   </div>
                 </div>
-                <button className="btn-danger !py-1" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger !py-1" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>

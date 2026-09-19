@@ -150,7 +150,7 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
                     <span className="text-anthracite-100 font-medium">{r.label}</span>
                     <span className="text-anthracite-400"> -- {[...r.privileges].map((p) => privileges[p] || p).join(", ")}</span>
                   </div>
-                  <button className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
+                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -241,7 +241,7 @@ function UsersSection({ users, reload, pushToast }) {
                   <option value="observateur">observer</option>
                   <option value="admin">admin</option>
                 </select>
-                <button
+                <button aria-label={u.username === me ? "You cannot delete yourself" : "Delete"}
                   className="text-anthracite-400 hover:text-status-error disabled:opacity-30 disabled:hover:text-anthracite-400"
                   disabled={busy || u.username === me}
                   title={u.username === me ? "You cannot delete yourself" : "Delete"}
@@ -335,7 +335,7 @@ function GroupsSection({ groups, reload, pushToast }) {
             <div key={g.id} className="rounded-md border border-anthracite-600 p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-anthracite-100">{g.name}</span>
-                <button className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
+                <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -441,7 +441,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
               <div key={p.id} className="rounded-md border border-anthracite-600 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-anthracite-100">{p.name}</span>
-                  <button className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
+                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -582,7 +582,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
                       {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Conteneur ${a.resource_label}` : a.resource_label}
                     </span>
                   </div>
-                  <button className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
+                  <button aria-label="Delete" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
                     <Trash2 size={14} />
                   </button>
                 </div>

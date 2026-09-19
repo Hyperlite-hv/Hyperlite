@@ -42,7 +42,7 @@ export default function VMCard({ vm }) {
               {STATE_LABELS[vm.etat] || vm.etat}{active && vm.uptime_s ? ` · ${formatUptime(vm.uptime_s)}` : ""}
             </span>
           </div>
-          <button onClick={openMenu} className="ml-auto shrink-0 text-anthracite-400 hover:text-anthracite-100">
+          <button aria-label="More actions" onClick={openMenu} className="ml-auto shrink-0 text-anthracite-400 hover:text-anthracite-100">
             <MoreHorizontal size={16} />
           </button>
         </div>

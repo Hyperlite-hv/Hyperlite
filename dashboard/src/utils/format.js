@@ -3,7 +3,7 @@ export function formatUptime(seconds) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}j ${h}h`;
+  if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
@@ -21,5 +21,5 @@ export function formatGo(go) {
 
 export function formatKbps(kbps) {
   if (kbps >= 1024) return `${(kbps / 1024).toFixed(1)} MB/s`;
-  return `${Math.round(kbps)} Ko/s`;
+  return `${Math.round(kbps)} KB/s`;
 }

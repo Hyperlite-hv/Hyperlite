@@ -112,10 +112,10 @@ export default function VMWizard({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="card w-full max-w-2xl overflow-hidden">
+      <div className="card w-full max-w-2xl overflow-hidden" role="dialog" aria-modal="true" aria-label="Create a virtual machine">
         <div className="flex items-center justify-between border-b border-anthracite-600 px-5 py-3">
           <h2 className="text-sm font-semibold text-anthracite-100">Create a virtual machine</h2>
-          <button onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>
+          <button aria-label="Close" onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>
         </div>
 
         <div className="flex gap-1 px-5 pt-3">

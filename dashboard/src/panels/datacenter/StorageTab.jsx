@@ -180,7 +180,7 @@ export default function StorageTab() {
               <span className="text-anthracite-300">{p.disponible_go} GB</span>
               <span className="text-right">
                 {isAdmin && p.nom !== "default" && (
-                  <button className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
+                  <button aria-label="Delete" className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
                 )}
               </span>
             </div>
@@ -198,7 +198,7 @@ export default function StorageTab() {
               <span className="text-anthracite-100 flex-1 truncate">{iso.nom}</span>
               <span className="text-anthracite-400 text-xs">{iso.taille_mo} MB</span>
               {isAdmin && (
-                <button className="btn-danger" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></button>
               )}
             </div>
           ))}

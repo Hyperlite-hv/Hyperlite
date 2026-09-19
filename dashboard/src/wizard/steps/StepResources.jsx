@@ -58,7 +58,7 @@ export default function StepResources({ form, patch, storagePools = [] }) {
               ) : (
                 <input type="number" min={1} max={limits?.disque_go.max} className="input" value={d.size_gb} onChange={(e) => updateDisk(i, Number(e.target.value))} />
               )}
-              <button className="btn-secondary px-2" disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => removeDisk(i)}><X size={13} /></button>
+              <button aria-label="Close" className="btn-secondary px-2" disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => removeDisk(i)}><X size={13} /></button>
             </div>
           ))}
         </div>

@@ -20,7 +20,7 @@ export default function ToastContainer() {
             <div className="text-sm font-medium text-anthracite-100">{t.title}</div>
             {t.message && <div className="text-xs text-anthracite-300 truncate">{t.message}</div>}
           </div>
-          <button onClick={() => dismissToast(t.id)} className="text-anthracite-400 hover:text-anthracite-100">
+          <button aria-label="Close" onClick={() => dismissToast(t.id)} className="text-anthracite-400 hover:text-anthracite-100">
             <X size={14} />
           </button>
         </div>

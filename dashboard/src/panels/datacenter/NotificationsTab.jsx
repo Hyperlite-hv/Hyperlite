@@ -210,7 +210,7 @@ export default function NotificationsTab() {
               <button className="btn-secondary !py-1" onClick={() => handleToggle(c)}>
                 <Power size={13} /> {c.enabled ? "Disable" : "Enable"}
               </button>
-              <button className="btn-danger !py-1" onClick={() => handleDelete(c)}>
+              <button aria-label="Delete" className="btn-danger !py-1" onClick={() => handleDelete(c)}>
                 <Trash2 size={13} />
               </button>
             </div>

@@ -32,7 +32,7 @@ export default function VMDetailPanel({ vm, onClose }) {
         <div className="flex flex-col gap-2.5 border-b border-anthracite-600 px-5 py-4">
           <div className="flex items-center gap-2.5">
             <span className="text-[17px] font-bold tracking-tight text-anthracite-100">{vm.nom}</span>
-            <button className="ml-auto text-anthracite-400 hover:text-anthracite-100" onClick={onClose}><X size={16} /></button>
+            <button aria-label="Close" className="ml-auto text-anthracite-400 hover:text-anthracite-100" onClick={onClose}><X size={16} /></button>
           </div>
           <span className="flex items-center gap-1.5 text-xs" style={{ color: active ? "#48D6C6" : "#B6B0DE" }}>
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor(vm.etat) }} />

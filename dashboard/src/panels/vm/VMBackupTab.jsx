@@ -159,7 +159,7 @@ export default function VMBackupTab({ resource: vm }) {
                 <button className="btn-secondary" onClick={() => handleRestoreNew(b)} title="Restore to a new VM">
                   New VM
                 </button>
-                <button className="btn-danger" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></button>
               </div>
             )}
           </div>
