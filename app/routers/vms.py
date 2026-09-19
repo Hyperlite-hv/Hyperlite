@@ -20,6 +20,7 @@ from app.core.security import get_current_user, require_role, require_vm_privile
 from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.error_messages import describe_exception
+from app.core.vm_limits import validate_vm_resources
 from app.core.vm_builder import (
     validate_name, validate_username, create_disk, create_disk_from_import, create_cloudinit_iso, create_cloudinit_reseed_iso,
     build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
@@ -128,14 +129,19 @@ def get_vm(name: str, user: dict = Depends(get_current_user)):
 
 
 class VMUpdate(BaseModel):
-    vcpu: int | None = Field(default=None, ge=1, le=2)
-    memory_mb: int | None = Field(default=None, ge=256, le=2048)
+    # Bornes hautes DYNAMIQUES (app/core/vm_limits.py, mandat portabilite
+    # 2026-09-18) : validees dans l'endpoint, plus figees a 2 vCPU/2 Go.
+    vcpu: int | None = Field(default=None, ge=1)
+    memory_mb: int | None = Field(default=None, ge=1)
 
 
 @router.patch("/{name}")
 def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_privilege("vm.resize"))):
     if payload.vcpu is None and payload.memory_mb is None:
         raise HTTPException(status_code=422, detail="Aucune modification demandée (vcpu ou memory_mb requis)")
+    limit_errors = validate_vm_resources(payload.vcpu, payload.memory_mb)
+    if limit_errors:
+        raise HTTPException(status_code=422, detail=limit_errors)
 
     conn = open_conn()
     try:
@@ -281,14 +287,14 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
 
 
 class DiskSpec(BaseModel):
-    size_gb: int = Field(ge=1, le=500)
+    size_gb: int = Field(ge=1)
 
 
 class VMCreate(BaseModel):
     name: str
-    vcpu: int = Field(ge=1, le=2)
-    memory_mb: int = Field(ge=256, le=2048)
-    disks: list[DiskSpec] = Field(min_length=1, max_length=8)
+    vcpu: int = Field(ge=1)
+    memory_mb: int = Field(ge=1)
+    disks: list[DiskSpec] = Field(min_length=1)
     network: str = "default"
     # Optionnels : sans objet quand un ISO d'installation est fourni (pas de
     # cloud-init dans ce cas, voir plus bas -- l'utilisateur cree son propre
@@ -325,6 +331,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     name_error = validate_name(payload.name)
     if name_error:
         errors.append(name_error)
+    errors.extend(validate_vm_resources(payload.vcpu, payload.memory_mb, [d.size_gb for d in payload.disks]))
 
     iso_path = None
     if payload.iso:
