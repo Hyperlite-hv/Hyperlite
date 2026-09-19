@@ -7,7 +7,8 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 # Columns allowed for sorting: an allowlist rather than interpolating `tri`
 # directly into the SQL (it is an arbitrary query parameter).
-_SORTABLE = {"cree_le", "debut_le", "fin_le", "statut", "type", "cible", "username"}
+# Mapping to literals: the SQL text never contains request data.
+_SORT_COLUMNS = {c: c for c in ("cree_le", "debut_le", "fin_le", "statut", "type", "cible", "username")}
 
 
 @router.get("")
@@ -23,7 +24,7 @@ def list_tasks(
     limit: int = Query(200, ge=1, le=1000),
     user: dict = Depends(get_current_user),
 ):
-    tri = tri if tri in _SORTABLE else "cree_le"
+    tri = _SORT_COLUMNS.get(tri, "cree_le")
     ordre_sql = "ASC" if ordre.lower() == "asc" else "DESC"
 
     clauses, params = [], []

@@ -516,7 +516,7 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
         ["chroot", str(rootfs), "id", "-g", username], check=True, capture_output=True, text=True
     ).stdout.strip()
 
-    ssh_dir = rootfs / "home" / username / ".ssh"
+    ssh_dir = safe_child(rootfs / "home", username) / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)
     ssh_dir.chmod(0o700)
     authorized_keys = ssh_dir / "authorized_keys"
