@@ -84,8 +84,8 @@ export default function VmDiskUploadDropzone({ onDone }) {
       >
         <UploadCloud size={24} className="text-anthracite-300" />
         <p className="text-sm text-anthracite-200">Drop a disk file here, or click to browse</p>
-        <p className="text-[11px] text-anthracite-500">qcow2, raw, img, vmdk, vdi, vhd, vhdx</p>
-        <input
+        <p className="text-[11px] text-anthracite-400">qcow2, raw, img, vmdk, vdi, vhd, vhdx</p>
+        <input aria-label="Disk image file"
           ref={inputRef}
           type="file"
           accept=".qcow2,.img,.raw,.vmdk,.vdi,.vhd,.vhdx"

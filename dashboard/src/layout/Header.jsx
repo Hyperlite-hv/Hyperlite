@@ -95,7 +95,7 @@ export default function Header() {
 
       <div className="flex items-center gap-2 shrink-0" ref={menuAreaRef}>
         {isAdmin && (
-          <button aria-label="Add" className="btn-primary rounded-full!" onClick={() => setWizardOpen(true)}>
+          <button aria-label="Create VM" className="btn-primary rounded-full!" onClick={() => setWizardOpen(true)}>
             <Plus size={15} /> <span className="hidden sm:inline">Create VM</span>
           </button>
         )}
@@ -107,6 +107,9 @@ export default function Header() {
 
         <div className="relative">
           <button
+            aria-label="Recent tasks"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "notif"}
             className="relative rounded-lg p-2.5 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100"
             onClick={() => setOpenMenu((m) => (m === "notif" ? null : "notif"))}
           >

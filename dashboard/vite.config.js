@@ -14,6 +14,7 @@ const proxied = ["/auth", "/dashboard", "/vms", "/storage", "/networks", "/templ
 
 export default defineConfig({
   plugins: [react()],
+  test: { exclude: ["e2e/**", "node_modules/**", "dist/**"] },
   server: {
     proxy: Object.fromEntries(
       proxied.map((p) => [p, { target: BACKEND, changeOrigin: true, ws: true, secure: false }])

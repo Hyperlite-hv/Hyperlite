@@ -1,3 +1,5 @@
+import LoadingState from "../../components/LoadingState";
+import { confirmAction as askConfirm } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Save, Play, Trash2, RotateCcw } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
@@ -62,6 +64,7 @@ export default function VMBackupTab({ resource: vm }) {
   }
 
   async function handleDeleteSchedule() {
+    if (!(await askConfirm({ title: "Delete the backup schedule?", message: `Scheduled backups of ${vm.nom} stop. Existing backups are kept.`, confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deleteBackupSchedule(vm.nom);
@@ -114,12 +117,12 @@ export default function VMBackupTab({ resource: vm }) {
           <h3 className="text-sm font-semibold text-anthracite-100">Scheduled backup</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2 p-4">
-          <select className="input" disabled={!isAdmin} value={form.frequence} onChange={(e) => setForm((f) => ({ ...f, frequence: e.target.value }))}>
+          <select aria-label="Backup frequency" className="input" disabled={!isAdmin} value={form.frequence} onChange={(e) => setForm((f) => ({ ...f, frequence: e.target.value }))}>
             <option value="quotidien">Daily</option>
             <option value="hebdomadaire">Weekly (Monday)</option>
             <option value="mensuel">Monthly</option>
           </select>
-          <input type="time" className="input" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
+          <input aria-label="Backup time" type="time" className="input" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
           <label className="text-xs text-anthracite-400 flex items-center gap-1.5">
             Retention
             <input type="number" min={1} max={365} className="input w-20" disabled={!isAdmin}
@@ -142,7 +145,7 @@ export default function VMBackupTab({ resource: vm }) {
       </div>
 
       <div className="card divide-y divide-anthracite-600">
-        {backups == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {backups == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
         {backups && backups.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No backups.</div>}
         {backups && backups.map((b) => (
           <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
@@ -159,7 +162,7 @@ export default function VMBackupTab({ resource: vm }) {
                 <button className="btn-secondary" onClick={() => handleRestoreNew(b)} title="Restore to a new VM">
                   New VM
                 </button>
-                <button aria-label="Delete" className="btn-danger" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></button>
+                <button aria-label={`Delete backup #${b.id}`} className="btn-danger" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></button>
               </div>
             )}
           </div>

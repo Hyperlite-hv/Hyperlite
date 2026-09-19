@@ -1,3 +1,4 @@
+import { useModalBehavior } from "../hooks/useModalBehavior";
 import { useEffect, useState } from "react";
 import { X, RefreshCw, ShieldAlert, CheckCircle2, XCircle } from "lucide-react";
 import ProgressBar from "./ProgressBar";
@@ -29,6 +30,7 @@ function shortVersion(v) {
   return v.includes(".") ? v : v.slice(0, 8);
 }
 export default function UpdateModal({ onClose }) {
+  const dialogRef = useModalBehavior(true, onClose);
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting | ok | failed
@@ -73,7 +75,7 @@ export default function UpdateModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="card w-[520px] max-w-[90vw] p-5 space-y-4" role="dialog" aria-modal="true" aria-label="Hyperlite update">
+      <div ref={dialogRef} className="card w-[520px] max-w-[90vw] p-5 space-y-4" role="dialog" aria-modal="true" aria-label="Hyperlite update">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-anthracite-100">Hyperlite update</h3>
           <button aria-label="Close" onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
@@ -105,7 +107,7 @@ export default function UpdateModal({ onClose }) {
                   </div>
                 )}
 
-                <p className="text-xs text-anthracite-500 mt-2">
+                <p className="text-xs text-anthracite-400 mt-2">
                   It only touches the Hyperlite API and interface: VMs that are already running are neither stopped nor restarted. A full backup is taken before any change, with automatic restoration on failure.
                 </p>
               </div>
@@ -129,7 +131,7 @@ export default function UpdateModal({ onClose }) {
             <div className="text-sm text-anthracite-200">
               {phase === "restarting" ? "Restarting the service, verification in progress..." : (STEP_ORDER[currentStepIdx]?.[1] ?? "Preparing...")}
             </div>
-            <p className="text-xs text-anthracite-500">Do not close this window.</p>
+            <p className="text-xs text-anthracite-400">Do not close this window.</p>
           </div>
         )}
 

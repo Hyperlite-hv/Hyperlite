@@ -40,11 +40,11 @@ export default function TaskLogPanel() {
         {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         Tasks
         {runningCount > 0 && <span className="rounded-full bg-accent-blue/20 text-accent-blue px-1.5 py-0.5 text-[11px]">{runningCount} running</span>}
-        <span className="ml-auto text-anthracite-500">{tasks.length} in total</span>
+        <span className="ml-auto text-anthracite-400">{tasks.length} in total</span>
       </button>
 
       {!collapsed && (
-        <div className="flex-1 overflow-y-auto px-2 pb-2">
+        <div className="flex-1 overflow-y-auto px-2 pb-2" tabIndex={0} role="region" aria-label="Task list">
           {tasks.length === 0 && <div className="px-2 py-4 text-sm text-anthracite-400">No tasks yet.</div>}
           {tasks.map((t) => (
             <div key={t.id} className="rounded-md hover:bg-anthracite-700/60">
@@ -56,7 +56,7 @@ export default function TaskLogPanel() {
                 <span className="text-anthracite-100 w-36 truncate">{TASK_LABELS[t.type] || t.type}</span>
                 <span className="text-anthracite-300 flex-1 truncate">{t.cible}</span>
                 {t.statut === "en_cours" && <span className="w-28"><ProgressBar value={t.progres} size="sm" /></span>}
-                <span className="text-anthracite-500 text-xs w-24 text-right">{formatDuration(t.debut, t.fin)}</span>
+                <span className="text-anthracite-400 text-xs w-24 text-right">{formatDuration(t.debut, t.fin)}</span>
               </button>
               {openId === t.id && (
                 <div className="px-8 pb-2 text-xs text-anthracite-400 space-y-0.5">

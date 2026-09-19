@@ -45,7 +45,7 @@ export default function VMOptionsTab({ resource: vm }) {
             <div className="text-sm text-anthracite-100">vCPU</div>
             <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.vcpu.min} to ${hostLimits.vcpu.max}` : "Limit set by the host"} -- stopped VM required</div>
           </div>
-          <input
+          <input aria-label="vCPU count"
             type="number" min={hostLimits?.vcpu.min ?? 1} max={hostLimits?.vcpu.max} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
             value={vcpu} onChange={(e) => setVcpu(Number(e.target.value))}
           />
@@ -55,14 +55,14 @@ export default function VMOptionsTab({ resource: vm }) {
             <div className="text-sm text-anthracite-100">Memory (MB)</div>
             <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.memoire_mo.min} to ${hostLimits.memoire_mo.max}` : "Limit set by the host"} -- stopped VM required</div>
           </div>
-          <input
+          <input aria-label="Memory in MB"
             type="number" min={hostLimits?.memoire_mo.min ?? 256} max={hostLimits?.memoire_mo.max} step={128} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
             value={memoryMb} onChange={(e) => setMemoryMb(Number(e.target.value))}
           />
         </div>
         {isAdmin && (
           <div className="flex items-center justify-end px-4 py-3">
-            {vm.etat === "actif" && <span className="mr-auto text-xs text-anthracite-500">Stop the VM to change its resources.</span>}
+            {vm.etat === "actif" && <span className="mr-auto text-xs text-anthracite-400">Stop the VM to change its resources.</span>}
             <button className="btn-primary" disabled={!dirty || busy || vm.etat === "actif"} onClick={handleSave}>
               <Save size={13} /> Save
             </button>
@@ -129,7 +129,7 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
           <div className="text-sm text-anthracite-100">CPU priority (shares)</div>
           <div className="text-xs text-anthracite-400">Relative to the other VMs under real host contention. 1024 = normal.</div>
         </div>
-        <input type="number" min={2} max={262144} className="input w-28" disabled={!isAdmin}
+        <input aria-label="CPU shares" type="number" min={2} max={262144} className="input w-28" disabled={!isAdmin}
           value={shares} onChange={(e) => setShares(e.target.value)} />
       </div>
 
@@ -138,7 +138,7 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
           <div className="text-sm text-anthracite-100">Max CPU limit (% per vCPU)</div>
           <div className="text-xs text-anthracite-400">Hard cap, even if the host is idle. Empty = unlimited.</div>
         </div>
-        <input type="number" min={1} max={100} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
+        <input aria-label="Max CPU limit percent per vCPU" type="number" min={1} max={100} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
           value={cpuLimitPct} onChange={(e) => setCpuLimitPct(e.target.value)} />
       </div>
 
@@ -147,13 +147,13 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
           <div className="text-sm text-anthracite-100">RAM limit (MB)</div>
           <div className="text-xs text-anthracite-400">Hard cgroup cap, distinct from the RAM allocated above. Empty = unlimited.</div>
         </div>
-        <input type="number" min={64} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
+        <input aria-label="RAM limit in MB" type="number" min={64} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
           value={memHardLimitMb} onChange={(e) => setMemHardLimitMb(e.target.value)} />
       </div>
 
       {isAdmin && (
         <div className="flex items-center justify-end px-4 py-3">
-          <span className="mr-auto text-xs text-anthracite-500">See real usage in the Summary tab.</span>
+          <span className="mr-auto text-xs text-anthracite-400">See real usage in the Summary tab.</span>
           <button className="btn-primary" disabled={!dirty || busy} onClick={handleSave}>
             <Save size={13} /> Apply
           </button>

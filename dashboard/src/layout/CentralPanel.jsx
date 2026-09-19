@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../store/useInfraStore";
 import Tabs from "../components/Tabs";
@@ -99,10 +100,39 @@ export default function CentralPanel() {
   // change. Declaration order matters: this one runs after, so it wins if both
   // change at the same time (the navigateTo(newSelection, tab) case, e.g. a click
   // on a row of the nodes table).
+  // The active tab is mirrored in the URL (?tab=...) so that a reload or a shared link
+  // lands on the same tab. The value read at load time is applied as soon as the
+  // selection it belongs to is known.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = useRef(searchParams.get("tab"));
+
   useEffect(() => {
+    const ids = (selection.type === "node" ? NODE_TABS : selection.type === "vm" ? VM_TABS : DATACENTER_TABS).map((t) => t.id);
+    const wanted = urlTab.current;
+    if (wanted && ids.includes(wanted)) {
+      setActiveTab(wanted);
+      urlTab.current = null;
+      return;
+    }
+    if (selection.type !== "datacenter") urlTab.current = null;
     setActiveTab("summary");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection.type, selection.id]);
+
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (urlTab.current) return;
+    // Do not touch the URL while it is still being synchronized with a new selection:
+    // this navigation would otherwise overwrite the one that changes the path.
+    const expectedPath = selection.type === "datacenter" ? "/datacenter" : `/${selection.type}/${encodeURIComponent(selection.id)}`;
+    if (pathname !== expectedPath) return;
+    const wanted = activeTab === "summary" ? null : activeTab;
+    if ((searchParams.get("tab") || null) === wanted) return;
+    const next = new URLSearchParams(searchParams);
+    if (wanted) next.set("tab", wanted);
+    else next.delete("tab");
+    setSearchParams(next, { replace: true });
+  }, [activeTab, searchParams, setSearchParams, pathname, selection.type, selection.id]);
 
   useEffect(() => {
     if (pendingTab) {

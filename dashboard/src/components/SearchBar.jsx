@@ -11,7 +11,7 @@ export default function SearchBar() {
   return (
     <div className="relative w-full max-w-md">
       <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-anthracite-300" />
-      <input
+      <input aria-label="Search for a node, a VM, a storage..."
         className="input pl-8 pr-8"
         placeholder="Search for a node, a VM, a storage..."
         value={searchQuery}
