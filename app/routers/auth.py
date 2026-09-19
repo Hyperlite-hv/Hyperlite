@@ -63,7 +63,7 @@ def _login_record_failure(username):
 
 
 def _client_ip(request: Request):
-    return request.client.host if request.client else "inconnu"
+    return request.client.host if request.client else "unknown"
 
 
 def _login_ip_locked_out(ip):

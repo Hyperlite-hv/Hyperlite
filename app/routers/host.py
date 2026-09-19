@@ -85,7 +85,7 @@ def set_host_profile(payload: ProfileChoice, user: dict = Depends(require_role("
     if choice != "auto" and choice not in deployment_profile.PROFILES:
         raise HTTPException(
             status_code=400,
-            detail=f"Profil inconnu : {payload.profil} (auto, {', '.join(deployment_profile.PROFILES)})",
+            detail=f"Unknown profile: {payload.profil} (auto, {', '.join(deployment_profile.PROFILES)})",
         )
     if deployment_profile.env_override():
         raise HTTPException(
