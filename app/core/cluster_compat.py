@@ -70,7 +70,7 @@ def _has_kvm(caps):
 
 
 def check_pair(src, dst):
-    """Compatibilite generale source -> destination, independante d'une VM."""
+    """General source -> destination compatibility, independent of any VM."""
     checks = []
 
     def arch():

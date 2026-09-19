@@ -78,7 +78,7 @@ def check_once():
     if not remote or _get_last_notified() == remote:
         return  # no usable remote version, or already notified for THIS version
 
-    msg = f"Nouvelle version Hyperlite disponible : {remote} (version actuelle : {result.get('commit_local')})"
+    msg = f"New Hyperlite version available: {remote} (current version: {result.get('commit_local')})"
     log_action("system", "update_available", "hyperlite", "succes", msg)
     _mark_notified(remote)
 

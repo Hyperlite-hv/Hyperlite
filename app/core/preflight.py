@@ -85,7 +85,12 @@ def _mem_total_mb():
 
 def _existing_parent(path):
     p = Path(path)
-    while not p.exists() and p != p.parent:
+    while p != p.parent:
+        try:
+            if p.exists():
+                break
+        except OSError:  # e.g. a parent that is not accessible to this user
+            pass
         p = p.parent
     return p
 
@@ -248,7 +253,7 @@ def check_system(offline=False):
     if ram is None:
         out.append(_c("memoire", WARNING, "Total memory could not be read"))
     elif ram < MIN_RAM_MB_BLOCKING:
-        out.append(_c("memoire", BLOCKING, f"{ram} Mo de RAM : minimum {MIN_RAM_MB_BLOCKING} Mo"))
+        out.append(_c("memoire", BLOCKING, f"{ram} MB of RAM: minimum {MIN_RAM_MB_BLOCKING} MB"))
     elif ram < MIN_RAM_MB_WARNING:
         out.append(
             _c(
@@ -258,7 +263,7 @@ def check_system(offline=False):
             )
         )
     else:
-        out.append(_c("memoire", OK, f"{ram} Mo de RAM"))
+        out.append(_c("memoire", OK, f"{ram} MB of RAM"))
 
     app_free = _free_gb(APP_DIR)
     if app_free < MIN_APP_DISK_GB:
@@ -266,7 +271,7 @@ def check_system(offline=False):
             _c(
                 "disque_application",
                 BLOCKING,
-                f"{app_free:.1f} Go libres sous {APP_DIR} : minimum {MIN_APP_DISK_GB} Go",
+                f"{app_free:.1f} GB free under {APP_DIR}: minimum {MIN_APP_DISK_GB} GB",
             )
         )
     else:
