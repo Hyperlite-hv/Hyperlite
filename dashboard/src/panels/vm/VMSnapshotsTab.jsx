@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { Camera, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
@@ -52,7 +53,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
   }, []);
 
   if (!vm) return null;
-  if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   // VM on a ZFS pool: read directly from vm.stockage_zfs (GET /vms,
   // app/routers/vms.py::_domain_summary). The first version deduced it from the list

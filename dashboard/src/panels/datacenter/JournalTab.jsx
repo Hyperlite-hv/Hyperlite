@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { fetchAuditLog, fetchAuditActions } from "../../api/client";
@@ -81,7 +82,7 @@ export default function JournalTab() {
         </button>
       </div>
 
-      {entries == null && <div className="card p-4 text-sm text-anthracite-400">Loading...</div>}
+      {entries == null && <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>}
 
       {entries && (
         <div className="card divide-y divide-anthracite-600 max-h-[65vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Journal entries">

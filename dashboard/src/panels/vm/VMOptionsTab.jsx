@@ -138,7 +138,7 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
           <div className="text-sm text-anthracite-100">Max CPU limit (% per vCPU)</div>
           <div className="text-xs text-anthracite-400">Hard cap, even if the host is idle. Empty = unlimited.</div>
         </div>
-        <input aria-label="unlimited" type="number" min={1} max={100} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
+        <input aria-label="Max CPU limit percent per vCPU" type="number" min={1} max={100} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
           value={cpuLimitPct} onChange={(e) => setCpuLimitPct(e.target.value)} />
       </div>
 
@@ -147,7 +147,7 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
           <div className="text-sm text-anthracite-100">RAM limit (MB)</div>
           <div className="text-xs text-anthracite-400">Hard cgroup cap, distinct from the RAM allocated above. Empty = unlimited.</div>
         </div>
-        <input aria-label="unlimited" type="number" min={64} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
+        <input aria-label="RAM limit in MB" type="number" min={64} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
           value={memHardLimitMb} onChange={(e) => setMemHardLimitMb(e.target.value)} />
       </div>
 

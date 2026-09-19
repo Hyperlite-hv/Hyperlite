@@ -87,11 +87,10 @@ test.describe("Users and permissions", () => {
   test("an administrator deletes the user after confirming", async ({ page, request }) => {
     await uiLogin(page);
     await page.getByRole("tab", { name: "Permissions", exact: true }).click();
-    page.once("dialog", (d) => {
-      expect(d.message()).toContain(OBSERVER.username);
-      void d.accept();
-    });
-    await page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` }).locator("xpath=..").getByRole("button").click();
+    await page.getByRole("button", { name: `Delete user ${OBSERVER.username}` }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toContainText(OBSERVER.username);
+    await dialog.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` })).toHaveCount(0);
     const token = await apiLogin(request);
     const users = await (await request.get("/auth/users", { headers: { Authorization: `Bearer ${token}` } })).json();

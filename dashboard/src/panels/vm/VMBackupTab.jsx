@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { confirmAction as askConfirm } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Save, Play, Trash2, RotateCcw } from "lucide-react";
@@ -144,7 +145,7 @@ export default function VMBackupTab({ resource: vm }) {
       </div>
 
       <div className="card divide-y divide-anthracite-600">
-        {backups == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {backups == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
         {backups && backups.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No backups.</div>}
         {backups && backups.map((b) => (
           <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">

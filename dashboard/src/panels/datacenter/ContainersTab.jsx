@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -160,7 +161,7 @@ export default function ContainersTab() {
     window.open(`/container-terminal/${encodeURIComponent(ct.nom)}`, `hyperlite-ct-terminal-${ct.nom}`, "width=1000,height=700,noopener");
   }
 
-  if (containers == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (containers == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   return (
     <div className="space-y-3">
