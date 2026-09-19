@@ -2147,3 +2147,21 @@ dominfo`, override par variable d'environnement vérifié.
 de limites par nœud distant (les VM se créent de toute façon toujours en
 local). Prochain : chantier 3 (preflight check installeur) ou 4 (page
 « Compatibilité et capacités »).
+
+### Bug réel de portabilité : shell hôte cassé sur serveur-antho (2026-09-19)
+
+Signalé par Antho (capture : « Erreur de connexion au shell hôte » sur
+`/host-shell`). Log serveur : `No supported WebSocket library detected`
+-- `requirements.txt` déclarait `uvicorn` nu, sans l'extra `[standard]`
+(websockets, httptools, uvloop...). kvm-lab avait ces paquets installés à
+la main, jamais déclarés : **toute installation apt propre (serveur-antho,
+future appliance) n'avait AUCUNE fonction WebSocket** (shell hôte, consoles
+VM noVNC/terminal, terminaux conteneurs). Passé inaperçu parce que seule
+kvm-lab (venv historique) servait à tester ces fonctions. Corrigé :
+`uvicorn[standard]==0.52.4` + `cryptography` explicite (jusque-là
+seulement transitif via asyncssh), vérifié par installation dans un venv
+neuf ; `bibliotheque_websocket` ajouté au profil de capacités
+(`host_capabilities._software_capabilities_local`). Comparaison exhaustive
+des `pip freeze` kvm-lab/serveur-antho : aucun autre écart. **Leçon pour
+le chantier 3 (preflight)** : vérifier les dépendances Python réellement
+importables, pas seulement les binaires.
