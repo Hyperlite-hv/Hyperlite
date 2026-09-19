@@ -69,6 +69,19 @@ if [ -n "${HYPERLITE_APT_URL:-}" ]; then
     echo "HYPERLITE_APT_URL=\"$HYPERLITE_APT_URL\"" > "$HL_DIR/apt-source.conf"
     log "APT repository baked into the ISO: $HYPERLITE_APT_URL"
 fi
+# Embed the package and the repository public key so the installation does not
+# depend on the Hyperlite APT repository being reachable and consistent.
+PKG_VERSION=$(cat "$HYPERLITE_ROOT/VERSION")
+DEB="$SCRIPT_DIR/hyperlite_${PKG_VERSION}_amd64.deb"
+if [ -f "$DEB" ]; then
+    cp "$DEB" "$HL_DIR/"
+    log "package embedded: $(basename "$DEB")"
+else
+    log "WARNING: $DEB not found (run installer/build-deb.sh first): the ISO will install from the repository instead"
+fi
+if [ -f "$SCRIPT_DIR/apt-repo/hyperlite-archive-keyring.asc" ]; then
+    cp "$SCRIPT_DIR/apt-repo/hyperlite-archive-keyring.asc" "$HL_DIR/"
+fi
 cp "$SCRIPT_DIR/preseed.cfg" "$HL_DIR/preseed.cfg"
 cp "$SCRIPT_DIR/partman-auto.sh" "$HL_DIR/partman-auto.sh"
 cp "$SCRIPT_DIR/postinstall.sh" "$HL_DIR/postinstall.sh"

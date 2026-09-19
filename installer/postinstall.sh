@@ -25,39 +25,58 @@ APP_DIR=/root/hyperlite
 # password is fixed anyway, there is no reason to let the whole script fail
 # here (set -e) if that file is missing.
 
-log "=== 1/6: Hyperlite APT repository ==="
+log "=== 1/6: preparing APT ==="
+# The Debian installer AUTOMATICALLY adds the installation CD-ROM as an APT
+# source in /etc/apt/sources.list (standard, documented installer behaviour).
+# `apt-get update` then fails globally with "The repository 'cdrom://...' does
+# not have a Release file" even if every other source works, because apt returns
+# an error as soon as ANY single source fails. The line is removed first.
+sed -i '/^deb cdrom:/d' /etc/apt/sources.list
+
 HYPERLITE_APT_URL="https://twikles.github.io/hyperlite"
 # shellcheck disable=SC1091
 [ -f "$INSTALLER_DIR/apt-source.conf" ] && . "$INSTALLER_DIR/apt-source.conf"
-log "repository: $HYPERLITE_APT_URL"
+KEYRING=/usr/share/keyrings/hyperlite-archive-keyring.gpg
 
-# The Debian installer AUTOMATICALLY adds the installation CD-ROM as an APT
-# source in /etc/apt/sources.list (standard, documented installer behaviour,
-# not specific to this repository). `apt-get update` then fails globally with
-# "The repository 'cdrom://...' does not have a Release file" EVEN IF all the
-# other sources (including ours) are fetched successfully, because apt returns
-# an error as soon as ANY single source fails. The line is removed before any
-# apt-get update: the CD-ROM is no longer needed as a source once the standard
-# Debian repositories and ours are configured.
-sed -i '/^deb cdrom:/d' /etc/apt/sources.list
+install_repository_source() {
+    # Source used for FUTURE updates only. The installation itself does not depend
+    # on it (see below), because a CDN-hosted repository such as GitHub Pages can
+    # transiently serve InRelease and Packages out of sync.
+    if [ ! -s "$KEYRING" ]; then
+        if [ -s "$INSTALLER_DIR/hyperlite-archive-keyring.asc" ]; then
+            gpg --dearmor < "$INSTALLER_DIR/hyperlite-archive-keyring.asc" > "$KEYRING"
+        else
+            curl -fsSL "$HYPERLITE_APT_URL/hyperlite-archive-keyring.asc" | gpg --dearmor > "$KEYRING"
+        fi
+    fi
+    echo "deb [signed-by=$KEYRING] $HYPERLITE_APT_URL stable main" > /etc/apt/sources.list.d/hyperlite.list
+}
 
-# Note on the repository host: GitHub Pages is a multi-node CDN with NO strong
-# consistency guarantee between related files published in the same commit
-# (InRelease and Packages can be served out of sync for a long time), which
-# makes `apt-get update` fail with "File has unexpected size". When that
-# matters, serve the repository directly (a single origin, no CDN) and point
-# HYPERLITE_APT_URL at it when building the ISO.
-curl -fsSL "$HYPERLITE_APT_URL/hyperlite-archive-keyring.asc" | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] $HYPERLITE_APT_URL stable main" > /etc/apt/sources.list.d/hyperlite.list
-apt-get update || { log "ERROR: apt-get update failed (is $HYPERLITE_APT_URL reachable?)"; exit 1; }
+# Debian's own mirrors are needed for the dependencies; retry a few times.
+ok=0
+for attempt in 1 2 3 4 5; do
+    if apt-get update; then ok=1; break; fi
+    log "apt-get update failed (attempt $attempt/5), retrying in 15 s"
+    sleep 15
+done
+[ "$ok" = 1 ] || { log "ERROR: apt-get update failed (no network or Debian mirror unreachable?)"; exit 1; }
 
-log "=== 2/6: installing Hyperlite (apt install hyperlite) ==="
-# The package postinst (installer/deb/postinst) does all the application work
-# itself: it creates the venv, installs requirements.txt, generates secrets
-# specific to THIS machine (.env absent = first installation), and installs,
-# enables and starts the systemd service. Nothing more to do here for the
-# application itself.
-DEBIAN_FRONTEND=noninteractive apt-get install -y hyperlite
+log "=== 2/6: installing Hyperlite ==="
+# The package is embedded in the ISO: installing it from the local file makes the
+# installation independent of the Hyperlite repository. Dependencies still come
+# from the Debian mirrors. The package postinst does all the application work
+# (venv, requirements, secrets specific to THIS machine, systemd service).
+LOCAL_DEB=$(ls "$INSTALLER_DIR"/hyperlite_*_amd64.deb 2>/dev/null | tail -1 || true)
+if [ -n "$LOCAL_DEB" ]; then
+    log "installing the embedded package: $(basename "$LOCAL_DEB")"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "$LOCAL_DEB"
+    install_repository_source || log "WARNING: could not configure the Hyperlite repository for future updates ($HYPERLITE_APT_URL)"
+else
+    log "no embedded package, installing from the repository $HYPERLITE_APT_URL"
+    install_repository_source
+    apt-get update || { log "ERROR: cannot read the Hyperlite repository $HYPERLITE_APT_URL"; exit 1; }
+    DEBIAN_FRONTEND=noninteractive apt-get install -y hyperlite
+fi
 
 log "=== 3/6: Hyperlite admin account ==="
 # The Linux root password is the one chosen by the person running the installer
