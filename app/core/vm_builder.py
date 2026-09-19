@@ -8,6 +8,8 @@ from pathlib import Path
 
 import libvirt
 
+from app.core.safe_paths import safe_child
+
 IMAGES_DIR = Path("/var/lib/libvirt/images")
 BASE_IMAGE = IMAGES_DIR / "base" / "debian-12-generic-amd64.qcow2"
 BASE_IMAGE_URL = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
@@ -242,7 +244,7 @@ def create_cloudinit_reseed_iso(vm_name):
         user_data.write_text(f"#cloud-config\nhostname: {vm_name}\nmanage_etc_hosts: true\n")
         meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
 
-        iso_path = IMAGES_DIR / f"{vm_name}-cloudinit.iso"
+        iso_path = safe_child(IMAGES_DIR, f"{vm_name}-cloudinit.iso")
         subprocess.run(
             ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
             check=True,

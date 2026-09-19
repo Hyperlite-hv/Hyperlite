@@ -129,11 +129,9 @@ def _kvm_device_present():
 
 def _port_in_use(port):
     s = socket.socket()
+    s.settimeout(1)
     try:
-        s.bind(("0.0.0.0", port))  # noqa: S104 -- probing whether the port is free on all interfaces
-        return False
-    except OSError:
-        return True
+        return s.connect_ex(("127.0.0.1", port)) == 0
     finally:
         s.close()
 

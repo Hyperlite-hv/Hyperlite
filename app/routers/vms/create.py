@@ -14,6 +14,7 @@ from app.core.libvirt_utils import (
     pool_type_and_target_path,
 )
 from app.core.network_alloc import allocate_static_ip, generate_mac
+from app.core.safe_paths import safe_child
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task
 from app.core.unattended_install import build_seed_iso, detect_os_family, extract_casper_kernel
@@ -87,7 +88,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
 
     iso_path = None
     if payload.iso:
-        candidate = ISOS_DIR / payload.iso
+        candidate = safe_child(ISOS_DIR, payload.iso)
         if not candidate.exists():
             errors.append(f"ISO '{payload.iso}' not found")
         else:
@@ -97,7 +98,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     if payload.import_disk:
         if payload.iso:
             errors.append("Cannot combine a disk import with an installation ISO")
-        candidate = IMPORTED_DISKS_DIR / payload.import_disk
+        candidate = safe_child(IMPORTED_DISKS_DIR, payload.import_disk)
         if not candidate.exists():
             errors.append(f"Imported disk '{payload.import_disk}' not found")
         else:

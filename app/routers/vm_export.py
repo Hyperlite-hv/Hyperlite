@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from app.core.audit import log_action
+from app.core.safe_paths import safe_child
 from app.core.security import require_role, require_vm_privilege
 from app.core.vm_export import EXPORTS_DIR, list_exports, run_export
 
@@ -56,7 +57,7 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
 @router.delete("/vm-exports/{filename}")
 def delete_vm_export(filename: str, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
-    path = EXPORTS_DIR / filename
+    path = safe_child(EXPORTS_DIR, filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Export not found")
     path.unlink()
@@ -67,7 +68,7 @@ def delete_vm_export(filename: str, user: dict = Depends(require_role("admin")))
 @router.post("/vm-exports/{filename}/download-ticket")
 def create_download_ticket(filename: str, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
-    path = EXPORTS_DIR / filename
+    path = safe_child(EXPORTS_DIR, filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Export not found")
 
@@ -90,7 +91,7 @@ def download_vm_export(ticket: str):
     filename, expiry = entry
     if time.time() > expiry:
         raise HTTPException(status_code=401, detail="Download ticket expired")
-    path = EXPORTS_DIR / filename
+    path = safe_child(EXPORTS_DIR, filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Export not found")
     return FileResponse(path, media_type="application/octet-stream", filename=filename)
