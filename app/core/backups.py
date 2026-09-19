@@ -327,8 +327,8 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
             return {"vm": target_name, "mode": "overwrite"}
 
         elif mode == "new":
+            from app.core.vm_builder import IMAGES_DIR as _IMAGES_DIR
             from app.core.vm_builder import build_domain_xml, validate_name
-            from app.routers.vms import IMAGES_DIR as _IMAGES_DIR  # avoids a circular import when the module loads
 
             if not new_name:
                 raise RuntimeError("new_name is required for a restore to a new location")
