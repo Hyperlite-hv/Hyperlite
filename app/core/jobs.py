@@ -60,7 +60,9 @@ def _resolve_vm_ssh(vm_name):
     running, has no known IP, or has no registered SSH user (the same guard as
     create_terminal_ticket)."""
     from app.core.vm_builder import get_automation_private_key_path
-    from app.routers.vms import _get_ip  # late import: avoids a routers<->core cycle, the same pattern as backups.py
+    from app.routers.vms._shared import (
+        _get_ip,  # late import: avoids a routers<->core cycle, the same pattern as backups.py
+    )
 
     conn = open_conn()
     try:
@@ -321,7 +323,7 @@ def run_lb_job(job_id, targets, dry_run=False, username="system"):
     # Replace the placeholder with the real command once the IPs are known (it needs
     # to resolve each backend; done here rather than in the generic _run_command
     # because it is specific to this job).
-    from app.routers.vms import _get_ip
+    from app.routers.vms._shared import _get_ip
 
     ip_map = {}
     if not dry_run:

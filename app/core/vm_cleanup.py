@@ -47,7 +47,7 @@ def _mark_warned(vm_name):
 
 def check_once():
     from app.core.ha import get_protected  # late import: avoids a cycle when the module loads
-    from app.routers.vms import _perform_vm_deletion
+    from app.routers.vms.lifecycle import _perform_vm_deletion
 
     rows = list_all_auto_cleanup()
     if not rows:
