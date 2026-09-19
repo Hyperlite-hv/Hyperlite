@@ -3,13 +3,12 @@ import { Plug, Unplug, ShieldAlert } from "lucide-react";
 import { createHostTerminalTicket } from "../api/client";
 import { ensureXtermLoaded, wsUrl } from "../utils/loadXterm";
 
-// Shell interactif sur l'hote physique -- meme relais ticket + WebSocket +
-// xterm.js que ConsolePanel (terminal SSH par VM), mais point d'entree
-// backend different (/host/terminal, voir app/routers/host.py) : pas de SSH
-// ici, un vrai pty local sur la machine qui fait tourner Hyperlite. Extrait
-// dans un composant separe (plutot que reutiliser ConsolePanel) parce que ce
-// mode n'a pas de VNC, pas de VM associee, et merite un avertissement de
-// securite explicite en permanence a l'ecran.
+// Interactive shell on the physical host: the same ticket + WebSocket + xterm.js
+// relay as ConsolePanel (per-VM SSH terminal), but a different backend entry
+// point (/host/terminal, see app/routers/host.py): no SSH here, a real local pty
+// on the machine running Hyperlite. Extracted into a separate component (rather
+// than reusing ConsolePanel) because this mode has no VNC, no associated VM, and
+// deserves an explicit security warning on screen at all times.
 export default function HostShellPanel({ hostname }) {
   const [status, setStatus] = useState("idle"); // idle | connecting | connected | error
   const [error, setError] = useState(null);
@@ -20,8 +19,8 @@ export default function HostShellPanel({ hostname }) {
   const resizeHandlerRef = useRef(null);
 
   function cleanup() {
-    if (wsRef.current) { try { wsRef.current.close(); } catch (e) { /* ignore */ } wsRef.current = null; }
-    if (termRef.current) { try { termRef.current.dispose(); } catch (e) { /* ignore */ } termRef.current = null; }
+    if (wsRef.current) { try { wsRef.current.close(); } catch { /* ignore */ } wsRef.current = null; }
+    if (termRef.current) { try { termRef.current.dispose(); } catch { /* ignore */ } termRef.current = null; }
     if (resizeHandlerRef.current) { window.removeEventListener("resize", resizeHandlerRef.current); resizeHandlerRef.current = null; }
     if (screenRef.current) screenRef.current.innerHTML = "";
     setStatus("idle");
@@ -54,8 +53,8 @@ export default function HostShellPanel({ hostname }) {
         ws.send("\x00" + JSON.stringify({ cols: term.cols, rows: term.rows }));
       };
       ws.onmessage = (ev) => term.write(ev.data);
-      ws.onclose = () => { term.write("\r\n\x1b[33m[session hôte terminée]\x1b[0m\r\n"); setStatus("idle"); };
-      ws.onerror = () => setError("Erreur de connexion au shell hôte.");
+      ws.onclose = () => { term.write("\r\n\x1b[33m[host session ended]\x1b[0m\r\n"); setStatus("idle"); };
+      ws.onerror = () => setError("Host shell connection error.");
 
       term.onData((data) => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
       term.onResize(({ cols, rows }) => { if (ws.readyState === WebSocket.OPEN) ws.send("\x00" + JSON.stringify({ cols, rows })); });
@@ -72,17 +71,16 @@ export default function HostShellPanel({ hostname }) {
       <div className="flex items-start gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2">
         <ShieldAlert size={16} className="text-status-error shrink-0 mt-0.5" />
         <p className="text-xs text-anthracite-200">
-          Accès root complet à <strong>{hostname}</strong>, la machine physique qui héberge toutes les VM.
-          Chaque ouverture/fermeture de session est journalisée (onglet Tâches + Journal) avec l'utilisateur responsable.
+          Full root access to <strong>{hostname}</strong>, the physical machine hosting all the VMs. Every session open/close is logged (Tasks + Journal tabs) with the responsible user.
         </p>
       </div>
 
       <div className="flex items-center gap-2">
         {status === "connected" ? (
-          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Déconnecter</button>
+          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Disconnect</button>
         ) : (
           <button className="btn-primary ml-auto" disabled={status === "connecting"} onClick={connect}>
-            <Plug size={13} /> {status === "connecting" ? "Connexion..." : "Ouvrir le shell"}
+            <Plug size={13} /> {status === "connecting" ? "Connecting..." : "Open the shell"}
           </button>
         )}
       </div>

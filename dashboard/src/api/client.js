@@ -1,6 +1,6 @@
-// Point d'entree unique pour toutes les donnees de l'app. Tout vient du vrai
-// backend Hyperlite (memes chemins que les routes FastAPI reelles, voir
-// vite.config.js pour le proxy de dev).
+// Single entry point for all the application's data. Everything comes from the
+// real Hyperlite backend (the same paths as the real FastAPI routes, see
+// vite.config.js for the dev proxy).
 
 let taskIdCounter = 0;
 export function makeTaskId() {
@@ -21,9 +21,9 @@ async function realFetch(path, opts = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(path, { ...opts, headers });
   let data = null;
-  try { data = await res.json(); } catch (e) { /* pas de corps JSON */ }
+  try { data = await res.json(); } catch { /* no JSON body */ }
   if (!res.ok) {
-    const msg = (data && data.detail) ? (Array.isArray(data.detail) ? data.detail.join(" ; ") : data.detail) : "Erreur inconnue";
+    const msg = (data && data.detail) ? (Array.isArray(data.detail) ? data.detail.join(" ; ") : data.detail) : "Unknown error";
     throw new Error(msg);
   }
   return data;
@@ -33,9 +33,8 @@ function jsonBody(payload) {
   return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
 }
 
-// Limites de ressources par VM derivees de l'hote reel (mandat portabilite,
-// chantier 2 : GET /host/limits) -- remplace les bornes 1-2 vCPU/256-2048 Mo
-// codees en dur dans les formulaires.
+// Per-VM resource limits derived from the real host (GET /host/limits), which
+// replace the 1-2 vCPU / 256-2048 MB bounds that were hard-coded in the forms.
 export async function fetchHostLimits() {
   return realFetch("/host/limits");
 }
@@ -47,18 +46,16 @@ export async function fetchDashboardSummary() {
 export async function fetchNodes() {
   const d = await fetchDashboardSummary();
   const localNode = {
-    // "local" (renomme depuis "kvm-lab" le 2026-09-18, demantelement de
-    // ce nœud) : identifiant SENTINELLE interne pour "l'hote qui fait
-    // tourner cette instance Hyperlite", jamais un vrai nom de machine --
-    // le vrai nom reel (d.hyperviseur.nom, ex. "hyperlite.home") reste
-    // affiche normalement partout (champ `nom` juste en dessous), seul
-    // cet `id` sert aux comparaisons internes (voir mapVm/mapPool plus
-    // bas + toutes les verifications `node !== "local"`).
+    // "local" is an internal SENTINEL identifier for "the host running this Hyperlite
+    // instance", never a real machine name. The real name (d.hyperviseur.nom, e.g.
+    // "hyperlite.home") is still displayed normally everywhere (the `nom` field just
+    // below); only this `id` is used for internal comparisons (see mapVm/mapPool below
+    // and every `node !== "local"` check).
     id: "local",
     nom: d.hyperviseur.nom,
     etat: d.hyperviseur.connecte ? "online" : "erreur",
-    // CPU/RAM totale non exposees par GET /dashboard aujourd'hui -- valeurs
-    // laissees a null, affichees en degrade (voir NodeSummaryTab).
+    // Total CPU/RAM are not exposed by GET /dashboard today: the values are left as
+    // null and displayed in a degraded form (see NodeSummaryTab).
     cpu_coeurs: null,
     cpu_utilisation: null,
     memoire_totale_mo: null,
@@ -75,18 +72,17 @@ export async function fetchNodes() {
     vms_arretees: d.vms.arretees,
   };
 
-  // Noeuds distants enregistres (chantier 15) -- AUPARAVANT absents d'ici :
-  // cette fonction ne renvoyait toujours qu'un unique noeud synthetique
-  // "local", donc un noeud distant reellement enregistre et fonctionnel
-  // cote backend (GET /nodes) restait invisible dans l'arbre principal --
-  // bug reel signale en testant un vrai second noeud physique (seul
-  // l'onglet dedie "Noeuds", qui interroge /nodes directement, le montrait).
+  // Registered remote nodes. They used to be missing here: this function only ever
+  // returned a single synthetic "local" node, so a remote node that was really
+  // registered and working on the backend (GET /nodes) stayed invisible in the main
+  // tree. It was a real bug reported when testing a real second physical node (only
+  // the dedicated "Nodes" tab, which queries /nodes directly, showed it).
   let remoteNodes = [];
   try {
     const remotes = await fetchRemoteNodes();
     remoteNodes = await Promise.all(remotes.map(async (n) => {
       let s = null;
-      try { s = await fetchRemoteNodeSummary(n.name); } catch (e) { /* noeud injoignable pour l'instant -- degrade plutot que de faire echouer tout le tableau de bord */ }
+      try { s = await fetchRemoteNodeSummary(n.name); } catch { /* node unreachable for now: degrade instead of failing the whole dashboard */ }
       return {
         id: n.name,
         nom: n.name,
@@ -101,21 +97,21 @@ export async function fetchNodes() {
           ? Math.round((s.stockage_capacite_go - s.stockage_disponible_go) * 100) / 100 : null,
         uptime_s: null,
         ip: n.hostname,
-        version: "Hyperlite (distant)",
+        version: "Hyperlite (remote)",
         os: null,
         vms_actives: s?.vms_actives ?? 0,
         vms_arretees: s?.vms_arretees ?? 0,
         distant: true,
       };
     }));
-  } catch (e) { /* GET /nodes indisponible -- reste sur le noeud local seul, comme avant ce correctif */ }
+  } catch { /* GET /nodes unavailable: stay on the local node alone, as before this fix */ }
 
   return [localNode, ...remoteNodes];
 }
 
-// GET /vms ne renvoie pas encore toutes les stats affichees par ce dashboard
-// (disque detaille, tags...) -- completees par des valeurs par defaut en
-// attendant un GET /vms plus riche.
+// GET /vms does not return every statistic displayed by this dashboard yet
+// (detailed disk, tags...): they are completed with default values until a richer
+// GET /vms exists.
 function mapVm(v, nodeId) {
   return {
     nom: v.nom, node: nodeId, type: "vm", etat: v.etat,
@@ -123,11 +119,9 @@ function mapVm(v, nodeId) {
     disque_go: null, disque_utilise_go: null,
     ip: v.ip, utilisateur_ssh: v.utilisateur_ssh, uuid: v.uuid,
     os: v.os, uptime_s: v.uptime_s,
-    // BUG REEL trouve en testant l'onglet Snapshots d'une VM sur pool
-    // ZFS dans un vrai navigateur (backlog stockage 2026-09-18, phase 3) :
-    // ce mappage whitelistait les champs sans stockage_zfs (ajoute cote
-    // backend, app/routers/vms.py::_domain_summary), donc silencieusement
-    // perdu ici -- VMSnapshotsTab.jsx recevait toujours `undefined`.
+    // This mapping whitelists the fields, so a field added on the backend
+    // (stockage_zfs, see app/routers/vms.py::_domain_summary) is silently dropped
+    // here unless it is listed: VMSnapshotsTab.jsx would always receive `undefined`.
     stockage_zfs: v.stockage_zfs,
   };
 }
@@ -136,32 +130,29 @@ export async function fetchVMs() {
   const localVms = await realFetch("/vms");
   let result = localVms.map((v) => mapVm(v, "local"));
 
-  // Noeuds distants enregistres (chantier 15) -- AUPARAVANT jamais
-  // interroges ici (node force en dur a "local" pour tout le monde), donc
-  // les VM d'un noeud distant n'apparaissaient jamais dans l'arbre
-  // principal malgre un enregistrement reussi cote backend -- bug reel
-  // signale en testant un vrai second noeud physique. GET /vms accepte
-  // maintenant un parametre node= (voir app/routers/vms.py).
+  // Registered remote nodes: they were never queried here before (node hard-coded
+  // to "local" for everyone), so the VMs of a remote node never appeared in the main
+  // tree despite a successful registration on the backend. GET /vms now accepts a
+  // node= parameter (see app/routers/vms.py).
   try {
     const remotes = await fetchRemoteNodes();
     const remoteLists = await Promise.all(remotes.map(async (n) => {
       try {
         const vms = await realFetch(`/vms?node=${encodeURIComponent(n.name)}`);
         return vms.map((v) => mapVm(v, n.name));
-      } catch (e) { return []; /* noeud injoignable pour l'instant */ }
+      } catch { return []; /* node unreachable for now */ }
     }));
     result = result.concat(...remoteLists);
-  } catch (e) { /* GET /nodes indisponible -- reste sur le noeud local seul */ }
+  } catch { /* GET /nodes unavailable: stay on the local node alone */ }
 
   return result;
 }
 
 function mapPool(p, nodeId) {
-  // BUG REEL trouve le 2026-09-17 (chantier 26, pools NFS) : `type`
-  // etait code en dur a "dir" ici -- inoffensif tant que GET /storage ne
-  // renvoyait jamais de vrai champ `type` (tous les pools existants
-  // etaient effectivement "dir"), mais aurait masque silencieusement le
-  // nouveau champ reel une fois les pools NFS ajoutes cote backend.
+  // `type` used to be hard-coded to "dir" here. That was harmless as long as
+  // GET /storage never returned a real `type` field (all existing pools really were
+  // "dir"), but it would have silently masked the new real field once NFS pools
+  // existed on the backend.
   return { nom: p.nom, node: nodeId, type: p.type, etat: p.etat, capacite_go: p.capacite_go, disponible_go: p.disponible_go };
 }
 
@@ -175,10 +166,10 @@ export async function fetchStoragePools() {
       try {
         const pools = await realFetch(`/storage?node=${encodeURIComponent(n.name)}`);
         return pools.map((p) => mapPool(p, n.name));
-      } catch (e) { return []; }
+      } catch { return []; }
     }));
     result = result.concat(...remoteLists);
-  } catch (e) { /* GET /nodes indisponible */ }
+  } catch { /* GET /nodes unavailable */ }
 
   return result;
 }
@@ -197,8 +188,8 @@ export async function deleteNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
 }
 
-// ---- Pare-feu réseau (chantier 21, réel : GET/PUT /networks/{name}/firewall,
-// distinct du pare-feu par VM -- filtre au niveau du pont, pas de l'interface) ----
+// ---- Network firewall (real: GET/PUT /networks/{name}/firewall), distinct from
+// the per-VM firewall: it filters at the bridge level, not at the interface level ----
 export async function fetchNetworkFirewall(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}/firewall`);
 }
@@ -206,7 +197,7 @@ export async function setNetworkFirewall(name, payload) {
   return realFetch(`/networks/${encodeURIComponent(name)}/firewall`, { method: "PUT", ...jsonBody(payload) });
 }
 
-// ---- Pare-feu par VM (réel : GET/PUT /vms/{name}/firewall, nwfilter libvirt) ----
+// ---- Per-VM firewall (real: GET/PUT /vms/{name}/firewall, libvirt nwfilter) ----
 export async function fetchVMFirewall(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/firewall`);
 }
@@ -214,9 +205,9 @@ export async function setVMFirewall(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/firewall`, { method: "PUT", ...jsonBody(payload) });
 }
 
-// ---- Backups natifs (réel : GET/POST /vms/{name}/backups, DELETE /backups/{id},
-// POST /backups/{id}/restore, GET/PUT/DELETE /vms/{name}/backup-schedule --
-// voir app/routers/backups.py, chantier 13) ----
+// ---- Native backups (real: GET/POST /vms/{name}/backups, DELETE /backups/{id},
+// POST /backups/{id}/restore, GET/PUT/DELETE /vms/{name}/backup-schedule; see
+// app/routers/backups.py) ----
 export async function fetchAllBackups() {
   return realFetch("/backups");
 }
@@ -249,7 +240,7 @@ export async function deleteIso(filename) {
   return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true`, { method: "DELETE" });
 }
 
-// ---- Disques importables (chantier 23 : import de VM depuis un fichier disque) ----
+// ---- Importable disks (importing a VM from a disk file) ----
 export async function fetchVmDisks() {
   return realFetch("/vm-disks");
 }
@@ -257,7 +248,7 @@ export async function deleteVmDisk(filename) {
   return realFetch(`/vm-disks/${encodeURIComponent(filename)}`, { method: "DELETE" });
 }
 
-// ---- Export de VM (chantier 23) ----
+// ---- VM export ----
 export async function fetchVmExports() {
   return realFetch("/vm-exports");
 }
@@ -272,7 +263,7 @@ export async function downloadVmExport(filename) {
   window.open(`/vm-exports/download?ticket=${encodeURIComponent(ticket)}`, "_blank");
 }
 
-// ---- Journal d'audit (reel : table audit_log, alimentee par chaque action) ----
+// ---- Audit journal (real: the audit_log table, fed by every action) ----
 export async function fetchAuditLog(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
@@ -285,7 +276,7 @@ export async function fetchAuditActions() {
   return realFetch("/audit/actions");
 }
 
-// ---- Automation : moteur de Jobs (réel : /jobs, voir app/routers/jobs.py, chantier 14) ----
+// ---- Automation: the job engine (real: /jobs, see app/routers/jobs.py) ----
 export async function fetchJobs() {
   return realFetch("/jobs");
 }
@@ -308,7 +299,7 @@ export async function fetchJobRun(runId) {
   return realFetch(`/jobs/runs/${runId}`);
 }
 
-// ---- Multi-nœuds (réel : /nodes, voir app/routers/nodes.py, chantier 15) ----
+// ---- Multi-node (real: /nodes, see app/routers/nodes.py) ----
 export async function fetchRemoteNodes() {
   return realFetch("/nodes");
 }
@@ -325,9 +316,10 @@ export async function deleteRemoteNode(name) {
   return realFetch(`/nodes/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
-// ---- Taches persistees (reel : table tasks, horodatage creation/debut/fin -
-// voir app/core/tasks.py). Remplace le fetchTasks() encore theorique referme
-// dans NodeTasksTab.jsx par un vrai GET /tasks filtrable/triable.
+// ---- Persisted tasks (real: the tasks table, with creation/start/end
+// timestamps; see app/core/tasks.py). Replaces the theoretical fetchTasks() that
+// was closed over in NodeTasksTab.jsx with a real, filterable and sortable
+// GET /tasks. ----
 export async function fetchTasks(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
@@ -340,8 +332,8 @@ export async function fetchTaskDetail(id) {
   return realFetch(`/tasks/${encodeURIComponent(id)}`);
 }
 
-// ---- Mise à jour d'Hyperlite depuis Git (réel : GET/POST /update/*, voir
-// app/routers/update.py — chantier 7) ----
+// ---- Hyperlite update from Git (real: GET/POST /update/*, see
+// app/routers/update.py) ----
 export async function fetchUpdateCheck() {
   return realFetch("/update/check");
 }
@@ -349,7 +341,7 @@ export async function applyUpdate() {
   return realFetch("/update/apply", { method: "POST" });
 }
 
-// ---- Utilisateurs (reels) ----
+// ---- Users (real) ----
 export async function fetchUsers() {
   return realFetch("/auth/users");
 }
@@ -363,10 +355,10 @@ export async function deleteUser(username) {
   return realFetch(`/auth/users/${encodeURIComponent(username)}`, { method: "DELETE" });
 }
 
-// ---- Actions VM (endpoints reels) ----
-// node (backlog 2026-09-18, actions VM multi-nœuds) : "local" ou omis =
-// hôte local (comportement historique inchangé), sinon le nom d'un nœud
-// distant enregistré -- même convention que fetchVMs()/migrateVM().
+// ---- VM actions (real endpoints) ----
+// node: "local" or omitted = the local host (the historical behaviour,
+// unchanged), otherwise the name of a registered remote node. The same
+// convention as fetchVMs()/migrateVM().
 export async function startVM(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/start${q}`, { method: "POST" });
@@ -389,13 +381,13 @@ export async function deleteVM(name, node = null) {
 export async function cloneVM(name, newName) {
   return realFetch(`/vms/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
-// Chantier 27 (migration a chaud) : sourceNode "local" (ou omis) = hote
-// local, meme convention que le reste (open_conn(node), fetchVMs...).
+// Live migration: sourceNode "local" (or omitted) = the local host, the same
+// convention as the rest (open_conn(node), fetchVMs...).
 export async function migrateVM(name, targetNode, sourceNode, ignorerVerifications = false) {
   const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, ignorer_verifications: ignorerVerifications }) });
 }
-// Diagnostic de compatibilite de cluster (mandat portabilite, chantier 6)
+// Cluster compatibility diagnostic
 export async function fetchMigrationCheck(name, targetNode, sourceNode) {
   const params = new URLSearchParams({ target_node: targetNode });
   if (sourceNode && sourceNode !== "local") params.set("node", sourceNode);
@@ -404,8 +396,8 @@ export async function fetchMigrationCheck(name, targetNode, sourceNode) {
 export async function fetchNodeCompatibility(nodeName) {
   return realFetch(`/nodes/${encodeURIComponent(nodeName)}/compatibility`);
 }
-// Chantier 17 (HA) : voir app/core/ha.py -- pas de fencing, recuperation
-// toujours declenchee par un admin, jamais automatique.
+// HA: see app/core/ha.py. There is no fencing, and recovery is always triggered by
+// an admin, never automatic.
 export async function fetchHaProtected() {
   return realFetch("/ha");
 }
@@ -419,9 +411,8 @@ export async function recoverHa(name, targetNode) {
   return realFetch(`/ha/${encodeURIComponent(name)}/recover`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
 }
 
-// Chantier 19 : suppression automatique des VM inactives (opt-in par VM,
-// voir app/core/vm_cleanup.py -- le compteur ne court que pendant que la
-// VM est arrêtée, jamais si elle est protégée HA).
+// Automatic deletion of inactive VMs (opt-in per VM, see app/core/vm_cleanup.py).
+// The counter only runs while the VM is stopped, and never if it is HA-protected.
 export async function fetchVMAutoCleanup(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/auto-cleanup`);
 }
@@ -431,7 +422,7 @@ export async function setVMAutoCleanup(name, inactiveDays) {
 export async function disableVMAutoCleanup(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/auto-cleanup`, { method: "DELETE" });
 }
-// Chantier 28 (notifications sortantes) : voir app/core/notifications.py.
+// Outgoing notifications: see app/core/notifications.py.
 export async function fetchNotifyEvents() {
   return realFetch("/notifications/events");
 }
@@ -451,10 +442,9 @@ export async function testNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}/test`, { method: "POST" });
 }
 
-// Chantier 20 (SSO OIDC) : voir app/core/sso.py / app/routers/sso.py.
-// fetchSsoStatus() est appele SANS jeton (ecran de connexion, personne
-// n'est encore authentifie) -- realFetch n'ajoute l'en-tete Authorization
-// que si un token est present, donc reutilisable tel quel ici.
+// OIDC SSO: see app/core/sso.py / app/routers/sso.py. fetchSsoStatus() is called
+// WITHOUT a token (login screen, nobody is authenticated yet); realFetch only adds
+// the Authorization header when a token is present, so it can be reused as is here.
 export async function fetchSsoStatus() {
   return realFetch("/auth/sso/status");
 }
@@ -475,8 +465,8 @@ export async function fetchVM(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}`);
 }
 
-// ---- Limites/réservations de ressources (réel : GET/PUT /vms/{name}/limits,
-// cgroups via libvirt schedulerParametersFlags/memoryParameters) ----
+// ---- Resource limits/reservations (real: GET/PUT /vms/{name}/limits, cgroups
+// through libvirt schedulerParametersFlags/memoryParameters) ----
 export async function fetchVMLimits(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/limits`);
 }
@@ -519,9 +509,9 @@ export async function createVolume(pool, name, sizeGb) {
 export async function fetchVolumes(pool) {
   return realFetch(`/storage/${encodeURIComponent(pool)}/volumes`);
 }
-// Chantier 26 (stockage partage) : node optionnel, meme convention que le
-// reste (fetchVMs, fetchStoragePools...) -- cree/supprime un pool sur un
-// noeud distant enregistre plutot que l'hote local.
+// Shared storage: node is optional, the same convention as the rest (fetchVMs,
+// fetchStoragePools...): it creates/deletes a pool on a registered remote node
+// instead of the local host.
 export async function createStoragePool(payload, node) {
   const qs = node ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/storage${qs}`, { method: "POST", ...jsonBody(payload) });
@@ -533,7 +523,7 @@ export async function deleteStoragePool(poolName, node, detacher = false) {
   return realFetch(`/storage/${encodeURIComponent(poolName)}?${params.toString()}`, { method: "DELETE" });
 }
 
-// ---- Console VNC / Terminal SSH (relais WebSocket reels) ----
+// ---- VNC console / SSH terminal (real WebSocket relays) ----
 export async function createConsoleTicket(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/console-ticket`, { method: "POST" });
 }
@@ -541,12 +531,12 @@ export async function createTerminalTicket(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
 
-// ---- Shell interactif sur l'hôte physique (admin uniquement, voir app/routers/host.py) ----
+// ---- Interactive shell on the physical host (admin only, see app/routers/host.py) ----
 export async function createHostTerminalTicket() {
   return realFetch("/host/terminal-ticket", { method: "POST" });
 }
 
-// ---- Snapshots (reels) ----
+// ---- Snapshots (real) ----
 export async function fetchSnapshots(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/snapshots`);
 }
@@ -560,7 +550,7 @@ export async function deleteSnapshot(name, snapName) {
   return realFetch(`/vms/${encodeURIComponent(name)}/snapshots/${encodeURIComponent(snapName)}`, { method: "DELETE" });
 }
 
-// ---- Templates (reels) ----
+// ---- Templates (real) ----
 export async function fetchTemplates() {
   return realFetch("/templates");
 }
@@ -574,7 +564,7 @@ export async function deleteTemplate(templateName) {
   return realFetch(`/templates/${encodeURIComponent(templateName)}?confirm=true`, { method: "DELETE" });
 }
 
-// ---- Permissions granulaires (reels) : Groupes, Pools, ACL ----
+// ---- Granular permissions (real): groups, pools, ACL ----
 export async function fetchGroups() {
   return realFetch("/groups");
 }
@@ -633,7 +623,7 @@ export async function deleteCustomRole(roleId) {
   return realFetch(`/acl/custom-roles/${roleId}`, { method: "DELETE" });
 }
 
-// ---- Conteneurs LXC (reel : GET/POST/DELETE /containers, chantier 18) ----
+// ---- LXC containers (real: GET/POST/DELETE /containers) ----
 export async function fetchContainers() {
   return realFetch("/containers");
 }
@@ -659,9 +649,8 @@ export async function createContainerTerminalTicket(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
 
-// Backlog 2026-09-18 : clonage + sauvegarde/restauration de conteneur
-// (pas de snapshot instantané possible, le pilote LXC de libvirt ne le
-// supporte pas -- voir app/core/container_builder.py).
+// Container clone and backup/restore (no instantaneous snapshot is possible, since
+// libvirt's LXC driver does not support it; see app/core/container_builder.py).
 export async function cloneContainer(name, newName) {
   return realFetch(`/containers/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
@@ -678,8 +667,8 @@ export async function restoreContainerBackup(id, newName = null) {
   return realFetch(`/containers/backups/${id}/restore`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
 
-// Chantier 30 (2FA + jetons API, 2026-09-17) -- en libre-service, chaque
-// utilisateur gere son propre compte (pas besoin d'etre admin).
+// Two-factor authentication and API tokens, self-service: each user manages their
+// own account (no need to be an admin).
 export async function setup2FA() {
   return realFetch("/auth/2fa/setup", { method: "POST" });
 }
@@ -699,7 +688,7 @@ export async function deleteApiToken(id) {
   return realFetch(`/auth/tokens/${id}`, { method: "DELETE" });
 }
 
-// ---- Compatibilite et capacites (mandat portabilite, chantiers 1/3/4) ----
+// ---- Compatibility and capabilities ----
 export async function fetchNodeCapabilitiesById(nodeId) {
   if (!nodeId || nodeId === "local") return realFetch("/host/capabilities");
   return realFetch(`/nodes/${encodeURIComponent(nodeId)}/capabilities`);

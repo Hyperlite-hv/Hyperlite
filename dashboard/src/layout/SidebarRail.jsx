@@ -4,37 +4,35 @@ import {
 } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
 
-// Rail de navigation façon Proxmox VE (calque sur DATACENTER_TABS,
-// CentralPanel.jsx -- une entree par section reellement disponible cote
-// Hyperlite, pas la liste complete de Proxmox qui n'existe pas ici).
-// Purement additif : ne remplace pas l'arbre Datacenter > Nœud > VM
-// (ResourceTree, juste en dessous dans la meme colonne depuis la refonte
-// 2026-09-17) qui reste la navigation/les raccourcis VM existants -- ce
-// rail ne fait que sauter directement a un onglet Datacenter donne sans
-// passer par l'arbre.
+// Proxmox VE-style navigation rail (modelled on DATACENTER_TABS, CentralPanel.jsx:
+// one entry per section actually available in Hyperlite, not the full Proxmox
+// list, which does not exist here). Purely additive: it does not replace the
+// Datacenter > Node > VM tree (ResourceTree, just below in the same column) which
+// remains the existing navigation/VM shortcuts. This rail only jumps directly to a
+// given Datacenter tab without going through the tree.
 const TOP_ITEMS = [
-  { tab: "summary", label: "Tableau de bord", Icon: LayoutDashboard },
-  { tab: "activity", label: "Activité récente", Icon: Activity },
+  { tab: "summary", label: "Dashboard", Icon: LayoutDashboard },
+  { tab: "activity", label: "Recent activity", Icon: Activity },
 ];
 const GROUPS = [
   {
-    label: "Ressources",
+    label: "Resources",
     items: [
-      { tab: "containers", label: "Conteneurs", Icon: Box },
-      { tab: "storage", label: "Stockage", Icon: HardDrive },
-      { tab: "reseau", label: "Réseau", Icon: Network },
-      { tab: "templates", label: "Modèles / ISO", Icon: Layers },
-      { tab: "nodes", label: "Nœuds", Icon: Server },
+      { tab: "containers", label: "Containers", Icon: Box },
+      { tab: "storage", label: "Storage", Icon: HardDrive },
+      { tab: "reseau", label: "Network", Icon: Network },
+      { tab: "templates", label: "Templates / ISO", Icon: Layers },
+      { tab: "nodes", label: "Nodes", Icon: Server },
       { tab: "ha", label: "HA", Icon: LifeBuoy },
-      { tab: "compat", label: "Compatibilité", Icon: ClipboardCheck },
+      { tab: "compat", label: "Compatibility", Icon: ClipboardCheck },
     ],
   },
   {
-    label: "Exploitation",
+    label: "Operations",
     items: [
-      { tab: "backups", label: "Sauvegardes", Icon: CalendarClock },
+      { tab: "backups", label: "Backups", Icon: CalendarClock },
       { tab: "exports", label: "Exports", Icon: PackageOpen },
-      { tab: "automation", label: "Automatisation", Icon: Workflow },
+      { tab: "automation", label: "Automation", Icon: Workflow },
       { tab: "permissions", label: "Permissions", Icon: ShieldCheck },
       { tab: "journal", label: "Journal", Icon: ScrollText },
       { tab: "notifications", label: "Notifications", Icon: Bell },

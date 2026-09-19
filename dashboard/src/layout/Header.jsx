@@ -13,10 +13,8 @@ function initials(name) {
   return name.slice(0, 2).toUpperCase();
 }
 
-// Fil d'Ariane "Datacenter / <selection>" (refonte 2026-09-17, calque sur la
-// reference validee) -- purement indicatif, ne navigue pas (contrairement au
-// selecteur de la reference qui suppose un seul niveau ; ici la vraie
-// navigation reste l'arbre Datacenter, voir Sidebar.jsx/ResourceTree.jsx).
+// "Datacenter / <selection>" breadcrumb: purely informational, does not navigate
+// (the real navigation stays the Datacenter tree, see Sidebar.jsx/ResourceTree.jsx).
 function breadcrumbLabel(selection, nodes, vms) {
   if (selection.type === "node") return nodes.find((n) => n.id === selection.id)?.nom || selection.id;
   if (selection.type === "vm") return vms.find((v) => v.nom === selection.id)?.nom || selection.id;
@@ -29,15 +27,12 @@ export default function Header() {
   const [containerWizardOpen, setContainerWizardOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
-  // Un seul et meme state pour les deux menus deroulants (au lieu de deux
-  // booleens independants) -- BUG REEL trouve en testant sur un vrai
-  // navigateur (Playwright) : avec notifOpen/userOpen separes et une
-  // fermeture uniquement sur onMouseLeave, ouvrir la cloche puis l'avatar
-  // sans que la souris ne "quitte" proprement le premier menu le laissait
-  // ouvert -- les deux dropdowns pouvaient rester affiches en meme temps,
-  // superposes. Un seul menu ouvert a la fois, + fermeture au clic
-  // exterieur et a la touche Echap (plus robuste que onMouseLeave, qui ne
-  // marche pas du tout au clavier/tactile).
+  // A single state for both dropdown menus (instead of two independent booleans).
+  // With separate notifOpen/userOpen and closing only on onMouseLeave, opening the
+  // bell then the avatar without the mouse cleanly "leaving" the first menu left it
+  // open: both dropdowns could stay displayed at the same time, overlapping. Only
+  // one menu is open at a time, plus closing on outside click and on the Escape key
+  // (more robust than onMouseLeave, which does not work at all with keyboard/touch).
   const [openMenu, setOpenMenu] = useState(null); // null | "notif" | "user"
   const menuAreaRef = useRef(null);
 
@@ -75,7 +70,7 @@ export default function Header() {
       <button
         className="rounded-lg p-2 text-anthracite-300 hover:bg-anthracite-700 hover:text-anthracite-100 md:hidden"
         onClick={toggleMobileSidebar}
-        aria-label="Ouvrir la navigation"
+        aria-label="Open navigation"
       >
         <Menu size={19} />
       </button>
@@ -101,12 +96,12 @@ export default function Header() {
       <div className="flex items-center gap-2 shrink-0" ref={menuAreaRef}>
         {isAdmin && (
           <button className="btn-primary !rounded-full" onClick={() => setWizardOpen(true)}>
-            <Plus size={15} /> <span className="hidden sm:inline">Créer VM</span>
+            <Plus size={15} /> <span className="hidden sm:inline">Create VM</span>
           </button>
         )}
         {isAdmin && (
           <button className="btn-secondary hidden sm:inline-flex" onClick={() => setContainerWizardOpen(true)}>
-            <Box size={15} /> Créer conteneur
+            <Box size={15} /> Create container
           </button>
         )}
 
@@ -124,8 +119,8 @@ export default function Header() {
           </button>
           {openMenu === "notif" && (
             <div className="absolute right-0 mt-1 w-72 card z-50 py-1">
-              <div className="px-3 py-1.5 text-xs font-semibold text-anthracite-300">Tâches récentes</div>
-              {recentTasks.length === 0 && <div className="px-3 py-2 text-sm text-anthracite-400">Aucune tâche.</div>}
+              <div className="px-3 py-1.5 text-xs font-semibold text-anthracite-300">Recent tasks</div>
+              {recentTasks.length === 0 && <div className="px-3 py-2 text-sm text-anthracite-400">No tasks.</div>}
               {recentTasks.map((t) => (
                 <div key={t.id} className="px-3 py-1.5 text-sm">
                   <div className="flex justify-between text-anthracite-100">
@@ -151,33 +146,33 @@ export default function Header() {
           </button>
           {openMenu === "user" && (
             <div className="absolute right-0 mt-1 w-48 card z-50 py-1">
-              <div className="px-3 py-1.5 text-sm text-anthracite-100">{username} <span className="text-xs text-anthracite-400">({isAdmin ? "admin" : "observateur"})</span></div>
+              <div className="px-3 py-1.5 text-sm text-anthracite-100">{username} <span className="text-xs text-anthracite-400">({isAdmin ? "admin" : "observer"})</span></div>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
                 onClick={toggleTheme}
               >
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-                {theme === "dark" ? "Mode clair" : "Mode sombre"}
+                {theme === "dark" ? "Light mode" : "Dark mode"}
               </button>
               {isAdmin && (
                 <button
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
                   onClick={() => { setUpdateOpen(true); setOpenMenu(null); }}
                 >
-                  <RefreshCw size={14} /> Vérifier les mises à jour
+                  <RefreshCw size={14} /> Check for updates
                 </button>
               )}
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
                 onClick={() => { setSecurityOpen(true); setOpenMenu(null); }}
               >
-                <ShieldCheck size={14} /> Sécurité du compte
+                <ShieldCheck size={14} /> Account security
               </button>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-anthracite-200 hover:bg-anthracite-700"
                 onClick={logout}
               >
-                <LogOut size={14} /> Se déconnecter
+                <LogOut size={14} /> Sign out
               </button>
             </div>
           )}

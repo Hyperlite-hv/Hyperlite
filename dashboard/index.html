@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-    <!-- Applique le theme memorise avant le premier paint (evite un flash
-         clair->sombre au chargement si l'utilisateur avait choisi le mode
-         sombre). Mode clair = defaut si rien n'est enregistre. -->
+    <!-- Applies the saved theme before the first paint (avoids a light->dark
+         flash on load if the user had chosen dark mode). Light mode is the
+         default when nothing is saved. -->
     <script>
       try {
         if (localStorage.getItem("hyperlite-theme") === "dark") {

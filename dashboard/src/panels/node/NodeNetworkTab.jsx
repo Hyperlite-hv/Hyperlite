@@ -1,7 +1,7 @@
 import { useInfraStore } from "../../store/useInfraStore";
 
-// Correspond a GET /networks, deja fonctionnel cote backend reel (un seul host
-// libvirt aujourd'hui, donc la liste est la meme quel que soit le node choisi).
+// Matches GET /networks, already working on the real backend (a single libvirt
+// host today, so the list is the same whichever node is chosen).
 export default function NodeNetworkTab({ resource: node }) {
   const networks = useInfraStore((s) => s.networks);
   if (!node) return null;
@@ -9,7 +9,7 @@ export default function NodeNetworkTab({ resource: node }) {
   return (
     <div className="card divide-y divide-anthracite-600">
       <div className="grid grid-cols-4 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
-        <span>Nom</span><span>Type</span><span>Pont</span><span>Réseau</span>
+        <span>Name</span><span>Type</span><span>Bridge</span><span>Network</span>
       </div>
       {networks.map((n) => (
         <div key={n.nom} className="grid grid-cols-4 gap-2 px-4 py-2.5 text-sm">

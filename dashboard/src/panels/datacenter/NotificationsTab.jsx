@@ -12,11 +12,10 @@ const EMPTY_EMAIL = {
   from_addr: "", to_addr: "", use_tls: true,
 };
 
-// Chantier 28 : canaux de notification sortante (webhook generique ou
-// email/SMTP) -- geres ici, declenches automatiquement par le backend
-// (voir app/core/audit.py::log_action, point d'entree unique) pour les
-// evenements listes plus bas, pas besoin de configurer quoi que ce soit
-// evenement par evenement au-dela de la case a cocher par canal.
+// Outgoing notification channels (generic webhook or email/SMTP): managed here,
+// triggered automatically by the backend (see app/core/audit.py::log_action, the
+// single entry point) for the events listed below. Nothing needs to be configured
+// event by event beyond the per-channel checkbox.
 export default function NotificationsTab() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [events, setEvents] = useState({});
@@ -29,7 +28,7 @@ export default function NotificationsTab() {
 
   const reload = useCallback(async () => {
     try { setChannels(await fetchNotificationChannels()); }
-    catch (e) { pushToast({ kind: "error", title: "Erreur", message: e.message }); }
+    catch (e) { pushToast({ kind: "error", title: "Error", message: e.message }); }
   }, [pushToast]);
 
   useEffect(() => {
@@ -53,13 +52,13 @@ export default function NotificationsTab() {
             use_tls: form.use_tls,
           };
       await createNotificationChannel({ type: form.type, name: form.name, config, events: formEvents });
-      pushToast({ kind: "success", title: "Canal créé", message: form.name });
+      pushToast({ kind: "success", title: "Channel created", message: form.name });
       setFormOpen(false);
       setForm(EMPTY_WEBHOOK);
       setFormEvents([]);
       reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de la création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally {
       setBusy(false);
     }
@@ -70,18 +69,18 @@ export default function NotificationsTab() {
       await setNotificationChannelEnabled(channel.id, !channel.enabled);
       reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     }
   }
 
   async function handleDelete(channel) {
-    if (!window.confirm(`Supprimer le canal '${channel.name}' ?`)) return;
+    if (!window.confirm(`Delete the channel '${channel.name}'?`)) return;
     try {
       await deleteNotificationChannel(channel.id);
-      pushToast({ kind: "success", title: "Canal supprimé", message: channel.name });
+      pushToast({ kind: "success", title: "Channel deleted", message: channel.name });
       reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     }
   }
 
@@ -89,9 +88,9 @@ export default function NotificationsTab() {
     setTestingId(channel.id);
     try {
       await testNotificationChannel(channel.id);
-      pushToast({ kind: "success", title: "Test envoyé", message: `Vérifiez ${channel.type === "email" ? "la boîte mail" : "le récepteur du webhook"}` });
+      pushToast({ kind: "success", title: "Test sent", message: `Check ${channel.type === "email" ? "the mailbox" : "the webhook receiver"}` });
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec du test", message: e.message });
+      pushToast({ kind: "error", title: "Test failed", message: e.message });
     } finally {
       setTestingId(null);
     }
@@ -102,10 +101,10 @@ export default function NotificationsTab() {
       <div className="card">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-anthracite-600">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
-            <Bell size={15} /> Canaux de notification
+            <Bell size={15} /> Notification channels
           </h3>
           <button className="btn-secondary" onClick={() => setFormOpen((o) => !o)}>
-            <Plus size={14} /> Ajouter un canal
+            <Plus size={14} /> Add a channel
           </button>
         </div>
 
@@ -123,20 +122,20 @@ export default function NotificationsTab() {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-anthracite-300">Nom du canal</label>
-              <input className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="ex. Discord admin" />
+              <label className="text-xs font-medium text-anthracite-300">Channel name</label>
+              <input className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Discord admin" />
             </div>
 
             {form.type === "webhook" ? (
               <div>
-                <label className="text-xs font-medium text-anthracite-300">URL du webhook</label>
+                <label className="text-xs font-medium text-anthracite-300">Webhook URL</label>
                 <input className="input mt-1" required value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://discord.com/api/webhooks/..." />
               </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-anthracite-300">Serveur SMTP</label>
+                    <label className="text-xs font-medium text-anthracite-300">SMTP server</label>
                     <input className="input mt-1" required value={form.smtp_host} onChange={(e) => setForm({ ...form, smtp_host: e.target.value })} placeholder="smtp.example.com" />
                   </div>
                   <div>
@@ -146,22 +145,22 @@ export default function NotificationsTab() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-anthracite-300">Utilisateur SMTP</label>
+                    <label className="text-xs font-medium text-anthracite-300">SMTP user</label>
                     <input className="input mt-1" value={form.smtp_user} onChange={(e) => setForm({ ...form, smtp_user: e.target.value })} />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-anthracite-300">Mot de passe SMTP</label>
+                    <label className="text-xs font-medium text-anthracite-300">SMTP password</label>
                     <input className="input mt-1" type="password" value={form.smtp_password} onChange={(e) => setForm({ ...form, smtp_password: e.target.value })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-anthracite-300">Expéditeur (From)</label>
-                    <input className="input mt-1" required value={form.from_addr} onChange={(e) => setForm({ ...form, from_addr: e.target.value })} placeholder="hyperlite@exemple.com" />
+                    <label className="text-xs font-medium text-anthracite-300">Sender (From)</label>
+                    <input className="input mt-1" required value={form.from_addr} onChange={(e) => setForm({ ...form, from_addr: e.target.value })} placeholder="hyperlite@example.com" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-anthracite-300">Destinataire (To)</label>
-                    <input className="input mt-1" required value={form.to_addr} onChange={(e) => setForm({ ...form, to_addr: e.target.value })} placeholder="toi@exemple.com" />
+                    <label className="text-xs font-medium text-anthracite-300">Recipient (To)</label>
+                    <input className="input mt-1" required value={form.to_addr} onChange={(e) => setForm({ ...form, to_addr: e.target.value })} placeholder="you@example.com" />
                   </div>
                 </div>
               </>
@@ -169,7 +168,7 @@ export default function NotificationsTab() {
 
             <div>
               <label className="text-xs font-medium text-anthracite-300 mb-1.5 block">
-                Événements notifiés (aucune case cochée = tous)
+                Notified events (no box checked = all)
               </label>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(events).map(([key, label]) => (
@@ -184,16 +183,16 @@ export default function NotificationsTab() {
             </div>
 
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn-secondary" onClick={() => setFormOpen(false)}>Annuler</button>
-              <button type="submit" disabled={busy} className="btn-primary">{busy ? "Création..." : "Créer"}</button>
+              <button type="button" className="btn-secondary" onClick={() => setFormOpen(false)}>Cancel</button>
+              <button type="submit" disabled={busy} className="btn-primary">{busy ? "Creating..." : "Create"}</button>
             </div>
           </form>
         )}
 
         <div className="divide-y divide-anthracite-600">
-          {channels == null && <div className="px-4 py-3 text-sm text-anthracite-400">Chargement...</div>}
+          {channels == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
           {channels && channels.length === 0 && (
-            <div className="px-4 py-6 text-sm text-anthracite-400 text-center">Aucun canal configuré.</div>
+            <div className="px-4 py-6 text-sm text-anthracite-400 text-center">No channels configured.</div>
           )}
           {channels && channels.map((c) => (
             <div key={c.id} className="flex items-center gap-3 px-4 py-3 text-sm">
@@ -201,15 +200,15 @@ export default function NotificationsTab() {
               <div className="min-w-0 flex-1">
                 <div className="text-anthracite-100 font-medium truncate">{c.name}</div>
                 <div className="text-anthracite-400 text-xs truncate">
-                  {c.events.length === 0 ? "Tous les événements" : c.events.map((e) => events[e] || e).join(", ")}
+                  {c.events.length === 0 ? "All events" : c.events.map((e) => events[e] || e).join(", ")}
                 </div>
               </div>
-              {!c.enabled && <span className="text-xs text-anthracite-500">désactivé</span>}
+              {!c.enabled && <span className="text-xs text-anthracite-500">disabled</span>}
               <button className="btn-secondary !py-1" onClick={() => handleTest(c)} disabled={testingId === c.id}>
                 <Send size={13} /> {testingId === c.id ? "..." : "Tester"}
               </button>
               <button className="btn-secondary !py-1" onClick={() => handleToggle(c)}>
-                <Power size={13} /> {c.enabled ? "Désactiver" : "Activer"}
+                <Power size={13} /> {c.enabled ? "Disable" : "Enable"}
               </button>
               <button className="btn-danger !py-1" onClick={() => handleDelete(c)}>
                 <Trash2 size={13} />

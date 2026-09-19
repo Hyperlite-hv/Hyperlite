@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchVMMetrics } from "../api/client";
 
-// Interroge le vrai GET /vms/{name}/metrics (deja fonctionnel cote backend,
-// chaque appel prend ~0.4s car il echantillonne CPU/disque/reseau a deux
-// instants pour calculer un debit). Accumule les points recus dans une
-// fenetre glissante pour tracer un historique -- PAS PERSISTE : redemarrer la
-// page repart de zero, en attendant l'item 5 de la roadmap (historique
-// persiste en base cote backend).
+// Polls the real GET /vms/{name}/metrics (each call takes ~0.4s because it
+// samples CPU/disk/network at two instants to compute a rate). Accumulates the
+// received points in a sliding window to draw a history. NOT PERSISTED: reloading
+// the page starts from zero (the persisted history lives in MetricsHistoryCard).
 const MAX_POINTS = 120;
 const POLL_MS = 4000;
 

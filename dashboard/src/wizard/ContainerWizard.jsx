@@ -3,11 +3,10 @@ import { X, Check, Star } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
 import { createContainer, searchDockerHub } from "../api/client";
 
-// Volontairement un seul ecran (pas d'etapes comme VMWizard) : un conteneur
-// se cree avec beaucoup moins de choix qu'une VM (pas d'ISO/OS a choisir,
-// une seule image de base pour l'instant -- voir app/core/
-// container_builder.py, chantier 18). Accessible directement depuis le
-// bouton "Créer conteneur" du Header, a cote de "Créer VM".
+// Deliberately a single screen (no steps like VMWizard): a container is created
+// with far fewer choices than a VM (no ISO/OS to pick). See
+// app/core/container_builder.py. Reachable directly from the "Create container"
+// button of the Header, next to "Create VM".
 function initialForm(networks) {
   return { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: networks[0]?.nom || "default", image: "" };
 }
@@ -48,12 +47,12 @@ export default function ContainerWizard({ open, onClose }) {
     try {
       await createContainer(form);
       completeTask(taskId, "termine");
-      pushToast({ kind: "success", title: "Conteneur créé", message: `${form.name} — construction du système en cours` });
+      pushToast({ kind: "success", title: "Container created", message: `${form.name}: building the system` });
       onClose();
       reset();
     } catch (e) {
       completeTask(taskId, "echec", e.message);
-      pushToast({ kind: "error", title: "Échec de création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally {
       setBusy(false);
     }
@@ -65,48 +64,47 @@ export default function ContainerWizard({ open, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="card w-full max-w-md overflow-hidden">
         <div className="flex items-center justify-between border-b border-anthracite-600 px-5 py-3">
-          <h2 className="text-sm font-semibold text-anthracite-100">Créer un conteneur</h2>
+          <h2 className="text-sm font-semibold text-anthracite-100">Create a container</h2>
           <button onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>
         </div>
 
         <div className="space-y-3 px-5 py-4">
           <p className="text-xs text-anthracite-500">
-            Conteneur LXC, accès terminal par clé SSH d'automatisation.
-            La toute première création d'une image donnée prépare sa base (quelques minutes) ; les suivantes sont rapides.
+            LXC container, terminal access through the automation SSH key. The very first creation of a given image prepares its base (a few minutes); the following ones are fast.
           </p>
 
           <div>
-            <label className="text-xs font-medium text-anthracite-300">Nom</label>
+            <label className="text-xs font-medium text-anthracite-300">Name</label>
             <input className="input mt-1 w-full" value={form.name} onChange={(e) => patch({ name: e.target.value })} autoFocus />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-anthracite-300">Source de l'image</label>
+            <label className="text-xs font-medium text-anthracite-300">Image source</label>
             <div className="mt-1 flex gap-2">
               <button
                 type="button"
                 className={form.image === "" ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
                 onClick={() => patch({ image: "" })}
               >
-                Debian 12 (base locale)
+                Debian 12 (local base)
               </button>
               <button
                 type="button"
                 className={form.image !== "" ? "btn-primary flex-1 !py-1.5 text-xs" : "btn-secondary flex-1 !py-1.5 text-xs"}
                 onClick={() => patch({ image: form.image || "alpine:3.19" })}
               >
-                Image Docker Hub
+                Docker Hub image
               </button>
             </div>
             {form.image !== "" && (
               <div className="mt-2 space-y-2">
                 <input
                   className="input w-full"
-                  placeholder="Rechercher sur Docker Hub (ex. apache, nginx, postgres...)"
+                  placeholder="Search Docker Hub (e.g. apache, nginx, postgres...)"
                   value={dockerQuery}
                   onChange={(e) => setDockerQuery(e.target.value)}
                 />
-                {searching && <p className="text-xs text-anthracite-500">Recherche...</p>}
+                {searching && <p className="text-xs text-anthracite-500">Searching...</p>}
                 {dockerResults.length > 0 && (
                   <div className="max-h-44 overflow-y-auto rounded-md border border-anthracite-600 divide-y divide-anthracite-600">
                     {dockerResults.map((r) => (
@@ -119,7 +117,7 @@ export default function ContainerWizard({ open, onClose }) {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 text-sm text-anthracite-100">
                             <span className="truncate">{r.nom}</span>
-                            {r.officielle && <span className="shrink-0 rounded bg-accent-blue/20 px-1 text-[10px] text-accent-blue">officielle</span>}
+                            {r.officielle && <span className="shrink-0 rounded bg-accent-blue/20 px-1 text-[10px] text-accent-blue">official</span>}
                           </div>
                           {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
                         </div>
@@ -131,17 +129,16 @@ export default function ContainerWizard({ open, onClose }) {
                   </div>
                 )}
                 <div>
-                  <label className="text-xs font-medium text-anthracite-300">Image sélectionnée</label>
+                  <label className="text-xs font-medium text-anthracite-300">Selected image</label>
                   <input
                     className="input mt-1 w-full"
-                    placeholder="ex. ubuntu:22.04, alpine:3.19, debian:12"
+                    placeholder="e.g. ubuntu:22.04, alpine:3.19, debian:12"
                     value={form.image}
                     onChange={(e) => patch({ image: e.target.value })}
                   />
                 </div>
                 <p className="text-[11px] text-anthracite-500">
-                  Cherchez puis choisissez une image, ou saisissez directement une référence Docker Hub (ou tout
-                  registre OCI) — l'image est tirée puis dotée de SSH/sudo automatiquement.
+                  Search then pick an image, or type a Docker Hub reference (or any OCI registry) directly: the image is pulled and then given SSH/sudo automatically.
                 </p>
               </div>
             )}
@@ -153,13 +150,13 @@ export default function ContainerWizard({ open, onClose }) {
               <input className="input mt-1 w-full" type="number" min={1} max={16} value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
             </div>
             <div>
-              <label className="text-xs font-medium text-anthracite-300">RAM (Mo)</label>
+              <label className="text-xs font-medium text-anthracite-300">RAM (MB)</label>
               <input className="input mt-1 w-full" type="number" min={128} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-medium text-anthracite-300">Réseau</label>
+            <label className="text-xs font-medium text-anthracite-300">Network</label>
             <select className="input mt-1 w-full" value={form.network} onChange={(e) => patch({ network: e.target.value })}>
               {networks.length === 0 && <option value="default">default</option>}
               {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom}</option>)}
@@ -168,20 +165,20 @@ export default function ContainerWizard({ open, onClose }) {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs font-medium text-anthracite-300">Utilisateur</label>
+              <label className="text-xs font-medium text-anthracite-300">User</label>
               <input className="input mt-1 w-full" value={form.username} onChange={(e) => patch({ username: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs font-medium text-anthracite-300">Mot de passe</label>
+              <label className="text-xs font-medium text-anthracite-300">Password</label>
               <input className="input mt-1 w-full" type="password" value={form.password} onChange={(e) => patch({ password: e.target.value })} />
             </div>
           </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-anthracite-600 px-5 py-3">
-          <button className="btn-secondary" onClick={() => { onClose(); reset(); }}>Annuler</button>
+          <button className="btn-secondary" onClick={() => { onClose(); reset(); }}>Cancel</button>
           <button className="btn-primary" disabled={!canCreate} onClick={handleCreate}>
-            <Check size={14} /> {busy ? "Création..." : "Créer le conteneur"}
+            <Check size={14} /> {busy ? "Creating..." : "Create the container"}
           </button>
         </div>
       </div>

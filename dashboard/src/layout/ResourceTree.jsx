@@ -3,7 +3,7 @@ import ResourceTreeNode from "./ResourceTreeNode";
 import { useInfraStore } from "../store/useInfraStore";
 
 const FILTERS = [
-  { id: "server", label: "Serveur" },
+  { id: "server", label: "Server" },
   { id: "pool", label: "Pool" },
 ];
 
@@ -31,7 +31,7 @@ function buildByPool(vms, storagePools) {
   }));
 }
 
-// Elague l'arbre : un noeud survit si son libelle matche ou si un descendant survit.
+// Prunes the tree: a node survives if its label matches or if a descendant survives.
 function filterTree(node, query) {
   if (!query) return node;
   const q = query.toLowerCase();

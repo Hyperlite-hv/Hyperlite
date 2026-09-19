@@ -7,10 +7,8 @@ import { fetchHostMetricsHistory } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { formatUptime, formatMo, formatGo } from "../../utils/format";
 
-// CPU/RAM reels via GET /host/metrics/history (collecte continue, chantier
-// 10) -- meme source que NodeSystemTab.jsx, pas de donnee simulee : avant le
-// chantier 10 cette page affichait un avertissement "pas encore expose",
-// desormais perime.
+// Real CPU/RAM through GET /host/metrics/history (continuous collection), the
+// same source as NodeSystemTab.jsx, no simulated data.
 export default function NodeSummaryTab({ resource: node }) {
   const vms = useInfraStore((s) => s.vms);
   const [latest, setLatest] = useState(null);
@@ -40,48 +38,48 @@ export default function NodeSummaryTab({ resource: node }) {
           colorClass="text-accent-blue"
         />
         <GaugeRing
-          label="Mémoire" ratio={ramRatio}
-          valueLabel={latest?.mem_total_mb ? `${Math.round(latest.mem_used_mb)} / ${Math.round(latest.mem_total_mb)} Mo` : "n/a"}
+          label="Memory" ratio={ramRatio}
+          valueLabel={latest?.mem_total_mb ? `${Math.round(latest.mem_used_mb)} / ${Math.round(latest.mem_total_mb)} MB` : "n/a"}
           colorClass="text-accent-orange"
         />
         {diskRatio != null ? (
-          <GaugeRing label="Stockage" ratio={diskRatio} valueLabel={`${formatGo(node.stockage_utilise_go)} / ${formatGo(node.stockage_total_go)}`} colorClass="text-accent-green" />
+          <GaugeRing label="Storage" ratio={diskRatio} valueLabel={`${formatGo(node.stockage_utilise_go)} / ${formatGo(node.stockage_total_go)}`} colorClass="text-accent-green" />
         ) : (
-          <GaugeRing label="Stockage" ratio={null} />
+          <GaugeRing label="Storage" ratio={null} />
         )}
       </div>
 
       <div className="card p-5">
-        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Statut</h3>
+        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Status</h3>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div><dt className="text-anthracite-400 text-xs">Uptime</dt><dd className="text-anthracite-100">{formatUptime(node.uptime_s)}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">RAM disponible</dt><dd className="text-anthracite-100">{node.memoire_disponible_mo != null ? formatMo(node.memoire_disponible_mo) : "--"}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">Adresse IP</dt><dd className="text-anthracite-100">{node.ip || "--"}</dd></div>
+          <div><dt className="text-anthracite-400 text-xs">Available RAM</dt><dd className="text-anthracite-100">{node.memoire_disponible_mo != null ? formatMo(node.memoire_disponible_mo) : "--"}</dd></div>
+          <div><dt className="text-anthracite-400 text-xs">IP address</dt><dd className="text-anthracite-100">{node.ip || "--"}</dd></div>
           <div><dt className="text-anthracite-400 text-xs">Version</dt><dd className="text-anthracite-100">{node.version || "--"}</dd></div>
         </dl>
       </div>
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          <span className="text-[15px] font-semibold text-anthracite-100">Machines virtuelles</span>
+          <span className="text-[15px] font-semibold text-anthracite-100">Virtual machines</span>
           <span className="font-mono text-xs text-anthracite-400">{nodeVms.length}</span>
           <div className="ml-auto flex gap-0.5 rounded-md border border-anthracite-600 bg-anthracite-900 p-0.5">
             <button
               onClick={() => setView("cards")}
               className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${view === "cards" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
             >
-              <LayoutGrid size={13} /> Cartes
+              <LayoutGrid size={13} /> Cards
             </button>
             <button
               onClick={() => setView("table")}
               className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${view === "table" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
             >
-              <Table2 size={13} /> Vue tableau
+              <Table2 size={13} /> Table view
             </button>
           </div>
         </div>
         {nodeVms.length === 0 ? (
-          <div className="card p-4 text-sm text-anthracite-400">Aucune VM sur ce nœud.</div>
+          <div className="card p-4 text-sm text-anthracite-400">No VMs on this node.</div>
         ) : view === "table" ? (
           <VMTable vms={nodeVms} />
         ) : (

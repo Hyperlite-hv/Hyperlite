@@ -1,7 +1,5 @@
-// Charge xterm.js + addon-fit (vendorises sous public/xterm, copies de
-// app/static/xterm) a la demande, en variables globales UMD (window.Terminal,
-// window.FitAddon.FitAddon) -- memes fichiers que le terminal SSH deja
-// fonctionnel du front vanilla-JS.
+// Loads xterm.js + addon-fit (vendored under public/xterm) on demand, as UMD
+// globals (window.Terminal, window.FitAddon.FitAddon).
 let loaded = false;
 let loading = null;
 
@@ -20,10 +18,10 @@ export function ensureXtermLoaded() {
       const s2 = document.createElement("script");
       s2.src = "/xterm/addon-fit.js";
       s2.onload = () => { loaded = true; resolve(); };
-      s2.onerror = () => reject(new Error("Impossible de charger l'addon de redimensionnement du terminal."));
+      s2.onerror = () => reject(new Error("Unable to load the terminal resize addon."));
       document.head.appendChild(s2);
     };
-    s1.onerror = () => reject(new Error("Impossible de charger xterm.js."));
+    s1.onerror = () => reject(new Error("Unable to load xterm.js."));
     document.head.appendChild(s1);
   });
   return loading;

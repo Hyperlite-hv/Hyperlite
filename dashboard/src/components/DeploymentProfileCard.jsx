@@ -3,10 +3,10 @@ import { fetchHostProfile, setHostProfile, setHostAllocation } from "../api/clie
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 import { useInfraStore } from "../store/useInfraStore";
 
-const SOURCE = { detecte: "détecté", choisi: "choisi par un admin", configuration: "forcé par HYPERLITE_PROFILE" };
+const SOURCE = { detecte: "detected", choisi: "chosen by an admin", configuration: "forced by HYPERLITE_PROFILE" };
 
-// Profils de deploiement (mandat portabilite, chantier 5) : GET/PUT
-// /host/profile. Ce sont des reglages par defaut, pas des produits differents.
+// Deployment profiles: GET/PUT /host/profile. These are default settings, not
+// different products.
 export default function DeploymentProfileCard() {
   const isAdmin = useAuthStore(selectIsAdmin);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -19,9 +19,9 @@ export default function DeploymentProfileCard() {
     setBusy(true);
     try {
       setData(await setHostProfile(profil));
-      pushToast({ kind: "success", title: "Profil mis à jour", message: profil === "auto" ? "Détection automatique" : profil });
+      pushToast({ kind: "success", title: "Profile updated", message: profil === "auto" ? "Automatic detection" : profil });
     } catch (e) {
-      pushToast({ kind: "error", title: "Changement de profil impossible", message: e.message });
+      pushToast({ kind: "error", title: "Profile change impossible", message: e.message });
     } finally { setBusy(false); }
   }, [pushToast]);
 
@@ -29,9 +29,9 @@ export default function DeploymentProfileCard() {
     setBusy(true);
     try {
       setData(await setHostAllocation(politique));
-      pushToast({ kind: "success", title: "Politique d'allocation mise à jour", message: politique });
+      pushToast({ kind: "success", title: "Allocation policy updated", message: politique });
     } catch (e) {
-      pushToast({ kind: "error", title: "Changement impossible", message: e.message });
+      pushToast({ kind: "error", title: "Change impossible", message: e.message });
     } finally { setBusy(false); }
   }, [pushToast]);
 
@@ -39,13 +39,13 @@ export default function DeploymentProfileCard() {
   const alloc = data.allocation;
   const allocForced = alloc.source === "configuration";
   const forced = data.source === "configuration";
-  const options = [["auto", `Auto (recommandé : ${data.profils[data.recommande].libelle})`], ...Object.entries(data.profils).map(([k, p]) => [k, p.libelle])];
+  const options = [["auto", `Auto (recommended: ${data.profils[data.recommande].libelle})`], ...Object.entries(data.profils).map(([k, p]) => [k, p.libelle])];
 
   return (
     <div className="card">
       <div className="px-4 py-3 border-b border-anthracite-600 flex items-center justify-between gap-4">
         <div className="text-sm font-semibold text-anthracite-100">
-          Profil de déploiement : {data.profils[data.actif].libelle}
+          Deployment profile: {data.profils[data.actif].libelle}
           <span className="ml-2 text-xs font-normal text-anthracite-300">({SOURCE[data.source]})</span>
         </div>
         <select
@@ -60,20 +60,19 @@ export default function DeploymentProfileCard() {
       <div className="px-4 py-3 text-sm text-anthracite-300 space-y-1">
         <p>{data.reglages.description}</p>
         <p className="font-mono text-xs text-anthracite-100">
-          RAM allouable à une VM : {Math.round(data.reglages.memory_host_share * 100)}% · disque : {Math.round(data.reglages.disk_free_share * 100)}% du libre · métriques toutes les {data.reglages.metrics_interval_s}s ·
-          VM par défaut : {data.vm_defaults_effectifs.vcpu} vCPU / {data.vm_defaults_effectifs.memory_mb} Mo / {data.vm_defaults_effectifs.disk_gb} Go
+          RAM allocatable to a VM: {Math.round(data.reglages.memory_host_share * 100)}% · disk: {Math.round(data.reglages.disk_free_share * 100)}% of free space · metrics every {data.reglages.metrics_interval_s}s · default VM: {data.vm_defaults_effectifs.vcpu} vCPU / {data.vm_defaults_effectifs.memory_mb} MB / {data.vm_defaults_effectifs.disk_gb} GB
         </p>
-        {forced && <p className="text-status-warning">Forcé par la variable d'environnement HYPERLITE_PROFILE : modifiable uniquement côté serveur.</p>}
+        {forced && <p className="text-status-warning">Forced by the HYPERLITE_PROFILE environment variable: can only be changed on the server side.</p>}
       </div>
       <div className="border-t border-anthracite-600 px-4 py-3 space-y-2">
         <div className="flex items-center justify-between gap-4">
-          <div className="text-sm font-semibold text-anthracite-100">Attribution des ressources aux VM : {alloc.politiques[alloc.actif].libelle}</div>
+          <div className="text-sm font-semibold text-anthracite-100">Resource allocation to VMs: {alloc.politiques[alloc.actif].libelle}</div>
           <select className="input w-64" value={alloc.actif} disabled={!isAdmin || busy || allocForced} onChange={(e) => chooseAllocation(e.target.value)}>
             {Object.entries(alloc.politiques).map(([k, p]) => <option key={k} value={k}>{p.libelle}</option>)}
           </select>
         </div>
         <p className="text-sm text-anthracite-300">{alloc.politiques[alloc.actif].description}</p>
-        {allocForced && <p className="text-sm text-status-warning">Forcée par la variable d'environnement HYPERLITE_ALLOCATION : modifiable uniquement côté serveur.</p>}
+        {allocForced && <p className="text-sm text-status-warning">Forced by the HYPERLITE_ALLOCATION environment variable: can only be changed on the server side.</p>}
       </div>
     </div>
   );

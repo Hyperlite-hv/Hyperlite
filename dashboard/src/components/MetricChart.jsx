@@ -3,10 +3,10 @@ import { chartColors } from "../theme/colors";
 
 function formatTime(t) {
   const d = new Date(t);
-  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function MetricChart({ data, series, height = 180, yFormatter, unit }) {
+export default function MetricChart({ data, series, height = 180, yFormatter }) {
   return (
     <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">

@@ -5,15 +5,15 @@ import CompatChecks from "../../components/CompatChecks";
 import { flattenCapabilities, deriveFeatures, NA } from "../../lib/capabilitiesView";
 
 const FEATURE_STYLE = {
-  actif: ["text-status-running", "Actif"],
-  limite: ["text-status-warning", "Limité"],
-  inconnu: ["text-anthracite-400", "Inconnu"],
+  actif: ["text-status-running", "Active"],
+  limite: ["text-status-warning", "Limited"],
+  inconnu: ["text-anthracite-400", "Unknown"],
 };
 const PREFLIGHT_STYLE = {
   ok: ["text-status-running", "OK"],
   warning: ["text-status-warning", "Attention"],
-  disabled: ["text-status-warning", "Désactivé"],
-  blocking: ["text-status-error", "Bloquant"],
+  disabled: ["text-status-warning", "Disabled"],
+  blocking: ["text-status-error", "Blocking"],
 };
 
 function Section({ title, children }) {
@@ -25,9 +25,9 @@ function Section({ title, children }) {
   );
 }
 
-// Reel : GET /host/capabilities | /nodes/{name}/capabilities (chantier 1)
-// et GET /host/preflight (chantier 3, hote local uniquement -- il sonde le
-// venv du service, pas d'equivalent distant pour l'instant).
+// Real: GET /host/capabilities | /nodes/{name}/capabilities and GET
+// /host/preflight (local host only: it probes the service venv, there is no
+// remote equivalent for now).
 export default function NodeCompatibilityTab({ resource: node }) {
   const nodeId = node?.id;
   const isLocal = nodeId === "local";
@@ -63,18 +63,18 @@ export default function NodeCompatibilityTab({ resource: node }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-anthracite-300">
-          Ce que ce nœud peut réellement faire, détecté (jamais supposé). "{NA}" = non détectable depuis ici.
+          What this node can really do, detected (never assumed). "{NA}" = not detectable from here.
         </p>
         <button className="btn-secondary" onClick={load} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Actualiser
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
         </button>
       </div>
 
-      {error && <div className="card px-4 py-3 text-sm text-status-error">Erreur : {error}</div>}
-      {!caps && !error && <div className="card px-4 py-3 text-sm text-anthracite-400">Détection en cours...</div>}
+      {error && <div className="card px-4 py-3 text-sm text-status-error">Error: {error}</div>}
+      {!caps && !error && <div className="card px-4 py-3 text-sm text-anthracite-400">Detection in progress...</div>}
 
       {features.length > 0 && (
-        <Section title="Fonctionnalités">
+        <Section title="Features">
           {features.map((f) => {
             const [cls, label] = FEATURE_STYLE[f.etat];
             return (
@@ -91,15 +91,15 @@ export default function NodeCompatibilityTab({ resource: node }) {
       )}
 
       {pairCompat && (
-        <Section title="Compatibilité avec l'hôte local (source -> ce nœud)">
+        <Section title="Compatibility with the local host (source -> this node)">
           <div className="px-4 py-3"><CompatChecks report={pairCompat} /></div>
         </Section>
       )}
 
       {preflight && (
-        <Section title={`Preflight check (${preflight.resume.compte.blocking} bloquant, ${preflight.resume.compte.disabled} désactivé, ${preflight.resume.compte.warning} attention)`}>
+        <Section title={`Preflight check (${preflight.resume.compte.blocking} blocking, ${preflight.resume.compte.disabled} disabled, ${preflight.resume.compte.warning} warning)`}>
           {preflight.controles.filter((c) => c.statut !== "ok").length === 0 && (
-            <div className="px-4 py-3 text-sm text-status-running">Tous les contrôles sont satisfaits.</div>
+            <div className="px-4 py-3 text-sm text-status-running">All checks passed.</div>
           )}
           {preflight.controles.filter((c) => c.statut !== "ok").map((c) => {
             const [cls, label] = PREFLIGHT_STYLE[c.statut];
@@ -107,8 +107,8 @@ export default function NodeCompatibilityTab({ resource: node }) {
               <div key={c.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm">
                 <div>
                   <div className="text-anthracite-100">{c.message}</div>
-                  {c.fonctionnalite && <div className="mt-0.5 text-xs text-anthracite-300">Impact : {c.fonctionnalite}</div>}
-                  {c.action && <div className="mt-0.5 text-xs text-anthracite-300">Action : {c.action}</div>}
+                  {c.fonctionnalite && <div className="mt-0.5 text-xs text-anthracite-300">Impact: {c.fonctionnalite}</div>}
+                  {c.action && <div className="mt-0.5 text-xs text-anthracite-300">Action: {c.action}</div>}
                 </div>
                 <span className={`shrink-0 font-medium ${cls}`}>{label}</span>
               </div>

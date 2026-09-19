@@ -4,24 +4,23 @@ import { useInfraStore } from "../store/useInfraStore";
 
 const PROTOCOLS = ["tcp", "udp", "icmp", "all"];
 
-// Editeur de regles factorise entre le pare-feu PAR VM (nwfilter,
-// VMHardwareTab.jsx, chantier 9) et le pare-feu RESEAU (iptables/pont,
-// NetworkOverviewTab.jsx, chantier 21) -- meme forme de donnees
-// (FirewallConfig/FirewallRule cote backend, voir app/routers/vms.py et
-// app/core/network_firewall.py), seule la cible reelle des regles change,
-// invisible depuis l'UI. `fetchConfig`/`saveConfig` portent la difference.
+// Rules editor shared between the PER-VM firewall (nwfilter, VMHardwareTab.jsx)
+// and the NETWORK firewall (iptables/bridge, NetworkOverviewTab.jsx): the same data
+// shape (FirewallConfig/FirewallRule on the backend, see app/routers/vms.py and
+// app/core/network_firewall.py); only the real target of the rules changes,
+// invisibly from the UI. `fetchConfig`/`saveConfig` carry the difference.
 export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, isAdmin }) {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [config, setConfig] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(() => {
-    fetchConfig().then(setConfig).catch((e) => pushToast({ kind: "error", title: "Erreur pare-feu", message: e.message }));
+    fetchConfig().then(setConfig).catch((e) => pushToast({ kind: "error", title: "Firewall error", message: e.message }));
   }, [fetchConfig, pushToast]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  if (!config) return <div className="px-4 py-3 text-sm text-anthracite-400">Chargement...</div>;
+  if (!config) return <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>;
 
   function updateRule(i, patch) {
     setConfig((c) => ({ ...c, rules: c.rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) }));
@@ -37,10 +36,10 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
     setBusy(true);
     try {
       await saveConfig(config);
-      pushToast({ kind: "success", title: "Pare-feu appliqué", message: title });
+      pushToast({ kind: "success", title: "Firewall applied", message: title });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -53,22 +52,22 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
           className="input ml-auto w-40" disabled={!isAdmin}
           value={config.default_policy} onChange={(e) => setConfig((c) => ({ ...c, default_policy: e.target.value }))}
         >
-          <option value="accept">Par défaut : autoriser</option>
-          <option value="drop">Par défaut : bloquer</option>
+          <option value="accept">Default: allow</option>
+          <option value="drop">Default: block</option>
         </select>
       </div>
       <div className="divide-y divide-anthracite-600">
-        {config.rules.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucune règle -- tout le trafic suit la politique par défaut.</div>}
+        {config.rules.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No rules: all traffic follows the default policy.</div>}
         {config.rules.map((rule, i) => (
           <div key={i} className="flex items-center gap-2 px-4 py-2 text-sm">
             <select className="input w-28" disabled={!isAdmin} value={rule.action} onChange={(e) => updateRule(i, { action: e.target.value })}>
-              <option value="accept">Autoriser</option>
-              <option value="drop">Bloquer</option>
+              <option value="accept">Allow</option>
+              <option value="drop">Block</option>
             </select>
             <select className="input w-24" disabled={!isAdmin} value={rule.direction} onChange={(e) => updateRule(i, { direction: e.target.value })}>
-              <option value="in">Entrant</option>
-              <option value="out">Sortant</option>
-              <option value="inout">Les deux</option>
+              <option value="in">Inbound</option>
+              <option value="out">Outbound</option>
+              <option value="inout">Both</option>
             </select>
             <select className="input w-24" disabled={!isAdmin} value={rule.protocol} onChange={(e) => updateRule(i, { protocol: e.target.value })}>
               {PROTOCOLS.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
@@ -87,8 +86,8 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
       </div>
       {isAdmin && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-anthracite-600">
-          <button className="btn-secondary" onClick={addRule}><Plus size={13} /> Ajouter une règle</button>
-          <button className="btn-primary" disabled={busy} onClick={handleSave}><Save size={13} /> Appliquer</button>
+          <button className="btn-secondary" onClick={addRule}><Plus size={13} /> Add a rule</button>
+          <button className="btn-primary" disabled={busy} onClick={handleSave}><Save size={13} /> Apply</button>
         </div>
       )}
     </div>

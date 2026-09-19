@@ -7,11 +7,10 @@ import HostShellWindow from "./console/HostShellWindow";
 import ContainerTerminalWindow from "./console/ContainerTerminalWindow";
 import { useAuthStore } from "./store/useAuthStore";
 
-// /console/:name et /host-shell ont leur propre gate d'authentification
-// (ConsoleWindow / HostShellWindow) : ces pages s'ouvrent dans une fenetre
-// separee (voir VMConsoleTab / NodeShellTab), independamment du cycle de vie
-// du tableau de bord principal, donc elles restent en dehors du gate global
-// ci-dessous.
+// /console/:name and /host-shell have their own authentication gate
+// (ConsoleWindow / HostShellWindow): these pages open in a separate window (see
+// VMConsoleTab / NodeShellTab), independently of the main dashboard lifecycle, so
+// they stay outside the global gate below.
 export default function App() {
   return (
     <BrowserRouter>
@@ -32,7 +31,7 @@ function MainApp() {
   useEffect(() => { restoreSession(); }, [restoreSession]);
 
   if (status === "checking") {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Vérification de la session...</div>;
+    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Checking the session...</div>;
   }
   if (status === "anonymous") {
     return <LoginScreen />;
