@@ -6,10 +6,9 @@ import {
   setup2FA, confirm2FA, disable2FA, fetchApiTokens, createApiToken, deleteApiToken,
 } from "../api/client";
 
-// Chantier 30 (2FA + jetons API, 2026-09-17) -- panneau en libre-service
-// ouvert depuis le menu utilisateur (Header.jsx), pas un nouvel onglet
-// Datacenter : ce sont des reglages du COMPTE connecte, pas de
-// l'infrastructure geree.
+// Self-service panel opened from the user menu (Header.jsx), not a Datacenter
+// tab: these are settings of the signed-in ACCOUNT, not of the managed
+// infrastructure.
 export default function AccountSecurityModal({ onClose }) {
   const totpEnabled = useAuthStore((s) => s.totpEnabled);
   const refreshMe = useAuthStore((s) => s.refreshMe);
@@ -26,7 +25,7 @@ export default function AccountSecurityModal({ onClose }) {
     try {
       setSetupData(await setup2FA());
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -37,12 +36,12 @@ export default function AccountSecurityModal({ onClose }) {
     setBusy2fa(true);
     try {
       await confirm2FA(confirmCode);
-      pushToast({ kind: "success", title: "2FA activée", message: "Un code sera désormais demandé à chaque connexion." });
+      pushToast({ kind: "success", title: "2FA enabled", message: "A code will now be required at every sign-in." });
       setSetupData(null);
       setConfirmCode("");
       await refreshMe();
     } catch (e) {
-      pushToast({ kind: "error", title: "Code invalide", message: e.message });
+      pushToast({ kind: "error", title: "Invalid code", message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -53,11 +52,11 @@ export default function AccountSecurityModal({ onClose }) {
     setBusy2fa(true);
     try {
       await disable2FA(disablePassword);
-      pushToast({ kind: "success", title: "2FA désactivée", message: "" });
+      pushToast({ kind: "success", title: "2FA disabled", message: "" });
       setDisablePassword("");
       await refreshMe();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -66,7 +65,7 @@ export default function AccountSecurityModal({ onClose }) {
   // --- Jetons API ---
   const [tokens, setTokens] = useState(null);
   const [newTokenName, setNewTokenName] = useState("");
-  const [freshToken, setFreshToken] = useState(null); // { id, name, token } -- affiche UNE fois
+  const [freshToken, setFreshToken] = useState(null); // { id, name, token } -- displayed ONCE
   const [copied, setCopied] = useState(false);
   const [busyToken, setBusyToken] = useState(false);
 
@@ -83,20 +82,20 @@ export default function AccountSecurityModal({ onClose }) {
       setNewTokenName("");
       reloadTokens();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de la création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally {
       setBusyToken(false);
     }
   }
 
   async function handleDeleteToken(t) {
-    if (!window.confirm(`Révoquer le jeton '${t.name}' ? Tout script qui l'utilise perdra l'accès immédiatement.`)) return;
+    if (!window.confirm(`Revoke the token '${t.name}'? Any script using it will immediately lose access.`)) return;
     try {
       await deleteApiToken(t.id);
-      pushToast({ kind: "success", title: "Jeton révoqué", message: t.name });
+      pushToast({ kind: "success", title: "Token revoked", message: t.name });
       reloadTokens();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     }
   }
 
@@ -111,26 +110,26 @@ export default function AccountSecurityModal({ onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-anthracite-100">Sécurité du compte</h3>
+          <h3 className="text-base font-semibold text-anthracite-100">Account security</h3>
           <button onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
         </div>
 
         {/* --- 2FA --- */}
         <section className="space-y-3">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
-            <ShieldCheck size={15} /> Authentification à deux facteurs (TOTP)
+            <ShieldCheck size={15} /> Two-factor authentication (TOTP)
           </h4>
 
           {totpEnabled && !setupData && (
             <div className="space-y-3">
-              <p className="text-sm text-status-running">2FA activée sur ce compte.</p>
+              <p className="text-sm text-status-running">2FA is enabled on this account.</p>
               <form onSubmit={handleDisable} className="flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="text-xs font-medium text-anthracite-300">Mot de passe (pour désactiver)</label>
+                  <label className="text-xs font-medium text-anthracite-300">Password (to disable)</label>
                   <input type="password" className="input mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
                 </div>
                 <button type="submit" disabled={busy2fa} className="btn-danger">
-                  <ShieldOff size={14} /> Désactiver
+                  <ShieldOff size={14} /> Disable
                 </button>
               </form>
             </div>
@@ -138,9 +137,9 @@ export default function AccountSecurityModal({ onClose }) {
 
           {!totpEnabled && !setupData && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-anthracite-400">Non activée — protège la connexion avec un code à usage unique en plus du mot de passe.</p>
+              <p className="text-sm text-anthracite-400">Not enabled: protects sign-in with a one-time code in addition to the password.</p>
               <button onClick={handleStartSetup} disabled={busy2fa} className="btn-primary shrink-0">
-                {busy2fa ? "..." : "Activer"}
+                {busy2fa ? "..." : "Enable"}
               </button>
             </div>
           )}
@@ -148,7 +147,7 @@ export default function AccountSecurityModal({ onClose }) {
           {setupData && (
             <form onSubmit={handleConfirm} className="space-y-3 rounded-md border border-anthracite-600 p-3">
               <p className="text-xs text-anthracite-300">
-                Scannez ce QR code avec une application d'authentification (Google Authenticator, Aegis, 1Password...), puis entrez le code généré pour confirmer.
+                Scan this QR code with an authenticator app (Google Authenticator, Aegis, 1Password...), then enter the generated code to confirm.
               </p>
               <div
                 className="mx-auto w-40 rounded-md bg-white p-2 [&_svg]:w-full [&_svg]:h-full"
@@ -157,14 +156,14 @@ export default function AccountSecurityModal({ onClose }) {
               <p className="text-center font-mono text-[11px] text-anthracite-500 break-all">{setupData.secret}</p>
               <div className="flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="text-xs font-medium text-anthracite-300">Code à 6 chiffres</label>
+                  <label className="text-xs font-medium text-anthracite-300">6-digit code</label>
                   <input
                     className="input mt-1 text-center tracking-[0.3em]" autoFocus inputMode="numeric" maxLength={6}
                     value={confirmCode} onChange={(e) => setConfirmCode(e.target.value.replace(/\D/g, ""))}
                   />
                 </div>
-                <button type="submit" disabled={busy2fa || confirmCode.length !== 6} className="btn-primary">Confirmer</button>
-                <button type="button" className="btn-secondary" onClick={() => { setSetupData(null); setConfirmCode(""); }}>Annuler</button>
+                <button type="submit" disabled={busy2fa || confirmCode.length !== 6} className="btn-primary">Confirm</button>
+                <button type="button" className="btn-secondary" onClick={() => { setSetupData(null); setConfirmCode(""); }}>Cancel</button>
               </div>
             </form>
           )}
@@ -173,16 +172,16 @@ export default function AccountSecurityModal({ onClose }) {
         {/* --- Jetons API --- */}
         <section className="space-y-3 border-t border-anthracite-600 pt-4">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
-            <KeyRound size={15} /> Jetons API
+            <KeyRound size={15} /> API tokens
           </h4>
           <p className="text-xs text-anthracite-400">
-            Pour authentifier des scripts ou de l'automatisation (Terraform, cron...) sans utiliser votre mot de passe. Chaque jeton peut être révoqué individuellement.
+            To authenticate scripts or automation (Terraform, cron...) without using your password. Each token can be revoked individually.
           </p>
 
           {freshToken && (
             <div className="space-y-2 rounded-md border border-status-warning/40 bg-status-warning/10 p-3">
               <p className="text-xs text-anthracite-200">
-                Copiez ce jeton maintenant — il ne sera plus jamais affiché.
+                Copy this token now: it will never be shown again.
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 truncate rounded bg-anthracite-900 px-2 py-1.5 text-xs text-anthracite-100">{freshToken.token}</code>
@@ -190,29 +189,29 @@ export default function AccountSecurityModal({ onClose }) {
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                 </button>
               </div>
-              <button className="text-xs text-anthracite-400 hover:text-anthracite-200" onClick={() => setFreshToken(null)}>Fermer</button>
+              <button className="text-xs text-anthracite-400 hover:text-anthracite-200" onClick={() => setFreshToken(null)}>Close</button>
             </div>
           )}
 
           <form onSubmit={handleCreateToken} className="flex items-end gap-2">
             <div className="flex-1">
-              <label className="text-xs font-medium text-anthracite-300">Nom du jeton</label>
-              <input className="input mt-1" placeholder="ex. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
+              <label className="text-xs font-medium text-anthracite-300">Token name</label>
+              <input className="input mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
             </div>
             <button type="submit" disabled={busyToken || !newTokenName.trim()} className="btn-secondary">
-              <Plus size={14} /> Créer
+              <Plus size={14} /> Create
             </button>
           </form>
 
           <div className="divide-y divide-anthracite-600 rounded-md border border-anthracite-600">
-            {tokens == null && <div className="px-3 py-2 text-xs text-anthracite-400">Chargement...</div>}
-            {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-anthracite-400 text-center">Aucun jeton.</div>}
+            {tokens == null && <div className="px-3 py-2 text-xs text-anthracite-400">Loading...</div>}
+            {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-anthracite-400 text-center">No tokens.</div>}
             {tokens && tokens.map((t) => (
               <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                 <div className="min-w-0 flex-1">
                   <div className="text-anthracite-100 truncate">{t.name}</div>
                   <div className="text-anthracite-500 text-xs">
-                    Créé le {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `utilisé le ${new Date(t.last_used_at).toLocaleDateString()}` : "jamais utilisé"}
+                    Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
                   </div>
                 </div>
                 <button className="btn-danger !py-1" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>

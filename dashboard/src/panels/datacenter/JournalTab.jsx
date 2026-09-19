@@ -3,11 +3,10 @@ import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { fetchAuditLog, fetchAuditActions } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 
-// Reel : GET /audit, qui lit la table audit_log alimentee depuis le debut par
-// chaque endpoint du backend (log_action() est appele partout). Chantier 3
-// (logs et traçabilité) : filtres statut/type/utilisateur/cible/date, comme
-// demande -- la table elle-meme existait deja, elle manquait juste de
-// filtres et d'un message d'echec exploitable (voir app/core/error_messages.py).
+// Real: GET /audit, which reads the audit_log table fed from the start by every
+// backend endpoint (log_action() is called everywhere). Filters by status/type/
+// user/target/date. The failure message is made actionable through
+// app/core/error_messages.py.
 export default function JournalTab() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [entries, setEntries] = useState(null);
@@ -28,7 +27,7 @@ export default function JournalTab() {
       depuis: depuis ? new Date(depuis).toISOString() : undefined,
     })
       .then(setEntries)
-      .catch((e) => pushToast({ kind: "error", title: "Erreur journal", message: e.message }));
+      .catch((e) => pushToast({ kind: "error", title: "Journal error", message: e.message }));
   }, [resultFiltre, actionFiltre, usernameFiltre, ressourceFiltre, depuis, pushToast]);
 
   useEffect(() => { fetchAuditActions().then(setActions).catch(() => {}); }, []);
@@ -42,28 +41,28 @@ export default function JournalTab() {
           onChange={(e) => setResultFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
         >
-          <option value="">Tous les résultats</option>
-          <option value="succes">Succès</option>
-          <option value="echec">Échec</option>
+          <option value="">All results</option>
+          <option value="succes">Success</option>
+          <option value="echec">Failure</option>
         </select>
         <select
           value={actionFiltre}
           onChange={(e) => setActionFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
         >
-          <option value="">Tous les types d'action</option>
+          <option value="">All action types</option>
           {actions.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
         <input
           type="text"
-          placeholder="Utilisateur..."
+          placeholder="User..."
           value={usernameFiltre}
           onChange={(e) => setUsernameFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100 w-32"
         />
         <input
           type="text"
-          placeholder="Cible (ressource)..."
+          placeholder="Target (resource)..."
           value={ressourceFiltre}
           onChange={(e) => setRessourceFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100 flex-1 min-w-[140px]"
@@ -78,21 +77,21 @@ export default function JournalTab() {
           onClick={load}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-anthracite-300 hover:text-anthracite-100 border border-anthracite-600 rounded-md"
         >
-          <RefreshCw size={14} /> Actualiser
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
-      {entries == null && <div className="card p-4 text-sm text-anthracite-400">Chargement...</div>}
+      {entries == null && <div className="card p-4 text-sm text-anthracite-400">Loading...</div>}
 
       {entries && (
         <div className="card divide-y divide-anthracite-600 max-h-[65vh] overflow-y-auto">
           <div className="grid grid-cols-[110px_100px_1fr_1fr_70px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
-            <span>Heure</span><span>Utilisateur</span><span>Action</span><span>Ressource / cause</span><span>Résultat</span>
+            <span>Time</span><span>User</span><span>Action</span><span>Resource / cause</span><span>Result</span>
           </div>
-          {entries.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucune entrée pour ces filtres.</div>}
+          {entries.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No entries for these filters.</div>}
           {entries.map((e) => (
             <div key={e.id} className="grid grid-cols-[110px_100px_1fr_1fr_70px] gap-2 px-4 py-2 text-sm items-center">
-              <span className="text-anthracite-400 text-xs font-mono">{new Date(e.timestamp).toLocaleString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit" })}</span>
+              <span className="text-anthracite-400 text-xs font-mono">{new Date(e.timestamp).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit" })}</span>
               <span className="text-anthracite-200 truncate">{e.username || "--"}</span>
               <span className="text-anthracite-100 font-mono text-xs truncate">{e.action}</span>
               <span className="text-anthracite-300 truncate" title={e.error_message || ""}>

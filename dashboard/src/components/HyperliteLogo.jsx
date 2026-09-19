@@ -1,6 +1,6 @@
-// Marque Hyperlite (5 barres inclinees, blanc/violet/turquoise) -- utilisee
-// dans la barre de navigation (Header) et l'ecran de connexion (LoginScreen),
-// remplace l'ancien pictogramme generique (icone Server de lucide-react).
+// Hyperlite mark (5 slanted bars, white/violet/turquoise): used in the navigation
+// bar (Header) and the sign-in screen (LoginScreen), replacing the former generic
+// pictogram (the lucide-react Server icon).
 export default function HyperliteLogo({ size = 28, className = "" }) {
   return (
     <svg

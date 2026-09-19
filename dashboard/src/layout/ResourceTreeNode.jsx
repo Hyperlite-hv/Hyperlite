@@ -26,10 +26,9 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
         onClick={() => {
           if (hasChildren) setExpanded((e) => !e);
           if (SELECTABLE.has(node.type)) select(node.type, node.id);
-          // Ferme le tiroir mobile seulement sur une vraie feuille (VM/pool,
-          // ou un nœud sans enfant) -- sinon un simple depli/repli de
-          // "Datacenter"/nœud fermerait le tiroir avant que l'utilisateur
-          // ait pu choisir un enfant.
+          // Closes the mobile drawer only on a real leaf (VM/pool, or a node without
+          // children); otherwise a simple expand/collapse of "Datacenter"/node would close
+          // the drawer before the user could pick a child.
           if (SELECTABLE.has(node.type) && !hasChildren) closeMobileSidebar();
         }}
       >

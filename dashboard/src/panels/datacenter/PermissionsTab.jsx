@@ -11,12 +11,12 @@ import {
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
-// Roles globaux (app/core/database.py : role IN ('admin','observateur')) --
-// inchanges par ce systeme, qui se contente d'AJOUTER des droits scopes
-// par-dessus (voir app/core/permissions.py).
+// Global roles (app/core/database.py: role IN ('admin','observateur')) are
+// unchanged by this system, which only ADDS scoped rights on top of them (see
+// app/core/permissions.py).
 const GLOBAL_ROLES = [
-  { nom: "admin", description: "Accès complet : création/suppression de VM, actions destructives, terminal SSH, console." },
-  { nom: "observateur", description: "Lecture seule globale (et console VNC) sur tout. Aucune action de modification sans attribution explicite ci-dessous." },
+  { nom: "admin", description: "Full access: VM creation/deletion, destructive actions, SSH terminal, console." },
+  { nom: "observateur", description: "Global read-only access (and VNC console) to everything. No modifying action without an explicit assignment below." },
 ];
 
 export default function PermissionsTab() {
@@ -39,13 +39,13 @@ export default function PermissionsTab() {
       ]);
       setUsers(u); setGroups(g); setPools(p); setRoles(r); setPrivileges(pv); setCustomRoles(cr); setAcl(a); setContainers(ct);
     } catch (e) {
-      pushToast({ kind: "error", title: "Erreur permissions", message: e.message });
+      pushToast({ kind: "error", title: "Permissions error", message: e.message });
     }
   }, [pushToast]);
 
-  // Fusion roles predefinis + personnalises en une seule table, pour le
-  // selecteur d'attribution (AclSection) : memes clefs "custom:<id>" que
-  // cote backend, transparent pour l'utilisateur.
+  // Merge predefined + custom roles into a single table for the assignment selector
+  // (AclSection): the same "custom:<id>" keys as on the backend, transparent for the
+  // user.
   const allRoles = roles && customRoles
     ? { ...roles, ...Object.fromEntries(customRoles.map((r) => [r.key, r])) }
     : null;
@@ -55,7 +55,7 @@ export default function PermissionsTab() {
   return (
     <div className="space-y-4">
       <div className="card p-4">
-        <h3 className="text-sm font-semibold text-anthracite-100 mb-2">Rôles globaux</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100 mb-2">Global roles</h3>
         <div className="divide-y divide-anthracite-600">
           {GLOBAL_ROLES.map((r) => (
             <div key={r.nom} className="py-2">
@@ -91,11 +91,11 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
     setBusy(true);
     try {
       await createCustomRole(name.trim(), privs);
-      pushToast({ kind: "success", title: "Rôle créé", message: name.trim() });
+      pushToast({ kind: "success", title: "Role created", message: name.trim() });
       setName(""); setSelected({});
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -103,10 +103,10 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
     setBusy(true);
     try {
       await deleteCustomRole(id);
-      pushToast({ kind: "success", title: "Rôle supprimé", message: roleName });
+      pushToast({ kind: "success", title: "Role deleted", message: roleName });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -117,16 +117,16 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-1">
         <ShieldCheck size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Rôles personnalisés</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">Custom roles</h3>
       </div>
-      <p className="text-xs text-anthracite-400 mb-3">Construis un rôle à la carte en choisissant exactement les actions autorisées, en plus de Lecteur/Opérateur/Gestionnaire.</p>
+      <p className="text-xs text-anthracite-400 mb-3">Build a role by picking exactly the allowed actions, in addition to Reader/Operator/Manager.</p>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400">Chargement...</p>
+        <p className="text-sm text-anthracite-400">Loading...</p>
       ) : (
         <>
           <div className="rounded-md border border-anthracite-600 p-3 mb-3">
-            <input className="input mb-2" placeholder="Nom du rôle (ex. sauvegardes-seules)" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="input mb-2" placeholder="Role name (e.g. backups-only)" value={name} onChange={(e) => setName(e.target.value)} />
             <div className="grid grid-cols-1 gap-1.5 mb-2 sm:grid-cols-2">
               {Object.entries(privileges).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-xs text-anthracite-200 cursor-pointer">
@@ -136,12 +136,12 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
               ))}
             </div>
             <button className="btn-primary" disabled={busy || !name.trim() || selectedCount === 0} onClick={handleCreate}>
-              <Plus size={14} /> Créer ({selectedCount} privilège{selectedCount > 1 ? "s" : ""})
+              <Plus size={14} /> Create ({selectedCount} privilege{selectedCount > 1 ? "s" : ""})
             </button>
           </div>
 
           {customRoles.length === 0 ? (
-            <p className="text-sm text-anthracite-400">Aucun rôle personnalisé.</p>
+            <p className="text-sm text-anthracite-400">No custom roles.</p>
           ) : (
             <div className="divide-y divide-anthracite-600">
               {customRoles.map((r) => (
@@ -175,11 +175,11 @@ function UsersSection({ users, reload, pushToast }) {
     setBusy(true);
     try {
       await createUser(newUsername.trim(), newPassword, newRole);
-      pushToast({ kind: "success", title: "Utilisateur créé", message: newUsername.trim() });
+      pushToast({ kind: "success", title: "User created", message: newUsername.trim() });
       setNewUsername(""); setNewPassword(""); setNewRole("observateur");
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -189,19 +189,19 @@ function UsersSection({ users, reload, pushToast }) {
       await updateUser(username, { role });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
   async function handleDelete(username) {
-    if (!window.confirm(`Supprimer l'utilisateur '${username}' ?`)) return;
+    if (!window.confirm(`Delete user '${username}'?`)) return;
     setBusy(true);
     try {
       await deleteUser(username);
-      pushToast({ kind: "success", title: "Utilisateur supprimé", message: username });
+      pushToast({ kind: "success", title: "User deleted", message: username });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -209,28 +209,28 @@ function UsersSection({ users, reload, pushToast }) {
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-3">
         <UserPlus size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Utilisateurs</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">Users</h3>
       </div>
 
       <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-4">
-        <input className="input" placeholder="Nom d'utilisateur" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
-        <input className="input" type="password" placeholder="Mot de passe (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <input className="input" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+        <input className="input" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
         <select className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-          <option value="observateur">observateur</option>
+          <option value="observateur">observer</option>
           <option value="admin">admin</option>
         </select>
         <button className="btn-primary" disabled={busy || !newUsername.trim() || newPassword.length < 4} onClick={handleCreate}>
-          <Plus size={14} /> Créer
+          <Plus size={14} /> Create
         </button>
       </div>
 
       {users == null ? (
-        <p className="text-sm text-anthracite-400">Chargement...</p>
+        <p className="text-sm text-anthracite-400">Loading...</p>
       ) : (
         <div className="divide-y divide-anthracite-600">
           {users.map((u) => (
             <div key={u.username} className="flex items-center justify-between py-2 text-sm">
-              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-500"> (toi)</span>}</span>
+              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-500"> (you)</span>}</span>
               <div className="flex items-center gap-2">
                 <select
                   className="input text-xs py-1 w-auto"
@@ -238,13 +238,13 @@ function UsersSection({ users, reload, pushToast }) {
                   disabled={busy || u.username === me}
                   onChange={(e) => handleRoleChange(u.username, e.target.value)}
                 >
-                  <option value="observateur">observateur</option>
+                  <option value="observateur">observer</option>
                   <option value="admin">admin</option>
                 </select>
                 <button
                   className="text-anthracite-400 hover:text-status-error disabled:opacity-30 disabled:hover:text-anthracite-400"
                   disabled={busy || u.username === me}
-                  title={u.username === me ? "Impossible de te supprimer toi-même" : "Supprimer"}
+                  title={u.username === me ? "You cannot delete yourself" : "Delete"}
                   onClick={() => handleDelete(u.username)}
                 >
                   <Trash2 size={14} />
@@ -269,10 +269,10 @@ function GroupsSection({ groups, reload, pushToast }) {
     try {
       await createGroup(newName.trim());
       setNewName("");
-      pushToast({ kind: "success", title: "Groupe créé", message: newName.trim() });
+      pushToast({ kind: "success", title: "Group created", message: newName.trim() });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -280,10 +280,10 @@ function GroupsSection({ groups, reload, pushToast }) {
     setBusy(true);
     try {
       await deleteGroup(id);
-      pushToast({ kind: "success", title: "Groupe supprimé", message: name });
+      pushToast({ kind: "success", title: "Group deleted", message: name });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -296,7 +296,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       setMemberInputs((s) => ({ ...s, [id]: "" }));
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec d'ajout", message: e.message });
+      pushToast({ kind: "error", title: "Add failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -306,7 +306,7 @@ function GroupsSection({ groups, reload, pushToast }) {
       await removeGroupMember(id, username);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de retrait", message: e.message });
+      pushToast({ kind: "error", title: "Remove failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -314,21 +314,21 @@ function GroupsSection({ groups, reload, pushToast }) {
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-3">
         <Users size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Groupes d'utilisateurs</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">User groups</h3>
       </div>
 
       <div className="flex gap-2 mb-3">
-        <input className="input" placeholder="Nom du groupe (ex. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <input className="input" placeholder="Group name (e.g. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
-          <Plus size={14} /> Créer
+          <Plus size={14} /> Create
         </button>
       </div>
 
       {groups == null ? (
-        <p className="text-sm text-anthracite-400">Chargement...</p>
+        <p className="text-sm text-anthracite-400">Loading...</p>
       ) : groups.length === 0 ? (
-        <p className="text-sm text-anthracite-400">Aucun groupe. Crée un groupe pour attribuer des droits à plusieurs utilisateurs à la fois.</p>
+        <p className="text-sm text-anthracite-400">No groups. Create a group to assign rights to several users at once.</p>
       ) : (
         <div className="space-y-3">
           {groups.map((g) => (
@@ -340,7 +340,7 @@ function GroupsSection({ groups, reload, pushToast }) {
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {g.membres.length === 0 && <span className="text-xs text-anthracite-500">Aucun membre</span>}
+                {g.membres.length === 0 && <span className="text-xs text-anthracite-500">No members</span>}
                 {g.membres.map((m) => (
                   <span key={m} className="flex items-center gap-1 rounded bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                     {m}
@@ -349,10 +349,10 @@ function GroupsSection({ groups, reload, pushToast }) {
                 ))}
               </div>
               <div className="flex gap-1.5">
-                <input className="input text-xs py-1" placeholder="nom d'utilisateur" value={memberInputs[g.id] || ""}
+                <input className="input text-xs py-1" placeholder="username" value={memberInputs[g.id] || ""}
                   onChange={(e) => setMemberInputs((s) => ({ ...s, [g.id]: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleAddMember(g.id)} />
-                <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy} onClick={() => handleAddMember(g.id)}>Ajouter</button>
+                <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy} onClick={() => handleAddMember(g.id)}>Add</button>
               </div>
             </div>
           ))}
@@ -373,10 +373,10 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
     try {
       await createPool(newName.trim());
       setNewName("");
-      pushToast({ kind: "success", title: "Pool créé", message: newName.trim() });
+      pushToast({ kind: "success", title: "Pool created", message: newName.trim() });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de création", message: e.message });
+      pushToast({ kind: "error", title: "Creation failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -384,10 +384,10 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
     setBusy(true);
     try {
       await deletePool(id);
-      pushToast({ kind: "success", title: "Pool supprimé", message: name });
+      pushToast({ kind: "success", title: "Pool deleted", message: name });
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -399,7 +399,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       await addPoolMember(id, vmName);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec d'ajout", message: e.message });
+      pushToast({ kind: "error", title: "Add failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -409,7 +409,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
       await removePoolMember(id, vmName);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de retrait", message: e.message });
+      pushToast({ kind: "error", title: "Remove failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -417,22 +417,22 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-3">
         <Boxes size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Pools de VM</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">VM pools</h3>
       </div>
-      <p className="text-xs text-anthracite-400 mb-3">Regroupe des VM (ex. "Projet-A") pour leur attribuer des droits d'un coup, sans les lister une par une.</p>
+      <p className="text-xs text-anthracite-400 mb-3">Group VMs (e.g. "Project-A") to assign them rights in one go, without listing them one by one.</p>
 
       <div className="flex gap-2 mb-3">
-        <input className="input" placeholder="Nom du pool (ex. projet-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <input className="input" placeholder="Pool name (e.g. project-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
         <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
-          <Plus size={14} /> Créer
+          <Plus size={14} /> Create
         </button>
       </div>
 
       {pools == null ? (
-        <p className="text-sm text-anthracite-400">Chargement...</p>
+        <p className="text-sm text-anthracite-400">Loading...</p>
       ) : pools.length === 0 ? (
-        <p className="text-sm text-anthracite-400">Aucun pool.</p>
+        <p className="text-sm text-anthracite-400">No pools.</p>
       ) : (
         <div className="space-y-3">
           {pools.map((p) => {
@@ -446,7 +446,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {p.vms.length === 0 && <span className="text-xs text-anthracite-500">Aucune VM</span>}
+                  {p.vms.length === 0 && <span className="text-xs text-anthracite-500">No VMs</span>}
                   {p.vms.map((v) => (
                     <span key={v} className="flex items-center gap-1 rounded bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
                       {v}
@@ -457,10 +457,10 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                 {available.length > 0 && (
                   <div className="flex gap-1.5">
                     <select className="input text-xs py-1" value={vmSelect[p.id] || ""} onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}>
-                      <option value="">Choisir une VM...</option>
+                      <option value="">Choose a VM...</option>
                       {available.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)}
                     </select>
-                    <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy || !vmSelect[p.id]} onClick={() => handleAddVm(p.id)}>Ajouter</button>
+                    <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy || !vmSelect[p.id]} onClick={() => handleAddVm(p.id)}>Add</button>
                   </div>
                 )}
               </div>
@@ -490,11 +490,11 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
     setBusy(true);
     try {
       await createAcl({ subject_type: subjectType, subject_id: subjectId, role, resource_type: resourceType, resource_id: resourceId });
-      pushToast({ kind: "success", title: "Attribution créée" });
+      pushToast({ kind: "success", title: "Assignment created" });
       setSubjectId(""); setResourceId("");
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de l'attribution", message: e.message });
+      pushToast({ kind: "error", title: "Assignment failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -504,7 +504,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
       await deleteAcl(id);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
   }
 
@@ -512,49 +512,49 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-3">
         <ShieldCheck size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Attributions (qui a quel rôle, sur quoi)</h3>
+        <h3 className="text-sm font-semibold text-anthracite-100">Assignments (who has which role, on what)</h3>
       </div>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400">Chargement...</p>
+        <p className="text-sm text-anthracite-400">Loading...</p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 mb-2 sm:grid-cols-4">
             <div>
-              <label className="text-[11px] text-anthracite-400">Qui</label>
+              <label className="text-[11px] text-anthracite-400">Who</label>
               <select className="input text-xs py-1.5" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
-                <option value="user">Utilisateur</option>
-                <option value="group">Groupe</option>
+                <option value="user">User</option>
+                <option value="group">Group</option>
               </select>
             </div>
             <div>
               <label className="text-[11px] text-anthracite-400">&nbsp;</label>
               <select className="input text-xs py-1.5" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-                <option value="">Choisir...</option>
+                <option value="">Choose...</option>
                 {subjectType === "user"
                   ? users.map((u) => <option key={u.username} value={u.username}>{u.username}</option>)
                   : groups.map((g) => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-[11px] text-anthracite-400">Rôle</label>
+              <label className="text-[11px] text-anthracite-400">Role</label>
               <select className="input text-xs py-1.5" value={role} onChange={(e) => setRole(e.target.value)}>
                 {Object.entries(roles).map(([key, r]) => <option key={key} value={key}>{r.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-[11px] text-anthracite-400">Sur</label>
+              <label className="text-[11px] text-anthracite-400">On</label>
               <select className="input text-xs py-1.5" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
-                <option value="vm">Une VM</option>
-                <option value="pool">Un pool</option>
-                <option value="container">Un conteneur</option>
+                <option value="vm">A VM</option>
+                <option value="pool">A pool</option>
+                <option value="container">A container</option>
               </select>
             </div>
           </div>
           <div className="flex gap-2 mb-3">
             <select className="input" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
               <option value="">
-                {resourceType === "vm" ? "Choisir une VM..." : resourceType === "pool" ? "Choisir un pool..." : "Choisir un conteneur..."}
+                {resourceType === "vm" ? "Choose a VM..." : resourceType === "pool" ? "Choose a pool..." : "Choose a container..."}
               </option>
               {resourceType === "vm"
                 ? vms.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)
@@ -563,7 +563,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
                 : (containers || []).map((c) => <option key={c.nom} value={c.nom}>{c.nom}</option>)}
             </select>
             <button className="btn-primary shrink-0" disabled={busy || !subjectId || !resourceId} onClick={handleCreate}>
-              <Plus size={14} /> Attribuer
+              <Plus size={14} /> Assign
             </button>
           </div>
 
@@ -576,7 +576,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
               {acl.map((a) => (
                 <div key={a.id} className="flex items-center justify-between py-2 text-sm">
                   <div className="text-anthracite-100">
-                    <span className="font-medium">{a.subject_type === "group" ? `Groupe ${a.subject_label}` : a.subject_label}</span>
+                    <span className="font-medium">{a.subject_type === "group" ? `Group ${a.subject_label}` : a.subject_label}</span>
                     <span className="text-anthracite-400"> -- {roles[a.role]?.label || a.role} -- </span>
                     <span>
                       {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Conteneur ${a.resource_label}` : a.resource_label}
@@ -589,7 +589,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
               ))}
             </div>
           ) : (
-            <p className="text-sm text-anthracite-400">Aucune attribution -- les accès restent limités aux rôles globaux ci-dessus.</p>
+            <p className="text-sm text-anthracite-400">No assignments: access stays limited to the global roles above.</p>
           )}
         </>
       )}

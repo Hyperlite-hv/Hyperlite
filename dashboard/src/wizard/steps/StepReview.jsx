@@ -1,6 +1,6 @@
 import { detectOsFamily } from "../../utils/osFamily";
 
-const FAMILY_LABEL = { kickstart: "Kickstart (automatisé)", autoinstall: "Autoinstall (automatisé)" };
+const FAMILY_LABEL = { kickstart: "Kickstart (unattended)", autoinstall: "Autoinstall (unattended)" };
 
 export default function StepReview({ form, nodes }) {
   const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
@@ -11,25 +11,25 @@ export default function StepReview({ form, nodes }) {
   const manualInstall = installMode && !osFamily;
 
   const rows = importMode ? [
-    ["Nœud", nodeName],
-    ["Nom", form.name || "--"],
-    ["Disque système", `Importé (${form.importDisk || "--"})`],
+    ["Node", nodeName],
+    ["Name", form.name || "--"],
+    ["System disk", `Imported (${form.importDisk || "--"})`],
     ["vCPU", form.vcpu],
-    ["Mémoire", `${form.memory_mb} Mo`],
-    ["Réseau", form.network],
-    ["Pool de stockage", form.storagePool || "Par défaut (local)"],
-    ["Utilisateur", "Déjà présent sur le disque importé"],
+    ["Memory", `${form.memory_mb} MB`],
+    ["Network", form.network],
+    ["Storage pool", form.storagePool || "Default (local)"],
+    ["User", "Already present on the imported disk"],
   ] : [
-    ["Nœud", nodeName],
-    ["Nom", form.name || "--"],
-    ["ISO", form.iso || "Aucune"],
-    ["Disque système", !installMode ? "Debian 12 préinstallé" : `Vierge (${osFamily ? FAMILY_LABEL[osFamily] : "installation manuelle"})`],
+    ["Node", nodeName],
+    ["Name", form.name || "--"],
+    ["ISO", form.iso || "None"],
+    ["System disk", !installMode ? "Debian 12 preinstalled" : `Blank (${osFamily ? FAMILY_LABEL[osFamily] : "manual installation"})`],
     ["vCPU", form.vcpu],
-    ["Mémoire", `${form.memory_mb} Mo`],
-    ["Disques", `${form.disks.map((d) => `${d.size_gb} Go`).join(" + ")} (${totalDisk} Go total)`],
-    ["Réseau", form.network],
-    ["Pool de stockage", form.storagePool || "Par défaut (local)"],
-    manualInstall ? ["Utilisateur", "Créé pendant l'installation"] : ["Utilisateur", form.username || "--"],
+    ["Memory", `${form.memory_mb} MB`],
+    ["Disks", `${form.disks.map((d) => `${d.size_gb} GB`).join(" + ")} (${totalDisk} GB total)`],
+    ["Network", form.network],
+    ["Storage pool", form.storagePool || "Default (local)"],
+    manualInstall ? ["User", "Created during the installation"] : ["User", form.username || "--"],
   ];
 
   return (

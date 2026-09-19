@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 
-export default function ConfirmDialog({ open, title, message, confirmLabel = "Confirmer", danger = true, onConfirm, onCancel }) {
+export default function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", danger = true, onConfirm, onCancel }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
@@ -15,7 +15,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel = "Co
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button className="btn-secondary" onClick={onCancel}>Annuler</button>
+          <button className="btn-secondary" onClick={onCancel}>Cancel</button>
           <button className={danger ? "btn-danger" : "btn-primary"} onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </div>

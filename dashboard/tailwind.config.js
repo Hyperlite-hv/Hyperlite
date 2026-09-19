@@ -13,12 +13,11 @@ export default {
           DEFAULT: "#23262f",
           light: "#ffffff",
         },
-        // Rampe de contenu (page, cartes, textes) : les valeurs reelles vivent
-        // dans des variables CSS (voir index.css), ivoire/lavande/charbon par
-        // defaut, violet fonce sous .dark -- donc aucun composant n'a besoin
-        // de connaitre le theme actif, seul index.css definit les deux jeux
-        // de valeurs. Le nom "anthracite" est garde tel quel pour ne pas
-        // devoir renommer ~40 fichiers ; ce n'est plus qu'un alias historique.
+        // Content ramp (page, cards, text): the real values live in CSS variables
+        // (see index.css), a light default set and a dark set under .dark, so no
+        // component needs to know the active theme; only index.css defines both
+        // sets of values. The name "anthracite" is kept as is to avoid renaming
+        // ~40 files; it is only a historical alias now.
         anthracite: {
           950: "rgb(var(--a-950) / <alpha-value>)",
           900: "rgb(var(--a-900) / <alpha-value>)",
@@ -31,11 +30,8 @@ export default {
           200: "rgb(var(--a-200) / <alpha-value>)",
           100: "rgb(var(--a-100) / <alpha-value>)",
         },
-        // Palette de la refonte 2026-09-17 (direction "indigo console",
-        // validee par Antho sur maquette avant integration -- cf. lien
-        // artefact dans la conversation) : indigo/blanc plutot que le
-        // violet-marine precedent, jugee trop generique/IA. Meme famille
-        // que le logo Hyperlite (HyperliteLogo.jsx).
+        // "Indigo console" palette: indigo/white, from the same family as the
+        // Hyperlite logo (HyperliteLogo.jsx).
         status: {
           running: "#16A34A",
           stopped: "#6B7280",
@@ -43,21 +39,18 @@ export default {
           error: "#DC2626",
         },
         accent: {
-          // Indigo de marque -- texte/bordures/anneaux de jauge/etats actifs
-          // ET remplissage plein des boutons primaires (voir .btn-primary,
-          // index.css) : contrairement a l'ancienne palette, un seul ton
-          // sert les deux roles ici (coherent avec la reference validee).
+          // Brand indigo: text/borders/gauge rings/active states AND the solid
+          // fill of primary buttons (see .btn-primary, index.css): a single tone
+          // serves both roles.
           blue: "#4F46E5",
           orange: "#D97706",
           green: "#16A34A",
           pink: "#DC2626",
         },
-        // Habillage permanent (sidebar) : reste dans cette teinte quel que
-        // soit le theme clair/sombre du contenu -- ancre visuelle de
-        // l'identite Hyperlite, independante du mode. Le header/topbar ne
-        // fait plus partie du "chrome" depuis la refonte 2026-09-17 (passe
-        // clair, voir Header.jsx) ; seule la colonne laterale (logo + nav +
-        // arbre Datacenter) garde ce fond indigo fonce.
+        // Permanent chrome (sidebar): stays in this hue whatever the light/dark
+        // theme of the content, a visual anchor of the Hyperlite identity that is
+        // independent of the mode. Only the side column (logo + nav + Datacenter
+        // tree) keeps this dark indigo background; the header is light.
         chrome: {
           950: "#171340",
           900: "#211C49",

@@ -7,8 +7,8 @@ import { useInfraStore } from "../store/useInfraStore";
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} o`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} Ko`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} Mo`;
-  return `${(bytes / 1024 ** 3).toFixed(2)} Go`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
 function formatEta(seconds) {
@@ -17,10 +17,9 @@ function formatEta(seconds) {
   return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
 }
 
-// Meme mecanisme que IsoUploadDropzone.jsx (XMLHttpRequest + evenement de
-// progression sur l'upload) mais vers POST /vm-disks (chantier 23) --
-// fichiers disque (qcow2/raw/vmdk/vdi/vhd) destines a l'import de VM,
-// distincts des ISO (media d'installation).
+// The same mechanism as IsoUploadDropzone.jsx (XMLHttpRequest + upload progress
+// event) but to POST /vm-disks: disk files (qcow2/raw/vmdk/vdi/vhd) meant for VM
+// import, distinct from ISOs (installation media).
 export default function VmDiskUploadDropzone({ onDone }) {
   const [dragOver, setDragOver] = useState(false);
   const [upload, setUpload] = useState(null);
@@ -56,12 +55,12 @@ export default function VmDiskUploadDropzone({ onDone }) {
         setUpload((u) => (u ? { ...u, statut: "termine" } : u));
         onDone?.();
       } else {
-        let msg = `Erreur HTTP ${xhr.status}`;
-        try { msg = JSON.parse(xhr.responseText).detail || msg; } catch (e) { /* ignore */ }
+        let msg = `HTTP error ${xhr.status}`;
+        try { msg = JSON.parse(xhr.responseText).detail || msg; } catch { /* ignore */ }
         completeTask(taskId, "echec", msg);
       }
     });
-    xhr.addEventListener("error", () => completeTask(taskId, "echec", "Erreur réseau pendant le téléversement"));
+    xhr.addEventListener("error", () => completeTask(taskId, "echec", "Network error during upload"));
     xhr.send(fd);
   }, [addTask, updateTaskProgress, completeTask, onDone]);
 
@@ -84,7 +83,7 @@ export default function VmDiskUploadDropzone({ onDone }) {
         }`}
       >
         <UploadCloud size={24} className="text-anthracite-300" />
-        <p className="text-sm text-anthracite-200">Glissez un fichier disque ici, ou cliquez pour parcourir</p>
+        <p className="text-sm text-anthracite-200">Drop a disk file here, or click to browse</p>
         <p className="text-[11px] text-anthracite-500">qcow2, raw, img, vmdk, vdi, vhd, vhdx</p>
         <input
           ref={inputRef}
@@ -106,8 +105,8 @@ export default function VmDiskUploadDropzone({ onDone }) {
             <ProgressBar value={(upload.loaded / (upload.file.size || 1)) * 100} statut={upload.statut} />
           </div>
           <div className="mt-1.5 flex justify-between text-xs text-anthracite-400">
-            <span>{upload.statut === "termine" ? "Téléversement terminé" : `${(upload.speed / 1024 / 1024).toFixed(1)} Mo/s`}</span>
-            <span>{upload.statut === "termine" ? "" : `Temps restant estimé : ${formatEta(upload.etaS)}`}</span>
+            <span>{upload.statut === "termine" ? "Upload complete" : `${(upload.speed / 1024 / 1024).toFixed(1)} MB/s`}</span>
+            <span>{upload.statut === "termine" ? "" : `Estimated time remaining: ${formatEta(upload.etaS)}`}</span>
           </div>
         </div>
       )}

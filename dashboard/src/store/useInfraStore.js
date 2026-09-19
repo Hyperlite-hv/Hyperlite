@@ -5,20 +5,20 @@ import {
 } from "../api/client";
 
 const TASK_LABELS = {
-  start_vm: "Démarrage",
-  stop_vm: "Arrêt",
-  restart_vm: "Redémarrage",
-  delete_vm: "Suppression",
-  create_vm: "Création VM",
-  update_vm: "Modification des ressources",
-  create_snapshot: "Création snapshot",
-  upload_iso: "Téléversement ISO",
+  start_vm: "Starting",
+  stop_vm: "Stopping",
+  restart_vm: "Restarting",
+  delete_vm: "Deleting",
+  create_vm: "VM creation",
+  update_vm: "Resource update",
+  create_snapshot: "Snapshot creation",
+  upload_iso: "ISO upload",
 };
 
 let toastCounter = 0;
 
 export const useInfraStore = create((set, get) => ({
-  // ---- Donnees ----
+  // ---- Data ----
   nodes: [],
   vms: [],
   storagePools: [],
@@ -28,38 +28,36 @@ export const useInfraStore = create((set, get) => ({
 
   // ---- Selection / navigation ----
   selection: { type: "datacenter", id: null }, // { type: "datacenter" | "node" | "vm", id }
-  // Onglet CentralPanel demande depuis l'exterieur de l'arbre (voir Header.jsx,
-  // barre de nav horizontale de la refonte 2026-09-13) : CentralPanel le lit
-  // au changement de selection puis le consomme (clearPendingTab) pour ne
-  // pas re-forcer cet onglet a chaque re-rendu.
+                                               // CentralPanel tab requested from outside the tree (see Header.jsx, the horizontal
+                                               // nav bar): CentralPanel reads it when the selection changes, then consumes it
+                                               // (clearPendingTab) so it does not force that tab again at every re-render.
   pendingTab: null,
   searchQuery: "",
   treeFilter: "server", // "server" | "pool" | "tag"
-  // Onglet CentralPanel reellement affiche en ce moment (refonte 2026-09-17,
-  // sidebar unifiee) -- purement pour permettre a SidebarRail de surligner
-  // l'entree active sans dupliquer la logique deja geree par CentralPanel
-  // (pendingTab/clearPendingTab, inchanges). CentralPanel reste la seule
-  // source qui l'ecrit (setActiveTab).
+                        // The CentralPanel tab actually displayed right now (with the unified sidebar):
+                        // purely so that SidebarRail can highlight the active entry without duplicating
+                        // the logic already handled by CentralPanel (pendingTab/clearPendingTab,
+                        // unchanged). CentralPanel remains the only writer (setActiveTab).
   activeTab: "summary",
-  // Sidebar mobile (refonte 2026-09-17) : BUG REEL trouve en testant a
-  // largeur telephone (~400px) -- la colonne laterale (268px fixes) prenait
-  // tout l'ecran, le contenu central devenait inutilisable. Sous le seuil
-  // `md` (voir Sidebar.jsx/Header.jsx), la sidebar devient un tiroir
-  // superpose controle par cet etat plutot que toujours visible.
+  // Mobile sidebar: a real bug found when testing at phone width (~400px): the side
+  // column (a fixed 268px) took the whole screen and the central content became
+  // unusable. Below the `md` breakpoint (see Sidebar.jsx/Header.jsx), the sidebar
+  // becomes an overlaid drawer controlled by this state instead of always being
+  // visible.
   mobileSidebarOpen: false,
 
-  // ---- Taches (actions reelles de cette session) & notifications ----
+  // ---- Tasks (real actions of this session) & notifications ----
   tasks: [],
   toasts: [],
   taskLogCollapsed: false,
 
   // ---- Theme ----
-  // Le mode clair est le defaut de l'identite Hyperlite ; la classe .dark
-  // reelle sur <html> est deja posee avant le premier rendu par le script
-  // inline d'index.html (evite le flash), on aligne juste le state ici.
+  // Light mode is the default of the Hyperlite identity. The real .dark class on
+  // <html> is already set before the first render by the inline script of index.html
+  // (which avoids the flash), so the state is just aligned here.
   theme: (typeof document !== "undefined" && document.documentElement.classList.contains("dark")) ? "dark" : "light",
 
-  // ---- Chargement initial ----
+  // ---- Initial loading ----
   async loadAll() {
     set({ loading: true, error: null });
     try {
@@ -72,22 +70,21 @@ export const useInfraStore = create((set, get) => ({
     }
   },
 
-  // ---- Rafraichissement silencieux (polling en arriere-plan) ----
-  // Meme requetes que loadAll, mais sans jamais toucher `loading`/`error` : un
-  // polling qui declencherait le grand spinner plein ecran toutes les 6s (ou
-  // qui effacerait l'affichage sur un echec reseau ponctuel) serait pire que
-  // l'absence de rafraichissement. Objectif : voir les changements faits par
-  // un autre utilisateur (ou depuis un autre onglet) sans avoir a recharger
-  // la page a la main.
+  // ---- Silent refresh (background polling) ----
+  // The same requests as loadAll, but never touching `loading`/`error`: polling that
+  // triggered the big full-screen spinner every 6 s (or wiped the display on a
+  // one-off network failure) would be worse than no refresh at all. The goal is to
+  // see the changes made by another user (or from another tab) without having to
+  // reload the page by hand.
   async refreshAll() {
     try {
       const [nodes, vms, storagePools, networks] = await Promise.all([
         fetchNodes(), fetchVMs(), fetchStoragePools(), fetchNetworks(),
       ]);
       set({ nodes, vms, storagePools, networks });
-    } catch (e) {
-      // Echec silencieux : on garde le dernier etat connu plutot que de
-      // casser l'affichage pour un blip reseau ; le prochain tick reessaiera.
+    } catch {
+      // Silent failure: keep the last known state rather than break the display for a
+      // network blip; the next tick will retry.
     }
   },
 
@@ -95,10 +92,9 @@ export const useInfraStore = create((set, get) => ({
     set({ selection: { type, id } });
   },
 
-  // Selectionne une ressource ET demande un onglet CentralPanel precis en un
-  // seul appel (voir Header.jsx) -- select() seul ne peut pas cibler un
-  // onglet, CentralPanel retombe toujours sur "summary" au changement de
-  // selection.
+  // Select a resource AND request a specific CentralPanel tab in a single call (see
+  // Header.jsx): select() alone cannot target a tab, since CentralPanel always falls
+  // back to "summary" when the selection changes.
   navigateTo(type, id, tab) {
     set({ selection: { type, id }, pendingTab: tab });
   },
@@ -130,7 +126,7 @@ export const useInfraStore = create((set, get) => ({
   toggleTheme() {
     const next = get().theme === "dark" ? "light" : "dark";
     document.documentElement.classList.toggle("dark", next === "dark");
-    try { localStorage.setItem("hyperlite-theme", next); } catch (e) {}
+    try { localStorage.setItem("hyperlite-theme", next); } catch { /* storage unavailable (private mode): the theme still applies for this session */ }
     set({ theme: next });
   },
 
@@ -143,10 +139,10 @@ export const useInfraStore = create((set, get) => ({
     toastCounter += 1;
     const id = `toast-${toastCounter}`;
     set((s) => ({ toasts: [...s.toasts, { id, ...toast }] }));
-    // Les erreurs restent affichees jusqu'a fermeture manuelle : un message
-    // d'echec technique (ex. erreur libvirt) prend plus de 5s a lire, et le
-    // disparaitre tout seul donnait l'impression qu'aucune erreur n'etait
-    // remontee alors qu'elle l'etait (juste trop vite pour etre vue).
+    // Errors stay displayed until they are closed manually: a technical failure
+    // message (e.g. a libvirt error) takes more than 5 s to read, and having it vanish
+    // by itself gave the impression that no error had been reported when it had (just
+    // too quickly to be seen).
     if (toast.kind !== "error") {
       setTimeout(() => get().dismissToast(id), toast.duration ?? 5000);
     }
@@ -156,9 +152,9 @@ export const useInfraStore = create((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 
-  // ---- Taches : reflets d'actions reelles prises dans cette session (pas
-  // d'historique persiste ici -- voir la vue "Journal", qui lit le vrai
-  // audit_log cote backend via GET /audit) ----
+  // ---- Tasks: reflections of real actions taken in this session (no persisted
+  // history here: see the "Journal" view, which reads the real audit_log on the
+  // backend through GET /audit) ----
   addTask(task) {
     const full = {
       id: task.id ?? makeTaskId(),
@@ -184,8 +180,8 @@ export const useInfraStore = create((set, get) => ({
       const label = TASK_LABELS[task.type] || task.type;
       get().pushToast({
         kind: statut === "termine" ? "success" : "error",
-        title: statut === "termine" ? `${label} terminée` : `${label} en échec`,
-        message: statut === "termine" ? task.cible : (erreur || "Une erreur est survenue"),
+        title: statut === "termine" ? `${label} finished` : `${label} failed`,
+        message: statut === "termine" ? task.cible : (erreur || "An error occurred"),
       });
     }
   },
@@ -194,7 +190,7 @@ export const useInfraStore = create((set, get) => ({
     set((s) => ({ vms: [...s.vms, vm] }));
   },
 
-  // ---- Actions VM ----
+  // ---- VM actions ----
   async runVMAction(vmName, action, { force = false } = {}) {
     const vm = get().vms.find((v) => v.nom === vmName);
     const node = vm?.node;
@@ -204,27 +200,24 @@ export const useInfraStore = create((set, get) => ({
 
     const apiFn = { start: startVM, stop: stopVM, restart: restartVM, delete: deleteVM }[action];
     try {
-      // Ces endpoints repondent en une seule requete HTTP synchrone (pas de
-      // pourcentage intermediaire reel cote backend) : la tache passe donc
-      // directement de "en_cours" a "termine" une fois la reponse recue,
-      // plutot que de simuler une fausse progression.
+      // These endpoints answer in a single synchronous HTTP request (no real
+      // intermediate percentage on the backend side): the task therefore goes straight
+      // from "en_cours" to "termine" once the response is received, rather than
+      // simulating a fake progress.
       //
-      // "stop" (arret propre/ACPI, cote backend domain.shutdown()) est une
-      // simple DEMANDE envoyee a l'invite : l'appel reussit des que la
-      // demande est emise, pas quand la VM s'est reellement eteinte (qui
-      // peut prendre du temps, voire ne jamais arriver si l'invite ne gere
-      // pas l'ACPI -- ex. bloque sur un ecran d'installeur). On se fie donc
-      // a l'etat reellement renvoye par l'API plutot que de supposer
-      // "arrete" par optimisme : sinon l'interface affiche un etat faux,
-      // qui fait ensuite echouer les actions suivantes (ex. suppression,
-      // qui refuse a juste titre une VM encore active cote serveur) sans
-      // que rien n'explique pourquoi a l'utilisateur.
-      // node (backlog 2026-09-18, actions VM multi-nœuds) : jusqu'ici
-      // resolu ci-dessus (const node = vm?.node) mais jamais transmis a
-      // l'appel API lui-meme -- une VM affichee comme distante agissait
-      // donc TOUJOURS sur l'hote local par erreur (silencieuse : le nom de
-      // VM pouvait tout simplement ne pas exister localement -> 404, ou
-      // pire, coincider avec une VM locale homonyme).
+      // "stop" (a clean shutdown/ACPI, domain.shutdown() on the backend) is only a
+      // REQUEST sent to the guest: the call succeeds as soon as the request is issued,
+      // not when the VM has really shut down (which can take a while, or never happen if
+      // the guest does not handle ACPI, e.g. stuck on an installer screen). So we rely
+      // on the state actually returned by the API instead of optimistically assuming
+      // "arrete": otherwise the interface shows a wrong state, which then makes the
+      // following actions fail (e.g. deletion, which rightly refuses a VM still running
+      // on the server side) with nothing explaining why to the user.
+      //
+      // node: it used to be resolved above (const node = vm?.node) but never passed to
+      // the API call itself, so a VM displayed as remote ALWAYS acted on the local host
+      // by mistake (silently: the VM name could simply not exist locally, giving a 404,
+      // or worse, coincide with a homonymous local VM).
       const result = action === "stop"
         ? await apiFn(vmName, force, node)
         : await apiFn(vmName, node);
@@ -234,16 +227,16 @@ export const useInfraStore = create((set, get) => ({
       }));
       get().completeTask(taskId, "termine");
 
-      // Arret propre encore en cours (VM toujours active juste apres la
-      // demande) : une seule revenification differee suffit a rafraichir
-      // l'affichage sans avoir a recharger la page, pour le cas courant ou
-      // l'invite finit par s'eteindre dans les secondes qui suivent.
+      // Clean shutdown still in progress (the VM is still running right after the
+      // request): a single deferred recheck is enough to refresh the display without
+      // reloading the page, for the common case where the guest finishes shutting down
+      // within the following seconds.
       if (action === "stop" && result.etat === "actif") {
         setTimeout(async () => {
           try {
             const fresh = await fetchVM(vmName);
             set((s) => ({ vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
-          } catch (e) { /* VM peut-etre supprimee entre-temps, sans consequence */ }
+          } catch { /* the VM may have been deleted in the meantime, no consequence */ }
         }, 4000);
       }
 

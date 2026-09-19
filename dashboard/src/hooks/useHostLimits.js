@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { fetchHostLimits } from "../api/client";
 
-// Limites de ressources derivees de l'hote (GET /host/limits). En cas
-// d'echec (ex. hote injoignable), renvoie null : les champs restent sans
-// borne haute cote UI et c'est la validation backend, precise, qui tranche
-// -- degradation controlee plutot qu'un formulaire bloque.
+// Resource limits derived from the host (GET /host/limits). On failure (e.g.
+// unreachable host), returns null: the fields stay without an upper bound on the
+// UI side and the precise backend validation decides. This is controlled
+// degradation rather than a blocked form.
 let cached = null;
 
 export function useHostLimits() {

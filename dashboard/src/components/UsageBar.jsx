@@ -1,6 +1,6 @@
-// Petite barre d'usage + pourcentage (table des nœuds, refonte 2026-09-17).
-// `pct` null/undefined -> "n/a" (donnee pas encore exposee), meme
-// convention que le reste de l'app (voir DatacenterSummaryTab).
+// Small usage bar + percentage (nodes table). `pct` null/undefined -> "n/a" (data
+// not yet exposed), the same convention as the rest of the app (see
+// DatacenterSummaryTab).
 export default function UsageBar({ pct, color = "#4F46E5", width = 54 }) {
   if (pct == null) {
     return <span className="text-[11px] text-anthracite-400">n/a</span>;

@@ -6,25 +6,23 @@ import { fetchHaProtected, disableHa, recoverHa } from "../../api/client";
 
 function formatDate(iso) {
   if (!iso) return "--";
-  return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-// Chantier 17 : liste les VM protegees (GET /ha) avec le statut REEL de
-// leur nœud, et permet a un admin de declencher une recuperation manuelle
-// -- jamais automatique, voir app/core/ha.py pour pourquoi (pas de
-// fencing : redemarrer automatiquement une VM protegee pendant que
-// l'original tourne encore sur le meme disque partage corromprait les
-// donnees, testè reellement en developpant ce chantier).
+// Lists the protected VMs (GET /ha) with the REAL status of their node, and lets
+// an admin trigger a manual recovery, never an automatic one (see app/core/ha.py
+// for why: without fencing, automatically restarting a protected VM while the
+// original still runs on the same shared disk would corrupt the data).
 export default function HaTab() {
   const nodes = useInfraStore((s) => s.nodes);
   const pushToast = useInfraStore((s) => s.pushToast);
   const [rows, setRows] = useState(null);
-  const [recoverTarget, setRecoverTarget] = useState({}); // vm_name -> nœud choisi
+  const [recoverTarget, setRecoverTarget] = useState({}); // vm_name -> chosen node
   const [busy, setBusy] = useState(null);
 
   const reload = useCallback(async () => {
     try { setRows(await fetchHaProtected()); }
-    catch (e) { pushToast({ kind: "error", title: "Erreur HA", message: e.message }); }
+    catch (e) { pushToast({ kind: "error", title: "HA error", message: e.message }); }
   }, [pushToast]);
 
   useEffect(() => {
@@ -34,13 +32,13 @@ export default function HaTab() {
   }, [reload]);
 
   async function handleDisable(vmName) {
-    if (!window.confirm(`Désactiver la protection HA de '${vmName}' ?`)) return;
+    if (!window.confirm(`Disable HA protection for '${vmName}'?`)) return;
     try {
       await disableHa(vmName);
-      pushToast({ kind: "success", title: "Protection désactivée", message: vmName });
+      pushToast({ kind: "success", title: "Protection disabled", message: vmName });
       reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     }
   }
 
@@ -50,10 +48,10 @@ export default function HaTab() {
     setBusy(vmName);
     try {
       await recoverHa(vmName, target);
-      pushToast({ kind: "success", title: "VM récupérée", message: `${vmName} sur ${target}` });
+      pushToast({ kind: "success", title: "VM recovered", message: `${vmName} on ${target}` });
       reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de la récupération", message: e.message });
+      pushToast({ kind: "error", title: "Recovery failed", message: e.message });
     } finally {
       setBusy(null);
     }
@@ -63,21 +61,18 @@ export default function HaTab() {
     <div className="space-y-5">
       <div className="card p-4">
         <p className="text-sm text-anthracite-300">
-          Les VM protégées ci-dessous doivent avoir tous leurs disques sur un pool de stockage <b>partagé</b> (NFS,
-          onglet Stockage). Si le nœud d'une VM protégée tombe, une alerte apparaît ici — la récupération vers un
-          autre nœud reste toujours <b>déclenchée manuellement</b> par un admin (jamais automatique, pour éviter
-          tout risque de corruption si le nœud n'est en fait que temporairement injoignable).
+          The protected VMs below must have all their disks on a <b>shared</b> storage pool (NFS, Storage tab). If the node of a protected VM goes down, an alert appears here. Recovery to another node is always <b>triggered manually</b> by an admin (never automatic, to avoid any risk of corruption if the node is in fact only temporarily unreachable).
         </p>
       </div>
 
       <div className="card divide-y divide-anthracite-600">
         <div className="grid grid-cols-5 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
-          <span>VM</span><span>Nœud actuel</span><span>Statut du nœud</span><span>Dernière synchro</span><span />
+          <span>VM</span><span>Current node</span><span>Node status</span><span>Last sync</span><span />
         </div>
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Chargement...</div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
         {rows && rows.length === 0 && (
           <div className="px-4 py-6 text-sm text-anthracite-400 text-center">
-            Aucune VM protégée. Activez la protection HA depuis l'onglet Résumé d'une VM active (disque sur pool partagé requis).
+            No protected VMs. Enable HA protection from the Summary tab of a running VM (a disk on a shared pool is required).
           </div>
         )}
         {rows && rows.map((r) => {
@@ -100,7 +95,7 @@ export default function HaTab() {
                       value={recoverTarget[r.vm_name] || ""}
                       onChange={(e) => setRecoverTarget({ ...recoverTarget, [r.vm_name]: e.target.value })}
                     >
-                      <option value="">Récupérer sur…</option>
+                      <option value="">Recover on…</option>
                       {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
                     </select>
                     <button
@@ -108,12 +103,12 @@ export default function HaTab() {
                       disabled={!recoverTarget[r.vm_name] || busy === r.vm_name}
                       onClick={() => handleRecover(r.vm_name)}
                     >
-                      <LifeBuoy size={13} /> {busy === r.vm_name ? "..." : "Récupérer"}
+                      <LifeBuoy size={13} /> {busy === r.vm_name ? "..." : "Recover"}
                     </button>
                   </>
                 )}
                 <button className="btn-secondary !py-1" onClick={() => handleDisable(r.vm_name)}>
-                  <ShieldOff size={13} /> Désactiver
+                  <ShieldOff size={13} /> Disable
                 </button>
               </div>
             </div>
@@ -122,7 +117,7 @@ export default function HaTab() {
       </div>
 
       <button className="text-xs text-accent-blue hover:underline flex items-center gap-1.5" onClick={reload}>
-        <RefreshCw size={12} /> Actualiser
+        <RefreshCw size={12} /> Refresh
       </button>
     </div>
   );

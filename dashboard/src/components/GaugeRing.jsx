@@ -1,13 +1,12 @@
-// Jauge circulaire (CPU / RAM / stockage). Pur SVG, pas de dependance externe.
-// Vire au orange puis au rouge au-dela d'un seuil critique, quelle que soit la
-// couleur "de base" de la metrique -- c'est ce qui permet de reperer un
-// probleme en un coup d'oeil (reflexe Proxmox/vSphere), pas juste decoratif.
+// Circular gauge (CPU / RAM / storage). Pure SVG, no external dependency. Turns
+// orange then red beyond a critical threshold, whatever the metric's "base"
+// color, which lets a problem be spotted at a glance (a Proxmox/vSphere reflex),
+// not just decoration.
 //
-// Quand ratio est null/undefined (donnee pas encore exposee par le backend),
-// affiche un anneau pointille "n/a" plutot qu'un texte brut a cote -- garde le
-// meme encombrement visuel qu'une jauge avec donnee, pour ne pas desequilibrer
-// une rangee de plusieurs jauges (ex. Resume Datacenter quand CPU/RAM totale
-// ne sont pas encore disponibles).
+// When ratio is null/undefined (data not yet exposed by the backend), it shows a
+// dotted "n/a" ring instead of plain text next to it: it keeps the same visual
+// footprint as a gauge with data, so a row of several gauges is not unbalanced
+// (e.g. the Datacenter summary when total CPU/RAM are not yet available).
 function effectiveColor(ratio, base) {
   if (ratio >= 0.9) return "text-status-error";
   if (ratio >= 0.75) return "text-accent-orange";

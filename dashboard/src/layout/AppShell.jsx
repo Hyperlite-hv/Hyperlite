@@ -20,10 +20,10 @@ export default function AppShell() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // Rafraichit en arriere-plan (voir refreshAll dans le store) pour que les
-  // changements faits par un autre utilisateur/onglet apparaissent sans
-  // recharger la page a la main. Sans effet visible pendant le chargement
-  // initial (loadAll s'en charge deja) ni sur un echec transitoire.
+  // Refreshes in the background (see refreshAll in the store) so changes made by
+  // another user/tab appear without reloading the page by hand. No visible effect
+  // during the initial load (loadAll already handles it) nor on a transient
+  // failure.
   useEffect(() => {
     const id = setInterval(refreshAll, REFRESH_MS);
     return () => clearInterval(id);
@@ -36,20 +36,14 @@ export default function AppShell() {
         <Header />
         <div className="flex-1 overflow-hidden">
           {loading ? (
-            <div className="flex h-full items-center justify-center text-sm text-anthracite-400">Chargement de l'infrastructure...</div>
+            <div className="flex h-full items-center justify-center text-sm text-anthracite-400">Loading the infrastructure...</div>
           ) : error ? (
-            <div className="flex h-full items-center justify-center text-sm text-status-error">Erreur : {error}</div>
+            <div className="flex h-full items-center justify-center text-sm text-status-error">Error: {error}</div>
           ) : (
             <CentralPanel />
           )}
         </div>
-        {/* BUG REEL trouve en testant a l'oeil (Playwright) : place comme
-            frere direct de la colonne Sidebar+contenu (conteneur racine en
-            flex-row depuis la refonte 2026-09-17), TaskLogPanel se rendait
-            comme une colonne etroite a droite de tout l'ecran au lieu d'une
-            barre en bas -- avant la refonte, le conteneur racine etait en
-            flex-col, donc le meme JSX se comportait correctement. Remis a
-            l'interieur de la colonne contenu (sous Header+CentralPanel). */}
+        {/* Real bug found by eyeballing the UI (Playwright): placed as a direct sibling of the Sidebar+content column (root container in flex-row), TaskLogPanel rendered as a narrow column on the right of the whole screen instead of a bar at the bottom. Kept inside the content column (below Header+CentralPanel). */}
         <TaskLogPanel />
       </div>
       <ToastContainer />

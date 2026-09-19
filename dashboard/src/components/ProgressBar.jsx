@@ -1,11 +1,10 @@
-// Barre de progression pilotee par un pourcentage reel (utilisee par
-// TaskLogPanel et IsoUploadDropzone, qui ont un vrai `value` a afficher).
+// Progress bar driven by a real percentage (used by TaskLogPanel and
+// IsoUploadDropzone, which have a real `value` to display).
 //
-// `indeterminate` : pour les operations ou aucun pourcentage reel n'existe
-// cote backend (ex. creation/restauration de snapshot -- verifie sur ce host
-// que libvirt n'expose aucune stat de progression pour cette operation
-// precise) plutot que d'inventer une fausse valeur qui avancerait de facon
-// arbitraire. Affiche un segment anime (pulse) au lieu d'un remplissage.
+// `indeterminate`: for operations where no real percentage exists on the backend
+// (e.g. snapshot creation/restore: verified that libvirt exposes no progress stat
+// for this precise operation), rather than inventing a fake value that would
+// advance arbitrarily. Shows an animated (pulsing) segment instead of a fill.
 export default function ProgressBar({ value, statut = "en_cours", size = "md", indeterminate = false }) {
   const pct = Math.max(0, Math.min(100, value ?? 0));
   const height = size === "sm" ? "h-1.5" : "h-2.5";

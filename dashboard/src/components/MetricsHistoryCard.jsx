@@ -1,20 +1,19 @@
 import { useEffect, useState } from "react";
 import MetricChart from "./MetricChart";
 import { chartColors } from "../theme/colors";
-import { formatMo } from "../utils/format";
 
 const RANGES = [
   { key: "1h", label: "1 h" },
   { key: "24h", label: "24 h" },
-  { key: "7j", label: "Semaine" },
+  { key: "7j", label: "Week" },
   { key: "30j", label: "Mois" },
 ];
 
-// Reel : GET /vms/{name}/metrics/history ou /host/metrics/history (voir
-// app/routers/metrics.py, chantier 10) -- historique PERSISTE cote backend
-// (1h = echantillons bruts/15s, 24h/semaine/mois = moyennes horaires), par
-// opposition au graphe "session en cours" de useLiveVMMetrics qui ne garde
-// que les ~8 dernieres minutes en memoire navigateur.
+// Real: GET /vms/{name}/metrics/history or /host/metrics/history (see
+// app/routers/metrics.py): history PERSISTED on the backend (1h = raw samples
+// every 15s, 24h/week/month = hourly averages), as opposed to the "current
+// session" graph of useLiveVMMetrics, which only keeps the last ~8 minutes in
+// browser memory.
 export default function MetricsHistoryCard({ title, fetcher }) {
   const [range, setRange] = useState("1h");
   const [rows, setRows] = useState(null);
@@ -54,7 +53,7 @@ export default function MetricsHistoryCard({ title, fetcher }) {
         </div>
       </div>
       {error && <p className="mt-2 text-xs text-status-error">{error}</p>}
-      {rows != null && rows.length === 0 && <p className="mt-3 text-sm text-anthracite-400">Pas encore assez d'historique pour cette période.</p>}
+      {rows != null && rows.length === 0 && <p className="mt-3 text-sm text-anthracite-400">Not enough history yet for this period.</p>}
       {rows != null && rows.length > 0 && (
         <div className="mt-3">
           <MetricChart data={data} series={[{ key: "cpu", label: "CPU", color: chartColors.cpu }]} yFormatter={(v) => `${Math.round(v * 100)}%`} height={140} />

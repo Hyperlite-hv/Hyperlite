@@ -1,14 +1,14 @@
 import { statusColor } from "../theme/colors";
 
 const LABELS = {
-  actif: "En marche", online: "En ligne", running: "En marche",
-  arrete: "Arrêté", stopped: "Arrêté",
-  avertissement: "Avertissement", warning: "Avertissement",
-  erreur: "Erreur", error: "Erreur",
-  // Etats reels d'un domaine libvirt (voir STATE_NAMES, app/routers/vms.py
-  // et app/routers/containers.py) au-dela du sous-ensemble actif/arrete.
-  en_pause: "En pause", suspendu: "Suspendu", bloque: "Bloqué",
-  en_arret: "Arrêt en cours", plante: "Planté", inconnu: "Inconnu",
+  actif: "Running", online: "Online", running: "Running",
+  arrete: "Stopped", stopped: "Stopped",
+  avertissement: "Warning", warning: "Warning",
+  erreur: "Error", error: "Error",
+  // Real states of a libvirt domain (see STATE_NAMES, app/routers/vms.py and
+  // app/routers/containers.py) beyond the active/stopped subset.
+  en_pause: "Paused", suspendu: "Suspended", bloque: "Blocked",
+  en_arret: "Shutting down", plante: "Crashed", inconnu: "Unknown",
 };
 
 export default function StatusBadge({ etat, showLabel = true, size = "sm" }) {
