@@ -31,9 +31,19 @@ from app.core.audit import log_action
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
 from app.core.host_capabilities import get_local_capabilities
+from app.core.vm_limits import compute_limits
 from app.core.error_messages import describe_exception
 
 router = APIRouter(prefix="/host", tags=["host"])
+
+
+@router.get("/limits")
+def host_vm_limits(user: dict = Depends(get_current_user)):
+    """Limites de ressources par VM derivees de l'hote reel (chantier 2 du
+    mandat portabilite) -- consommees par l'UI pour borner les champs, et
+    par la validation backend. Chaque limite indique sa source
+    (detecte/configuration/repli)."""
+    return compute_limits()
 
 
 @router.get("/capabilities")

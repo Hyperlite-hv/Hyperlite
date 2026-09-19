@@ -8,6 +8,7 @@ import {
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import FirewallRulesEditor from "../../components/FirewallRulesEditor";
+import { useHostLimits } from "../../hooks/useHostLimits";
 
 // Porte en React le menu "Ajouter un peripherique" deja construit et teste
 // cote vanilla-JS (app/static/app.js: loadVMDisksTab/loadVMNetTab) -- memes
@@ -23,6 +24,7 @@ function nextScsiDev(disks) {
 
 function DiskSection({ vmName, isAdmin }) {
   const pushToast = useInfraStore((s) => s.pushToast);
+  const hostLimits = useHostLimits();
   const [disks, setDisks] = useState(null);
   const [volumes, setVolumes] = useState([]);
   const [source, setSource] = useState("__new__");
@@ -104,7 +106,7 @@ function DiskSection({ vmName, isAdmin }) {
           {source === "__new__" && (
             <div className="flex gap-2">
               <input className="input flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="nom du volume" />
-              <input type="number" min={1} max={500} className="input w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
+              <input type="number" min={1} max={hostLimits?.disque_go.max} className="input w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
               <span className="self-center text-xs text-anthracite-400">Go</span>
             </div>
           )}

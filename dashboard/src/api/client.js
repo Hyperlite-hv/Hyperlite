@@ -33,6 +33,13 @@ function jsonBody(payload) {
   return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
 }
 
+// Limites de ressources par VM derivees de l'hote reel (mandat portabilite,
+// chantier 2 : GET /host/limits) -- remplace les bornes 1-2 vCPU/256-2048 Mo
+// codees en dur dans les formulaires.
+export async function fetchHostLimits() {
+  return realFetch("/host/limits");
+}
+
 export async function fetchDashboardSummary() {
   return realFetch("/dashboard");
 }
