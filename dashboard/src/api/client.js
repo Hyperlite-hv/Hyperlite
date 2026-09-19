@@ -391,9 +391,18 @@ export async function cloneVM(name, newName) {
 }
 // Chantier 27 (migration a chaud) : sourceNode "local" (ou omis) = hote
 // local, meme convention que le reste (open_conn(node), fetchVMs...).
-export async function migrateVM(name, targetNode, sourceNode) {
+export async function migrateVM(name, targetNode, sourceNode, ignorerVerifications = false) {
   const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
-  return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
+  return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, ignorer_verifications: ignorerVerifications }) });
+}
+// Diagnostic de compatibilite de cluster (mandat portabilite, chantier 6)
+export async function fetchMigrationCheck(name, targetNode, sourceNode) {
+  const params = new URLSearchParams({ target_node: targetNode });
+  if (sourceNode && sourceNode !== "local") params.set("node", sourceNode);
+  return realFetch(`/vms/${encodeURIComponent(name)}/migration-check?${params}`);
+}
+export async function fetchNodeCompatibility(nodeName) {
+  return realFetch(`/nodes/${encodeURIComponent(nodeName)}/compatibility`);
 }
 // Chantier 17 (HA) : voir app/core/ha.py -- pas de fencing, recuperation
 // toujours declenchee par un admin, jamais automatique.
@@ -687,4 +696,22 @@ export async function createApiToken(name) {
 }
 export async function deleteApiToken(id) {
   return realFetch(`/auth/tokens/${id}`, { method: "DELETE" });
+}
+
+// ---- Compatibilite et capacites (mandat portabilite, chantiers 1/3/4) ----
+export async function fetchNodeCapabilitiesById(nodeId) {
+  if (!nodeId || nodeId === "local") return realFetch("/host/capabilities");
+  return realFetch(`/nodes/${encodeURIComponent(nodeId)}/capabilities`);
+}
+export async function fetchHostPreflight() {
+  return realFetch("/host/preflight");
+}
+export async function fetchHostProfile() {
+  return realFetch("/host/profile");
+}
+export async function setHostProfile(profil) {
+  return realFetch("/host/profile", { method: "PUT", ...jsonBody({ profil }) });
+}
+export async function setHostAllocation(politique) {
+  return realFetch("/host/allocation", { method: "PUT", ...jsonBody({ politique }) });
 }

@@ -1,6 +1,7 @@
 import { Plus, X } from "lucide-react";
 import { detectOsFamily } from "../../utils/osFamily";
 import { useHostLimits } from "../../hooks/useHostLimits";
+import OverallocationNote from "../../components/OverallocationNote";
 
 // Bornes DERIVEES de l'hote reel via GET /host/limits (mandat portabilite,
 // chantier 2) -- plus de plafond fige a 2 vCPU/2 Go.
@@ -46,6 +47,7 @@ export default function StepResources({ form, patch, storagePools = [] }) {
           <input type="number" min={limits?.memoire_mo.min ?? 256} max={limits?.memoire_mo.max} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
         </div>
       </div>
+      <OverallocationNote limits={limits} vcpu={form.vcpu} memoryMb={form.memory_mb} diskGb={Math.max(0, ...form.disks.map((d) => d.size_gb || 0))} />
 
       <div>
         <label className="text-xs font-medium text-anthracite-300">Disques (Go)</label>
