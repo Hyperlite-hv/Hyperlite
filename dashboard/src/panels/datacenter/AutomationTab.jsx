@@ -1,3 +1,5 @@
+import LoadingState from "../../components/LoadingState";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Zap, Plus, Play, Trash2, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { fetchJobs, createJob, deleteJob, runJob, fetchJobRuns, fetchJobRun } from "../../api/client";
@@ -69,6 +71,7 @@ export default function AutomationTab() {
   }
 
   async function handleDelete(job) {
+    if (!(await confirmAction({ title: `Delete job '${job.name}'?`, message: "The job and its run history are removed.", confirmLabel: "Delete" }))) return;
     try {
       await deleteJob(job.id);
       pushToast({ kind: "success", title: "Job deleted", message: job.name });
@@ -96,7 +99,7 @@ export default function AutomationTab() {
     }
   }
 
-  if (jobs == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (jobs == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   return (
     <div className="space-y-3">
@@ -109,27 +112,27 @@ export default function AutomationTab() {
       {creating && (
         <div className="card p-4 space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <input className="input" placeholder="Job name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <input className="input" placeholder="Description (optional)" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+            <input aria-label="Job name" className="input" placeholder="Job name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <input aria-label="Description (optional)" className="input" placeholder="Description (optional)" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="space-y-2">
             {form.steps.map((s, i) => (
               <div key={i} className="flex items-center gap-2">
-                <select className="input w-36" value={s.cible_type} onChange={(e) => updateStep(i, { cible_type: e.target.value })}>
+                <select aria-label="Step target type" className="input w-36" value={s.cible_type} onChange={(e) => updateStep(i, { cible_type: e.target.value })}>
                   <option value="host">Host</option>
                   <option value="vm">A specific VM</option>
                   <option value="chaque_cible">Each target of the run</option>
                 </select>
                 {s.cible_type === "vm" && (
-                  <input className="input w-32" placeholder="VM name" value={s.cible || ""} onChange={(e) => updateStep(i, { cible: e.target.value })} />
+                  <input aria-label="VM name" className="input w-32" placeholder="VM name" value={s.cible || ""} onChange={(e) => updateStep(i, { cible: e.target.value })} />
                 )}
-                <input className="input flex-1" placeholder="shell command" value={s.commande} onChange={(e) => updateStep(i, { commande: e.target.value })} />
-                <select className="input w-32" value={s.condition_type} onChange={(e) => updateStep(i, { condition_type: e.target.value })}>
+                <input aria-label="shell command" className="input flex-1" placeholder="shell command" value={s.commande} onChange={(e) => updateStep(i, { commande: e.target.value })} />
+                <select aria-label="Success condition type" className="input w-32" value={s.condition_type} onChange={(e) => updateStep(i, { condition_type: e.target.value })}>
                   <option value="exit_code">Return code</option>
                   <option value="stdout_contains">Output contains</option>
                 </select>
-                <input className="input w-24" placeholder={s.condition_type === "exit_code" ? "0" : "pattern"} value={s.condition_valeur || ""} onChange={(e) => updateStep(i, { condition_valeur: e.target.value })} />
-                <button aria-label="Delete" className="btn-danger" onClick={() => removeStep(i)}><Trash2 size={13} /></button>
+                <input aria-label="Success condition value" className="input w-24" placeholder={s.condition_type === "exit_code" ? "0" : "pattern"} value={s.condition_valeur || ""} onChange={(e) => updateStep(i, { condition_valeur: e.target.value })} />
+                <button aria-label={`Remove step ${i + 1}`} className="btn-danger" onClick={() => removeStep(i)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
@@ -154,7 +157,7 @@ export default function AutomationTab() {
                 </div>
                 {job.description && <div className="text-xs text-anthracite-400 truncate">{job.description}</div>}
               </div>
-              <input
+              <input aria-label="targets (VMs separated by commas)"
                 className="input w-48 text-xs" placeholder="targets (VMs separated by commas)"
                 value={runForm[job.id] || ""} onChange={(e) => setRunForm((f) => ({ ...f, [job.id]: e.target.value }))}
               />
@@ -162,7 +165,7 @@ export default function AutomationTab() {
                 <>
                   <button className="btn-secondary" onClick={() => handleRun(job, true)} title="Dry-run">Dry run</button>
                   <button className="btn-primary" onClick={() => handleRun(job, false)}><Play size={13} /> Run</button>
-                  {!job.predefined_key && <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
+                  {!job.predefined_key && <button aria-label={`Delete job ${job.name}`} className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
                 </>
               )}
               <button className="text-anthracite-400" onClick={() => toggleExpand(job)}>
@@ -172,8 +175,8 @@ export default function AutomationTab() {
 
             {expanded === job.id && (
               <div className="px-8 pb-3 space-y-2">
-                <div className="text-xs text-anthracite-500">Run history:</div>
-                {!runs[job.id] && <div className="text-xs text-anthracite-400">Loading...</div>}
+                <div className="text-xs text-anthracite-400">Run history:</div>
+                {!runs[job.id] && <div className="text-xs text-anthracite-400"><LoadingState /></div>}
                 {runs[job.id] && runs[job.id].length === 0 && <div className="text-xs text-anthracite-400">No runs.</div>}
                 {runs[job.id] && runs[job.id].map((r) => (
                   <div key={r.id} className="text-xs">

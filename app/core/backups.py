@@ -22,6 +22,7 @@ update_task_progress().
 
 import contextlib
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -211,6 +212,29 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
     return dest_paths
 
 
+def _write_vm_config(domain, dest_dir):
+    """Record the hardware settings needed to rebuild the VM when restoring to a new location."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(domain.XMLDesc(0))
+    memory_kib = int(root.findtext("memory") or 0)
+    interface = root.find("./devices/interface/source")
+    config = {
+        "vcpu": int(root.findtext("vcpu") or 1),
+        "memory_mb": max(memory_kib // 1024, 1),
+        "network": interface.get("network") if interface is not None and interface.get("network") else "default",
+    }
+    (dest_dir / "vm-config.json").write_text(json.dumps(config))
+
+
+def _read_vm_config(src_dir):
+    """Settings recorded at backup time; older backups fall back to the historical defaults."""
+    config = {"vcpu": 1, "memory_mb": 1024, "network": "default"}
+    with contextlib.suppress(OSError, ValueError):
+        config.update(json.loads((Path(src_dir) / "vm-config.json").read_text()))
+    return config
+
+
 def run_backup(vm_name, target_dir=None, job_id=None, username="system"):
     """Run a backup (choosing hot or cold according to the real state of the VM) and
     return the id of the `backups` row created. Synchronous: called from a
@@ -236,6 +260,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         stamp = _now().strftime("%Y%m%dT%H%M%SZ")
         dest_dir = target_root / vm_name / stamp
         dest_dir.mkdir(parents=True, exist_ok=True)
+        _write_vm_config(domain, dest_dir)
 
         task_id = create_task("backup_vm", vm_name, node=conn.getHostname(), username=username)
         with get_conn() as db:
@@ -350,7 +375,10 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
                 shutil.copyfile(src, dest)
                 new_disk_paths.append(dest)
 
-            xml = build_domain_xml(new_name, 1, 1024, new_disk_paths, None, "default")
+            config = _read_vm_config(src_dir)
+            xml = build_domain_xml(
+                new_name, config["vcpu"], config["memory_mb"], new_disk_paths, None, config["network"]
+            )
             conn.defineXML(xml)
             finish_task(task_id, "termine")
             log_action(username, "restore_backup", new_name, "succes", f"new VM from backup #{backup_id}")

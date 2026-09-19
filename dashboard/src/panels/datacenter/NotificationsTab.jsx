@@ -1,3 +1,5 @@
+import LoadingState from "../../components/LoadingState";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Bell, Plus, Trash2, Send, Power, Webhook, Mail } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -74,7 +76,7 @@ export default function NotificationsTab() {
   }
 
   async function handleDelete(channel) {
-    if (!window.confirm(`Delete the channel '${channel.name}'?`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Delete the channel '${channel.name}'?`, confirmLabel: "Confirm" }))) return;
     try {
       await deleteNotificationChannel(channel.id);
       pushToast({ kind: "success", title: "Channel deleted", message: channel.name });
@@ -123,44 +125,44 @@ export default function NotificationsTab() {
 
             <div>
               <label className="text-xs font-medium text-anthracite-300">Channel name</label>
-              <input className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Discord admin" />
+              <input aria-label="Channel name" className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Discord admin" />
             </div>
 
             {form.type === "webhook" ? (
               <div>
                 <label className="text-xs font-medium text-anthracite-300">Webhook URL</label>
-                <input className="input mt-1" required value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://discord.com/api/webhooks/..." />
+                <input aria-label="Webhook URL" className="input mt-1" required value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://discord.com/api/webhooks/..." />
               </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-anthracite-300">SMTP server</label>
-                    <input className="input mt-1" required value={form.smtp_host} onChange={(e) => setForm({ ...form, smtp_host: e.target.value })} placeholder="smtp.example.com" />
+                    <input aria-label="SMTP server" className="input mt-1" required value={form.smtp_host} onChange={(e) => setForm({ ...form, smtp_host: e.target.value })} placeholder="smtp.example.com" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-anthracite-300">Port</label>
-                    <input className="input mt-1" required value={form.smtp_port} onChange={(e) => setForm({ ...form, smtp_port: e.target.value })} placeholder="587" />
+                    <input aria-label="Port" className="input mt-1" required value={form.smtp_port} onChange={(e) => setForm({ ...form, smtp_port: e.target.value })} placeholder="587" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-anthracite-300">SMTP user</label>
-                    <input className="input mt-1" value={form.smtp_user} onChange={(e) => setForm({ ...form, smtp_user: e.target.value })} />
+                    <input aria-label="SMTP user" className="input mt-1" value={form.smtp_user} onChange={(e) => setForm({ ...form, smtp_user: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-anthracite-300">SMTP password</label>
-                    <input className="input mt-1" type="password" value={form.smtp_password} onChange={(e) => setForm({ ...form, smtp_password: e.target.value })} />
+                    <input aria-label="SMTP password" className="input mt-1" type="password" value={form.smtp_password} onChange={(e) => setForm({ ...form, smtp_password: e.target.value })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-anthracite-300">Sender (From)</label>
-                    <input className="input mt-1" required value={form.from_addr} onChange={(e) => setForm({ ...form, from_addr: e.target.value })} placeholder="hyperlite@example.com" />
+                    <input aria-label="Sender (From)" className="input mt-1" required value={form.from_addr} onChange={(e) => setForm({ ...form, from_addr: e.target.value })} placeholder="hyperlite@example.com" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-anthracite-300">Recipient (To)</label>
-                    <input className="input mt-1" required value={form.to_addr} onChange={(e) => setForm({ ...form, to_addr: e.target.value })} placeholder="you@example.com" />
+                    <input aria-label="Recipient (To)" className="input mt-1" required value={form.to_addr} onChange={(e) => setForm({ ...form, to_addr: e.target.value })} placeholder="you@example.com" />
                   </div>
                 </div>
               </>
@@ -190,7 +192,7 @@ export default function NotificationsTab() {
         )}
 
         <div className="divide-y divide-anthracite-600">
-          {channels == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+          {channels == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
           {channels && channels.length === 0 && (
             <div className="px-4 py-6 text-sm text-anthracite-400 text-center">No channels configured.</div>
           )}
@@ -203,14 +205,14 @@ export default function NotificationsTab() {
                   {c.events.length === 0 ? "All events" : c.events.map((e) => events[e] || e).join(", ")}
                 </div>
               </div>
-              {!c.enabled && <span className="text-xs text-anthracite-500">disabled</span>}
+              {!c.enabled && <span className="text-xs text-anthracite-400">disabled</span>}
               <button className="btn-secondary py-1!" onClick={() => handleTest(c)} disabled={testingId === c.id}>
                 <Send size={13} /> {testingId === c.id ? "..." : "Tester"}
               </button>
               <button className="btn-secondary py-1!" onClick={() => handleToggle(c)}>
                 <Power size={13} /> {c.enabled ? "Disable" : "Enable"}
               </button>
-              <button aria-label="Delete" className="btn-danger py-1!" onClick={() => handleDelete(c)}>
+              <button aria-label={`Delete channel ${c.name}`} className="btn-danger py-1!" onClick={() => handleDelete(c)}>
                 <Trash2 size={13} />
               </button>
             </div>

@@ -1,3 +1,6 @@
+import { useModalBehavior } from "../hooks/useModalBehavior";
+import LoadingState from "./LoadingState";
+import { confirmAction } from "../store/useConfirmStore";
 import { useEffect, useState } from "react";
 import { X, ShieldCheck, ShieldOff, KeyRound, Plus, Trash2, Copy, Check } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
@@ -10,6 +13,7 @@ import {
 // tab: these are settings of the signed-in ACCOUNT, not of the managed
 // infrastructure.
 export default function AccountSecurityModal({ onClose }) {
+  const dialogRef = useModalBehavior(true, onClose);
   const totpEnabled = useAuthStore((s) => s.totpEnabled);
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -41,7 +45,7 @@ export default function AccountSecurityModal({ onClose }) {
       setConfirmCode("");
       await refreshMe();
     } catch (e) {
-      pushToast({ kind: "error", title: "Invalid code", message: e.message });
+      pushToast({ kind: "error", title: "Two-factor setup failed", message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -89,7 +93,7 @@ export default function AccountSecurityModal({ onClose }) {
   }
 
   async function handleDeleteToken(t) {
-    if (!window.confirm(`Revoke the token '${t.name}'? Any script using it will immediately lose access.`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Revoke the token '${t.name}'? Any script using it will immediately lose access.`, confirmLabel: "Confirm" }))) return;
     try {
       await deleteApiToken(t.id);
       pushToast({ kind: "success", title: "Token revoked", message: t.name });
@@ -108,7 +112,7 @@ export default function AccountSecurityModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6" role="dialog" aria-modal="true" aria-label="Account security">
+      <div ref={dialogRef} className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6" role="dialog" aria-modal="true" aria-label="Account security">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-anthracite-100">Account security</h3>
           <button aria-label="Close" onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
@@ -126,7 +130,7 @@ export default function AccountSecurityModal({ onClose }) {
               <form onSubmit={handleDisable} className="flex items-end gap-2">
                 <div className="flex-1">
                   <label className="text-xs font-medium text-anthracite-300">Password (to disable)</label>
-                  <input type="password" className="input mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
+                  <input aria-label="Password (to disable)" type="password" className="input mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
                 </div>
                 <button type="submit" disabled={busy2fa} className="btn-danger">
                   <ShieldOff size={14} /> Disable
@@ -153,11 +157,11 @@ export default function AccountSecurityModal({ onClose }) {
                 className="mx-auto w-40 rounded-md bg-white p-2 [&_svg]:w-full [&_svg]:h-full"
                 dangerouslySetInnerHTML={{ __html: setupData.qr_code_svg }}
               />
-              <p className="text-center font-mono text-[11px] text-anthracite-500 break-all">{setupData.secret}</p>
+              <p className="text-center font-mono text-[11px] text-anthracite-400 break-all">{setupData.secret}</p>
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <label className="text-xs font-medium text-anthracite-300">6-digit code</label>
-                  <input
+                  <input aria-label="6-digit code"
                     className="input mt-1 text-center tracking-[0.3em]" autoFocus inputMode="numeric" maxLength={6}
                     value={confirmCode} onChange={(e) => setConfirmCode(e.target.value.replace(/\D/g, ""))}
                   />
@@ -189,14 +193,14 @@ export default function AccountSecurityModal({ onClose }) {
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                 </button>
               </div>
-              <button className="text-xs text-anthracite-400 hover:text-anthracite-200" onClick={() => setFreshToken(null)}>Close</button>
+              <button className="text-xs text-anthracite-400 hover:text-anthracite-200" onClick={() => setFreshToken(null)}>Dismiss</button>
             </div>
           )}
 
           <form onSubmit={handleCreateToken} className="flex items-end gap-2">
             <div className="flex-1">
               <label className="text-xs font-medium text-anthracite-300">Token name</label>
-              <input className="input mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
+              <input aria-label="Token name" className="input mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
             </div>
             <button type="submit" disabled={busyToken || !newTokenName.trim()} className="btn-secondary">
               <Plus size={14} /> Create
@@ -204,17 +208,17 @@ export default function AccountSecurityModal({ onClose }) {
           </form>
 
           <div className="divide-y divide-anthracite-600 rounded-md border border-anthracite-600">
-            {tokens == null && <div className="px-3 py-2 text-xs text-anthracite-400">Loading...</div>}
+            {tokens == null && <div className="px-3 py-2 text-xs text-anthracite-400"><LoadingState /></div>}
             {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-anthracite-400 text-center">No tokens.</div>}
             {tokens && tokens.map((t) => (
               <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                 <div className="min-w-0 flex-1">
                   <div className="text-anthracite-100 truncate">{t.name}</div>
-                  <div className="text-anthracite-500 text-xs">
+                  <div className="text-anthracite-400 text-xs">
                     Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
                   </div>
                 </div>
-                <button aria-label="Delete" className="btn-danger py-1!" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
+                <button aria-label={`Revoke token ${t.name}`} className="btn-danger py-1!" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>

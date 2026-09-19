@@ -1,3 +1,5 @@
+import LoadingState from "../../components/LoadingState";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Cpu, MemoryStick, HardDrive, Network, Trash2, Plus } from "lucide-react";
 import {
@@ -42,11 +44,12 @@ function DiskSection({ vmName, isAdmin }) {
 
   useEffect(() => { setNewName(`${vmName}-disk-${Date.now().toString().slice(-5)}`); reload(); }, [vmName, reload]);
 
-  if (disks == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (disks == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   const nextDev = nextScsiDev(disks);
 
   async function handleDetach(cible) {
+    if (!(await confirmAction({ title: `Detach disk ${cible}?`, message: "The disk is removed from this VM's configuration.", confirmLabel: "Detach" }))) return;
     setBusy(true);
     try {
       await detachDisk(vmName, cible);
@@ -88,7 +91,7 @@ function DiskSection({ vmName, isAdmin }) {
             <span className="text-anthracite-400 text-xs">{d.bus || "?"}</span>
             <span className="text-anthracite-300 flex-1 truncate">{d.type === "cdrom" ? "cloud-init / ISO" : d.source}</span>
             {isAdmin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && (
-              <button aria-label="Delete" className="btn-danger" disabled={busy} onClick={() => handleDetach(d.cible)}><Trash2 size={13} /></button>
+              <button aria-label={`Detach disk ${d.cible}`} className="btn-danger" disabled={busy} onClick={() => handleDetach(d.cible)}><Trash2 size={13} /></button>
             )}
           </div>
         ))}
@@ -97,14 +100,14 @@ function DiskSection({ vmName, isAdmin }) {
       {isAdmin && (
         <div className="px-4 py-3 border-t border-anthracite-600 space-y-2">
           <div className="text-xs font-medium text-anthracite-300">Add a device</div>
-          <select className="input" value={source} onChange={(e) => setSource(e.target.value)}>
+          <select aria-label="Disk to attach" className="input" value={source} onChange={(e) => setSource(e.target.value)}>
             <option value="__new__">+ New disk...</option>
             {volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</option>)}
           </select>
           {source === "__new__" && (
             <div className="flex gap-2">
-              <input className="input flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="volume name" />
-              <input type="number" min={1} max={hostLimits?.disque_go.max} className="input w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
+              <input aria-label="volume name" className="input flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="volume name" />
+              <input aria-label="New disk size in GB" type="number" min={1} max={hostLimits?.disque_go.max} className="input w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
               <span className="self-center text-xs text-anthracite-400">GB</span>
             </div>
           )}
@@ -140,9 +143,10 @@ function NetworkSection({ vmName, isAdmin }) {
 
   useEffect(() => { reload(); }, [vmName, reload]);
 
-  if (info == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (info == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   async function handleDetach(mac) {
+    if (!(await confirmAction({ title: `Remove network interface ${mac}?`, message: "The VM loses this network interface.", confirmLabel: "Remove" }))) return;
     setBusy(true);
     try {
       await detachInterface(vmName, mac);
@@ -177,17 +181,17 @@ function NetworkSection({ vmName, isAdmin }) {
             <span className="text-anthracite-100">{iface.reseau || "--"}</span>
             <span className="text-anthracite-400 text-xs font-mono">{iface.mac}</span>
             {isAdmin && info.interfaces.length > 1 && (
-              <button aria-label="Delete" className="btn-danger ml-auto" disabled={busy} onClick={() => handleDetach(iface.mac)}><Trash2 size={13} /></button>
+              <button aria-label={`Remove interface ${iface.mac}`} className="btn-danger ml-auto" disabled={busy} onClick={() => handleDetach(iface.mac)}><Trash2 size={13} /></button>
             )}
           </div>
         ))}
       </div>
       {isAdmin && (
         <div className="flex items-center gap-2 px-4 py-3 border-t border-anthracite-600">
-          <select className="input flex-1" value={addNet} onChange={(e) => setAddNet(e.target.value)}>
+          <select aria-label="Network to attach" className="input flex-1" value={addNet} onChange={(e) => setAddNet(e.target.value)}>
             {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({n.type})</option>)}
           </select>
-          <input
+          <input aria-label="VLAN (optional)"
             type="number" min={1} max={4094} placeholder="VLAN (optional)" className="input w-36"
             value={vlanTag} onChange={(e) => setVlanTag(e.target.value)}
           />

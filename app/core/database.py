@@ -1,9 +1,10 @@
 import contextlib
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "hyperlite.db"
+DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or Path(__file__).resolve().parent.parent.parent / "hyperlite.db")
 
 
 @contextmanager

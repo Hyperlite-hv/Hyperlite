@@ -83,7 +83,7 @@ export default function IsoUploadDropzone({ onDone }) {
       >
         <UploadCloud size={28} className="text-anthracite-300" />
         <p className="text-sm text-anthracite-200">Drop an ISO image here, or click to browse</p>
-        <input
+        <input aria-label="ISO image file"
           ref={inputRef}
           type="file"
           accept=".iso"
