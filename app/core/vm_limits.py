@@ -12,10 +12,9 @@ import time
 from pathlib import Path
 
 from app.core.host_capabilities import _memory_capabilities_local
+from app.core import deployment_profile
 
 MEMORY_MIN_MB = 256  # plancher fonctionnel d'une VM Linux, pas une limite d'hote
-MEMORY_HOST_SHARE = 0.8  # part de la RAM hote allouable a UNE VM (le reste : hote + autres VM)
-DISK_FREE_SHARE = 0.9
 _TTL_S = 30
 _cache = {"at": 0.0, "value": None}
 
@@ -45,6 +44,9 @@ def compute_limits(force=False):
     if not force and _cache["value"] is not None and now - _cache["at"] < _TTL_S:
         return _cache["value"]
 
+    prof = deployment_profile.settings()  # parts de RAM/disque allouables selon le profil de deploiement (chantier 5)
+    MEMORY_HOST_SHARE = prof["memory_host_share"]
+    DISK_FREE_SHARE = prof["disk_free_share"]
     cores = os.cpu_count()
     mem_total = _memory_capabilities_local().get("totale_mo")
     disk_free = _detect_disk_free_gb()

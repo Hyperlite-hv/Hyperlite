@@ -2222,3 +2222,30 @@ code backend) :
   comparaison multi-nœuds n'a pas été vue dans l'UI avec deux nœuds
   enregistrés (un seul nœud disponible sur hl-devhub), seulement via la
   logique JS sur les deux vrais profils.
+
+### Chantier 5 : profils de déploiement (2026-09-19)
+
+`app/core/deployment_profile.py` : trois jeux de RÉGLAGES par défaut
+(homelab / standard / avancé), pas trois produits. Profil actif, par
+priorité : `HYPERLITE_PROFILE` (env) > choix d'un admin (table
+`deployment_profile`, `auto` par défaut) > profil RECOMMANDÉ détecté
+(avancé si >= 16 cœurs ou >= 64 Go ; homelab si <= 4 cœurs ou <= 8 Go ;
+sinon standard). Les overrides `HYPERLITE_VM_MAX_*` (chantier 2) restent
+prioritaires sur tout.
+- Réglages pilotés par le profil : part de RAM allouable à une VM (0.75 /
+  0.8 / 0.9) et de disque libre (0.85 / 0.9 / 0.95) dans `vm_limits.py`,
+  intervalle de collecte des métriques (30 / 15 / 10 s, relu à chaque tour
+  dans `metrics.py`, donc sans redémarrage), valeurs par défaut de
+  l'assistant de création de VM (bornées par les limites réelles de l'hôte).
+- `GET /host/profile` (auth), `PUT /host/profile` (admin, 400 si profil
+  inconnu, 409 si forcé par l'env). UI : carte « Profil de déploiement » en
+  tête de l'onglet Datacenter > Compatibilité ; l'assistant VM l'utilise.
+- **Changement de comportement** : un hôte détecté « homelab » a désormais
+  75 % (et non 80 %) de sa RAM allouable à une VM. Le profil standard
+  reproduit exactement les anciennes valeurs.
+- **Testé** : instance de dev sur hl-devhub (détecté homelab : 2 cœurs,
+  2 Go), choix avancé -> limites mémoire 1408 -> 1664 Mo, refus 400/401/409,
+  override env prioritaire, UI Playwright (carte, changement, assistant VM
+  à 2 vCPU / 1664 Mo / 28 Go), zéro erreur console/HTTP.
+- **Non fait** : rétention des sauvegardes et intervalles de sondage des
+  nœuds ne dépendent pas encore du profil.

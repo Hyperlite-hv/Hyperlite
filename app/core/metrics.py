@@ -7,7 +7,7 @@ remplace ; celui-ci ajoute l'HISTORIQUE qui n'existait pas).
 
 Simplification assumee par rapport aux 4 niveaux de stats de vCenter : deux
 paliers seulement.
-  - "raw"    : un echantillon toutes les COLLECT_INTERVAL_S secondes, garde
+  - "raw"    : un echantillon toutes les `metrics_interval_s` secondes (profil de deploiement, 10-30), garde
                RAW_RETENTION_H heures.
   - "hourly" : moyenne des echantillons raw de l'heure ecoulee, calculee une
                fois par heure avant que les raw correspondants ne soient
@@ -28,10 +28,10 @@ from datetime import datetime, timedelta, timezone
 
 import libvirt
 
+from app.core import deployment_profile
 from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
 
-COLLECT_INTERVAL_S = 15
 RAW_RETENTION_H = 2
 HOURLY_RETENTION_DAYS = 60
 
@@ -236,7 +236,7 @@ def _collector_loop():
                 last_rollup = time.time()
         except Exception as e:  # ne jamais laisser le thread mourir sur un tick en echec
             print(f"[metrics] tick échoué : {e!r}", flush=True)
-        _stop_event.wait(COLLECT_INTERVAL_S)
+        _stop_event.wait(deployment_profile.settings()["metrics_interval_s"])
 
 
 def start_metrics_collector():

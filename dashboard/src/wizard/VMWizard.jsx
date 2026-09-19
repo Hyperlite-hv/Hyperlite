@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import StepNode from "./steps/StepNode";
 import StepTemplate from "./steps/StepTemplate";
@@ -6,7 +6,7 @@ import StepResources from "./steps/StepResources";
 import StepNetwork from "./steps/StepNetwork";
 import StepReview from "./steps/StepReview";
 import { useInfraStore } from "../store/useInfraStore";
-import { createVM } from "../api/client";
+import { createVM, fetchHostProfile } from "../api/client";
 import { detectOsFamily } from "../utils/osFamily";
 
 const STEPS = [
@@ -17,15 +17,18 @@ const STEPS = [
   { id: "review", label: "Résumé", Component: StepReview },
 ];
 
-function initialForm(nodes, networks) {
+function initialForm(nodes, networks, defaults) {
   return {
     node: nodes[0]?.id || "",
     iso: "",
     importDisk: null,
     name: "",
-    vcpu: 1,
-    memory_mb: 1024,
-    disks: [{ size_gb: 10 }],
+    // Valeurs par defaut du PROFIL de deploiement (chantier 5, GET
+    // /host/profile), deja bornees par les limites reelles de l'hote ;
+    // repli sur les valeurs historiques si l'appel echoue.
+    vcpu: defaults?.vcpu ?? 1,
+    memory_mb: defaults?.memory_mb ?? 1024,
+    disks: [{ size_gb: defaults?.disk_gb ?? 10 }],
     username: "",
     password: "",
     network: networks[0]?.nom || "default",
@@ -48,6 +51,21 @@ export default function VMWizard({ open, onClose }) {
 
   const [stepIndex, setStepIndex] = useState(0);
   const [form, setForm] = useState(() => initialForm(nodes, networks));
+  const [profileDefaults, setProfileDefaults] = useState(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let alive = true;
+    fetchHostProfile().then((p) => {
+      if (!alive) return;
+      const d = p.vm_defaults_effectifs;
+      setProfileDefaults(d);
+      // N'ecrase que des ressources encore intactes (valeurs historiques).
+      setForm((f) => (f.vcpu === 1 && f.memory_mb === 1024 && f.disks.length === 1 && f.disks[0].size_gb === 10
+        ? { ...f, vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }] } : f));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [open]);
 
   if (!open) return null;
 
@@ -57,7 +75,7 @@ export default function VMWizard({ open, onClose }) {
 
   function reset() {
     setStepIndex(0);
-    setForm(initialForm(nodes, networks));
+    setForm(initialForm(nodes, networks, profileDefaults));
   }
 
   async function handleCreate() {

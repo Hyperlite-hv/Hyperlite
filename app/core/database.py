@@ -439,6 +439,14 @@ def init_db():
                 admin_groups TEXT NOT NULL DEFAULT ''
             )
         """)
+        # Profil de deploiement choisi par l'admin (chantier 5, mandat
+        # portabilite) : 'auto' = profil recommande par detection du materiel.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS deployment_profile (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                profil TEXT NOT NULL DEFAULT 'auto'
+            )
+        """)
         # Etats CSRF/nonce du flux OIDC Authorization Code -- a usage
         # UNIQUE (supprime des sa consommation, voir sso.py::consume_state)
         # et de courte duree de vie (STATE_TTL_S, purge au passage plutot
