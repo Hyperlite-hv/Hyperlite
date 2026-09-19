@@ -6,13 +6,12 @@ import { formatUptime, formatMo } from "../utils/format";
 import VMActionMenu from "./VMActionMenu";
 import VMDetailPanel from "./VMDetailPanel";
 
-const STATE_LABELS = { actif: "En marche", arrete: "Arrêtée", suspendu: "Suspendue" };
+const STATE_LABELS = { actif: "Running", arrete: "Stopped", suspendu: "Suspended" };
 
-// Carte VM actionnable (ecran 5a de la refonte 2026-09-13) : un clic
-// n'importe ou sur la carte (ou son "···") ouvre le menu d'actions ancre
-// (6a, VMActionMenu) ; un double-clic ouvre le panneau lateral (6b,
-// VMDetailPanel). Le clavier (⌘K) reste disponible en plus, ce n'est plus
-// le seul chemin -- voir SearchBar.jsx pour la palette existante.
+// Actionable VM card: a click anywhere on the card (or its "···") opens the
+// anchored actions menu (VMActionMenu); a double-click opens the side panel
+// (VMDetailPanel). The keyboard (⌘K) stays available as well, it is no longer the
+// only path, see SearchBar.jsx for the existing palette.
 export default function VMCard({ vm }) {
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const [menuAnchor, setMenuAnchor] = useState(null);
@@ -58,14 +57,14 @@ export default function VMCard({ vm }) {
           {active ? (
             <>
               <CardButton onClick={() => useInfraStore.getState().navigateTo("vm", vm.nom, "console")}>Console</CardButton>
-              <CardButton onClick={() => useInfraStore.getState().navigateTo("vm", vm.nom, "snapshots")}>Instantané</CardButton>
-              <CardButton danger onClick={() => runVMAction(vm.nom, "stop").catch(() => {})}>Arrêter</CardButton>
+              <CardButton onClick={() => useInfraStore.getState().navigateTo("vm", vm.nom, "snapshots")}>Snapshot</CardButton>
+              <CardButton danger onClick={() => runVMAction(vm.nom, "stop").catch(() => {})}>Stop</CardButton>
             </>
           ) : (
             <>
-              <CardButton primary onClick={() => runVMAction(vm.nom, "start").catch(() => {})}>Démarrer</CardButton>
-              <CardButton onClick={() => useInfraStore.getState().navigateTo("vm", vm.nom, "options")}>Cloner</CardButton>
-              <CardButton onClick={() => useInfraStore.getState().navigateTo("vm", vm.nom, "hardware")}>Modifier</CardButton>
+              <CardButton primary onClick={() => runVMAction(vm.nom, "start").catch(() => {})}>Start</CardButton>
+              <CardButton onClick={() => useInfraStore.getState().navigateTo("vm", vm.nom, "options")}>Clone</CardButton>
+              <CardButton onClick={() => useInfraStore.getState().navigateTo("vm", vm.nom, "hardware")}>Edit</CardButton>
             </>
           )}
         </div>

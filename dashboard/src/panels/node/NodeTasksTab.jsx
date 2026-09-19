@@ -5,26 +5,26 @@ import { fetchTasks, fetchTaskDetail } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 
 const TASK_LABELS = {
-  start_vm: "Démarrer VM", stop_vm: "Arrêter VM", force_stop_vm: "Arrêt forcé VM",
-  restart_vm: "Redémarrer VM", delete_vm: "Supprimer VM", create_vm: "Créer VM",
-  update_vm: "Modifier ressources", create_snapshot: "Créer snapshot",
-  upload_iso: "Téléverser ISO",
+  start_vm: "Start VM", stop_vm: "Stop VM", force_stop_vm: "Force stop VM",
+  restart_vm: "Restart VM", delete_vm: "Delete VM", create_vm: "Create VM",
+  update_vm: "Change resources", create_snapshot: "Create snapshot",
+  upload_iso: "Upload ISO",
 };
 
 const STATUT_ETAT = { en_cours: "avertissement", termine: "actif", echec: "erreur", en_attente: "avertissement" };
-const STATUT_LABEL = { en_cours: "En cours", termine: "Terminé", echec: "Échec", en_attente: "En attente" };
+const STATUT_LABEL = { en_cours: "Running", termine: "Completed", echec: "Failed", en_attente: "Pending" };
 
 const COLUMNS = [
-  { key: "cree_le", label: "Heure" },
-  { key: "cible", label: "Cible" },
-  { key: "username", label: "Utilisateur" },
-  { key: "type", label: "Tâche" },
-  { key: "statut", label: "Statut" },
+  { key: "cree_le", label: "Time" },
+  { key: "cible", label: "Target" },
+  { key: "username", label: "User" },
+  { key: "type", label: "Task" },
+  { key: "statut", label: "Status" },
 ];
 
 function formatHeure(iso) {
   if (!iso) return "--";
-  return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function formatDuree(debut, fin) {
@@ -35,11 +35,11 @@ function formatDuree(debut, fin) {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-// Vue "Recent Tasks" façon vCenter : source de verite = table `tasks`
-// persistee cote backend (GET /tasks), pas les taches ephemeres du store
-// (celles-ci ne survivent qu'a la session en cours -- voir TaskLogPanel pour
-// le ticker temps reel). Ici on veut l'historique reel, partage entre
-// utilisateurs/onglets, avec heure de creation/debut/fin distinctes.
+// vCenter-style "Recent Tasks" view. Source of truth = the `tasks` table persisted
+// on the backend (GET /tasks), not the ephemeral tasks of the store (those only
+// survive the current session, see TaskLogPanel for the real-time ticker). Here we
+// want the real history, shared between users/tabs, with distinct creation/start/
+// end times.
 export default function NodeTasksTab({ resource: node }) {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [rows, setRows] = useState(null);
@@ -54,14 +54,13 @@ export default function NodeTasksTab({ resource: node }) {
     if (!node) return;
     fetchTasks({ node: node.id, statut: statutFiltre || undefined, cible: recherche || undefined, tri, ordre, limit: 300 })
       .then(setRows)
-      .catch((e) => pushToast({ kind: "error", title: "Erreur tâches", message: e.message }));
+      .catch((e) => pushToast({ kind: "error", title: "Tasks error", message: e.message }));
   }, [node, statutFiltre, recherche, tri, ordre, pushToast]);
 
   useEffect(() => {
     load();
-    // Rafraichissement leger pour suivre les taches en cours sans que
-    // l'utilisateur ait a recharger la page -- meme esprit que le polling
-    // silencieux de useInfraStore.refreshAll().
+    // Light refresh to follow running tasks without the user having to reload the
+    // page, in the same spirit as the silent polling of useInfraStore.refreshAll().
     const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, [load]);
@@ -70,7 +69,7 @@ export default function NodeTasksTab({ resource: node }) {
     if (!openId) { setDetail(null); return; }
     fetchTaskDetail(openId)
       .then(setDetail)
-      .catch((e) => pushToast({ kind: "error", title: "Erreur détail tâche", message: e.message }));
+      .catch((e) => pushToast({ kind: "error", title: "Task detail error", message: e.message }));
   }, [openId, pushToast]);
 
   const toggleTri = (key) => {
@@ -88,14 +87,14 @@ export default function NodeTasksTab({ resource: node }) {
           onChange={(e) => setStatutFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
         >
-          <option value="">Tous les statuts</option>
-          <option value="en_cours">En cours</option>
-          <option value="termine">Terminé</option>
-          <option value="echec">Échec</option>
+          <option value="">All statuses</option>
+          <option value="en_cours">Running</option>
+          <option value="termine">Completed</option>
+          <option value="echec">Failed</option>
         </select>
         <input
           type="text"
-          placeholder="Filtrer par cible..."
+          placeholder="Filter by target..."
           value={recherche}
           onChange={(e) => setRecherche(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100 flex-1 min-w-[160px]"
@@ -104,7 +103,7 @@ export default function NodeTasksTab({ resource: node }) {
           onClick={load}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-anthracite-300 hover:text-anthracite-100 border border-anthracite-600 rounded-md"
         >
-          <RefreshCw size={14} /> Actualiser
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
@@ -116,11 +115,11 @@ export default function NodeTasksTab({ resource: node }) {
               {tri === c.key ? (ordre === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ChevronsUpDown size={12} className="opacity-40" />}
             </button>
           ))}
-          <span>Durée</span>
+          <span>Duration</span>
         </div>
 
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Chargement...</div>}
-        {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucune tâche sur ce nœud.</div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No tasks on this node.</div>}
 
         {rows && rows.map((t) => (
           <div key={t.id}>
@@ -138,15 +137,15 @@ export default function NodeTasksTab({ resource: node }) {
 
             {openId === t.id && (
               <div className="px-8 pb-3 text-xs text-anthracite-400 space-y-1 bg-anthracite-800/60">
-                <div>Statut : <span className="text-anthracite-200">{STATUT_LABEL[t.statut] || t.statut}</span></div>
-                <div>Créée le : {formatHeure(t.cree_le)}</div>
-                <div>Débutée le : {formatHeure(t.debut_le)}</div>
-                <div>Terminée le : {formatHeure(t.fin_le)}</div>
-                <div>Durée totale : {formatDuree(t.debut_le, t.fin_le)}</div>
-                {t.erreur && <div className="text-status-error">Cause de l'échec : {t.erreur}</div>}
+                <div>Status: <span className="text-anthracite-200">{STATUT_LABEL[t.statut] || t.statut}</span></div>
+                <div>Created on: {formatHeure(t.cree_le)}</div>
+                <div>Started on: {formatHeure(t.debut_le)}</div>
+                <div>Finished on: {formatHeure(t.fin_le)}</div>
+                <div>Total duration: {formatDuree(t.debut_le, t.fin_le)}</div>
+                {t.erreur && <div className="text-status-error">Cause of failure: {t.erreur}</div>}
                 {detail && detail.id === t.id && detail.logs?.length > 0 && (
                   <div className="pt-1">
-                    <div className="text-anthracite-500 mb-0.5">Journal lié à cette cible :</div>
+                    <div className="text-anthracite-500 mb-0.5">Journal entries for this target:</div>
                     {detail.logs.slice(0, 5).map((l, i) => (
                       <div key={i} className="font-mono">
                         {formatHeure(l.timestamp)} — {l.action} : {l.result}{l.error_message ? ` (${l.error_message})` : ""}

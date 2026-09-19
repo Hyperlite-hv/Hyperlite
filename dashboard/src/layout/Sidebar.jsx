@@ -4,12 +4,11 @@ import SidebarRail from "./SidebarRail";
 import ResourceTree from "./ResourceTree";
 import { useInfraStore } from "../store/useInfraStore";
 
-// Colonne laterale unifiee (refonte 2026-09-17) : logo + rail de navigation
-// + arbre Datacenter dans un seul bandeau indigo. A partir de `md`, toujours
-// visible en colonne fixe (comportement d'origine). En dessous (telephone),
-// devient un tiroir superpose (fixed + backdrop) controle par
-// mobileSidebarOpen -- BUG REEL trouve en testant a largeur telephone : la
-// colonne 268px fixe prenait tout l'ecran, plus aucun contenu utilisable.
+// Unified side column: logo + navigation rail + Datacenter tree in a single
+// indigo band. From `md` up, always visible as a fixed column (original
+// behaviour). Below that (phone), it becomes an overlaid drawer (fixed +
+// backdrop) controlled by mobileSidebarOpen. Real bug found when testing at phone
+// width: the fixed 268px column took the whole screen, leaving no usable content.
 export default function Sidebar() {
   const mobileOpen = useInfraStore((s) => s.mobileSidebarOpen);
   const close = useInfraStore((s) => s.closeMobileSidebar);
@@ -28,9 +27,9 @@ export default function Sidebar() {
           <HyperliteLogo size={28} />
           <div className="leading-tight">
             <div className="text-[15px] font-extrabold tracking-tight text-white">Hyperlite</div>
-            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-chrome-400">Hyperviseur</div>
+            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-chrome-400">Hypervisor</div>
           </div>
-          <button className="ml-auto rounded-md p-1.5 text-chrome-400 hover:bg-white/[0.06] hover:text-chrome-100 md:hidden" onClick={close} aria-label="Fermer la navigation">
+          <button className="ml-auto rounded-md p-1.5 text-chrome-400 hover:bg-white/[0.06] hover:text-chrome-100 md:hidden" onClick={close} aria-label="Close navigation">
             <X size={17} />
           </button>
         </div>

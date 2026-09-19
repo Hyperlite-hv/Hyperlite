@@ -1,9 +1,9 @@
 import { Search, X } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
 
-// Filtre instantane de l'arbre de ressources (colonne gauche) : la valeur est
-// lue directement par ResourceTree.jsx pour masquer les elements qui ne
-// correspondent pas, en gardant visibles les groupes parents d'un match.
+// Instant filter of the resource tree (left column): the value is read directly
+// by ResourceTree.jsx to hide the elements that do not match, keeping the parent
+// groups of a match visible.
 export default function SearchBar() {
   const searchQuery = useInfraStore((s) => s.searchQuery);
   const setSearchQuery = useInfraStore((s) => s.setSearchQuery);
@@ -13,7 +13,7 @@ export default function SearchBar() {
       <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-anthracite-300" />
       <input
         className="input pl-8 pr-8"
-        placeholder="Rechercher un node, une VM, un stockage..."
+        placeholder="Search for a node, a VM, a storage..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
       />

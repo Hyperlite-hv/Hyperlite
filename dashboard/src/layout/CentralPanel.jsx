@@ -36,40 +36,40 @@ import VMBackupTab from "../panels/vm/VMBackupTab";
 import VMSnapshotsTab from "../panels/vm/VMSnapshotsTab";
 
 const DATACENTER_TABS = [
-  { id: "summary", label: "Résumé", Component: DatacenterSummaryTab },
-  { id: "activity", label: "Activité récente", Component: ActivityTab },
-  { id: "storage", label: "Stockage", Component: DcStorageTab },
+  { id: "summary", label: "Summary", Component: DatacenterSummaryTab },
+  { id: "activity", label: "Recent activity", Component: ActivityTab },
+  { id: "storage", label: "Storage", Component: DcStorageTab },
   { id: "templates", label: "Templates", Component: TemplatesTab },
-  { id: "backups", label: "Sauvegardes", Component: BackupsTab },
+  { id: "backups", label: "Backups", Component: BackupsTab },
   { id: "exports", label: "Exports", Component: ExportsTab },
   { id: "permissions", label: "Permissions", Component: PermissionsTab },
-  { id: "reseau", label: "Réseau", Component: NetworkOverviewTab },
+  { id: "reseau", label: "Network", Component: NetworkOverviewTab },
   { id: "automation", label: "Automation", Component: AutomationTab },
-  { id: "containers", label: "Conteneurs", Component: ContainersTab },
-  { id: "nodes", label: "Nœuds", Component: NodesTab },
+  { id: "containers", label: "Containers", Component: ContainersTab },
+  { id: "nodes", label: "Nodes", Component: NodesTab },
   { id: "ha", label: "HA", Component: HaTab },
-  { id: "compat", label: "Compatibilité", Component: CompatibilityTab },
+  { id: "compat", label: "Compatibility", Component: CompatibilityTab },
   { id: "notifications", label: "Notifications", Component: NotificationsTab },
   { id: "sso", label: "SSO", Component: SSOTab },
   { id: "journal", label: "Journal", Component: JournalTab },
 ];
 
 const NODE_TABS = [
-  { id: "summary", label: "Résumé", Component: NodeSummaryTab },
-  { id: "system", label: "Résumé système", Component: NodeSystemTab },
-  { id: "network", label: "Réseau", Component: NodeNetworkTab },
-  { id: "disk", label: "Stockage disque", Component: NodeDiskTab },
-  { id: "tasks", label: "Tâches", Component: NodeTasksTab },
-  { id: "compat", label: "Compatibilité", Component: NodeCompatibilityTab },
+  { id: "summary", label: "Summary", Component: NodeSummaryTab },
+  { id: "system", label: "System summary", Component: NodeSystemTab },
+  { id: "network", label: "Network", Component: NodeNetworkTab },
+  { id: "disk", label: "Disk storage", Component: NodeDiskTab },
+  { id: "tasks", label: "Tasks", Component: NodeTasksTab },
+  { id: "compat", label: "Compatibility", Component: NodeCompatibilityTab },
   { id: "shell", label: "Shell", Component: NodeShellTab },
 ];
 
 const VM_TABS = [
-  { id: "summary", label: "Résumé", Component: VMSummaryTab },
+  { id: "summary", label: "Summary", Component: VMSummaryTab },
   { id: "console", label: "Console", Component: VMConsoleTab },
-  { id: "hardware", label: "Matériel", Component: VMHardwareTab },
+  { id: "hardware", label: "Hardware", Component: VMHardwareTab },
   { id: "options", label: "Options", Component: VMOptionsTab },
-  { id: "backup", label: "Sauvegarde", Component: VMBackupTab },
+  { id: "backup", label: "Backup", Component: VMBackupTab },
   { id: "snapshots", label: "Snapshots", Component: VMSnapshotsTab },
 ];
 
@@ -87,21 +87,17 @@ export default function CentralPanel() {
     activeTab: s.activeTab, setActiveTab: s.setActiveTab,
   }));
 
-  // Deux effets distincts, pas un seul -- BUG REEL trouve le 2026-09-17 en
-  // testant sur un vrai navigateur (Antho : "les boutons sur le côté
-  // gauche marche pas") : avec un seul useEffect deps=[selection.type,
-  // selection.id], cliquer un item de SidebarRail alors qu'on est deja sur
-  // la vue "datacenter" (le cas le plus courant : selection.type/id ne
-  // changent pas, seul pendingTab change) ne re-declenchait JAMAIS l'effet
-  // -- pendingTab restait pose dans le store mais n'etait jamais consomme,
-  // l'onglet affiche ne changeait pas. Corrige en separant : l'effet
-  // "nouvelle selection -> revenir a Résumé" ne depend QUE de la selection
-  // (comportement inchange), l'effet "onglet demande" ne depend QUE de
-  // pendingTab et se declenche donc bien a chaque navigateTo(), meme sans
-  // changement de selection. L'ordre de declaration importe : celui-ci
-  // s'execute apres, donc gagne si les deux changent en meme temps (cas
-  // navigateTo(nouvelleSelection, onglet), ex. clic sur une ligne de la
-  // table des nœuds).
+  // Two distinct effects, not a single one. With one useEffect having deps
+  // [selection.type, selection.id], clicking a SidebarRail item while already on the
+  // "datacenter" view (the most common case: selection.type/id do not change, only
+  // pendingTab does) never re-triggered the effect: pendingTab stayed set in the
+  // store but was never consumed, so the displayed tab did not change. Fixed by
+  // splitting: the "new selection -> back to Summary" effect depends ONLY on the
+  // selection (behaviour unchanged), the "requested tab" effect depends ONLY on
+  // pendingTab and therefore fires on every navigateTo(), even without a selection
+  // change. Declaration order matters: this one runs after, so it wins if both
+  // change at the same time (the navigateTo(newSelection, tab) case, e.g. a click
+  // on a row of the nodes table).
   useEffect(() => {
     setActiveTab("summary");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,7 +114,7 @@ export default function CentralPanel() {
     return (
       <div className="p-4">
         <h2 className="text-lg font-semibold text-anthracite-100">{selection.id}</h2>
-        <p className="mt-1 text-sm text-anthracite-300">Sélectionnez un nœud pour voir le détail de ses pools de stockage (onglet "Stockage disque").</p>
+        <p className="mt-1 text-sm text-anthracite-300">Select a node to see the details of its storage pools ("Disk storage" tab).</p>
       </div>
     );
   }

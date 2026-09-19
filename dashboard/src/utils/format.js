@@ -10,16 +10,16 @@ export function formatUptime(seconds) {
 
 export function formatMo(mo) {
   if (mo == null) return "--";
-  if (mo >= 1024) return `${(mo / 1024).toFixed(1)} Go`;
-  return `${Math.round(mo)} Mo`;
+  if (mo >= 1024) return `${(mo / 1024).toFixed(1)} GB`;
+  return `${Math.round(mo)} MB`;
 }
 
 export function formatGo(go) {
   if (go == null) return "--";
-  return `${go.toFixed(1)} Go`;
+  return `${go.toFixed(1)} GB`;
 }
 
 export function formatKbps(kbps) {
-  if (kbps >= 1024) return `${(kbps / 1024).toFixed(1)} Mo/s`;
+  if (kbps >= 1024) return `${(kbps / 1024).toFixed(1)} MB/s`;
   return `${Math.round(kbps)} Ko/s`;
 }

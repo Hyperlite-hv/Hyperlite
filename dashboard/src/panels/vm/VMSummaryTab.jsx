@@ -27,7 +27,7 @@ export default function VMSummaryTab({ resource: vm }) {
   const [ignoreChecks, setIgnoreChecks] = useState(false);
   const [haProtected, setHaProtected] = useState(false);
   const [haBusy, setHaBusy] = useState(false);
-  const [autoCleanup, setAutoCleanup] = useState(null); // { active, inactive_days, ... } | null (chargement)
+  const [autoCleanup, setAutoCleanup] = useState(null); // { active, inactive_days, ... } | null (loading)
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [cleanupDays, setCleanupDays] = useState(7);
   const [cleanupBusy, setCleanupBusy] = useState(false);
@@ -42,27 +42,26 @@ export default function VMSummaryTab({ resource: vm }) {
 
   useEffect(() => {
     if (justFinished) {
-      pushToast({ kind: "success", title: "Installation terminée", message: `${vm.nom} : terminal SSH web disponible` });
+      pushToast({ kind: "success", title: "Installation finished", message: `${vm.nom}: web SSH terminal available` });
       loadAll();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [justFinished]);
 
-  // Chantier 12 : avant, un echec d'installation automatisee (timeout SSH,
-  // VM disparue en cours de route) restait invisible -- la barre de
-  // progression disparaissait juste silencieusement (provisioning: false
-  // sans distinction succes/echec). GET /vms/{name}/provisioning renvoie
-  // maintenant failed+erreur explicitement dans ce cas.
+  // Before, a failed unattended installation (SSH timeout, VM vanished midway) stayed
+  // invisible: the progress bar just silently disappeared (provisioning: false with
+  // no distinction between success and failure). GET /vms/{name}/provisioning now
+  // returns failed + the error explicitly in that case.
   useEffect(() => {
     if (provStatus?.failed) {
-      pushToast({ kind: "error", title: "Échec de l'installation automatisée", message: provStatus.erreur || "Cause inconnue" });
+      pushToast({ kind: "error", title: "Unattended installation failed", message: provStatus.erreur || "Unknown cause" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provStatus?.failed]);
 
-  // Chantier 17 (HA) : verifie si CETTE VM est protegee -- GET /ha renvoie
-  // toutes les VM protegees, pas de endpoint par-VM dedie (liste courte en
-  // pratique, un filtre cote client suffit).
+  // HA: check whether THIS VM is protected. GET /ha returns all the protected VMs,
+  // with no dedicated per-VM endpoint (a short list in practice, so a client-side
+  // filter is enough).
   useEffect(() => {
     if (!vm?.nom) return;
     let cancelled = false;
@@ -72,9 +71,8 @@ export default function VMSummaryTab({ resource: vm }) {
     return () => { cancelled = true; };
   }, [vm?.nom]);
 
-  // Chantier 19 : recharge le statut a chaque changement de VM (pas de
-  // liste globale comme la HA -- endpoint dedie par VM, voir
-  // app/routers/vms.py::get_vm_auto_cleanup_route).
+  // Reload the status at every VM change (no global list like HA: a dedicated
+  // per-VM endpoint, see app/routers/vms.py::get_vm_auto_cleanup_route).
   useEffect(() => {
     if (!vm?.nom) return;
     let cancelled = false;
@@ -88,11 +86,11 @@ export default function VMSummaryTab({ resource: vm }) {
     setCleanupBusy(true);
     try {
       await setVMAutoCleanup(vm.nom, cleanupDays);
-      pushToast({ kind: "success", title: "Nettoyage automatique activé", message: `${vm.nom} -- ${cleanupDays} jour(s) d'inactivité` });
+      pushToast({ kind: "success", title: "Automatic cleanup enabled", message: `${vm.nom} -- ${cleanupDays} day(s) of inactivity` });
       setAutoCleanup({ active: true, inactive_days: cleanupDays });
       setCleanupOpen(false);
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally {
       setCleanupBusy(false);
     }
@@ -102,11 +100,11 @@ export default function VMSummaryTab({ resource: vm }) {
     setCleanupBusy(true);
     try {
       await disableVMAutoCleanup(vm.nom);
-      pushToast({ kind: "success", title: "Nettoyage automatique désactivé", message: vm.nom });
+      pushToast({ kind: "success", title: "Automatic cleanup disabled", message: vm.nom });
       setAutoCleanup({ active: false });
       setCleanupOpen(false);
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally {
       setCleanupBusy(false);
     }
@@ -117,19 +115,32 @@ export default function VMSummaryTab({ resource: vm }) {
     try {
       if (haProtected) {
         await disableHa(vm.nom);
-        pushToast({ kind: "success", title: "Protection HA désactivée", message: vm.nom });
+        pushToast({ kind: "success", title: "HA protection disabled", message: vm.nom });
         setHaProtected(false);
       } else {
         await enableHa(vm.nom, vm.node);
-        pushToast({ kind: "success", title: "Protection HA activée", message: vm.nom });
+        pushToast({ kind: "success", title: "HA protection enabled", message: vm.nom });
         setHaProtected(true);
       }
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec", message: e.message });
+      pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally {
       setHaBusy(false);
     }
   }
+
+  const vmName = vm?.nom;
+  const vmNode = vm?.node;
+  useEffect(() => {
+    setIgnoreChecks(false);
+    if (!vmName || !migrateOpen || !migrateTarget) { setMigrateCheck(null); return undefined; }
+    let alive = true;
+    setMigrateCheck({ loading: true });
+    fetchMigrationCheck(vmName, migrateTarget, vmNode)
+      .then((report) => alive && setMigrateCheck({ report }))
+      .catch((e) => alive && setMigrateCheck({ error: e.message }));
+    return () => { alive = false; };
+  }, [migrateOpen, migrateTarget, vmName, vmNode]);
 
   if (!vm) return null;
   const provisioning = provStatus?.provisioning;
@@ -138,33 +149,23 @@ export default function VMSummaryTab({ resource: vm }) {
     try {
       await runVMAction(vm.nom, action, opts);
       if (action === "delete") select("datacenter", null);
-    } catch (e) {
-      // erreur deja poussee en toast par le store
+    } catch {
+      // error already pushed as a toast by the store
     }
   }
 
   async function handleClone() {
-    const newName = window.prompt(`Nom de la copie de '${vm.nom}' :`, `${vm.nom}-clone`);
+    const newName = window.prompt(`Name of the copy of '${vm.nom}':`, `${vm.nom}-clone`);
     if (!newName || !newName.trim()) return;
     try {
       await cloneVM(vm.nom, newName.trim());
-      pushToast({ kind: "success", title: "VM clonée", message: `${vm.nom} -> ${newName.trim()}` });
+      pushToast({ kind: "success", title: "VM cloned", message: `${vm.nom} -> ${newName.trim()}` });
       await loadAll();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec du clonage", message: e.message });
+      pushToast({ kind: "error", title: "Clone failed", message: e.message });
     }
   }
 
-  useEffect(() => {
-    setIgnoreChecks(false);
-    if (!migrateOpen || !migrateTarget) { setMigrateCheck(null); return undefined; }
-    let alive = true;
-    setMigrateCheck({ loading: true });
-    fetchMigrationCheck(vm.nom, migrateTarget, vm.node)
-      .then((report) => alive && setMigrateCheck({ report }))
-      .catch((e) => alive && setMigrateCheck({ error: e.message }));
-    return () => { alive = false; };
-  }, [migrateOpen, migrateTarget, vm.nom, vm.node]);
 
   const migrateBlocked = Boolean(migrateCheck?.report?.resume?.bloquant) && !ignoreChecks;
 
@@ -173,34 +174,33 @@ export default function VMSummaryTab({ resource: vm }) {
     setMigrating(true);
     try {
       await migrateVM(vm.nom, migrateTarget, vm.node, ignoreChecks);
-      pushToast({ kind: "success", title: "Migration lancée", message: `${vm.nom} vers ${migrateTarget} — suivez la progression dans les tâches` });
+      pushToast({ kind: "success", title: "Migration started", message: `${vm.nom} to ${migrateTarget}: follow the progress in the tasks` });
       setMigrateOpen(false);
       setMigrateTarget("");
       await loadAll();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de la migration", message: e.message });
+      pushToast({ kind: "error", title: "Migration failed", message: e.message });
     } finally {
       setMigrating(false);
     }
   }
 
   async function handleToTemplate() {
-    const tplName = window.prompt(`Nom du template a creer depuis '${vm.nom}' :`, vm.nom);
+    const tplName = window.prompt(`Name of the template to create from '${vm.nom}':`, vm.nom);
     if (!tplName || !tplName.trim()) return;
     try {
       await createTemplateFromVM(vm.nom, tplName.trim());
-      pushToast({ kind: "success", title: "Template créé", message: tplName.trim() });
-      select("datacenter", null); // la VM source vient de disparaitre (convertie)
+      pushToast({ kind: "success", title: "Template created", message: tplName.trim() });
+      select("datacenter", null); // the source VM has just disappeared (converted)
       await loadAll();
     } catch (e) {
-      pushToast({ kind: "error", title: "Échec de la conversion", message: e.message });
+      pushToast({ kind: "error", title: "Conversion failed", message: e.message });
     }
   }
 
-  // L'hôte local comme destination (meme depuis un nœud DISTANT) n'est
-  // plus exclu depuis le backlog 2026-09-18 : confiance SSH inverse
-  // etablie automatiquement a l'enregistrement de chaque nœud (voir
-  // app/core/cluster.py::ensure_reverse_trust).
+  // The local host as a destination (even from a REMOTE node) is no longer excluded:
+  // the reverse SSH trust is established automatically when each node is registered
+  // (see app/core/cluster.py::ensure_reverse_trust).
   const migrationTargets = nodes.filter((n) => n.id !== vm.node && n.etat === "online");
 
   return (
@@ -208,108 +208,106 @@ export default function VMSummaryTab({ resource: vm }) {
       {isAdmin && (
         <div className="flex flex-wrap gap-2">
           <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={() => act("start")}>
-            <Play size={14} /> Démarrer
+            <Play size={14} /> Start
           </button>
           <button className="btn-secondary" disabled={vm.etat !== "actif"} onClick={() => setConfirm("stop")}>
-            <Square size={14} /> Arrêter
+            <Square size={14} /> Stop
           </button>
           <button
             className="btn-secondary text-status-error"
             disabled={vm.etat !== "actif"}
-            title="Coupe la VM immédiatement, sans attendre l'invite (équivalent à débrancher). À utiliser si l'arrêt propre ne répond pas."
+            title="Powers the VM off immediately without waiting for the guest (equivalent to pulling the plug). Use it if the clean shutdown does not respond."
             onClick={() => setConfirm("force-stop")}
           >
-            <Power size={14} /> Forcer l'arrêt
+            <Power size={14} /> Force stop
           </button>
           <button className="btn-secondary" disabled={vm.etat !== "actif"} onClick={() => act("restart")}>
-            <RotateCw size={14} /> Redémarrer
+            <RotateCw size={14} /> Restart
           </button>
           <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={handleClone}>
-            <Copy size={14} /> Cloner
+            <Copy size={14} /> Clone
           </button>
           <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={handleToTemplate}>
-            <Layers size={14} /> Vers template
+            <Layers size={14} /> To template
           </button>
           <button
             className="btn-secondary"
             disabled={vm.etat !== "actif" || migrationTargets.length === 0}
-            title={migrationTargets.length === 0 ? "Aucun autre nœud en ligne disponible" : "Migrer cette VM vers un autre nœud sans l'éteindre"}
+            title={migrationTargets.length === 0 ? "No other online node available" : "Migrate this VM to another node without shutting it down"}
             onClick={() => setMigrateOpen((o) => !o)}
           >
-            <ArrowRightLeft size={14} /> Migrer
+            <ArrowRightLeft size={14} /> Migrate
           </button>
           <button
             className={haProtected ? "btn-secondary text-status-running" : "btn-secondary"}
             disabled={haBusy}
-            title={haProtected ? "Désactiver la protection HA (récupération manuelle en cas de panne du nœud)" : "Activer la protection HA -- exige un disque sur un pool de stockage partagé (chantier 26)"}
+            title={haProtected ? "Disable HA protection (manual recovery if the node fails)" : "Enable HA protection: requires a disk on a shared storage pool"}
             onClick={handleToggleHa}
           >
-            {haProtected ? <ShieldCheck size={14} /> : <ShieldOff size={14} />} {haBusy ? "..." : haProtected ? "Protégée HA" : "Protéger (HA)"}
+            {haProtected ? <ShieldCheck size={14} /> : <ShieldOff size={14} />} {haBusy ? "..." : haProtected ? "HA protected" : "Protect (HA)"}
           </button>
           <button
             className={autoCleanup?.active ? "btn-secondary text-status-warning" : "btn-secondary"}
-            title="Supprime automatiquement cette VM après N jours d'arrêt continu (une VM en marche n'est jamais concernée)"
+            title="Automatically deletes this VM after N days of continuous shutdown (a running VM is never affected)"
             onClick={() => setCleanupOpen((o) => !o)}
           >
-            <Timer size={14} /> {autoCleanup?.active ? `Nettoyage auto (${autoCleanup.inactive_days}j)` : "Nettoyage auto"}
+            <Timer size={14} /> {autoCleanup?.active ? `Auto cleanup (${autoCleanup.inactive_days}d)` : "Auto cleanup"}
           </button>
           <button className="btn-danger ml-auto" disabled={vm.etat === "actif"} onClick={() => setConfirm("delete")}>
-            <Trash2 size={14} /> Supprimer
+            <Trash2 size={14} /> Delete
           </button>
         </div>
       )}
 
       {migrateOpen && (
         <div className="card flex flex-wrap items-center gap-3 p-4">
-          <span className="text-sm text-anthracite-200">Migrer <b className="text-anthracite-100">{vm.nom}</b> vers</span>
+          <span className="text-sm text-anthracite-200">Migrate <b className="text-anthracite-100">{vm.nom}</b> to</span>
           <select className="input w-auto" value={migrateTarget} onChange={(e) => setMigrateTarget(e.target.value)}>
-            <option value="">Choisir un nœud…</option>
+            <option value="">Choose a node…</option>
             {migrationTargets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
           </select>
           <button className="btn-primary" disabled={!migrateTarget || migrating || migrateCheck?.loading || migrateBlocked} onClick={handleMigrate}>
-            {migrating ? "Lancement..." : "Migrer"}
+            {migrating ? "Starting..." : "Migrate"}
           </button>
-          <button className="btn-secondary" onClick={() => setMigrateOpen(false)}>Annuler</button>
-          {migrateCheck?.loading && <p className="w-full text-xs text-anthracite-400">Vérification de la compatibilité…</p>}
-          {migrateCheck?.error && <p className="w-full text-xs text-status-warning">Diagnostic indisponible ({migrateCheck.error}) : la migration reste tentable, le serveur la vérifiera.</p>}
+          <button className="btn-secondary" onClick={() => setMigrateOpen(false)}>Cancel</button>
+          {migrateCheck?.loading && <p className="w-full text-xs text-anthracite-400">Checking compatibility…</p>}
+          {migrateCheck?.error && <p className="w-full text-xs text-status-warning">Diagnostic unavailable ({migrateCheck.error}): the migration can still be attempted, the server will check it.</p>}
           {migrateCheck?.report && <CompatChecks report={migrateCheck.report} />}
           {migrateCheck?.report?.resume?.bloquant && (
             <label className="flex w-full items-center gap-2 text-xs text-anthracite-300">
               <input type="checkbox" checked={ignoreChecks} onChange={(e) => setIgnoreChecks(e.target.checked)} />
-              Ignorer les blocages détectés et tenter quand même la migration
+              Ignore the detected blockers and try the migration anyway
             </label>
           )}
           <p className="w-full text-xs text-anthracite-400">
-            Migration à chaud : la VM continue de tourner pendant le transfert. Si le disque n'est pas sur un pool partagé
-            (chantier 26), il est copié pendant la migration — peut prendre du temps selon sa taille.
+            Live migration: the VM keeps running during the transfer. If the disk is not on a shared pool, it is copied during the migration, which can take a while depending on its size.
           </p>
         </div>
       )}
 
       {cleanupOpen && (
         <div className="card flex flex-wrap items-center gap-3 p-4">
-          <span className="text-sm text-anthracite-200">Supprimer <b className="text-anthracite-100">{vm.nom}</b> après</span>
+          <span className="text-sm text-anthracite-200">Delete <b className="text-anthracite-100">{vm.nom}</b> after</span>
           <input
             type="number" min={1} max={365} className="input w-20"
             value={cleanupDays} onChange={(e) => setCleanupDays(Number(e.target.value))}
           />
-          <span className="text-sm text-anthracite-200">jour(s) d'arrêt continu</span>
+          <span className="text-sm text-anthracite-200">day(s) of continuous shutdown</span>
           <button className="btn-primary" disabled={cleanupBusy} onClick={handleSetCleanup}>
-            {cleanupBusy ? "..." : autoCleanup?.active ? "Mettre à jour" : "Activer"}
+            {cleanupBusy ? "..." : autoCleanup?.active ? "Update" : "Enable"}
           </button>
           {autoCleanup?.active && (
-            <button className="btn-danger" disabled={cleanupBusy} onClick={handleDisableCleanup}>Désactiver</button>
+            <button className="btn-danger" disabled={cleanupBusy} onClick={handleDisableCleanup}>Disable</button>
           )}
-          <button className="btn-secondary" onClick={() => setCleanupOpen(false)}>Fermer</button>
+          <button className="btn-secondary" onClick={() => setCleanupOpen(false)}>Close</button>
           <p className="w-full text-xs text-anthracite-400">
-            Le compteur ne court que pendant que la VM est arrêtée (redémarrer la remet à zéro) et une VM protégée HA n'est jamais concernée.
-            Une alerte est envoyée ~24h avant la suppression réelle.
+            The counter only runs while the VM is stopped (restarting it resets it to zero), and an HA-protected VM is never affected. An alert is sent ~24 h before the actual deletion.
           </p>
         </div>
       )}
 
       {vm.etat !== "actif" ? (
-        <div className="card p-8 text-center text-sm text-anthracite-400">VM arrêtée -- pas de métriques en direct.</div>
+        <div className="card p-8 text-center text-sm text-anthracite-400">VM stopped: no live metrics.</div>
       ) : provisioning ? (
         <ProvisioningBar status={provStatus} />
       ) : (
@@ -325,17 +323,17 @@ export default function VMSummaryTab({ resource: vm }) {
             <div className="flex flex-col items-center justify-center gap-1 text-center">
               <div className="text-sm text-anthracite-300">
                 {(current?.disques || []).map((d) => (
-                  <div key={d.cible}>{d.cible} : {formatKbps(d.lecture_ko_s)} lu / {formatKbps(d.ecriture_ko_s)} écrit</div>
+                  <div key={d.cible}>{d.cible} : {formatKbps(d.lecture_ko_s)} read / {formatKbps(d.ecriture_ko_s)} written</div>
                 ))}
               </div>
-              <div className="text-xs text-anthracite-400 mt-1">Disques (débit instantané)</div>
+              <div className="text-xs text-anthracite-400 mt-1">Disks (instantaneous throughput)</div>
             </div>
           </div>
 
-          {error && <div className="text-xs text-status-error">Erreur de lecture des métriques : {error}</div>}
+          {error && <div className="text-xs text-status-error">Error reading the metrics: {error}</div>}
 
           <div className="card p-5">
-            <h3 className="text-sm font-semibold text-anthracite-100">CPU & RAM (session en cours)</h3>
+            <h3 className="text-sm font-semibold text-anthracite-100">CPU & RAM (current session)</h3>
             <div className="mt-3">
               <MetricChart
                 data={data}
@@ -349,13 +347,13 @@ export default function VMSummaryTab({ resource: vm }) {
           </div>
 
           <div className="card p-5">
-            <h3 className="text-sm font-semibold text-anthracite-100">Réseau (Ko/s)</h3>
+            <h3 className="text-sm font-semibold text-anthracite-100">Network (KB/s)</h3>
             <div className="mt-3">
               <MetricChart
                 data={data}
                 series={[
-                  { key: "netIn", label: "Entrant", color: chartColors.netIn },
-                  { key: "netOut", label: "Sortant", color: chartColors.netOut },
+                  { key: "netIn", label: "Incoming", color: chartColors.netIn },
+                  { key: "netOut", label: "Outgoing", color: chartColors.netOut },
                 ]}
                 yFormatter={(v) => formatKbps(v)}
               />
@@ -364,19 +362,19 @@ export default function VMSummaryTab({ resource: vm }) {
         </>
       )}
 
-      <MetricsHistoryCard title="Historique CPU (persisté)" fetcher={(range) => fetchVMMetricsHistory(vm.nom, range)} />
+      <MetricsHistoryCard title="CPU history (persisted)" fetcher={(range) => fetchVMMetricsHistory(vm.nom, range)} />
 
       <div className="card p-5">
-        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Statut</h3>
+        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Status</h3>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div><dt className="text-anthracite-400 text-xs">Uptime</dt><dd className="text-anthracite-100">{formatUptime(vm.uptime_s)}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">Adresse IP</dt><dd className="text-anthracite-100">{vm.ip || "--"}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">OS détecté</dt><dd className="text-anthracite-100">{vm.os || "--"}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">Utilisateur SSH</dt><dd className="text-anthracite-100">{vm.utilisateur_ssh || "inconnu"}</dd></div>
+          <div><dt className="text-anthracite-400 text-xs">IP address</dt><dd className="text-anthracite-100">{vm.ip || "--"}</dd></div>
+          <div><dt className="text-anthracite-400 text-xs">Detected OS</dt><dd className="text-anthracite-100">{vm.os || "--"}</dd></div>
+          <div><dt className="text-anthracite-400 text-xs">SSH user</dt><dd className="text-anthracite-100">{vm.utilisateur_ssh || "unknown"}</dd></div>
           <div>
-            <dt className="text-anthracite-400 text-xs">Nettoyage automatique</dt>
+            <dt className="text-anthracite-400 text-xs">Automatic cleanup</dt>
             <dd className={autoCleanup?.active ? "text-status-warning" : "text-anthracite-100"}>
-              {autoCleanup?.active ? `Actif -- ${autoCleanup.inactive_days}j d'arrêt` : "Inactif"}
+              {autoCleanup?.active ? `Active: ${autoCleanup.inactive_days} d of shutdown` : "Inactive"}
             </dd>
           </div>
         </dl>
@@ -384,25 +382,25 @@ export default function VMSummaryTab({ resource: vm }) {
 
       <ConfirmDialog
         open={confirm === "stop"}
-        title={`Arrêter '${vm.nom}' ?`}
-        message="Un arrêt propre (ACPI) sera tenté. Si l'invite ne répond pas (ex. écran figé), la VM restera active -- utilise 'Forcer l'arrêt' dans ce cas."
-        confirmLabel="Arrêter"
+        title={`Stop '${vm.nom}'?`}
+        message="A clean shutdown (ACPI) will be attempted. If the guest does not respond (e.g. a frozen screen), the VM stays running: use 'Force stop' in that case."
+        confirmLabel="Stop"
         onCancel={() => setConfirm(null)}
         onConfirm={() => { setConfirm(null); act("stop"); }}
       />
       <ConfirmDialog
         open={confirm === "force-stop"}
-        title={`Forcer l'arrêt de '${vm.nom}' ?`}
-        message="Coupe la VM immédiatement, comme si on débranchait l'alimentation -- pas d'arrêt propre du système, risque de perte de données non enregistrées. À n'utiliser que si l'arrêt normal ne fonctionne pas."
-        confirmLabel="Forcer l'arrêt"
+        title={`Force stop '${vm.nom}'?`}
+        message="Powers the VM off immediately, as if the power were unplugged: no clean system shutdown, and unsaved data may be lost. Only use it if the normal shutdown does not work."
+        confirmLabel="Force stop"
         onCancel={() => setConfirm(null)}
         onConfirm={() => { setConfirm(null); act("stop", { force: true }); }}
       />
       <ConfirmDialog
         open={confirm === "delete"}
-        title={`Supprimer '${vm.nom}' ?`}
-        message="Cette action est irréversible : la VM et son disque seront définitivement supprimés."
-        confirmLabel="Supprimer"
+        title={`Delete '${vm.nom}'?`}
+        message="This action is irreversible: the VM and its disk will be permanently deleted."
+        confirmLabel="Delete"
         onCancel={() => setConfirm(null)}
         onConfirm={() => { setConfirm(null); act("delete"); }}
       />

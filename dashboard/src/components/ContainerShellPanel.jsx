@@ -3,10 +3,9 @@ import { Plug, Unplug } from "lucide-react";
 import { createContainerTerminalTicket } from "../api/client";
 import { ensureXtermLoaded, wsUrl } from "../utils/loadXterm";
 
-// Terminal SSH d'un conteneur -- meme relais ticket + WebSocket + xterm.js
-// que HostShellPanel/ConsolePanel (terminal SSH par VM), point d'entree
-// backend different (/containers/{name}/terminal, voir
-// app/routers/containers.py, chantier 18).
+// SSH terminal of a container: the same ticket + WebSocket + xterm.js relay as
+// HostShellPanel/ConsolePanel (per-VM SSH terminal), a different backend entry
+// point (/containers/{name}/terminal, see app/routers/containers.py).
 export default function ContainerShellPanel({ name }) {
   const [status, setStatus] = useState("idle"); // idle | connecting | connected | error
   const [error, setError] = useState(null);
@@ -17,8 +16,8 @@ export default function ContainerShellPanel({ name }) {
   const resizeHandlerRef = useRef(null);
 
   function cleanup() {
-    if (wsRef.current) { try { wsRef.current.close(); } catch (e) { /* ignore */ } wsRef.current = null; }
-    if (termRef.current) { try { termRef.current.dispose(); } catch (e) { /* ignore */ } termRef.current = null; }
+    if (wsRef.current) { try { wsRef.current.close(); } catch { /* ignore */ } wsRef.current = null; }
+    if (termRef.current) { try { termRef.current.dispose(); } catch { /* ignore */ } termRef.current = null; }
     if (resizeHandlerRef.current) { window.removeEventListener("resize", resizeHandlerRef.current); resizeHandlerRef.current = null; }
     if (screenRef.current) screenRef.current.innerHTML = "";
     setStatus("idle");
@@ -51,8 +50,8 @@ export default function ContainerShellPanel({ name }) {
         ws.send("\x00" + JSON.stringify({ cols: term.cols, rows: term.rows }));
       };
       ws.onmessage = (ev) => term.write(ev.data);
-      ws.onclose = () => { term.write("\r\n\x1b[33m[session terminée]\x1b[0m\r\n"); setStatus("idle"); };
-      ws.onerror = () => setError("Erreur de connexion au terminal du conteneur.");
+      ws.onclose = () => { term.write("\r\n\x1b[33m[session ended]\x1b[0m\r\n"); setStatus("idle"); };
+      ws.onerror = () => setError("Container terminal connection error.");
 
       term.onData((data) => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
       term.onResize(({ cols, rows }) => { if (ws.readyState === WebSocket.OPEN) ws.send("\x00" + JSON.stringify({ cols, rows })); });
@@ -68,10 +67,10 @@ export default function ContainerShellPanel({ name }) {
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center gap-2">
         {status === "connected" ? (
-          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Déconnecter</button>
+          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Disconnect</button>
         ) : (
           <button className="btn-primary ml-auto" disabled={status === "connecting"} onClick={connect}>
-            <Plug size={13} /> {status === "connecting" ? "Connexion..." : "Ouvrir le terminal"}
+            <Plug size={13} /> {status === "connecting" ? "Connecting..." : "Open the terminal"}
           </button>
         )}
       </div>

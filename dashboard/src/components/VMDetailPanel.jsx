@@ -6,11 +6,10 @@ import { fetchSnapshots } from "../api/client";
 import { statusColor } from "../theme/colors";
 import { formatUptime, formatMo, formatGo } from "../utils/format";
 
-// Panneau lateral au double-clic sur une carte VM (ecran 6b de la refonte
-// 2026-09-13) : apercu rapide sans quitter la page courante, avec un lien
-// vers la fiche complete existante (VM_TABS, CentralPanel.jsx) pour aller
-// plus loin -- ce panneau ne duplique pas les onglets Console/Matériel/etc.,
-// il ne fait qu'y renvoyer.
+// Side panel opened on double-click of a VM card: a quick preview without leaving
+// the current page, with a link to the existing full page (VM_TABS,
+// CentralPanel.jsx) to go further. This panel does not duplicate the
+// Console/Hardware/etc. tabs, it only points to them.
 export default function VMDetailPanel({ vm, onClose }) {
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const runVMAction = useInfraStore((s) => s.runVMAction);
@@ -37,52 +36,52 @@ export default function VMDetailPanel({ vm, onClose }) {
           </div>
           <span className="flex items-center gap-1.5 text-xs" style={{ color: active ? "#48D6C6" : "#B6B0DE" }}>
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor(vm.etat) }} />
-            {active ? "En marche" : "Arrêtée"}{vm.uptime_s ? ` · ${formatUptime(vm.uptime_s)}` : ""}{vm.ip ? ` · ${vm.ip}` : ""}
+            {active ? "Running" : "Stopped"}{vm.uptime_s ? ` · ${formatUptime(vm.uptime_s)}` : ""}{vm.ip ? ` · ${vm.ip}` : ""}
           </span>
           <div className="mt-0.5 flex gap-1.5">
             <button className="btn-primary flex-1 justify-center" onClick={() => openFullPage("console")}>Console</button>
-            <button className="btn-secondary flex-1 justify-center" onClick={() => openFullPage("snapshots")}>Instantané</button>
+            <button className="btn-secondary flex-1 justify-center" onClick={() => openFullPage("snapshots")}>Snapshot</button>
             {active ? (
-              <button className="btn-danger" onClick={() => runVMAction(vm.nom, "stop").catch(() => {})}>Arrêter</button>
+              <button className="btn-danger" onClick={() => runVMAction(vm.nom, "stop").catch(() => {})}>Stop</button>
             ) : (
-              <button className="btn-primary" onClick={() => runVMAction(vm.nom, "start").catch(() => {})}>Démarrer</button>
+              <button className="btn-primary" onClick={() => runVMAction(vm.nom, "start").catch(() => {})}>Start</button>
             )}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
           <div className="flex flex-col gap-2.5">
-            <span className="font-mono text-[10px] tracking-wider text-anthracite-400">MATÉRIEL</span>
+            <span className="font-mono text-[10px] tracking-wider text-anthracite-400">HARDWARE</span>
             <Row label="Processeur" value={`${vm.vcpu} vCPU`} />
-            <Row label="Mémoire" value={formatMo(vm.memoire_mo)} />
-            <Row label="Disque" value={vm.disque_go != null ? formatGo(vm.disque_go) : "--"} />
+            <Row label="Memory" value={formatMo(vm.memoire_mo)} />
+            <Row label="Disk" value={vm.disque_go != null ? formatGo(vm.disque_go) : "--"} />
           </div>
 
           <div className="flex flex-col gap-2.5">
-            <span className="font-mono text-[10px] tracking-wider text-anthracite-400">CHARGE</span>
+            <span className="font-mono text-[10px] tracking-wider text-anthracite-400">LOAD</span>
             {active && current ? (
               <>
                 <Bar label="CPU" ratio={current.cpu} valueLabel={`${Math.round(current.cpu * 100)} %`} color="#8B7CF6" />
                 <Bar
-                  label="Mémoire"
+                  label="Memory"
                   ratio={current.ramAlloueeMo ? (current.ramUseeMo ?? 0) / current.ramAlloueeMo : 0}
-                  valueLabel={current.ramAlloueeMo ? `${Math.round(current.ramUseeMo)} / ${Math.round(current.ramAlloueeMo)} Mo` : "--"}
+                  valueLabel={current.ramAlloueeMo ? `${Math.round(current.ramUseeMo)} / ${Math.round(current.ramAlloueeMo)} MB` : "--"}
                   color="#F5A04B"
                 />
               </>
             ) : (
-              <span className="text-xs text-anthracite-400">{active ? "Chargement..." : "VM arrêtée"}</span>
+              <span className="text-xs text-anthracite-400">{active ? "Loading..." : "VM stopped"}</span>
             )}
           </div>
 
           <div className="flex flex-col gap-2.5">
             <span className="font-mono text-[10px] tracking-wider text-anthracite-400">
-              INSTANTANÉS{snapshots ? ` · ${snapshots.length}` : ""}
+              SNAPSHOTS{snapshots ? ` · ${snapshots.length}` : ""}
             </span>
             {snapshots == null ? (
-              <span className="text-xs text-anthracite-400">Chargement...</span>
+              <span className="text-xs text-anthracite-400">Loading...</span>
             ) : snapshots.length === 0 ? (
-              <span className="text-xs text-anthracite-400">Aucun instantané.</span>
+              <span className="text-xs text-anthracite-400">No snapshots.</span>
             ) : (
               snapshots.slice(0, 4).map((s) => (
                 <div key={s.nom} className="flex justify-between text-[12.5px]">
@@ -94,7 +93,7 @@ export default function VMDetailPanel({ vm, onClose }) {
           </div>
 
           <button className="mt-auto text-left text-xs text-accent-blue hover:underline" onClick={() => openFullPage("summary")}>
-            Ouvrir la fiche complète →
+            Open the full page →
           </button>
         </div>
       </div>

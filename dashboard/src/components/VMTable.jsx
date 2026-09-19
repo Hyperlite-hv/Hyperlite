@@ -6,14 +6,12 @@ import { formatMo, formatGo } from "../utils/format";
 import VMActionMenu from "./VMActionMenu";
 import VMDetailPanel from "./VMDetailPanel";
 
-const STATE_LABELS = { actif: "En marche", arrete: "Arrêtée", suspendu: "Suspendue" };
+const STATE_LABELS = { actif: "Running", arrete: "Stopped", suspendu: "Suspended" };
 const COLUMNS = "34px minmax(0,1.5fr) 96px 64px 96px minmax(0,1fr) 84px 40px";
 
-// Vue tableau dense (ecran 5b de la refonte 2026-09-13) : memes donnees que
-// la grille de cartes (VMCard.jsx), presentation compacte pour parcourir
-// beaucoup de VM d'un coup -- bascule cote a cote avec la vue cartes en
-// haut de la section "Machines virtuelles" (NodeSummaryTab.jsx), "memes
-// donnees" comme le precise la maquette.
+// Dense table view: the same data as the card grid (VMCard.jsx), in a compact
+// layout for browsing many VMs at once. It toggles side by side with the card view
+// at the top of the "Virtual machines" section (NodeSummaryTab.jsx).
 export default function VMTable({ vms }) {
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const [filter, setFilter] = useState("");
@@ -39,7 +37,7 @@ export default function VMTable({ vms }) {
     const names = [...selected];
     setSelected(new Set());
     for (const nom of names) {
-      try { await runVMAction(nom, action); } catch (e) { /* deja notifie via toast */ }
+      try { await runVMAction(nom, action); } catch { /* already notified through a toast */ }
     }
   }
 
@@ -47,21 +45,21 @@ export default function VMTable({ vms }) {
     <div className="card overflow-hidden">
       <div className="flex flex-col gap-3 border-b border-anthracite-600 px-4 py-3.5">
         <div className="flex items-center gap-3">
-          <h3 className="text-[16px] font-bold tracking-tight text-anthracite-100">Machines virtuelles</h3>
-          <span className="font-mono text-xs text-anthracite-400">{filtered.length} sur {vms.length}</span>
+          <h3 className="text-[16px] font-bold tracking-tight text-anthracite-100">Virtual machines</h3>
+          <span className="font-mono text-xs text-anthracite-400">{filtered.length} of {vms.length}</span>
           <input
-            className="input ml-auto w-[200px]" placeholder="Filtrer…"
+            className="input ml-auto w-[200px]" placeholder="Filter…"
             value={filter} onChange={(e) => setFilter(e.target.value)}
           />
         </div>
         {selected.size > 0 && (
           <div className="flex items-center gap-2.5 rounded-md border border-anthracite-500 bg-anthracite-700 px-3.5 py-2">
-            <span className="text-[12.5px] font-semibold text-anthracite-100">{selected.size} sélectionnée{selected.size > 1 ? "s" : ""}</span>
+            <span className="text-[12.5px] font-semibold text-anthracite-100">{selected.size} selected{selected.size > 1 ? "s" : ""}</span>
             <div className="flex gap-1.5">
-              <button className="btn-secondary !py-1" onClick={() => bulkAction("start")}>Démarrer</button>
-              <button className="btn-secondary !py-1" onClick={() => bulkAction("stop")}>Arrêter</button>
+              <button className="btn-secondary !py-1" onClick={() => bulkAction("start")}>Start</button>
+              <button className="btn-secondary !py-1" onClick={() => bulkAction("stop")}>Stop</button>
             </div>
-            <span className="ml-auto font-mono text-[11px] text-anthracite-400">Échap pour annuler</span>
+            <span className="ml-auto font-mono text-[11px] text-anthracite-400">Esc to cancel</span>
           </div>
         )}
       </div>
@@ -69,9 +67,9 @@ export default function VMTable({ vms }) {
       <div className="overflow-x-auto">
         <div style={{ display: "grid", gridTemplateColumns: COLUMNS }} className="border-b border-anthracite-700 px-3.5 py-2 font-mono text-[10px] tracking-wider text-anthracite-400">
           <span />
-          <span>NOM</span><span>ÉTAT</span><span>vCPU</span><span>MÉMOIRE</span><span>ADRESSE IP</span><span>DISQUE</span><span />
+          <span>NAME</span><span>STATE</span><span>vCPU</span><span>MEMORY</span><span>IP ADDRESS</span><span>DISK</span><span />
         </div>
-        {filtered.length === 0 && <div className="px-4 py-6 text-center text-sm text-anthracite-400">Aucune VM.</div>}
+        {filtered.length === 0 && <div className="px-4 py-6 text-center text-sm text-anthracite-400">No VMs.</div>}
         {filtered.map((vm) => (
           <div
             key={vm.nom}
@@ -104,7 +102,7 @@ export default function VMTable({ vms }) {
         ))}
       </div>
       <div className="px-4 py-2.5 font-mono text-[10.5px] text-anthracite-400">
-        Cartes / tableau : mêmes données -- basculez au-dessus de cette liste.
+        Cards / table: the same data. Toggle above this list.
       </div>
 
       {menu && <VMActionMenu vm={menu.vm} anchorRect={menu.anchorRect} onClose={() => setMenu(null)} />}

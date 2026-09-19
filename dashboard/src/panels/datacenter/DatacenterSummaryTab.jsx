@@ -15,50 +15,48 @@ function sumDefined(items, key) {
   return defined.reduce((a, i) => a + i[key], 0);
 }
 
-// Etats reels d'un domaine libvirt (STATE_NAMES, app/routers/vms.py) dans
-// l'ordre d'affichage voulu -- "bloque"/"en_arret"/"inconnu" sont regroupes
-// dans "Autre" plus bas (transitoires/rares, pas la peine d'une ligne dediee
-// tant qu'aucune VM n'y est).
+// Real states of a libvirt domain (STATE_NAMES, app/routers/vms.py) in the wanted
+// display order. "bloque"/"en_arret"/"inconnu" are grouped under "Other" further
+// down (transient or rare, not worth a dedicated row as long as no VM is in them).
 const VM_STATUS_ORDER = [
-  { etat: "actif", label: "En marche" },
-  { etat: "arrete", label: "Arrêtées" },
+  { etat: "actif", label: "Running" },
+  { etat: "arrete", label: "Stopped" },
   { etat: "en_pause", label: "En pause" },
-  { etat: "suspendu", label: "Suspendues" },
-  { etat: "plante", label: "En erreur" },
+  { etat: "suspendu", label: "Suspended" },
+  { etat: "plante", label: "In error" },
 ];
 
 const TASK_LABELS = {
-  create_vm: "Créer VM", delete_vm: "Supprimer VM", start_vm: "Démarrer VM",
-  stop_vm: "Arrêter VM", restart_vm: "Redémarrer VM", clone_vm: "Cloner VM", migrate_vm: "Migrer VM",
-  auto_install: "Installation automatisée", create_snapshot: "Créer snapshot",
-  backup_vm: "Sauvegarder VM", restore_backup: "Restaurer sauvegarde",
-  export_vm: "Exporter VM", upload_vm_disk: "Téléverser disque",
-  create_container: "Créer conteneur", upload_iso: "Téléverser ISO",
-  hyperlite_update: "Mise à jour Hyperlite", run_job: "Job d'automatisation",
+  create_vm: "Create VM", delete_vm: "Delete VM", start_vm: "Start VM",
+  stop_vm: "Stop VM", restart_vm: "Restart VM", clone_vm: "Clone VM", migrate_vm: "Migrate VM",
+  auto_install: "Unattended installation", create_snapshot: "Create snapshot",
+  backup_vm: "Back up VM", restore_backup: "Restore backup",
+  export_vm: "Export VM", upload_vm_disk: "Upload disk",
+  create_container: "Create container", upload_iso: "Upload ISO",
+  hyperlite_update: "Hyperlite update", run_job: "Automation job",
 };
 const STATUT_ETAT = { en_cours: "avertissement", termine: "actif", echec: "erreur", en_attente: "avertissement" };
-const STATUT_LABEL = { en_cours: "En cours", termine: "OK", echec: "Échec", en_attente: "En attente" };
+const STATUT_LABEL = { en_cours: "Running", termine: "OK", echec: "Failed", en_attente: "Pending" };
 
-// Seuil d'alerte identique au backend (app/core/metrics.py::ALERT_THRESHOLDS)
-// -- calcule ici cote client a partir des memes donnees deja chargees
-// (aucun endpoint /alerts dedie aujourd'hui, le backend se contente de logger
-// le franchissement dans l'audit). Reste honnete : uniquement les nœuds pour
-// lesquels on a une vraie mesure (voir enrichedNodes) comptent.
+// The same alert threshold as the backend (app/core/metrics.py::ALERT_THRESHOLDS),
+// computed here on the client from the same data already loaded (there is no
+// dedicated /alerts endpoint today, the backend only logs the threshold crossing
+// in the audit). It stays honest: only nodes for which there is a real measurement
+// (see enrichedNodes) count.
 const ALERT_THRESHOLD = 0.9;
 
 function formatHeure(iso) {
   if (!iso) return "--";
-  return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-// CPU/RAM/reseau reels du noeud local ("local") via GET /host/metrics/history
-// (collecte continue, chantier 10) -- fetchNodes() (api/client.js) pose
-// volontairement ces champs a null (pas expose par GET /dashboard), ce qui
-// affichait "n/a" en permanence ici meme apres le chantier 10. Meme source
-// que NodeSummaryTab.jsx. Un seul noeud reel aujourd'hui (multi-noeuds
-// distants, chantier 15, n'exposent pas encore leurs propres metriques) :
-// les noeuds distants sans donnee restent "n/a", ils ne comptent simplement
-// pas dans la moyenne/somme (sumDefined filtre deja les null).
+// Real CPU/RAM/network of the local node ("local") through
+// GET /host/metrics/history (continuous collection). fetchNodes() (api/client.js)
+// deliberately sets these fields to null (not exposed by GET /dashboard), which
+// displayed "n/a" permanently here. It is the same source as NodeSummaryTab.jsx.
+// Only one real node is measured today (remote nodes do not expose their own
+// metrics yet): remote nodes without data stay "n/a" and simply do not count in the
+// average/sum (sumDefined already filters out the nulls).
 export default function DatacenterSummaryTab() {
   const { nodes, vms, navigateTo } = useInfraStore((s) => ({ nodes: s.nodes, vms: s.vms, navigateTo: s.navigateTo }));
   const [metricRows, setMetricRows] = useState(null);
@@ -88,10 +86,9 @@ export default function DatacenterSummaryTab() {
     netOut: (r.net_tx_bps ?? 0) / 1024,
   }));
 
-  // Fusionne les vraies metriques locales dans la liste des noeuds (le
-  // noeud local est toujours id "local", voir fetchNodes()) avant tout
-  // calcul -- une seule source de verite pour l'agregat ET le detail
-  // par-noeud plus bas.
+  // Merge the real local metrics into the node list (the local node is always id
+  // "local", see fetchNodes()) before any computation: a single source of truth for
+  // the aggregate AND the per-node detail below.
   const enrichedNodes = nodes.map((n) => (n.id !== "local" || !latest ? n : {
     ...n,
     cpu_utilisation: latest.cpu_pct != null ? latest.cpu_pct / 100 : n.cpu_utilisation,
@@ -120,33 +117,33 @@ export default function DatacenterSummaryTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile icon={Server} label="Nœuds" value={enrichedNodes.length} foot={`${onlineNodes} en ligne`} tone="blue" />
-        <StatTile icon={MonitorPlay} label="VM en marche" value={runningVms} foot={`sur ${totalVms} au total`} tone="green" />
-        <StatTile icon={Square} label="VM arrêtées" value={stoppedVms} foot={`sur ${totalVms} au total`} tone="gray" />
-        <StatTile icon={AlertTriangle} label="Alertes" value={alertCount} foot={alertCount ? "à surveiller" : "aucune"} tone="amber" />
+        <StatTile icon={Server} label="Nodes" value={enrichedNodes.length} foot={`${onlineNodes} online`} tone="blue" />
+        <StatTile icon={MonitorPlay} label="Running VMs" value={runningVms} foot={`of ${totalVms} in total`} tone="green" />
+        <StatTile icon={Square} label="Stopped VMs" value={stoppedVms} foot={`of ${totalVms} in total`} tone="gray" />
+        <StatTile icon={AlertTriangle} label="Alerts" value={alertCount} foot={alertCount ? "to watch" : "none"} tone="amber" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="card p-4">
           <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
-            <Cpu size={16} className="text-accent-blue" /> Utilisation CPU
+            <Cpu size={16} className="text-accent-blue" /> CPU usage
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {avgCpu != null ? `${Math.round(avgCpu * 100)}%` : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">{cpuNodes.length} nœud(s) mesuré(s)</span>
+            <span className="text-[11px] text-anthracite-400">{cpuNodes.length} node(s) measured</span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart data={chartData} series={[{ key: "cpu", label: "CPU", color: chartColors.cpu }]} yFormatter={(v) => `${Math.round(v * 100)}%`} height={140} />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">Pas encore d'historique.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
           )}
         </div>
 
         <div className="card p-4">
           <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
-            <MemoryStick size={16} className="text-accent-blue" /> Utilisation mémoire
+            <MemoryStick size={16} className="text-accent-blue" /> Memory usage
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
@@ -159,28 +156,28 @@ export default function DatacenterSummaryTab() {
           {chartData.length > 0 ? (
             <MetricChart data={chartData} series={[{ key: "ramMo", label: "RAM", color: chartColors.cpu }]} yFormatter={(v) => formatMo(v)} height={140} />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">Pas encore d'historique.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
           )}
         </div>
 
         <div className="card p-4">
           <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
-            <Network size={16} className="text-accent-blue" /> Réseau (hôte local)
+            <Network size={16} className="text-accent-blue" /> Network (local host)
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {latest ? formatKbps((latest.net_rx_bps ?? 0) / 1024) : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">entrant actuel</span>
+            <span className="text-[11px] text-anthracite-400">current incoming</span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart
               data={chartData}
-              series={[{ key: "netIn", label: "Entrant", color: chartColors.cpu }, { key: "netOut", label: "Sortant", color: chartColors.netOut }]}
+              series={[{ key: "netIn", label: "Incoming", color: chartColors.cpu }, { key: "netOut", label: "Outgoing", color: chartColors.netOut }]}
               yFormatter={(v) => formatKbps(v)} height={140}
             />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">Pas encore d'historique.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
           )}
         </div>
       </div>
@@ -189,23 +186,23 @@ export default function DatacenterSummaryTab() {
         <div className="card p-4 xl:col-span-7">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
-              <Server size={16} className="text-accent-blue" /> Nœuds
+              <Server size={16} className="text-accent-blue" /> Nodes
             </h3>
             <button className="btn-primary" onClick={() => navigateTo("datacenter", null, "nodes")}>
-              <Plus size={14} /> Ajouter un nœud
+              <Plus size={14} /> Add a node
             </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
-                  <th className="pb-2 pr-2">Nom</th>
-                  <th className="pb-2 pr-2">Statut</th>
+                  <th className="pb-2 pr-2">Name</th>
+                  <th className="pb-2 pr-2">Status</th>
                   <th className="pb-2 pr-2">CPU</th>
-                  <th className="pb-2 pr-2">Mémoire</th>
-                  <th className="pb-2 pr-2">Disque</th>
-                  <th className="pb-2 pr-2 text-right">VM</th>
-                  <th className="pb-2 text-right">Actif depuis</th>
+                  <th className="pb-2 pr-2">Memory</th>
+                  <th className="pb-2 pr-2">Disk</th>
+                  <th className="pb-2 pr-2 text-right">VMs</th>
+                  <th className="pb-2 text-right">Uptime</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-anthracite-600">
@@ -234,7 +231,7 @@ export default function DatacenterSummaryTab() {
                   );
                 })}
                 {enrichedNodes.length === 0 && (
-                  <tr><td colSpan={7} className="py-4 text-center text-sm text-anthracite-400">Aucun nœud.</td></tr>
+                  <tr><td colSpan={7} className="py-4 text-center text-sm text-anthracite-400">No nodes.</td></tr>
                 )}
               </tbody>
             </table>
@@ -242,7 +239,7 @@ export default function DatacenterSummaryTab() {
         </div>
 
         <div className="card p-4 xl:col-span-5">
-          <h3 className="mb-3 text-[13px] font-bold text-anthracite-100">Statut des VM</h3>
+          <h3 className="mb-3 text-[13px] font-bold text-anthracite-100">VM status</h3>
           <div className="divide-y divide-anthracite-600">
             {vmCounts.map(({ etat, label, count }) => (
               <div key={etat} className="flex items-center gap-3 py-2.5 text-sm">
@@ -257,14 +254,14 @@ export default function DatacenterSummaryTab() {
             {autreCount > 0 && (
               <div className="flex items-center gap-3 py-2.5 text-sm">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-anthracite-500" />
-                <span className="flex-1 font-semibold text-anthracite-200">Autre</span>
+                <span className="flex-1 font-semibold text-anthracite-200">Other</span>
                 <span className="font-mono text-[14px] font-extrabold text-anthracite-100">{autreCount}</span>
                 <span className="w-14 text-right font-mono text-xs text-anthracite-400">
                   {totalVms ? `${((autreCount / totalVms) * 100).toFixed(1)}%` : "--"}
                 </span>
               </div>
             )}
-            {totalVms === 0 && <div className="py-2 text-sm text-anthracite-400">Aucune VM pour l'instant.</div>}
+            {totalVms === 0 && <div className="py-2 text-sm text-anthracite-400">No VMs yet.</div>}
           </div>
           {totalVms > 0 && (
             <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-anthracite-900">
@@ -280,29 +277,29 @@ export default function DatacenterSummaryTab() {
       <div className="card p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
-            <Clock size={16} className="text-accent-blue" /> Tâches récentes
+            <Clock size={16} className="text-accent-blue" /> Recent tasks
           </h3>
           <button className="text-xs font-semibold text-accent-blue hover:underline" onClick={() => navigateTo("datacenter", null, "activity")}>
-            Voir tout le journal →
+            View the whole journal →
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
-                <th className="pb-2 pr-2">Heure</th>
-                <th className="pb-2 pr-2">Nœud</th>
-                <th className="pb-2 pr-2">Utilisateur</th>
-                <th className="pb-2 pr-2">Tâche</th>
-                <th className="pb-2">Statut</th>
+                <th className="pb-2 pr-2">Time</th>
+                <th className="pb-2 pr-2">Node</th>
+                <th className="pb-2 pr-2">User</th>
+                <th className="pb-2 pr-2">Task</th>
+                <th className="pb-2">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-anthracite-600">
               {recentTasks == null && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">Chargement...</td></tr>
+                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">Loading...</td></tr>
               )}
               {recentTasks && recentTasks.length === 0 && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">Aucune activité récente.</td></tr>
+                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">No recent activity.</td></tr>
               )}
               {recentTasks && recentTasks.map((t) => (
                 <tr key={t.id}>

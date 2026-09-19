@@ -1,6 +1,6 @@
-// Tuile de statistique (refonte 2026-09-17, en-tete du tableau de bord
-// Datacenter) -- badge rond teinte + gros chiffre, reutilisable partout ou
-// ce motif a du sens (uniquement DatacenterSummaryTab pour l'instant).
+// Statistics tile (header of the Datacenter dashboard): a round tinted badge + a
+// big number, reusable wherever this pattern makes sense (only
+// DatacenterSummaryTab for now).
 const TONES = {
   blue: "bg-accent-blue/10 text-accent-blue",
   green: "bg-status-running/10 text-status-running",

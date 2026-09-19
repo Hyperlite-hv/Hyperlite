@@ -1,9 +1,9 @@
 import { Loader2 } from "lucide-react";
 
 const PHASE_LABELS = {
-  demarrage: "Démarrage de la VM...",
-  installation: "Installation automatisée en cours (paquets, configuration)...",
-  arretee: "VM arrêtée avant la fin de l'installation -- redémarrez-la pour reprendre.",
+  demarrage: "Starting the VM...",
+  installation: "Unattended installation in progress (packages, configuration)...",
+  arretee: "VM stopped before the installation finished: restart it to resume.",
 };
 
 const FAMILY_LABELS = {
@@ -17,10 +17,10 @@ function formatElapsed(s) {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-// Barre de progression INDETERMINEE (pas de pourcentage reel disponible cote
-// backend -- voir GET /vms/{name}/provisioning) pour une installation ISO
-// automatisee en cours : le seul signal fiable est "le port SSH repond-il",
-// donc pas de vraie mesure d'avancement, juste "toujours en cours" vs "fini".
+// INDETERMINATE progress bar (no real percentage available on the backend, see
+// GET /vms/{name}/provisioning) for an unattended ISO installation in progress:
+// the only reliable signal is "does the SSH port answer", so there is no real
+// progress measure, just "still running" vs "done".
 export default function ProvisioningBar({ status }) {
   if (!status || !status.provisioning) return null;
 
@@ -30,10 +30,10 @@ export default function ProvisioningBar({ status }) {
         <Loader2 size={16} className="animate-spin text-accent-blue shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-anthracite-100">
-            Installation automatisée {status.os_family ? `(${FAMILY_LABELS[status.os_family] || status.os_family})` : ""} en cours
+            Unattended installation {status.os_family ? `(${FAMILY_LABELS[status.os_family] || status.os_family})` : ""} in progress
           </div>
           <div className="text-xs text-anthracite-400 mt-0.5">
-            {PHASE_LABELS[status.phase] || "En cours..."} {status.elapsed_s != null && `(${formatElapsed(status.elapsed_s)})`}
+            {PHASE_LABELS[status.phase] || "In progress..."} {status.elapsed_s != null && `(${formatElapsed(status.elapsed_s)})`}
           </div>
         </div>
       </div>
@@ -41,7 +41,7 @@ export default function ProvisioningBar({ status }) {
         <div className="h-full w-1/3 rounded-full bg-accent-blue provisioning-indeterminate" />
       </div>
       <p className="mt-2 text-[11px] text-anthracite-400">
-        Le terminal SSH web sera disponible automatiquement dès la fin de l'installation.
+        The web SSH terminal will be available automatically as soon as the installation ends.
       </p>
     </div>
   );

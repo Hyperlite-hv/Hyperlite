@@ -4,26 +4,26 @@ import StatusBadge from "../../components/StatusBadge";
 import { fetchTasks } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 
-// Meme table `tasks` persistee que NodeTasksTab.jsx (GET /tasks, voir
-// app/core/tasks.py) mais sans filtre par nœud : "Activité récente" au
-// niveau Datacenter, toutes machines/conteneurs confondus -- equivalent
-// Hyperlite du panneau "Recent Tasks" d'un tableau de bord vSphere/Proxmox.
+// The same persisted `tasks` table as NodeTasksTab.jsx (GET /tasks, see
+// app/core/tasks.py) but without a per-node filter: "Recent activity" at the
+// Datacenter level, all machines/containers together, Hyperlite's equivalent of
+// the "Recent Tasks" panel of a vSphere/Proxmox dashboard.
 const TASK_LABELS = {
-  create_vm: "Créer VM", delete_vm: "Supprimer VM", start_vm: "Démarrer VM",
-  stop_vm: "Arrêter VM", force_stop_vm: "Arrêt forcé VM", restart_vm: "Redémarrer VM",
-  clone_vm: "Cloner VM", migrate_vm: "Migrer VM", auto_install: "Installation automatisée",
-  create_snapshot: "Créer snapshot", delete_snapshot: "Supprimer snapshot", restore_snapshot: "Restaurer snapshot",
-  backup_vm: "Sauvegarder VM", restore_backup: "Restaurer sauvegarde",
-  export_vm: "Exporter VM", upload_vm_disk: "Téléverser disque",
-  create_container: "Créer conteneur", upload_iso: "Téléverser ISO",
-  host_shell: "Shell hôte", hyperlite_update: "Mise à jour Hyperlite", run_job: "Job d'automatisation",
+  create_vm: "Create VM", delete_vm: "Delete VM", start_vm: "Start VM",
+  stop_vm: "Stop VM", force_stop_vm: "Force stop VM", restart_vm: "Restart VM",
+  clone_vm: "Clone VM", migrate_vm: "Migrate VM", auto_install: "Unattended installation",
+  create_snapshot: "Create snapshot", delete_snapshot: "Delete snapshot", restore_snapshot: "Restore snapshot",
+  backup_vm: "Back up VM", restore_backup: "Restore backup",
+  export_vm: "Export VM", upload_vm_disk: "Upload disk",
+  create_container: "Create container", upload_iso: "Upload ISO",
+  host_shell: "Host shell", hyperlite_update: "Hyperlite update", run_job: "Automation job",
 };
 
 const STATUT_ETAT = { en_cours: "avertissement", termine: "actif", echec: "erreur", en_attente: "avertissement" };
 
 function formatHeure(iso) {
   if (!iso) return "--";
-  return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function formatDuree(debut, fin) {
@@ -42,7 +42,7 @@ export default function ActivityTab() {
   const load = useCallback(() => {
     fetchTasks({ statut: statutFiltre || undefined, limit: 200 })
       .then(setRows)
-      .catch((e) => pushToast({ kind: "error", title: "Erreur tâches", message: e.message }));
+      .catch((e) => pushToast({ kind: "error", title: "Tasks error", message: e.message }));
   }, [statutFiltre, pushToast]);
 
   useEffect(() => {
@@ -59,26 +59,26 @@ export default function ActivityTab() {
           onChange={(e) => setStatutFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
         >
-          <option value="">Tous les statuts</option>
-          <option value="en_cours">En cours</option>
-          <option value="termine">Terminé</option>
-          <option value="echec">Échec</option>
+          <option value="">All statuses</option>
+          <option value="en_cours">Running</option>
+          <option value="termine">Completed</option>
+          <option value="echec">Failed</option>
         </select>
         <button
           onClick={load}
           className="ml-auto flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-anthracite-300 hover:text-anthracite-100 border border-anthracite-600 rounded-md"
         >
-          <RefreshCw size={14} /> Actualiser
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
       <div className="card divide-y divide-anthracite-600 max-h-[70vh] overflow-y-auto">
         <div className="grid grid-cols-[150px_1fr_1fr_120px_110px_80px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
-          <span>Heure</span><span>Tâche</span><span>Cible</span><span>Nœud</span><span>Utilisateur</span><span>Durée</span>
+          <span>Time</span><span>Task</span><span>Target</span><span>Node</span><span>User</span><span>Duration</span>
         </div>
 
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Chargement...</div>}
-        {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">Aucune activité récente.</div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No recent activity.</div>}
 
         {rows && rows.map((t) => (
           <div key={t.id} className="grid grid-cols-[150px_1fr_1fr_120px_110px_80px] gap-2 px-4 py-2 text-sm items-center">
