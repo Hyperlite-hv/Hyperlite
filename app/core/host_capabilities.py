@@ -10,6 +10,7 @@ Principe directeur du mandat : détection plutôt que supposition. Chaque
 sous-fonction est best-effort et ne lève jamais -- une commande/fichier
 absent renvoie `None`/`False` explicite plutôt que de faire échouer tout
 le profil (dégradation contrôlée, pas d'échec global)."""
+import importlib
 import json
 import os
 import platform
@@ -179,12 +180,29 @@ def _secure_boot_state_local():
 def _software_capabilities_local():
     binaries = ["qemu-img", "virsh", "zfs", "zpool", "git", "gh", "xorriso", "nginx"]
     result = {b: which(b) is not None for b in binaries}
-    # Bibliotheque WebSocket du process Hyperlite lui-meme : sans elle,
-    # shell hote / consoles VM / terminaux echouent silencieusement cote
-    # navigateur (bug reel serveur-antho 2026-09-19, uvicorn installe sans
-    # l'extra [standard] par requirements.txt).
-    import importlib.util
-    result["bibliotheque_websocket"] = any(importlib.util.find_spec(m) for m in ("websockets", "wsproto"))
+    # Imports REELS dans le process Hyperlite lui-meme (pas un simple
+    # find_spec) : sans WebSocket, shell hote / consoles VM / terminaux
+    # echouent silencieusement cote navigateur (bug reel serveur-antho
+    # 2026-09-19, uvicorn sans l'extra [standard]).
+    from app.core import preflight
+    deps = {}
+    for mod, _dist, _gravite, _feat in preflight.PYTHON_MODULES:
+        try:
+            importlib.import_module(mod)
+            deps[mod] = True
+        except Exception:
+            deps[mod] = False
+    ws = None
+    for mod in preflight.WEBSOCKET_MODULES:
+        try:
+            importlib.import_module(mod)
+            ws = mod
+            break
+        except Exception:
+            continue
+    deps["websocket"] = ws is not None
+    result["bibliotheque_websocket"] = ws is not None
+    result["dependances_python"] = deps
     return result
 
 

@@ -2165,3 +2165,36 @@ neuf ; `bibliotheque_websocket` ajouté au profil de capacités
 des `pip freeze` kvm-lab/serveur-antho : aucun autre écart. **Leçon pour
 le chantier 3 (preflight)** : vérifier les dépendances Python réellement
 importables, pas seulement les binaires.
+
+### Chantier 3 : preflight check structuré (2026-09-19)
+
+`app/core/preflight.py` (stdlib uniquement, tourne sur une machine nue
+avant que le venv existe). Chaque contrôle renvoie `ok` / `warning` /
+`disabled` (une fonctionnalité précise tombe, le reste marche) /
+`blocking` (code de sortie 1). Usage : `python3 app/core/preflight.py
+[--json] [--only system|python] [--python <venv>/bin/python3]
+[--requirements requirements.txt] [--offline]`. `GET /host/preflight`
+(admin) le rejoue à chaud sur l'hôte local.
+- **Système** : architecture, root, Python >= 3.11, famille Debian/apt,
+  systemd (toléré en chroot d'installation), openssl/ssh-keygen/chpasswd,
+  vmx/svm + `/dev/kvm` (sinon seulement les VM KVM sont `disabled`, les
+  conteneurs LXC restent), RAM, disque appli/VM, réseau, port 8000,
+  ZFS/Secure Boot, joignabilité du dépôt apt.
+- **Python** : IMPORT réel de chaque module dans l'interpréteur cible
+  (pas `find_spec`) + comparaison avec les versions de `requirements.txt`.
+  WebSocket absent = `disabled` (shell hôte/consoles/terminaux) ;
+  fastapi/libvirt/multipart/jose/passlib/bcrypt/cryptography/asyncssh
+  absents = `blocking` ; pyotp/qrcode = `disabled` (2FA).
+- **postinst** : preflight système avant toute configuration (bloquant =
+  abandon sur installation fraîche, simple avertissement sur mise à jour),
+  puis preflight Python après `pip install` (échec = service jamais
+  (re)démarré avec des dépendances cassées).
+- `host_capabilities` expose `logiciel.dependances_python`.
+- Bug réel trouvé : `openssl` et `openssh-client` étaient utilisés par le
+  postinst mais absents de `Depends` (installation fraîche sur base
+  minimale cassée) -- ajoutés.
+- **Testé** : bare Python (échecs attendus), venv complet (tout ok),
+  websockets désinstallé (`disabled`, exit 0), module cassé, non-root
+  (`blocking`), profil réel serveur-antho (Secure Boot -> ZFS `disabled`),
+  et `apt install` du .deb dans un chroot debootstrap minimal (chemin
+  identique à l'ISO) : succès complet.

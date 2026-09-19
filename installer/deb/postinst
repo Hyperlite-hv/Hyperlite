@@ -20,12 +20,28 @@ mkdir -p "$APP_DIR/data/isos" "$APP_DIR/data/templates" "$APP_DIR/data/tls" "$AP
 chmod +x "$APP_DIR/scripts/"*.sh 2>/dev/null || true
 chmod o+x /root  # voir postinstall.sh -- necessaire pour que libvirt-qemu monte les ISO sous data/isos/
 
+log "preflight check (système)"
+PREFLIGHT="$APP_DIR/app/core/preflight.py"
+if ! python3 "$PREFLIGHT" --only system --offline; then
+    if [ "$FRESH_INSTALL" = "1" ]; then
+        log "ERREUR : preflight bloquant, installation interrompue avant toute configuration."
+        exit 1
+    fi
+    log "AVERTISSEMENT : preflight bloquant sur une mise à jour, poursuite (instance déjà configurée)."
+fi
+
 log "environnement Python (venv)"
 if [ ! -x "$APP_DIR/venv/bin/python3" ]; then
     python3 -m venv "$APP_DIR/venv"
 fi
 "$APP_DIR/venv/bin/pip" install --no-input --upgrade pip --quiet
 "$APP_DIR/venv/bin/pip" install --no-input -r "$APP_DIR/requirements.txt" --quiet
+
+log "preflight check (dépendances Python réellement importables)"
+if ! python3 "$PREFLIGHT" --only python --python "$APP_DIR/venv/bin/python3" --requirements "$APP_DIR/requirements.txt"; then
+    log "ERREUR : dépendances Python inutilisables, le service n'est pas (re)démarré."
+    exit 1
+fi
 
 if [ "$FRESH_INSTALL" = "1" ]; then
     log "premiere installation : generation des secrets propres a cette machine"

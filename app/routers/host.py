@@ -62,6 +62,24 @@ def host_capabilities(user: dict = Depends(get_current_user)):
     log_action(user["username"], "get_host_capabilities", "local", "succes")
     return result
 
+@router.get("/preflight")
+def host_preflight(user: dict = Depends(require_role("admin"))):
+    """Preflight check (mandat portabilite, chantier 3) rejoue a chaud sur
+    l'hote local : memes controles que a l'installation (voir
+    app/core/preflight.py), dependances Python sondees dans l'interpreteur
+    du service lui-meme."""
+    import sys
+    from app.core import preflight
+    try:
+        report = preflight.run(python=sys.executable, requirements=str(preflight.APP_DIR / "requirements.txt"))
+    except Exception as e:
+        msg = describe_exception(e)
+        log_action(user["username"], "host_preflight", "local", "echec", msg)
+        raise HTTPException(status_code=500, detail=f"Erreur du preflight : {msg}")
+    log_action(user["username"], "host_preflight", "local", "succes")
+    return report
+
+
 # Meme pattern ticket-court-duree-de-vie-a-usage-unique que TERMINAL_TICKETS
 # dans app/routers/vms.py (VM console/terminal) : un jeton JWT classique
 # resterait valide pour toute sa duree de vie si intercepte, un ticket est
