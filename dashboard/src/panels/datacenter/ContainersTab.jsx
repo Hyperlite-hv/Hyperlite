@@ -263,21 +263,21 @@ export default function ContainersTab() {
             </div>
             <StatusBadge etat={ct.etat === "actif" ? "actif" : "arrete"} />
             {isAdmin && ct.etat === "actif" && (
-              <button className="btn-secondary" title="Terminal" onClick={() => openTerminal(ct)}><TerminalSquare size={13} /></button>
+              <button aria-label="Terminal" className="btn-secondary" title="Terminal" onClick={() => openTerminal(ct)}><TerminalSquare size={13} /></button>
             )}
             {isAdmin && ct.etat !== "actif" && (
-              <button className="btn-secondary" title="Start" onClick={() => handleStart(ct)}><Play size={13} /></button>
+              <button aria-label="Start" className="btn-secondary" title="Start" onClick={() => handleStart(ct)}><Play size={13} /></button>
             )}
             {isAdmin && ct.etat === "actif" && (
-              <button className="btn-secondary" title="Stop" onClick={() => handleStop(ct)}><Square size={13} /></button>
+              <button aria-label="Stop" className="btn-secondary" title="Stop" onClick={() => handleStop(ct)}><Square size={13} /></button>
             )}
             {isAdmin && ct.etat !== "actif" && (
-              <button className="btn-secondary" title="Clone" onClick={() => handleClone(ct)}><Copy size={13} /></button>
+              <button aria-label="Clone" className="btn-secondary" title="Clone" onClick={() => handleClone(ct)}><Copy size={13} /></button>
             )}
             {isAdmin && ct.etat !== "actif" && (
-              <button className="btn-secondary" title="Back up" onClick={() => handleBackup(ct)}><Archive size={13} /></button>
+              <button aria-label="Back up" className="btn-secondary" title="Back up" onClick={() => handleBackup(ct)}><Archive size={13} /></button>
             )}
-            {isAdmin && <button className="btn-danger" title="Delete" onClick={() => setToDelete(ct)}><Trash2 size={13} /></button>}
+            {isAdmin && <button aria-label="Delete" className="btn-danger" title="Delete" onClick={() => setToDelete(ct)}><Trash2 size={13} /></button>}
           </div>
         ))}
       </div>
@@ -299,9 +299,9 @@ export default function ContainersTab() {
                   </div>
                 </div>
                 {b.statut === "termine" && (
-                  <button className="btn-secondary" title="Restore" onClick={() => handleRestoreBackup(b)}><RotateCcw size={13} /></button>
+                  <button aria-label="Restore" className="btn-secondary" title="Restore" onClick={() => handleRestoreBackup(b)}><RotateCcw size={13} /></button>
                 )}
-                <button className="btn-danger" title="Delete" onClick={() => handleDeleteBackup(b)}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger" title="Delete" onClick={() => handleDeleteBackup(b)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>

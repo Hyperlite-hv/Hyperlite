@@ -73,10 +73,10 @@ export default function UpdateModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="card w-[520px] max-w-[90vw] p-5 space-y-4">
+      <div className="card w-[520px] max-w-[90vw] p-5 space-y-4" role="dialog" aria-modal="true" aria-label="Hyperlite update">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-anthracite-100">Hyperlite update</h3>
-          <button onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
+          <button aria-label="Close" onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
         </div>
 
         {error && <p className="text-sm text-status-error">{error}</p>}

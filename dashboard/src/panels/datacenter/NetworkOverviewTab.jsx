@@ -117,7 +117,7 @@ export default function NetworkOverviewTab() {
               <span className="text-xs text-anthracite-400">{n.type}{n.pont ? ` -- ${n.pont}` : ""}</span>
               <span className={`text-xs ${n.actif ? "text-status-running" : "text-status-stopped"}`}>{n.actif ? "active" : "stopped"}</span>
               {isAdmin && !["default", "hyperlite-isolated"].includes(n.nom) && (
-                <button className="btn-danger ml-auto" onClick={(e) => { e.stopPropagation(); handleDelete(n.nom); }}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger ml-auto" onClick={(e) => { e.stopPropagation(); handleDelete(n.nom); }}><Trash2 size={13} /></button>
               )}
             </button>
             {expanded === n.nom && detail && (
