@@ -178,7 +178,14 @@ def _secure_boot_state_local():
 
 def _software_capabilities_local():
     binaries = ["qemu-img", "virsh", "zfs", "zpool", "git", "gh", "xorriso", "nginx"]
-    return {b: which(b) is not None for b in binaries}
+    result = {b: which(b) is not None for b in binaries}
+    # Bibliotheque WebSocket du process Hyperlite lui-meme : sans elle,
+    # shell hote / consoles VM / terminaux echouent silencieusement cote
+    # navigateur (bug reel serveur-antho 2026-09-19, uvicorn installe sans
+    # l'extra [standard] par requirements.txt).
+    import importlib.util
+    result["bibliotheque_websocket"] = any(importlib.util.find_spec(m) for m in ("websockets", "wsproto"))
+    return result
 
 
 def _lxc_available_local():
