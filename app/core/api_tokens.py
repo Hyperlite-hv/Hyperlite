@@ -1,16 +1,16 @@
-"""Jetons API -- chantier 30 (2026-09-17). Mecanisme d'authentification
-distinct des JWT de session : pense pour l'automatisation (scripts,
-Terraform, cron...), pas d'expiration courte, revocable individuellement
-sans affecter la session web. Comme un mot de passe : le jeton en clair
-n'est JAMAIS stocke, seul son hash SHA-256 l'est -- impossible de le
-retrouver apres sa creation, affiche UNE SEULE fois cote UI."""
+"""API tokens: an authentication mechanism distinct from session JWTs,
+designed for automation (scripts, Terraform, cron). They do not expire
+quickly and can be revoked individually without affecting the web session.
+Like a password, the plain token is NEVER stored, only its SHA-256 hash: it
+cannot be recovered after creation and is shown only once in the UI."""
+
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.database import get_conn
 
-TOKEN_PREFIX = "hlt_"
+TOKEN_PREFIX = "hlt_"  # noqa: S105 -- public token prefix, not a credential
 
 
 def generate_token() -> str:
@@ -22,13 +22,13 @@ def _hash(token: str) -> str:
 
 
 def create_token(username: str, name: str):
-    """Retourne (id, jeton_en_clair) -- le jeton en clair n'est jamais
-    recuperable une fois cette fonction retournee."""
+    """Return (id, plain_token). The plain token cannot be recovered once this
+    function has returned."""
     token = generate_token()
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO api_tokens (username, name, token_hash, created_at) VALUES (?, ?, ?, ?)",
-            (username, name, _hash(token), datetime.now(timezone.utc).isoformat()),
+            (username, name, _hash(token), datetime.now(UTC).isoformat()),
         )
         conn.commit()
         token_id = cur.lastrowid
@@ -45,8 +45,8 @@ def list_tokens(username: str):
 
 
 def revoke_token(username: str, token_id: int) -> bool:
-    """Scope a username : un utilisateur ne peut revoquer que ses propres
-    jetons, meme un ID d'un autre compte devine ne fait rien."""
+    """Scoped to a username: a user can only revoke their own tokens, and
+    guessing another account's token ID does nothing."""
     with get_conn() as conn:
         cur = conn.execute("DELETE FROM api_tokens WHERE id = ? AND username = ?", (token_id, username))
         conn.commit()
@@ -54,9 +54,9 @@ def revoke_token(username: str, token_id: int) -> bool:
 
 
 def verify_token(token: str):
-    """Utilisee par security.py::get_current_user en repli quand le jeton
-    presente n'est pas un JWT valide. Retourne la ligne utilisateur complete
-    (meme forme que security.get_user) ou None."""
+    """Used by security.py::get_current_user as a fallback when the presented
+    token is not a valid JWT. Returns the full user row (same shape as
+    security.get_user) or None."""
     if not token or not token.startswith(TOKEN_PREFIX):
         return None
     token_hash = _hash(token)
@@ -66,7 +66,7 @@ def verify_token(token: str):
             return None
         conn.execute(
             "UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?",
-            (datetime.now(timezone.utc).isoformat(), token_hash),
+            (datetime.now(UTC).isoformat(), token_hash),
         )
         conn.commit()
         user = conn.execute("SELECT * FROM users WHERE username = ?", (row["username"],)).fetchone()

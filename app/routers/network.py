@@ -1,37 +1,38 @@
-from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException
 import hashlib
-import libvirt
 import re
 import xml.etree.ElementTree as ET
 
-from app.core.libvirt_utils import open_conn, ensure_isolated_network
-from app.core.security import get_current_user, require_role
+import libvirt
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
 from app.core.audit import log_action
-from app.core.vm_builder import validate_name
 from app.core.error_messages import describe_exception
-from app.routers.vms import FirewallConfig, _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS
+from app.core.libvirt_utils import ensure_isolated_network, open_conn
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
+from app.core.security import get_current_user, require_role
+from app.core.vm_builder import validate_name
+from app.routers.vms import _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS, FirewallConfig
 
 router = APIRouter(prefix="/networks", tags=["networks"])
 
-# Un octet d'adresse IPv4 (0-255), reutilise 4x pour valider une adresse
-# fournie par l'utilisateur avant de l'inserer dans du XML libvirt.
+# One IPv4 address octet (0-255), reused 4 times to validate a user-supplied
+# address before inserting it into libvirt XML.
 _IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
-# Nom d'interface Linux valide (alphanumerique/tiret/underscore/point, max
-# 15 caracteres -- limite IFNAMSIZ du noyau). Trouve a l'audit (chantier 11) :
-# bridge_name partait tel quel dans du XML libvirt construit par f-string
-# (<bridge name='{bridge_name}'/>) sans validation, une injection XML
-# possible pour qui peut atteindre cet endpoint (admin uniquement
-# aujourd'hui, donc pas exploitable par un tiers pour l'instant -- corrige
-# quand meme, ce n'est pas une bonne pratique a laisser trainer).
+# Valid Linux interface name (alphanumeric/dash/underscore/dot, at most 15
+# characters, the kernel IFNAMSIZ limit). Found during the security audit:
+# bridge_name went as is into libvirt XML built with an f-string
+# (<bridge name='{bridge_name}'/>) without validation, a possible XML injection
+# for anyone able to reach this endpoint (admins only today, so not exploitable
+# by a third party, but fixed anyway since it is not a practice to leave in).
 _IFACE_NAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,15}$")
 
 
 def _valid_ipv4(addr):
     m = _IPV4_RE.match(addr or "")
     return bool(m) and all(0 <= int(g) <= 255 for g in m.groups())
+
 
 FORWARD_MODE_LABELS = {
     "nat": "nat",
@@ -87,19 +88,21 @@ def get_network(name: str, user: dict = Depends(get_current_user)):
         try:
             net = conn.networkLookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_network", name, "echec", "Réseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Réseau '{name}' introuvable")
+            log_action(user["username"], "get_network", name, "echec", "Network not found")
+            raise HTTPException(status_code=404, detail=f"Network '{name}' not found") from None
 
         summary = _network_summary(net)
         leases = []
         if net.isActive():
             try:
                 for lease in net.DHCPLeases():
-                    leases.append({
-                        "mac": lease.get("mac"),
-                        "ip": lease.get("ipaddr"),
-                        "hostname": lease.get("hostname"),
-                    })
+                    leases.append(
+                        {
+                            "mac": lease.get("mac"),
+                            "ip": lease.get("ipaddr"),
+                            "hostname": lease.get("hostname"),
+                        }
+                    )
             except libvirt.libvirtError:
                 pass
         summary["baux_dhcp"] = leases
@@ -109,15 +112,15 @@ def get_network(name: str, user: dict = Depends(get_current_user)):
         conn.close()
 
 
-# --- Pare-feu au niveau RESEAU (chantier 21, 2026-09-17) -- distinct du
-# pare-feu PAR VM (app/routers/vms.py, chantier 9, sous-systeme nwfilter) :
-# celui-ci s'applique au PONT du reseau entier (chaine FORWARD du noyau,
-# voir app/core/network_firewall.py pour le detail et pourquoi nwfilter ne
-# peut pas etre utilise a ce niveau -- verifie contre les schemas RNG de
-# libvirt). Reutilise volontairement le meme FirewallConfig/FirewallRule
-# que le pare-feu par VM : meme UI, meme validation, seule la cible
-# differe. Reserve aux admins (touche iptables au niveau de l'hote, pas
-# une VM individuelle).
+# --- NETWORK-level firewall: distinct from the PER-VM firewall
+# (app/routers/vms.py, nwfilter subsystem). This one applies to the bridge of the
+# whole network (the kernel FORWARD chain); see app/core/network_firewall.py for
+# the detail and for why nwfilter cannot be used at this level (checked against
+# libvirt's RNG schemas). It deliberately reuses the same FirewallConfig and
+# FirewallRule as the per-VM firewall: same UI, same validation, only the target
+# differs. Admin-only (it touches iptables at the host level, not an individual
+# VM).
+
 
 @router.get("/{name}/firewall")
 def get_network_firewall_route(name: str, user: dict = Depends(get_current_user)):
@@ -126,7 +129,7 @@ def get_network_firewall_route(name: str, user: dict = Depends(get_current_user)
         try:
             conn.networkLookupByName(name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Réseau '{name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"Network '{name}' not found") from None
         return get_network_firewall(name)
     finally:
         conn.close()
@@ -135,45 +138,57 @@ def get_network_firewall_route(name: str, user: dict = Depends(get_current_user)
 @router.put("/{name}/firewall")
 def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depends(require_role("admin"))):
     if payload.default_policy not in _FIREWALL_ACTIONS:
-        raise HTTPException(status_code=422, detail="default_policy doit être 'accept' ou 'drop'")
+        raise HTTPException(status_code=422, detail="default_policy must be 'accept' or 'drop'")
     for rule in payload.rules:
-        if rule.action not in _FIREWALL_ACTIONS or rule.direction not in _FIREWALL_DIRECTIONS or rule.protocol not in _FIREWALL_PROTOCOLS:
-            raise HTTPException(status_code=422, detail=f"Règle invalide : {rule}")
+        if (
+            rule.action not in _FIREWALL_ACTIONS
+            or rule.direction not in _FIREWALL_DIRECTIONS
+            or rule.protocol not in _FIREWALL_PROTOCOLS
+        ):
+            raise HTTPException(status_code=422, detail=f"Invalid rule: {rule}")
 
     conn = open_conn()
     try:
         try:
             conn.networkLookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_network_firewall", name, "echec", "Réseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Réseau '{name}' introuvable")
+            log_action(user["username"], "set_network_firewall", name, "echec", "Network not found")
+            raise HTTPException(status_code=404, detail=f"Network '{name}' not found") from None
 
         try:
             result = apply_network_firewall(conn, name, payload.model_dump())
         except ValueError as e:
             log_action(user["username"], "set_network_firewall", name, "echec", str(e))
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
         except RuntimeError as e:
             log_action(user["username"], "set_network_firewall", name, "echec", str(e))
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
-        log_action(user["username"], "set_network_firewall", name, "succes", f"{len(payload.rules)} règle(s), pont {result['pont']}")
-        return {"message": f"Pare-feu appliqué au réseau '{name}' (pont {result['pont']})", **payload.model_dump()}
+        log_action(
+            user["username"],
+            "set_network_firewall",
+            name,
+            "succes",
+            f"{len(payload.rules)} rule(s), bridge {result['pont']}",
+        )
+        return {"message": f"Firewall applied to network '{name}' (bridge {result['pont']})", **payload.model_dump()}
     finally:
         conn.close()
 
 
-# --- Creation/suppression de reseaux virtuels (chantier 9 de la roadmap
-# vSphere/vCenter, 2026-09-13) -- equivalent simplifie des vSwitch/Port
-# Groups : un reseau libvirt = l'equivalent d'un port group relie a un
-# vSwitch NAT/isole/en pont. Reserve aux admins (creer un reseau touche
-# la configuration reseau de l'hote lui-meme, pas seulement une VM). ---
+# --- Creation/deletion of virtual networks: a simplified equivalent of vSwitches
+# and Port Groups. A libvirt network is the equivalent of a port group attached
+# to a NAT, isolated or bridged vSwitch. Admin-only (creating a network changes
+# the host's own network configuration, not just a VM). ---
+
 
 class NetworkCreate(BaseModel):
     name: str
     mode: str = Field(description="'nat' | 'isole' | 'bridge'")
-    bridge_name: str | None = Field(None, description="Pont hote existant (obligatoire si mode='bridge', ignoré sinon)")
-    subnet_address: str | None = Field(None, description="Adresse de la passerelle, ex '192.168.150.1' (nat/isole)")
+    bridge_name: str | None = Field(
+        None, description="Existing host bridge (required if mode='bridge', ignored otherwise)"
+    )
+    subnet_address: str | None = Field(None, description="Gateway address, e.g. '192.168.150.1' (nat/isolated)")
     subnet_netmask: str = "255.255.255.0"
     dhcp_start: str | None = None
     dhcp_end: str | None = None
@@ -187,20 +202,23 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
         raise HTTPException(status_code=422, detail=name_error)
 
     if payload.mode not in ("nat", "isole", "bridge"):
-        raise HTTPException(status_code=422, detail="mode doit être 'nat', 'isole' ou 'bridge'")
+        raise HTTPException(status_code=422, detail="mode must be 'nat', 'isole' or 'bridge'")
 
     conn = open_conn()
     try:
         try:
             conn.networkLookupByName(payload.name)
-            log_action(user["username"], "create_network", payload.name, "echec", "existe déjà")
-            raise HTTPException(status_code=409, detail=f"Un réseau '{payload.name}' existe déjà")
+            log_action(user["username"], "create_network", payload.name, "echec", "already exists")
+            raise HTTPException(status_code=409, detail=f"A network '{payload.name}' already exists")
         except libvirt.libvirtError:
             pass
 
         if payload.mode == "bridge":
             if not payload.bridge_name or not _IFACE_NAME_RE.match(payload.bridge_name):
-                raise HTTPException(status_code=422, detail="bridge_name invalide (attendu un nom d'interface Linux : lettres/chiffres/-/_/. , 15 caractères max)")
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid bridge_name (a Linux interface name is expected: letters/digits/-/_/. , 15 characters max)",
+                )
             net_xml = f"""
             <network>
               <name>{payload.name}</name>
@@ -210,32 +228,27 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
             """
         else:
             if not payload.subnet_address or not _valid_ipv4(payload.subnet_address):
-                raise HTTPException(status_code=422, detail="subnet_address invalide (attendu une adresse IPv4, ex '192.168.150.1')")
+                raise HTTPException(
+                    status_code=422, detail="Invalid subnet_address (an IPv4 address is expected, e.g. '192.168.150.1')"
+                )
             forward_xml = "<forward mode='nat'/>" if payload.mode == "nat" else ""
             dhcp_xml = ""
             if payload.dhcp_start and payload.dhcp_end:
                 if not (_valid_ipv4(payload.dhcp_start) and _valid_ipv4(payload.dhcp_end)):
-                    raise HTTPException(status_code=422, detail="dhcp_start/dhcp_end invalides")
+                    raise HTTPException(status_code=422, detail="Invalid dhcp_start/dhcp_end")
                 dhcp_xml = f"<dhcp><range start='{payload.dhcp_start}' end='{payload.dhcp_end}'/></dhcp>"
-            # BUG REEL trouve en testant le chantier 21 (2026-09-17) :
-            # "virbr-" (6) + name[:10] (10) = jusqu'a 16 caracteres, un de
-            # plus que la limite reelle du noyau pour un nom d'interface
-            # Linux (IFNAMSIZ=16 OCTETS INCLUANT LE NUL, donc 15 caracteres
-            # utilisables) -- tout nom de reseau de 10+ caracteres faisait
-            # echouer la creation avec "error creating bridge interface...
-            # Numerical result out of range" (ENAMETOOLONG traduit par
-            # libvirt), reproduit avec "hltest-uifw" (11 caracteres).
-            # Premier correctif (name[:9], 6+9=15) laissait une collision
-            # residuelle documentee dans CLAUDE.md : deux noms de reseau
-            # partageant leurs 9 premiers caracteres (ex. "guest-wifi-1" et
-            # "guest-wifi-2") generaient le MEME nom de pont, la creation
-            # du second echouant avec "existe deja" -- corrige ici en
-            # remplacant la simple troncature par un prefixe court (4
-            # caracteres, garde un peu de lisibilite) + un hash SHA-1 du
-            # nom COMPLET (5 caracteres hex) : deux reseaux ne collisionnent
-            # que si leurs noms complets sont strictement identiques, deja
-            # rejete plus haut ("existe deja") avant d'arriver ici.
-            bridge_dev = f"virbr-{payload.name[:4]}{hashlib.sha1(payload.name.encode()).hexdigest()[:5]}"
+            # The bridge name is derived from the network name: a short prefix (4
+            # characters, for a bit of readability) plus a SHA-1 hash of the FULL name (5 hex
+            # characters). Kernel interface names are limited to 15 usable characters
+            # (IFNAMSIZ=16 including the terminating NUL), so a plain truncation of the name
+            # either overflows the limit (libvirt then fails with "Numerical result out of
+            # range") or makes two networks with a common prefix collide (e.g. "guest-wifi-1"
+            # and "guest-wifi-2" would generate the same bridge). Two networks can only
+            # collide if their full names are identical, which is rejected earlier ("already
+            # exists").
+            bridge_dev = (
+                f"virbr-{payload.name[:4]}{hashlib.sha1(payload.name.encode(), usedforsecurity=False).hexdigest()[:5]}"
+            )
             net_xml = f"""
             <network>
               <name>{payload.name}</name>
@@ -254,7 +267,7 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "create_network", payload.name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de création du réseau : {msg}")
+            raise HTTPException(status_code=500, detail=f"Network creation error: {msg}") from e
 
         log_action(user["username"], "create_network", payload.name, "succes")
         return _network_summary(net)
@@ -265,20 +278,19 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
 @router.delete("/{name}")
 def delete_network(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     if name in ("default", "hyperlite-isolated"):
-        raise HTTPException(status_code=403, detail=f"Le réseau '{name}' est un réseau système, il ne peut pas être supprimé")
+        raise HTTPException(status_code=403, detail=f"Network '{name}' is a system network and cannot be deleted")
 
     conn = open_conn()
     try:
         try:
             net = conn.networkLookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_network", name, "echec", "Réseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Réseau '{name}' introuvable")
+            log_action(user["username"], "delete_network", name, "echec", "Network not found")
+            raise HTTPException(status_code=404, detail=f"Network '{name}' not found") from None
 
-        # Refuse si une VM (active ou non) a encore une interface sur ce
-        # reseau -- la supprimer sous ses pieds casserait sa connectivite
-        # au prochain demarrage sans aucun message d'erreur clair pour
-        # l'utilisateur.
+        # Refuse if a VM (running or not) still has an interface on this network:
+        # deleting it from under the VM would break its connectivity at the next start
+        # with no clear error message for the user.
         attached_vms = []
         for domain in conn.listAllDomains():
             try:
@@ -290,21 +302,23 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
                     attached_vms.append(domain.name())
                     break
         if attached_vms:
-            log_action(user["username"], "delete_network", name, "echec", f"utilisé par {attached_vms}")
-            raise HTTPException(status_code=409, detail=f"Réseau utilisé par : {', '.join(attached_vms)} — détachez ces interfaces avant de le supprimer")
+            log_action(user["username"], "delete_network", name, "echec", f"in use by {attached_vms}")
+            raise HTTPException(
+                status_code=409,
+                detail=f"Network in use by: {', '.join(attached_vms)}. Detach these interfaces before deleting it",
+            )
 
         if not confirm:
             log_action(user["username"], "delete_network", name, "echec", "Confirmation manquante")
-            raise HTTPException(status_code=400, detail="Ajoutez ?confirm=true pour confirmer la suppression")
+            raise HTTPException(status_code=400, detail="Add ?confirm=true to confirm the deletion")
 
-        # Nettoie le pare-feu reseau (chantier 21) AVANT de detruire le
-        # reseau -- remove_network_firewall a besoin de relire le pont
-        # depuis le XML libvirt encore en place pour retirer proprement le
-        # saut depuis HYPERLITENETFW.
+        # Clean up the network firewall BEFORE destroying the network:
+        # remove_network_firewall needs to read the bridge from the libvirt XML that is
+        # still in place to cleanly remove the jump from HYPERLITENETFW.
         try:
             remove_network_firewall(conn, name)
         except Exception as e:
-            print(f"[network_firewall] nettoyage échoué pour '{name}' (suppression poursuivie) : {e!r}", flush=True)
+            print(f"[network_firewall] cleanup failed for '{name}' (deletion continues): {e!r}", flush=True)
 
         try:
             if net.isActive():
@@ -313,9 +327,9 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_network", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {msg}")
+            raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
 
         log_action(user["username"], "delete_network", name, "succes")
-        return {"message": f"Réseau '{name}' supprimé"}
+        return {"message": f"Network '{name}' deleted"}
     finally:
         conn.close()

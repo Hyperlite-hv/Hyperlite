@@ -1,3 +1,4 @@
+import contextlib
 import json
 import time
 from pathlib import Path
@@ -60,7 +61,5 @@ def save_template(name, xml, vcpu, memory_mb, source_vm, created_by):
 
 def delete_template(name):
     for p in (_meta_path(name), _xml_path(name), _disk_path(name)):
-        try:
+        with contextlib.suppress(FileNotFoundError):
             p.unlink()
-        except FileNotFoundError:
-            pass

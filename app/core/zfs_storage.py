@@ -1,35 +1,31 @@
-"""Stockage ZFS sur zvols bruts (backlog stockage 2026-09-18, suite du
-gros chantier "se rapprocher du niveau entreprise", ZFS avant Ceph -- voir
-CLAUDE.md pour la discussion complete). Choix explicite d'Antho : zvols
-plutot que qcow2-sur-dataset, en vue d'une reutilisation future avec
-Ceph/RBD (les deux se presentent a une VM comme un peripherique BLOC brut
-sur l'hote -- seule la source du chemin de peripherique change).
+"""ZFS storage on raw zvols. zvols were chosen over qcow2-on-dataset so the
+same mechanism can be reused later with Ceph/RBD: both present themselves to a
+VM as a raw BLOCK device on the host, and only the source of the device path
+changes.
 
-Pourquoi pas l'API de pool de stockage libvirt (comme dir/netfs,
-app/routers/storage.py) : verifie sur cet hote
-(/usr/lib/x86_64-linux-gnu/libvirt/storage-backend/) qu'aucun pilote 'zfs'
-n'est compile dans le paquet libvirt installe -- ZFS est donc gere ICI par
-appels directs a `zpool`/`zfs` en sous-processus, jamais via
-virStoragePool/virStorageVol. Le paquet separe
-libvirt-daemon-driver-storage-zfs existe mais son support de creation de
-volume est historiquement limite (liste des zvols PRE-EXISTANTS
-seulement) -- pas utilise ici, tout le cycle de vie (pool ET zvol) reste
-sous controle direct d'Hyperlite, sans dependance a ce driver.
+Why not libvirt's storage pool API (like dir/netfs, app/routers/storage.py):
+it was checked on the host (/usr/lib/x86_64-linux-gnu/libvirt/storage-backend/)
+that no 'zfs' driver is compiled into the installed libvirt package. ZFS is
+therefore managed HERE through direct `zpool`/`zfs` subprocess calls, never
+through virStoragePool/virStorageVol. The separate package
+libvirt-daemon-driver-storage-zfs exists, but its volume creation support is
+historically limited (it only lists PRE-EXISTING zvols). It is not used: the
+whole lifecycle (pool AND zvol) stays under Hyperlite's direct control, with no
+dependency on that driver.
 
-Aucune table SQLite dediee : l'etat reel vit entierement dans ZFS
-lui-meme (zpool list/zfs list), interroge a chaque appel -- meme
-philosophie que app/routers/storage.py qui ne fait confiance qu'a l'etat
-reel de libvirt, jamais a un miroir en base qui pourrait diverger.
+There is no dedicated SQLite table: the real state lives entirely in ZFS itself
+(zpool list / zfs list), queried on every call. Same philosophy as
+app/routers/storage.py, which only trusts libvirt's real state and never a
+database mirror that could diverge.
 
-Test initial (backlog 2026-09-18) sur pools ZFS adosses a des FICHIERS
-loopback (`zpool create <nom> <fichier>`, ZFS accepte nativement un
-fichier regulier comme vdev, pas besoin de `losetup` explicite) --
-choix confirme par Antho pour ne pas toucher au LVM existant
-(`hyperlite-vg`) ni exiger un disque dedie avant d'avoir valide le
-mecanisme. Transparent pour la suite : remplacer le chemin de fichier par
-un vrai peripherique bloc (`/dev/sdX`) au moment de passer sur un vrai
-disque ne change rien au reste du code.
+Pools can be backed by loopback FILES (`zpool create <name> <file>`: ZFS natively
+accepts a regular file as a vdev, no explicit `losetup` needed), which avoids
+touching an existing LVM or requiring a dedicated disk to try the mechanism.
+This is transparent for the rest of the code: replacing the file path with a
+real block device (`/dev/sdX`) when moving to a real disk changes nothing else.
+
 """
+
 import re
 import subprocess
 import time
@@ -37,9 +33,9 @@ from pathlib import Path
 
 LOOPBACK_DIR = Path("/var/lib/hyperlite-zfs")
 
-# Noms ZFS : mêmes contraintes que les noms de VM/pool ailleurs dans ce
-# projet (lettres/chiffres/tirets), jamais de texte utilisateur brut
-# injecté tel quel dans une commande zfs/zpool.
+# ZFS names: the same constraints as VM/pool names elsewhere in this project
+# (letters/digits/dashes), and never raw user text injected as is into a
+# zfs/zpool command.
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,62}$")
 
 
@@ -49,49 +45,50 @@ class ZfsError(Exception):
         self.message = message
 
 
+class ZfsNotFoundError(ZfsError):
+    """The requested pool, zvol or snapshot does not exist."""
+
+
 def validate_zfs_name(name):
     if not NAME_RE.match(name):
-        return "Nom ZFS invalide (lettres/chiffres/tirets/underscore, 2-63 caractères, doit commencer par une lettre ou un chiffre)"
+        return (
+            "Invalid ZFS name (letters/digits/dashes/underscores, 2-63 characters, must start with a letter or a digit)"
+        )
     return None
 
 
 def _run(*args, check=True):
-    # BUG REEL trouve en testant sur serveur-antho (ZFS pas installe sur
-    # cette machine, contrairement a kvm-lab ou le paquet avait ete
-    # installe pour developper ce chantier) : sans ce garde-fou, un
-    # FileNotFoundError brut (binaire zpool/zfs absent) remontait tel
-    # quel jusqu'a GET /storage -- CASSANT L'ENDPOINT ENTIER (pas
-    # seulement la partie ZFS) avec une 500 sur une machine qui n'a
-    # simplement pas encore ZFS. Meme classe de bug que le "git absent"
-    # du chantier 7bis, pas anticipee ici malgre is_available() deja
-    # ecrit -- jamais reellement branche dans ce point d'entree commun.
+    # Guard against the zpool/zfs binaries being absent: without it, a raw
+    # FileNotFoundError propagated all the way up to GET /storage, BREAKING THE WHOLE
+    # ENDPOINT (not just the ZFS part) with a 500 on a machine that simply does not
+    # have ZFS installed. is_available() existed but was never wired into this shared
+    # entry point.
     try:
         proc = subprocess.run(list(args), capture_output=True, text=True)
     except FileNotFoundError:
         if check:
-            raise ZfsError("ZFS n'est pas installé sur cet hôte (binaire 'zfs'/'zpool' introuvable)")
-        return subprocess.CompletedProcess(args, 127, "", "zfs/zpool introuvable")
+            raise ZfsError("ZFS is not installed on this host (zfs/zpool binary not found)") from None
+        return subprocess.CompletedProcess(args, 127, "", "zfs/zpool not found")
     if check and proc.returncode != 0:
-        raise ZfsError((proc.stderr or proc.stdout or f"Échec de la commande {' '.join(args)}").strip())
+        raise ZfsError((proc.stderr or proc.stdout or f"Command failed: {' '.join(args)}").strip())
     return proc
 
 
 def is_available():
-    """True si les binaires zfs/zpool sont installés sur cet hôte -- verifié
-    avant d'exposer quoi que ce soit côté API, plutôt que de laisser un
-    FileNotFoundError brut remonter (même principe que le check `git`
-    absent trouvé en testant le chantier 7bis)."""
+    """True if the zfs/zpool binaries are installed on this host. Checked before
+    exposing anything on the API side, rather than letting a raw
+    FileNotFoundError propagate (the same principle as the missing `git` check)."""
     from shutil import which
+
     return which("zpool") is not None and which("zfs") is not None
 
 
 def _backing_file_of(pool_name):
-    """Chemin du fichier loopback qui sert de vdev a ce pool, retrouve en
-    parsant `zpool status` -- ZFS ne stocke nulle part ailleurs cette
-    info sous une forme structuree facile a interroger. Retourne None si
-    non trouvable (pool sur un vrai disque, ou format de sortie inattendu
-    -- jamais bloquant, juste une suppression de fichier best-effort en
-    moins au moment de detruire le pool)."""
+    """Path of the loopback file that serves as this pool's vdev, found by parsing
+    `zpool status`: ZFS stores this information nowhere else in a structured,
+    easily queried form. Returns None if it cannot be found (a pool on a real
+    disk, or an unexpected output format). Never blocking: it only means one
+    best-effort file removal fewer when destroying the pool."""
     proc = _run("zpool", "status", "-P", pool_name, check=False)
     if proc.returncode != 0:
         return None
@@ -105,7 +102,7 @@ def _backing_file_of(pool_name):
             continue
         first_token = stripped.split()[0]
         if first_token == pool_name:
-            continue  # ligne du pool lui-meme, pas un vdev
+            continue  # the pool's own line, not a vdev
         if first_token.startswith("/"):
             return first_token
         if stripped.startswith(("errors:", "mirror", "raidz")):
@@ -114,10 +111,9 @@ def _backing_file_of(pool_name):
 
 
 def list_pools():
-    """Liste des pools ZFS geres par cet hote, meme forme de champs que
-    _pool_summary() dans app/routers/storage.py (capacite/allocation/
-    disponible en Go) pour un merge facile dans la liste unifiee de
-    l'onglet Stockage."""
+    """List of the ZFS pools managed by this host, with the same fields as
+    _pool_summary() in app/routers/storage.py (capacity/allocation/available in
+    GB) so they merge easily into the unified list of the Storage tab."""
     proc = _run("zpool", "list", "-H", "-p", "-o", "name,size,alloc,free,health", check=False)
     if proc.returncode != 0:
         return []
@@ -127,14 +123,16 @@ def list_pools():
         if len(parts) != 5:
             continue
         name, size, alloc, free, health = parts
-        result.append({
-            "nom": name,
-            "type": "zfs",
-            "etat": "actif" if health == "ONLINE" else health.lower(),
-            "capacite_go": round(int(size) / (1024 ** 3), 2),
-            "allocation_go": round(int(alloc) / (1024 ** 3), 2),
-            "disponible_go": round(int(free) / (1024 ** 3), 2),
-        })
+        result.append(
+            {
+                "nom": name,
+                "type": "zfs",
+                "etat": "actif" if health == "ONLINE" else health.lower(),
+                "capacite_go": round(int(size) / (1024**3), 2),
+                "allocation_go": round(int(alloc) / (1024**3), 2),
+                "disponible_go": round(int(free) / (1024**3), 2),
+            }
+        )
     return result
 
 
@@ -143,21 +141,21 @@ def pool_exists(name):
 
 
 def create_pool(name, size_gb):
-    """Cree un pool ZFS adosse a un fichier loopback de `size_gb` Go dans
-    LOOPBACK_DIR. `compression=lz4` (quasi gratuit en CPU, gain reel sur
-    la plupart des disques systeme) et `mountpoint=none` (ce pool ne sert
-    QUE de conteneur a zvols -- jamais de dataset-fichier monte quelque
-    part, aucune raison de risquer une collision de point de montage)."""
+    """Create a ZFS pool backed by a loopback file of `size_gb` GB in
+    LOOPBACK_DIR. `compression=lz4` (nearly free in CPU, a real gain on most
+    system disks) and `mountpoint=none` (this pool ONLY serves as a container
+    for zvols, never a file dataset mounted somewhere, so no reason to risk a
+    mount point collision)."""
     name_error = validate_zfs_name(name)
     if name_error:
         raise ZfsError(name_error)
     if pool_exists(name):
-        raise ZfsError(f"Un pool ZFS '{name}' existe déjà")
+        raise ZfsError(f"A ZFS pool '{name}' already exists")
 
     LOOPBACK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     backing_file = LOOPBACK_DIR / f"{name}.img"
     if backing_file.exists():
-        raise ZfsError(f"Le fichier de sauvegarde '{backing_file}' existe déjà (pool supprimé sans nettoyage complet ?)")
+        raise ZfsError(f"The backing file '{backing_file}' already exists (pool deleted without a complete cleanup?)")
 
     _run("truncate", "-s", f"{size_gb}G", str(backing_file))
     try:
@@ -172,15 +170,15 @@ def list_pool(name):
     for pool in list_pools():
         if pool["nom"] == name:
             return pool
-    raise ZfsError(f"Pool ZFS '{name}' introuvable")
+    raise ZfsNotFoundError(f"ZFS pool '{name}' not found")
 
 
 def delete_pool(name):
     if not pool_exists(name):
-        raise ZfsError(f"Pool ZFS '{name}' introuvable")
+        raise ZfsNotFoundError(f"ZFS pool '{name}' not found")
     zvols = list_zvols(name)
     if zvols:
-        raise ZfsError(f"Le pool '{name}' contient encore {len(zvols)} zvol(s), supprimez-les d'abord")
+        raise ZfsError(f"Pool '{name}' still contains {len(zvols)} zvol(s), delete them first")
 
     backing_file = _backing_file_of(name)
     _run("zpool", "destroy", name)
@@ -198,15 +196,17 @@ def list_zvols(pool_name):
         if len(parts) != 3:
             continue
         full_name, volsize, used = parts
-        # full_name = "<pool>/<zvol>" -- on ne garde que la partie zvol,
-        # le pool est deja connu de l'appelant.
+        # full_name = "<pool>/<zvol>": only the zvol part is kept, the pool is already
+        # known to the caller.
         zvol_name = full_name.split("/", 1)[1] if "/" in full_name else full_name
-        result.append({
-            "nom": zvol_name,
-            "chemin": device_path(pool_name, zvol_name),
-            "capacite_go": round(int(volsize) / (1024 ** 3), 3),
-            "allocation_go": round(int(used) / (1024 ** 3), 3),
-        })
+        result.append(
+            {
+                "nom": zvol_name,
+                "chemin": device_path(pool_name, zvol_name),
+                "capacite_go": round(int(volsize) / (1024**3), 3),
+                "allocation_go": round(int(used) / (1024**3), 3),
+            }
+        )
     return result
 
 
@@ -215,11 +215,10 @@ def device_path(pool_name, zvol_name):
 
 
 def _wait_for_device(path, timeout_s=5):
-    """udev met un instant a créer le nœud de périphérique après `zfs
-    create -V` -- attendu et documenté (contrairement à un fichier qcow2
-    classique, disponible immédiatement). Bloquant jusqu'à `timeout_s`,
-    jamais plus : mieux vaut échouer clairement ensuite que renvoyer un
-    chemin qui n'existe pas encore à l'appelant."""
+    """udev takes a moment to create the device node after `zfs create -V`; this is
+    expected and documented (unlike a regular qcow2 file, which is available
+    immediately). Blocks up to `timeout_s`, never longer: better to fail clearly
+    afterwards than to hand the caller a path that does not exist yet."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if Path(path).exists():
@@ -229,41 +228,38 @@ def _wait_for_device(path, timeout_s=5):
 
 
 def create_zvol(pool_name, zvol_name, size_gb):
-    """Cree un zvol de `size_gb` Go, en fin clairsemé (thin-provisionné,
-    `-s`) -- même principe que les disques qcow2 existants (pas de
-    réservation immédiate de tout l'espace), attend ensuite que le nœud de
-    périphérique existe réellement avant de rendre la main."""
+    """Create a zvol of `size_gb` GB, sparse (thin-provisioned, `-s`), the same
+    principle as the existing qcow2 disks (no immediate reservation of all the
+    space), then wait for the device node to really exist before returning."""
     name_error = validate_zfs_name(zvol_name)
     if name_error:
         raise ZfsError(name_error)
     full_name = f"{pool_name}/{zvol_name}"
     if _run("zfs", "list", "-H", full_name, check=False).returncode == 0:
-        raise ZfsError(f"Un zvol '{zvol_name}' existe déjà dans le pool '{pool_name}'")
+        raise ZfsError(f"A zvol '{zvol_name}' already exists in pool '{pool_name}'")
 
     _run("zfs", "create", "-s", "-V", f"{size_gb}G", full_name)
     path = device_path(pool_name, zvol_name)
     if not _wait_for_device(path):
-        raise ZfsError(f"Zvol '{full_name}' créé mais périphérique '{path}' jamais apparu (udev)")
+        raise ZfsError(f"Zvol '{full_name}' created but device '{path}' never appeared (udev)")
     return path
 
 
 def delete_zvol(pool_name, zvol_name):
     full_name = f"{pool_name}/{zvol_name}"
     if _run("zfs", "list", "-H", full_name, check=False).returncode != 0:
-        raise ZfsError(f"Zvol '{zvol_name}' introuvable dans le pool '{pool_name}'")
-    # -r : purge aussi les snapshots ZFS de ce zvol (voir zfs_snapshot ci-
-    # dessous) -- une suppression de VM/disque doit être complète, jamais
-    # laisser des snapshots orphelins qui empêcheraient une recréation
-    # ultérieure du même nom.
+        raise ZfsNotFoundError(f"Zvol '{zvol_name}' not found in pool '{pool_name}'")
+    # -r: also purges the ZFS snapshots of this zvol (see zfs_snapshot below). A
+    # VM/disk deletion must be complete, and never leave orphan snapshots that would
+    # prevent recreating the same name later.
     _run("zfs", "destroy", "-r", full_name)
 
 
 def zvol_in_use_paths():
-    """Chemins /dev/zvol/... de tous les zvols existants sur cet hôte,
-    pour le même usage que get_disk_paths_in_use() dans libvirt_utils.py
-    (empêcher la suppression d'un pool/zvol encore référencé) -- combiné
-    côté appelant avec la liste réelle des disques de VM (XML libvirt),
-    pas dupliqué ici."""
+    """/dev/zvol/... paths of all the zvols on this host, for the same use as
+    get_disk_paths_in_use() in libvirt_utils.py (preventing the deletion of a
+    pool/zvol that is still referenced). It is combined on the caller side with
+    the real list of VM disks (libvirt XML), not duplicated here."""
     paths = set()
     for pool in list_pools():
         for zvol in list_zvols(pool["nom"]):
@@ -271,40 +267,39 @@ def zvol_in_use_paths():
     return paths
 
 
-# --- Snapshots (backlog stockage 2026-09-18, phase 3) ---------------------
+# --- Snapshots ---------------------------------------------------------
 #
-# Mecanisme NATIF ZFS (`zfs snapshot`/`rollback`), completement distinct du
-# snapshot INTERNE qcow2 utilise pour les VM classiques (chantier 4,
-# domain.snapshotCreateXML) -- un disque bloc brut (zvol) n'a aucun format
-# de fichier avec support de snapshot integre, libvirt n'a donc rien a
-# proposer dessus. Difference de SEMANTIQUE importante, documentee cote
-# routeur plutot que masquee : un snapshot ZFS ne capture QUE l'etat du
-# DISQUE (equivalent a "couper le courant" a cet instant precis, restaure
-# comme apres un redemarrage brutal -- coherent au niveau systeme de
-# fichiers grace au journal, mais jamais un etat "reprend exactement ou
-# on s'etait arrete") -- jamais la memoire vive de la VM, contrairement au
-# snapshot interne qcow2 qui inclut la memoire quand la VM tourne.
+# NATIVE ZFS mechanism (`zfs snapshot`/`rollback`), completely distinct from the
+# INTERNAL qcow2 snapshot used for regular VMs (domain.snapshotCreateXML): a raw
+# block disk (zvol) has no file format with built-in snapshot support, so libvirt
+# has nothing to offer on it. An important difference in SEMANTICS, documented on
+# the router side rather than hidden: a ZFS snapshot ONLY captures the DISK state
+# (equivalent to "pulling the plug" at that precise instant, restored as after a
+# hard reboot: consistent at the filesystem level thanks to the journal, but
+# never a "resume exactly where we stopped" state). It never captures the VM's
+# memory, unlike the qcow2 internal snapshot which includes memory when the VM
+# is running.
 
 
 def snapshot_zvols(specs, snap_name):
-    """Cree un snapshot ATOMIQUE (une seule commande `zfs snapshot` avec
-    plusieurs cibles) sur tous les zvols de `specs` (liste de tuples
-    (pool, zvol_name)) -- important pour une VM multi-disques : les
-    disques doivent tous refleter EXACTEMENT le meme instant, pas une
-    suite de snapshots pris l'un apres l'autre (fenetre de coherence)."""
+    """Create an ATOMIC snapshot (a single `zfs snapshot` command with several
+    targets) on all the zvols of `specs` (a list of (pool, zvol_name) tuples).
+    Important for a multi-disk VM: the disks must all reflect EXACTLY the same
+    instant, not a series of snapshots taken one after another (a consistency
+    window)."""
     if not specs:
-        raise ZfsError("Aucun zvol à snapshotter")
+        raise ZfsError("No zvol to snapshot")
     targets = [f"{pool}/{name}@{snap_name}" for pool, name in specs]
     for pool, name in specs:
         if _run("zfs", "list", "-H", f"{pool}/{name}@{snap_name}", check=False).returncode == 0:
-            raise ZfsError(f"Un snapshot '{snap_name}' existe déjà pour '{pool}/{name}'")
+            raise ZfsError(f"A snapshot '{snap_name}' already exists for '{pool}/{name}'")
     _run("zfs", "snapshot", *targets)
 
 
 def list_zvol_snapshots(pool_name, zvol_name):
-    """Snapshots d'UN zvol -- l'appelant (vms.py) agrège sur tous les
-    zvols d'une VM et fusionne par nom pour présenter UN snapshot logique
-    par nom de VM, même forme que list_snapshots (chantier 4)."""
+    """Snapshots of ONE zvol. The caller (vms.py) aggregates over all the zvols of a
+    VM and merges by name to present ONE logical snapshot per VM name, in the
+    same shape as list_snapshots."""
     full_name = f"{pool_name}/{zvol_name}"
     proc = _run("zfs", "list", "-t", "snapshot", "-H", "-p", "-o", "name,creation", "-r", full_name, check=False)
     if proc.returncode != 0:
@@ -322,37 +317,35 @@ def list_zvol_snapshots(pool_name, zvol_name):
 
 
 def rollback_zvols(specs, snap_name):
-    """Restaure tous les zvols de `specs` vers `snap_name`. `-r` : force
-    la suppression de tout snapshot PLUS RECENT que la cible sur ce zvol
-    -- ZFS refuse sinon un rollback vers un point qui n'est pas le plus
-    recent (protection native contre une perte de donnees accidentelle).
-    LIMITE reelle par rapport au snapshot interne qcow2 (chantier 4, qui
-    permet de naviguer librement entre snapshots sans en perdre aucun) :
-    restaurer un snapshot ZFS ancien detruit DEFINITIVEMENT tout snapshot
-    plus recent pris depuis -- linéaire, pas arborescent. Assumé et
-    documenté plutôt que masqué : correspond au modèle mental "revenir en
-    arrière dans le temps" attendu par la plupart des utilisateurs, sans
-    la complexité d'un vrai arbre de versions."""
+    """Restore all the zvols of `specs` to `snap_name`. `-r` forces the removal of
+    any snapshot MORE RECENT than the target on that zvol, because ZFS
+    otherwise refuses a rollback to a point that is not the most recent (a
+    native protection against accidental data loss). A real LIMITATION
+    compared to the internal qcow2 snapshot (which lets you move freely between
+    snapshots without losing any): restoring an old ZFS snapshot PERMANENTLY
+    destroys every more recent snapshot taken since. The model is linear, not a
+    tree. This is accepted and documented rather than hidden: it matches the
+    "go back in time" mental model most users expect, without the complexity of
+    a real version tree."""
     if not specs:
-        raise ZfsError("Aucun zvol à restaurer")
+        raise ZfsError("No zvol to restore")
     for pool, name in specs:
         full = f"{pool}/{name}"
         if _run("zfs", "list", "-H", f"{full}@{snap_name}", check=False).returncode != 0:
-            raise ZfsError(f"Snapshot '{snap_name}' introuvable pour '{full}'")
+            raise ZfsNotFoundError(f"Snapshot '{snap_name}' not found for '{full}'")
     for pool, name in specs:
         _run("zfs", "rollback", "-r", f"{pool}/{name}@{snap_name}")
 
 
 def delete_zvol_snapshot(specs, snap_name):
-    """Supprime `snap_name` sur tous les zvols de `specs` -- best-effort
-    par zvol (continue même si l'un des zvols n'a pas ce snapshot, ex.
-    ajouté après coup à la VM) plutôt que d'échouer sur le premier
-    manquant."""
+    """Delete `snap_name` on all the zvols of `specs`. Best-effort per zvol
+    (continues even if one of the zvols does not have this snapshot, e.g. added
+    to the VM afterwards) instead of failing on the first missing one."""
     errors = []
     for pool, name in specs:
         full = f"{pool}/{name}@{snap_name}"
         proc = _run("zfs", "destroy", full, check=False)
         if proc.returncode != 0 and "dataset does not exist" not in (proc.stderr or ""):
-            errors.append(proc.stderr.strip() or f"échec sur {full}")
+            errors.append(proc.stderr.strip() or f"failed on {full}")
     if errors:
         raise ZfsError("; ".join(errors))

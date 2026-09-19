@@ -1,22 +1,22 @@
-"""Pare-feu reseau/datacenter (chantier 21, 2026-09-17). Distinct du
-pare-feu PAR VM (chantier 9, app/routers/vms.py, sous-systeme nwfilter de
-libvirt) : celui-ci filtre au niveau du PONT lui-meme (chaine FORWARD du
-noyau), donc s'applique a TOUTES les VM d'un reseau, presentes et futures,
-sans devoir toucher chaque interface individuellement.
+"""Network/datacenter firewall. Distinct from the PER-VM firewall
+(app/routers/vms.py, libvirt's nwfilter subsystem): this one filters at the
+BRIDGE level itself (the kernel FORWARD chain), so it applies to ALL the VMs
+of a network, present and future, without touching each interface
+individually.
 
-Pourquoi pas nwfilter ici : verifie contre les schemas RNG de libvirt sur
-cet hote (/usr/share/libvirt/schemas/network.rng et nwfilter.rng) --
-`<filterref>` n'existe QUE dans le schema du domaine (interface de VM), le
-schema `<network>` n'a aucune notion de "filtre par defaut applique a
-toutes les interfaces de ce reseau". Un pare-feu reellement au niveau
-reseau doit donc filtrer le point de passage reel du trafic : le pont
-Linux associe au reseau, via iptables/FORWARD -- exactement la ou libvirt
-lui-meme insere deja ses propres chaines pour le NAT (LIBVIRT_FWI/FWO/FWX,
-verifiees presentes sur cet hote pour chaque reseau nat/isole demarre).
+Why not nwfilter here: checked against libvirt's RNG schemas on the host
+(/usr/share/libvirt/schemas/network.rng and nwfilter.rng), `<filterref>` only
+exists in the DOMAIN schema (a VM interface); the `<network>` schema has no
+notion of a "default filter applied to every interface of this network". A
+firewall that is really at network level must therefore filter the real
+traffic crossing point: the Linux bridge attached to the network, through
+iptables/FORWARD, exactly where libvirt itself already inserts its own chains
+for NAT (LIBVIRT_FWI/FWO/FWX, present for every started NAT/isolated network).
 
-Notre chaine (HYPERLITENETFW) est inseree en position 1 de FORWARD, donc
-evaluee AVANT les chaines de libvirt -- un DROP explicite ici bloque le
-trafic avant meme que libvirt n'ait la moindre chance de l'autoriser."""
+Our chain (HYPERLITENETFW) is inserted at position 1 of FORWARD, so it is
+evaluated BEFORE libvirt's chains: an explicit DROP here blocks the traffic
+before libvirt has any chance to allow it."""
+
 import hashlib
 import json
 import subprocess
@@ -30,11 +30,10 @@ UMBRELLA_CHAIN = "HYPERLITENETFW"
 
 
 def _chain_name(network_name: str) -> str:
-    # Limite reelle d'un nom de chaine iptables : 28 caracteres. Un hash
-    # deterministe plutot qu'une troncature du nom : deux reseaux dont le
-    # nom partagerait les 20 premiers caracteres ne doivent jamais finir
-    # sur la meme chaine.
-    h = hashlib.sha1(network_name.encode("utf-8")).hexdigest()[:16].upper()
+    # Real limit of an iptables chain name: 28 characters. A deterministic hash
+    # rather than a truncation of the name: two networks whose names share their
+    # first 20 characters must never end up on the same chain.
+    h = hashlib.sha1(network_name.encode("utf-8"), usedforsecurity=False).hexdigest()[:16].upper()
     return f"HLNET{h}"
 
 
@@ -49,15 +48,13 @@ def _chain_exists(chain: str) -> bool:
 def _ensure_umbrella_chain():
     if not _chain_exists(UMBRELLA_CHAIN):
         _run("-N", UMBRELLA_CHAIN)
-    # Reaffirme la position 1 de FORWARD a CHAQUE application -- libvirt
-    # reinsere ses propres regles de saut a chaque (re)demarrage de reseau,
-    # ce qui peut techniquement repousser la notre plus bas. Verifie avant
-    # d'inserer (idempotent : jamais de doublon meme appele en boucle).
-    # Limite connue, documentee plutot que masquee : un `virsh net-start`
-    # execute EN DEHORS d'Hyperlite entre deux appels ici pourrait, en
-    # theorie, faire passer une chaine libvirt devant la notre -- rejouer
-    # une regle depuis l'UI (ou redemarrer hyperlite.service, voir
-    # reapply_all) suffit a reaffirmer la position 1.
+    # Reassert position 1 of FORWARD on EVERY application: libvirt reinserts its own
+    # jump rules each time a network is (re)started, which can technically push ours
+    # lower. Checked before inserting (idempotent: never a duplicate, even when
+    # called in a loop). Known limitation, documented rather than hidden: a
+    # `virsh net-start` run OUTSIDE Hyperlite between two calls here could in theory
+    # put a libvirt chain in front of ours. Replaying a rule from the UI (or
+    # restarting hyperlite.service, see reapply_all) is enough to reassert position 1.
     check = _run("-C", "FORWARD", "-j", UMBRELLA_CHAIN)
     if check.returncode != 0:
         _run("-I", "FORWARD", "1", "-j", UMBRELLA_CHAIN)
@@ -86,22 +83,21 @@ def _remove_network_jump(bridge: str, chain: str):
 
 
 def _build_rule_specs(bridge: str, config: dict):
-    """Reutilise EXACTEMENT la forme de FirewallConfig/FirewallRule du
-    pare-feu par VM (app/routers/vms.py, via app/core/firewall_shared.py) --
-    meme UI, meme validation, seule la CIBLE change (une chaine iptables
-    au lieu d'un filtre nwfilter). "in"/"out" gardent le sens du pare-feu
-    par VM (relatif a la VM) : "in" = trafic ENTRANT vers les VM de ce
-    reseau (le pont est la sortie du paquet cote hote, -o), "out" =
-    trafic SORTANT depuis les VM (le pont est l'entree du paquet, -i)."""
+    """Reuses EXACTLY the FirewallConfig/FirewallRule shape of the per-VM firewall
+    (app/routers/vms.py, through app/core/firewall_shared.py): same UI, same
+    validation, only the TARGET changes (an iptables chain instead of an
+    nwfilter). "in"/"out" keep the meaning of the per-VM firewall (relative to
+    the VM): "in" = traffic ENTERING the VMs of this network (the bridge is the
+    packet's exit on the host side, -o), "out" = traffic LEAVING the VMs (the
+    bridge is the packet's entry, -i)."""
     directions_map = {"in": ["-o"], "out": ["-i"], "inout": ["-i", "-o"]}
-    # BUG REEL trouve en testant (ping sortant autorise mais reponse ICMP
-    # jamais revenue) : sans ceci, chaque regle est evaluee sans etat --
-    # autoriser le trafic SORTANT ne laisse pas automatiquement revenir sa
-    # REPONSE, qui est du trafic ENTRANT distinct au sens de ce filtre.
-    # Comme tout pare-feu reel (iptables lui-meme en best practice,
-    # Proxmox, pfSense...), le retour d'une connexion deja autorisee doit
-    # passer sans qu'il faille écrire une regle miroir manuelle pour
-    # chaque protocole/port dans les deux sens.
+    # Rules are stateful: without this, each rule is evaluated statelessly, so
+    # allowing OUTGOING traffic does not automatically let its REPLY come back (a
+    # separate INCOMING flow as far as this filter is concerned). It showed up as an
+    # outgoing ping being allowed but its ICMP reply never returning. Like any real
+    # firewall (iptables best practice, Proxmox, pfSense...), the return traffic of an
+    # already allowed connection must pass without a manual mirror rule for every
+    # protocol/port in both directions.
     specs = [
         ["-i", bridge, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
         ["-o", bridge, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
@@ -119,15 +115,16 @@ def _build_rule_specs(bridge: str, config: dict):
 
 
 def apply_network_firewall(conn, network_name: str, config: dict):
-    """Reconstruit entierement la chaine dediee au reseau (flush + regles
-    dans l'ordre) -- meme principe que nwfilterDefineXML pour le pare-feu
-    par VM : on redefinit tout plutot que de diffuser un patch incremental,
-    jamais divergent d'avec `config`. Retourne un resume, leve ValueError/
-    RuntimeError sur echec (a charge de l'appelant de les traduire en
-    HTTPException)."""
+    """Fully rebuild the network's dedicated chain (flush + rules in order), the same
+    principle as nwfilterDefineXML for the per-VM firewall: everything is
+    redefined instead of applying an incremental patch, so it never diverges
+    from `config`. Returns a summary and raises ValueError/RuntimeError on
+    failure (the caller translates them to HTTPException)."""
     bridge = _bridge_name(conn, network_name)
     if not bridge:
-        raise ValueError(f"Réseau '{network_name}' introuvable ou sans pont associé (mode 'bridge' vers un pont hôte non géré par Hyperlite ?)")
+        raise ValueError(
+            f"Network '{network_name}' not found or has no associated bridge ('bridge' mode towards a host bridge not managed by Hyperlite?)"
+        )
 
     chain = _chain_name(network_name)
     _ensure_umbrella_chain()
@@ -137,7 +134,7 @@ def apply_network_firewall(conn, network_name: str, config: dict):
     for spec in _build_rule_specs(bridge, config):
         result = _run("-A", chain, *spec)
         if result.returncode != 0:
-            raise RuntimeError(f"iptables a refusé une règle ({' '.join(spec)}) : {result.stderr.strip()}")
+            raise RuntimeError(f"iptables refused a rule ({' '.join(spec)}): {result.stderr.strip()}")
     _ensure_network_jump(bridge, chain)
 
     with get_conn() as db:
@@ -157,17 +154,19 @@ def get_network_firewall(network_name: str) -> dict:
             "SELECT default_policy, rules_json FROM network_firewall WHERE network_name = ?", (network_name,)
         ).fetchone()
     if not row:
-        return {"default_policy": "accept", "rules": []}  # rien de configure -- tout autorise, comportement par defaut
+        return {
+            "default_policy": "accept",
+            "rules": [],
+        }  # nothing configured: everything is allowed, the default behaviour
     return {"default_policy": row["default_policy"], "rules": json.loads(row["rules_json"])}
 
 
 def remove_network_firewall(conn, network_name: str):
-    """Appelee a la suppression d'un reseau (app/routers/network.py) --
-    sans ca, le saut depuis HYPERLITENETFW et la chaine dediee resteraient
-    references a un pont qui n'existe plus (inoffensif en pratique --
-    iptables ne matche plus jamais rien pour un pont disparu -- mais une
-    chaine orpheline qui s'accumule a chaque reseau recree finirait par
-    polluer la table)."""
+    """Called when a network is deleted (app/routers/network.py). Without it, the
+    jump from HYPERLITENETFW and the dedicated chain would stay referenced to a
+    bridge that no longer exists (harmless in practice, since iptables never
+    matches anything for a vanished bridge, but an orphan chain accumulating
+    with every recreated network would eventually pollute the table)."""
     bridge = _bridge_name(conn, network_name)
     chain = _chain_name(network_name)
     if bridge:
@@ -181,13 +180,12 @@ def remove_network_firewall(conn, network_name: str):
 
 
 def reapply_all(conn):
-    """Appelee au demarrage du service (app/main.py::on_startup) -- les
-    regles iptables ne survivent PAS a un redemarrage de l'HOTE
-    (contrairement au nwfilter du pare-feu par VM, stocke et reapplique
-    automatiquement par libvirt lui-meme) ; sans ce reapply, un pare-feu
-    reseau configure avant un reboot du serveur disparaitrait
-    silencieusement apres, sans que rien ne l'indique cote UI (le reseau
-    parait toujours "actif", juste sans plus aucun filtrage)."""
+    """Called when the service starts (app/main.py::on_startup). iptables rules do
+    NOT survive a HOST reboot (unlike the per-VM firewall's nwfilter, which
+    libvirt itself stores and reapplies automatically). Without this reapply, a
+    network firewall configured before a server reboot would silently
+    disappear afterwards with nothing indicating it in the UI (the network still
+    looks "active", just without any filtering)."""
     with get_conn() as db:
         rows = db.execute("SELECT network_name, default_policy, rules_json FROM network_firewall").fetchall()
     for row in rows:
@@ -195,4 +193,4 @@ def reapply_all(conn):
         try:
             apply_network_firewall(conn, row["network_name"], config)
         except Exception as e:
-            print(f"[network_firewall] échec de réapplication pour '{row['network_name']}' : {e!r}", flush=True)
+            print(f"[network_firewall] reapply failed for '{row['network_name']}': {e!r}", flush=True)

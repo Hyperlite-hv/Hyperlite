@@ -1,7 +1,9 @@
-"""2FA (TOTP) -- chantier 30 (2026-09-17). pyotp genere/verifie les codes,
-qrcode produit le QR code directement en SVG (SvgPathImage : un seul
-<path>, pas de dependance Pillow -- voir requirements.txt)."""
+"""Two-factor authentication (TOTP). pyotp generates and verifies the codes;
+qrcode renders the QR code directly as SVG (SvgPathImage: a single <path>,
+no Pillow dependency, see requirements.txt)."""
+
 import io
+
 import pyotp
 import qrcode
 import qrcode.image.svg
@@ -25,9 +27,9 @@ def qr_code_svg(uri: str) -> str:
 
 
 def verify_code(secret: str, code: str) -> bool:
-    """valid_window=1 : tolere +-30s de derive d'horloge entre le serveur et
-    l'appareil qui genere le code, cas reel frequent (pas de sync NTP
-    garantie sur un telephone)."""
+    """valid_window=1 tolerates +-30 s of clock drift between the server and the
+    device generating the code, a common real-world case (a phone has no
+    guaranteed NTP sync)."""
     if not secret or not code:
         return False
     try:

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.security import require_role
-from app.core.audit import log_action
 from app.core import permissions as perm
+from app.core.audit import log_action
+from app.core.security import require_role
 
 router = APIRouter(prefix="/pools", tags=["pools"])
 
@@ -26,11 +26,11 @@ def list_pools(user: dict = Depends(require_role("admin"))):
 def create_pool(payload: PoolCreate, user: dict = Depends(require_role("admin"))):
     name = payload.name.strip()
     if not name:
-        raise HTTPException(status_code=422, detail="Nom de pool requis")
+        raise HTTPException(status_code=422, detail="Pool name required")
     try:
         pool_id = perm.create_pool(name, payload.description)
     except Exception:
-        raise HTTPException(status_code=422, detail=f"Un pool nommé '{name}' existe déjà")
+        raise HTTPException(status_code=422, detail=f"A pool named '{name}' already exists") from None
     log_action(user["username"], "create_pool", name, "succes")
     return {"id": pool_id, "name": name, "description": payload.description, "vms": []}
 
@@ -39,18 +39,18 @@ def create_pool(payload: PoolCreate, user: dict = Depends(require_role("admin"))
 def delete_pool(pool_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_pool(pool_id)
     log_action(user["username"], "delete_pool", str(pool_id), "succes")
-    return {"message": "Pool supprimé"}
+    return {"message": "Pool deleted"}
 
 
 @router.post("/{pool_id}/members", status_code=201)
 def add_member(pool_id: int, payload: PoolMemberAdd, user: dict = Depends(require_role("admin"))):
     perm.add_pool_member(pool_id, payload.vm_name)
     log_action(user["username"], "add_pool_member", f"{pool_id}:{payload.vm_name}", "succes")
-    return {"message": "VM ajoutée au pool"}
+    return {"message": "VM added to the pool"}
 
 
 @router.delete("/{pool_id}/members/{vm_name}")
 def remove_member(pool_id: int, vm_name: str, user: dict = Depends(require_role("admin"))):
     perm.remove_pool_member(pool_id, vm_name)
     log_action(user["username"], "remove_pool_member", f"{pool_id}:{vm_name}", "succes")
-    return {"message": "VM retirée du pool"}
+    return {"message": "VM removed from the pool"}

@@ -1,14 +1,13 @@
-"""Upload/gestion des fichiers disque destines a l'import de VM (chantier
-23, 2026-09-13) -- pendant du chantier des ISO (isos.py) mais pour un
-disque deja installe (qcow2/raw/vmdk/vdi/vhd/...) plutot qu'un media
-d'installation. Meme mecanisme d'upload simple (une seule requete, streame
-directement sur disque via shutil.copyfileobj, pas de chunking/reprise) --
-deja la limite connue de l'upload ISO existant, un disque de VM peut etre
-tout aussi volumineux mais l'app n'a aujourd'hui aucun mecanisme resumable
-nulle part, pas la peine d'en inventer un pour ce seul endpoint. qemu-img
-(utilise a la creation de la VM, pas ici, voir vm_builder.create_disk_from_
-import) detecte le format source tout seul, aucune conversion necessaire a
-l'upload lui-meme."""
+"""Upload and management of disk files intended for VM import. The
+counterpart of the ISO endpoints (isos.py) but for an already installed disk
+(qcow2/raw/vmdk/vdi/vhd/...) rather than an installation medium. It uses the
+same simple upload mechanism (a single request streamed straight to disk via
+shutil.copyfileobj, no chunking or resume): the same known limit as the ISO
+upload, and since the application has no resumable mechanism anywhere it is
+not worth inventing one for this endpoint alone. qemu-img (used when the VM is
+created, not here, see vm_builder.create_disk_from_import) detects the source
+format by itself, so no conversion is needed at upload time."""
+
 import shutil
 from pathlib import Path
 
@@ -43,7 +42,9 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
 
     if not filename.lower().endswith(ALLOWED_EXTENSIONS):
         finish_task(task_id, "echec", "Extension non reconnue")
-        raise HTTPException(status_code=422, detail=f"Extension non reconnue (attendu : {', '.join(ALLOWED_EXTENSIONS)})")
+        raise HTTPException(
+            status_code=422, detail=f"Unrecognized extension (expected: {', '.join(ALLOWED_EXTENSIONS)})"
+        )
 
     dest = IMPORTED_DISKS_DIR / filename
     try:
@@ -53,12 +54,11 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
         finally:
             await file.close()
     except OSError as e:
-        # Sans ce filet, une ecriture qui echoue (disque plein, permissions...)
-        # laisserait la tache bloquee "en_cours" indefiniment (voir isos.py,
-        # meme piege deja corrige la-bas).
+        # Safety net: without it, a failing write (disk full, permissions...) would
+        # leave the task stuck in "en_cours" forever (same trap as in isos.py).
         msg = describe_exception(e)
         finish_task(task_id, "echec", msg)
-        raise HTTPException(status_code=500, detail=f"Échec de l'écriture du disque : {msg}")
+        raise HTTPException(status_code=500, detail=f"Failed to write the disk: {msg}") from e
 
     finish_task(task_id, "termine")
     log_action(user["username"], "upload_vm_disk", filename, "succes")
@@ -70,7 +70,7 @@ def delete_vm_disk(filename: str, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
     path = IMPORTED_DISKS_DIR / filename
     if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Disque '{filename}' introuvable")
+        raise HTTPException(status_code=404, detail=f"Disk '{filename}' not found")
     path.unlink()
     log_action(user["username"], "delete_vm_disk", filename, "succes")
     return {"nom": filename, "supprime": True}

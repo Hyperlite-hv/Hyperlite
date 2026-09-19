@@ -1,21 +1,19 @@
+import contextlib
 import sqlite3
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent.parent / "hyperlite.db"
 
 
 @contextmanager
 def get_conn():
-    # timeout=30 (au lieu du defaut de 5s) + mode WAL : corrige un vrai
-    # `database is locked` rencontre a plusieurs reprises en pratique
-    # (chantier 11, reconfirme au chantier 13) des que deux ecritures
-    # concurrentes se chevauchent -- le service ecrit en continu (audit,
-    # taches, metriques toutes les 15s). WAL permet aux lecteurs de
-    # continuer pendant qu'un writer est actif (contrairement au mode
-    # rollback-journal par defaut, qui verrouille tout le fichier) ; le
-    # PRAGMA est un no-op si deja applique, sans cout a le repeter a chaque
-    # connexion.
+    # timeout=30 (instead of the default 5 s) plus WAL mode: fixes a real
+    # `database is locked` seen repeatedly in practice as soon as two concurrent
+    # writes overlap, since the service writes continuously (audit, tasks, metrics
+    # every 15 s). WAL lets readers continue while a writer is active (unlike the
+    # default rollback-journal mode, which locks the whole file). The PRAGMA is a
+    # no-op when already applied, so repeating it on every connection costs nothing.
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
@@ -35,30 +33,25 @@ def init_db():
                 role TEXT NOT NULL CHECK(role IN ('admin', 'observateur'))
             )
         """)
-        # 2FA TOTP (chantier 30) : ALTER separe, `users` existe deja sur ce
-        # depot (meme raison que vm_provisioning/task_id plus bas) --
-        # totp_secret reste NULL tant que le 2FA n'est ni configure ni
-        # confirme (voir app/core/twofa.py : un secret genere mais jamais
-        # confirme par un vrai code ne doit PAS activer le 2FA, sinon un
-        # utilisateur qui n'a jamais fini l'etape QR code se retrouverait
-        # verrouille hors de son compte).
+        # TOTP 2FA: a separate ALTER, because `users` already exists in deployed
+        # databases (same reason as vm_provisioning/task_id below). totp_secret stays
+        # NULL until 2FA is both configured and confirmed (see app/core/twofa.py): a
+        # secret that was generated but never confirmed by a real code must NOT enable
+        # 2FA, otherwise a user who never finished the QR code step would be locked out
+        # of their own account.
         for ddl in (
             "ALTER TABLE users ADD COLUMN totp_secret TEXT",
             "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
-            # SSO (chantier 20, 2026-09-17) : 'local' (mot de passe Hyperlite,
-            # comportement historique) ou 'sso' (provisionne automatiquement
-            # par app/core/sso.py -- mot de passe local rendu inutilisable,
-            # role re-resolu a chaque connexion depuis les groupes de l'IdP).
-            # Distinguer les deux est indispensable pour ne JAMAIS laisser
-            # une connexion SSO ecraser un compte local existant (voir
-            # sso.py::provision_user) -- l'admin local doit rester un
-            # secours fiable meme si l'IdP est mal configure.
+            # SSO: 'local' (Hyperlite password, the historical behaviour) or 'sso'
+            # (provisioned automatically by app/core/sso.py, with the local password made
+            # unusable and the role re-resolved at every login from the IdP groups).
+            # Distinguishing the two is essential to NEVER let an SSO login overwrite an
+            # existing local account (see sso.py::provision_user): the local admin must stay
+            # a reliable fallback even if the IdP is misconfigured.
             "ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'",
         ):
-            try:
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
-            except sqlite3.OperationalError:
-                pass  # colonne deja presente
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +97,7 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(cible, tier, ts)")
 
-        # ---- Backups natifs (chantier 13) ----
+        # ---- Native backups ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS backup_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,7 +128,7 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, cree_le)")
 
-        # ---- Automation : moteur de jobs (chantier 14) ----
+        # ---- Automation: job engine ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,7 +181,7 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_job_run_logs_run ON job_run_logs(run_id)")
 
-        # ---- Multi-noeuds (chantier 15) ----
+        # ---- Multi-node ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS nodes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -207,10 +200,10 @@ def init_db():
                 username TEXT NOT NULL
             )
         """)
-        # Suivi d'une installation automatisee (Kickstart/autoinstall) en
-        # cours : cree a la creation de la VM, supprime des que le terminal
-        # SSH web repond -- sert uniquement a afficher une barre de
-        # progression cote dashboard (voir GET /vms/{name}/provisioning).
+        # Tracking of an unattended installation (Kickstart/autoinstall) in progress:
+        # created when the VM is created and deleted as soon as the web SSH terminal
+        # answers. It only feeds a progress bar on the dashboard (see
+        # GET /vms/{name}/provisioning).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_provisioning (
                 vm_name TEXT PRIMARY KEY,
@@ -218,19 +211,16 @@ def init_db():
                 started_at TEXT NOT NULL
             )
         """)
-        # ALTER separe (pas dans le CREATE TABLE ci-dessus) : la table existe
-        # deja sur les installs anterieures au chantier 12, CREATE TABLE IF
-        # NOT EXISTS ne retro-ajoute pas de colonne a une table deja creee.
-        try:
+        # A separate ALTER (not in the CREATE TABLE above): the table already exists on
+        # older installations, and CREATE TABLE IF NOT EXISTS does not retroactively add
+        # a column to a table that was already created.
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
             conn.execute("ALTER TABLE vm_provisioning ADD COLUMN task_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # colonne deja presente
-        # Libelle d'OS DECLARE a la creation de la VM (deduit du template/ISO
-        # choisi, voir vms.create_vm) -- pas "detecte" au sens propre (pas de
-        # qemu-guest-agent installe dans les VM invitees aujourd'hui, donc
-        # libvirt ne peut rien lire depuis l'interieur), mais fiable puisque
-        # c'est Hyperlite lui-meme qui a lance cette installation et sait
-        # quel OS il a demande.
+        # OS label DECLARED when the VM is created (deduced from the chosen
+        # template/ISO, see vms.create_vm). It is not "detected" in the strict sense (no
+        # qemu-guest-agent is installed in guest VMs, so libvirt cannot read anything from
+        # the inside), but it is reliable because Hyperlite itself started that
+        # installation and knows which OS it asked for.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_os_label (
                 vm_name TEXT PRIMARY KEY,
@@ -238,12 +228,11 @@ def init_db():
             )
         """)
 
-        # ---- Permissions granulaires (voir app/core/permissions.py) ----
-        # Groupes d'utilisateurs, pools de VM, et attributions (ACL) : un
-        # role scope (operateur/gestionnaire/lecteur, distincts des roles
-        # globaux admin/observateur) accorde a un utilisateur OU un groupe,
-        # sur une VM OU un pool precis. Additif uniquement -- n'enleve jamais
-        # de droits aux roles globaux existants.
+        # ---- Granular permissions (see app/core/permissions.py) ----
+        # User groups, VM pools and assignments (ACLs): a scoped role
+        # (operator/manager/reader, distinct from the global admin/observer roles) granted
+        # to a user OR a group on a specific VM OR pool. Additive only: it never removes
+        # rights from the existing global roles.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS groups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -281,15 +270,12 @@ def init_db():
                 resource_id TEXT NOT NULL
             )
         """)
-        # Migration (backlog 2026-09-18, ACL conteneurs) : les bases
-        # existantes ont ete crees avec l'ancien CHECK (resource_type IN
-        # ('vm','pool')) -- CREATE TABLE IF NOT EXISTS ci-dessus est un
-        # no-op sur une table deja presente, SQLite ne supporte pas de
-        # modifier un CHECK existant via ALTER TABLE. Reconstruction de la
-        # table (idempotente : ne fait rien si deja migree).
-        existing_acl_sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'"
-        ).fetchone()
+        # Migration: existing databases were created with the old CHECK
+        # (resource_type IN ('vm','pool')). CREATE TABLE IF NOT EXISTS above is a no-op on
+        # a table that already exists, and SQLite cannot modify an existing CHECK through
+        # ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
+        # migrated).
+        existing_acl_sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'").fetchone()
         if existing_acl_sql and "'container'" not in existing_acl_sql["sql"]:
             conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
             conn.execute("""
@@ -304,10 +290,10 @@ def init_db():
             """)
             conn.execute("INSERT INTO acl SELECT * FROM acl_pre_container_migration")
             conn.execute("DROP TABLE acl_pre_container_migration")
-        # Roles personnalises : memes attributions ACL que les roles predefinis
-        # (lecteur/operateur/gestionnaire), mais l'utilisateur choisit lui-meme
-        # le sous-ensemble de privileges (voir app/core/permissions.py
-        # ALL_PRIVILEGES). Identifies dans acl.role par "custom:<id>".
+        # Custom roles: the same ACL assignments as the predefined roles
+        # (reader/operator/manager), but the user chooses the privilege subset (see
+        # ALL_PRIVILEGES in app/core/permissions.py). They are identified in acl.role by
+        # "custom:<id>".
         conn.execute("""
             CREATE TABLE IF NOT EXISTS custom_roles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -315,24 +301,21 @@ def init_db():
                 privileges TEXT NOT NULL
             )
         """)
-        # Conteneurs LXC (chantier 18) : table distincte de vm_ssh_users --
-        # domaines qemu et lxc vivent dans des espaces de noms libvirt
-        # separes (voir open_lxc_conn), un conteneur et une VM peuvent en
-        # theorie partager le meme nom sans collision a eviter ici.
+        # LXC containers: a table distinct from vm_ssh_users. Qemu and lxc domains live
+        # in separate libvirt namespaces (see open_lxc_conn), so a container and a VM can
+        # in theory share the same name with no collision to avoid here.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS container_ssh_users (
                 container_name TEXT PRIMARY KEY,
                 username TEXT NOT NULL
             )
         """)
-        # HA (chantier 17) : VM "protegees" -- domain_xml est un CACHE
-        # rafraichi periodiquement (voir app/core/ha.py::sync_protected_vms)
-        # PENDANT que le nœud source est joignable, seul moyen de redefinir
-        # la VM ailleurs si ce nœud tombe reellement en panne (on ne peut
-        # plus lui demander son XML une fois injoignable). Protection
-        # EXIGE un stockage partage (chantier 26) verifie a l'activation ET
-        # a chaque resynchronisation -- sans ca, aucune garantie que le
-        # disque soit seulement lisible depuis un autre nœud.
+        # HA: "protected" VMs. domain_xml is a CACHE refreshed periodically (see
+        # app/core/ha.py::sync_protected_vms) WHILE the source node is reachable, the only
+        # way to redefine the VM elsewhere if that node really fails (its XML can no longer
+        # be requested once it is unreachable). Protection REQUIRES shared storage,
+        # checked at activation AND at every resynchronization: without it there is no
+        # guarantee that the disk is even readable from another node.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ha_protected_vms (
                 vm_name TEXT PRIMARY KEY,
@@ -343,13 +326,11 @@ def init_db():
                 last_synced_at TEXT
             )
         """)
-        # Notifications sortantes (chantier 28) : config JSON stockee en
-        # clair (mot de passe SMTP inclus si type='email') -- aucune autre
-        # forme de secret n'est chiffree dans ce projet (voir .env pour le
-        # secret JWT par ex.), reserve aux admins (meme niveau de confiance
-        # que le reste de la config serveur). `events` : liste JSON de noms
-        # d'evenements a notifier sur ce canal, [] = tous (voir
-        # app/core/notifications.py::NOTIFY_EVENTS pour la liste complete).
+        # Outbound notifications: the JSON config is stored in clear text (including
+        # the SMTP password when type='email'), except that the SMTP password is
+        # encrypted at rest (see app/core/secrets_crypto.py). Admin-only. `events` is a
+        # JSON list of event names to notify on this channel, [] = all (see
+        # app/core/notifications.py::NOTIFY_EVENTS for the full list).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS notification_channels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -362,14 +343,13 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
-        # Jetons d'API (chantier 30) : credential dedie a l'automatisation
-        # (scripts/Terraform), separe du JWT de session (duree de vie/portee
-        # differente -- un jeton d'API n'expire pas au bout de 4h comme une
-        # session, mais peut etre revoque individuellement sans deconnecter
-        # l'utilisateur partout). SEUL token_hash (SHA-256) est stocke, JAMAIS
-        # le jeton en clair -- il n'est affiche qu'UNE fois, a la creation
-        # (voir app/core/api_tokens.py), impossible a retrouver ensuite meme
-        # par un admin avec un acces direct a la base.
+        # API tokens: a credential dedicated to automation (scripts/Terraform), separate
+        # from the session JWT (different lifetime and scope: an API token does not
+        # expire after 4 h like a session, but can be revoked individually without
+        # signing the user out everywhere). ONLY token_hash (SHA-256) is stored, NEVER
+        # the plain token: it is shown only ONCE, at creation (see
+        # app/core/api_tokens.py), and cannot be recovered afterwards even by an admin
+        # with direct access to the database.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS api_tokens (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,12 +360,10 @@ def init_db():
                 last_used_at TEXT
             )
         """)
-        # Pare-feu reseau/datacenter (chantier 21) : contrairement au
-        # pare-feu par VM (nwfilter, stocke et reapplique par libvirt
-        # lui-meme), les regles iptables de ce chantier ne survivent PAS a
-        # un redemarrage de l'hote -- cette table est l'unique source de
-        # verite persistante, reappliquee au demarrage du service (voir
-        # app/core/network_firewall.py::reapply_all).
+        # Network/datacenter firewall: unlike the per-VM firewall (nwfilter, stored and
+        # reapplied by libvirt itself), these iptables rules do NOT survive a host
+        # reboot. This table is the only persistent source of truth, reapplied when the
+        # service starts (see app/core/network_firewall.py::reapply_all).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS network_firewall (
                 network_name TEXT PRIMARY KEY,
@@ -393,13 +371,11 @@ def init_db():
                 rules_json TEXT NOT NULL
             )
         """)
-        # Suppression automatique des VM inactives (chantier 19) : option
-        # opt-in a la creation ("supprimer si arretee depuis N jours").
-        # last_active_at reinitialise a chaque demarrage de la VM (voir
-        # app/core/vm_meta.py::touch_vm_activity) -- le compteur ne court
-        # que pendant que la VM est ARRETEE. warned_at trace un
-        # avertissement deja envoye (chantier 28) pour ne pas le repeter a
-        # chaque cycle horaire du scheduler avant la suppression reelle.
+        # Automatic deletion of inactive VMs: an opt-in option chosen at creation
+        # ("delete if stopped for N days"). last_active_at is reset every time the VM
+        # starts (see app/core/vm_meta.py::touch_vm_activity): the counter only runs while
+        # the VM is STOPPED. warned_at records a warning that was already sent, so it is
+        # not repeated at every hourly scheduler cycle before the real deletion.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_auto_cleanup (
                 vm_name TEXT PRIMARY KEY,
@@ -409,11 +385,10 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
-        # Verification automatique et periodique des mises a jour
-        # (app/core/update_check.py, 2026-09-17) -- ligne UNIQUE (id=1) :
-        # memorise la derniere version distante deja notifiee, pour ne
-        # notifier qu'UNE FOIS par version disponible plutot qu'a chaque
-        # cycle horaire tant que personne n'a applique la mise a jour.
+        # Automatic periodic update check (app/core/update_check.py): a SINGLE row
+        # (id=1) that remembers the last remote version already notified, so that only
+        # ONE notification is sent per available version instead of one per hourly cycle
+        # while nobody applies the update.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS update_check_state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -421,11 +396,8 @@ def init_db():
                 last_checked_at TEXT
             )
         """)
-        # SSO OIDC (chantier 20, 2026-09-17) -- ligne UNIQUE (id=1), meme
-        # pattern que update_check_state ci-dessus. client_secret stocke en
-        # clair : meme niveau de confiance que le mot de passe SMTP du
-        # chantier 28 (reserve admin, pas de coffre-fort de secrets dans ce
-        # projet, voir CLAUDE.md).
+        # OIDC SSO: a SINGLE row (id=1), the same pattern as update_check_state above.
+        # client_secret is encrypted at rest (see app/core/secrets_crypto.py). Admin-only.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sso_config (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -439,26 +411,26 @@ def init_db():
                 admin_groups TEXT NOT NULL DEFAULT ''
             )
         """)
-        # Profil de deploiement choisi par l'admin (chantier 5, mandat
-        # portabilite) : 'auto' = profil recommande par detection du materiel.
+        # Deployment profile chosen by the admin: 'auto' = the profile recommended by
+        # hardware detection.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS deployment_profile (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 profil TEXT NOT NULL DEFAULT 'auto'
             )
         """)
-        # Politique d'allocation des ressources de VM choisie par l'admin
-        # (limites / surallocation / libre), voir app/core/vm_limits.py.
+        # VM resource allocation policy chosen by the admin (limits / overcommit /
+        # free), see app/core/vm_limits.py.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS allocation_policy (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 politique TEXT NOT NULL DEFAULT 'limites'
             )
         """)
-        # Etats CSRF/nonce du flux OIDC Authorization Code -- a usage
-        # UNIQUE (supprime des sa consommation, voir sso.py::consume_state)
-        # et de courte duree de vie (STATE_TTL_S, purge au passage plutot
-        # qu'un scheduler dedie pour une table aussi ephemere).
+        # CSRF/nonce states of the OIDC Authorization Code flow: SINGLE USE (deleted as
+        # soon as consumed, see sso.py::consume_state) and short-lived (STATE_TTL_S,
+        # purged along the way rather than by a dedicated scheduler for such an ephemeral
+        # table).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sso_login_state (
                 state TEXT PRIMARY KEY,
@@ -466,11 +438,10 @@ def init_db():
                 created_at REAL NOT NULL
             )
         """)
-        # Sauvegardes de conteneurs (backlog 2026-09-18) -- version
-        # deliberement plus simple que `backups` (VM, chantier 13) : pas de
-        # job_id/planification/mode chaud-froid, un conteneur doit toujours
-        # etre ARRETE pour etre sauvegarde (systeme de fichiers, pas de
-        # disque qcow2 a copier a chaud). Manuel uniquement pour l'instant.
+        # Container backups: a deliberately simpler version than `backups` (VMs): no
+        # job_id, no scheduling and no hot/cold mode. A container must always be STOPPED
+        # to be backed up (a filesystem, not a qcow2 disk that can be copied while
+        # running). Manual only for now.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS container_backups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -483,5 +454,10 @@ def init_db():
                 erreur TEXT
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_container_backups_name ON container_backups(container_name, cree_le)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_container_backups_name ON container_backups(container_name, cree_le)"
+        )
+        # The local host used to be stored under a machine-specific label; it is now always "local".
+        for table in ("ha_protected_vms", "tasks"):
+            conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608
         conn.commit()

@@ -1,30 +1,31 @@
-"""Collecte continue de metriques (chantier 10 de la roadmap vSphere/vCenter,
-2026-09-13) -- CPU/RAM/disque/reseau par VM et pour l'hote, echantillonnes en
-arriere-plan a intervalle regulier et persistes en base, au lieu d'etre
-recalcules a la demande (ce que faisait deja GET /vms/{name}/metrics -- ce
-mecanisme-la reste tel quel pour le "temps reel instantane", il n'est pas
-remplace ; celui-ci ajoute l'HISTORIQUE qui n'existait pas).
+"""Continuous metrics collection: CPU/RAM/disk/network per VM and for the host,
+sampled in the background at a regular interval and persisted in the database
+instead of being recomputed on demand (which GET /vms/{name}/metrics already
+does; that mechanism is unchanged and remains the "instantaneous real time"
+view, while this one adds the HISTORY that did not exist).
 
-Simplification assumee par rapport aux 4 niveaux de stats de vCenter : deux
-paliers seulement.
-  - "raw"    : un echantillon toutes les `metrics_interval_s` secondes (profil de deploiement, 10-30), garde
-               RAW_RETENTION_H heures.
-  - "hourly" : moyenne des echantillons raw de l'heure ecoulee, calculee une
-               fois par heure avant que les raw correspondants ne soient
-               purges, gardee HOURLY_RETENTION_DAYS jours.
-Une vue "1h" lit le palier raw ; "24h/semaine/mois" lisent le palier hourly.
-Pas de palier "journalier" en plus (vCenter en a un 3e/4e) -- juge suffisant
-pour la taille de ce projet, a affiner si le volume de VM grandit beaucoup.
+A deliberate simplification compared to vCenter's 4 statistics levels: only
+two tiers.
+  - "raw": one sample every `metrics_interval_s` seconds (deployment profile,
+    10-30), kept RAW_RETENTION_H hours.
+  - "hourly": the average of the raw samples of the elapsed hour, computed
+    once an hour before the matching raw samples are purged, kept
+    HOURLY_RETENTION_DAYS days.
+A "1h" view reads the raw tier; "24h/week/month" read the hourly tier. There
+is no additional "daily" tier (vCenter has a 3rd/4th): judged sufficient for
+the size of this project, to be refined if the number of VMs grows a lot.
 
-Alerting : seuils fixes (pas encore configurables par l'UI) verifies a
-chaque tick ; un franchissement de seuil est journalise via log_action (donc
-visible et filtrable dans le Journal existant, voir chantier 3) -- pas de
-sous-systeme d'alarme separe avec etats acquittes/actifs comme vCenter, sur
-le meme principe de ne pas sur-ingenierer pour la taille du projet.
+Alerting: fixed thresholds (not yet configurable from the UI) checked at every
+tick; a threshold crossing is logged through log_action (so it is visible and
+filterable in the existing Journal). There is no separate alarm subsystem with
+acknowledged/active states like vCenter, on the same principle of not
+over-engineering for the size of the project.
+
 """
+
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import libvirt
 
@@ -37,32 +38,32 @@ HOURLY_RETENTION_DAYS = 60
 
 ALERT_THRESHOLDS = {"cpu_pct": 90, "mem_pct": 90, "disk_pct": 90}
 
-_last_counters = {}  # (cible, dev) -> (timestamp, valeur brute) pour calculer des debits
-_alert_state = {}  # (cible, metrique) -> bool (deja en alerte ou pas), evite de spammer le journal a chaque tick
+_last_counters = {}  # (target, dev) -> (timestamp, raw value), used to compute rates
+_alert_state = {}  # (target, metric) -> bool (already alerting or not), avoids spamming the log on every tick
 _stop_event = threading.Event()
 
 
 def _now_iso():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _rate(key, now, raw_value):
-    """Debit (unite/s) depuis la derniere lecture du meme compteur cumulatif.
-    None au tout premier tick (pas encore de point de reference)."""
+    """Rate (unit/s) since the last reading of the same cumulative counter. None on
+    the very first tick (no reference point yet)."""
     prev = _last_counters.get(key)
     _last_counters[key] = (now, raw_value)
     if prev is None:
         return None
     prev_t, prev_v = prev
     dt = now - prev_t
-    if dt <= 0 or raw_value < prev_v:  # compteur remis a zero (VM redemarree) -- pas de valeur negative
+    if dt <= 0 or raw_value < prev_v:  # counter reset (VM restarted): no negative value
         return None
     return (raw_value - prev_v) / dt
 
 
 def _host_cpu_pct():
-    """% d'utilisation CPU hote depuis /proc/stat (delta de compteurs cumulatifs,
-    memes champs que `top`/`vmstat`)."""
+    """Host CPU usage (%) from /proc/stat (delta of cumulative counters, the same
+    fields as `top`/`vmstat`)."""
     try:
         with open("/proc/stat") as f:
             fields = [int(x) for x in f.readline().split()[1:]]
@@ -107,10 +108,15 @@ def _sample_vm(domain, name, now):
         cpu_pct = round(min(100.0, (cpu_rate / 1e9) * 100 / nvcpu), 1) if cpu_rate is not None else None
 
         mem_stats = domain.memoryStats()
-        mem_used_mb = round((mem_stats.get("actual", info[2]) - mem_stats.get("unused", 0)) / 1024, 1) if "unused" in mem_stats else None
+        mem_used_mb = (
+            round((mem_stats.get("actual", info[2]) - mem_stats.get("unused", 0)) / 1024, 1)
+            if "unused" in mem_stats
+            else None
+        )
         mem_total_mb = round(info[1] / 1024, 1)
 
         import xml.etree.ElementTree as ET
+
         root = ET.fromstring(domain.XMLDesc(0))
         read_bps = write_bps = rx_bps = tx_bps = 0.0
         for disk in root.findall(".//devices/disk"):
@@ -120,7 +126,7 @@ def _sample_vm(domain, name, now):
             if target is None or not target.get("dev"):
                 continue
             try:
-                rd_req, rd_bytes, wr_req, wr_bytes, err = domain.blockStats(target.get("dev"))
+                _rd_req, rd_bytes, _wr_req, wr_bytes, _err = domain.blockStats(target.get("dev"))
                 r = _rate((name, f"rd:{target.get('dev')}"), now, rd_bytes)
                 w = _rate((name, f"wr:{target.get('dev')}"), now, wr_bytes)
                 read_bps += r or 0
@@ -142,9 +148,13 @@ def _sample_vm(domain, name, now):
                 pass
 
         return {
-            "cpu_pct": cpu_pct, "mem_used_mb": mem_used_mb, "mem_total_mb": mem_total_mb,
-            "disk_read_bps": round(read_bps, 1), "disk_write_bps": round(write_bps, 1),
-            "net_rx_bps": round(rx_bps, 1), "net_tx_bps": round(tx_bps, 1),
+            "cpu_pct": cpu_pct,
+            "mem_used_mb": mem_used_mb,
+            "mem_total_mb": mem_total_mb,
+            "disk_read_bps": round(read_bps, 1),
+            "disk_write_bps": round(write_bps, 1),
+            "net_rx_bps": round(rx_bps, 1),
+            "net_tx_bps": round(tx_bps, 1),
         }
     except libvirt.libvirtError:
         return None
@@ -157,6 +167,7 @@ def _check_alert(cible, metric, value, threshold):
     _alert_state[key] = breached
     if breached and not was_breached:
         from app.core.audit import log_action
+
         log_action("system", "alert_seuil_depasse", cible, "echec", f"{metric} = {value}% (seuil {threshold}%)")
 
 
@@ -180,12 +191,25 @@ def _collect_tick():
             s = _sample_vm(domain, name, now)
             if s is None:
                 continue
-            rows.append(("vm", name, s["cpu_pct"], s["mem_used_mb"], s["mem_total_mb"],
-                         s["disk_read_bps"], s["disk_write_bps"], s["net_rx_bps"], s["net_tx_bps"]))
+            rows.append(
+                (
+                    "vm",
+                    name,
+                    s["cpu_pct"],
+                    s["mem_used_mb"],
+                    s["mem_total_mb"],
+                    s["disk_read_bps"],
+                    s["disk_write_bps"],
+                    s["net_rx_bps"],
+                    s["net_tx_bps"],
+                )
+            )
             if s["cpu_pct"] is not None:
                 _check_alert(name, "cpu_pct", s["cpu_pct"], ALERT_THRESHOLDS["cpu_pct"])
             if s["mem_used_mb"] and s["mem_total_mb"]:
-                _check_alert(name, "mem_pct", round(s["mem_used_mb"] / s["mem_total_mb"] * 100, 1), ALERT_THRESHOLDS["mem_pct"])
+                _check_alert(
+                    name, "mem_pct", round(s["mem_used_mb"] / s["mem_total_mb"] * 100, 1), ALERT_THRESHOLDS["mem_pct"]
+                )
     finally:
         conn.close()
 
@@ -199,16 +223,18 @@ def _collect_tick():
 
 
 def _rollup_and_prune():
-    """Une fois par heure : condense les echantillons raw de l'heure ecoulee
-    en une moyenne par cible (palier 'hourly'), puis purge le vieux -- raw
-    au-dela de RAW_RETENTION_H, hourly au-dela de HOURLY_RETENTION_DAYS."""
-    now = datetime.now(timezone.utc)
+    """Once an hour: condense the raw samples of the elapsed hour into one average
+    per target ('hourly' tier), then purge the old data: raw beyond
+    RAW_RETENTION_H, hourly beyond HOURLY_RETENTION_DAYS."""
+    now = datetime.now(UTC)
     hour_ago = (now - timedelta(hours=1)).isoformat()
     raw_cutoff = (now - timedelta(hours=RAW_RETENTION_H)).isoformat()
     hourly_cutoff = (now - timedelta(days=HOURLY_RETENTION_DAYS)).isoformat()
 
     with get_conn() as db:
-        cibles = db.execute("SELECT DISTINCT cible, scope FROM metrics_samples WHERE tier='raw' AND ts >= ?", (hour_ago,)).fetchall()
+        cibles = db.execute(
+            "SELECT DISTINCT cible, scope FROM metrics_samples WHERE tier='raw' AND ts >= ?", (hour_ago,)
+        ).fetchall()
         for row in cibles:
             avg = db.execute(
                 "SELECT AVG(cpu_pct), AVG(mem_used_mb), AVG(mem_total_mb), AVG(disk_read_bps), "
@@ -234,8 +260,8 @@ def _collector_loop():
             if time.time() - last_rollup >= 3600:
                 _rollup_and_prune()
                 last_rollup = time.time()
-        except Exception as e:  # ne jamais laisser le thread mourir sur un tick en echec
-            print(f"[metrics] tick échoué : {e!r}", flush=True)
+        except Exception as e:  # never let the thread die because of a failed tick
+            print(f"[metrics] tick failed: {e!r}", flush=True)
         _stop_event.wait(deployment_profile.settings()["metrics_interval_s"])
 
 

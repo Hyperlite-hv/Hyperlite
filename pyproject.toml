@@ -1,0 +1,49 @@
+[project]
+name = "hyperlite"
+description = "Self-hosted KVM/QEMU hypervisor with a web dashboard"
+requires-python = ">=3.11"
+dynamic = ["version"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["dashboard", "venv", "installer/deb-build", "installer/apt-repo"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: import order, B: bugbear, UP: pyupgrade,
+# S: bandit (security), C4/SIM: simplifications, RUF: ruff-specific checks.
+select = ["E", "W", "F", "I", "B", "UP", "S", "C4", "SIM", "RUF"]
+ignore = [
+    # Line length is enforced by the formatter for code; long message strings and SQL are kept readable.
+    "E501",
+    # FastAPI declares dependencies as default arguments (Depends(...), Query(...)).
+    # This is handled below with extend-immutable-calls instead of a blanket ignore.
+    # Hyperlite drives libvirt/QEMU/ZFS/iptables through subprocess with fixed argument
+    # lists (never shell=True). S603/S607 would flag every such call without adding signal.
+    "S603",
+    "S607",
+    # ElementTree does not resolve external entities; the XML parsed here is produced by
+    # libvirt itself or by this application.
+    "S314",
+    # Assertions are used by pytest only (see per-file ignores); no runtime asserts in app/.
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Body",
+    # Dependency factories: they build the callable that FastAPI resolves per request.
+    "app.core.security.require_role",
+    "app.core.security.require_vm_privilege",
+    "app.core.security.require_container_privilege",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S107"]  # test credentials are throwaway fixtures
