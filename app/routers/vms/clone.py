@@ -13,6 +13,7 @@ from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.network_alloc import allocate_static_ip, generate_mac, release_static_ip
+from app.core.safe_paths import safe_child
 from app.core.security import require_vm_privilege
 from app.core.tasks import create_task
 from app.core.vm_builder import (
@@ -105,7 +106,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
                 raise HTTPException(status_code=500, detail="Source disk path not found")
 
             suffix = "" if i == 0 else f"-{i + 1}"
-            new_disk_path = IMAGES_DIR / f"{payload.new_name}{suffix}.qcow2"
+            new_disk_path = safe_child(IMAGES_DIR, f"{payload.new_name}{suffix}.qcow2")
             if new_disk_path.exists():
                 for p in new_disk_paths:
                     Path(p).unlink(missing_ok=True)
@@ -174,7 +175,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
         # path, detectable by the presence of its ISO. See the design note above the
         # function.
         reseed_iso = None
-        if (IMAGES_DIR / f"{name}-cloudinit.iso").exists():
+        if (safe_child(IMAGES_DIR, f"{name}-cloudinit.iso")).exists():
             try:
                 reseed_iso = create_cloudinit_reseed_iso(payload.new_name)
                 ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"}).extend(

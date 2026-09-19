@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
+from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
 
@@ -46,7 +47,7 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
             status_code=422, detail=f"Unrecognized extension (expected: {', '.join(ALLOWED_EXTENSIONS)})"
         )
 
-    dest = IMPORTED_DISKS_DIR / filename
+    dest = safe_child(IMPORTED_DISKS_DIR, filename)
     try:
         try:
             with open(dest, "wb") as out:
@@ -68,7 +69,7 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
 @router.delete("/{filename}")
 def delete_vm_disk(filename: str, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
-    path = IMPORTED_DISKS_DIR / filename
+    path = safe_child(IMPORTED_DISKS_DIR, filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Disk '{filename}' not found")
     path.unlink()
