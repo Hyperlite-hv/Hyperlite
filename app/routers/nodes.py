@@ -9,6 +9,8 @@ from app.core.cluster import get_cluster_pubkey, node_summary, register_node, re
 from app.core.database import get_conn
 from app.core.security import get_current_user, require_role
 from app.core.host_capabilities import get_remote_capabilities
+from app.core import cluster_compat
+from app.core.libvirt_utils import open_conn
 from app.core.error_messages import describe_exception
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
@@ -45,6 +47,12 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
         node = register_node(payload.name, payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    # Diagnostic de compatibilite local -> nouveau nœud (chantier 6) :
+    # informatif, n'annule jamais l'enregistrement.
+    try:
+        node = {**node, "compatibilite": _compat_with_local(payload.name)}
+    except Exception:
+        pass
     return node
 
 
@@ -58,6 +66,30 @@ def get_node_summary(name: str, user: dict = Depends(get_current_user)):
         return node_summary(name)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Nœud injoignable : {e}")
+
+
+def _compat_with_local(name):
+    local, remote = open_conn(None), open_conn(name)
+    try:
+        return cluster_compat.report(cluster_compat.check_pair(local, remote))
+    finally:
+        local.close()
+        remote.close()
+
+
+@router.get("/{name}/compatibility")
+def get_node_compatibility(name: str, user: dict = Depends(require_role("admin"))):
+    """Compatibilite de l'hote LOCAL (source) vers ce nœud (destination)
+    -- chantier 6 du mandat portabilite, voir app/core/cluster_compat.py."""
+    with get_conn() as conn:
+        if not conn.execute("SELECT id FROM nodes WHERE name = ?", (name,)).fetchone():
+            raise HTTPException(status_code=404, detail=f"Nœud '{name}' introuvable")
+    try:
+        return _compat_with_local(name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Nœud injoignable : {describe_exception(e)}")
 
 
 @router.get("/{name}/capabilities")
