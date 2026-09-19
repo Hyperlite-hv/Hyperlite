@@ -12,7 +12,7 @@ from app.core.libvirt_utils import ensure_isolated_network, open_conn
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
-from app.routers.vms import _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS, FirewallConfig
+from app.routers.vms.firewall import _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS, FirewallConfig
 
 router = APIRouter(prefix="/networks", tags=["networks"])
 
