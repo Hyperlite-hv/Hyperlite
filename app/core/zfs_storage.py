@@ -26,10 +26,13 @@ real block device (`/dev/sdX`) when moving to a real disk changes nothing else.
 
 """
 
+import os
 import re
 import subprocess
 import time
 from pathlib import Path
+
+from app.core.safe_paths import safe_child
 
 LOOPBACK_DIR = Path("/var/lib/hyperlite-zfs")
 
@@ -153,7 +156,7 @@ def create_pool(name, size_gb):
         raise ZfsError(f"A ZFS pool '{name}' already exists")
 
     LOOPBACK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    backing_file = LOOPBACK_DIR / f"{name}.img"
+    backing_file = safe_child(LOOPBACK_DIR, f"{name}.img")
     if backing_file.exists():
         raise ZfsError(f"The backing file '{backing_file}' already exists (pool deleted without a complete cleanup?)")
 
@@ -219,12 +222,15 @@ def _wait_for_device(path, timeout_s=5):
     expected and documented (unlike a regular qcow2 file, which is available
     immediately). Blocks up to `timeout_s`, never longer: better to fail clearly
     afterwards than to hand the caller a path that does not exist yet."""
+    device = os.path.normpath(str(path))
+    if not device.startswith("/dev/"):
+        return False
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        if Path(path).exists():
+        if Path(device).exists():
             return True
         time.sleep(0.1)
-    return Path(path).exists()
+    return Path(device).exists()
 
 
 def create_zvol(pool_name, zvol_name, size_gb):

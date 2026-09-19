@@ -178,14 +178,11 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
         if (safe_child(IMAGES_DIR, f"{name}-cloudinit.iso")).exists():
             try:
                 reseed_iso = create_cloudinit_reseed_iso(payload.new_name)
-                ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"}).extend(
-                    [
-                        ET.fromstring("<driver name='qemu' type='raw'/>"),
-                        ET.fromstring(f"<source file='{reseed_iso}'/>"),
-                        ET.fromstring("<target dev='hdc' bus='ide'/>"),
-                        ET.fromstring("<readonly/>"),
-                    ]
-                )
+                cdrom_el = ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"})
+                ET.SubElement(cdrom_el, "driver", {"name": "qemu", "type": "raw"})
+                ET.SubElement(cdrom_el, "source", {"file": str(reseed_iso)})
+                ET.SubElement(cdrom_el, "target", {"dev": "hdc", "bus": "ide"})
+                ET.SubElement(cdrom_el, "readonly")
             except subprocess.CalledProcessError:
                 reseed_iso = None  # too bad for the customization, the clone remains functional
 
