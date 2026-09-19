@@ -54,7 +54,7 @@ export default function CompatibilityTab() {
         </div>
       )}
 
-      <div className="card overflow-x-auto">
+      <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Node comparison">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-anthracite-600 text-left text-anthracite-300">

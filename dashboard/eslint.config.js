@@ -5,7 +5,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 
 export default [
   // Vendored third-party code (noVNC, xterm) and build output are not linted.
-  { ignores: ["dist/**", "public/**", "node_modules/**"] },
+  { ignores: ["dist/**", "public/**", "node_modules/**", "e2e-report/**", "e2e-results/**"] },
   js.configs.recommended,
   {
     files: ["src/**/*.{js,jsx}"],

@@ -16,12 +16,29 @@ export function getAuthToken() {
   return token;
 }
 
+// Called when the backend rejects the session token (expired, revoked): the auth
+// store registers a handler that returns the user to the sign-in page.
+let unauthorizedHandler = null;
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = fn;
+}
+
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(path, { ...opts, headers });
+  let res;
+  try {
+    res = await fetch(path, { ...opts, headers });
+  } catch {
+    throw new Error("Cannot reach the server. Check your network connection and try again.");
+  }
   let data = null;
-  try { data = await res.json(); } catch { /* no JSON body */ }
+  let parsed = true;
+  try { data = await res.json(); } catch { parsed = false; }
+  if (res.status === 401 && token && !path.startsWith("/auth/login")) unauthorizedHandler?.();
+  if (res.ok && !parsed && (res.headers.get("content-type") || "").includes("application/json")) {
+    throw new Error("The server returned an unreadable response.");
+  }
   if (!res.ok) {
     const msg = (data && data.detail) ? (Array.isArray(data.detail) ? data.detail.join(" ; ") : data.detail) : "Unknown error";
     throw new Error(msg);

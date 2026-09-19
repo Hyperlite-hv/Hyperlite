@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.core import notifications as notif
 from app.core.audit import log_action
+from app.core.http_safety import require_http_url
 from app.core.security import get_current_user, require_role
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -52,6 +53,11 @@ def create_channel(payload: ChannelCreate, user: dict = Depends(require_role("ad
         raise HTTPException(status_code=422, detail="Invalid channel type (webhook or email)")
     if not payload.name.strip():
         raise HTTPException(status_code=422, detail="Name required")
+    if payload.type == "webhook":
+        try:
+            require_http_url(str(payload.config.get("url", "")))
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Invalid webhook URL: {e}") from e
     invalid_events = [e for e in payload.events if e not in notif.NOTIFY_EVENTS]
     if invalid_events:
         raise HTTPException(status_code=422, detail=f"Unknown event(s): {', '.join(invalid_events)}")
@@ -87,7 +93,7 @@ def test_channel(channel_id: int, user: dict = Depends(require_role("admin"))):
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     try:
-        notif.send_to_channel(channel, "Test de notification", "This is a test sent from Hyperlite.")
+        notif.send_to_channel(channel, "Notification test", "This is a test sent from Hyperlite.")
     except Exception as e:
         log_action(user["username"], "test_notification_channel", channel["name"], "echec", str(e)[:300])
         raise HTTPException(status_code=502, detail=f"Sending failed: {e}") from e

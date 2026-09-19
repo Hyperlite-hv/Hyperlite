@@ -1,3 +1,5 @@
+import LoadingState from "../../components/LoadingState";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck, ShieldOff, LifeBuoy, RefreshCw } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge";
@@ -32,7 +34,7 @@ export default function HaTab() {
   }, [reload]);
 
   async function handleDisable(vmName) {
-    if (!window.confirm(`Disable HA protection for '${vmName}'?`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Disable HA protection for '${vmName}'?`, confirmLabel: "Confirm" }))) return;
     try {
       await disableHa(vmName);
       pushToast({ kind: "success", title: "Protection disabled", message: vmName });
@@ -69,7 +71,7 @@ export default function HaTab() {
         <div className="grid grid-cols-5 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
           <span>VM</span><span>Current node</span><span>Node status</span><span>Last sync</span><span />
         </div>
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400">Loading...</div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
         {rows && rows.length === 0 && (
           <div className="px-4 py-6 text-sm text-anthracite-400 text-center">
             No protected VMs. Enable HA protection from the Summary tab of a running VM (a disk on a shared pool is required).
@@ -90,7 +92,7 @@ export default function HaTab() {
               <div className="flex items-center justify-end gap-2">
                 {down && (
                   <>
-                    <select
+                    <select aria-label="Recovery node"
                       className="input w-auto text-xs py-1"
                       value={recoverTarget[r.vm_name] || ""}
                       onChange={(e) => setRecoverTarget({ ...recoverTarget, [r.vm_name]: e.target.value })}

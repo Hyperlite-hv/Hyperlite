@@ -1,3 +1,4 @@
+import { useModalBehavior } from "../hooks/useModalBehavior";
 import { useEffect, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import StepNode from "./steps/StepNode";
@@ -40,6 +41,7 @@ function initialForm(nodes, networks, defaults) {
 }
 
 export default function VMWizard({ open, onClose }) {
+  const dialogRef = useModalBehavior(open, () => { onClose(); reset(); });
   const nodes = useInfraStore((s) => s.nodes);
   const networks = useInfraStore((s) => s.networks);
   const storagePools = useInfraStore((s) => s.storagePools);
@@ -112,7 +114,7 @@ export default function VMWizard({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="card w-full max-w-2xl overflow-hidden" role="dialog" aria-modal="true" aria-label="Create a virtual machine">
+      <div ref={dialogRef} className="card w-full max-w-2xl overflow-hidden" role="dialog" aria-modal="true" aria-label="Create a virtual machine">
         <div className="flex items-center justify-between border-b border-anthracite-600 px-5 py-3">
           <h2 className="text-sm font-semibold text-anthracite-100">Create a virtual machine</h2>
           <button aria-label="Close" onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>
@@ -125,7 +127,7 @@ export default function VMWizard({ open, onClose }) {
         </div>
         <div className="flex justify-between px-5 pt-1.5 pb-3">
           {STEPS.map((s, i) => (
-            <span key={s.id} className={`text-[11px] ${i === stepIndex ? "text-anthracite-100 font-medium" : "text-anthracite-500"}`}>{s.label}</span>
+            <span key={s.id} className={`text-[11px] ${i === stepIndex ? "text-anthracite-100 font-medium" : "text-anthracite-400"}`}>{s.label}</span>
           ))}
         </div>
 

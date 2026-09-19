@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { Camera, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
@@ -52,7 +53,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
   }, []);
 
   if (!vm) return null;
-  if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   // VM on a ZFS pool: read directly from vm.stockage_zfs (GET /vms,
   // app/routers/vms.py::_domain_summary). The first version deduced it from the list
@@ -146,7 +147,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
             <span className="text-xs text-anthracite-400">{formatElapsed(job.startedAt)} elapsed</span>
           </div>
           <ProgressBar indeterminate statut="en_cours" />
-          <p className="text-[11px] text-anthracite-500">
+          <p className="text-[11px] text-anthracite-400">
             {isZfsBacked
               ? "Native ZFS snapshot (disk only, nearly instantaneous)."
               : "May take several seconds if the VM is running (memory is included automatically)."}
@@ -173,7 +174,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
             {isAdmin && (
               <>
                 <button className="btn-secondary" disabled={busy} onClick={() => setPending({ action: "restore", snap: s })}><RotateCcw size={13} /> Restore</button>
-                <button aria-label="Delete" className="btn-danger" disabled={busy} onClick={() => setPending({ action: "delete", snap: s })}><Trash2 size={13} /></button>
+                <button aria-label={`Delete snapshot ${s.nom}`} className="btn-danger" disabled={busy} onClick={() => setPending({ action: "delete", snap: s })}><Trash2 size={13} /></button>
               </>
             )}
           </div>

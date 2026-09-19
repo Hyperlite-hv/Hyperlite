@@ -226,7 +226,9 @@ def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_current_user)):
     if not fresh["totp_secret"]:
         raise HTTPException(status_code=400, detail="No pending 2FA setup: run /auth/2fa/setup first")
     if not verify_code(fresh["totp_secret"], payload.code):
-        raise HTTPException(status_code=401, detail="Invalid code")
+        # 400, not 401: the session itself is valid, only the submitted code is wrong (a 401 makes
+        # the dashboard treat the session as expired and sign the user out).
+        raise HTTPException(status_code=400, detail="Invalid code")
     with get_conn() as conn:
         conn.execute("UPDATE users SET totp_enabled = 1 WHERE username = ?", (user["username"],))
         conn.commit()
@@ -237,7 +239,7 @@ def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_current_user)):
 @router.post("/2fa/disable")
 def disable_2fa(payload: TwoFADisable, user: dict = Depends(get_current_user)):
     if not verify_password(payload.password, user["hashed_password"]):
-        raise HTTPException(status_code=401, detail="Incorrect password")
+        raise HTTPException(status_code=400, detail="Incorrect password")
     with get_conn() as conn:
         conn.execute("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE username = ?", (user["username"],))
         conn.commit()

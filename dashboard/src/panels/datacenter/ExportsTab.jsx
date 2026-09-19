@@ -1,3 +1,4 @@
+import LoadingState from "../../components/LoadingState";
 import { useCallback, useEffect, useState } from "react";
 import { PackageOpen, Download, Trash2 } from "lucide-react";
 import { fetchVmExports, downloadVmExport, deleteVmExport } from "../../api/client";
@@ -50,14 +51,14 @@ export default function ExportsTab() {
     }
   }
 
-  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400">Loading...</div>;
+  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
 
   if (rows.length === 0) {
     return (
       <div className="card flex flex-col items-center gap-2 p-8 text-center">
         <PackageOpen size={26} className="text-anthracite-400" />
         <p className="text-sm text-anthracite-300">No exports yet.</p>
-        <p className="text-xs text-anthracite-500 max-w-sm">
+        <p className="text-xs text-anthracite-400 max-w-sm">
           From a VM, open its actions menu and choose "Export disk" to produce a file that can be downloaded here (system disk only).
         </p>
       </div>
@@ -77,7 +78,7 @@ export default function ExportsTab() {
             <span className="text-anthracite-400 text-xs font-mono">{new Date(r.modifie_le).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
             <div className="flex justify-end gap-1.5">
               <button aria-label="Download" className="btn-secondary" title="Download" onClick={() => handleDownload(r.nom)}><Download size={13} /></button>
-              <button aria-label="Delete" className="btn-danger" title="Delete" onClick={() => setToDelete(r)}><Trash2 size={13} /></button>
+              <button aria-label={`Delete export ${r.nom}`} className="btn-danger" title="Delete" onClick={() => setToDelete(r)}><Trash2 size={13} /></button>
             </div>
           </div>
         ))}
