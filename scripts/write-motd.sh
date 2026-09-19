@@ -1,56 +1,52 @@
 #!/bin/bash
-# ExecStartPre de hyperlite.service : regenere /etc/issue (bandeau affiche
-# sur la console PHYSIQUE avant meme de se logguer) et /etc/motd (affiche
-# apres connexion SSH) a chaque demarrage, avec l'IP courante -- l'IP DHCP
-# peut changer d'un boot a l'autre, contrairement a un message fige ecrit
-# une seule fois a l'installation.
+# ExecStartPre of hyperlite.service: regenerates /etc/issue (the banner shown on
+# the PHYSICAL console before even logging in) and /etc/motd (shown after an SSH
+# login) at every start, with the current IP: a DHCP address can change from one
+# boot to the next, unlike a fixed message written once at installation time.
 #
-# Equivalent fonctionnel du dernier ecran de l'installeur Proxmox VE
-# ("Please point your browser to https://IP:8006"), mais tenu a jour a
-# chaque redemarrage plutot qu'affiche une seule fois pendant l'install.
+# Functional equivalent of the last screen of the Proxmox VE installer ("Please
+# point your browser to https://IP:8006"), but kept up to date at every restart
+# instead of being shown once during the installation.
 set -e
 
-# hostname -I liste IPv4 ET IPv6 sans ordre garanti -- filtre explicitement
-# une adresse IPv4 (motif x.x.x.x) plutot que de prendre le premier champ,
-# qui peut etre une IPv6 (observe en test : lien-local fec0::... affiche a
-# la place de l'IPv4 reellement utile pour se connecter au dashboard).
+# hostname -I lists IPv4 AND IPv6 in no guaranteed order: an IPv4 address
+# (x.x.x.x pattern) is filtered explicitly rather than taking the first field,
+# which can be an IPv6 (seen in testing: a link-local fec0::... shown instead of
+# the IPv4 actually useful to reach the dashboard).
 #
-# ExecStartPre demarre des que network-online.target est atteint, mais ce
-# target peut se declarer "atteint" avant que le bail DHCP ne soit
-# reellement obtenu sur certaines cartes reseau (constate en test sur du
-# vrai materiel : bannière affichant "pas encore d'adresse IP" au premier
-# boot alors que le reseau finit par fonctionner quelques secondes plus
-# tard). On reessaie donc pendant 20s avant d'abandonner, plutot que
-# d'echouer sur la toute premiere tentative.
+# ExecStartPre starts as soon as network-online.target is reached, but on some
+# network cards that target can be declared reached before the DHCP lease is
+# really obtained (seen on real hardware: a banner saying "no IP address yet" on
+# the first boot, although the network works a few seconds later). So it retries
+# for 20 s before giving up, rather than failing on the very first attempt.
 IP=""
 for _ in $(seq 1 20); do
     IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
     [ -n "$IP" ] && break
     sleep 1
 done
-IP=${IP:-"(pas encore d'adresse IP -- verifier 'hostname -I' une fois connecte)"}
+IP=${IP:-"(no IP address yet -- check 'hostname -I' once connected)"}
 HOST=$(hostname)
 
-# Le mot de passe est ECRIT EN CLAIR ici plutot que de renvoyer vers
-# /root/.hyperlite-initial-password : ce fichier n'est lisible qu'une fois
-# CONNECTE en root, ce qui cree un probleme d'oeuf-et-poule (constate en
-# test : impossible de se connecter sans le mot de passe, impossible de
-# lire le mot de passe sans etre connecte). /etc/issue est deja affiche
-# AVANT authentification sur la console physique -- une personne avec un
-# acces physique a l'ecran a de toute facon deja franchi la meme barriere
-# de confiance qu'un accès root, l'ecrire ici ne l'expose pas davantage.
-ROOT_PASS=$(cat /root/.hyperlite-initial-password 2>/dev/null || echo "(voir /root/.hyperlite-initial-password)")
+# The password is WRITTEN IN CLEAR TEXT here rather than pointing to
+# /root/.hyperlite-initial-password: that file is only readable once logged in as
+# root, which is a chicken-and-egg problem (you cannot log in without the
+# password, and cannot read the password without being logged in). /etc/issue is
+# already shown BEFORE authentication on the physical console: anyone with
+# physical access to the screen has already crossed the same trust barrier as
+# root access, so writing it here exposes it no further.
+ROOT_PASS=$(cat /root/.hyperlite-initial-password 2>/dev/null || echo "(see /root/.hyperlite-initial-password)")
 
 BANNER="
 ================================================================
-  Hyperlite - Bienvenue
+  Hyperlite - Welcome
 
-  Interface web  : https://${IP}:8000
-  Compte         : admin
-  Mot de passe   : ${ROOT_PASS}
-                   (identique au mot de passe root de cette machine)
+  Web interface  : https://${IP}:8000
+  Account        : admin
+  Password       : ${ROOT_PASS}
+                   (initial password, change it after signing in)
 
-  Hote           : ${HOST}
+  Host           : ${HOST}
 ================================================================
 "
 

@@ -1,12 +1,10 @@
 #!/bin/bash
-# Construit l'ISO bootable "Hyperlite Appliance" : part d'un netinst Debian
-# stable officiel, y injecte le preseed + les scripts d'installation + une
-# copie du code Hyperlite (app + dashboard deja buildee), et modifie le menu
-# de boot pour que l'installation automatisee demarre par defaut apres un
-# court delai -- meme logique que la cle USB Proxmox ("boote, attends, c'est
-# installe").
+# Builds the bootable "Hyperlite Appliance" ISO: starts from the official
+# Debian netinst image, injects the preseed and the installation scripts, and
+# changes the boot menu so that the unattended installation starts by default
+# after a short delay (boot, wait, done).
 #
-# Usage : ./build-iso.sh [chemin_iso_sortie.iso]
+# Usage: ./build-iso.sh [output_iso_path.iso]
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,18 +12,15 @@ HYPERLITE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT_ISO="${1:-$SCRIPT_DIR/hyperlite-appliance-amd64.iso}"
 CACHE_DIR="$SCRIPT_DIR/.iso-cache"
 
-# Debian 13 (trixie), stable courante au moment de l'ecriture de ce script --
-# recoit les mises a jour de securite, contrairement a bookworm (12) deja
-# archivee. A ajuster ici si une version plus recente sort -- Debian publie
-# des revisions de point regulierement (tous les 2 mois environ), et
-# "current/" sur cdimage.debian.org ne garde JAMAIS les anciennes revisions
-# (le fichier disparait, 404 sur l'ancienne version) : PAS une pin figee
-# pour toujours, a rafraichir manuellement si ce script echoue avec un 404,
-# via `curl https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/
-# SHA256SUMS | grep netinst` pour la version+SHA256 reels du moment. BUG
-# REEL rencontre en testant ce chantier (13.6.0 -> 404, remplace par 13.7.0
-# le 2026-09-18, migration kvm-lab -> hl-devhub) : premiere fois que ce pin
-# a ete atteint en conditions reelles depuis l'ecriture du script.
+# Debian 13 (trixie), the current stable release when this script was written:
+# it receives security updates, unlike the archived bookworm (12). Adjust here
+# when a newer release ships. Debian publishes point releases regularly (about
+# every 2 months) and "current/" on cdimage.debian.org NEVER keeps the old
+# ones (the file disappears and the old version returns a 404), so this is NOT
+# a pin that stays valid forever: refresh it by hand if this script fails with
+# a 404, using
+#   curl https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/SHA256SUMS | grep netinst
+# to get the real version and SHA256 of the moment.
 DEBIAN_VERSION="13.7.0"
 ISO_NAME="debian-${DEBIAN_VERSION}-amd64-netinst.iso"
 ISO_URL="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/${ISO_NAME}"
@@ -34,19 +29,19 @@ ISO_SHA256="a7ef94ac2fb9a7fec454552abd629b7cc9d5155c886165a45649f5ce6167e355"
 log() { echo "[build-iso] $*"; }
 
 for bin in xorriso openssl rsync; do
-    command -v "$bin" >/dev/null || { echo "ERREUR : $bin requis (apt install $bin)"; exit 1; }
+    command -v "$bin" >/dev/null || { echo "ERROR: $bin is required (apt install $bin)"; exit 1; }
 done
 ISOHDPFX=/usr/lib/ISOLINUX/isohdpfx.bin
-[ -f "$ISOHDPFX" ] || { echo "ERREUR : paquet isolinux requis (apt install isolinux)"; exit 1; }
+[ -f "$ISOHDPFX" ] || { echo "ERROR: the isolinux package is required (apt install isolinux)"; exit 1; }
 
 mkdir -p "$CACHE_DIR"
 BASE_ISO="$CACHE_DIR/$ISO_NAME"
 
-log "=== 1/6 : ISO Debian de base ==="
+log "=== 1/6: base Debian ISO ==="
 if [ -f "$BASE_ISO" ] && echo "$ISO_SHA256  $BASE_ISO" | sha256sum -c - >/dev/null 2>&1; then
-    log "deja en cache et verifiee : $BASE_ISO"
+    log "already cached and verified: $BASE_ISO"
 else
-    log "telechargement : $ISO_URL"
+    log "downloading: $ISO_URL"
     curl -fL --progress-bar -o "$BASE_ISO" "$ISO_URL"
     echo "$ISO_SHA256  $BASE_ISO" | sha256sum -c -
 fi
@@ -56,64 +51,48 @@ trap 'rm -rf "$WORKDIR"' EXIT
 EXTRACT_DIR="$WORKDIR/iso"
 mkdir -p "$EXTRACT_DIR"
 
-log "=== 2/6 : extraction de l'ISO de base ==="
+log "=== 2/6: extracting the base ISO ==="
 xorriso -osirrox on -indev "$BASE_ISO" -extract / "$EXTRACT_DIR" >/dev/null
 chmod -R u+w "$EXTRACT_DIR"
 
-log "=== 3/6 : injection des fichiers d'installation Hyperlite ==="
+log "=== 3/6: injecting the Hyperlite installation files ==="
 HL_DIR="$EXTRACT_DIR/hyperlite"
 mkdir -p "$HL_DIR"
 
-# REECRIT le 2026-09-17 (chantier "apt install comme Proxmox") : plus de
-# hyperlite-src/ ni de `git init` embarque -- l'ISO n'embarque plus AUCUN
-# code applicatif, seulement les scripts d'installation. Hyperlite lui-meme
-# est installe par postinstall.sh via `apt install hyperlite` depuis le
-# vrai depot publie (https://twikles.github.io/hyperlite/), exactement
-# comme le ferait un admin a la main -- une appliance fraiche est donc
-# NATIVEMENT geree par apt des le premier demarrage. Avantage direct par
-# rapport a l'ancien mecanisme (commit Git unique embarque) : plus besoin
-# de reconstruire/reflasher un ISO entier a chaque nouvelle version pour
-# que les mises a jour marchent, ET l'ISO elle-meme est bien plus legere
-# (plus de code source + historique Git a embarquer).
+# The ISO embeds NO application code, only the installation scripts. Hyperlite
+# itself is installed by postinstall.sh through `apt install hyperlite` from the
+# published APT repository, exactly as an administrator would do by hand, so a
+# fresh appliance is natively managed by apt from its first boot. Updates
+# therefore never require rebuilding or reflashing an ISO, and the ISO stays
+# small (no source code or Git history to embed).
+if [ -n "${HYPERLITE_APT_URL:-}" ]; then
+    echo "HYPERLITE_APT_URL=\"$HYPERLITE_APT_URL\"" > "$HL_DIR/apt-source.conf"
+    log "APT repository baked into the ISO: $HYPERLITE_APT_URL"
+fi
 cp "$SCRIPT_DIR/preseed.cfg" "$HL_DIR/preseed.cfg"
 cp "$SCRIPT_DIR/partman-auto.sh" "$HL_DIR/partman-auto.sh"
 cp "$SCRIPT_DIR/postinstall.sh" "$HL_DIR/postinstall.sh"
 chmod +x "$HL_DIR"/*.sh
 
-log "=== 3.5/6 : preseed embarque directement dans l'initrd ==="
-# CAUSE RACINE (trouvee en inspectant /var/log/installer/syslog sur une VRAIE
-# machine installee, apres plusieurs bugs d'apparence non lies) : d-i charge
-# UN SEUL fichier de preseed, le premier trouve, et s'arrete la -- il ne
-# charge PAS en plus celui pointe par le parametre noyau "preseed/file=".
-# Historique de cette decouverte : on a d'abord cru a une succession de
-# problemes de timing independants ("telle ou telle question posee avant que
-# le CD-ROM ne soit accessible") et duplique un a un les elements bloquants
-# (langue, reseau, mot de passe, partman, apt-setup, miroir...) dans un
-# preseed minimal embarque au tout debut de l'initrd -- CE MECANISME
-# fonctionnait, mais chaque "correctif" masquait en fait le vrai probleme
-# sans jamais le reveler, puisqu'il couvrait de plus en plus de questions
-# sans qu'on remarque que le fichier CD (/cdrom/hyperlite/preseed.cfg,
-# preseed/include_command, preseed/late_command) n'etait JAMAIS lu. Preuve
-# definitive : "grep late_command /var/log/installer/syslog" -> 0 resultat
-# apres une installation qui s'est pourtant terminee sans un seul ecran
-# bloque -- Hyperlite lui-meme n'avait jamais ete deploye (late_command,
-# seul point d'entree de postinstall.sh, n'avait jamais tourne). Le syslog
-# confirmait : "preseed: successfully loaded preseed file from
-# file:///preseed.cfg" -- notre fichier embarque dans l'initrd, jamais celui
-# du CD-ROM.
-# CORRECTIF DEFINITIF : ne plus reconstruire un sous-ensemble de directives
-# a la main ici, mais embarquer le VRAI preseed.cfg (celui du depot, avec
-# include_command/late_command) directement a la racine de l'initrd -- une
-# seule source de verite, garantie chargee des le tout premier instant du
-# boot (avant meme le montage du CD-ROM). Les chemins "/cdrom/hyperlite/..."
-# a l'interieur de include_command/late_command restent valables : ce sont
-# des scripts EXECUTES bien plus tard (quand le CD est deja monte), pas des
-# fichiers de preseed a charger -- seul le CHARGEMENT du preseed lui-meme
-# doit se faire depuis l'initrd, pas l'execution des scripts qu'il declenche.
-# Technique d'injection : concatenation d'un petit cpio+gzip a la suite de
-# l'initrd existant (le noyau deroule des archives cpio concatenees dans
-# l'ordre, les fichiers de la derniere archive prevalant sur les precedents)
-# plutot que de reconstruire tout l'initrd.
+log "=== 3.5/6: preseed embedded directly in the initrd ==="
+# The Debian installer (d-i) loads ONE preseed file, the first one it finds,
+# and stops there: it does NOT also load the one referenced by the
+# "preseed/file=" kernel parameter. The file on the CD
+# (/cdrom/hyperlite/preseed.cfg, and with it preseed/include_command and
+# preseed/late_command) would therefore never be read if another preseed were
+# found first. Evidence: "grep late_command /var/log/installer/syslog" returns
+# nothing after an installation that nevertheless completed without a single
+# blocking screen, which means postinstall.sh (reached only through
+# late_command) never ran.
+# So this script embeds the REAL preseed.cfg of the repository (including
+# include_command/late_command) at the root of the initrd: a single source of
+# truth, loaded from the very first moment of the boot (before the CD-ROM is
+# even mounted). The "/cdrom/hyperlite/..." paths inside
+# include_command/late_command remain valid: they point to scripts EXECUTED
+# much later (once the CD is mounted), not to preseed files to load.
+# Injection technique: append a small cpio+gzip archive to the existing initrd
+# (the kernel unpacks concatenated cpio archives in order, and files from the
+# last archive win over the previous ones) rather than rebuilding the initrd.
 CPIO_DIR="$WORKDIR/early-preseed-cpio"
 mkdir -p "$CPIO_DIR"
 cp "$SCRIPT_DIR/preseed.cfg" "$CPIO_DIR/preseed.cfg"
@@ -122,117 +101,103 @@ for INITRD in "$EXTRACT_DIR/install.amd/initrd.gz" "$EXTRACT_DIR/install.amd/gtk
     [ -f "$INITRD" ] && cat "$WORKDIR/early-preseed.cpio.gz" >> "$INITRD"
 done
 
-log "=== 4/6 : menu de boot -- installation automatique par defaut ==="
-# Meme mecanisme que l'entree "Automated install" deja fournie par Debian
-# dans son propre sous-menu "Advanced options" (isolinux/adtxt.cfg,
-# boot/grub/grub.cfg) : auto=true priority=critical force toutes les
-# reponses debconf a venir du preseed (plus aucune question, deja charge
-# depuis l'initrd a l'etape precedente), quiet masque le log noyau verbeux.
-# On rend CETTE entree celle qui demarre automatiquement apres un court
-# delai si personne ne touche au clavier --
-# la partie que le menu Debian stock n'a pas par defaut (il attend
-# indefiniment une touche, sans timeout configure).
-# debian-installer/language, /country et /locale (les TROIS -- localechooser
-# les traite comme des questions distinctes en interne, preseeder /locale
-# seul ne suffit pas toujours a supprimer les deux autres) + keyboard +
-# netcfg/get_hostname/hostname/get_domain sont EGALEMENT passes en param
-# noyau, en plus d'etre dans le preseed.cfg desormais embarque dans
-# l'initrd ci-dessus : les tout premiers ecrans (langue, clavier) sont
-# traites avant meme que cdebconf ait fini de charger le preseed
-# initrd-embarque, donc seuls des parametres noyau (disponibles depuis le
-# tout premier instant du boot, avant tout chargement de fichier) les
-# sautent de maniere fiable -- prudence gardee malgre le correctif racine
-# ci-dessus, plutot que de re-decouvrir ce cas particulier plus tard.
-# hostname=/domain= (params noyau Linux generiques) restent aussi presents
-# en plus des netcfg/* ci-dessus : ils fixent le nom de la machine EN COURS
-# D'INSTALLATION (environnement live), pas la reponse aux questions debconf
-# netcfg/* qui pilotent le nom PERSISTE sur la machine cible -- deux choses
-# differentes malgre le nom similaire.
-# PAS de "preseed/file=/cdrom/..." ici (contrairement aux versions
-# precedentes de ce script) : confirme non fonctionnel, voir le commentaire
-# "CAUSE RACINE" au-dessus -- ce parametre n'etait jamais consulte de toute
-# facon puisque le preseed initrd-embarque est trouve et charge en premier.
-APPEND_ARGS="auto=true priority=critical debian-installer/language=fr debian-installer/country=FR debian-installer/locale=fr_FR.UTF-8 keyboard-configuration/xkb-keymap=fr netcfg/get_hostname=hyperlite netcfg/hostname=hyperlite netcfg/get_domain=local hostname=hyperlite domain= --- quiet"
+log "=== 4/6: boot menu, unattended installation by default ==="
+# Same mechanism as the "Automated install" entry that Debian already ships in
+# its own "Advanced options" submenu (isolinux/adtxt.cfg, boot/grub/grub.cfg):
+# auto=true priority=critical forces every upcoming debconf answer from the
+# preseed (no more questions), and quiet hides the verbose kernel log. THIS
+# entry becomes the one that starts automatically after a short delay when
+# nobody touches the keyboard, which the stock Debian menu does not do (it
+# waits indefinitely for a key, with no timeout configured).
+# debian-installer/language, /country and /locale (all THREE, because
+# localechooser handles them as distinct questions and preseeding /locale alone
+# is not always enough to suppress the other two), the keyboard and
+# netcfg/get_hostname/hostname/get_domain are ALSO passed as kernel
+# parameters, in addition to being in the preseed.cfg embedded in the initrd:
+# the very first screens (language, keyboard) are processed before cdebconf has
+# finished loading the embedded preseed, so only kernel parameters (available
+# from the very first moment of the boot) skip them reliably.
+# hostname=/domain= (generic Linux kernel parameters) are also present in
+# addition to netcfg/*: they set the name of the machine BEING INSTALLED (the
+# live environment), not the answers to the netcfg/* debconf questions that
+# drive the name PERSISTED on the target machine. These are two different
+# things despite the similar name.
+# No "preseed/file=/cdrom/..." here: it is never consulted anyway, because the
+# preseed embedded in the initrd is found and loaded first (see above).
+# The installer locale defaults (fr/FR/fr_FR.UTF-8) are the appliance defaults.
 
 # ---- BIOS (isolinux/syslinux) ----
-# Fragment dedie (convention deja utilisee par Debian pour txt.cfg/gtk.cfg/
-# adtxt.cfg...) plutot que de modifier txt.cfg en place : plus sur, et on
-# n'a pas a parser la seule entree "install" qui s'y trouve.
+# Dedicated fragment (the convention Debian already uses for
+# txt.cfg/gtk.cfg/adtxt.cfg...) rather than editing txt.cfg in place: safer,
+# and no need to parse the single "install" entry found there.
 cat > "$EXTRACT_DIR/isolinux/hyperlite.cfg" <<CFGEOF
 label hyperlite-auto
-	menu label ^Installer Hyperlite Appliance (automatique)
+	menu label ^Install Hyperlite Appliance (automatic)
 	menu default
 	kernel /install.amd/vmlinuz
 	append $APPEND_ARGS
 CFGEOF
 
 MENU_CFG="$EXTRACT_DIR/isolinux/menu.cfg"
-# menu timeout est en dixiemes de seconde (50 = 5s) ; ontimeout doit
-# reprendre exactement le nom du label ci-dessus. gtk.cfg porte
-# actuellement "menu default" sur "Graphical install" -- on le retire pour
-# que notre entree soit la seule marquee par defaut (comportement de
-# syslinux indefini si plusieurs entrees le sont).
-# ATTENTION (bug reel trouve en testant un vrai boot, pas visible a l'oeil) :
-# la ligne "menu title ... Debian GNU/Linux installer menu (BIOS mode)"
-# contient un octet BEL (0x07) invisible entre "title" et "Debian" --
-# beacon utilise par Debian pour le bip d'accessibilite. Un sed cherchant la
-# chaine litterale "menu title Debian..." ne matche donc JAMAIS (0 remplacement,
-# aucune erreur), et menu timeout/ontimeout ne sont jamais injectes : le menu
-# reste alors bloque sur le comportement Debian par defaut (probe de synthese
-# vocale apres ~15s, qui attend indefiniment un Entree -- jamais d'installation
-# automatique). D'ou le ".*" qui absorbe cet octet au lieu de le matcher en dur.
+# menu timeout is in tenths of a second (50 = 5 s); ontimeout must repeat the
+# label name above exactly. gtk.cfg currently carries "menu default" on
+# "Graphical install": it is removed so that our entry is the only one marked
+# as default (syslinux behaviour is undefined when several entries are).
+# WARNING: the "menu title ... Debian GNU/Linux installer menu (BIOS mode)"
+# line contains an invisible BEL byte (0x07) between "title" and "Debian",
+# which Debian uses for the accessibility beep. A sed looking for the literal
+# string "menu title Debian..." therefore NEVER matches (0 replacements, no
+# error), and menu timeout/ontimeout are never injected: the menu then stays on
+# the default Debian behaviour (a speech synthesis probe after ~15 s, which
+# waits indefinitely for Enter, so no unattended installation ever happens).
+# Hence the ".*", which absorbs this byte instead of matching it literally.
 sed -i '0,/menu default/{/menu default/d}' "$EXTRACT_DIR/isolinux/gtk.cfg"
 sed -i "s/^menu title.*BIOS mode).*\$/&\nmenu timeout 50\nontimeout hyperlite-auto/" "$MENU_CFG"
-# Ci-dessus : suffisant pour que l'entree soit surlignee/par defaut SI un
-# humain regarde l'ecran et navigue le menu vesamenu manuellement. PAS
-# suffisant pour l'automatique (bug reel trouve en testant plusieurs vrais
-# boots) : "menu timeout"/"ontimeout" ne pilotent PAS le prompt "Press a
-# key, otherwise speech synthesis will be started in N seconds..." qu'on
-# voit toujours apparaitre et tourner a son propre rythme (~15s) quoi qu'on
-# mette dans menu.cfg (teste : reaffirmer notre timeout/ontimeout tout en
-# bas du fichier, apres spkgtk.cfg/spk.cfg, n'a RIEN change). Ce prompt est
-# une fonctionnalite d'accessibilite CABLEE EN DUR dans le binaire
-# vesamenu.c32 lui-meme (volontairement non contournable par simple config,
-# pour ne jamais pouvoir etre coupee par erreur pour un utilisateur
-# malvoyant) -- elle se declenche des qu'on est inactif dans vesamenu,
-# independamment de toute valeur de timeout. Contournement fiable : ne PAS
-# passer par vesamenu.c32 du tout pour le chemin automatique. isolinux.cfg
-# (le fichier de premier niveau, charge avant meme menu.cfg) pointe
-# aujourd'hui "default" sur vesamenu.c32 avec un timeout de 0 (demarrage
-# immediat du menu graphique) -- on le fait pointer directement sur notre
-# noyau a la place, avec un vrai delai. menu.cfg/vesamenu restent
-# accessibles manuellement (appuyer sur une touche puis taper "vesamenu")
-# pour qui veut vraiment naviguer le menu graphique, mais ne sont plus sur
-# le chemin du demarrage automatique -- donc plus jamais atteints sans
-# interaction humaine explicite.
-# Banniere texte affichee au tout premier ecran de boot (mecanisme isolinux
-# "display", independant de vesamenu -- ne declenche PAS le bug
-# d'accessibilite ci-dessus) : rend le choix automatique/manuel VISIBLE des
-# le depart plutot que cache derriere un prompt "boot:" vide ou il faudrait
-# deviner quoi taper (demande explicite d'Antho : la possibilite de choisir
-# doit etre visible des le debut, pas seulement techniquement presente).
-# ATTENTION (bug reel retrouve en testant) : "prompt 1" (au lieu de "prompt
-# 0" ci-dessous) reintroduit le blocage d'accessibilite du tout debut de ce
-# fichier -- ce n'est PAS specifiquement vesamenu.c32 qui le declenche, mais
-# le simple fait que le prompt "boot:" soit affiche/actif des le depart. Le
-# fichier "display" ci-dessus, lui, s'affiche immediatement (avant meme le
-# debut du compte a rebours) SANS activer cet etat -- il reste donc
-# visible en permanence sans jamais risquer le blocage, tant que "prompt"
-# reste a 0.
+# The above is enough for the entry to be highlighted/default IF a human looks
+# at the screen and navigates the vesamenu manually. It is NOT enough for the
+# unattended path: "menu timeout"/"ontimeout" do NOT drive the "Press a key,
+# otherwise speech synthesis will be started in N seconds..." prompt, which
+# always shows up and runs at its own pace (~15 s) whatever menu.cfg says
+# (tested: re-asserting our timeout/ontimeout at the very bottom, after
+# spkgtk.cfg/spk.cfg, changed NOTHING). This prompt is an accessibility feature
+# HARD-WIRED in the vesamenu.c32 binary itself (deliberately not bypassable by
+# configuration, so that it can never be switched off by mistake for a
+# visually impaired user): it triggers as soon as vesamenu is idle,
+# independently of any timeout value.
+# Reliable workaround: do NOT go through vesamenu.c32 at all for the
+# unattended path. isolinux.cfg (the top-level file, loaded even before
+# menu.cfg) currently points "default" at vesamenu.c32 with a timeout of 0
+# (immediate start of the graphical menu): it is made to point directly at
+# our kernel instead, with a real delay. menu.cfg/vesamenu stay reachable
+# manually (press a key, then type "vesamenu") for anyone who really wants to
+# browse the graphical menu, but are no longer on the unattended boot path, so
+# they are never reached without an explicit human interaction.
+# Text banner displayed on the very first boot screen (the isolinux "display"
+# mechanism, independent of vesamenu, which does NOT trigger the accessibility
+# problem above): it makes the automatic/manual choice VISIBLE from the start
+# instead of hiding it behind an empty "boot:" prompt where one would have to
+# guess what to type.
+# WARNING: "prompt 1" (instead of the "prompt 0" below) brings back the
+# accessibility block described at the top of this comment. It is not
+# vesamenu.c32 specifically that triggers it, but the mere fact that the
+# "boot:" prompt is displayed/active from the start. The "display" file above
+# is shown immediately (before the countdown even begins) WITHOUT enabling that
+# state, so it stays visible permanently without ever risking the block, as
+# long as "prompt" stays at 0.
 cat > "$EXTRACT_DIR/isolinux/hyperlite-banner.txt" <<'BANNEREOF'
 
 
                          HYPERLITE APPLIANCE
 
-  Demarrage automatique dans 5 secondes (installation complete de
-  Hyperlite, sans aucune interaction) si vous n'appuyez sur aucune touche.
+  Automatic start in 5 seconds (full Hyperlite installation, with no
+  interaction) if you press no key.
 
-  Pour choisir manuellement, tapez un nom ci-dessous au prompt "boot:"
-  puis Entree :
+  To choose manually, type a name below at the "boot:" prompt and press
+  Enter:
 
-    hyperlite-auto    Installation Hyperlite (identique a l'automatique)
-    install           Installation Debian standard (manuelle, texte)
-    installgui        Installation Debian standard (manuelle, graphique)
+    hyperlite-auto    Hyperlite installation (same as the automatic one)
+    install           Standard Debian installation (manual, text)
+    installgui        Standard Debian installation (manual, graphical)
 
 BANNEREOF
 ISOLINUX_CFG="$EXTRACT_DIR/isolinux/isolinux.cfg"
@@ -252,16 +217,16 @@ sed -i "s/^include stdmenu.cfg\$/include hyperlite.cfg\n&/" "$MENU_CFG"
 # ---- UEFI (grub) ----
 GRUB_CFG="$EXTRACT_DIR/boot/grub/grub.cfg"
 cat > "$WORKDIR/hyperlite-entry-grub.cfg" <<CFGEOF
-menuentry 'Installer Hyperlite Appliance (automatique)' {
+menuentry 'Install Hyperlite Appliance (automatic)' {
 	set background_color=black
 	linux	/install.amd/vmlinuz $APPEND_ARGS
 	initrd	/install.amd/initrd.gz
 }
 CFGEOF
-# Ni "set default" ni "set timeout" ne sont definis dans ce grub.cfg d-i --
-# on les ajoute explicitement plutot que de compter sur un comportement par
-# defaut implicite non documente. Notre entree est inseree en premier
-# (index 0) : default=0 pointe donc dessus sans ambiguite.
+# Neither "set default" nor "set timeout" is defined in this d-i grub.cfg: we
+# add them explicitly rather than relying on an undocumented implicit default.
+# Our entry is inserted first (index 0), so default=0 points at it without
+# ambiguity.
 {
     echo "set default=0"
     echo "set timeout=5"
@@ -272,21 +237,20 @@ CFGEOF
 } > "$WORKDIR/grub.cfg.new"
 mv "$WORKDIR/grub.cfg.new" "$GRUB_CFG"
 
-log "=== 5/6 : repackaging ISO hybride (BIOS + UEFI) ==="
-# Technique standard (celle documentee par xorriso lui-meme et utilisee par
-# la plupart des outils de remasterisation d'ISO Debian/Ubuntu) : on
-# reconstruit explicitement le catalogue El Torito plutot que de tenter de
-# "rejouer" celui de l'ISO source (`-boot_image any replay`, tente en
-# premier, echoue : "Cannot enable El Torito boot image... not a data
-# file" -- le catalogue original reference des blocs LBA qui n'existent
-# plus une fois les fichiers copies sur disque puis reimportes).
-#   -isohybrid-mbr : rend l'ISO bootable aussi bien grave sur CD que
-#     "dd"-ee brute sur une cle USB (BIOS/MBR).
-#   -b/-c isolinux/... : boot BIOS classique (isolinux).
-#   -eltorito-alt-boot -e boot/grub/efi.img -isohybrid-gpt-basdat : second
-#     catalogue El Torito pour le boot UEFI (image FAT grub deja presente
-#     sur l'ISO Debian d'origine), + table de partition GPT pour que l'UEFI
-#     la voie aussi en boot USB direct.
+log "=== 5/6: repackaging the hybrid ISO (BIOS + UEFI) ==="
+# Standard technique (documented by xorriso itself and used by most Debian/
+# Ubuntu ISO remastering tools): the El Torito catalog is rebuilt explicitly
+# rather than "replayed" from the source ISO (`-boot_image any replay`, tried
+# first, fails with "Cannot enable El Torito boot image... not a data file":
+# the original catalog references LBA blocks that no longer exist once the
+# files have been copied to disk and re-imported).
+#   -isohybrid-mbr: makes the ISO bootable both burned on a CD and written raw
+#     with "dd" on a USB stick (BIOS/MBR).
+#   -b/-c isolinux/...: classic BIOS boot (isolinux).
+#   -eltorito-alt-boot -e boot/grub/efi.img -isohybrid-gpt-basdat: second
+#     El Torito catalog for UEFI boot (the FAT grub image already present on
+#     the original Debian ISO), plus a GPT partition table so that UEFI also
+#     sees it when booting directly from USB.
 rm -f "$OUT_ISO"
 xorriso -as mkisofs \
     -r -V "HYPERLITE" \
@@ -299,6 +263,6 @@ xorriso -as mkisofs \
     -e boot/grub/efi.img -no-emul-boot -isohybrid-gpt-basdat \
     "$EXTRACT_DIR"
 
-log "=== 6/6 : termine ==="
-log "ISO : $OUT_ISO ($(du -h "$OUT_ISO" | cut -f1))"
-log "Flash : sudo dd if=$OUT_ISO of=/dev/sdX bs=4M status=progress conv=fsync  (ou Rufus/balenaEtcher sous Windows)"
+log "=== 6/6: done ==="
+log "ISO: $OUT_ISO ($(du -h "$OUT_ISO" | cut -f1))"
+log "Flash: sudo dd if=$OUT_ISO of=/dev/sdX bs=4M status=progress conv=fsync  (or Rufus/balenaEtcher on Windows)"
