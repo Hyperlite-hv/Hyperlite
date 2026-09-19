@@ -114,12 +114,12 @@ export default function VMBackupTab({ resource: vm }) {
           <h3 className="text-sm font-semibold text-anthracite-100">Scheduled backup</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2 p-4">
-          <select className="input" disabled={!isAdmin} value={form.frequence} onChange={(e) => setForm((f) => ({ ...f, frequence: e.target.value }))}>
+          <select aria-label="Backup frequency" className="input" disabled={!isAdmin} value={form.frequence} onChange={(e) => setForm((f) => ({ ...f, frequence: e.target.value }))}>
             <option value="quotidien">Daily</option>
             <option value="hebdomadaire">Weekly (Monday)</option>
             <option value="mensuel">Monthly</option>
           </select>
-          <input type="time" className="input" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
+          <input aria-label="Backup time" type="time" className="input" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
           <label className="text-xs text-anthracite-400 flex items-center gap-1.5">
             Retention
             <input type="number" min={1} max={365} className="input w-20" disabled={!isAdmin}

@@ -82,7 +82,7 @@ export default function NodeTasksTab({ resource: node }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <select
+        <select aria-label="Filter by status"
           value={statutFiltre}
           onChange={(e) => setStatutFiltre(e.target.value)}
           className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
@@ -92,7 +92,7 @@ export default function NodeTasksTab({ resource: node }) {
           <option value="termine">Completed</option>
           <option value="echec">Failed</option>
         </select>
-        <input
+        <input aria-label="Filter by target..."
           type="text"
           placeholder="Filter by target..."
           value={recherche}
@@ -107,7 +107,7 @@ export default function NodeTasksTab({ resource: node }) {
         </button>
       </div>
 
-      <div className="card divide-y divide-anthracite-600 max-h-[65vh] overflow-y-auto">
+      <div className="card divide-y divide-anthracite-600 max-h-[65vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Tasks">
         <div className="grid grid-cols-[150px_1fr_120px_160px_110px_80px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
           {COLUMNS.map((c) => (
             <button key={c.key} onClick={() => toggleTri(c.key)} className="flex items-center gap-1 text-left hover:text-anthracite-100">
@@ -145,7 +145,7 @@ export default function NodeTasksTab({ resource: node }) {
                 {t.erreur && <div className="text-status-error">Cause of failure: {t.erreur}</div>}
                 {detail && detail.id === t.id && detail.logs?.length > 0 && (
                   <div className="pt-1">
-                    <div className="text-anthracite-500 mb-0.5">Journal entries for this target:</div>
+                    <div className="text-anthracite-400 mb-0.5">Journal entries for this target:</div>
                     {detail.logs.slice(0, 5).map((l, i) => (
                       <div key={i} className="font-mono">
                         {formatHeure(l.timestamp)} — {l.action} : {l.result}{l.error_message ? ` (${l.error_message})` : ""}

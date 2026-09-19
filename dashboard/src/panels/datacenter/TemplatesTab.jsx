@@ -79,7 +79,7 @@ export default function TemplatesTab() {
           <div className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-anthracite-100 mb-3">Deploy "{deployTarget.nom}"</h3>
             <label className="text-xs font-medium text-anthracite-300">Name of the new VM</label>
-            <input className="input mt-1" value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <input aria-label="Name of the new VM" className="input mt-1" value={newName} onChange={(e) => setNewName(e.target.value)} />
             <div className="mt-4 flex justify-end gap-2">
               <button className="btn-secondary" onClick={() => setDeployTarget(null)}>Cancel</button>
               <button className="btn-primary" disabled={busy || !newName.trim()} onClick={handleDeploy}>Deploy</button>

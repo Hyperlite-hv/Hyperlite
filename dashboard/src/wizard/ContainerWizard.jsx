@@ -69,13 +69,13 @@ export default function ContainerWizard({ open, onClose }) {
         </div>
 
         <div className="space-y-3 px-5 py-4">
-          <p className="text-xs text-anthracite-500">
+          <p className="text-xs text-anthracite-400">
             LXC container, terminal access through the automation SSH key. The very first creation of a given image prepares its base (a few minutes); the following ones are fast.
           </p>
 
           <div>
             <label className="text-xs font-medium text-anthracite-300">Name</label>
-            <input className="input mt-1 w-full" value={form.name} onChange={(e) => patch({ name: e.target.value })} autoFocus />
+            <input aria-label="Name" className="input mt-1 w-full" value={form.name} onChange={(e) => patch({ name: e.target.value })} autoFocus />
           </div>
 
           <div>
@@ -98,13 +98,13 @@ export default function ContainerWizard({ open, onClose }) {
             </div>
             {form.image !== "" && (
               <div className="mt-2 space-y-2">
-                <input
+                <input aria-label="Search Docker Hub (e.g. apache, nginx, postgres...)"
                   className="input w-full"
                   placeholder="Search Docker Hub (e.g. apache, nginx, postgres...)"
                   value={dockerQuery}
                   onChange={(e) => setDockerQuery(e.target.value)}
                 />
-                {searching && <p className="text-xs text-anthracite-500">Searching...</p>}
+                {searching && <p className="text-xs text-anthracite-400">Searching...</p>}
                 {dockerResults.length > 0 && (
                   <div className="max-h-44 overflow-y-auto rounded-md border border-anthracite-600 divide-y divide-anthracite-600">
                     {dockerResults.map((r) => (
@@ -121,7 +121,7 @@ export default function ContainerWizard({ open, onClose }) {
                           </div>
                           {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1 text-xs text-anthracite-500">
+                        <div className="flex shrink-0 items-center gap-1 text-xs text-anthracite-400">
                           <Star size={11} /> {r.etoiles}
                         </div>
                       </button>
@@ -130,14 +130,14 @@ export default function ContainerWizard({ open, onClose }) {
                 )}
                 <div>
                   <label className="text-xs font-medium text-anthracite-300">Selected image</label>
-                  <input
+                  <input aria-label="Selected image"
                     className="input mt-1 w-full"
                     placeholder="e.g. ubuntu:22.04, alpine:3.19, debian:12"
                     value={form.image}
                     onChange={(e) => patch({ image: e.target.value })}
                   />
                 </div>
-                <p className="text-[11px] text-anthracite-500">
+                <p className="text-[11px] text-anthracite-400">
                   Search then pick an image, or type a Docker Hub reference (or any OCI registry) directly: the image is pulled and then given SSH/sudo automatically.
                 </p>
               </div>
@@ -147,17 +147,17 @@ export default function ContainerWizard({ open, onClose }) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-medium text-anthracite-300">vCPU</label>
-              <input className="input mt-1 w-full" type="number" min={1} max={16} value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
+              <input aria-label="vCPU" className="input mt-1 w-full" type="number" min={1} max={16} value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
             </div>
             <div>
               <label className="text-xs font-medium text-anthracite-300">RAM (MB)</label>
-              <input className="input mt-1 w-full" type="number" min={128} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
+              <input aria-label="RAM (MB)" className="input mt-1 w-full" type="number" min={128} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
             </div>
           </div>
 
           <div>
             <label className="text-xs font-medium text-anthracite-300">Network</label>
-            <select className="input mt-1 w-full" value={form.network} onChange={(e) => patch({ network: e.target.value })}>
+            <select aria-label="Network" className="input mt-1 w-full" value={form.network} onChange={(e) => patch({ network: e.target.value })}>
               {networks.length === 0 && <option value="default">default</option>}
               {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom}</option>)}
             </select>
@@ -166,11 +166,11 @@ export default function ContainerWizard({ open, onClose }) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-medium text-anthracite-300">User</label>
-              <input className="input mt-1 w-full" value={form.username} onChange={(e) => patch({ username: e.target.value })} />
+              <input aria-label="User" className="input mt-1 w-full" value={form.username} onChange={(e) => patch({ username: e.target.value })} />
             </div>
             <div>
               <label className="text-xs font-medium text-anthracite-300">Password</label>
-              <input className="input mt-1 w-full" type="password" value={form.password} onChange={(e) => patch({ password: e.target.value })} />
+              <input aria-label="Password" className="input mt-1 w-full" type="password" value={form.password} onChange={(e) => patch({ password: e.target.value })} />
             </div>
           </div>
         </div>

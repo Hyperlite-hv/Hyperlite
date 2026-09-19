@@ -57,7 +57,7 @@ export default function ExportsTab() {
       <div className="card flex flex-col items-center gap-2 p-8 text-center">
         <PackageOpen size={26} className="text-anthracite-400" />
         <p className="text-sm text-anthracite-300">No exports yet.</p>
-        <p className="text-xs text-anthracite-500 max-w-sm">
+        <p className="text-xs text-anthracite-400 max-w-sm">
           From a VM, open its actions menu and choose "Export disk" to produce a file that can be downloaded here (system disk only).
         </p>
       </div>

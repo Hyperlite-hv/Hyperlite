@@ -48,7 +48,7 @@ export default function VMConsoleTab({ resource: vm }) {
         <button className="btn-primary" disabled={vm.etat !== "actif"} onClick={openWindow}>
           <ExternalLink size={14} /> Open in a new window
         </button>
-        {vm.etat !== "actif" && <p className="text-xs text-anthracite-500">The VM must be started.</p>}
+        {vm.etat !== "actif" && <p className="text-xs text-anthracite-400">The VM must be started.</p>}
       </div>
     </div>
   );

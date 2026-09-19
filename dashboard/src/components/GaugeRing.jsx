@@ -39,12 +39,12 @@ export default function GaugeRing({ label, ratio, valueLabel, size = 96, colorCl
             <circle
               cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none"
               strokeDasharray="3 6" strokeLinecap="round"
-              className="text-anthracite-500" stroke="currentColor"
+              className="text-anthracite-400" stroke="currentColor"
             />
           )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={hasData ? "text-lg font-semibold text-anthracite-100" : "text-xs font-medium text-anthracite-500"}>
+          <span className={hasData ? "text-lg font-semibold text-anthracite-100" : "text-xs font-medium text-anthracite-400"}>
             {hasData ? `${pct}%` : "n/a"}
           </span>
         </div>

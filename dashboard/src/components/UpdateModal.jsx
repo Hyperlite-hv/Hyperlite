@@ -105,7 +105,7 @@ export default function UpdateModal({ onClose }) {
                   </div>
                 )}
 
-                <p className="text-xs text-anthracite-500 mt-2">
+                <p className="text-xs text-anthracite-400 mt-2">
                   It only touches the Hyperlite API and interface: VMs that are already running are neither stopped nor restarted. A full backup is taken before any change, with automatic restoration on failure.
                 </p>
               </div>
@@ -129,7 +129,7 @@ export default function UpdateModal({ onClose }) {
             <div className="text-sm text-anthracite-200">
               {phase === "restarting" ? "Restarting the service, verification in progress..." : (STEP_ORDER[currentStepIdx]?.[1] ?? "Preparing...")}
             </div>
-            <p className="text-xs text-anthracite-500">Do not close this window.</p>
+            <p className="text-xs text-anthracite-400">Do not close this window.</p>
           </div>
         )}
 

@@ -48,7 +48,7 @@ export default function DeploymentProfileCard() {
           Deployment profile: {data.profils[data.actif].libelle}
           <span className="ml-2 text-xs font-normal text-anthracite-300">({SOURCE[data.source]})</span>
         </div>
-        <select
+        <select aria-label="Deployment profile"
           className="input w-64"
           value={data.choix in data.profils ? data.choix : "auto"}
           disabled={!isAdmin || busy || forced}
@@ -67,7 +67,7 @@ export default function DeploymentProfileCard() {
       <div className="border-t border-anthracite-600 px-4 py-3 space-y-2">
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm font-semibold text-anthracite-100">Resource allocation to VMs: {alloc.politiques[alloc.actif].libelle}</div>
-          <select className="input w-64" value={alloc.actif} disabled={!isAdmin || busy || allocForced} onChange={(e) => chooseAllocation(e.target.value)}>
+          <select aria-label="Resource allocation policy" className="input w-64" value={alloc.actif} disabled={!isAdmin || busy || allocForced} onChange={(e) => chooseAllocation(e.target.value)}>
             {Object.entries(alloc.politiques).map(([k, p]) => <option key={k} value={k}>{p.libelle}</option>)}
           </select>
         </div>

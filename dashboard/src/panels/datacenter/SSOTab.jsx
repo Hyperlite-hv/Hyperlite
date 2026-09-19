@@ -71,12 +71,12 @@ export default function SSOTab() {
         <form onSubmit={handleSave} className="space-y-3 px-4 py-4">
           <div>
             <label className="text-xs font-medium text-anthracite-300">Issuer (OIDC discovery URL)</label>
-            <input
+            <input aria-label="Issuer (OIDC discovery URL)"
               className="input mt-1" value={form.issuer}
               onChange={(e) => setForm({ ...form, issuer: e.target.value })}
               placeholder="https://idp.example.com/realms/hyperlite"
             />
-            <p className="mt-1 text-[11px] text-anthracite-500">
+            <p className="mt-1 text-[11px] text-anthracite-400">
               Hyperlite automatically fetches the authorization/token/keys URLs from
               {" "}<code>{"{issuer}"}/.well-known/openid-configuration</code>.
             </p>
@@ -85,13 +85,13 @@ export default function SSOTab() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-anthracite-300">Client ID</label>
-              <input className="input mt-1" value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} />
+              <input aria-label="Client ID" className="input mt-1" value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} />
             </div>
             <div>
               <label className="text-xs font-medium text-anthracite-300">
-                Client secret {secretSet && <span className="text-anthracite-500">(already saved)</span>}
+                Client secret {secretSet && <span className="text-anthracite-400">(already saved)</span>}
               </label>
-              <input
+              <input aria-label="Client secret"
                 type="password" className="input mt-1" value={form.client_secret}
                 onChange={(e) => setForm({ ...form, client_secret: e.target.value })}
                 placeholder={secretSet ? "leave empty to keep the current one" : ""}
@@ -101,12 +101,12 @@ export default function SSOTab() {
 
           <div>
             <label className="text-xs font-medium text-anthracite-300">Redirect URL (redirect_uri)</label>
-            <input
+            <input aria-label="Redirect URL (redirect_uri)"
               className="input mt-1" value={form.redirect_uri}
               onChange={(e) => setForm({ ...form, redirect_uri: e.target.value })}
               placeholder="https://hyperlite.example.com:8000/auth/sso/callback"
             />
-            <p className="mt-1 text-[11px] text-anthracite-500">
+            <p className="mt-1 text-[11px] text-anthracite-400">
               Must be registered identically on the IdP side, and reachable from the user's browser.
             </p>
           </div>
@@ -114,18 +114,18 @@ export default function SSOTab() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-anthracite-300">Groups claim</label>
-              <input className="input mt-1" value={form.group_claim} onChange={(e) => setForm({ ...form, group_claim: e.target.value })} />
+              <input aria-label="Groups claim" className="input mt-1" value={form.group_claim} onChange={(e) => setForm({ ...form, group_claim: e.target.value })} />
             </div>
             <div>
               <label className="text-xs font-medium text-anthracite-300">IdP groups → admin role</label>
-              <input
+              <input aria-label="IdP groups → admin role"
                 className="input mt-1" value={form.admin_groups}
                 onChange={(e) => setForm({ ...form, admin_groups: e.target.value })}
                 placeholder="hyperlite-admins, infra-team"
               />
             </div>
           </div>
-          <p className="text-[11px] text-anthracite-500">
+          <p className="text-[11px] text-anthracite-400">
             Any SSO user belonging to one of these groups (comma-separated) gets the admin role, and everyone else gets observateur. Re-evaluated at every sign-in.
           </p>
 

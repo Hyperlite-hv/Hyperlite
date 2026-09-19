@@ -47,6 +47,7 @@ function NavItem({ tab, label, Icon }) {
 
   return (
     <button
+      aria-current={isActive ? "page" : undefined}
       onClick={() => { navigateTo("datacenter", null, tab); closeMobileSidebar(); }}
       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12.5px] font-semibold transition-colors ${
         isActive
@@ -66,7 +67,7 @@ export default function SidebarRail() {
       {TOP_ITEMS.map((item) => <NavItem key={item.tab} {...item} />)}
       {GROUPS.map((group) => (
         <div key={group.label} className="mt-1">
-          <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-chrome-400/70">
+          <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-chrome-400">
             {group.label}
           </div>
           <div className="flex flex-col gap-0.5">
