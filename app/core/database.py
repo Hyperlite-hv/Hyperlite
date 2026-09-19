@@ -447,6 +447,14 @@ def init_db():
                 profil TEXT NOT NULL DEFAULT 'auto'
             )
         """)
+        # Politique d'allocation des ressources de VM choisie par l'admin
+        # (limites / surallocation / libre), voir app/core/vm_limits.py.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS allocation_policy (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                politique TEXT NOT NULL DEFAULT 'limites'
+            )
+        """)
         # Etats CSRF/nonce du flux OIDC Authorization Code -- a usage
         # UNIQUE (supprime des sa consommation, voir sso.py::consume_state)
         # et de courte duree de vie (STATE_TTL_S, purge au passage plutot

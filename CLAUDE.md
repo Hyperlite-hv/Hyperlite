@@ -2289,3 +2289,35 @@ ouvertes (local ou qemu+ssh://). Un contrôle qui plante devient un
   non démontrable, pas un blocage prouvé) ; pas encore de diagnostic avant
   l'ajout d'un nœud NON encore enregistré (il faut une connexion, donc
   l'enregistrement d'abord).
+
+### Politique d'allocation des ressources de VM : liberté d'attribution (2026-09-19)
+
+Demande d'Antho : « être libre de faire ce qu'on veut en termes
+d'attributions » (ressources des VM, pas permissions). Les plafonds du
+chantier 2 (part de l'hôte) deviennent une POLITIQUE choisie par un admin
+(`app/core/vm_limits.py::POLICIES`, table `allocation_policy`) :
+- `limites` (défaut, comportement inchangé) : part de la RAM/du disque de
+  l'hôte, jusqu'au nombre de cœurs.
+- `surallocation` : jusqu'à 4x les cœurs, 1,5x la RAM, 3x le disque libre
+  (disques fins), 16 disques.
+- `libre` : aucun plafond imposé par Hyperlite (butées techniques absurdes
+  seulement : 4096 vCPU, 16 To de RAM, 1 Po, 64 disques) ; libvirt/QEMU
+  refusent eux-mêmes l'impossible avec leur vraie erreur.
+Priorité : `HYPERLITE_ALLOCATION` (env) > choix admin > `limites`. Les
+overrides `HYPERLITE_VM_MAX_*` restent prioritaires. `GET /host/limits`
+expose `politique` et `physique` ; `PUT /host/allocation` (admin, 400/409) ;
+sélecteur dans la carte « Profil de déploiement » (onglet Compatibilité) ;
+avertissement NON bloquant dans l'assistant de création quand les valeurs
+dépassent le physique. Les conteneurs n'ont plus de plafond fixe
+(16 vCPU / 32 Go) : même politique que les VM.
+- **Testé** : instance de dev (2 cœurs, 2 Go) : les 3 politiques changent
+  bien les limites (2 -> 8 -> 4096 vCPU) et le refus 422 devient acceptation
+  en `libre` ; une VM de 16 vCPU / 8 Go / 500 Go a réellement été CRÉÉE
+  sur cette machine (puis supprimée) ; 400 / 409 (env) ; Playwright (choix
+  dans l'UI, note de surallocation), zéro erreur.
+- **Non fait** : avertissement de surallocation dans l'onglet Options
+  d'une VM existante ; pas de suivi de l'allocation TOTALE cumulée de
+  toutes les VM (la politique borne UNE VM à la fois) ; les permissions
+  (ACL/rôles) n'ont pas été touchées.
+- **Attention** : en `libre`, un vCPU/RAM au-delà du physique peut empêcher
+  la VM de démarrer ou provoquer un OOM sur l'hôte.
