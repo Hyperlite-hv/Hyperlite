@@ -2198,3 +2198,27 @@ avant que le venv existe). Chaque contrôle renvoie `ok` / `warning` /
   (`blocking`), profil réel serveur-antho (Secure Boot -> ZFS `disabled`),
   et `apt install` du .deb dans un chroot debootstrap minimal (chemin
   identique à l'ISO) : succès complet.
+
+### Chantier 4 : page « Compatibilité et capacités » (2026-09-19)
+
+Deux vues, branchées sur les endpoints des chantiers 1 et 3 (aucun nouveau
+code backend) :
+- **Onglet « Compatibilité » d'un nœud** (`NodeCompatibilityTab.jsx`) :
+  fonctionnalités actives/limitées avec la raison (KVM, LXC, ZFS, WebSocket,
+  2FA), preflight check rejoué à chaud (nœud local uniquement, il sonde le
+  venv du service), puis le profil détaillé par section.
+- **Onglet Datacenter « Compatibilité »** (`CompatibilityTab.jsx`, aussi
+  dans le rail latéral) : tableau comparatif de tous les nœuds. Une ligne
+  qui diffère entre nœuds est surlignée ; les lignes purement descriptives
+  (RAM, modèle CPU, disques, interfaces, binaires annexes) sont marquées
+  « informatif » pour ne pas noyer les vraies incompatibilités (versions
+  libvirt/QEMU, Secure Boot, ZFS...).
+- Logique commune dans `dashboard/src/lib/capabilitiesView.js`.
+- **Testé** : instance de dev sur hl-devhub (libvirt réel), Playwright
+  (zéro erreur console/HTTP, captures vérifiées), et comparaison des vrais
+  profils hl-devhub / serveur-antho (écarts réels détectés : libvirt 9.0.0
+  vs 11.3.0, QEMU 7.2.22 vs 10.0.13, Secure Boot, ZFS).
+- **Limites** : le preflight n'existe pas pour un nœud distant ; la
+  comparaison multi-nœuds n'a pas été vue dans l'UI avec deux nœuds
+  enregistrés (un seul nœud disponible sur hl-devhub), seulement via la
+  logique JS sur les deux vrais profils.
