@@ -1,0 +1,29 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Hyperlite version
+      description: From the dashboard update dialog or `dpkg -l hyperlite`.
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host OS and hardware
+      description: For example Debian 13, 12 vCPU, 16 GB RAM, physical or nested VM.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `journalctl -u hyperlite -n 100 --no-pager`. Remove secrets and private addresses first.
+      render: text
