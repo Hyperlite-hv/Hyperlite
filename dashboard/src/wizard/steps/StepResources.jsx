@@ -1,12 +1,14 @@
 import { Plus, X } from "lucide-react";
 import { detectOsFamily } from "../../utils/osFamily";
+import { useHostLimits } from "../../hooks/useHostLimits";
 
-// Bornes alignees sur la validation reelle du backend (app/routers/vms.py
-// VMCreate: vcpu 1-2, memory_mb 256-2048, 1 a 8 disques de 1 a 500 Go chacun).
+// Bornes DERIVEES de l'hote reel via GET /host/limits (mandat portabilite,
+// chantier 2) -- plus de plafond fige a 2 vCPU/2 Go.
 // Le compte utilisateur reste necessaire sans ISO (cloud-init) ET avec un ISO
 // reconnu (installation automatisee, meme logique que detect_os_family cote
 // backend) -- seule l'installation manuelle (ISO non reconnu) s'en passe.
 export default function StepResources({ form, patch, storagePools = [] }) {
+  const limits = useHostLimits();
   // Choix du pool de stockage (backlog 2026-09-18) : dir/netfs (chemin de
   // fichiers qcow2 classique) ou zfs (zvols bruts, backlog stockage
   // 2026-09-18, voir app/routers/vms.py::create_vm) -- et seulement les
@@ -19,7 +21,7 @@ export default function StepResources({ form, patch, storagePools = [] }) {
     patch({ disks });
   }
   function addDisk() {
-    if (form.disks.length >= 8) return;
+    if (limits && form.disks.length >= limits.disques.max) return;
     patch({ disks: [...form.disks, { size_gb: 5 }] });
   }
   function removeDisk(i) {
@@ -36,12 +38,12 @@ export default function StepResources({ form, patch, storagePools = [] }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-medium text-anthracite-300">vCPU (1-2)</label>
-          <input type="number" min={1} max={2} className="input mt-1" value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
+          <label className="text-xs font-medium text-anthracite-300">vCPU{limits ? ` (${limits.vcpu.min}-${limits.vcpu.max})` : ""}</label>
+          <input type="number" min={limits?.vcpu.min ?? 1} max={limits?.vcpu.max} className="input mt-1" value={form.vcpu} onChange={(e) => patch({ vcpu: Number(e.target.value) })} />
         </div>
         <div>
-          <label className="text-xs font-medium text-anthracite-300">Mémoire (Mo, 256-2048)</label>
-          <input type="number" min={256} max={2048} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
+          <label className="text-xs font-medium text-anthracite-300">Mémoire (Mo{limits ? `, ${limits.memoire_mo.min}-${limits.memoire_mo.max}` : ""})</label>
+          <input type="number" min={limits?.memoire_mo.min ?? 256} max={limits?.memoire_mo.max} step={128} className="input mt-1" value={form.memory_mb} onChange={(e) => patch({ memory_mb: Number(e.target.value) })} />
         </div>
       </div>
 
@@ -54,13 +56,13 @@ export default function StepResources({ form, patch, storagePools = [] }) {
               {importMode && i === 0 ? (
                 <span className="input flex items-center text-anthracite-500">Taille du disque importé (ignoré)</span>
               ) : (
-                <input type="number" min={1} max={500} className="input" value={d.size_gb} onChange={(e) => updateDisk(i, Number(e.target.value))} />
+                <input type="number" min={1} max={limits?.disque_go.max} className="input" value={d.size_gb} onChange={(e) => updateDisk(i, Number(e.target.value))} />
               )}
               <button className="btn-secondary px-2" disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => removeDisk(i)}><X size={13} /></button>
             </div>
           ))}
         </div>
-        <button className="btn-secondary mt-2" onClick={addDisk} disabled={form.disks.length >= 8}>
+        <button className="btn-secondary mt-2" onClick={addDisk} disabled={Boolean(limits) && form.disks.length >= limits.disques.max}>
           <Plus size={13} /> Ajouter un disque
         </button>
       </div>

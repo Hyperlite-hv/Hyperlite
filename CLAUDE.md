@@ -2118,3 +2118,32 @@ inventées ou copiées d'une machine à l'autre.
 
 Fondation pour les chantiers suivants (limites de VM dérivées, page
 "Compatibilité et capacités", diagnostic de compatibilité de cluster).
+
+### Chantier 2 : limites de VM dérivées de l'hôte réel (2026-09-19)
+
+Corrige la violation flagrante relevée plus haut : `VMCreate`/`VMUpdate`/
+`DiskSpec`/`VolumeCreate` plafonnaient en dur à 1-2 vCPU, 256-2048 Mo,
+500 Go/disque (100 Go pour un volume, 4096 pour un pool ZFS), quelle que
+soit la machine. `app/core/vm_limits.py::compute_limits()` calcule
+maintenant : vCPU max = cœurs logiques réels, mémoire max = 80 % de la RAM
+hôte (multiple de 128 Mo), disque max = 90 % de l'espace libre du pool par
+défaut, disques max = 8 par défaut. **Override explicite par variable
+d'environnement** (`HYPERLITE_VM_MAX_VCPU`, `_MAX_MEMORY_MB`, `_MAX_DISK_GB`,
+`_MAX_DISKS`) -- priorité configuration > détection > repli, chaque limite
+expose sa `source` (`detecte`/`configuration`/`defaut`/`repli`) pour que
+l'UI/les messages expliquent d'où elle vient. Cache 30 s.
+`validate_vm_resources()` renvoie des messages précis ("Mémoire : 999999 Mo
+hors limites (256-6272 Mo, 80% de la RAM de l'hôte)") au lieu du 422
+Pydantic générique. `GET /host/limits` ; frontend : hook
+`useHostLimits` (échec de l'appel = champs sans borne haute, le backend
+tranche -- dégradation contrôlée) utilisé par `StepResources`,
+`VMOptionsTab`, `VMHardwareTab`.
+
+**Testé réellement sur kvm-lab** : limites détectées (2 vCPU, 6272 Mo,
+133 Go), création refusée avec les trois messages précis, VM de 4096 Mo
+(au-delà de l'ancien plafond de 2048) créée et vérifiée via `virsh
+dominfo`, override par variable d'environnement vérifié.
+**Limite connue** : la limite est calculée sur l'hôte LOCAL ; pas encore
+de limites par nœud distant (les VM se créent de toute façon toujours en
+local). Prochain : chantier 3 (preflight check installeur) ou 4 (page
+« Compatibilité et capacités »).

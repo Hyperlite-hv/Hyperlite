@@ -3,6 +3,7 @@ import { Save, Gauge } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { fetchVMLimits, setVMLimits } from "../../api/client";
+import { useHostLimits } from "../../hooks/useHostLimits";
 
 // Reel : PATCH /vms/{name} (ajoute pour permettre ce qui manquait le plus --
 // changer vCPU/RAM d'une VM existante sans devoir la recreer). Necessite la
@@ -11,6 +12,7 @@ export default function VMOptionsTab({ resource: vm }) {
   const isAdmin = useAuthStore(selectIsAdmin);
   const pushToast = useInfraStore((s) => s.pushToast);
   const updateVMResources = useInfraStore((s) => s.updateVMResources);
+  const hostLimits = useHostLimits();
   const [vcpu, setVcpu] = useState(vm?.vcpu ?? 1);
   const [memoryMb, setMemoryMb] = useState(vm?.memoire_mo ?? 512);
   const [busy, setBusy] = useState(false);
@@ -41,20 +43,20 @@ export default function VMOptionsTab({ resource: vm }) {
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             <div className="text-sm text-anthracite-100">vCPU</div>
-            <div className="text-xs text-anthracite-400">1 à 2 -- VM arrêtée requise</div>
+            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.vcpu.min} à ${hostLimits.vcpu.max}` : "Limite fixée par l'hôte"} -- VM arrêtée requise</div>
           </div>
           <input
-            type="number" min={1} max={2} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
+            type="number" min={hostLimits?.vcpu.min ?? 1} max={hostLimits?.vcpu.max} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
             value={vcpu} onChange={(e) => setVcpu(Number(e.target.value))}
           />
         </div>
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             <div className="text-sm text-anthracite-100">Mémoire (Mo)</div>
-            <div className="text-xs text-anthracite-400">256 à 2048 -- VM arrêtée requise</div>
+            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.memoire_mo.min} à ${hostLimits.memoire_mo.max}` : "Limite fixée par l'hôte"} -- VM arrêtée requise</div>
           </div>
           <input
-            type="number" min={256} max={2048} step={128} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
+            type="number" min={hostLimits?.memoire_mo.min ?? 256} max={hostLimits?.memoire_mo.max} step={128} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
             value={memoryMb} onChange={(e) => setMemoryMb(Number(e.target.value))}
           />
         </div>
