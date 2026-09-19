@@ -2351,3 +2351,24 @@ Le dépôt `hl-devhub` n'a pas de navigateur graphique, seulement Chromium
 headless. Piège : `pkill -f "uvicorn ..."` se tue lui-même via `bash -c`
 -- écrire `pkill -f "[u]vicorn ..."`.
 Le hook de kvm-lab a été retiré le 2026-09-19 : hl-devhub est le SEUL publieur.
+
+### Suppression d'un pool dir/NFS non vide : « retirer sans supprimer les fichiers » (2026-09-19)
+
+Bug réel (serveur-antho) : un pool `dir` nommé `root` (cible `/root`) créé
+automatiquement par `virt-install --cdrom /root/...` voyait tout `/root`
+comme des « volumes » ; la corbeille répondait 409 « contient encore des
+volumes, supprimez-les d'abord » (message trompeur : il ne fallait surtout
+pas supprimer ces fichiers), donc le pool était impossible à retirer.
+`DELETE /storage/{pool}?confirm=true&detacher=true` retire seulement la
+DÉFINITION du pool libvirt (destroy + undefine), jamais les fichiers, pour
+les pools `dir`/`netfs` ; REFUS (409) si une VM a un disque/CD-ROM sous le
+chemin du pool. Sans `detacher`, comportement historique inchangé (pool
+vide exigé). L'UI (corbeille des pools dir/NFS) envoie `detacher=true` avec
+un message « Ses fichiers ne sont PAS supprimés ».
+- **Testé** sur hl-devhub avec de vrais pools libvirt : refus sans
+  `detacher` (409), refus avec une VM qui utilise le pool (409, nomme la VM),
+  succès sans VM (fichiers intacts), pool vide inchangé, `default` protégé
+  (400), UI Playwright (dialogue + pool retiré).
+- Piège de test : `virsh pool-list --name` remplit les noms d'espaces ;
+  `grep -c '^nom$'` ne matche jamais -> `tr -d ' '` avant. Deux pools ne
+  peuvent pas partager le même dossier cible (« Storage source conflict »).

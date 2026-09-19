@@ -256,8 +256,27 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
         conn.close()
 
 
+def _vms_using_path(conn, target):
+    """Noms des VM dont un disque/CD-ROM se trouve sous `target`."""
+    if not target:
+        return []
+    prefix = target.rstrip("/") + "/"
+    names = []
+    for dom in conn.listAllDomains():
+        try:
+            xml = ET.fromstring(dom.XMLDesc(0))
+        except libvirt.libvirtError:
+            continue
+        for src in xml.findall("devices/disk/source"):
+            path = src.get("file") or src.get("dev") or ""
+            if path.startswith(prefix):
+                names.append(dom.name())
+                break
+    return names
+
+
 @router.delete("/{pool_name}")
-def delete_pool(pool_name: str, node: str | None = None, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+def delete_pool(pool_name: str, node: str | None = None, confirm: bool = False, detacher: bool = False, user: dict = Depends(require_role("admin"))):
     if pool_name == "default":
         raise HTTPException(status_code=400, detail="Le pool 'default' ne peut pas être supprimé")
     if not confirm:
@@ -283,9 +302,21 @@ def delete_pool(pool_name: str, node: str | None = None, confirm: bool = False, 
             raise HTTPException(status_code=404, detail=f"Pool de stockage '{pool_name}' introuvable")
 
         pool.refresh(0)
-        if pool.listAllVolumes():
-            log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool non vide")
-            raise HTTPException(status_code=409, detail=f"Le pool '{pool_name}' contient encore des volumes, supprimez-les d'abord")
+        volumes = pool.listAllVolumes()
+        if volumes:
+            # `detacher` : retire seulement la DEFINITION du pool libvirt
+            # (destroy + undefine), JAMAIS les fichiers -- pour un pool
+            # dir/netfs ce n'est pas destructif. Cas reel : un pool dir cree
+            # automatiquement par virt-install sur /root voit tout /root
+            # comme des "volumes" et ne pouvait donc jamais etre supprime.
+            root = ET.fromstring(pool.XMLDesc(0))
+            if not detacher or root.get("type") not in ("dir", "netfs"):
+                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool non vide")
+                raise HTTPException(status_code=409, detail=f"Le pool '{pool_name}' contient encore {len(volumes)} fichier(s)/volume(s). Pour retirer le pool SANS supprimer ces fichiers, utilisez l'option « retirer sans supprimer les fichiers » (detacher=true, pools dir/NFS uniquement)")
+            in_use = _vms_using_path(conn, root.findtext("target/path"))
+            if in_use:
+                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool utilise par des VM")
+                raise HTTPException(status_code=409, detail=f"Des VM utilisent des fichiers de ce pool ({', '.join(in_use)}) : retirez-les ou déplacez leurs disques d'abord")
 
         try:
             if pool.isActive():
