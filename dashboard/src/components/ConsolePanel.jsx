@@ -121,13 +121,13 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
         <div className="flex gap-0.5 rounded-md bg-anthracite-700 p-0.5">
           <button
             onClick={() => { cleanup(); setMode("vnc"); }}
-            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${mode === "vnc" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
+            className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${mode === "vnc" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
           >
             <Monitor size={13} /> Graphical console (VNC)
           </button>
           <button
             onClick={() => { cleanup(); setMode("terminal"); }}
-            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${mode === "terminal" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
+            className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${mode === "terminal" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
           >
             <TerminalSquare size={13} /> SSH terminal
           </button>

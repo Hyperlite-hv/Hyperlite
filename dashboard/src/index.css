@@ -1,6 +1,95 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-panel: #1c1f26;
+  --color-panel-light: #f3f4f6;
+
+  --color-surface: #23262f;
+  --color-surface-light: #ffffff;
+
+  --color-anthracite-100: rgb(var(--a-100));
+  --color-anthracite-200: rgb(var(--a-200));
+  --color-anthracite-300: rgb(var(--a-300));
+  --color-anthracite-400: rgb(var(--a-400));
+  --color-anthracite-500: rgb(var(--a-500));
+  --color-anthracite-600: rgb(var(--a-600));
+  --color-anthracite-700: rgb(var(--a-700));
+  --color-anthracite-800: rgb(var(--a-800));
+  --color-anthracite-900: rgb(var(--a-900));
+  --color-anthracite-950: rgb(var(--a-950));
+
+  --color-status-running: #16a34a;
+  --color-status-stopped: #6b7280;
+  --color-status-warning: #d97706;
+  --color-status-error: #dc2626;
+
+  --color-accent-blue: #4f46e5;
+  --color-accent-orange: #d97706;
+  --color-accent-green: #16a34a;
+  --color-accent-pink: #dc2626;
+
+  --color-chrome-100: #edebfa;
+  --color-chrome-400: #8c88be;
+  --color-chrome-700: #332c6e;
+  --color-chrome-800: #211c49;
+  --color-chrome-900: #211c49;
+  --color-chrome-950: #171340;
+
+  --font-sans: Archivo, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --shadow-panel:
+    0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility btn {
+  @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+}
+
+@utility btn-primary {
+  @apply btn bg-accent-blue text-white hover:bg-[#4338CA] shadow-[0_4px_12px_rgba(79,70,229,0.3)];
+}
+
+@utility btn-secondary {
+  @apply btn bg-anthracite-600 text-anthracite-100 hover:bg-anthracite-500;
+}
+
+@utility btn-danger {
+  /* "Muted" treatment (tinted background + red text, not a solid fill). */
+  @apply btn bg-status-error/10 text-status-error border border-status-error/30 hover:bg-status-error/20;
+}
+
+@utility card {
+  @apply bg-anthracite-800 border border-anthracite-600 rounded-2xl shadow-panel;
+}
+
+@utility input {
+  @apply w-full rounded-md bg-anthracite-900 border border-anthracite-500 px-3 py-1.5 text-sm text-anthracite-100 placeholder-anthracite-300 focus:outline-hidden focus:ring-1 focus:ring-accent-blue;
+}
+
+@utility toast-enter {
+  animation: toast-in 180ms ease-out;
+}
 
 @layer base {
   /* "anthracite" content ramp: white/lavender/charcoal by default (light
@@ -58,31 +147,6 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-anthracite-400;
-  }
-}
-
-@layer components {
-  .btn {
-    @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
-  }
-  .btn-primary {
-    @apply btn bg-accent-blue text-white hover:bg-[#4338CA] shadow-[0_4px_12px_rgba(79,70,229,0.3)];
-  }
-  .btn-secondary {
-    @apply btn bg-anthracite-600 text-anthracite-100 hover:bg-anthracite-500;
-  }
-  /* "Muted" treatment (tinted background + red text, not a solid fill). */
-  .btn-danger {
-    @apply btn bg-status-error/10 text-status-error border border-status-error/30 hover:bg-status-error/20;
-  }
-  .card {
-    @apply bg-anthracite-800 border border-anthracite-600 rounded-2xl shadow-panel;
-  }
-  .input {
-    @apply w-full rounded-md bg-anthracite-900 border border-anthracite-500 px-3 py-1.5 text-sm text-anthracite-100 placeholder-anthracite-300 focus:outline-none focus:ring-1 focus:ring-accent-blue;
-  }
-  .toast-enter {
-    animation: toast-in 180ms ease-out;
   }
 }
 

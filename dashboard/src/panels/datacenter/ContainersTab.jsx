@@ -220,7 +220,7 @@ export default function ContainersTab() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 text-sm text-anthracite-100">
                           <span className="truncate">{r.nom}</span>
-                          {r.officielle && <span className="shrink-0 rounded bg-accent-blue/20 px-1 text-[10px] text-accent-blue">official</span>}
+                          {r.officielle && <span className="shrink-0 rounded-sm bg-accent-blue/20 px-1 text-[10px] text-accent-blue">official</span>}
                         </div>
                         {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
                       </div>

@@ -204,13 +204,13 @@ export default function NotificationsTab() {
                 </div>
               </div>
               {!c.enabled && <span className="text-xs text-anthracite-500">disabled</span>}
-              <button className="btn-secondary !py-1" onClick={() => handleTest(c)} disabled={testingId === c.id}>
+              <button className="btn-secondary py-1!" onClick={() => handleTest(c)} disabled={testingId === c.id}>
                 <Send size={13} /> {testingId === c.id ? "..." : "Tester"}
               </button>
-              <button className="btn-secondary !py-1" onClick={() => handleToggle(c)}>
+              <button className="btn-secondary py-1!" onClick={() => handleToggle(c)}>
                 <Power size={13} /> {c.enabled ? "Disable" : "Enable"}
               </button>
-              <button aria-label="Delete" className="btn-danger !py-1" onClick={() => handleDelete(c)}>
+              <button aria-label="Delete" className="btn-danger py-1!" onClick={() => handleDelete(c)}>
                 <Trash2 size={13} />
               </button>
             </div>

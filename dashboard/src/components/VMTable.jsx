@@ -56,8 +56,8 @@ export default function VMTable({ vms }) {
           <div className="flex items-center gap-2.5 rounded-md border border-anthracite-500 bg-anthracite-700 px-3.5 py-2">
             <span className="text-[12.5px] font-semibold text-anthracite-100">{selected.size} selected{selected.size > 1 ? "s" : ""}</span>
             <div className="flex gap-1.5">
-              <button className="btn-secondary !py-1" onClick={() => bulkAction("start")}>Start</button>
-              <button className="btn-secondary !py-1" onClick={() => bulkAction("stop")}>Stop</button>
+              <button className="btn-secondary py-1!" onClick={() => bulkAction("start")}>Start</button>
+              <button className="btn-secondary py-1!" onClick={() => bulkAction("stop")}>Stop</button>
             </div>
             <span className="ml-auto font-mono text-[11px] text-anthracite-400">Esc to cancel</span>
           </div>

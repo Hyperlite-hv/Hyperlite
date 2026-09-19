@@ -29,7 +29,7 @@ export default function Sidebar() {
             <div className="text-[15px] font-extrabold tracking-tight text-white">Hyperlite</div>
             <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-chrome-400">Hypervisor</div>
           </div>
-          <button className="ml-auto rounded-md p-1.5 text-chrome-400 hover:bg-white/[0.06] hover:text-chrome-100 md:hidden" onClick={close} aria-label="Close navigation">
+          <button className="ml-auto rounded-md p-1.5 text-chrome-400 hover:bg-white/6 hover:text-chrome-100 md:hidden" onClick={close} aria-label="Close navigation">
             <X size={17} />
           </button>
         </div>
