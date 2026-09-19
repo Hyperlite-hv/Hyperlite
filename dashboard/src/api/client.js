@@ -712,3 +712,6 @@ export async function fetchHostProfile() {
 export async function setHostProfile(profil) {
   return realFetch("/host/profile", { method: "PUT", ...jsonBody({ profil }) });
 }
+export async function setHostAllocation(politique) {
+  return realFetch("/host/allocation", { method: "PUT", ...jsonBody({ politique }) });
+}

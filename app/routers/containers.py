@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_conn
 from app.core.libvirt_utils import open_lxc_conn
+from app.core.vm_limits import compute_limits
 from app.core.security import get_current_user, require_role, require_container_privilege
 from app.core.audit import log_action
 from app.core.tasks import create_task, finish_task, update_task_progress
@@ -81,8 +82,8 @@ def _summary(domain):
 
 class ContainerCreate(BaseModel):
     name: str
-    vcpu: int = Field(default=1, ge=1, le=16)
-    memory_mb: int = Field(default=512, ge=128, le=32768)
+    vcpu: int = Field(default=1, ge=1)
+    memory_mb: int = Field(default=512, ge=128)
     username: str
     password: str
     network: str = "default"
@@ -139,6 +140,14 @@ def get_container(name: str, user: dict = Depends(require_container_privilege("c
 
 @router.post("", status_code=201)
 def create_container(payload: ContainerCreate, user: dict = Depends(require_role("admin"))):
+    _limits = compute_limits()
+    _errs = []
+    if payload.vcpu > _limits["vcpu"]["max"]:
+        _errs.append(f"vCPU : {payload.vcpu} au-delà de la limite ({_limits['vcpu']['max']}, politique d'allocation)")
+    if payload.memory_mb > _limits["memoire_mo"]["max"]:
+        _errs.append(f"Mémoire : {payload.memory_mb} Mo au-delà de la limite ({_limits['memoire_mo']['max']} Mo, politique d'allocation)")
+    if _errs:
+        raise HTTPException(status_code=422, detail=" ; ".join(_errs))
     errors = []
     name_error = validate_name(payload.name)
     if name_error:
