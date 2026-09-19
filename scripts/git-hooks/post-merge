@@ -1,27 +1,32 @@
 #!/bin/bash
-# Publication automatique du depot APT (chantier 7bis, 2026-09-17) --
-# meme principe que l'infrastructure de build INTERNE de Proxmox : la cle
-# de signature GPG ne quitte JAMAIS cette machine (poste de dev/
-# publication dedie -- kvm-lab a l'origine, hl-devhub depuis le
-# demantelement de kvm-lab le 2026-09-18, voir CLAUDE.md), aucune CI
-# tierce (GitHub Actions...) n'y a jamais acces. En echange, rien a
-# retenir manuellement : ce hook se declenche automatiquement des que
-# `master` avance sur cette machine (apres `git pull`, y compris un
-# simple fast-forward -- comportement standard de post-merge).
+# Automatic publication of the APT repository, following the same principle as
+# Proxmox's INTERNAL build infrastructure: the GPG signing key NEVER leaves the
+# dedicated development/publishing machine, and no third-party CI (GitHub
+# Actions...) ever has access to it. In exchange there is nothing to remember
+# manually: this hook fires automatically as soon as `master` advances on this
+# machine (after `git pull`, including a plain fast-forward: standard post-merge
+# behaviour).
 #
-# Installation (pas automatique, `.git/hooks/` n'est jamais suivi par
-# Git) :
-#   ln -sf ../../scripts/git-hooks/post-merge /root/hyperlite/.git/hooks/post-merge
-#   chmod +x /root/hyperlite/.git/hooks/post-merge
+# Installation (not automatic, `.git/hooks/` is never tracked by Git):
+#   ln -sf ../../scripts/git-hooks/post-merge <repo>/.git/hooks/post-merge
+#   chmod +x <repo>/.git/hooks/post-merge
 #
-# Version generee automatiquement (horodatage a la minute) plutot que de
-# compter sur un chantier qui penserait a incrementer VERSION a la main --
-# chaque commit distinct sur master obtient sa propre version publiee.
-# Tourne en ARRIERE-PLAN (detache du process git lui-meme) : un `git pull`
-# ne doit jamais rester bloque une minute+ le temps du build+signature.
+# Optional local configuration: a `.publish.env` file at the repository root
+# (never committed, listed in .gitignore) may export HYPERLITE_APT_URL, the
+# address of the APT repository baked into the ISO (see installer/build-iso.sh).
+# Without it the ISO uses the public mirror.
+#
+# The version is generated automatically (timestamp to the minute) rather than
+# relying on someone remembering to bump VERSION by hand: every distinct commit
+# on master gets its own published version. It runs in the BACKGROUND (detached
+# from the git process itself): a `git pull` must never stay blocked for a
+# minute or more while the build and signing run.
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
 cd "$REPO_DIR" || exit 0
+# shellcheck disable=SC1091
+[ -f "$REPO_DIR/.publish.env" ] && . "$REPO_DIR/.publish.env"
+export HYPERLITE_APT_URL
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" != "master" ] && exit 0
@@ -32,55 +37,47 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
     MARKER="$REPO_DIR/.last-published-commit"
     CURRENT_COMMIT="$(git rev-parse HEAD)"
 
-    # Deja publie pour ce commit exact -- evite un rebuild/republish inutile
-    # si post-merge se declenche plusieurs fois sans nouveau contenu reel
-    # (ex. un `git pull` qui ne rapporte rien de neuf).
+    # Already published for this exact commit: avoids a useless rebuild/republish
+    # if post-merge fires several times without any real new content (e.g. a
+    # `git pull` that brings nothing new).
     if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$CURRENT_COMMIT" ]; then
         exit 0
     fi
 
     {
-        echo "[post-merge $(date -u +%FT%TZ)] Nouveau commit master ($CURRENT_COMMIT), publication automatique..."
+        echo "[post-merge $(date -u +%FT%TZ)] New master commit ($CURRENT_COMMIT), automatic publication..."
 
         echo "$(date -u +%Y.%m.%d.%H%M)" > VERSION
 
-        # BUG REEL trouve en migrant ce hook de kvm-lab vers hl-devhub
-        # (2026-09-18, premier vrai test sur une machine fraiche) : sans
-        # verification explicite du code de sortie de chaque etape, un
-        # ECHEC REEL (ex. xorriso absent, identite git non configuree)
-        # etait suivi par des messages "republie avec succes" quand meme
-        # -- les lignes suivantes du script continuaient a s'executer et
-        # les echo finaux etaient inconditionnels. Corrige : chaque etape
-        # critique verifie desormais son propre resultat avant de
-        # continuer/annoncer un succes.
+        # The exit code of every step is checked explicitly: without it, a REAL
+        # failure (e.g. xorriso missing, git identity not configured) would be
+        # followed by "successfully republished" messages anyway, because the
+        # following lines of the script keep running and the final echoes are
+        # unconditional.
         if ! bash installer/build-deb.sh; then
-            echo "[post-merge] ERREUR : build-deb.sh a echoue, publication annulee"
+            echo "[post-merge] ERROR: build-deb.sh failed, publication cancelled"
             exit 1
         fi
         if ! bash installer/build-apt-repo.sh; then
-            echo "[post-merge] ERREUR : build-apt-repo.sh a echoue, publication annulee"
+            echo "[post-merge] ERROR: build-apt-repo.sh failed, publication cancelled"
             exit 1
         fi
 
-        # Republie sur gh-pages via un worktree temporaire (meme mecanique
-        # que la publication initiale du chantier 7bis). Best-effort
-        # DELIBERE (echec non fatal pour le reste du script) : ce miroir
-        # n'est de toute facon pas la source utilisee par postinstall.sh
-        # (voir CLAUDE.md, incoherence CDN de GitHub Pages) -- mais
-        # desormais annonce comme tel plutot que silencieusement ignore.
-        # BUG REEL trouve en testant sur hl-devhub : `git worktree add
-        # "$WORKTREE" gh-pages` ne fait avancer la branche LOCALE
-        # `gh-pages` qu'a la toute PREMIERE execution (elle est alors
-        # creee en suivant origin/gh-pages) -- les executions suivantes
-        # reutilisent cette branche locale FIGEE a ce point de depart,
-        # meme si `origin/gh-pages` a avance depuis (ex. une autre
-        # machine qui publie aussi, exactement le cas rencontre pendant
-        # la periode de transition kvm-lab -> hl-devhub). Resultat : push
-        # rejete ("fetch first"). Corrige avec `-B` : force la branche
-        # locale `gh-pages` a correspondre a `origin/gh-pages` a CHAQUE
-        # execution avant d'y appliquer les nouveaux fichiers -- sans
-        # risque, ce n'est qu'un miroir genere (rsync --delete complet a
-        # chaque fois), aucun historique local a preserver.
+        # Republishes to gh-pages through a temporary worktree. Deliberately
+        # best-effort (a failure is not fatal for the rest of the script): this
+        # mirror is not the source used by postinstall.sh by default when a
+        # single-origin repository is configured (see the note about GitHub
+        # Pages CDN consistency in installer/build-apt-repo.sh), but a failure is
+        # announced rather than silently ignored.
+        # `git worktree add "$WORKTREE" gh-pages` only advances the LOCAL
+        # `gh-pages` branch on the very FIRST run (it is then created tracking
+        # origin/gh-pages); later runs reuse that local branch FROZEN at its
+        # starting point even if `origin/gh-pages` has advanced since (e.g.
+        # another machine also publishing), and the push is then rejected
+        # ("fetch first"). `-B` forces the local `gh-pages` branch to match
+        # `origin/gh-pages` on EVERY run before applying the new files. This is
+        # safe: it is only a generated mirror (a full rsync --delete each time),
+        # with no local history to preserve.
         git fetch origin gh-pages --quiet
         WORKTREE="$(mktemp -d)"
         git worktree add "$WORKTREE" -B gh-pages origin/gh-pages
@@ -89,81 +86,76 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
             cd "$WORKTREE" || exit 1
             if ! git diff --quiet || [ -n "$(git status --porcelain)" ]; then
                 git add -A
-                git commit -m "Publication automatique $(cat "$REPO_DIR/VERSION") (post-merge hl-devhub, commit ${CURRENT_COMMIT:0:8})" --quiet
+                git commit -m "Automatic publication $(cat "$REPO_DIR/VERSION") (post-merge, commit ${CURRENT_COMMIT:0:8})" --quiet
                 git push origin gh-pages
             fi
         ); then
-            echo "[post-merge] Miroir gh-pages republié"
+            echo "[post-merge] gh-pages mirror republished"
         else
-            echo "[post-merge] AVERTISSEMENT : échec de la republication sur gh-pages (non bloquant, dépôt nginx reste la source utilisée)"
+            echo "[post-merge] WARNING: republication to gh-pages failed (non-blocking)"
         fi
         git worktree remove "$WORKTREE" --force
 
-        # Committe le bump de VERSION sur master lui-meme -- SANS CA, kvm-lab
-        # resterait avec un arbre de travail "sale" (VERSION modifie mais pas
-        # commite) en permanence, ce qui casserait silencieusement le bouton
-        # de mise a jour EXISTANT de kvm-lab (mode Git, _is_dirty() bloque
-        # toute mise a jour des que le moindre fichier est modifie).
+        # Commits the VERSION bump on master itself. Without it the working tree
+        # would stay "dirty" permanently (VERSION modified but not committed),
+        # which would silently break the existing update button of a Git-mode
+        # installation (_is_dirty() blocks any update as soon as a single file is
+        # modified).
         git add VERSION
-        git commit -m "Version $(cat VERSION) (publication automatique post-merge)" --quiet
+        git commit -m "Version $(cat VERSION) (automatic post-merge publication)" --quiet
         if ! git push origin master --quiet; then
-            echo "[post-merge] ERREUR : push du bump VERSION sur master a échoué -- l'arbre de travail va rester sale (VERSION commité localement mais pas poussé), à corriger manuellement"
+            echo "[post-merge] ERROR: pushing the VERSION bump to master failed: the working tree will stay dirty (VERSION committed locally but not pushed), fix it manually"
             exit 1
         fi
 
-        # Reconstruit et republie aussi l'ISO d'installation (2026-09-17,
-        # demande explicite d'Antho -- "je veux que chaque changement soit
-        # aussi dans l'iso, constamment") -- meme cadence automatique que le
-        # depot APT ci-dessus. ~25s de build (mesure reellement), largement
-        # negligeable en arriere-plan a chaque merge. Release GitHub UNIQUE
-        # et STABLE ("appliance-iso-latest", pas un nouveau tag par commit --
-        # eviterait d'accumuler des dizaines de releases de ~950 Mo chacune)
-        # : le lien de telechargement ne change JAMAIS, seul le fichier et
-        # les notes sont remplaces a chaque publication. Le tag git sous-
-        # jacent n'est PAS redeplace a chaque fois (juste le fichier +
-        # notes) -- deplacer un tag existant demande un force-push meme pour
-        # un tag, juge pas necessaire ici : la trace du commit exact est
-        # deja dans les notes de la release, pas besoin qu'elle soit aussi
-        # dans le tag lui-meme.
+        # Also rebuilds and republishes the installation ISO, on the same
+        # automatic cadence as the APT repository above (about 25 s of build,
+        # negligible in the background at every merge). A SINGLE, STABLE GitHub
+        # release ("appliance-iso-latest", not a new tag per commit, which would
+        # pile up dozens of ~950 MB releases): the download link NEVER changes,
+        # only the file and the notes are replaced at each publication. The
+        # underlying git tag is NOT moved each time (moving an existing tag
+        # requires a force-push, judged unnecessary here): the exact commit is
+        # recorded in the release notes instead.
         if bash installer/build-iso.sh installer/hyperlite-appliance-amd64.iso && [ -f installer/hyperlite-appliance-amd64.iso ]; then
             ISO_BUILT=1
         else
             ISO_BUILT=0
-            echo "[post-merge] AVERTISSEMENT : build-iso.sh a échoué ou n'a produit aucun fichier -- ISO NON republiée cette fois (la release GitHub garde son contenu précédent, pas de mensonge sur le statut)"
+            echo "[post-merge] WARNING: build-iso.sh failed or produced no file: ISO NOT republished this time (the GitHub release keeps its previous content, no false status)"
         fi
         ISO_TAG="appliance-iso-latest"
-        ISO_NOTES="ISO d'installation automatisee de l'appliance Hyperlite (Debian 13, installeur preseed) -- reconstruite et republiee automatiquement a CHAQUE changement sur master (lien de telechargement stable, toujours la derniere version).
+        ISO_NOTES="Unattended installation ISO of the Hyperlite appliance (Debian 13, preseed installer), rebuilt and republished automatically at EVERY change on master (stable download link, always the latest version).
 
-Version au moment de cette publication : $(cat VERSION) (commit ${CURRENT_COMMIT:0:8}).
+Version at the time of this publication: $(cat VERSION) (commit ${CURRENT_COMMIT:0:8}).
 
-Une fois installee, l'appliance s'auto-gere ensuite via apt (meme depot que ci-dessus, voir dists/) -- le bouton 'Verifier les mises a jour' du dashboard fonctionne normalement des le premier demarrage, independamment de la date de cette ISO.
+Once installed, the appliance manages itself through apt (the same repository as above, see dists/): the 'Check for updates' button of the dashboard works normally from the first boot, regardless of the date of this ISO.
 
-Installation :
+Installation:
 sudo dd if=hyperlite-appliance-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
-(ou Rufus / balenaEtcher sous Windows)
+(or Rufus / balenaEtcher on Windows)
 
-Identifiants par defaut apres install : root / hyperlite (a changer immediatement).
+The installer asks for the root password. The Hyperlite `admin` account gets a random initial password shown on the console banner and in /root/.hyperlite-initial-password.
 
-Une seule confirmation manuelle requise pendant l'installation (ecran de confirmation LVM -- garde-fou volontaire de Debian Installer contre la perte de donnees, non contournable par preseed)."
+A single manual confirmation is required during the installation (LVM confirmation screen: a deliberate Debian Installer safeguard against data loss, which cannot be bypassed by preseed)."
 
         if [ "$ISO_BUILT" = "1" ]; then
             if gh release view "$ISO_TAG" >/dev/null 2>&1; then
                 if gh release upload "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --clobber && gh release edit "$ISO_TAG" --notes "$ISO_NOTES"; then
-                    echo "[post-merge] ISO republiée avec succès (release $ISO_TAG, version $(cat VERSION))"
+                    echo "[post-merge] ISO republished successfully (release $ISO_TAG, version $(cat VERSION))"
                 else
-                    echo "[post-merge] ERREUR : échec de l'upload/édition de la release ISO existante"
+                    echo "[post-merge] ERROR: uploading/editing the existing ISO release failed"
                 fi
             else
-                if gh release create "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --title "Appliance ISO (dernière version)" --notes "$ISO_NOTES" --target master; then
-                    echo "[post-merge] ISO republiée avec succès (release $ISO_TAG, version $(cat VERSION))"
+                if gh release create "$ISO_TAG" installer/hyperlite-appliance-amd64.iso --title "Appliance ISO (latest)" --notes "$ISO_NOTES" --target master; then
+                    echo "[post-merge] ISO republished successfully (release $ISO_TAG, version $(cat VERSION))"
                 else
-                    echo "[post-merge] ERREUR : échec de la création de la release ISO"
+                    echo "[post-merge] ERROR: creating the ISO release failed"
                 fi
             fi
         fi
 
         git rev-parse HEAD > "$MARKER"
-        echo "[post-merge] Dépôt APT republié avec succès : version $(cat VERSION)"
+        echo "[post-merge] APT repository republished successfully: version $(cat VERSION)"
     } >> "$LOG" 2>&1
 ) &
 disown
