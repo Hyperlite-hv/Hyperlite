@@ -5,7 +5,7 @@ redirect to the login screen with a clear message rather than a raw 500 that
 nobody would see (these are BROWSER redirects, not API calls consumed by the JS
 frontend)."""
 
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
@@ -34,7 +34,7 @@ class SSOConfigIn(BaseModel):
 
 
 def _redirect_error(message):
-    return RedirectResponse(f"/?sso_error={quote(message)}")
+    return RedirectResponse("/?" + urlencode({"sso_error": message}))
 
 
 @router.get("/status")
