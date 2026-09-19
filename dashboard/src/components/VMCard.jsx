@@ -80,7 +80,7 @@ function Stat({ label, value, mono }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       <span className="font-mono text-[10px] tracking-wider text-anthracite-400">{label}</span>
-      <span className={`truncate text-[13px] text-anthracite-100 ${mono ? "font-mono !text-xs" : ""}`}>{value}</span>
+      <span className={`truncate text-[13px] text-anthracite-100 ${mono ? "font-mono text-xs!" : ""}`}>{value}</span>
     </div>
   );
 }
@@ -88,7 +88,7 @@ function Stat({ label, value, mono }) {
 function CardButton({ children, onClick, primary, danger }) {
   const cls = danger ? "btn-danger" : primary ? "btn-primary" : "btn-secondary";
   return (
-    <button onClick={onClick} className={`${cls} flex-1 justify-center !px-0 !py-1.5 text-[12.5px]`}>
+    <button onClick={onClick} className={`${cls} flex-1 justify-center px-0! py-1.5! text-[12.5px]`}>
       {children}
     </button>
   );

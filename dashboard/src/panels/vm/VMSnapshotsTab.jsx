@@ -161,7 +161,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
             <Camera size={14} className="text-anthracite-400 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm text-anthracite-100">
-                {s.nom} {s.actuel && <span className="ml-1 rounded bg-accent-blue/20 px-1.5 py-0.5 text-[10px] text-accent-blue">current</span>}
+                {s.nom} {s.actuel && <span className="ml-1 rounded-sm bg-accent-blue/20 px-1.5 py-0.5 text-[10px] text-accent-blue">current</span>}
               </div>
               <div className="text-xs text-anthracite-400 truncate">
                 {s.description || "--"} {s.date_creation ? `-- ${s.date_creation}` : ""}

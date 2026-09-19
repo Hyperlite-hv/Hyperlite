@@ -184,8 +184,8 @@ export default function AccountSecurityModal({ onClose }) {
                 Copy this token now: it will never be shown again.
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 truncate rounded bg-anthracite-900 px-2 py-1.5 text-xs text-anthracite-100">{freshToken.token}</code>
-                <button className="btn-secondary !py-1.5" onClick={copyToken}>
+                <code className="flex-1 truncate rounded-sm bg-anthracite-900 px-2 py-1.5 text-xs text-anthracite-100">{freshToken.token}</code>
+                <button className="btn-secondary py-1.5!" onClick={copyToken}>
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                 </button>
               </div>
@@ -214,7 +214,7 @@ export default function AccountSecurityModal({ onClose }) {
                     Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
                   </div>
                 </div>
-                <button aria-label="Delete" className="btn-danger !py-1" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
+                <button aria-label="Delete" className="btn-danger py-1!" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>

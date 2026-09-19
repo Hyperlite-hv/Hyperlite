@@ -66,13 +66,13 @@ export default function NodeSummaryTab({ resource: node }) {
           <div className="ml-auto flex gap-0.5 rounded-md border border-anthracite-600 bg-anthracite-900 p-0.5">
             <button
               onClick={() => setView("cards")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${view === "cards" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
+              className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${view === "cards" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
             >
               <LayoutGrid size={13} /> Cards
             </button>
             <button
               onClick={() => setView("table")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium ${view === "table" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
+              className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${view === "table" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
             >
               <Table2 size={13} /> Table view
             </button>
