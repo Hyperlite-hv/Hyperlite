@@ -36,6 +36,7 @@ from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn
+from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
 
@@ -166,7 +167,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
     # `disks`.
     for dev, _source in all_disks:
         if dev in target_devs:
-            overlay = IMAGES_DIR / f"{vm_name}.backup-{int(time.time())}.{dev}.qcow2"
+            overlay = safe_child(IMAGES_DIR, f"{vm_name}.backup-{int(time.time())}.{dev}.qcow2")
             overlay_paths[dev] = overlay
             disk_xml_parts.append(f"<disk name='{dev}' snapshot='external'><source file='{overlay}'/></disk>")
         else:
@@ -344,7 +345,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
             new_disk_paths = []
             for i, src in enumerate(disk_files):
                 suffix = "" if i == 0 else f"-{i + 1}"
-                dest = _IMAGES_DIR / f"{new_name}{suffix}.qcow2"
+                dest = safe_child(_IMAGES_DIR, f"{new_name}{suffix}.qcow2")
                 update_task_progress(task_id, int(10 + 70 * i / len(disk_files)))
                 shutil.copyfile(src, dest)
                 new_disk_paths.append(dest)

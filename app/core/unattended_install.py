@@ -25,6 +25,7 @@ import uuid
 from pathlib import Path
 
 from app.core.passwords import sha512_crypt_hash
+from app.core.safe_paths import safe_child
 
 from .vm_builder import IMAGES_DIR
 
@@ -95,7 +96,7 @@ systemctl enable sshd
         ks_path = workdir / "ks.cfg"
         ks_path.write_text(ks)
 
-        iso_path = IMAGES_DIR / f"{vm_name}-oemdrv.iso"
+        iso_path = safe_child(IMAGES_DIR, f"{vm_name}-oemdrv.iso")
         subprocess.run(
             ["genisoimage", "-o", str(iso_path), "-V", "OEMDRV", "-r", "-J", str(ks_path)],
             check=True,
@@ -122,7 +123,7 @@ def extract_casper_kernel(iso_path):
     ~200 MB from an ISO of several GB, which is not instantaneous.
 
     Returns (kernel_path, initrd_path)."""
-    cache_dir = CASPER_CACHE_DIR / Path(iso_path).stem
+    cache_dir = safe_child(CASPER_CACHE_DIR, Path(iso_path).stem)
     kernel_path = cache_dir / "vmlinuz"
     initrd_path = cache_dir / "initrd"
     if kernel_path.exists() and initrd_path.exists():
@@ -187,7 +188,7 @@ autoinstall:
         (workdir / "user-data").write_text(user_data)
         (workdir / "meta-data").write_text(meta_data)
 
-        iso_path = IMAGES_DIR / f"{vm_name}-autoinstall.iso"
+        iso_path = safe_child(IMAGES_DIR, f"{vm_name}-autoinstall.iso")
         subprocess.run(
             ["cloud-localds", str(iso_path), str(workdir / "user-data"), str(workdir / "meta-data")],
             check=True,

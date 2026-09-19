@@ -25,6 +25,7 @@ from app.core.audit import log_action
 from app.core.backups import backup_cold, backup_hot, domain_disk_paths
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn
+from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 
 EXPORTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "vm-exports"
@@ -62,7 +63,7 @@ def run_export(vm_name, username="system"):
 
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         task_id = create_task("export_vm", vm_name, node=conn.getHostname(), username=username)
-        work_dir = EXPORTS_DIR / f".tmp-{vm_name}-{stamp}"
+        work_dir = safe_child(EXPORTS_DIR, f".tmp-{vm_name}-{stamp}")
         work_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -71,7 +72,7 @@ def run_export(vm_name, username="system"):
             else:
                 dest_paths = backup_cold(domain, vm_name, work_dir, task_id, disks=disk0)
 
-            final = EXPORTS_DIR / f"{vm_name}--{stamp}.qcow2"
+            final = safe_child(EXPORTS_DIR, f"{vm_name}--{stamp}.qcow2")
             shutil.move(str(dest_paths[0]), str(final))
             update_task_progress(task_id, 100)
             finish_task(task_id, "termine")

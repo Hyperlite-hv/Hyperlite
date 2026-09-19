@@ -14,6 +14,7 @@ from app.core.audit import log_action
 from app.core.libvirt_utils import (
     open_conn,
 )
+from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_vm_privilege
 from app.core.tasks import finish_task
 from app.core.vm_builder import (
@@ -48,7 +49,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
         iso_filename = Path(payload.iso).name
         if not iso_filename.lower().endswith(".iso"):
             raise HTTPException(status_code=422, detail="Invalid ISO name")
-        iso_path = ISOS_DIR / iso_filename
+        iso_path = safe_child(ISOS_DIR, iso_filename)
         if not iso_path.exists():
             raise HTTPException(status_code=404, detail=f"ISO '{iso_filename}' not found")
 

@@ -3,20 +3,22 @@ import json
 import time
 from pathlib import Path
 
+from app.core.safe_paths import safe_child
+
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "templates"
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _meta_path(name):
-    return TEMPLATES_DIR / f"{name}.json"
+    return safe_child(TEMPLATES_DIR, f"{name}.json")
 
 
 def _disk_path(name):
-    return TEMPLATES_DIR / f"{name}.qcow2"
+    return safe_child(TEMPLATES_DIR, f"{name}.qcow2")
 
 
 def _xml_path(name):
-    return TEMPLATES_DIR / f"{name}.xml"
+    return safe_child(TEMPLATES_DIR, f"{name}.xml")
 
 
 def exists(name):
