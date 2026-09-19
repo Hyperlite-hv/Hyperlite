@@ -78,7 +78,7 @@ def _stored_choice():
 
 def set_choice(choice):
     if choice != "auto" and choice not in PROFILES:
-        raise ValueError(f"Profil inconnu : {choice}")
+        raise ValueError(f"Unknown profile: {choice}")
     with get_conn() as db:
         db.execute(
             "INSERT INTO deployment_profile (id, profil) VALUES (1, ?) "

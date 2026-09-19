@@ -142,7 +142,7 @@ def send_to_channel(channel, title, message, event="test", result="succes"):
     (event='test', never filtered by NOTIFY_EVENTS)."""
     sender = _SENDERS.get(channel["type"])
     if not sender:
-        raise ValueError(f"Type de canal inconnu : {channel['type']}")
+        raise ValueError(f"Unknown channel type: {channel['type']}")
     sender(channel["config"], title, message, event, result)
 
 
