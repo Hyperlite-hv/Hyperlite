@@ -18,7 +18,7 @@ from app.core.database import get_conn
 ALL_PRIVILEGES = {
     "vm.view": "View (state, metrics, journal)",
     "vm.power": "Start / stop / restart",
-    "vm.console": "Console graphique (VNC) et terminal SSH",
+    "vm.console": "Graphical console (VNC) and SSH terminal",
     "vm.snapshot": "Snapshots (create / restore / delete)",
     "vm.resize": "Resize (CPU / RAM / disk)",
     "vm.hardware": "Hardware (disks, network interfaces, CD drive)",
@@ -35,17 +35,17 @@ ALL_PRIVILEGES = {
 # privilege catalog as the custom roles below, not a separate mechanism.
 ROLES = {
     "lecteur": {
-        "label": "Lecteur",
+        "label": "Reader",
         "description": "View (state, metrics, journal) on the assigned resource.",
         "privileges": {"vm.view", "container.view"},
     },
     "operateur": {
-        "label": "Operateur",
+        "label": "Operator",
         "description": "Start / stop / restart, graphical console and SSH terminal, on the assigned resource.",
         "privileges": {"vm.view", "vm.power", "vm.console", "container.view", "container.power", "container.console"},
     },
     "gestionnaire": {
-        "label": "Gestionnaire",
+        "label": "Manager",
         "description": "Operator + snapshots, CPU/RAM/disk resizing, hardware (disks/network), without creating or deleting VMs.",
         "privileges": {
             "vm.view",

@@ -9,7 +9,7 @@ const DATACENTER_TABS = [
 const NODE_TABS = ["Summary", "System summary", "Network", "Disk storage", "Tasks", "Compatibility", "Shell"];
 
 // Words that would reveal untranslated French UI text.
-const FRENCH = /\b(Chargement|Erreur|Annuler|Créer|Supprimer|Aucun|Aucune|Réseau|Stockage|Sauvegarde|Enregistrer|Activer|Utilisateur|Mot de passe|En cours|Terminé|Échec|Heure|Statut|Ajouter|Fermer|Démarrer|Arrêter|Actualiser|Nœud|Hôte|Disque|Mémoire|Modèle|Résumé|Tâches|Conteneurs?|Instantané|En marche|En pause|Suspendue?s?)\b|[àâçéèêëîïôûùüœ]/;
+const FRENCH = /\b(Lecteur|Operateur|Gestionnaire|graphique|Chargement|Erreur|Annuler|Créer|Supprimer|Aucun|Aucune|Réseau|Stockage|Sauvegarde|Enregistrer|Activer|Utilisateur|Mot de passe|En cours|Terminé|Échec|Heure|Statut|Ajouter|Fermer|Démarrer|Arrêter|Actualiser|Nœud|Hôte|Disque|Mémoire|Modèle|Résumé|Tâches|Conteneurs?|Instantané|En marche|En pause|Suspendue?s?)\b|[àâçéèêëîïôûùüœ]/;
 
 function watch(page: Page) {
   const failedApi: string[] = [];

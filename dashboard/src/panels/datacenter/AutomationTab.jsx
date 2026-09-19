@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Zap, Plus, Play, Trash2, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { fetchJobs, createJob, deleteJob, runJob, fetchJobRuns, fetchJobRun } from "../../api/client";
@@ -69,6 +70,7 @@ export default function AutomationTab() {
   }
 
   async function handleDelete(job) {
+    if (!(await confirmAction({ title: `Delete job '${job.name}'?`, message: "The job and its run history are removed.", confirmLabel: "Delete" }))) return;
     try {
       await deleteJob(job.id);
       pushToast({ kind: "success", title: "Job deleted", message: job.name });
@@ -129,7 +131,7 @@ export default function AutomationTab() {
                   <option value="stdout_contains">Output contains</option>
                 </select>
                 <input aria-label="Success condition value" className="input w-24" placeholder={s.condition_type === "exit_code" ? "0" : "pattern"} value={s.condition_valeur || ""} onChange={(e) => updateStep(i, { condition_valeur: e.target.value })} />
-                <button aria-label="Delete" className="btn-danger" onClick={() => removeStep(i)}><Trash2 size={13} /></button>
+                <button aria-label={`Remove step ${i + 1}`} className="btn-danger" onClick={() => removeStep(i)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
@@ -162,7 +164,7 @@ export default function AutomationTab() {
                 <>
                   <button className="btn-secondary" onClick={() => handleRun(job, true)} title="Dry-run">Dry run</button>
                   <button className="btn-primary" onClick={() => handleRun(job, false)}><Play size={13} /> Run</button>
-                  {!job.predefined_key && <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
+                  {!job.predefined_key && <button aria-label={`Delete job ${job.name}`} className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
                 </>
               )}
               <button className="text-anthracite-400" onClick={() => toggleExpand(job)}>

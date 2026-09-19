@@ -67,7 +67,7 @@ export default function TemplatesTab() {
                 <button className="btn-secondary" disabled={busy} onClick={() => { setDeployTarget(t); setNewName(`${t.nom}-01`); }}>
                   <Rocket size={13} /> Deploy
                 </button>
-                <button aria-label="Delete" className="btn-danger" disabled={busy} onClick={() => setPendingDelete(t)}><Trash2 size={13} /></button>
+                <button aria-label={`Delete template ${t.nom}`} className="btn-danger" disabled={busy} onClick={() => setPendingDelete(t)}><Trash2 size={13} /></button>
               </>
             )}
           </div>

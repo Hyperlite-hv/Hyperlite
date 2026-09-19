@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Server, Plus, Trash2, Copy, Wifi, WifiOff } from "lucide-react";
 import {
@@ -57,6 +58,7 @@ export default function NodesTab() {
   }
 
   async function handleDelete(node) {
+    if (!(await confirmAction({ title: `Remove node '${node.name}'?`, message: "Hyperlite stops managing this node. Its VMs are not deleted.", confirmLabel: "Remove" }))) return;
     try {
       await deleteRemoteNode(node.name);
       pushToast({ kind: "success", title: "Node removed", message: node.name });
@@ -122,7 +124,7 @@ export default function NodesTab() {
               {n.statut === "en_ligne"
                 ? <span className="flex items-center gap-1 text-xs text-status-running"><Wifi size={13} /> online</span>
                 : <span className="flex items-center gap-1 text-xs text-status-error"><WifiOff size={13} /> offline</span>}
-              {isAdmin && <button aria-label="Delete" className="btn-danger" onClick={() => handleDelete(n)}><Trash2 size={13} /></button>}
+              {isAdmin && <button aria-label={`Remove node ${n.name}`} className="btn-danger" onClick={() => handleDelete(n)}><Trash2 size={13} /></button>}
             </div>
           );
         })}

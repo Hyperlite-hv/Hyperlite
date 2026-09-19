@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Bell, Plus, Trash2, Send, Power, Webhook, Mail } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -74,7 +75,7 @@ export default function NotificationsTab() {
   }
 
   async function handleDelete(channel) {
-    if (!window.confirm(`Delete the channel '${channel.name}'?`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Delete the channel '${channel.name}'?`, confirmLabel: "Confirm" }))) return;
     try {
       await deleteNotificationChannel(channel.id);
       pushToast({ kind: "success", title: "Channel deleted", message: channel.name });
@@ -210,7 +211,7 @@ export default function NotificationsTab() {
               <button className="btn-secondary py-1!" onClick={() => handleToggle(c)}>
                 <Power size={13} /> {c.enabled ? "Disable" : "Enable"}
               </button>
-              <button aria-label="Delete" className="btn-danger py-1!" onClick={() => handleDelete(c)}>
+              <button aria-label={`Delete channel ${c.name}`} className="btn-danger py-1!" onClick={() => handleDelete(c)}>
                 <Trash2 size={13} />
               </button>
             </div>

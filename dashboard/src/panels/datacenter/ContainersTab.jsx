@@ -1,3 +1,4 @@
+import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import {
   Box, Plus, Trash2, Play, Square, TerminalSquare, Star, Copy, Archive, RotateCcw,
@@ -145,7 +146,7 @@ export default function ContainersTab() {
   }
 
   async function handleDeleteBackup(b) {
-    if (!window.confirm(`Permanently delete this backup of '${b.container_name}'?`)) return;
+    if (!(await confirmAction({ title: "Please confirm", message: `Permanently delete this backup of '${b.container_name}'?`, confirmLabel: "Confirm" }))) return;
     try {
       await deleteContainerBackup(b.id);
       pushToast({ kind: "success", title: "Backup deleted" });
@@ -275,9 +276,9 @@ export default function ContainersTab() {
               <button aria-label="Clone" className="btn-secondary" title="Clone" onClick={() => handleClone(ct)}><Copy size={13} /></button>
             )}
             {isAdmin && ct.etat !== "actif" && (
-              <button aria-label="Back up" className="btn-secondary" title="Back up" onClick={() => handleBackup(ct)}><Archive size={13} /></button>
+              <button aria-label={`Back up container ${ct.nom}`} className="btn-secondary" title="Back up" onClick={() => handleBackup(ct)}><Archive size={13} /></button>
             )}
-            {isAdmin && <button aria-label="Delete" className="btn-danger" title="Delete" onClick={() => setToDelete(ct)}><Trash2 size={13} /></button>}
+            {isAdmin && <button aria-label={`Delete container ${ct.nom}`} className="btn-danger" title="Delete" onClick={() => setToDelete(ct)}><Trash2 size={13} /></button>}
           </div>
         ))}
       </div>
@@ -299,9 +300,9 @@ export default function ContainersTab() {
                   </div>
                 </div>
                 {b.statut === "termine" && (
-                  <button aria-label="Restore" className="btn-secondary" title="Restore" onClick={() => handleRestoreBackup(b)}><RotateCcw size={13} /></button>
+                  <button aria-label={`Restore backup #${b.id}`} className="btn-secondary" title="Restore" onClick={() => handleRestoreBackup(b)}><RotateCcw size={13} /></button>
                 )}
-                <button aria-label="Delete" className="btn-danger" title="Delete" onClick={() => handleDeleteBackup(b)}><Trash2 size={13} /></button>
+                <button aria-label={`Delete backup #${b.id}`} className="btn-danger" title="Delete" onClick={() => handleDeleteBackup(b)}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>

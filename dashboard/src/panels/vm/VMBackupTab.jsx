@@ -1,3 +1,4 @@
+import { confirmAction as askConfirm } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Save, Play, Trash2, RotateCcw } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
@@ -62,6 +63,7 @@ export default function VMBackupTab({ resource: vm }) {
   }
 
   async function handleDeleteSchedule() {
+    if (!(await askConfirm({ title: "Delete the backup schedule?", message: `Scheduled backups of ${vm.nom} stop. Existing backups are kept.`, confirmLabel: "Delete" }))) return;
     setBusy(true);
     try {
       await deleteBackupSchedule(vm.nom);
@@ -159,7 +161,7 @@ export default function VMBackupTab({ resource: vm }) {
                 <button className="btn-secondary" onClick={() => handleRestoreNew(b)} title="Restore to a new VM">
                   New VM
                 </button>
-                <button aria-label="Delete" className="btn-danger" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></button>
+                <button aria-label={`Delete backup #${b.id}`} className="btn-danger" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></button>
               </div>
             )}
           </div>
