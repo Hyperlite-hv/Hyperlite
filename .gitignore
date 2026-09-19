@@ -25,3 +25,4 @@ hyperlite.db-journal
 hyperlite.db-wal
 hyperlite.db-shm
 hyperlite.db
+data/tmp/
