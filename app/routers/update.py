@@ -1,29 +1,28 @@
-"""Mise a jour d'Hyperlite depuis son propre depot Git (chantier 7 de la
-roadmap vSphere/vCenter) -- equivalent vSphere Lifecycle Manager, mais Git
-comme source de verite plutot qu'un depot de patchs proprietaire.
+"""Hyperlite update from its own Git repository: the equivalent of the vSphere
+Lifecycle Manager, with Git as the source of truth instead of a proprietary
+patch repository.
 
-Ne touche QUE la couche de gestion Hyperlite (code API + interface) -- les VM
-deja actives, pilotees directement par libvirt/QEMU independamment du
-processus Hyperlite, ne sont ni arretees ni redemarrees par une mise a jour
-(meme principe qu'un reboot de vCenter qui n'affecte pas les VM deja
-actives sous ESXi).
+It only touches the Hyperlite management layer (API code + interface). VMs that
+are already running, driven directly by libvirt/QEMU independently of the
+Hyperlite process, are neither stopped nor restarted by an update (the same
+principle as a vCenter reboot, which does not affect VMs already running under
+ESXi).
 
-Contrainte reelle de ce depot (verifiee le 2026-09-13, pas hypothetique) :
-le workflow de developpement actuel commite directement sur `master` depuis
-des sessions de travail live sur kvm-lab, donc l'arbre de travail est
-tres souvent "sale" (modifications non commitees) au moment ou quelqu'un
-voudrait declencher une mise a jour. Plutot que de faire un `git pull`
-optimiste qui risquerait un conflit de fusion en pleine mise a jour, l'IHM
-refuse purement et simplement de demarrer si l'arbre n'est pas propre, avec
-un message exploitable -- c'est le cas "gestion propre" demande, pas un
-oubli.
+A real constraint of this repository's workflow: development commits directly
+to `master` from live working sessions, so the working tree is very often
+"dirty" (uncommitted changes) when someone wants to trigger an update. Rather
+than an optimistic `git pull` that could hit a merge conflict in the middle of
+an update, the UI flatly refuses to start when the tree is not clean, with an
+actionable message. This is the intended "clean handling", not an oversight.
+
 """
+
+import logging
 import os
 import subprocess
-import tarfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,15 +31,17 @@ from app.core.audit import log_action
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/update", tags=["update"])
 
 REPO_DIR = Path(__file__).resolve().parent.parent.parent  # /root/hyperlite
 BACKUP_DIR = Path("/root/hyperlite-backups")
 WATCHDOG_SCRIPT = REPO_DIR / "scripts" / "update_watchdog.sh"
 
-# Exclusions du tarball de sauvegarde : uniquement du code/etat DERIVE,
-# jamais de la donnee (hyperlite.db, data/, .env restent inclus -- c'est
-# precisement ce qu'un rollback doit pouvoir restaurer).
+# Exclusions from the backup tarball: only DERIVED code/state, never data
+# (hyperlite.db, data/ and .env stay included, which is precisely what a rollback
+# must be able to restore).
 _BACKUP_EXCLUDES = ["--exclude=venv", "--exclude=dashboard/node_modules", "--exclude=dashboard/dist", "--exclude=.git"]
 
 
@@ -48,15 +49,12 @@ def _run(cmd, cwd=None, timeout=180):
     return subprocess.run(cmd, cwd=str(cwd or REPO_DIR), capture_output=True, text=True, timeout=timeout)
 
 
-# BUG REEL trouve en testant sur une vraie machine en locale francaise
-# (serveur-antho, 2026-09-17) : `apt-cache policy` traduit ses champs
-# ("Candidat :" au lieu de "Candidate:") des que LANG/LC_ALL n'est pas en
-# anglais -- le parsing de _check_update_apt() echouait SILENCIEUSEMENT
-# (aucune erreur, juste `commit_distant: null` et `a_jour: false` a
-# tort). Force la locale C pour toute commande apt/dpkg dont la SORTIE est
-# analysee par ce fichier (dpkg-query -f='...' n'est pas concerne, deja
-# machine-readable quelle que soit la locale, mais force ici aussi par
-# coherence/prudence).
+# Force the C locale for every apt/dpkg command whose OUTPUT is parsed by this
+# file. `apt-cache policy` translates its fields ("Candidat :" instead of
+# "Candidate:") as soon as LANG/LC_ALL is not English, and the parsing in
+# _check_update_apt() then failed SILENTLY (no error, just `commit_distant: null`
+# and a wrong `a_jour: false`). dpkg-query -f='...' is not concerned (already
+# machine-readable whatever the locale) but is forced here too for consistency.
 def _run_c(cmd, timeout=180):
     env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
     return subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True, text=True, timeout=timeout, env=env)
@@ -77,22 +75,20 @@ def _is_dirty():
     return bool(r.stdout.strip())
 
 
-# --- Mise a jour via depot APT (2026-09-17) -- alternative au mecanisme
-# git ci-dessus, pour toute machine ayant explicitement adopte le paquet
-# `hyperlite` (voir installer/build-deb.sh, installer/build-apt-repo.sh).
-# kvm-lab reste developpe en clone Git (voir CLAUDE.md) : sur cette
-# machine precise, _install_method() renvoie toujours "git" (presence de
-# .git) et TOUT le comportement ci-dessous reste inchange -- ce nouveau
-# chemin ne s'active QUE sur une machine ou `apt install hyperlite` a
-# reellement ete execute au moins une fois (dpkg la connait comme
-# "installee").
+# --- Update through an APT repository: an alternative to the git mechanism
+# above, for any machine that explicitly adopted the `hyperlite` package (see
+# installer/build-deb.sh and installer/build-apt-repo.sh). A machine running from a
+# Git clone (the development setup) always gets "git" from _install_method()
+# (presence of .git), and ALL the behaviour below stays unchanged there: this path
+# only activates on a machine where `apt install hyperlite` was really run at
+# least once (dpkg knows it as "installed").
 def _install_method():
     if (REPO_DIR / ".git").exists():
         return "git"
     r = _run_c(["dpkg-query", "-W", "-f=${Status}", "hyperlite"])
     if r.returncode == 0 and "install ok installed" in r.stdout:
         return "apt"
-    return "git"  # etat indetermine : repli sur le comportement historique
+    return "git"  # indeterminate state: fall back to the historical behaviour
 
 
 def _dpkg_installed_version():
@@ -100,20 +96,17 @@ def _dpkg_installed_version():
     return r.stdout.strip() if r.returncode == 0 else None
 
 
-# BUG REEL trouve et diagnostique a fond en testant une vraie installation
-# sur serveur-antho (2026-09-17, voir installer/postinstall.sh pour
-# l'analyse complete) : `apt-get update` echouait de facon PERSISTANTE
-# (confirme sur 30 essais repartis sur 10+ minutes, encore incoherent plus
-# d'1h20 apres la derniere publication, verifie EN INTERROGEANT
-# DIRECTEMENT LA MACHINE HOTE) avec "taille incoherente" -- pas une simple
-# fenetre de propagation transitoire, mais une absence structurelle de
-# coherence forte entre fichiers lies sur le CDN multi-nœuds de GitHub
-# Pages. **Corrige a la racine, pas contourne ici** : le depot est
-# desormais servi directement par kvm-lab (nginx, sans CDN intermediaire,
-# voir postinstall.sh) -- cette fonction garde un retry MODESTE en
-# defense en profondeur pour un simple alea reseau (coupure Tailscale
-# passagere...), plus pour contourner une incoherence structurelle qui
-# n'existe plus a cette echelle de temps.
+# `apt-get update` used to fail PERSISTENTLY with an inconsistent size error
+# (confirmed over 30 attempts spread over 10+ minutes, still inconsistent more
+# than 1 h 20 after the last publication, checked by querying the origin
+# directly). It was not a transient propagation window but a structural lack of
+# strong consistency between linked files on GitHub Pages' multi-node CDN. It was
+# FIXED AT THE ROOT rather than worked around here: the repository is now served
+# directly by nginx on the publishing host, with no intermediate CDN (see
+# installer/postinstall.sh). This function keeps a MODEST retry as defense in
+# depth against a plain network glitch (a brief Tailscale outage...), no longer to
+# work around a structural inconsistency that does not exist anymore at that time
+# scale.
 def _apt_update_with_retry(attempts, delay_s, timeout=60):
     last = None
     for i in range(attempts):
@@ -131,15 +124,15 @@ def _apt_update_with_retry(attempts, delay_s, timeout=60):
 
 def _check_update_apt():
     installed = _dpkg_installed_version()
-    # Cote /update/check (appel interactif, l'utilisateur attend devant
-    # l'UI) : peu de tentatives, delai court -- une vraie panne reseau doit
-    # remonter vite, pas faire attendre inutilement sur un simple clic.
+    # For /update/check (an interactive call, the user is waiting in front of the
+    # UI): few attempts and a short delay. A real network outage must come up quickly
+    # rather than make the user wait needlessly after a simple click.
     upd = _apt_update_with_retry(attempts=4, delay_s=8, timeout=25)
     if upd is None or upd.returncode != 0:
-        detail = upd.stderr.strip()[:400] if upd is not None else "délai dépassé"
+        detail = upd.stderr.strip()[:400] if upd is not None else "timed out"
         return {
             "verifiable": False,
-            "erreur": f"Impossible de contacter le dépôt APT : {detail}",
+            "erreur": f"Unable to contact the APT repository: {detail}",
             "commit_local": installed,
         }
 
@@ -150,7 +143,7 @@ def _check_update_apt():
         if line.startswith("Candidate:"):
             candidate = line.split(":", 1)[1].strip()
     a_jour = bool(candidate) and installed == candidate
-    changelog = [f"Nouvelle version disponible : {candidate}"] if not a_jour and candidate else []
+    changelog = [f"New version available: {candidate}"] if not a_jour and candidate else []
 
     return {
         "verifiable": True,
@@ -158,7 +151,7 @@ def _check_update_apt():
         "commit_local": installed,
         "commit_distant": candidate,
         "a_jour": a_jour,
-        "arbre_propre": True,  # non applicable en mode apt (pas d'arbre de travail Git)
+        "arbre_propre": True,  # not applicable in apt mode (no Git working tree)
         "changelog": changelog,
     }
 
@@ -173,12 +166,16 @@ def check_update(user: dict = Depends(require_role("admin"))):
     try:
         fetch = _run(["git", "fetch", "origin", branch], timeout=30)
     except subprocess.TimeoutExpired:
-        return {"verifiable": False, "erreur": "Délai dépassé en contactant le dépôt distant (réseau ?)", "commit_local": local}
+        return {
+            "verifiable": False,
+            "erreur": "Timed out contacting the remote repository (network?)",
+            "commit_local": local,
+        }
 
     if fetch.returncode != 0:
         return {
             "verifiable": False,
-            "erreur": f"Impossible de contacter le dépôt distant : {fetch.stderr.strip()[:400]}",
+            "erreur": f"Unable to contact the remote repository: {fetch.stderr.strip()[:400]}",
             "commit_local": local,
         }
 
@@ -189,7 +186,7 @@ def check_update(user: dict = Depends(require_role("admin"))):
     if not a_jour and remote and local:
         log_r = _run(["git", "log", "--oneline", f"{local}..{remote}"])
         if log_r.returncode == 0:
-            changelog = [l for l in log_r.stdout.strip().splitlines() if l]
+            changelog = [line for line in log_r.stdout.strip().splitlines() if line]
 
     return {
         "verifiable": True,
@@ -204,25 +201,22 @@ def check_update(user: dict = Depends(require_role("admin"))):
 
 def _backup(task_id):
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     tarball = BACKUP_DIR / f"hyperlite-backup-{stamp}.tar.gz"
-    cmd = ["tar", "czf", str(tarball)] + _BACKUP_EXCLUDES + ["-C", str(REPO_DIR.parent), REPO_DIR.name]
+    cmd = ["tar", "czf", str(tarball), *_BACKUP_EXCLUDES, "-C", str(REPO_DIR.parent), REPO_DIR.name]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    # ATTENTION (bug reel trouve lors du tout premier /update/apply jamais
-    # execute en conditions reelles, sur le serveur physique d'Antho) : tar
-    # renvoie le code de sortie 1 -- pas 0, mais pas non plus une vraie
-    # erreur -- des qu'un fichier change PENDANT sa lecture ("file changed
-    # as we read it"). Hyperlite tourne en continu ET ecrit sans arret dans
-    # hyperlite.db (mode WAL, collecte de metriques, etc.) exactement
-    # pendant que ce tar l'archive -- ce n'est pas un cas rare, c'est
-    # SYSTEMATIQUE sur une instance active. D'apres tar lui-meme (man tar,
-    # section EXIT STATUS) : 0 = succes, 1 = "some files differ" (avertissement
-    # non fatal, l'archive est quand meme utilisable), 2 = erreur fatale
-    # reelle. Traiter 1 comme un echec bloquait TOUTE mise a jour des qu'un
-    # thread d'arriere-plan touchait un fichier au mauvais moment -- corrige
-    # en ne considerant que le code 2+ comme une vraie erreur.
+    # WARNING (a real bug found on the very first /update/apply ever run under real
+    # conditions): tar returns exit code 1, neither 0 nor a real error, as soon as a
+    # file changes WHILE it is being read ("file changed as we read it"). Hyperlite
+    # runs continuously and writes constantly to hyperlite.db (WAL mode, metrics
+    # collection, etc.) exactly while this tar archives it. That is not a rare case,
+    # it is SYSTEMATIC on an active instance. According to tar itself (man tar, EXIT
+    # STATUS section): 0 = success, 1 = "some files differ" (a non-fatal warning, the
+    # archive is still usable), 2 = a real fatal error. Treating 1 as a failure blocked
+    # EVERY update as soon as a background thread touched a file at the wrong moment.
+    # Fixed by considering only code 2+ as a real error.
     if r.returncode >= 2:
-        raise RuntimeError(f"Échec de la sauvegarde : {r.stderr.strip()[:400]}")
+        raise RuntimeError(f"Backup failed: {r.stderr.strip()[:400]}")
     return tarball
 
 
@@ -237,90 +231,89 @@ def _run_update_job(task_id, username, branch):
     try:
         if _is_dirty():
             raise RuntimeError(
-                "Arbre de travail non propre (modifications non commitées) -- mise à jour refusée pour ne pas "
-                "risquer un conflit de fusion en cours de route. Commitez ou annulez les changements locaux d'abord."
+                "Working tree is not clean (uncommitted changes): update refused so as not to"
+                "risk a merge conflict midway. Commit or discard the local changes first."
             )
 
-        step(5, "Sauvegarde de l'état actuel (code + config + base)")
+        step(5, "Backing up the current state (code + config + database)")
         tarball = _backup(task_id)
 
-        step(20, "Récupération de la dernière version (git fetch)")
+        step(20, "Fetching the latest version (git fetch)")
         fetch = _run(["git", "fetch", "origin", branch])
         if fetch.returncode != 0:
-            raise RuntimeError(f"git fetch a échoué : {fetch.stderr.strip()[:400]}")
+            raise RuntimeError(f"git fetch failed: {fetch.stderr.strip()[:400]}")
 
-        step(30, "Application de la nouvelle version (git reset --hard)")
+        step(30, "Applying the new version (git reset --hard)")
         reset = _run(["git", "reset", "--hard", f"origin/{branch}"])
         if reset.returncode != 0:
-            raise RuntimeError(f"git reset a échoué : {reset.stderr.strip()[:400]}")
+            raise RuntimeError(f"git reset failed: {reset.stderr.strip()[:400]}")
         new_commit = _current_commit()
 
         changed = _run(["git", "diff", "--name-only", old_commit, new_commit]).stdout
 
         if "requirements.txt" in changed:
-            step(45, "Installation des dépendances Python (pip install)")
+            step(45, "Installing Python dependencies (pip install)")
             pip = _run([str(REPO_DIR / "venv" / "bin" / "pip"), "install", "-r", "requirements.txt"], timeout=300)
             if pip.returncode != 0:
-                raise RuntimeError(f"pip install a échoué : {pip.stderr.strip()[:400]}")
+                raise RuntimeError(f"pip install failed: {pip.stderr.strip()[:400]}")
 
         if "dashboard/package.json" in changed or "dashboard/package-lock.json" in changed:
-            step(55, "Installation des dépendances front (npm install)")
+            step(55, "Installing frontend dependencies (npm install)")
             npm_i = _run(["npm", "install"], cwd=REPO_DIR / "dashboard", timeout=300)
             if npm_i.returncode != 0:
-                raise RuntimeError(f"npm install a échoué : {npm_i.stderr.strip()[:400]}")
+                raise RuntimeError(f"npm install failed: {npm_i.stderr.strip()[:400]}")
 
-        # Rebuild du front a chaque mise a jour (pas seulement si package.json
-        # a change -- le code source lui-meme a change dans la quasi-totalite
-        # des mises a jour, un rebuild systematique est le seul moyen fiable
-        # de ne jamais servir une interface perimee).
+        # Rebuild the frontend on every update (not only when package.json changed): the
+        # source code itself changed in almost every update, and a systematic rebuild is
+        # the only reliable way never to serve an outdated interface.
         step(70, "Reconstruction de l'interface (npm run build)")
         npm_b = _run(["npm", "run", "build"], cwd=REPO_DIR / "dashboard", timeout=300)
         if npm_b.returncode != 0:
-            raise RuntimeError(f"npm run build a échoué : {npm_b.stderr.strip()[:400]}")
+            raise RuntimeError(f"npm run build failed: {npm_b.stderr.strip()[:400]}")
 
-        # Pas de framework de migration de base (Alembic ou equivalent) dans
-        # ce projet -- le schema est cree via des CREATE TABLE IF NOT EXISTS
-        # idempotents (voir app/core/database.py::init_db), rejoues
-        # automatiquement au prochain demarrage. Rien a faire ici de plus.
-        step(85, "Vérification du schéma de base (pas de migration requise)")
+        # There is no database migration framework (Alembic or equivalent) in this
+        # project: the schema is created with idempotent CREATE TABLE IF NOT EXISTS (see
+        # app/core/database.py::init_db), replayed automatically at the next start.
+        # Nothing more to do here.
+        step(85, "Checking the database schema (no migration required)")
 
-        step(90, "Redémarrage du service et vérification post-mise à jour")
+        step(90, "Restarting the service and post-update verification")
         log_action(username, "hyperlite_update_step", f"{old_commit[:8]} -> {new_commit[:8]}", "succes")
 
-        # Le watchdog est lance AVANT le restart, en processus totalement
-        # detache (start_new_session) : il doit survivre a la mort de CE
-        # process Python quand systemctl le coupera. C'est lui, pas ce
-        # thread, qui verifie que le NOUVEAU code demarre correctement et
-        # fait le rollback automatique si non (voir scripts/update_watchdog.sh
-        # -- ce process-ci ne peut pas verifier son propre remplacement).
+        # The watchdog is started BEFORE the restart, as a fully detached process
+        # (start_new_session): it must survive the death of THIS Python process when
+        # systemctl stops it. It, not this thread, verifies that the NEW code starts
+        # correctly and rolls back automatically if not (see scripts/update_watchdog.sh;
+        # this process cannot verify its own replacement).
         subprocess.Popen(
             ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
-            start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         subprocess.Popen(
             ["bash", "-c", "sleep 2 && systemctl restart hyperlite"],
-            start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
-        # Ce process va mourir dans ~2s (le restart ci-dessus) : on marque la
-        # tache "terminee" par optimisme avant de mourir plutot que de laisser
-        # une tache eternellement "en_cours" -- le watchdog est le vrai filet
-        # si le nouveau code ne demarre pas.
+        # This process will die in ~2 s (the restart above): the task is marked
+        # "termine" optimistically before dying rather than leaving a task forever
+        # "en_cours". The watchdog is the real safety net if the new code does not start.
         finish_task(task_id, "termine")
         log_action(username, "hyperlite_update", f"{old_commit} -> {new_commit}", "succes")
 
     except Exception as exc:
-        # Tout echec avant le restart : le process en cours d'execution
-        # tourne encore sur l'ANCIEN code (aucun restart n'a encore ete
-        # declenche), donc rien ne casse pour les utilisateurs -- mais on
-        # remet quand meme l'arbre sur disque a l'ancien commit pour eviter
-        # qu'un redemarrage manuel ulterieur ne reprenne un code a moitie mis
-        # a jour.
+        # Any failure before the restart: the running process still runs the OLD code (no
+        # restart has been triggered yet), so nothing breaks for users. The tree on disk
+        # is still put back to the old commit so that a later manual restart does not pick
+        # up half-updated code.
         if old_commit:
             try:
                 _run(["git", "reset", "--hard", old_commit])
             except Exception:
-                pass
+                logger.exception("Rollback to the previous commit failed")
         finish_task(task_id, "echec", str(exc))
         log_action(username, "hyperlite_update", str(exc), "echec")
 
@@ -334,63 +327,68 @@ def _run_update_job_apt(task_id, username):
 
     old_version = _dpkg_installed_version()
     try:
-        step(5, "Sauvegarde de l'état actuel (code + config + base)")
+        step(5, "Backing up the current state (code + config + database)")
         tarball = _backup(task_id)
 
-        step(20, "Mise à jour de l'index APT")
-        # Voir _apt_update_with_retry ci-dessus : depot servi directement
-        # par kvm-lab (sans CDN), un retry modeste suffit desormais --
-        # legerement plus patient que /update/check car tache de fond
-        # (l'utilisateur voit deja une barre de progression).
+        step(20, "Updating the APT index")
+        # See _apt_update_with_retry above: the repository is served directly by nginx
+        # (no CDN), so a modest retry is now enough. Slightly more patient than
+        # /update/check since this is a background task (the user already sees a progress
+        # bar).
         upd = _apt_update_with_retry(attempts=6, delay_s=10, timeout=30)
         if upd is None or upd.returncode != 0:
-            detail = upd.stderr.strip()[:400] if upd is not None else "délai dépassé"
-            raise RuntimeError(f"apt-get update a échoué : {detail}")
+            detail = upd.stderr.strip()[:400] if upd is not None else "timed out"
+            raise RuntimeError(f"apt-get update failed: {detail}")
 
-        step(40, "Installation de la nouvelle version (apt-get install)")
-        # HYPERLITE_SKIP_RESTART : le postinst du paquet redemarre NORMALEMENT
-        # le service tout seul (comportement Debian standard, attendu par un
-        # admin qui lance `apt install` a la main en SSH) -- mais ICI,
-        # apt-get est un sous-processus du service hyperlite EN COURS
-        # D'EXECUTION (cette requete HTTP meme) : le laisser se redemarrer
-        # lui-meme depuis l'interieur de ce sous-processus tuerait apt-get en
-        # plein milieu de son propre postinst. Ce flag dit au postinst de
-        # NE PAS redemarrer, et c'est ce thread qui s'en charge juste apres,
-        # de la meme facon detachee que le chemin Git (Popen + sleep 2).
+        step(40, "Installing the new version (apt-get install)")
+        # HYPERLITE_SKIP_RESTART: the package's postinst NORMALLY restarts the service by
+        # itself (standard Debian behaviour, expected by an admin running `apt install`
+        # by hand over SSH). But HERE, apt-get is a subprocess of the RUNNING hyperlite
+        # service (this very HTTP request), and letting it restart itself from inside
+        # that subprocess would kill apt-get in the middle of its own postinst. This flag
+        # tells the postinst NOT to restart, and this thread does it right afterwards, in
+        # the same detached way as the Git path (Popen + sleep 2).
         env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
         install = subprocess.run(
             ["apt-get", "install", "--only-upgrade", "-y", "hyperlite"],
-            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300, env=env,
+            cwd=str(REPO_DIR),
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=env,
         )
         if install.returncode != 0:
-            raise RuntimeError(f"apt-get install a échoué : {install.stderr.strip()[:400]}")
+            raise RuntimeError(f"apt-get install failed: {install.stderr.strip()[:400]}")
         new_version = _dpkg_installed_version()
 
-        step(85, "Vérification du schéma de base (pas de migration requise)")
-        step(90, "Redémarrage du service et vérification post-mise à jour")
+        step(85, "Checking the database schema (no migration required)")
+        step(90, "Restarting the service and post-update verification")
         log_action(username, "hyperlite_update_step", f"{old_version} -> {new_version}", "succes")
 
-        # Meme filet de securite que le chemin Git : watchdog detache AVANT
-        # le restart (survit a la mort de ce process), qui verifie que le
-        # nouveau code demarre correctement et restaure le tarball sinon.
+        # The same safety net as the Git path: a detached watchdog BEFORE the restart
+        # (it survives the death of this process), which verifies that the new code starts
+        # correctly and restores the tarball otherwise.
         subprocess.Popen(
             ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
-            start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         subprocess.Popen(
             ["bash", "-c", "sleep 2 && systemctl restart hyperlite"],
-            start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
         finish_task(task_id, "termine")
         log_action(username, "hyperlite_update", f"{old_version} -> {new_version}", "succes")
 
     except Exception as exc:
-        # Pas de "dpkg reset --hard" symetrique au chemin Git ici -- un echec
-        # AVANT le restart signifie que l'ancien code tourne toujours (rien
-        # n'a ete redemarre), le tarball de sauvegarde + le watchdog restent
-        # le filet de securite reel si l'etat du paquet devait rester
-        # incoherent malgre tout.
+        # No "dpkg reset --hard" symmetric to the Git path here: a failure BEFORE the
+        # restart means the old code is still running (nothing was restarted), and the
+        # backup tarball plus the watchdog remain the real safety net should the package
+        # state stay inconsistent anyway.
         finish_task(task_id, "echec", str(exc))
         log_action(username, "hyperlite_update", str(exc), "echec")
 
@@ -407,7 +405,7 @@ def apply_update(user: dict = Depends(require_role("admin"))):
         log_action(user["username"], "hyperlite_update", "arbre non propre", "echec")
         raise HTTPException(
             status_code=409,
-            detail="Arbre de travail non propre (modifications non commitées) -- commitez ou annulez-les avant de mettre à jour.",
+            detail="Working tree is not clean (uncommitted changes): commit or discard them before updating.",
         )
 
     task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])

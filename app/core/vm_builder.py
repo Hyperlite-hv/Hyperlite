@@ -12,41 +12,43 @@ IMAGES_DIR = Path("/var/lib/libvirt/images")
 BASE_IMAGE = IMAGES_DIR / "base" / "debian-12-generic-amd64.qcow2"
 BASE_IMAGE_URL = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
 
-# Repertoire racine du projet (app/core/vm_builder.py -> app/core -> app -> racine),
-# calcule dynamiquement pour fonctionner quel que soit le chemin d'installation.
+# Project root directory (app/core/vm_builder.py -> app/core -> app -> root),
+# computed dynamically so it works whatever the installation path.
 PROJDIR = Path(__file__).resolve().parents[2]
 SSH_KEY_DIR = PROJDIR / "data" / "ssh"
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$")
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
-# sd(a), sd(b), sd(c)... utilise pour nommer les disques virtio-scsi d'une VM
+# sd(a), sd(b), sd(c)...: used to name the virtio-scsi disks of a VM
 SCSI_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
 
 def validate_name(name):
     if not NAME_RE.match(name):
-        return "Nom de VM invalide (lettres/chiffres/tirets, 2-63 caractères, doit commencer par une lettre ou un chiffre)"
+        return "Invalid VM name (letters/digits/dashes, 2-63 characters, must start with a letter or a digit)"
     return None
 
 
 def validate_username(username):
     if not USERNAME_RE.match(username):
-        return "Nom d'utilisateur invalide (minuscules/chiffres/tirets/underscore, doit commencer par une lettre minuscule ou _, 32 caractères max)"
+        return "Invalid username (lowercase letters/digits/dashes/underscores, must start with a lowercase letter or _, 32 characters max)"
     return None
 
 
 def _ensure_automation_keypair():
-    """Cle SSH dediee a Hyperlite (generee une seule fois sur le serveur), injectee
-    dans le cloud-init de chaque nouvelle VM pour permettre le terminal web SSH sans
-    mot de passe stocke cote serveur."""
+    """SSH key dedicated to Hyperlite (generated once on the server), injected into
+    the cloud-init of every new VM so the web SSH terminal works without any
+    password stored on the server side."""
     SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     priv = SSH_KEY_DIR / "hyperlite_automation"
     pub = SSH_KEY_DIR / "hyperlite_automation.pub"
     if not priv.exists():
         subprocess.run(
             ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", "hyperlite-automation"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         priv.chmod(0o600)
     return priv, pub
@@ -73,23 +75,30 @@ def ensure_base_image():
 
 
 def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
-    """Cree un disque qcow2 pour la VM. Le disque d'index 0 (systeme) est base sur
-    l'image cloud Debian par defaut ; les disques suivants sont toujours vierges
-    (stockage supplementaire). `blank=True` force un disque 0 vierge malgre tout --
-    utilise quand une VM demarre sur un ISO d'installation (voir create_vm) : il n'y
-    a alors rien a preinstaller, l'utilisateur installe son propre OS dessus.
-    `target_dir` (backlog 2026-09-18, choix du pool de stockage a la creation) :
-    chemin du pool choisi, resolu par l'appelant via libvirt -- IMAGES_DIR
-    (pool 'default') si non precise, comportement inchange."""
+    """Create a qcow2 disk for the VM. The disk at index 0 (system) is based on the
+    default Debian cloud image; the following disks are always blank (extra
+    storage). `blank=True` forces a blank disk 0 anyway, used when a VM boots
+    from an installation ISO (see create_vm): there is then nothing to
+    preinstall, and the user installs their own OS on it. `target_dir`: the
+    path of the chosen storage pool, resolved by the caller through libvirt.
+    It defaults to IMAGES_DIR (the 'default' pool), which leaves the historical
+    behaviour unchanged."""
     target_dir = target_dir or IMAGES_DIR
     disk_path = target_dir / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
     if index == 0 and not blank:
         ensure_base_image()
         subprocess.run(
             [
-                "qemu-img", "create", "-f", "qcow2",
-                "-F", "qcow2", "-b", str(BASE_IMAGE),
-                str(disk_path), f"{disk_gb}G",
+                "qemu-img",
+                "create",
+                "-f",
+                "qcow2",
+                "-F",
+                "qcow2",
+                "-b",
+                str(BASE_IMAGE),
+                str(disk_path),
+                f"{disk_gb}G",
             ],
             check=True,
             capture_output=True,
@@ -106,70 +115,79 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
 
 
 def create_zvol_disk(zfs_pool, vm_name, index, disk_gb, blank=False, import_source=None):
-    """Équivalent zvol de create_disk()/create_disk_from_import() (backlog
-    stockage 2026-09-18, pool ZFS géré par app/core/zfs_storage.py) : crée
-    un zvol brut au lieu d'un fichier qcow2, puis y écrit l'image cloud
-    Debian ou le disque importé via `qemu-img convert -O raw` -- qemu-img
-    sait écrire directement sur un périphérique bloc, aucune étape
-    intermédiaire nécessaire. Retourne un chemin PÉRIPHÉRIQUE
-    (/dev/zvol/<pool>/<nom>), pas un chemin de fichier -- à charge de
-    build_domain_xml() de l'attacher en <disk type='block'>, pas
-    type='file'.
+    """zvol equivalent of create_disk()/create_disk_from_import() (ZFS pool managed
+    by app/core/zfs_storage.py): creates a raw zvol instead of a qcow2 file, then
+    writes the Debian cloud image or the imported disk to it with
+    `qemu-img convert -O raw`. qemu-img can write directly to a block device, so
+    no intermediate step is needed. Returns a DEVICE path
+    (/dev/zvol/<pool>/<name>), not a file path, and build_domain_xml() must
+    attach it as <disk type='block'>, not type='file'.
 
-    `import_source` : taille dérivée du disque source (comme
-    create_disk_from_import, qui ignore aussi toute taille demandée) --
-    un zvol doit être créé à une taille explicite en octets, contrairement
-    à un qcow2 qui hérite implicitement de la taille virtuelle de son
-    fichier source."""
+    `import_source`: the size is derived from the source disk (like
+    create_disk_from_import, which also ignores any requested size). A zvol must
+    be created with an explicit size in bytes, unlike a qcow2 which implicitly
+    inherits the virtual size of its source file."""
     from app.core import zfs_storage
+
     zvol_name = vm_name if index == 0 else f"{vm_name}-{index + 1}"
     if import_source is not None:
         info = subprocess.run(
             ["qemu-img", "info", "--output=json", str(import_source)],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         import json
+
         virtual_size = json.loads(info.stdout)["virtual-size"]
-        size_gb = max(1, -(-virtual_size // (1024 ** 3)))  # arrondi au Go superieur
+        size_gb = max(1, -(-virtual_size // (1024**3)))  # arrondi au Go superieur
         dev_path = zfs_storage.create_zvol(zfs_pool, zvol_name, size_gb)
-        subprocess.run(["qemu-img", "convert", "-O", "raw", str(import_source), dev_path], check=True, capture_output=True, text=True)
+        subprocess.run(
+            ["qemu-img", "convert", "-O", "raw", str(import_source), dev_path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         return dev_path
 
     dev_path = zfs_storage.create_zvol(zfs_pool, zvol_name, disk_gb)
     if index == 0 and not blank:
         ensure_base_image()
-        subprocess.run(["qemu-img", "convert", "-O", "raw", str(BASE_IMAGE), dev_path], check=True, capture_output=True, text=True)
+        subprocess.run(
+            ["qemu-img", "convert", "-O", "raw", str(BASE_IMAGE), dev_path], check=True, capture_output=True, text=True
+        )
     return dev_path
 
 
 def create_disk_from_import(vm_name, source_path, target_dir=None):
-    """Cree le disque systeme (index 0) d'une VM a partir d'un fichier
-    disque deja uploade (voir app/routers/vm_disks.py, chantier 23) plutot
-    que de l'image cloud Debian par defaut ou d'un disque vierge -- chemin
-    "importer une VM depuis un disque" du formulaire de creation, alternatif
-    a ISO+kickstart. `qemu-img convert` detecte tout seul le format source
-    (raw/vmdk/vdi/vhd/qcow2/...), rien a lui preciser. `target_dir` : voir
-    create_disk()."""
+    """Create the system disk (index 0) of a VM from an already uploaded disk file
+    (see app/routers/vm_disks.py) instead of the default Debian cloud image or
+    a blank disk: this is the "import a VM from a disk" path of the creation
+    form, an alternative to ISO + kickstart. `qemu-img convert` detects the
+    source format by itself (raw/vmdk/vdi/vhd/qcow2/...), nothing to tell it.
+    `target_dir`: see create_disk()."""
     target_dir = target_dir or IMAGES_DIR
     disk_path = target_dir / f"{vm_name}.qcow2"
     subprocess.run(
         ["qemu-img", "convert", "-O", "qcow2", str(source_path), str(disk_path)],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     return disk_path
 
 
 def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_dir=None):
-    # Repertoire temporaire a permissions restreintes (0700, cree par mkdtemp),
-    # toujours nettoye ensuite : user-data contient le mot de passe en clair de
-    # la VM et ne doit pas survivre sur le disque hote au-dela de cette fonction.
+    # Temporary directory with restricted permissions (0700, created by mkdtemp),
+    # always cleaned up afterwards: user-data contains the VM's plain-text password
+    # and must not outlive this function on the host disk.
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-"))
     try:
         user_data = workdir / "user-data"
         meta_data = workdir / "meta-data"
 
         if any(c in password for c in ("\n", "\r")):
-            raise ValueError("Le mot de passe ne doit pas contenir de retour à la ligne")
+            raise ValueError("The password must not contain a line break")
         pwd_quoted = "'" + password.replace("'", "''") + "'"
         ud = [
             "#cloud-config",
@@ -206,23 +224,22 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_di
 
 
 def create_cloudinit_reseed_iso(vm_name):
-    """ISO cloud-init minimal pour un CLONE (voir clone_vm) : contrairement a
-    create_cloudinit_iso(), ne recree pas le compte utilisateur (le disque
-    clone en dispose deja -- copie du disque source -- et le mot de passe en
-    clair de la VM d'origine n'est de toute facon jamais conserve nulle part
-    par Hyperlite, impossible a reinjecter meme si on le voulait).
-    Se contente de changer le hostname et de fournir un nouvel instance-id :
-    cloud-init detecte alors une "nouvelle instance" au premier boot du clone
-    et regenere de lui-meme les cles hote SSH (module `ssh` de cloud-init,
-    comportement par defaut sur une instance jamais vue) et le hostname --
-    exactement le risque identifie a l'audit (clone qui demarre avec les
-    memes cles SSH hote et le meme hostname que l'original tant que rien ne
-    force cloud-init a se re-executer)."""
+    """Minimal cloud-init ISO for a CLONE (see clone_vm). Unlike
+    create_cloudinit_iso(), it does not recreate the user account (the cloned
+    disk already has it, being a copy of the source disk, and the original VM's
+    plain-text password is never kept anywhere by Hyperlite anyway, so it could
+    not be reinjected even if we wanted to). It only changes the hostname and
+    provides a new instance-id: cloud-init then detects a "new instance" at the
+    clone's first boot and regenerates the SSH host keys itself (cloud-init's
+    `ssh` module, the default behaviour on a never-seen instance) as well as the
+    hostname. This is exactly the risk identified in the audit: a clone booting
+    with the same SSH host keys and hostname as the original as long as nothing
+    forces cloud-init to run again."""
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-reseed-"))
     try:
         user_data = workdir / "user-data"
         meta_data = workdir / "meta-data"
-        user_data.write_text("#cloud-config\nhostname: {0}\nmanage_etc_hosts: true\n".format(vm_name))
+        user_data.write_text(f"#cloud-config\nhostname: {vm_name}\nmanage_etc_hosts: true\n")
         meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
 
         iso_path = IMAGES_DIR / f"{vm_name}-cloudinit.iso"
@@ -244,32 +261,33 @@ def _host_cpu_caps_xml(conn):
 
 
 def _compute_migratable_cpu_xml():
-    """Calcule un CPU 'plus petit denominateur commun' entre TOUS les nœuds
-    du cluster (chantier 15) + l'hote local, pour qu'une VM creee reste
-    migrable a chaud (chantier 27) vers n'importe quel nœud plutot que
-    d'etre figee sur les fonctions exactes du CPU qui l'a creee ('host-
-    model' seul fait exactement ca -- copie le modele le plus proche du
-    CPU LOCAL une fois pour toutes a la creation, incompatible avec un
-    nœud dont le CPU a ne serait-ce qu'une fonction en moins).
+    """Compute a 'lowest common denominator' CPU across ALL the cluster nodes plus the
+    local host, so a created VM stays live-migratable to any node instead of
+    being pinned to the exact features of the CPU that created it ('host-model'
+    alone does exactly that: it copies the model closest to the LOCAL CPU once
+    and for all at creation, incompatible with a node whose CPU lacks even one
+    feature).
 
-    Purement best-effort : retourne None (et build_domain_xml retombe sur
-    host-model, comportement identique a avant ce chantier) des qu'un seul
-    nœud existe ou que le calcul echoue pour QUELQUE RAISON QUE CE SOIT --
-    jamais bloquant pour la creation de VM. BUG D'ENVIRONNEMENT REEL
-    rencontre en testant avec un vrai second nœud physique (chantier 27) :
-    deux hotes Intel Skylake, mais des VERSIONS DE QEMU/libvirt differentes
-    embarquent des bases de modeles CPU differentes -- le modele exact
-    renvoye par l'un ('Skylake-Client-v3') est carrement INCONNU de
-    l'autre, `baselineCPU()` echoue avec 'Unknown CPU model'. Documente
-    dans CLAUDE.md comme limite connue plutot que masque."""
-    from app.core.cluster import list_nodes, build_libvirt_uri  # import tardif : cluster.py importe PROJDIR depuis CE module, cycle sinon
+    Purely best-effort: it returns None (and build_domain_xml falls back to
+    host-model, the behaviour before this feature) as soon as only one node
+    exists or the computation fails for ANY REASON, so it never blocks VM
+    creation. A REAL ENVIRONMENT PROBLEM seen when testing with a real second
+    physical node: two Intel Skylake hosts, but DIFFERENT QEMU/libvirt VERSIONS
+    ship different CPU model databases. The exact model returned by one
+    ('Skylake-Client-v3') is simply UNKNOWN to the other, and `baselineCPU()`
+    fails with 'Unknown CPU model'. It is a known limitation, documented rather
+    than hidden."""
+    from app.core.cluster import (  # late import: cluster.py imports PROJDIR from THIS module, a cycle otherwise
+        build_libvirt_uri,
+        list_nodes,
+    )
 
     try:
         nodes = list_nodes()
     except Exception:
         return None
     if not nodes:
-        return None  # un seul nœud (le local) : host-model suffit, rien a calculer
+        return None  # a single node (the local one): host-model is enough, nothing to compute
 
     cpu_xmls = []
     local_conn = None
@@ -290,25 +308,23 @@ def _compute_migratable_cpu_xml():
                     if remote_xml:
                         cpu_xmls.append(remote_xml)
             except libvirt.libvirtError:
-                pass  # nœud injoignable : ignore, pas fatal pour le calcul global
+                pass  # unreachable node: ignored, not fatal for the global computation
             finally:
                 if remote_conn is not None:
                     remote_conn.close()
 
         if len(cpu_xmls) < 2:
-            return None  # aucun autre nœud reellement joignable
+            return None  # no other node is really reachable
 
         return local_conn.baselineCPU(cpu_xmls, libvirt.VIR_CONNECT_BASELINE_CPU_MIGRATABLE)
     except libvirt.libvirtError:
-        # BUG D'ENVIRONNEMENT REEL (voir docstring ci-dessus, 'Unknown CPU
-        # model') -- automatise depuis le backlog 2026-09-18 : repli sur un
-        # CPU GENERIQUE portable plutot que host-model seul. host-model
-        # reste fige sur le CPU exact du nœud createur (incompatible avec
-        # l'autre par construction, aucune migration possible sans edition
-        # manuelle du XML) ; un CPU generique, meme moins optimal, permet
-        # au moins une migration REELLE sans intervention -- verifie
-        # fonctionnel entre kvm-lab et serveur-antho avant d'automatiser ce
-        # contournement (voir _generic_portable_cpu_xml()).
+        # REAL ENVIRONMENT PROBLEM (see the docstring above, 'Unknown CPU model'): fall
+        # back to a portable GENERIC CPU rather than host-model alone. host-model stays
+        # pinned to the exact CPU of the creating node (incompatible with the other node
+        # by construction, no migration possible without manually editing the XML),
+        # whereas a generic CPU, even if less optimal, at least allows a REAL migration
+        # without intervention. Verified working between two hosts before automating this
+        # workaround (see _generic_portable_cpu_xml()).
         return _generic_portable_cpu_xml()
     finally:
         if local_conn is not None:
@@ -316,17 +332,15 @@ def _compute_migratable_cpu_xml():
 
 
 def _generic_portable_cpu_xml():
-    """CPU 'qemu64' generique, avec svm/vmx explicitement desactives --
-    repli de DERNIER RECOURS (backlog 2026-09-18) quand baselineCPU()
-    echoue completement entre les nœuds du cluster (bases de modeles CPU
-    incompatibles, voir _compute_migratable_cpu_xml ci-dessus). `svm`
-    (virtualisation AMD) fait partie des fonctions ACTIVEES PAR DEFAUT du
-    modele 'qemu64' sur cette version de QEMU -- casse le demarrage sur un
-    hote Intel si on ne le desactive pas explicitement (constate en
-    testant ce contournement a la main avant de l'automatiser ici). `vmx`
-    desactive aussi par symetrie/prudence -- jamais rencontre comme
-    probleme reel, mais desactiver une fonction deja absente est un
-    no-op sans risque."""
+    """Generic 'qemu64' CPU with svm/vmx explicitly disabled: a LAST RESORT fallback
+    when baselineCPU() fails completely between the cluster nodes
+    (incompatible CPU model databases, see _compute_migratable_cpu_xml above).
+    `svm` (AMD virtualization) is among the features ENABLED BY DEFAULT in the
+    'qemu64' model on this QEMU version, and it breaks startup on an Intel host
+    unless explicitly disabled (seen when testing this workaround by hand before
+    automating it here). `vmx` is disabled too for symmetry and caution: never
+    seen as a real problem, but disabling a feature that is already absent is a
+    harmless no-op."""
     return (
         "<cpu mode='custom' match='exact'>"
         "<model fallback='forbid'>qemu64</model>"
@@ -336,27 +350,36 @@ def _generic_portable_cpu_xml():
     )
 
 
-def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, network="default", iso_path=None, seed_iso_path=None, mac=None, kernel_path=None, initrd_path=None, kernel_cmdline=None):
-    # Ordre de boot PAR PERIPHERIQUE (<boot order='N'/> sur chaque <disk>)
-    # plutot que la liste globale <os><boot dev=.../></os> : SeaBIOS ne fait
-    # pas de fallback fiable entre plusieurs CD-ROM IDE avec la liste globale
-    # (constate en test : il choisit le premier CD-ROM trouve, quel qu'il
-    # soit, et abandonne s'il n'est pas amorcable -- ce qui echouait des que
-    # l'ISO de reponses OEMDRV/cidata, jamais destine a etre amorce, passait
-    # avant le vrai ISO d'installation). Avec un ordre explicite par
-    # peripherique, seuls le disque systeme et l'ISO d'installation portent
-    # un <boot order>, l'ISO de reponses n'en porte aucun et n'est donc
-    # jamais tente comme peripherique de demarrage.
-    # Chaque element de disk_paths est soit un chemin de FICHIER (str/Path,
-    # comportement historique, qcow2) soit un tuple (chemin, 'block') pour
-    # un zvol ZFS brut (backlog stockage 2026-09-18, voir
-    # create_zvol_disk()) -- une VM peut librement melanger les deux (ex.
-    # disque systeme sur zvol + disque supplementaire qcow2 classique).
-    # <disk type='block'> + driver raw + <source dev=...> au lieu de
-    # type='file'/<source file=...> : c'est la difference XML qui permet a
-    # un peripherique bloc brut (zvol aujourd'hui, RBD Ceph demain --
-    # meme forme, seule la source du chemin change) d'etre attache comme
-    # n'importe quel autre disque.
+def build_domain_xml(
+    vm_name,
+    vcpu,
+    memory_mb,
+    disk_paths,
+    cloudinit_path,
+    network="default",
+    iso_path=None,
+    seed_iso_path=None,
+    mac=None,
+    kernel_path=None,
+    initrd_path=None,
+    kernel_cmdline=None,
+):
+    # Boot order PER DEVICE (<boot order='N'/> on each <disk>) rather than the
+    # global <os><boot dev=.../></os> list: SeaBIOS does not reliably fall back
+    # between several IDE CD-ROMs with the global list (it picks the first CD-ROM
+    # found whatever it is, and gives up if it is not bootable, which failed as soon
+    # as the OEMDRV/cidata answers ISO, never meant to be booted, came before the real
+    # installation ISO). With an explicit per-device order, only the system disk and
+    # the installation ISO carry a <boot order>, and the answers ISO carries none, so
+    # it is never tried as a boot device.
+    # Each element of disk_paths is either a FILE path (str/Path, the historical
+    # qcow2 behaviour) or a (path, 'block') tuple for a raw ZFS zvol (see
+    # create_zvol_disk()). A VM can freely mix the two (e.g. a system disk on a zvol
+    # plus an extra classic qcow2 disk).
+    # <disk type='block'> + driver raw + <source dev=...> instead of
+    # type='file'/<source file=...> is the XML difference that lets a raw block device
+    # (a zvol today, a Ceph RBD tomorrow: the same shape, only the source of the path
+    # changes) be attached like any other disk.
     disks_xml = ""
     for i, disk_entry in enumerate(disk_paths):
         if isinstance(disk_entry, (tuple, list)):
@@ -380,14 +403,12 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <target dev='{dev}' bus='scsi'/>{boot_order}
     </disk>"""
 
-    # L'ISO d'installation est place sur 'hda' (premier peripherique IDE) :
-    # la directive kickstart `cdrom` (voir unattended_install.py) installe
-    # depuis "le premier lecteur CD-ROM du systeme", sans scanner les autres
-    # -- constate en test, avec l'ISO de reponses sur 'hda' et l'ISO
-    # d'installation plus loin, Anaconda choisissait l'ISO de reponses
-    # (aucune donnee installable) et echouait avec "Installation source not
-    # set up". Le vrai media d'installation doit donc toujours occuper le
-    # premier slot.
+    # The installation ISO is placed on 'hda' (the first IDE device): the kickstart
+    # `cdrom` directive (see unattended_install.py) installs from "the first CD-ROM
+    # drive of the system" without scanning the others. Seen in testing: with the
+    # answers ISO on 'hda' and the installation ISO further along, Anaconda picked the
+    # answers ISO (no installable data) and failed with "Installation source not set
+    # up". The real installation medium must therefore always occupy the first slot.
     iso_xml = ""
     if iso_path:
         iso_xml = f"""
@@ -399,12 +420,11 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <boot order='2'/>
     </disk>"""
 
-    # cloudinit_path est optionnel : une VM demarree sur un ISO d'installation
-    # (disque systeme vierge, voir create_vm) n'a pas de cloud-init a injecter,
-    # l'OS et son compte utilisateur sont crees manuellement par l'installeur
-    # (ou automatiquement via seed_iso_path, voir juste en dessous). Jamais de
-    # <boot order> : ce disque ne doit jamais etre tente comme peripherique
-    # d'amorçage, seulement lu par l'OS une fois demarre.
+    # cloudinit_path is optional: a VM booted from an installation ISO (blank system
+    # disk, see create_vm) has no cloud-init to inject, and the OS and its user
+    # account are created manually by the installer (or automatically through
+    # seed_iso_path, see just below). Never a <boot order>: this disk must never be
+    # tried as a boot device, only read by the OS once started.
     cloudinit_xml = ""
     if cloudinit_path:
         cloudinit_xml = f"""
@@ -415,24 +435,21 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <readonly/>
     </disk>"""
 
-    # seed_iso_path : petit ISO de reponses (OEMDRV/kickstart ou cidata/
-    # autoinstall, voir app/core/unattended_install.py). Attache comme DISQUE
-    # (device='disk'), pas comme CD-ROM : deplacer l'ISO d'installation en
-    # premiere position IDE n'a pas suffi -- constate en test, la directive
-    # kickstart `cdrom` (voir unattended_install.py) continuait a echouer
-    # avec "Installation source not set up" des que deux lecteurs CD-ROM
-    # etaient presents, quel que soit leur ordre. En le presentant comme un
-    # disque plutot qu'un CD-ROM, il ne peut plus etre confondu avec la
-    # source d'installation (Anaconda ne le considere pas comme un lecteur
-    # optique) tout en restant detectable par etiquette de volume (OEMDRV /
-    # cidata) : c'est ce scan-la, et non le type de peripherique, qui importe
-    # pour la detection du kickstart/autoinstall. Aucun <boot order> non
-    # plus : jamais un media amorcable.
-    # Pas de <readonly/> ici : libvirt refuse ce flag sur un disque IDE de
-    # type 'disk' (seuls cdrom/floppy le supportent en IDE -- "unsupported
-    # configuration: readonly ide disks are not supported", constate en
-    # test). Sans consequence : ce fichier est une donnee jetable propre a
-    # cette VM, pas un ISO partage entre plusieurs VM comme iso_path.
+    # seed_iso_path: a small answers ISO (OEMDRV/kickstart or cidata/autoinstall, see
+    # app/core/unattended_install.py). It is attached as a DISK (device='disk'), not
+    # as a CD-ROM: moving the installation ISO to the first IDE position was not
+    # enough. Seen in testing, the kickstart `cdrom` directive kept failing with
+    # "Installation source not set up" as soon as two CD-ROM drives were present,
+    # whatever their order. Presented as a disk rather than a CD-ROM, it can no longer
+    # be mistaken for the installation source (Anaconda does not consider it an
+    # optical drive) while staying detectable by volume label (OEMDRV / cidata): it is
+    # that scan, not the device type, that matters for kickstart/autoinstall
+    # detection. No <boot order> either: never a bootable medium.
+    # No <readonly/> here: libvirt refuses that flag on an IDE disk of type 'disk'
+    # (only cdrom/floppy support it on IDE: "unsupported configuration: readonly ide
+    # disks are not supported", seen in testing). It makes no difference: this file is
+    # throwaway data specific to this VM, not an ISO shared between several VMs like
+    # iso_path.
     seed_xml = ""
     if seed_iso_path:
         seed_xml = f"""
@@ -442,21 +459,20 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
       <target dev='hdb' bus='ide'/>
     </disk>"""
 
-    # mac explicite (voir app/core/network_alloc.py) : permet de reserver une
-    # IP fixe cote reseau libvirt avant meme de definir le domaine, plutot
-    # que de laisser libvirt en generer une aleatoire.
+    # Explicit mac (see app/core/network_alloc.py): it allows reserving a fixed IP on
+    # the libvirt network side before even defining the domain, instead of letting
+    # libvirt generate a random one.
     mac_xml = f"<mac address='{mac}'/>\n      " if mac else ""
 
-    # kernel_path/initrd_path : demarrage direct d'un noyau/initrd extrait de
-    # l'ISO (voir app/core/unattended_install.py::extract_casper_kernel),
-    # utilise UNIQUEMENT pour le tout premier boot d'un autoinstall Ubuntu
-    # (seul moyen d'ajouter le mot-cle "autoinstall" sur la ligne de commande
-    # noyau et sauter la confirmation manuelle de Subiquity). IMPORTANT :
-    # cet override doit etre retire du XML PERSISTANT une fois l'installation
-    # terminee (voir vms.py::get_vm_provisioning, strip_install_boot_override
-    # ci-dessous) -- sinon la VM rebooterait indefiniment sur l'installeur
-    # live au lieu du systeme installe sur le disque, le <boot order> normal
-    # n'etant jamais consulte tant que <kernel>/<initrd> sont presents.
+    # kernel_path/initrd_path: direct boot of a kernel/initrd extracted from the ISO
+    # (see app/core/unattended_install.py::extract_casper_kernel), used ONLY for the
+    # very first boot of an Ubuntu autoinstall (the only way to add the "autoinstall"
+    # keyword to the kernel command line and skip Subiquity's manual confirmation).
+    # IMPORTANT: this override must be removed from the PERSISTENT XML once the
+    # installation is finished (see vms.py::get_vm_provisioning and
+    # strip_install_boot_override below), otherwise the VM would reboot forever into
+    # the live installer instead of the system installed on the disk, since the normal
+    # <boot order> is never consulted while <kernel>/<initrd> are present.
     os_extra_xml = ""
     if kernel_path:
         cmdline_xml = f"\n    <cmdline>{kernel_cmdline}</cmdline>" if kernel_cmdline else ""
@@ -464,11 +480,10 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
     <kernel>{kernel_path}</kernel>
     <initrd>{initrd_path}</initrd>{cmdline_xml}"""
 
-    # Chantier 27 (migration a chaud) : CPU "plus petit denominateur
-    # commun" du cluster quand c'est calculable (2+ nœuds joignables avec
-    # des CPU compatibles), sinon host-model classique -- voir la docstring
-    # de _compute_migratable_cpu_xml pour le detail (et sa limite reelle
-    # rencontree en test, documentee dans CLAUDE.md).
+    # Live migration: the cluster's "lowest common denominator" CPU when it can be
+    # computed (2+ reachable nodes with compatible CPUs), otherwise the classic
+    # host-model. See the docstring of _compute_migratable_cpu_xml for the detail
+    # (and its real limitation seen in testing).
     cluster_cpu_xml = _compute_migratable_cpu_xml()
     cpu_xml = cluster_cpu_xml if cluster_cpu_xml else "<cpu mode='host-model'/>"
 
@@ -508,15 +523,14 @@ def build_domain_xml(vm_name, vcpu, memory_mb, disk_paths, cloudinit_path, netwo
 
 
 def strip_install_boot_override(domain_xml):
-    """Retire <kernel>/<initrd>/<cmdline> du XML d'un domaine, s'ils sont
-    presents -- appele une fois un autoinstall Ubuntu termine (voir
-    vms.py::get_vm_provisioning) pour que les demarrages suivants utilisent a
-    nouveau le <boot order> normal (disque systeme) plutot que de rebooter
-    indefiniment sur le noyau/initrd live extrait de l'ISO (voir
-    build_domain_xml, parametre kernel_path). Ne modifie que le XML
-    PERSISTANT (conn.defineXML) : le domaine deja demarre continue de
-    tourner avec sa configuration live actuelle jusqu'au prochain
-    redemarrage, sans interruption."""
+    """Remove <kernel>/<initrd>/<cmdline> from a domain's XML, if present. Called
+    once an Ubuntu autoinstall has finished (see vms.py::get_vm_provisioning) so
+    that the following boots use the normal <boot order> (the system disk) again
+    instead of rebooting forever into the live kernel/initrd extracted from the
+    ISO (see build_domain_xml, the kernel_path parameter). It only modifies the
+    PERSISTENT XML (conn.defineXML): the already started domain keeps running
+    with its current live configuration until the next restart, with no
+    interruption."""
     root = ET.fromstring(domain_xml)
     os_elem = root.find("os")
     if os_elem is None:

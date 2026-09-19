@@ -1,18 +1,20 @@
-"""Shell interactif directement sur l'hote physique (le serveur qui fait
-tourner Hyperlite) -- equivalent DCUI/ESXi Shell de vSphere, mais un shell
-complet plutot qu'un menu restreint.
+"""Interactive shell directly on the physical host (the server running
+Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell but a full shell rather
+than a restricted menu.
 
-ATTENTION SECURITE : hyperlite.service tourne en root (voir le fichier unit
-systemd, pas de `User=`), donc ce shell est un acces root complet a la
-machine physique -- strictement plus sensible que le terminal SSH par VM
-deja existant (lui-meme deja limite aux admins pour la meme raison). Pas de
-sandboxing/liste blanche de commandes ici : la seule barriere est le controle
-d'acces (admin uniquement), un ticket a usage unique de duree de vie courte
-(comme les autres consoles), et une tracabilite complete (chaque ouverture
-et fermeture de session passe par app.core.tasks + app.core.audit, donc
-visible dans l'onglet Tâches ET dans le Journal).
+SECURITY WARNING: hyperlite.service runs as root (see the systemd unit file, no
+`User=`), so this shell is full root access to the physical machine, strictly
+more sensitive than the existing per-VM SSH terminal (itself already limited to
+admins for the same reason). There is no sandboxing or command allowlist here:
+the only barriers are access control (admins only), a short-lived single-use
+ticket (like the other consoles), and full traceability (every session opening
+and closing goes through app.core.tasks + app.core.audit, so it is visible in
+the Tasks tab AND in the Journal).
+
 """
+
 import asyncio
+import contextlib
 import fcntl
 import json
 import os
@@ -26,51 +28,54 @@ import termios
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
+from app.core import deployment_profile
 from app.core.audit import log_action
+from app.core.error_messages import describe_exception
+from app.core.host_capabilities import get_local_capabilities
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
-from app.core.host_capabilities import get_local_capabilities
 from app.core.vm_limits import compute_limits
-from app.core import deployment_profile
-from pydantic import BaseModel
-from app.core.error_messages import describe_exception
 
 router = APIRouter(prefix="/host", tags=["host"])
 
 
 @router.get("/limits")
 def host_vm_limits(user: dict = Depends(get_current_user)):
-    """Limites de ressources par VM derivees de l'hote reel (chantier 2 du
-    mandat portabilite) -- consommees par l'UI pour borner les champs, et
-    par la validation backend. Chaque limite indique sa source
-    (detecte/configuration/repli)."""
+    """Per-VM resource limits derived from the real host. Used by the UI to bound
+    form fields and by the backend validation. Each limit reports its source
+    (detected/configuration/fallback)."""
     return compute_limits()
 
 
 class ProfileChoice(BaseModel):
-    profil: str  # "auto" ou un nom de profil
+    profil: str  # "auto" or a profile name
 
 
 def _profile_payload():
     active = deployment_profile.get_active()
     limits = compute_limits(force=True)
     d = dict(active["reglages"]["vm_defaults"])
-    # Valeurs par defaut de l'assistant de creation : jamais au-dela des
-    # limites reellement calculees pour cet hote.
+    # Default values of the creation wizard: never beyond the limits actually
+    # computed for this host.
     d["vcpu"] = max(limits["vcpu"]["min"], min(d["vcpu"], limits["vcpu"]["max"]))
     d["memory_mb"] = max(limits["memoire_mo"]["min"], min(d["memory_mb"], limits["memoire_mo"]["max"]))
     d["disk_gb"] = max(limits["disque_go"]["min"], min(d["disk_gb"], limits["disque_go"]["max"]))
     from app.core import vm_limits
-    return {**active, "vm_defaults_effectifs": d, "profils": deployment_profile.PROFILES,
-            "allocation": {**vm_limits.get_policy(), "politiques": vm_limits.POLICIES}}
+
+    return {
+        **active,
+        "vm_defaults_effectifs": d,
+        "profils": deployment_profile.PROFILES,
+        "allocation": {**vm_limits.get_policy(), "politiques": vm_limits.POLICIES},
+    }
 
 
 @router.get("/profile")
 def host_profile(user: dict = Depends(get_current_user)):
-    """Profil de deploiement actif (chantier 5 du mandat portabilite) :
-    homelab/standard/avance, recommande par detection du materiel ou choisi
-    par un admin. Voir app/core/deployment_profile.py."""
+    """Active deployment profile: homelab/standard/advanced, recommended from the
+    detected hardware or chosen by an admin. See app/core/deployment_profile.py."""
     return _profile_payload()
 
 
@@ -78,9 +83,15 @@ def host_profile(user: dict = Depends(get_current_user)):
 def set_host_profile(payload: ProfileChoice, user: dict = Depends(require_role("admin"))):
     choice = payload.profil.strip().lower()
     if choice != "auto" and choice not in deployment_profile.PROFILES:
-        raise HTTPException(status_code=400, detail=f"Profil inconnu : {payload.profil} (auto, {', '.join(deployment_profile.PROFILES)})")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Profil inconnu : {payload.profil} (auto, {', '.join(deployment_profile.PROFILES)})",
+        )
     if deployment_profile.env_override():
-        raise HTTPException(status_code=409, detail="Le profil est forcé par la variable d'environnement HYPERLITE_PROFILE : elle est prioritaire sur ce choix.")
+        raise HTTPException(
+            status_code=409,
+            detail="The profile is forced by the HYPERLITE_PROFILE environment variable, which takes precedence over this choice.",
+        )
     deployment_profile.set_choice(choice)
     log_action(user["username"], "set_host_profile", "local", "succes", f"profil={choice}")
     return _profile_payload()
@@ -92,14 +103,20 @@ class AllocationChoice(BaseModel):
 
 @router.put("/allocation")
 def set_host_allocation(payload: AllocationChoice, user: dict = Depends(require_role("admin"))):
-    """Politique d'allocation des ressources de VM (limites/surallocation/
-    libre) -- voir app/core/vm_limits.py."""
+    """VM resource allocation policy (limits/overcommit/free). See
+    app/core/vm_limits.py."""
     from app.core import vm_limits
+
     choice = payload.politique.strip().lower()
     if choice not in vm_limits.POLICIES:
-        raise HTTPException(status_code=400, detail=f"Politique inconnue : {payload.politique} ({', '.join(vm_limits.POLICIES)})")
+        raise HTTPException(
+            status_code=400, detail=f"Politique inconnue : {payload.politique} ({', '.join(vm_limits.POLICIES)})"
+        )
     if vm_limits.env_policy():
-        raise HTTPException(status_code=409, detail="La politique est forcée par la variable d'environnement HYPERLITE_ALLOCATION : elle est prioritaire sur ce choix.")
+        raise HTTPException(
+            status_code=409,
+            detail="The policy is forced by the HYPERLITE_ALLOCATION environment variable, which takes precedence over this choice.",
+        )
     vm_limits.set_policy(choice)
     log_action(user["username"], "set_host_allocation", "local", "succes", f"politique={choice}")
     return _profile_payload()
@@ -107,57 +124,56 @@ def set_host_allocation(payload: AllocationChoice, user: dict = Depends(require_
 
 @router.get("/capabilities")
 def host_capabilities(user: dict = Depends(get_current_user)):
-    """Profil de capacites de l'hote LOCAL (mandat portabilite
-    2026-09-18, chantier 1 -- voir CLAUDE.md). Fondation pour les limites
-    de VM dynamiques, la page "Compatibilité et capacités" et le
-    diagnostic de compatibilite de cluster -- voir app/core/
-    host_capabilities.py pour le detail de chaque sous-profil."""
+    """Capability profile of the LOCAL host. The foundation for dynamic VM limits,
+    the "Compatibility and capabilities" page and the cluster compatibility
+    diagnostic. See app/core/host_capabilities.py for the detail of each
+    sub-profile."""
     try:
         result = get_local_capabilities()
     except Exception as e:
         msg = describe_exception(e)
         log_action(user["username"], "get_host_capabilities", "local", "echec", msg)
-        raise HTTPException(status_code=500, detail=f"Erreur de découverte des capacités : {msg}")
+        raise HTTPException(status_code=500, detail=f"Capability discovery error: {msg}") from e
     log_action(user["username"], "get_host_capabilities", "local", "succes")
     return result
 
+
 @router.get("/preflight")
 def host_preflight(user: dict = Depends(require_role("admin"))):
-    """Preflight check (mandat portabilite, chantier 3) rejoue a chaud sur
-    l'hote local : memes controles que a l'installation (voir
-    app/core/preflight.py), dependances Python sondees dans l'interpreteur
-    du service lui-meme."""
+    """Preflight check replayed live on the local host: the same checks as at
+    installation time (see app/core/preflight.py), with Python dependencies
+    probed in the interpreter of the running service itself."""
     import sys
+
     from app.core import preflight
+
     try:
         report = preflight.run(python=sys.executable, requirements=str(preflight.APP_DIR / "requirements.txt"))
     except Exception as e:
         msg = describe_exception(e)
         log_action(user["username"], "host_preflight", "local", "echec", msg)
-        raise HTTPException(status_code=500, detail=f"Erreur du preflight : {msg}")
+        raise HTTPException(status_code=500, detail=f"Preflight error: {msg}") from e
     log_action(user["username"], "host_preflight", "local", "succes")
     return report
 
 
-# Meme pattern ticket-court-duree-de-vie-a-usage-unique que TERMINAL_TICKETS
-# dans app/routers/vms.py (VM console/terminal) : un jeton JWT classique
-# resterait valide pour toute sa duree de vie si intercepte, un ticket est
-# consomme (pop) des la premiere connexion WebSocket.
+# Same single-use, short-lived ticket pattern as TERMINAL_TICKETS in
+# app/routers/vms.py (VM console/terminal): a regular JWT would stay valid for
+# its whole lifetime if intercepted, whereas a ticket is consumed (popped) on
+# the first WebSocket connection.
 HOST_SHELL_TICKETS = {}
 HOST_SHELL_TICKET_TTL = 30
 
 
 def _set_pty_size(fd, cols, rows):
-    try:
+    with contextlib.suppress(OSError):
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-    except OSError:
-        pass
 
 
 @router.post("/terminal-ticket")
 def create_host_terminal_ticket(user: dict = Depends(require_role("admin"))):
     now = time.time()
-    for old_ticket, (old_user, old_expiry) in list(HOST_SHELL_TICKETS.items()):
+    for old_ticket, (_old_user, old_expiry) in list(HOST_SHELL_TICKETS.items()):
         if old_expiry < now:
             HOST_SHELL_TICKETS.pop(old_ticket, None)
 
@@ -183,10 +199,9 @@ async def host_terminal(websocket: WebSocket):
     await websocket.accept()
     hostname = socket.gethostname()
 
-    # Une session shell peut durer des heures -- contrairement aux actions VM
-    # instantanees, "termine" a la cloture de la tache signifie ici juste
-    # "session fermee proprement" (voir aussi finish_task plus bas), pas un
-    # succes/echec d'operation au sens usuel.
+    # A shell session can last hours. Unlike instantaneous VM actions, "termine" at
+    # task closing only means "session closed cleanly" here (see also finish_task
+    # below), not a success/failure of an operation in the usual sense.
     task_id = create_task("host_shell", hostname, node=hostname, username=username)
     log_action(username, "host_shell_open", hostname, "succes")
 
@@ -196,19 +211,20 @@ async def host_terminal(websocket: WebSocket):
     try:
         proc = subprocess.Popen(
             [shell, "-l"],
-            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-            # Nouvelle session (setsid) : le shell obtient un vrai controle de
-            # terminal (Ctrl+C, job control, commandes interactives comme
-            # `top`/`vim`) au lieu de rester rattache au groupe de processus
-            # d'uvicorn.
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            # New session (setsid): the shell gets real terminal control (Ctrl+C, job
+            # control, interactive commands such as `top`/`vim`) instead of staying attached
+            # to uvicorn's process group.
             preexec_fn=os.setsid,
             env={**os.environ, "TERM": "xterm-256color"},
             close_fds=True,
         )
     finally:
-        # Le parent n'a plus besoin de son bout du pty une fois le process
-        # enfant lance (lui seul le garde ouvert via stdin/stdout/stderr) --
-        # sans ce close, master_fd ne verrait jamais d'EOF a la fin du shell.
+        # The parent no longer needs its end of the pty once the child process is
+        # started (only the child keeps it open through stdin/stdout/stderr). Without
+        # this close, master_fd would never see an EOF when the shell ends.
         os.close(slave_fd)
 
     os.set_blocking(master_fd, False)
@@ -222,10 +238,8 @@ async def host_terminal(websocket: WebSocket):
             data = b""
         queue.put_nowait(data)
         if not data:
-            try:
+            with contextlib.suppress(ValueError, OSError):
                 loop.remove_reader(master_fd)
-            except (ValueError, OSError):
-                pass
 
     loop.add_reader(master_fd, _on_readable)
 
@@ -255,33 +269,23 @@ async def host_terminal(websocket: WebSocket):
 
     task1 = asyncio.ensure_future(pty_to_ws())
     task2 = asyncio.ensure_future(ws_to_pty())
-    done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
+    _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
         t.cancel()
 
-    try:
+    with contextlib.suppress(ValueError, OSError):
         loop.remove_reader(master_fd)
-    except (ValueError, OSError):
-        pass
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError):
-        pass
-    try:
+    with contextlib.suppress(OSError):
         os.close(master_fd)
-    except OSError:
-        pass
     try:
         proc.wait(timeout=3)
     except subprocess.TimeoutExpired:
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
 
     finish_task(task_id, "termine")
     log_action(username, "host_shell_close", hostname, "succes")
-    try:
+    with contextlib.suppress(RuntimeError, WebSocketDisconnect):
         await websocket.close()
-    except (RuntimeError, WebSocketDisconnect):
-        pass

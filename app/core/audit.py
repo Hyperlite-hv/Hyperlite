@@ -1,38 +1,30 @@
-"""Journal d'audit. Voir _AUDIT_QUEUE plus bas pour pourquoi l'ecriture
-elle-meme est asynchrone depuis le chantier 31 (2026-09-17)."""
+"""Audit log. See _AUDIT_QUEUE below for why writes are asynchronous."""
+
 import queue
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from app.core.database import get_conn
 from app.core.tasks import _finish_task_in
 
-# BUG REEL trouve en testant le chantier 29 (2026-09-17), a REELLEMENT
-# IMPACTE L'UTILISATEUR EN SESSION ACTIVE (erreurs 500 visibles sur son
-# tableau de bord pendant le test) : log_action() est appelee par la
-# quasi-totalite des endpoints, MEME les simples GET en lecture seule --
-# il n'existe quasiment pas de "lecteur pur" dans cette app, chaque
-# requete HTTP est AUSSI une ecriture SQLite. Le mode WAL (chantier 11/13)
-# resout la contention LECTEUR-contre-ECRIVAIN, PAS ecrivain-contre-
-# ecrivain (un seul ecrivain a la fois, meme en WAL) -- sous plusieurs
-# requetes concurrentes, `database is locked` peut ressurgir malgre le
-# timeout 30s deja en place (confirme en conditions reelles).
+# Design note: log_action() is called by almost every endpoint, even plain
+# read-only GETs, so nearly every HTTP request also performs a SQLite write.
+# WAL mode resolves reader-versus-writer contention but not writer-versus-writer
+# contention (only one writer at a time, even in WAL), so "database is locked"
+# can resurface under concurrent requests despite the 30 s timeout.
 #
-# Plutot que d'ecrire directement dans SQLite depuis CHAQUE thread
-# appelant (autant de candidats "ecrivain" simultanes que de requetes en
-# vol), un unique thread dedie possede l'ecriture de l'audit log : chaque
-# appelant depose l'entree sur une file (rapide, non bloquant, jamais de
-# SQLite dans le thread de la requete) et repart immediatement ; le thread
-# d'ecriture les traite un par un, donc un SEUL ecrivain a la fois pour ce
-# chemin -- qui represente l'immense majorite du volume d'ecriture de
-# l'app (chaque requete). Ne resout pas TOUTES les ecritures concurrentes
-# possibles (d'autres tables sont encore ecrites directement ailleurs),
-# mais elimine la source la plus frequente.
+# Instead of writing to SQLite from every calling thread, a single dedicated
+# thread owns audit-log writes: callers enqueue the entry (fast, non-blocking,
+# no SQLite in the request thread) and return immediately, and the writer thread
+# processes entries one at a time. That gives a single writer for the path that
+# accounts for most of the application's write volume. Other tables are still
+# written directly elsewhere, so this does not remove every possible concurrent
+# write, only the most frequent source.
 #
-# maxsize borne : en cas de pic extreme (jamais rencontre en pratique),
-# `put_nowait` echoue plutot que de bloquer indefiniment la requete
-# appelante -- l'entree d'audit correspondante est alors perdue (loggee
-# sur stderr), prefere a un frein sur l'app elle-meme pour un simple
-# journal secondaire.
+# The queue is bounded: in an extreme burst put_nowait() fails rather than
+# blocking the calling request forever. The corresponding audit entry is then
+# lost (logged to stderr), which is preferable to slowing the application down
+# for a secondary log.
 _AUDIT_QUEUE = queue.Queue(maxsize=10000)
 _writer_started = False
 _writer_lock = threading.Lock()
@@ -50,7 +42,7 @@ def _writer_loop():
                 )
                 conn.commit()
         except Exception as e:
-            print(f"[audit] écriture échouée (entrée perdue) : {e!r}", flush=True)
+            print(f"[audit] write failed (entry lost): {e!r}", flush=True)
         finally:
             _AUDIT_QUEUE.task_done()
 
@@ -65,34 +57,35 @@ def _ensure_writer_started():
             _writer_started = True
 
 
-def log_action(username: str, action: str, resource: str, result: str, error_message: str = None, task_id: str = None):
-    """task_id : quand fourni (voir app.core.tasks.create_task), cloture aussi
-    la tache correspondante -- reste SYNCHRONE (contrairement a l'ecriture
-    d'audit elle-meme, voir plus bas) car des appelants relisent le statut
-    de la tache juste apres, une tache "en_cours" pour toujours le temps
-    qu'une file se vide serait un vrai regression -- un log_action(...,
-    "succes") ou (..., "echec") represente deja la fin de la tache pour
-    tous les endpoints synchrones actuels, pas la peine de dupliquer l'appel."""
+def log_action(
+    username: str, action: str, resource: str, result: str, error_message: str | None = None, task_id: str | None = None
+):
+    """task_id: when provided (see app.core.tasks.create_task), the matching task
+    is closed too. This stays SYNCHRONOUS (unlike the audit write itself, see
+    above) because callers read the task status right after: a task stuck in
+    "en_cours" until a queue drains would be a real regression. A
+    log_action(..., "succes") or (..., "echec") call already marks the end of
+    the task for every current synchronous endpoint."""
     if task_id:
         with get_conn() as conn:
             _finish_task_in(conn, task_id, "termine" if result == "succes" else "echec", error_message)
             conn.commit()
 
     _ensure_writer_started()
-    entry = (username, action, resource, result, error_message, datetime.now(timezone.utc).isoformat())
+    entry = (username, action, resource, result, error_message, datetime.now(UTC).isoformat())
     try:
         _AUDIT_QUEUE.put_nowait(entry)
     except queue.Full:
-        print(f"[audit] file pleine, entrée perdue : {entry}", flush=True)
+        print(f"[audit] queue full, entry lost: {entry}", flush=True)
 
-    # Notifications sortantes (chantier 28) : point d'entree UNIQUE plutot
-    # que d'appeler notify() a chaque site d'appel de log_action() dans
-    # tout le code. Lancee dans un thread separe (pas dans celui de la
-    # requete appelante) : notify() fait du RESEAU (webhook/SMTP, jusqu'a
-    # 10s de timeout par canal, chantier 28) -- bloquer la reponse HTTP le
-    # temps qu'un webhook distant reponde (ou timeout) serait un probleme
-    # de robustesse en soi, independant de SQLite.
-    from app.core.notifications import notify, NOTIFY_EVENTS
+    # Outbound notifications: a single entry point instead of calling notify() at
+    # every log_action() call site. It runs in a separate thread rather than in the
+    # calling request: notify() performs network I/O (webhook/SMTP, up to 10 s of
+    # timeout per channel), and blocking the HTTP response while a remote webhook
+    # answers (or times out) would be a robustness problem in itself, independent
+    # of SQLite.
+    from app.core.notifications import NOTIFY_EVENTS, notify
+
     if action in NOTIFY_EVENTS:
         title = f"{NOTIFY_EVENTS[action]} — {resource}"
         message = error_message or f"{action} sur '{resource}' : {result}"

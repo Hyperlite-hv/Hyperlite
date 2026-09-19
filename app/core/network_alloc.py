@@ -1,11 +1,11 @@
-"""IP fixe par VM sur les reseaux libvirt geres par Hyperlite (NAT/isole).
+"""Fixed IP per VM on the libvirt networks managed by Hyperlite (NAT/isolated).
 
-La VM continue de faire du DHCP normalement (aucun changement dans le
-cloud-init/kickstart/autoinstall existant) : on reserve juste, cote serveur
-DHCP du reseau libvirt lui-meme, une correspondance MAC -> IP fixe --
-`<host mac='...' ip='...'/>` dans la section <dhcp> du reseau. La VM recoit
-donc toujours la meme adresse, connue des la creation plutot que decouverte
-apres coup via le bail DHCP (ce que fait `_get_ip` dans vms.py aujourd'hui)."""
+The VM keeps using DHCP as usual (no change to the existing cloud-init,
+kickstart or autoinstall): only a MAC -> fixed IP mapping is reserved on the
+libvirt network's own DHCP server (`<host mac='...' ip='...'/>` in the <dhcp>
+section of the network). The VM therefore always gets the same address, known
+at creation time instead of being discovered afterwards from the DHCP lease
+(which is what `_get_ip` in vms.py does)."""
 
 import ipaddress
 import random
@@ -15,20 +15,21 @@ import libvirt
 
 
 def generate_mac(conn):
-    """MAC aleatoire au prefixe QEMU/libvirt standard (52:54:00), verifiee libre
-    parmi les baux actifs de tous les reseaux geres par ce connecteur."""
+    """Random MAC in the standard QEMU/libvirt prefix (52:54:00), checked free among
+    the active leases of every network managed by this connector."""
     for _ in range(20):
-        mac = "52:54:00:%02x:%02x:%02x" % (
-            random.randint(0, 255), random.randint(0, 255), random.randint(0, 255),
+        # Non-cryptographic randomness is fine: this only avoids MAC collisions.
+        mac = "52:54:00:%02x:%02x:%02x" % (  # noqa: UP031
+            random.randint(0, 255),  # noqa: S311
+            random.randint(0, 255),  # noqa: S311
+            random.randint(0, 255),  # noqa: S311
         )
         collision = any(
-            lease.get("mac", "").lower() == mac.lower()
-            for net in conn.listAllNetworks()
-            for lease in net.DHCPLeases()
+            lease.get("mac", "").lower() == mac.lower() for net in conn.listAllNetworks() for lease in net.DHCPLeases()
         )
         if not collision:
             return mac
-    raise RuntimeError("Impossible de generer une adresse MAC libre apres 20 tentatives")
+    raise RuntimeError("Unable to generate a free MAC address after 20 attempts")
 
 
 def _dhcp_range(network):
@@ -52,10 +53,10 @@ def _used_ips(network):
 
 
 def allocate_static_ip(conn, network_name, mac):
-    """Reserve la premiere IP libre de la plage DHCP du reseau pour ce MAC.
-    Retourne l'IP allouee, ou None si le reseau n'a pas de DHCP configure ou
-    si la plage est epuisee (la creation de VM continue dans ce cas -- IP
-    fixe manquee plutot que creation bloquee)."""
+    """Reserve the first free IP of the network's DHCP range for this MAC. Returns
+    the allocated IP, or None when the network has no DHCP configured or the
+    range is exhausted (VM creation continues in that case: a missing fixed IP
+    rather than blocked creation)."""
     network = conn.networkLookupByName(network_name)
     rng = _dhcp_range(network)
     if rng is None:
@@ -72,7 +73,8 @@ def allocate_static_ip(conn, network_name, mac):
             network.update(
                 libvirt.VIR_NETWORK_UPDATE_COMMAND_ADD_LAST,
                 libvirt.VIR_NETWORK_SECTION_IP_DHCP_HOST,
-                -1, host_xml,
+                -1,
+                host_xml,
                 libvirt.VIR_NETWORK_UPDATE_AFFECT_LIVE | libvirt.VIR_NETWORK_UPDATE_AFFECT_CONFIG,
             )
             return candidate
@@ -80,8 +82,8 @@ def allocate_static_ip(conn, network_name, mac):
 
 
 def release_static_ip(conn, network_name, mac):
-    """Retire la reservation DHCP de ce MAC (appele a la suppression de la VM,
-    pour ne pas epuiser la plage au fil du temps)."""
+    """Remove this MAC's DHCP reservation (called when the VM is deleted, so the
+    range is not exhausted over time)."""
     try:
         network = conn.networkLookupByName(network_name)
     except libvirt.libvirtError:
@@ -93,7 +95,8 @@ def release_static_ip(conn, network_name, mac):
             network.update(
                 libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE,
                 libvirt.VIR_NETWORK_SECTION_IP_DHCP_HOST,
-                -1, host_xml,
+                -1,
+                host_xml,
                 libvirt.VIR_NETWORK_UPDATE_AFFECT_LIVE | libvirt.VIR_NETWORK_UPDATE_AFFECT_CONFIG,
             )
             return True

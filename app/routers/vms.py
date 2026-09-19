@@ -1,45 +1,73 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
-import libvirt
-import re
 import asyncio
-import threading
-from fastapi import WebSocket, WebSocketDisconnect
-from app.core.libvirt_utils import ensure_vnc_graphics
+import json
+import logging
+import re
 import secrets
+import subprocess
+import threading
 import time
+import xml.etree.ElementTree as ET
+from datetime import UTC, datetime
 from pathlib import Path
+from xml.sax.saxutils import escape
+
+import asyncssh
+import libvirt
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
+
+from app.core import cluster_compat, zfs_storage
+from app.core.audit import log_action
+from app.core.error_messages import describe_exception
+from app.core.libvirt_utils import (
+    domain_disk_paths,
+    ensure_vnc_graphics,
+    get_vm_uptime_s,
+    open_conn,
+    pool_type_and_target_path,
+    uses_shared_storage,
+)
+from app.core.network_alloc import allocate_static_ip, generate_mac, release_static_ip
+from app.core.permissions import delete_acl_for_vm, remove_vm_from_all_pools
+from app.core.security import get_current_user, require_role, require_vm_privilege
+from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.unattended_install import build_seed_iso, detect_os_family, extract_casper_kernel
+from app.core.vm_builder import (
+    IMAGES_DIR,
+    build_domain_xml,
+    create_cloudinit_iso,
+    create_cloudinit_reseed_iso,
+    create_disk,
+    create_disk_from_import,
+    create_zvol_disk,
+    get_automation_private_key_path,
+    get_or_create_automation_pubkey,
+    strip_install_boot_override,
+    validate_name,
+    validate_username,
+)
+from app.core.vm_limits import validate_vm_resources
+from app.core.vm_meta import (
+    clear_provisioning,
+    delete_vm_auto_cleanup,
+    delete_vm_os_label,
+    delete_vm_ssh_user,
+    get_provisioning,
+    get_vm_auto_cleanup,
+    get_vm_os_label,
+    get_vm_ssh_user,
+    mark_provisioning,
+    rename_vm_os_label,
+    rename_vm_ssh_user,
+    set_vm_auto_cleanup,
+    set_vm_os_label,
+    set_vm_ssh_user,
+    touch_vm_activity,
+)
 from app.routers.isos import ISOS_DIR
 from app.routers.vm_disks import IMPORTED_DISKS_DIR
-import subprocess
-import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
 
-from app.core.libvirt_utils import open_conn, get_vm_uptime_s, uses_shared_storage, pool_type_and_target_path, domain_disk_paths
-from app.core import cluster_compat
-from app.core.security import get_current_user, require_role, require_vm_privilege
-from app.core.audit import log_action
-from app.core.tasks import create_task, finish_task, update_task_progress
-from app.core.error_messages import describe_exception
-from app.core.vm_limits import validate_vm_resources
-from app.core.vm_builder import (
-    validate_name, validate_username, create_disk, create_disk_from_import, create_cloudinit_iso, create_cloudinit_reseed_iso,
-    build_domain_xml, get_or_create_automation_pubkey, get_automation_private_key_path, IMAGES_DIR,
-    strip_install_boot_override, create_zvol_disk,
-)
-from app.core import zfs_storage
-from app.core.unattended_install import detect_os_family, build_seed_iso, extract_casper_kernel
-from app.core.vm_meta import (
-    set_vm_ssh_user, get_vm_ssh_user, delete_vm_ssh_user, rename_vm_ssh_user,
-    mark_provisioning, get_provisioning, clear_provisioning,
-    set_vm_os_label, get_vm_os_label, delete_vm_os_label, rename_vm_os_label,
-    set_vm_auto_cleanup, get_vm_auto_cleanup, delete_vm_auto_cleanup, touch_vm_activity,
-)
-from app.core.permissions import delete_acl_for_vm, remove_vm_from_all_pools
-from app.core.network_alloc import generate_mac, allocate_static_ip, release_static_ip
-from xml.sax.saxutils import escape
-import json
-import asyncssh
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -65,12 +93,12 @@ def _get_ip(domain):
                 if addr.get("type") == 0:
                     return addr.get("addr")
     except libvirt.libvirtError:
-        pass
+        logger.debug("Ignored exception in _get_ip()", exc_info=True)
     return None
 
 
 def _domain_summary(domain):
-    state, maxmem, mem, nvcpu, cputime = domain.info()
+    state, maxmem, _mem, nvcpu, _cputime = domain.info()
     active = domain.isActive()
     return {
         "nom": domain.name(),
@@ -83,27 +111,23 @@ def _domain_summary(domain):
         "utilisateur_ssh": get_vm_ssh_user(domain.name()),
         "uptime_s": get_vm_uptime_s(domain.name()) if active else None,
         "os": get_vm_os_label(domain.name()),
-        # BUG REEL trouve en testant l'UI des snapshots dans un vrai
-        # navigateur (backlog stockage 2026-09-18, phase 3) : le frontend
-        # deduisait "VM sur pool ZFS" depuis la liste des snapshots
-        # EXISTANTS (etat_vm=='disque_seul') -- faux pour le TOUT PREMIER
-        # snapshot d'une VM (liste encore vide, rien a en deduire), donc
-        # le texte qcow2 ("mémoire incluse automatiquement") s'affichait
-        # a tort pendant sa creation. Expose directement ici plutot que
-        # de laisser le frontend deviner depuis un etat derive.
+        # Exposed directly here rather than letting the frontend guess from a derived
+        # state: the frontend used to deduce "VM on a ZFS pool" from the list of EXISTING
+        # snapshots (etat_vm=='disque_seul'), which is wrong for the VERY FIRST snapshot
+        # of a VM (an empty list, nothing to deduce), so the qcow2 wording ("memory
+        # included automatically") was wrongly shown while it was being created.
         "stockage_zfs": bool(_zvol_disks_of_domain(domain)),
     }
 
 
 @router.get("")
 def list_vms(node: str | None = None, user: dict = Depends(get_current_user)):
-    """node : nom d'un noeud distant enregistre (chantier 15) pour lister SES
-    VM au lieu de celles de l'hote local -- omis ou None = comportement
-    inchange (hote local). Auparavant le frontend n'avait aucun moyen
-    d'interroger un noeud distant ici, donc les VM d'un noeud enregistre
-    n'apparaissaient jamais dans l'arbre principal (seul l'onglet dedie
-    "Noeuds" les affichait, via /nodes/{name}/summary) -- bug reel signale
-    en testant un vrai second noeud physique."""
+    """node: the name of a registered remote node, to list ITS VMs instead of those
+    of the local host. Omitted or None = unchanged behaviour (local host).
+    The frontend used to have no way to query a remote node here, so the VMs of
+    a registered node never appeared in the main tree (only the dedicated
+    "Nodes" tab showed them, through /nodes/{name}/summary): a real bug reported
+    when testing with a real second physical node."""
     conn = open_conn(node)
     try:
         domains = conn.listAllDomains()
@@ -120,9 +144,9 @@ def get_vm(name: str, user: dict = Depends(get_current_user)):
     try:
         domain = conn.lookupByName(name)
     except libvirt.libvirtError:
-        log_action(user["username"], "get_vm", name, "echec", "VM introuvable")
+        log_action(user["username"], "get_vm", name, "echec", "VM not found")
         conn.close()
-        raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
     result = _domain_summary(domain)
     conn.close()
     log_action(user["username"], "get_vm", name, "succes")
@@ -130,8 +154,8 @@ def get_vm(name: str, user: dict = Depends(get_current_user)):
 
 
 class VMUpdate(BaseModel):
-    # Bornes hautes DYNAMIQUES (app/core/vm_limits.py, mandat portabilite
-    # 2026-09-18) : validees dans l'endpoint, plus figees a 2 vCPU/2 Go.
+    # DYNAMIC upper bounds (app/core/vm_limits.py): validated in the endpoint, no
+    # longer frozen at 2 vCPU / 2 GB.
     vcpu: int | None = Field(default=None, ge=1)
     memory_mb: int | None = Field(default=None, ge=1)
 
@@ -139,7 +163,7 @@ class VMUpdate(BaseModel):
 @router.patch("/{name}")
 def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_privilege("vm.resize"))):
     if payload.vcpu is None and payload.memory_mb is None:
-        raise HTTPException(status_code=422, detail="Aucune modification demandée (vcpu ou memory_mb requis)")
+        raise HTTPException(status_code=422, detail="No change requested (vcpu or memory_mb required)")
     limit_errors = validate_vm_resources(payload.vcpu, payload.memory_mb)
     if limit_errors:
         raise HTTPException(status_code=422, detail=limit_errors)
@@ -149,17 +173,17 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "update_vm", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "update_vm", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if domain.isActive():
             log_action(user["username"], "update_vm", name, "echec", "VM active")
-            raise HTTPException(status_code=409, detail="Arrêtez la VM avant de modifier ses ressources")
+            raise HTTPException(status_code=409, detail="Stop the VM before changing its resources")
 
         try:
             if payload.vcpu is not None:
-                # Le max doit etre ajuste avant (ou en meme temps que) le courant,
-                # sinon libvirt refuse un "courant" superieur a l'ancien max.
+                # The max must be adjusted before (or at the same time as) the current value,
+                # otherwise libvirt refuses a "current" value above the old max.
                 domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_VCPU_MAXIMUM)
                 domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
             if payload.memory_mb is not None:
@@ -169,7 +193,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "update_vm", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de mise à jour des ressources : {msg}")
+            raise HTTPException(status_code=500, detail=f"Resource update error: {msg}") from e
 
         domain = conn.lookupByName(name)
         result = _domain_summary(domain)
@@ -179,41 +203,41 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
         conn.close()
 
 
-# --- Limites et reservations de ressources (chantier 6 de la roadmap
-# vSphere/vCenter, 2026-09-13) -- equivalent simplifie des Resource Pools
-# vSphere (reservation/limit/shares), applique via les mecanismes cgroups
-# que libvirt expose directement (schedulerParametersFlags/memoryParameters -
-# pas de manipulation XML manuelle necessaire, contrairement au reste du
-# fichier, ces deux appels existent tels quels dans l'API libvirt).
+# --- Resource limits and reservations: a simplified equivalent of vSphere
+# Resource Pools (reservation/limit/shares), applied through the cgroup
+# mechanisms that libvirt exposes directly (schedulerParametersFlags and
+# memoryParameters). No manual XML manipulation is needed, unlike the rest of
+# this file: these two calls exist as is in the libvirt API.
 #
-# Simplifications assumees (a documenter cote utilisateur, pas de sur-
-# ingenierie a la vSphere complet) :
-# - CPU "shares" : priorite RELATIVE en cas de contention reelle du/des
-#   coeurs hote (cgroup cpu.shares, defaut 1024) -- pas une garantie absolue,
-#   n'a aucun effet tant que l'hote n'est pas sature.
-# - CPU "limite" : plafond dur en % d'un coeur PAR vCPU (cgroup
-#   cpu.cfs_quota_us/cfs_period_us via vcpu_quota/vcpu_period) -- une VM a 2
-#   vCPU avec 50% de limite peut consommer au plus l'equivalent d'1 coeur
-#   plein, jamais plus, meme si l'hote est inactif.
-# - RAM : PAS de vraie "reservation garantie" ici -- libvirt expose bien
-#   <memtune><min_guarantee> dans son schema XML, mais ce champ n'est
-#   respecte que par l'hyperviseur Xen, c'est un no-op cote QEMU/KVM (verifie
-#   dans la documentation libvirt). La seule reservation RAM reelle sur
-#   KVM consiste a ne pas suralouer l'hote (verifier RAM disponible avant
-#   d'augmenter memory_mb, deja fait par update_vm). Ce qui EST reellement
-#   applique ici : une limite dure separee de la RAM allouee
-#   (<memtune><hard_limit>, cgroup memory.limit_in_bytes) -- utile pour
-#   plafonner un processus qemu qui deriverait au-dela de la RAM allouee a
-#   l'invite, pas pour garantir un minimum.
-UNLIMITED_KB = 9007199254740991  # sentinelle documentee par libvirt pour "pas de limite"
+# Deliberate simplifications (to be documented for the user, no over-engineering
+# at the level of full vSphere):
+# - CPU "shares": RELATIVE priority under real contention for the host core(s)
+#   (cgroup cpu.shares, default 1024). It is not an absolute guarantee and has no
+#   effect as long as the host is not saturated.
+# - CPU "limit": a hard cap in % of one core PER vCPU (cgroup
+#   cpu.cfs_quota_us/cfs_period_us through vcpu_quota/vcpu_period). A VM with 2
+#   vCPUs and a 50% limit can consume at most the equivalent of 1 full core,
+#   never more, even if the host is idle.
+# - RAM: NO real "guaranteed reservation" here. libvirt does expose
+#   <memtune><min_guarantee> in its XML schema, but that field is only honoured by
+#   the Xen hypervisor and is a no-op on QEMU/KVM (checked in the libvirt
+#   documentation). The only real RAM reservation on KVM is not to over-allocate
+#   the host (check the available RAM before raising memory_mb, already done by
+#   update_vm). What IS really applied here: a hard limit separate from the
+#   allocated RAM (<memtune><hard_limit>, cgroup memory.limit_in_bytes), useful
+#   to cap a qemu process that would drift beyond the RAM allocated to the guest,
+#   not to guarantee a minimum.
+UNLIMITED_KB = 9007199254740991  # sentinel documented by libvirt for "no limit"
 DEFAULT_CPU_SHARES = 1024
-CPU_PERIOD_US = 100000  # periode cgroup standard (100ms), coherent avec le defaut libvirt
+CPU_PERIOD_US = 100000  # standard cgroup period (100 ms), consistent with the libvirt default
 
 
 class ResourceLimits(BaseModel):
     cpu_shares: int = Field(DEFAULT_CPU_SHARES, ge=2, le=262144)
-    cpu_limit_pct: int | None = Field(None, ge=1, le=100, description="% d'un coeur hote PAR vCPU ; null = illimité")
-    mem_hard_limit_mb: int | None = Field(None, ge=64, description="Plafond dur RAM en Mo, distinct de la RAM allouée ; null = illimité")
+    cpu_limit_pct: int | None = Field(None, ge=1, le=100, description="% of one host core PER vCPU; null = unlimited")
+    mem_hard_limit_mb: int | None = Field(
+        None, ge=64, description="Hard RAM cap in MB, separate from the allocated RAM; null = unlimited"
+    )
 
 
 def _limits_summary(domain):
@@ -228,8 +252,8 @@ def _limits_summary(domain):
         cpu_limit_pct = round((quota / period) / nvcpu * 100)
     hard_limit_kb = mem.get("hard_limit", UNLIMITED_KB)
     return {
-        # libvirt renvoie 0 tant qu'aucune valeur explicite n'a jamais ete
-        # posee (le defaut effectif cote cgroup est 1024, pas 0).
+        # libvirt returns 0 as long as no explicit value was ever set (the effective
+        # cgroup default is 1024, not 0).
         "cpu_shares": sched.get("cpu_shares") or DEFAULT_CPU_SHARES,
         "cpu_limit_pct": cpu_limit_pct,
         "mem_hard_limit_mb": None if hard_limit_kb >= UNLIMITED_KB else round(hard_limit_kb / 1024),
@@ -243,7 +267,7 @@ def get_vm_limits(name: str, user: dict = Depends(require_vm_privilege("vm.resiz
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         return _limits_summary(domain)
     finally:
         conn.close()
@@ -256,14 +280,12 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_limits", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "set_vm_limits", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         nvcpu = domain.info()[3] or 1
-        if payload.cpu_limit_pct is None:
-            vcpu_quota = -1  # convention libvirt : illimite
-        else:
-            vcpu_quota = int(CPU_PERIOD_US * nvcpu * payload.cpu_limit_pct / 100)
+        # libvirt convention: -1 means unlimited
+        vcpu_quota = -1 if payload.cpu_limit_pct is None else int(CPU_PERIOD_US * nvcpu * payload.cpu_limit_pct / 100)
 
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
         if domain.isActive():
@@ -279,7 +301,7 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "set_vm_limits", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur d'application des limites : {msg}")
+            raise HTTPException(status_code=500, detail=f"Error applying the limits: {msg}") from e
 
         log_action(user["username"], "set_vm_limits", name, "succes")
         return _limits_summary(domain)
@@ -297,32 +319,27 @@ class VMCreate(BaseModel):
     memory_mb: int = Field(ge=1)
     disks: list[DiskSpec] = Field(min_length=1)
     network: str = "default"
-    # Optionnels : sans objet quand un ISO d'installation est fourni (pas de
-    # cloud-init dans ce cas, voir plus bas -- l'utilisateur cree son propre
-    # compte pendant l'installation manuelle de l'OS).
+    # Optional: not applicable when an installation ISO is provided (there is no
+    # cloud-init in that case, see below: the user creates their own account during
+    # the manual OS installation).
     username: str | None = None
     password: str | None = None
     iso: str | None = None
-    # Nom d'un fichier deja uploade via POST /vm-disks (voir app/routers/
-    # vm_disks.py, chantier 23) : la VM demarre directement sur ce disque
-    # (deja un OS installe dessus) au lieu de l'image Debian 12 preinstallee
-    # ou d'un ISO d'installation -- mutuellement exclusif avec `iso`.
+    # Name of a file already uploaded through POST /vm-disks (see
+    # app/routers/vm_disks.py): the VM boots directly from this disk (an OS is already
+    # installed on it) instead of the preinstalled Debian 12 image or an installation
+    # ISO. Mutually exclusive with `iso`.
     import_disk: str | None = None
-    # Choix du pool de stockage (backlog 2026-09-18) : None/absent = pool
-    # 'default' (comportement historique, /var/lib/libvirt/images),
-    # inchangé par défaut. Nécessaire pour qu'une VM protégée HA
-    # (chantier 17) ou destinée à la migration à chaud (chantier 27)
-    # puisse réellement être créée sur du stockage partagé (chantier 26)
-    # sans déplacer son disque à la main après coup -- lacune identifiée
-    # et documentée en testant le chantier 17 ("sans un moyen de choisir
-    # le pool à la création, personne ne peut réalistiquement utiliser
-    # la protection HA").
+    # Storage pool choice: None/absent = the 'default' pool (the historical
+    # behaviour, /var/lib/libvirt/images), unchanged by default. Needed so that an
+    # HA-protected VM, or one meant for live migration, can really be created on
+    # shared storage without moving its disk by hand afterwards: without a way to
+    # choose the pool at creation, nobody could realistically use HA protection.
     storage_pool: str | None = None
-    # Suppression automatique des VM inactives (chantier 19) : opt-in,
-    # None/absent = jamais activee (comportement inchange par defaut). Le
-    # compteur ne court que pendant que la VM est ARRETEE (voir
-    # touch_vm_activity, appelee a chaque demarrage) -- une VM qui tourne
-    # en continu n'est jamais consideree "inactive" quel que soit le seuil.
+    # Automatic deletion of inactive VMs: opt-in, None/absent = never enabled
+    # (unchanged behaviour by default). The counter only runs while the VM is
+    # STOPPED (see touch_vm_activity, called on every start): a VM that runs
+    # continuously is never considered "inactive", whatever the threshold.
     auto_cleanup_days: int | None = Field(None, ge=1, le=365)
 
 
@@ -338,37 +355,35 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     if payload.iso:
         candidate = ISOS_DIR / payload.iso
         if not candidate.exists():
-            errors.append(f"ISO '{payload.iso}' introuvable")
+            errors.append(f"ISO '{payload.iso}' not found")
         else:
             iso_path = candidate
 
     import_disk_path = None
     if payload.import_disk:
         if payload.iso:
-            errors.append("Impossible de combiner import de disque et ISO d'installation")
+            errors.append("Cannot combine a disk import with an installation ISO")
         candidate = IMPORTED_DISKS_DIR / payload.import_disk
         if not candidate.exists():
-            errors.append(f"Disque importé '{payload.import_disk}' introuvable")
+            errors.append(f"Imported disk '{payload.import_disk}' not found")
         else:
             import_disk_path = candidate
 
-    # Mode "installation depuis ISO" : disque systeme vierge. Si l'ISO est
-    # reconnu (famille RHEL/kickstart ou Ubuntu/autoinstall, voir
-    # app/core/unattended_install.py), l'installation est automatisee : un
-    # petit ISO de reponses cree le compte utilisateur et y installe la cle
-    # SSH d'automatisation, exactement comme le cloud-init des VM Debian. Un
-    # ISO non reconnu retombe sur l'installation manuelle (l'utilisateur cree
-    # son propre compte via la console VNC, pas de terminal SSH web tant que
-    # l'acces n'y est pas configure a la main). Sans ISO, comportement
-    # inchange : image Debian 12 preinstallee + cloud-init.
+    # "Installation from an ISO" mode: a blank system disk. If the ISO is recognized
+    # (RHEL/kickstart family or Ubuntu/autoinstall, see
+    # app/core/unattended_install.py), the installation is automated: a small answers
+    # ISO creates the user account and installs the automation SSH key, exactly like
+    # the cloud-init of Debian VMs. An unrecognized ISO falls back to the manual
+    # installation (the user creates their own account through the VNC console, with
+    # no web SSH terminal until access is configured by hand). Without an ISO the
+    # behaviour is unchanged: the preinstalled Debian 12 image + cloud-init.
     install_mode = iso_path is not None
     os_family = detect_os_family(payload.iso) if install_mode else None
     automated_install = install_mode and os_family is not None
-    # Mode "import de disque" (chantier 23) : le disque a deja son propre OS
-    # et ses propres comptes -- ni cloud-init/kickstart, ni identifiants a
-    # demander a la creation (voir restore_backup(mode='new'),
-    # app/core/backups.py, meme principe deja en place pour la restauration
-    # de sauvegarde).
+    # "Disk import" mode: the disk already has its own OS and accounts, so there is
+    # neither cloud-init/kickstart nor credentials to ask for at creation (see
+    # restore_backup(mode='new') in app/core/backups.py, the same principle already
+    # used for backup restore).
     import_mode = import_disk_path is not None
     needs_account = (not install_mode or automated_install) and not import_mode
     if needs_account:
@@ -376,38 +391,34 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         if username_error:
             errors.append(username_error)
         if len(payload.password or "") < 4:
-            errors.append("Le mot de passe doit contenir au moins 4 caractères")
+            errors.append("The password must contain at least 4 characters")
 
     conn = open_conn()
     task_id = create_task("create_vm", payload.name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             conn.lookupByName(payload.name)
-            errors.append(f"Une VM nommée '{payload.name}' existe déjà")
+            errors.append(f"A VM named '{payload.name}' already exists")
         except libvirt.libvirtError:
-            pass
+            logger.debug("Ignored exception in create_vm()", exc_info=True)
 
         try:
             conn.networkLookupByName(payload.network)
         except libvirt.libvirtError:
-            errors.append(f"Réseau '{payload.network}' introuvable")
+            errors.append(f"Network '{payload.network}' not found")
 
-        # Resolution du pool de stockage choisi (backlog 2026-09-18) --
-        # None/absent = pool 'default', deja garanti present/actif par
-        # ensure_default_pool() au demarrage du service, pas besoin de le
-        # relookup ici. Restreint aux types 'dir'/'netfs' : ce sont les
-        # seuls types de pool crees par ce projet (app/routers/storage.py,
-        # chantier 26) qui exposent un chemin de FICHIERS classique
-        # attendu par qemu-img -- un pool 'logical' (LVM) ou autre
-        # necessiterait un mecanisme de creation de volume different, hors
-        # scope de ce correctif.
+        # Resolution of the chosen storage pool: None/absent = the 'default' pool,
+        # already guaranteed present and active by ensure_default_pool() at service
+        # start-up, so no need to look it up again here. Restricted to the 'dir'/'netfs'
+        # types: they are the only pool types created by this project
+        # (app/routers/storage.py) that expose a classic FILE path as expected by
+        # qemu-img. A 'logical' (LVM) or other pool would need a different volume
+        # creation mechanism, out of scope here.
         target_dir = None
-        # Pool ZFS (backlog stockage 2026-09-18) : pas un pool libvirt (voir
-        # app/core/zfs_storage.py), donc verifie AVANT toute tentative de
-        # lookup libvirt -- qui echouerait simplement avec "introuvable"
-        # pour un nom qui n'existe que cote ZFS. Mono-noeud pour l'instant :
-        # seulement l'hote LOCAL (meme limite que list_pools/delete_pool,
-        # app/routers/storage.py).
+        # ZFS pool: not a libvirt pool (see app/core/zfs_storage.py), so it is checked
+        # BEFORE any libvirt lookup, which would simply fail with "not found" for a name
+        # that only exists on the ZFS side. Single-node for now: only the LOCAL host (the
+        # same limit as list_pools/delete_pool in app/routers/storage.py).
         zfs_pool_name = None
         if payload.storage_pool and payload.storage_pool != "default" and zfs_storage.pool_exists(payload.storage_pool):
             zfs_pool_name = payload.storage_pool
@@ -415,7 +426,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             try:
                 pool = conn.storagePoolLookupByName(payload.storage_pool)
             except libvirt.libvirtError:
-                errors.append(f"Pool de stockage '{payload.storage_pool}' introuvable")
+                errors.append(f"Storage pool '{payload.storage_pool}' not found")
                 pool = None
             if pool is not None:
                 if not pool.isActive():
@@ -423,7 +434,9 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
                 else:
                     pool_type, pool_path = pool_type_and_target_path(pool)
                     if pool_type not in ("dir", "netfs"):
-                        errors.append(f"Pool de stockage '{payload.storage_pool}' de type '{pool_type}' non supporté pour la création de VM (dir/netfs uniquement)")
+                        errors.append(
+                            f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs only)"
+                        )
                     elif not pool_path:
                         errors.append(f"Pool de stockage '{payload.storage_pool}' : chemin illisible")
                     else:
@@ -433,147 +446,158 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
 
-        # IP fixe par VM (voir app/core/network_alloc.py) : reservation DHCP
-        # cote reseau libvirt sur une MAC connue d'avance, aucun changement
-        # dans le cloud-init/kickstart/autoinstall (toujours du DHCP normal
-        # cote invite). Best-effort : un echec ici ne doit pas empecher la
-        # creation de la VM, juste la priver d'IP fixe (comportement DHCP
-        # habituel en repli).
+        # Fixed IP per VM (see app/core/network_alloc.py): a DHCP reservation on the
+        # libvirt network for a MAC known in advance, with no change to the
+        # cloud-init/kickstart/autoinstall (still plain DHCP on the guest side).
+        # Best-effort: a failure here must not prevent the VM from being created, it only
+        # deprives it of a fixed IP (the usual DHCP behaviour as a fallback).
         mac = generate_mac(conn)
         try:
             allocate_static_ip(conn, payload.network, mac)
         except libvirt.libvirtError:
-            pass
+            logger.debug("Ignored exception in create_vm()", exc_info=True)
 
         try:
             if zfs_pool_name:
-                # Zvols bruts (backlog stockage 2026-09-18) : chaque chemin
-                # est un peripherique /dev/zvol/... marque 'block' pour
-                # build_domain_xml (voir create_zvol_disk, vm_builder.py),
-                # jamais un chemin de fichier qcow2.
+                # Raw zvols: each path is a /dev/zvol/... device marked 'block' for
+                # build_domain_xml (see create_zvol_disk in vm_builder.py), never a qcow2 file
+                # path.
                 if import_mode:
-                    disk_paths = [(create_zvol_disk(zfs_pool_name, payload.name, 0, 1, import_source=import_disk_path), "block")] + [
+                    disk_paths = [
+                        (create_zvol_disk(zfs_pool_name, payload.name, 0, 1, import_source=import_disk_path), "block")
+                    ] + [
                         (create_zvol_disk(zfs_pool_name, payload.name, i, disk.size_gb), "block")
                         for i, disk in enumerate(payload.disks[1:], start=1)
                     ]
                 else:
                     disk_paths = [
-                        (create_zvol_disk(zfs_pool_name, payload.name, i, disk.size_gb, blank=(install_mode and i == 0)), "block")
+                        (
+                            create_zvol_disk(
+                                zfs_pool_name, payload.name, i, disk.size_gb, blank=(install_mode and i == 0)
+                            ),
+                            "block",
+                        )
                         for i, disk in enumerate(payload.disks)
                     ]
             elif import_mode:
-                # Disque 0 = conversion du fichier importe (qemu-img detecte
-                # le format source tout seul) ; disques supplementaires
-                # eventuels toujours vierges comme d'habitude.
+                # Disk 0 = conversion of the imported file (qemu-img detects the source format by
+                # itself); any additional disks are always blank as usual.
                 disk_paths = [create_disk_from_import(payload.name, import_disk_path, target_dir=target_dir)] + [
                     create_disk(payload.name, disk.size_gb, index=i, target_dir=target_dir)
                     for i, disk in enumerate(payload.disks[1:], start=1)
                 ]
             else:
                 disk_paths = [
-                    create_disk(payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0), target_dir=target_dir)
+                    create_disk(
+                        payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0), target_dir=target_dir
+                    )
                     for i, disk in enumerate(payload.disks)
                 ]
             cloudinit_path = None
             seed_iso_path = None
             kernel_path = initrd_path = kernel_cmdline = None
             if import_mode:
-                # Reutilise le "reseed" du clonage (chantier 5) : si le disque
-                # importe a du cloud-init dessus (cas le plus frequent -- un
-                # export Hyperlite, ou une image cloud generique), un nouvel
-                # instance-id force cloud-init a se re-executer au premier
-                # demarrage et a regenerer son reseau pour la MAC courante --
-                # sans ca, cloud-init garde la config reseau de sa toute
-                # premiere execution, qui epingle souvent l'interface par
-                # ADRESSE MAC (constate en testant : /etc/netplan/50-cloud-
-                # init.yaml avec `match: {macaddress: ...}`) : comme cette VM
-                # a forcement une nouvelle MAC (voir generate_mac plus haut),
-                # plus aucune interface ne correspond et le reseau ne demarre
-                # jamais. Inoffensif si le disque n'a pas cloud-init (l'ISO
-                # reste simplement un CD-ROM jamais lu).
+                # Reuses the "reseed" of cloning: if the imported disk has cloud-init on it (the
+                # most frequent case: a Hyperlite export, or a generic cloud image), a new
+                # instance-id forces cloud-init to run again at first boot and to regenerate its
+                # network for the current MAC. Without it, cloud-init keeps the network
+                # configuration of its very first run, which often pins the interface by MAC
+                # ADDRESS (seen in testing: /etc/netplan/50-cloud-init.yaml with
+                # `match: {macaddress: ...}`). Since this VM necessarily has a new MAC (see
+                # generate_mac above), no interface matches anymore and the network never comes
+                # up. Harmless if the disk has no cloud-init (the ISO is simply a CD-ROM that is
+                # never read).
                 cloudinit_path = create_cloudinit_reseed_iso(payload.name)
             elif not install_mode:
                 ssh_pubkey = get_or_create_automation_pubkey()
                 cloudinit_path = create_cloudinit_iso(
-                    payload.name, username=payload.username,
-                    password=payload.password, ssh_pubkey=ssh_pubkey,
+                    payload.name,
+                    username=payload.username,
+                    password=payload.password,
+                    ssh_pubkey=ssh_pubkey,
                     target_dir=target_dir,
                 )
             elif automated_install:
-                # LIMITE CONNUE (backlog 2026-09-18) : build_seed_iso() vit
-                # dans app/core/unattended_install.py, piloté séparément
-                # (chantier 12, voir CLAUDE.md "Répartition en cours") --
-                # ne pas y toucher sans coordination. Cet ISO de réponses
-                # reste donc toujours sur le pool 'default' même si
-                # `storage_pool` cible autre chose ; sans conséquence pour
-                # la HA/migration (l'ISO n'est nécessaire qu'à
-                # l'installation initiale, jamais relu ensuite).
+                # KNOWN LIMITATION: build_seed_iso() lives in app/core/unattended_install.py, so
+                # this answers ISO always stays on the 'default' pool even if `storage_pool`
+                # targets another one. It makes no difference for HA/migration (the ISO is only
+                # needed for the initial installation and never read again).
                 ssh_pubkey = get_or_create_automation_pubkey()
                 seed_iso_path = build_seed_iso(
-                    os_family, payload.name,
-                    username=payload.username, password=payload.password, ssh_pubkey=ssh_pubkey,
+                    os_family,
+                    payload.name,
+                    username=payload.username,
+                    password=payload.password,
+                    ssh_pubkey=ssh_pubkey,
                 )
-                # Ubuntu/autoinstall a besoin du mot-cle "autoinstall" sur la
-                # ligne de commande noyau pour sauter la confirmation
-                # manuelle unique de Subiquity ("Continue with autoinstall?")
-                # -- pas necessaire pour kickstart (RHEL), qui n'a jamais eu
-                # ce probleme (Anaconda detecte OEMDRV sans confirmation).
-                # Retire une fois l'installation terminee, voir
-                # get_vm_provisioning plus bas (sinon reboot en boucle sur
-                # l'installeur live au lieu du systeme installe).
+                # Ubuntu/autoinstall needs the "autoinstall" keyword on the kernel command line
+                # to skip Subiquity's single manual confirmation ("Continue with autoinstall?").
+                # It is not needed for kickstart (RHEL), which never had this problem (Anaconda
+                # detects OEMDRV without confirmation). It is removed once the installation is
+                # finished, see get_vm_provisioning below (otherwise the VM would reboot in a
+                # loop on the live installer instead of the installed system).
                 if os_family == "autoinstall":
                     kernel_path, initrd_path = extract_casper_kernel(iso_path)
                     kernel_cmdline = "autoinstall ---"
         except subprocess.CalledProcessError as e:
-            msg = f"Erreur lors de la preparation du disque/cloud-init : {e.stderr or e}"
+            msg = f"Error while preparing the disk/cloud-init: {e.stderr or e}"
             log_action(user["username"], "create_vm", payload.name, "echec", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=msg)
+            raise HTTPException(status_code=500, detail=msg) from e
         except zfs_storage.ZfsError as e:
             log_action(user["username"], "create_vm", payload.name, "echec", e.message, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Erreur ZFS lors de la préparation du disque : {e.message}")
+            raise HTTPException(status_code=500, detail=f"ZFS error while preparing the disk: {e.message}") from e
         except ValueError as e:
             log_action(user["username"], "create_vm", payload.name, "echec", str(e), task_id=task_id)
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
 
         xml = build_domain_xml(
-            payload.name, payload.vcpu, payload.memory_mb,
-            disk_paths, cloudinit_path, payload.network, iso_path=iso_path, seed_iso_path=seed_iso_path, mac=mac,
-            kernel_path=kernel_path, initrd_path=initrd_path, kernel_cmdline=kernel_cmdline,
+            payload.name,
+            payload.vcpu,
+            payload.memory_mb,
+            disk_paths,
+            cloudinit_path,
+            payload.network,
+            iso_path=iso_path,
+            seed_iso_path=seed_iso_path,
+            mac=mac,
+            kernel_path=kernel_path,
+            initrd_path=initrd_path,
+            kernel_cmdline=kernel_cmdline,
         )
         domain = conn.defineXML(xml)
         if needs_account:
             set_vm_ssh_user(payload.name, payload.username)
         if automated_install:
-            # Chantier 12 : "sans aucune intervention manuelle" -- avant ce
-            # correctif, create_vm ne faisait que DEFINIR le domaine, il
-            # fallait cliquer "Demarrer" a la main pour que l'installation
-            # kickstart/autoinstall parte reellement. Demarre automatiquement
-            # ici pour de vrai. Une tache dediee ("auto_install") est creee
-            # pour ce cycle install+SSH-check complet, distincte de la tache
-            # "create_vm" (qui elle ne couvre que la definition du domaine,
-            # deja terminee au moment ou ce bloc s'execute) -- cloturee par
-            # get_vm_provisioning plus bas, succes ou echec/timeout.
-            install_task_id = create_task("auto_install", payload.name, node=conn.getHostname(), username=user["username"])
+            # "Without any manual intervention": create_vm used to only DEFINE the domain,
+            # and you had to click "Start" by hand for the kickstart/autoinstall installation
+            # to actually begin. It now starts the VM automatically here. A dedicated task
+            # ("auto_install") is created for this complete install + SSH-check cycle,
+            # distinct from the "create_vm" task (which only covers the domain definition,
+            # already finished when this block runs). It is closed by get_vm_provisioning
+            # below, on success, failure or timeout.
+            install_task_id = create_task(
+                "auto_install", payload.name, node=conn.getHostname(), username=user["username"]
+            )
             mark_provisioning(payload.name, os_family, task_id=install_task_id)
             try:
                 domain.create()
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
-                finish_task(install_task_id, "echec", f"Démarrage automatique impossible : {msg}")
+                finish_task(install_task_id, "echec", f"Automatic start impossible: {msg}")
                 clear_provisioning(payload.name)
                 log_action(user["username"], "auto_install", payload.name, "echec", msg)
-                # Ne fait pas echouer create_vm pour autant : le domaine est
-                # bien defini, l'admin peut le demarrer/diagnostiquer a la
-                # main -- un echec de demarrage automatique ne doit pas
-                # rendre la VM invisible/perdue.
-        # Libelle d'OS "declare" (voir vm_meta.py::set_vm_os_label) : deduit
-        # du nom de l'ISO montee, ou "Debian 12" pour le chemin cloud-init
-        # par defaut (aucune ISO, image pre-installee). Pas un vrai OS
-        # "detecte" (aucun qemu-guest-agent installe dans les VM invitees
-        # aujourd'hui), mais fiable : c'est Hyperlite qui a demande cet OS.
+                # This does not make create_vm fail: the domain is defined, and the admin can
+                # start or diagnose it by hand. A failed automatic start must not make the VM
+                # invisible or lost.
+                # "Declared" OS label (see vm_meta.py::set_vm_os_label): deduced from the name of
+                # the mounted ISO, or "Debian 12" for the default cloud-init path (no ISO,
+                # preinstalled image). It is not a really "detected" OS (no qemu-guest-agent is
+                # installed in guest VMs), but it is reliable: Hyperlite itself asked for that OS.
         os_label = (
-            f"Importé ({Path(payload.import_disk).stem})" if import_mode
-            else Path(payload.iso).stem if install_mode
+            f"Imported ({Path(payload.import_disk).stem})"
+            if import_mode
+            else Path(payload.iso).stem
+            if install_mode
             else "Debian 12"
         )
         set_vm_os_label(payload.name, os_label)
@@ -593,18 +617,18 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "start_vm", name, "echec", "VM introuvable", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "start_vm", name, "echec", "VM not found", task_id=task_id)
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if domain.isActive():
-            log_action(user["username"], "start_vm", name, "echec", "VM déjà active", task_id=task_id)
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est déjà active")
+            log_action(user["username"], "start_vm", name, "echec", "VM already running", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' is already running")
         try:
             domain.create()
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Impossible de démarrer la VM : {msg}")
-        touch_vm_activity(name)  # chantier 19 : reinitialise le compteur d'inactivite
+            raise HTTPException(status_code=500, detail=f"Unable to start the VM: {msg}") from e
+        touch_vm_activity(name)  # resets the inactivity counter
         log_action(user["username"], "start_vm", name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
@@ -612,7 +636,9 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
 
 
 @router.post("/{name}/stop")
-def stop_vm(name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
+def stop_vm(
+    name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))
+):
     conn = open_conn(node)
     action_name = "force_stop_vm" if force else "stop_vm"
     task_id = create_task(action_name, name, node=conn.getHostname(), username=user["username"])
@@ -620,11 +646,11 @@ def stop_vm(name: str, force: bool = False, node: str | None = None, user: dict 
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "stop_vm", name, "echec", "VM introuvable", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "stop_vm", name, "echec", "VM not found", task_id=task_id)
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if not domain.isActive():
-            log_action(user["username"], "stop_vm", name, "echec", "VM déjà arrêtée", task_id=task_id)
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est déjà arrêtée")
+            log_action(user["username"], "stop_vm", name, "echec", "VM already stopped", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' is already stopped")
         try:
             if force:
                 domain.destroy()
@@ -633,7 +659,7 @@ def stop_vm(name: str, force: bool = False, node: str | None = None, user: dict 
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], action_name, name, "echec", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Impossible d'arrêter la VM : {msg}")
+            raise HTTPException(status_code=500, detail=f"Unable to stop the VM: {msg}") from e
         log_action(user["username"], action_name, name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
@@ -641,18 +667,20 @@ def stop_vm(name: str, force: bool = False, node: str | None = None, user: dict 
 
 
 @router.post("/{name}/restart")
-def restart_vm(name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
+def restart_vm(
+    name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))
+):
     conn = open_conn(node)
     task_id = create_task("restart_vm", name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "restart_vm", name, "echec", "VM introuvable", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "restart_vm", name, "echec", "VM not found", task_id=task_id)
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if not domain.isActive():
-            log_action(user["username"], "restart_vm", name, "echec", "VM arrêtée", task_id=task_id)
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est arrêtée, démarrez-la d'abord")
+            log_action(user["username"], "restart_vm", name, "echec", "VM stopped", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' is stopped, start it first")
         try:
             if force:
                 domain.destroy()
@@ -662,7 +690,7 @@ def restart_vm(name: str, force: bool = False, node: str | None = None, user: di
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "restart_vm", name, "echec", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Impossible de redémarrer la VM : {msg}")
+            raise HTTPException(status_code=500, detail=f"Unable to restart the VM: {msg}") from e
         log_action(user["username"], "restart_vm", name, "succes", task_id=task_id)
         return _domain_summary(domain)
     finally:
@@ -670,49 +698,38 @@ def restart_vm(name: str, force: bool = False, node: str | None = None, user: di
 
 
 def _perform_vm_deletion(conn, domain, name, node=None):
-    """Sequence reelle de suppression (disques + IP reservee + metadonnees) --
-    partagee entre DELETE /vms/{name} (confirmation utilisateur) et le
-    nettoyage automatique des VM inactives (chantier 19,
-    app/core/vm_cleanup.py) : aucune divergence possible entre les deux
-    chemins. L'appelant doit avoir DEJA verifie que la VM est inactive --
-    cette fonction ne le revalide pas. Peut lever libvirt.libvirtError
-    (undefine echoue) : a charge de l'appelant de la traduire.
+    """The real deletion sequence (disks + reserved IP + metadata), shared by
+    DELETE /vms/{name} (user confirmation) and the automatic cleanup of inactive
+    VMs (app/core/vm_cleanup.py): no divergence is possible between the two
+    paths. The caller must have ALREADY checked that the VM is inactive; this
+    function does not revalidate it. It may raise libvirt.libvirtError
+    (undefine fails), which the caller must translate.
 
-    `node` (backlog 2026-09-18, actions VM multi-nœuds) : None = VM locale
-    (comportement historique, suppression des fichiers via Path.unlink()
-    LOCAL). Sur un nœud DISTANT, `conn` est une connexion qemu+ssh:// mais
-    les chemins de disque restent des chemins sur le FILESYSTEME DISTANT --
-    un unlink() local supprimerait potentiellement le mauvais fichier (ou
-    rien du tout) sur kvm-lab. BUG REEL identifie EN CONCEVANT ce backlog
-    (jamais atteint par un test avant, DELETE n'acceptait pas encore `node`
-    jusqu'ici) : la suppression a distance passe donc par SSH (meme cle
-    cluster que le reste, voir _copy_file_to_node) plutot que par unlink()."""
-    # Capture AVANT l'undefine (plus interrogeable apres) de TOUS les
-    # disques et TOUTES les interfaces -- pas seulement les premiers : une
-    # VM multi-disques/multi-NIC (fonctionnalites deja livrees, voir
-    # roadmap) ne doit pas laisser de fichier qcow2 orphelin ni de
-    # reservation DHCP fantome pour ses disques/interfaces au-dela du
-    # premier. Bug reel trouve et corrige le 2026-09-13 (repere en testant
-    # le clonage multi-disques du chantier 5 : le disque secondaire d'une
-    # VM supprimee restait sur le disque hote, provoquant un conflit de
-    # nom au clonage suivant).
-    # ISO generees par Hyperlite lui-meme pour CETTE VM (cloud-init/kickstart/
-    # autoinstall) -- reconnues par leur nom de fichier, jamais par leur
-    # repertoire : depuis le backlog "choix du pool de stockage" (2026-09-18),
-    # ces ISO peuvent vivre sur N'IMPORTE QUEL pool (voir create_vm), plus
-    # forcement IMAGES_DIR. Bug reel trouve en testant CE backlog : la
-    # premiere version de ce correctif reconstruisait encore le chemin a la
-    # main via IMAGES_DIR, laissant l'ISO cloud-init orpheline sur tout
-    # pool non-default apres suppression -- corrige en capturant le chemin
-    # REEL depuis le XML du domaine, comme deja fait pour les disques.
+    `node`: None = local VM (the historical behaviour, files removed through
+    the LOCAL Path.unlink()). On a REMOTE node, `conn` is a qemu+ssh://
+    connection but disk paths remain paths on the REMOTE FILESYSTEM: a local
+    unlink() could delete the wrong file (or nothing at all) on the local host.
+    Remote deletion therefore goes through SSH (the same cluster key as the rest,
+    see _copy_file_to_node) rather than unlink()."""
+    # Captured BEFORE the undefine (no longer queryable afterwards) for ALL the disks
+    # and ALL the interfaces, not only the first ones: a multi-disk/multi-NIC VM must
+    # not leave an orphan qcow2 file or a phantom DHCP reservation for its disks and
+    # interfaces beyond the first. (This was found when testing multi-disk cloning:
+    # the secondary disk of a deleted VM stayed on the host disk and caused a name
+    # conflict at the next clone.)
+    # ISOs generated by Hyperlite itself for THIS VM (cloud-init/kickstart/autoinstall)
+    # are recognized by their file NAME, never by their directory: they can live on ANY
+    # pool (see create_vm), not necessarily IMAGES_DIR. The REAL path is captured from
+    # the domain XML, as already done for the disks; rebuilding it by hand through
+    # IMAGES_DIR would leave the cloud-init ISO orphaned on any non-default pool.
     OWN_GENERATED_ISO_NAMES = {f"{name}-cloudinit.iso", f"{name}-oemdrv.iso", f"{name}-autoinstall.iso"}
 
     disk_paths_to_remove = []
-    # Disques BLOC (zvols ZFS, backlog stockage 2026-09-18) : source='dev',
-    # pas 'file' -- traites a part (suppression via `zfs destroy`, pas
-    # Path.unlink()), voir plus bas. Toujours locaux pour l'instant (gestion
-    # ZFS mono-nœud, meme limite que create_vm/storage.py) : jamais attendus
-    # dans le chemin de suppression a distance (node= vers un autre nœud).
+    # BLOCK disks (ZFS zvols): source='dev', not 'file'. They are handled separately
+    # (deletion through `zfs destroy`, not Path.unlink()), see below. They are always
+    # local for now (single-node ZFS management, the same limit as
+    # create_vm/storage.py): never expected in the remote deletion path (node= towards
+    # another node).
     zvol_paths_to_remove = []
     ifaces_to_release = []
     try:
@@ -729,60 +746,58 @@ def _perform_vm_deletion(conn, domain, name, node=None):
             source_file = source_el.get("file")
             if not source_file:
                 continue
-            if disk_el.get("device") == "disk":
-                disk_paths_to_remove.append(Path(source_file))
-            elif disk_el.get("device") == "cdrom" and Path(source_file).name in OWN_GENERATED_ISO_NAMES:
+            if disk_el.get("device") == "disk" or (
+                disk_el.get("device") == "cdrom" and Path(source_file).name in OWN_GENERATED_ISO_NAMES
+            ):
                 disk_paths_to_remove.append(Path(source_file))
         for iface in root.findall(".//interface[@type='network']"):
             mac_el, source_el = iface.find("mac"), iface.find("source")
             if mac_el is not None and source_el is not None and source_el.get("network"):
                 ifaces_to_release.append((source_el.get("network"), mac_el.get("address")))
     except (libvirt.libvirtError, ET.ParseError):
-        pass
+        logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
 
-    # VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA : sans ce flag, undefine()
-    # echoue purement et simplement des qu'il reste un ou plusieurs
-    # snapshots ("cannot delete inactive domain with N snapshots"), meme
-    # partiellement supprimes -- bug reproduit et confirme le 2026-09-13
-    # (voir chantier 4 snapshots). Sans danger ici : le fichier qcow2 qui
-    # contenait les snapshots internes est de toute facon supprime juste
-    # apres (unlink plus bas), la VM elle-meme est deja irrevocablement
-    # confirmee supprimee.
+    # VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA: without this flag, undefine() simply
+    # fails as soon as one or more snapshots remain ("cannot delete inactive domain
+    # with N snapshots"), even partially deleted ones. Harmless here: the qcow2 file
+    # that held the internal snapshots is deleted right afterwards anyway (unlink
+    # below), and the VM itself is already irrevocably confirmed as deleted.
     domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA)
 
     for iface_network, iface_mac in ifaces_to_release:
         try:
             release_static_ip(conn, iface_network, iface_mac)
         except libvirt.libvirtError:
-            pass
+            logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
 
     if node:
-        from app.core.cluster import get_node, get_cluster_private_key_path
+        from app.core.cluster import get_node, node_ssh_options
+
         remote_node = get_node(node)
         if remote_node:
-            key_path = str(get_cluster_private_key_path())
-            ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+            ssh_opts = node_ssh_options()
             ssh_target = f"{remote_node['ssh_user']}@{remote_node['hostname']}"
             for disk_path in disk_paths_to_remove:
                 subprocess.run(
                     ["ssh", *ssh_opts, "-p", str(remote_node["ssh_port"]), ssh_target, "rm", "-f", str(disk_path)],
-                    capture_output=True, text=True, timeout=15,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
                 )
     else:
         for disk_path in disk_paths_to_remove:
             disk_path.unlink(missing_ok=True)
         for zvol_path in zvol_paths_to_remove:
-            # '/dev/zvol/<pool>/<nom>' -- pool = 3e segment, nom = le reste
-            # (un nom de zvol ne contient jamais lui-meme de '/', voir
-            # validate_zfs_name). Best-effort : une VM deja partiellement
-            # nettoyee (zvol supprime a la main hors Hyperlite) ne doit pas
-            # faire echouer toute la suppression.
+            # '/dev/zvol/<pool>/<name>': the pool is the 3rd segment, the name is the rest (a
+            # zvol name never contains a '/' itself, see validate_zfs_name). Best-effort: a
+            # VM already partially cleaned up (a zvol removed by hand outside Hyperlite) must
+            # not make the whole deletion fail.
             parts = zvol_path.strip("/").split("/")
             if len(parts) >= 4 and parts[0] == "dev" and parts[1] == "zvol":
                 try:
                     zfs_storage.delete_zvol(parts[2], "/".join(parts[3:]))
                 except zfs_storage.ZfsError:
-                    pass
+                    logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
     delete_vm_ssh_user(name)
     delete_vm_os_label(name)
     clear_provisioning(name)
@@ -799,33 +814,36 @@ def delete_vm(name: str, confirm: bool = False, node: str | None = None, user: d
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_vm", name, "echec", "VM introuvable", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "delete_vm", name, "echec", "VM not found", task_id=task_id)
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if domain.isActive():
-            log_action(user["username"], "delete_vm", name, "echec", "VM active, arrêt requis", task_id=task_id)
-            raise HTTPException(status_code=409, detail=f"VM '{name}' est active. Arrêtez-la avant de la supprimer")
+            log_action(user["username"], "delete_vm", name, "echec", "VM running, it must be stopped", task_id=task_id)
+            raise HTTPException(status_code=409, detail=f"VM '{name}' is running. Stop it before deleting it")
         if not confirm:
             log_action(user["username"], "delete_vm", name, "echec", "Confirmation manquante", task_id=task_id)
-            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la suppression")
+            raise HTTPException(
+                status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
+            )
 
         try:
             _perform_vm_deletion(conn, domain, name, node=node)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_vm", name, "echec", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Impossible de supprimer la VM : {msg}")
+            raise HTTPException(status_code=500, detail=f"Unable to delete the VM: {msg}") from e
 
         log_action(user["username"], "delete_vm", name, "succes", task_id=task_id)
-        return {"message": f"VM '{name}' supprimée"}
+        return {"message": f"VM '{name}' deleted"}
     finally:
         conn.close()
 
 
-# --- Suppression automatique des VM inactives (chantier 19, 2026-09-17) ---
-# Gestion post-creation (activer/reconfigurer/desactiver) -- la creation
-# elle-meme se fait via VMCreate.auto_cleanup_days plus haut. Meme niveau
-# de privilege que le pare-feu par VM (vm.hardware) : c'est un reglage de
-# la VM, pas une action a portee cluster comme la migration.
+# --- Automatic deletion of inactive VMs: post-creation management
+# (enable/reconfigure/disable). The creation itself goes through
+# VMCreate.auto_cleanup_days above. The same privilege level as the per-VM
+# firewall (vm.hardware): this is a VM setting, not a cluster-wide action like
+# migration.
+
 
 class AutoCleanupConfig(BaseModel):
     inactive_days: int = Field(ge=1, le=365)
@@ -838,7 +856,7 @@ def get_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privile
         try:
             conn.lookupByName(name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
     finally:
         conn.close()
     config = get_vm_auto_cleanup(name)
@@ -848,26 +866,28 @@ def get_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privile
 
 
 @router.put("/{name}/auto-cleanup")
-def set_vm_auto_cleanup_route(name: str, payload: AutoCleanupConfig, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+def set_vm_auto_cleanup_route(
+    name: str, payload: AutoCleanupConfig, user: dict = Depends(require_vm_privilege("vm.hardware"))
+):
     conn = open_conn()
     try:
         try:
             conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_auto_cleanup", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "set_auto_cleanup", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
     finally:
         conn.close()
     set_vm_auto_cleanup(name, payload.inactive_days)
     log_action(user["username"], "set_auto_cleanup", name, "succes", f"seuil {payload.inactive_days} jour(s)")
-    return {"message": f"Nettoyage automatique activé ({payload.inactive_days} jour(s) d'inactivité)"}
+    return {"message": f"Automatic cleanup enabled ({payload.inactive_days} day(s) of inactivity)"}
 
 
 @router.delete("/{name}/auto-cleanup")
 def disable_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     delete_vm_auto_cleanup(name)
     log_action(user["username"], "disable_auto_cleanup", name, "succes")
-    return {"message": "Nettoyage automatique désactivé"}
+    return {"message": "Automatic cleanup disabled"}
 
 
 class DiskAttach(BaseModel):
@@ -876,31 +896,33 @@ class DiskAttach(BaseModel):
     target_dev: str = "sdb"
 
 
-# Bus libvirt a utiliser selon le prefixe du target_dev, pour rester coherent avec le
-# controleur virtio-scsi (sd*) mis en place par build_domain_xml sur toutes les VMs.
+# libvirt bus to use depending on the target_dev prefix, to stay consistent with
+# the virtio-scsi controller (sd*) set up by build_domain_xml on all VMs.
 DEV_BUS_PREFIXES = {"sd": "scsi", "vd": "virtio", "hd": "ide"}
 
 
 @router.post("/{name}/disks", status_code=201)
 def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not TARGET_DEV_RE.match(payload.target_dev):
-        log_action(user["username"], "attach_disk", name, "echec", "target_dev invalide")
-        raise HTTPException(status_code=422, detail="target_dev invalide (attendu par ex. vda, vdb, sdb)")
+        log_action(user["username"], "attach_disk", name, "echec", "Invalid target_dev")
+        raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
     bus = DEV_BUS_PREFIXES.get(payload.target_dev[:2], "virtio")
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_disk", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "attach_disk", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         try:
             pool = conn.storagePoolLookupByName(payload.pool)
             vol = pool.storageVolLookupByName(payload.volume_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_disk", name, "echec", "Volume introuvable")
-            raise HTTPException(status_code=404, detail=f"Volume '{payload.volume_name}' introuvable dans le pool '{payload.pool}'")
+            log_action(user["username"], "attach_disk", name, "echec", "Volume not found")
+            raise HTTPException(
+                status_code=404, detail=f"Volume '{payload.volume_name}' not found in pool '{payload.pool}'"
+            ) from None
 
         disk_xml = f"""
         <disk type='file' device='disk'>
@@ -917,10 +939,10 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "attach_disk", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur d'attachement du disque : {msg}")
+            raise HTTPException(status_code=500, detail=f"Disk attach error: {msg}") from e
 
         log_action(user["username"], "attach_disk", name, "succes")
-        return {"message": f"Volume '{payload.volume_name}' attaché à '{name}' en tant que {payload.target_dev}"}
+        return {"message": f"Volume '{payload.volume_name}' attached to '{name}' as {payload.target_dev}"}
     finally:
         conn.close()
 
@@ -928,15 +950,15 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
 @router.delete("/{name}/disks/{target_dev}")
 def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not TARGET_DEV_RE.match(target_dev):
-        log_action(user["username"], "detach_disk", name, "echec", "target_dev invalide")
-        raise HTTPException(status_code=422, detail="target_dev invalide (attendu par ex. vda, vdb, sdb)")
+        log_action(user["username"], "detach_disk", name, "echec", "Invalid target_dev")
+        raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "detach_disk", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "detach_disk", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
@@ -947,8 +969,8 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
                 disk_elem = disk
                 break
         if disk_elem is None:
-            log_action(user["username"], "detach_disk", name, "echec", f"Disque {target_dev} introuvable")
-            raise HTTPException(status_code=404, detail=f"Disque '{target_dev}' introuvable sur la VM '{name}'")
+            log_action(user["username"], "detach_disk", name, "echec", f"Disk {target_dev} not found")
+            raise HTTPException(status_code=404, detail=f"Disk '{target_dev}' not found on VM '{name}'")
 
         disk_xml = ET.tostring(disk_elem, encoding="unicode")
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
@@ -959,10 +981,10 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "detach_disk", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de détachement : {msg}")
+            raise HTTPException(status_code=500, detail=f"Detach error: {msg}") from e
 
         log_action(user["username"], "detach_disk", name, "succes")
-        return {"message": f"Disque '{target_dev}' détaché de '{name}'"}
+        return {"message": f"Disk '{target_dev}' detached from '{name}'"}
     finally:
         conn.close()
 
@@ -974,11 +996,13 @@ def _get_interfaces(domain):
     for iface in root.findall(".//devices/interface"):
         mac_elem = iface.find("mac")
         source_elem = iface.find("source")
-        result.append({
-            "mac": mac_elem.get("address") if mac_elem is not None else None,
-            "reseau": source_elem.get("network") if source_elem is not None else None,
-            "type_source": iface.get("type"),
-        })
+        result.append(
+            {
+                "mac": mac_elem.get("address") if mac_elem is not None else None,
+                "reseau": source_elem.get("network") if source_elem is not None else None,
+                "type_source": iface.get("type"),
+            }
+        )
     return result
 
 
@@ -989,20 +1013,22 @@ def get_vm_disks(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_disks", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "get_vm_disks", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
         disks = []
         for disk in root.findall(".//devices/disk"):
             target = disk.find("target")
             source = disk.find("source")
-            disks.append({
-                "cible": target.get("dev") if target is not None else None,
-                "bus": target.get("bus") if target is not None else None,
-                "type": disk.get("device"),
-                "source": (source.get("file") if source is not None else None),
-            })
+            disks.append(
+                {
+                    "cible": target.get("dev") if target is not None else None,
+                    "bus": target.get("bus") if target is not None else None,
+                    "type": disk.get("device"),
+                    "source": (source.get("file") if source is not None else None),
+                }
+            )
         log_action(user["username"], "get_vm_disks", name, "succes")
         return disks
     finally:
@@ -1016,8 +1042,8 @@ def get_vm_network(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_network", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "get_vm_network", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         interfaces = _get_interfaces(domain)
         ip = _get_ip(domain) if domain.isActive() else None
         log_action(user["username"], "get_vm_network", name, "succes")
@@ -1028,7 +1054,12 @@ def get_vm_network(name: str, user: dict = Depends(get_current_user)):
 
 class NetworkUpdate(BaseModel):
     network: str
-    vlan_tag: int | None = Field(None, ge=1, le=4094, description="Tag 802.1Q -- effectif seulement si le réseau/pont sous-jacent gère le trunking (Open vSwitch) ; ignoré silencieusement sur un pont Linux standard")
+    vlan_tag: int | None = Field(
+        None,
+        ge=1,
+        le=4094,
+        description="802.1Q tag: only effective if the underlying network/bridge handles trunking (Open vSwitch); silently ignored on a standard Linux bridge",
+    )
 
 
 @router.put("/{name}/network")
@@ -1038,21 +1069,21 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_network", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "set_vm_network", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         try:
             conn.networkLookupByName(payload.network)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_network", name, "echec", "Réseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Réseau '{payload.network}' introuvable")
+            log_action(user["username"], "set_vm_network", name, "echec", "Network not found")
+            raise HTTPException(status_code=404, detail=f"Network '{payload.network}' not found") from None
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
         iface = root.find(".//devices/interface")
         if iface is None:
-            log_action(user["username"], "set_vm_network", name, "echec", "Aucune interface")
-            raise HTTPException(status_code=404, detail="Aucune interface réseau trouvée sur cette VM")
+            log_action(user["username"], "set_vm_network", name, "echec", "No interface")
+            raise HTTPException(status_code=404, detail="No network interface found on this VM")
 
         source = iface.find("source")
         if source is None:
@@ -1077,10 +1108,10 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "set_vm_network", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de mise à jour du réseau : {msg}")
+            raise HTTPException(status_code=500, detail=f"Network update error: {msg}") from e
 
         log_action(user["username"], "set_vm_network", name, "succes")
-        return {"message": f"VM '{name}' associée au réseau '{payload.network}'"}
+        return {"message": f"VM '{name}' attached to network '{payload.network}'"}
     finally:
         conn.close()
 
@@ -1100,14 +1131,14 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_interface", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "attach_interface", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         try:
             conn.networkLookupByName(payload.network)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_interface", name, "echec", "Réseau introuvable")
-            raise HTTPException(status_code=404, detail=f"Réseau '{payload.network}' introuvable")
+            log_action(user["username"], "attach_interface", name, "echec", "Network not found")
+            raise HTTPException(status_code=404, detail=f"Network '{payload.network}' not found") from None
 
         vlan_xml = f"<vlan><tag id='{payload.vlan_tag}'/></vlan>" if payload.vlan_tag is not None else ""
         iface_xml = f"""
@@ -1125,10 +1156,10 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "attach_interface", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur d'attachement de l'interface : {msg}")
+            raise HTTPException(status_code=500, detail=f"Interface attach error: {msg}") from e
 
         log_action(user["username"], "attach_interface", name, "succes")
-        return {"message": f"Interface ajoutée sur le réseau '{payload.network}' pour '{name}'"}
+        return {"message": f"Interface added on network '{payload.network}' for '{name}'"}
     finally:
         conn.close()
 
@@ -1136,22 +1167,22 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
 @router.delete("/{name}/interfaces/{mac}")
 def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not MAC_RE.match(mac):
-        log_action(user["username"], "detach_interface", name, "echec", "MAC invalide")
-        raise HTTPException(status_code=422, detail="Adresse MAC invalide")
+        log_action(user["username"], "detach_interface", name, "echec", "Invalid MAC")
+        raise HTTPException(status_code=422, detail="Invalid MAC address")
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "detach_interface", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "detach_interface", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
         interfaces = root.findall(".//devices/interface")
         if len(interfaces) <= 1:
-            log_action(user["username"], "detach_interface", name, "echec", "Dernière interface")
-            raise HTTPException(status_code=422, detail="Impossible de détacher la dernière interface réseau d'une VM")
+            log_action(user["username"], "detach_interface", name, "echec", "Last interface")
+            raise HTTPException(status_code=422, detail="Cannot detach the last network interface of a VM")
 
         iface_elem = None
         for iface in interfaces:
@@ -1160,8 +1191,8 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
                 iface_elem = iface
                 break
         if iface_elem is None:
-            log_action(user["username"], "detach_interface", name, "echec", f"Interface {mac} introuvable")
-            raise HTTPException(status_code=404, detail=f"Interface '{mac}' introuvable sur la VM '{name}'")
+            log_action(user["username"], "detach_interface", name, "echec", f"Interface {mac} not found")
+            raise HTTPException(status_code=404, detail=f"Interface '{mac}' not found on VM '{name}'")
 
         iface_xml = ET.tostring(iface_elem, encoding="unicode")
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
@@ -1172,22 +1203,20 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "detach_interface", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de détachement : {msg}")
+            raise HTTPException(status_code=500, detail=f"Detach error: {msg}") from e
 
         log_action(user["username"], "detach_interface", name, "succes")
-        return {"message": f"Interface '{mac}' détachée de '{name}'"}
+        return {"message": f"Interface '{mac}' detached from '{name}'"}
     finally:
         conn.close()
 
 
-# --- Pare-feu par VM (chantier 9 de la roadmap vSphere/vCenter, 2026-09-13)
-# ---
-# Implemente via le sous-systeme nwfilter de libvirt (VIR_NWFilter*), pas des
-# regles nftables/iptables generees a la main : nwfilter est deja le
-# mecanisme natif de libvirt pour ca, applique automatiquement par le
-# pilote QEMU sur chaque (re)demarrage de la VM sans script externe a
-# maintenir. Un filtre par VM ("hyperlite-vm-<nom>"), reference par
-# <filterref> sur chaque interface de la VM.
+# --- Per-VM firewall ---
+# Implemented through libvirt's nwfilter subsystem (VIR_NWFilter*) rather than
+# hand-generated nftables/iptables rules: nwfilter is already libvirt's native
+# mechanism for this, applied automatically by the QEMU driver at every VM
+# (re)start with no external script to maintain. One filter per VM
+# ("hyperlite-vm-<name>"), referenced by a <filterref> on each interface of the VM.
 
 _FIREWALL_PROTOCOLS = {"tcp", "udp", "icmp", "all"}
 _FIREWALL_ACTIONS = {"accept", "drop"}
@@ -1239,9 +1268,11 @@ def _parse_nwfilter_xml(xml_desc):
         direction = rule_el.get("direction", "inout")
         action = rule_el.get("action", "accept")
         if protocol == "all" and direction == "inout" and int(rule_el.get("priority", 0)) >= 999:
-            default_policy = action  # la regle catch-all ajoutee par _build_nwfilter_xml
+            default_policy = action  # the catch-all rule added by _build_nwfilter_xml
             continue
-        rules.append({"action": action, "direction": direction, "protocol": protocol, "port": int(port) if port else None})
+        rules.append(
+            {"action": action, "direction": direction, "protocol": protocol, "port": int(port) if port else None}
+        )
     return {"default_policy": default_policy, "rules": rules}
 
 
@@ -1252,12 +1283,15 @@ def get_vm_firewall(name: str, user: dict = Depends(require_vm_privilege("vm.har
         try:
             conn.lookupByName(name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         try:
             nwf = conn.nwfilterLookupByName(_firewall_filter_name(name))
             return _parse_nwfilter_xml(nwf.XMLDesc(0))
         except libvirt.libvirtError:
-            return {"default_policy": "accept", "rules": []}  # aucune regle definie -- tout autorise, comportement par defaut
+            return {
+                "default_policy": "accept",
+                "rules": [],
+            }  # no rule defined: everything is allowed, the default behaviour
     finally:
         conn.close()
 
@@ -1265,18 +1299,22 @@ def get_vm_firewall(name: str, user: dict = Depends(require_vm_privilege("vm.har
 @router.put("/{name}/firewall")
 def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if payload.default_policy not in _FIREWALL_ACTIONS:
-        raise HTTPException(status_code=422, detail="default_policy doit être 'accept' ou 'drop'")
+        raise HTTPException(status_code=422, detail="default_policy must be 'accept' or 'drop'")
     for rule in payload.rules:
-        if rule.action not in _FIREWALL_ACTIONS or rule.direction not in _FIREWALL_DIRECTIONS or rule.protocol not in _FIREWALL_PROTOCOLS:
-            raise HTTPException(status_code=422, detail=f"Règle invalide : {rule}")
+        if (
+            rule.action not in _FIREWALL_ACTIONS
+            or rule.direction not in _FIREWALL_DIRECTIONS
+            or rule.protocol not in _FIREWALL_PROTOCOLS
+        ):
+            raise HTTPException(status_code=422, detail=f"Invalid rule: {rule}")
 
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_firewall", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "set_vm_firewall", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         filter_name = _firewall_filter_name(name)
         try:
@@ -1284,12 +1322,11 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "set_vm_firewall", name, "echec", msg)
-            raise HTTPException(status_code=500, detail=f"Erreur de définition du pare-feu : {msg}")
+            raise HTTPException(status_code=500, detail=f"Firewall definition error: {msg}") from e
 
-        # Reference le filtre sur CHAQUE interface de la VM (pas seulement la
-        # premiere) -- sans quoi une VM multi-NIC laisserait une interface
-        # non filtree, silencieusement, ce qui a ete precisement le type de
-        # bug corrige au chantier 5 pour les disques/interfaces au clonage.
+        # Reference the filter on EVERY interface of the VM (not only the first one):
+        # otherwise a multi-NIC VM would silently leave an interface unfiltered, which is
+        # exactly the kind of bug fixed for disks/interfaces when cloning.
         root = ET.fromstring(domain.XMLDesc(0))
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
         if domain.isActive():
@@ -1306,68 +1343,63 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
                 log_action(user["username"], "set_vm_firewall", name, "echec", msg)
-                raise HTTPException(status_code=500, detail=f"Filtre créé mais non appliqué à l'interface : {msg}")
+                raise HTTPException(
+                    status_code=500, detail=f"Filter created but not applied to the interface: {msg}"
+                ) from e
 
-        log_action(user["username"], "set_vm_firewall", name, "succes", f"{len(payload.rules)} règle(s), {applied} interface(s)")
-        return {"message": f"Pare-feu appliqué à {applied} interface(s)", **payload.model_dump()}
+        log_action(
+            user["username"], "set_vm_firewall", name, "succes", f"{len(payload.rules)} rule(s), {applied} interface(s)"
+        )
+        return {"message": f"Firewall applied to {applied} interface(s)", **payload.model_dump()}
     finally:
         conn.close()
 
 
-# --- Snapshots (10.8, reecrit le 2026-09-13 -- chantier 4 de la roadmap
-# vSphere/vCenter) ---
+# --- Snapshots ---
 #
-# Un snapshot capture l'etat d'une VM (disque, et memoire si elle tourne) a un
-# instant T, stocke DANS le fichier qcow2 lui-meme (snapshot "interne") : c'est
-# rapide a creer/restaurer mais ce n'est PAS une sauvegarde independante (si le
-# disque qcow2 est perdu/corrompu, tous ses snapshots le sont aussi). Une
-# vraie sauvegarde (backup) est une copie complete et autonome des donnees,
-# stockee ailleurs, qui survit a la perte du disque source - c'est plus lent
-# et plus lourd, mais c'est la seule protection contre une panne de stockage.
-# Le snapshot sert a revenir en arriere rapidement (avant une mise a jour
-# risquee, par exemple) ; le backup sert a la reprise apres sinistre.
+# A snapshot captures the state of a VM (disk, and memory if it is running) at an
+# instant T, stored INSIDE the qcow2 file itself (an "internal" snapshot): it is
+# fast to create and restore but it is NOT an independent backup (if the qcow2
+# disk is lost or corrupted, so are all its snapshots). A real backup is a
+# complete, self-contained copy of the data stored elsewhere, which survives the
+# loss of the source disk: slower and heavier, but the only protection against a
+# storage failure. A snapshot is for going back quickly (before a risky update,
+# for example); a backup is for disaster recovery.
 #
-# Diagnostic (reproduit et confirme sur ce host le 2026-09-13, voir le journal
-# de session) : le code precedent (flags=0, XML minimal, synchrone) creait et
-# restaurait correctement des snapshots internes -- CE N'ETAIT PAS le probleme
-# principal. Le vrai bug reproductible : delete_vm() appelait domain.undefine()
-# SANS flag, qui echoue purement et simplement des qu'un ou plusieurs
-# snapshots existent encore ("cannot delete inactive domain with N snapshots")
-# -- corrige plus haut (VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA). Concretement :
-# une VM sur laquelle un snapshot avait deja ete pris devenait indelebile
-# depuis l'interface, ce qui explique tres probablement le ressenti "les
-# snapshots ne marchent pas".
-#
-# Option ecartee deliberement : un snapshot "sans memoire" sur une VM ACTIVE
-# est en realite un snapshot EXTERNE cote libvirt (nouveau fichier overlay,
-# chaine de "backing files"), teste et confirme fonctionnel a la creation --
-# mais `revertToSnapshot()` renvoie "revert to external snapshot not
-# supported yet" sur ce driver QEMU/libvirt : on ne peut PAS le restaurer.
-# Proposer une case "inclure la memoire" qui produirait des snapshots
-# irrecuperables aurait ete un nouveau piege, pas une correction. Le choix
-# memoire/pas-memoire n'est donc PAS expose : memoire incluse automatiquement
-# si la VM tourne (seul mode fiable a la restauration), disque seul si elle
-# est arretee (rien d'autre a capturer).
-#
-# Duree reelle : creer/restaurer un snapshot avec memoire peut prendre
-# plusieurs secondes (le temps de serialiser toute la RAM de la VM dans le
-# qcow2). Verifie sur ce host : libvirt n'expose AUCUNE statistique de
-# progression exploitable pour cette operation (domain.jobStats() renvoie
-# {'type': VIR_DOMAIN_JOB_NONE} du debut a la fin) -- afficher un pourcentage
-# serait invente. Le create/restore tournent donc en arriere-plan (thread
-# dedie + connexion libvirt separee) pendant que l'endpoint HTTP renvoie
-# immediatement un task_id (voir app.core.tasks, chantier 1) : le front
-# affiche une barre de progression indeterminee + le temps ecoule reel en
-# suivant GET /tasks/{id}, plutot que de bloquer la requete ou d'afficher un
-# faux pourcentage.
+# Design notes:
+# - The former code (flags=0, minimal XML, synchronous) created and restored
+#   internal snapshots correctly. The real reproducible bug was that delete_vm()
+#   called domain.undefine() WITHOUT a flag, which simply fails as soon as one or
+#   more snapshots still exist ("cannot delete inactive domain with N
+#   snapshots"). This is fixed above (VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA):
+#   a VM on which a snapshot had been taken became impossible to delete from the
+#   interface, which very probably explains the "snapshots do not work" feeling.
+# - Deliberately rejected option: a "memoryless" snapshot on a RUNNING VM is
+#   really an EXTERNAL snapshot on the libvirt side (a new overlay file, a chain of
+#   backing files). It works at creation, but `revertToSnapshot()` returns "revert
+#   to external snapshot not supported yet" with this QEMU/libvirt driver, so it
+#   can NOT be restored. Offering an "include memory" checkbox that would produce
+#   unrecoverable snapshots would have been a new trap, not a fix. The
+#   memory/no-memory choice is therefore NOT exposed: memory is included
+#   automatically if the VM is running (the only mode that restores reliably), and
+#   the disk only if it is stopped (nothing else to capture).
+# - Real duration: creating or restoring a snapshot with memory can take several
+#   seconds (serializing the whole VM RAM into the qcow2). libvirt exposes NO
+#   usable progress statistic for this operation (domain.jobStats() returns
+#   {'type': VIR_DOMAIN_JOB_NONE} from start to end), so displaying a percentage
+#   would be made up. Create and restore therefore run in the background (a
+#   dedicated thread + a separate libvirt connection) while the HTTP endpoint
+#   immediately returns a task_id (see app.core.tasks): the frontend shows an
+#   indeterminate progress bar and the real elapsed time by following
+#   GET /tasks/{id}, instead of blocking the request or showing a fake percentage.
+
 
 def _zvol_disks_of_domain(domain):
-    """Liste (pool, nom_zvol) de tous les disques BLOC (zvols ZFS,
-    backlog stockage 2026-09-18) d'un domaine -- une VM créée sur un pool
-    ZFS (voir create_vm) a TOUS ses disques en zvols dans le MEME pool,
-    jamais de mélange avec des fichiers qcow2 dans ce projet. Utilisé
-    pour router les snapshots vers le mécanisme natif ZFS plutôt que le
-    snapshot interne qcow2 (qui ne s'applique qu'aux disques FICHIER)."""
+    """List of (pool, zvol_name) for all the BLOCK disks (ZFS zvols) of a domain. A
+    VM created on a ZFS pool (see create_vm) has ALL its disks as zvols in the
+    SAME pool, never mixed with qcow2 files in this project. Used to route
+    snapshots to the native ZFS mechanism rather than the qcow2 internal
+    snapshot (which only applies to FILE disks)."""
     root = ET.fromstring(domain.XMLDesc())
     specs = []
     for disk_el in root.findall(".//devices/disk"):
@@ -1410,17 +1442,15 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "list_snapshots", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "list_snapshots", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         zvol_specs = _zvol_disks_of_domain(domain)
         if zvol_specs:
-            # VM sur pool ZFS (backlog stockage 2026-09-18) : un snapshot
-            # "logique" par NOM, fusionné sur tous les zvols de la VM --
-            # on prend la liste du premier zvol comme référence (tous les
-            # zvols d'une même VM sont snapshottés ensemble par
-            # snapshot_zvols(), donc les mêmes noms existent partout sauf
-            # incohérence externe rarissime).
+            # VM on a ZFS pool: one "logical" snapshot per NAME, merged across all the VM's
+            # zvols. The list of the first zvol is taken as the reference (all the zvols of a
+            # VM are snapshotted together by snapshot_zvols(), so the same names exist
+            # everywhere barring a very rare external inconsistency).
             pool0, name0 = zvol_specs[0]
             result = [
                 {
@@ -1448,12 +1478,11 @@ class SnapshotCreate(BaseModel):
 
 
 def _create_snapshot_job(task_id, username, vm_name, snap_name, snap_xml):
-    """Tourne dans un thread separe (voir create_snapshot) avec sa PROPRE
-    connexion libvirt -- ne jamais partager un objet Domain/Connect entre
-    threads, les bindings Python de libvirt ne le garantissent pas. Le
-    log_action definitif (succes/echec) est pose ici, a la fin reelle du
-    travail -- pas au moment de la soumission synchrone, qui ne sait pas
-    encore si ça va marcher."""
+    """Runs in a separate thread (see create_snapshot) with its OWN libvirt
+    connection: never share a Domain/Connect object between threads, libvirt's
+    Python bindings do not guarantee it. The final log_action (success/failure) is
+    written here, at the real end of the work, not at the synchronous submission,
+    which does not know yet whether it will work."""
     conn = open_conn()
     try:
         domain = conn.lookupByName(vm_name)
@@ -1469,11 +1498,10 @@ def _create_snapshot_job(task_id, username, vm_name, snap_name, snap_xml):
 
 
 def _create_zvol_snapshot_job(task_id, username, zvol_specs, snap_name):
-    """Equivalent ZFS de _create_snapshot_job() -- quasi-instantané en
-    pratique (contrairement au snapshot qcow2+mémoire qui peut prendre
-    plusieurs secondes), tourne quand même en tâche de fond pour garder
-    exactement le même contrat d'API (task_id, 202) des deux côtés,
-    aucun changement frontend nécessaire."""
+    """ZFS equivalent of _create_snapshot_job(). Nearly instantaneous in practice
+    (unlike the qcow2 + memory snapshot, which can take several seconds), it
+    still runs as a background task to keep exactly the same API contract
+    (task_id, 202) on both sides, so no frontend change is needed."""
     try:
         zfs_storage.snapshot_zvols(zvol_specs, snap_name)
         finish_task(task_id, "termine")
@@ -1490,8 +1518,8 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_snapshot", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "create_snapshot", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         name_error = validate_name(payload.name)
         if name_error:
@@ -1500,11 +1528,10 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
 
         zvol_specs = _zvol_disks_of_domain(domain)
         if zvol_specs:
-            # VM sur pool ZFS (backlog stockage 2026-09-18) : mecanisme
-            # natif ZFS, voir zfs_storage.py -- snapshot DISQUE SEUL
-            # uniquement (jamais la memoire, contrairement au chemin
-            # qcow2 ci-dessous quand la VM tourne), documente cote
-            # frontend/API plutot que silencieusement different.
+            # VM on a ZFS pool: the native ZFS mechanism, see zfs_storage.py. It is a
+            # DISK-ONLY snapshot (never the memory, unlike the qcow2 path below when the VM
+            # is running), documented on the frontend/API side rather than silently
+            # different.
             task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
             threading.Thread(
                 target=_create_zvol_snapshot_job,
@@ -1515,10 +1542,10 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
 
         try:
             domain.snapshotLookupByName(payload.name)
-            log_action(user["username"], "create_snapshot", payload.name, "echec", "Snapshot déjà existant")
-            raise HTTPException(status_code=422, detail=f"Un snapshot '{payload.name}' existe déjà pour cette VM")
+            log_action(user["username"], "create_snapshot", payload.name, "echec", "Snapshot already exists")
+            raise HTTPException(status_code=422, detail=f"A snapshot '{payload.name}' already exists for this VM")
         except libvirt.libvirtError:
-            pass
+            logger.debug("Ignored exception in create_snapshot()", exc_info=True)
 
         desc_xml = f"<description>{escape(payload.description)}</description>" if payload.description else ""
         snap_xml = f"""
@@ -1527,10 +1554,9 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
           {desc_xml}
         </domainsnapshot>
         """
-        # flags=0 : interne, memoire incluse automatiquement si la VM tourne,
-        # disque seul si elle est arretee -- voir la note de conception
-        # au-dessus de _snapshot_summary pour pourquoi aucune autre option
-        # n'est proposee.
+        # flags=0: internal, memory included automatically if the VM is running, disk
+        # only if it is stopped. See the design note above _snapshot_summary for why no
+        # other option is offered.
         task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
         threading.Thread(
             target=_create_snapshot_job,
@@ -1570,49 +1596,63 @@ def _restore_zvol_snapshot_job(task_id, username, zvol_specs, snapshot_name):
 
 
 @router.post("/{name}/snapshots/{snapshot_name}/restore", status_code=202)
-def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+def restore_snapshot(
+    name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_vm_privilege("vm.snapshot"))
+):
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "restore_snapshot", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "restore_snapshot", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         zvol_specs = _zvol_disks_of_domain(domain)
         if zvol_specs:
-            # SECURITE (backlog stockage 2026-09-18) : contrairement au
-            # snapshot interne qcow2 (libvirt gere lui-meme le cas "VM
-            # active" pour revertToSnapshot), un `zfs rollback` sur un
-            # zvol activement ouvert par le processus qemu d'une VM EN
-            # MARCHE desynchroniserait le cache du noyau invite de l'etat
-            # reel du disque -- corruption quasi certaine, jamais teste
-            # ni suppose sur car. VM DOIT etre arretee avant un rollback
-            # ZFS, verifie explicitement plutot que de laisser echouer
-            # (ou pire, reussir silencieusement) de facon dangereuse.
+            # SAFETY: unlike the qcow2 internal snapshot (libvirt itself handles the "running
+            # VM" case for revertToSnapshot), a `zfs rollback` on a zvol actively opened by
+            # the qemu process of a RUNNING VM would desynchronize the guest kernel's cache
+            # from the real state of the disk, which means near-certain corruption. The VM
+            # MUST be stopped before a ZFS rollback, checked explicitly rather than letting it
+            # fail (or worse, silently succeed) in a dangerous way.
             if domain.isActive():
-                log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "VM active (arrêt requis pour un rollback ZFS)")
-                raise HTTPException(status_code=409, detail="La VM doit être arrêtée avant de restaurer un snapshot ZFS (contrairement au snapshot qcow2, un rollback ZFS ne peut pas se faire à chaud)")
+                log_action(
+                    user["username"],
+                    "restore_snapshot",
+                    snapshot_name,
+                    "echec",
+                    "VM running (it must be stopped for a ZFS rollback)",
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="The VM must be stopped before restoring a ZFS snapshot (unlike the qcow2 snapshot, a ZFS rollback cannot be done while running)",
+                )
             if not confirm:
                 log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Confirmation manquante")
-                raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la restauration")
+                raise HTTPException(
+                    status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore"
+                )
             task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
             threading.Thread(
                 target=_restore_zvol_snapshot_job,
                 args=(task_id, user["username"], zvol_specs, snapshot_name),
                 daemon=True,
             ).start()
-            return {"task_id": task_id, "statut": "en_cours", "message": f"Restauration de '{name}' vers '{snapshot_name}' en cours"}
+            return {
+                "task_id": task_id,
+                "statut": "en_cours",
+                "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
+            }
 
         try:
             domain.snapshotLookupByName(snapshot_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Snapshot introuvable")
-            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
+            log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Snapshot not found")
+            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found") from None
 
         if not confirm:
             log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Confirmation manquante")
-            raise HTTPException(status_code=400, detail="Action irréversible : ajoutez ?confirm=true pour confirmer la restauration")
+            raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore")
 
         task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
         threading.Thread(
@@ -1621,26 +1661,30 @@ def restore_snapshot(name: str, snapshot_name: str, confirm: bool = False, user:
             daemon=True,
         ).start()
 
-        return {"task_id": task_id, "statut": "en_cours", "message": f"Restauration de '{name}' vers '{snapshot_name}' en cours"}
+        return {
+            "task_id": task_id,
+            "statut": "en_cours",
+            "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
+        }
     finally:
         conn.close()
 
 
 @router.delete("/{name}/snapshots/{snapshot_name}")
 def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    # Reste synchrone (pas de thread/tache en arriere-plan) : contrairement a
-    # create/restore, supprimer un snapshot interne est quasi-instantane meme
-    # avec un enfant (libvirt reparente l'enfant automatiquement), teste et
-    # confirme sur ce host le 2026-09-13. `zfs destroy` d'un snapshot est du
-    # meme ordre de grandeur (quasi-instantane), meme choix pour les VM ZFS.
+    # It stays synchronous (no background thread/task): unlike create/restore,
+    # deleting an internal snapshot is nearly instantaneous even with a child (libvirt
+    # reparents the child automatically), tested and confirmed on this host. `zfs
+    # destroy` of a snapshot is of the same order of magnitude (nearly instantaneous),
+    # hence the same choice for ZFS VMs.
     conn = open_conn()
     task_id = create_task("delete_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_snapshot", name, "echec", "VM introuvable", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "delete_snapshot", name, "echec", "VM not found", task_id=task_id)
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         zvol_specs = _zvol_disks_of_domain(domain)
         if zvol_specs:
@@ -1648,25 +1692,27 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
                 zfs_storage.delete_zvol_snapshot(zvol_specs, snapshot_name)
             except zfs_storage.ZfsError as e:
                 log_action(user["username"], "delete_snapshot", snapshot_name, "echec", e.message, task_id=task_id)
-                raise HTTPException(status_code=500, detail=f"Erreur de suppression : {e.message}")
+                raise HTTPException(status_code=500, detail=f"Deletion error: {e.message}") from e
             log_action(user["username"], "delete_snapshot", snapshot_name, "succes", task_id=task_id)
-            return {"message": f"Snapshot '{snapshot_name}' supprimé"}
+            return {"message": f"Snapshot '{snapshot_name}' deleted"}
 
         try:
             snap = domain.snapshotLookupByName(snapshot_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_snapshot", snapshot_name, "echec", "Snapshot introuvable", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' introuvable")
+            log_action(
+                user["username"], "delete_snapshot", snapshot_name, "echec", "Snapshot not found", task_id=task_id
+            )
+            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found") from None
 
         try:
             snap.delete(0)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_snapshot", snapshot_name, "echec", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Erreur de suppression : {msg}")
+            raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
 
         log_action(user["username"], "delete_snapshot", snapshot_name, "succes", task_id=task_id)
-        return {"message": f"Snapshot '{snapshot_name}' supprimé"}
+        return {"message": f"Snapshot '{snapshot_name}' deleted"}
     finally:
         conn.close()
 
@@ -1677,32 +1723,27 @@ class CloneRequest(BaseModel):
 
 @router.post("/{name}/clone", status_code=201)
 def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone"))):
-    # Reecrit le 2026-09-13 (chantier 5 de la roadmap vSphere/vCenter) apres
-    # audit du code precedent. Bugs reels trouves et corriges ici :
-    # 1. SECURITE : aucune verification de droit avant (juste get_current_user,
-    #    donc n'importe quel compte -- meme "observateur", lecture seule
-    #    partout ailleurs -- pouvait cloner et creer une nouvelle VM). Gate
-    #    maintenant par un privilege ACL dedie ("vm.clone", voir permissions.py),
-    #    pas accorde par defaut a aucun role predefini : un admin doit l'ajouter
-    #    explicitement a un role personnalise s'il veut deleguer le clonage.
-    # 2. CORRUPTION DE DONNEES : seul le PREMIER disque (device='disk') etait
-    #    copie -- une VM multi-disques se retrouvait avec le clone et
-    #    l'original pointant sur le MEME fichier qcow2 pour les disques
-    #    suivants (deux VM ecrivant sur le meme fichier des que les deux
-    #    tournent). Tous les disques sont maintenant clones individuellement.
-    # 3. FUITE ENTRE ORIGINAL ET CLONE : le disque clone est une copie bit a
-    #    bit du disque source -- meme hostname, meme machine-id, memes CLES
-    #    HOTE SSH que l'original tant que rien ne force une reconfiguration.
-    #    Pour les VM crees via le chemin cloud-init par defaut (verifiable :
-    #    un fichier <nom>-cloudinit.iso existe), un nouvel ISO cloud-init
-    #    minimal (nouveau hostname + nouvel instance-id, PAS le mot de passe
-    #    -- jamais conserve nulle part par Hyperlite, meme pas possible de le
-    #    reinjecter) est fourni au clone : cloud-init detecte une "nouvelle
-    #    instance" au premier boot et regenere de lui-meme hostname + cles
-    #    hote SSH. Pour les VM installees depuis un ISO (kickstart/autoinstall
-    #    ou manuel), aucune personnalisation invite n'est possible -- meme
-    #    limite qu'un hyperviseur sans agent invite, documentee dans la reponse
-    #    plutot que silencieusement ignoree.
+    # Real bugs fixed in the cloning logic after an audit:
+    # 1. SECURITY: there was no permission check (just get_current_user), so any
+    #    account, even an "observateur" (read-only everywhere else), could clone and
+    #    create a new VM. It is now gated by a dedicated ACL privilege ("vm.clone",
+    #    see permissions.py), granted by default to no predefined role: an admin must
+    #    add it explicitly to a custom role to delegate cloning.
+    # 2. DATA CORRUPTION: only the FIRST disk (device='disk') was copied, so a
+    #    multi-disk VM ended up with the clone and the original pointing at the SAME
+    #    qcow2 file for the following disks (two VMs writing to the same file as soon
+    #    as both run). All the disks are now cloned individually.
+    # 3. LEAK BETWEEN ORIGINAL AND CLONE: the cloned disk is a bit-for-bit copy of the
+    #    source disk, with the same hostname, machine-id and SSH HOST KEYS as the
+    #    original as long as nothing forces a reconfiguration. For VMs created through
+    #    the default cloud-init path (verifiable: a <name>-cloudinit.iso file exists),
+    #    a new minimal cloud-init ISO (a new hostname + a new instance-id, NOT the
+    #    password, which Hyperlite never keeps anywhere and could not reinject) is
+    #    given to the clone: cloud-init detects a "new instance" at first boot and
+    #    regenerates the hostname and SSH host keys by itself. For VMs installed from
+    #    an ISO (kickstart/autoinstall or manual), no guest customization is possible,
+    #    the same limit as a hypervisor without a guest agent, documented in the
+    #    response rather than silently ignored.
     conn = open_conn()
     task_id = create_task("clone_vm", name, node=conn.getHostname(), username=user["username"])
     new_disk_paths = []
@@ -1710,62 +1751,75 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "clone_vm", name, "echec", "VM source introuvable", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "clone_vm", name, "echec", "Source VM not found", task_id=task_id)
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         try:
             validate_name(payload.new_name)
         except ValueError as exc:
-            log_action(user["username"], "clone_vm", name, "echec", f"nom invalide : {payload.new_name}", task_id=task_id)
-            raise HTTPException(status_code=422, detail=str(exc))
+            log_action(
+                user["username"], "clone_vm", name, "echec", f"invalid name: {payload.new_name}", task_id=task_id
+            )
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         try:
             conn.lookupByName(payload.new_name)
-            log_action(user["username"], "clone_vm", name, "echec", f"'{payload.new_name}' existe déjà", task_id=task_id)
-            raise HTTPException(status_code=409, detail=f"Une VM '{payload.new_name}' existe déjà")
+            log_action(
+                user["username"], "clone_vm", name, "echec", f"'{payload.new_name}' already exists", task_id=task_id
+            )
+            raise HTTPException(status_code=409, detail=f"A VM '{payload.new_name}' already exists")
         except libvirt.libvirtError:
-            pass
+            logger.debug("Ignored exception in clone_vm()", exc_info=True)
 
         if domain.isActive():
             log_action(user["username"], "clone_vm", name, "echec", "VM active", task_id=task_id)
-            raise HTTPException(status_code=409, detail="Arrêtez la VM avant de la cloner")
+            raise HTTPException(status_code=409, detail="Stop the VM before cloning it")
 
         root = ET.fromstring(domain.XMLDesc(0))
 
         disk_els = [d for d in root.findall(".//devices/disk") if d.get("device") == "disk"]
         if not disk_els:
-            log_action(user["username"], "clone_vm", name, "echec", "disque source introuvable", task_id=task_id)
-            raise HTTPException(status_code=500, detail="Disque source introuvable")
+            log_action(user["username"], "clone_vm", name, "echec", "source disk not found", task_id=task_id)
+            raise HTTPException(status_code=500, detail="Source disk not found")
 
-        # Clone TOUS les disques (pas seulement le premier -- voir note ci-dessus).
+        # Clone ALL the disks (not only the first one, see the note above).
         for i, disk_el in enumerate(disk_els):
             source_el = disk_el.find("source")
             source_path = source_el.get("file") if source_el is not None else None
             if not source_path:
                 for p in new_disk_paths:
                     Path(p).unlink(missing_ok=True)
-                log_action(user["username"], "clone_vm", name, "echec", "chemin du disque source introuvable", task_id=task_id)
-                raise HTTPException(status_code=500, detail="Chemin du disque source introuvable")
+                log_action(user["username"], "clone_vm", name, "echec", "source disk path not found", task_id=task_id)
+                raise HTTPException(status_code=500, detail="Source disk path not found")
 
             suffix = "" if i == 0 else f"-{i + 1}"
             new_disk_path = IMAGES_DIR / f"{payload.new_name}{suffix}.qcow2"
             if new_disk_path.exists():
                 for p in new_disk_paths:
                     Path(p).unlink(missing_ok=True)
-                log_action(user["username"], "clone_vm", name, "echec", f"'{new_disk_path.name}' existe déjà", task_id=task_id)
-                raise HTTPException(status_code=409, detail=f"Un fichier disque '{new_disk_path.name}' existe déjà")
+                log_action(
+                    user["username"],
+                    "clone_vm",
+                    name,
+                    "echec",
+                    f"'{new_disk_path.name}' already exists",
+                    task_id=task_id,
+                )
+                raise HTTPException(status_code=409, detail=f"A disk file '{new_disk_path.name}' already exists")
 
             try:
                 subprocess.run(
                     ["qemu-img", "convert", "-O", "qcow2", source_path, str(new_disk_path)],
-                    check=True, capture_output=True, text=True,
+                    check=True,
+                    capture_output=True,
+                    text=True,
                 )
             except subprocess.CalledProcessError as exc:
                 for p in new_disk_paths:
                     Path(p).unlink(missing_ok=True)
-                msg = f"copie disque : {exc.stderr or exc}"
+                msg = f"disk copy: {exc.stderr or exc}"
                 log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
-                raise HTTPException(status_code=500, detail="Échec de la copie du disque")
+                raise HTTPException(status_code=500, detail="Disk copy failed") from exc
 
             new_disk_paths.append(str(new_disk_path))
             source_el.set("file", str(new_disk_path))
@@ -1776,7 +1830,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
 
         uuid_el = root.find("uuid")
         if uuid_el is not None:
-            root.remove(uuid_el)  # libvirt en genere un nouveau, distinct, a defineXML
+            root.remove(uuid_el)  # libvirt generates a new, distinct one at defineXML
 
         devices_el = root.find(".//devices")
         if devices_el is not None:
@@ -1784,10 +1838,10 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
                 if disk.get("device") == "cdrom":
                     devices_el.remove(disk)
 
-        # MAC explicite (plutot que laisser libvirt en tirer un au hasard) :
-        # permet de reserver tout de suite une IP fixe pour le clone, comme a
-        # la creation d'une VM (voir create_vm / network_alloc.py). Best-effort :
-        # un echec de reservation ne bloque pas le clonage, juste l'IP fixe.
+        # Explicit MAC (rather than letting libvirt pick one at random): it allows
+        # reserving a fixed IP for the clone right away, as when a VM is created (see
+        # create_vm / network_alloc.py). Best-effort: a failed reservation does not block
+        # the cloning, only the fixed IP.
         new_ip_reservations = []
         for iface in root.findall(".//devices/interface"):
             old_mac = iface.find("mac")
@@ -1802,23 +1856,25 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
                     allocate_static_ip(conn, iface_network, new_mac)
                     new_ip_reservations.append((iface_network, new_mac))
                 except libvirt.libvirtError:
-                    pass
+                    logger.debug("Ignored exception in clone_vm()", exc_info=True)
 
-        # Personnalisation invite (hostname + cles hote SSH) : seulement pour
-        # le chemin cloud-init par defaut, detectable par la presence de son
-        # ISO -- voir note de conception au-dessus de la fonction.
+        # Guest customization (hostname + SSH host keys): only for the default cloud-init
+        # path, detectable by the presence of its ISO. See the design note above the
+        # function.
         reseed_iso = None
         if (IMAGES_DIR / f"{name}-cloudinit.iso").exists():
             try:
                 reseed_iso = create_cloudinit_reseed_iso(payload.new_name)
-                ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"}).extend([
-                    ET.fromstring(f"<driver name='qemu' type='raw'/>"),
-                    ET.fromstring(f"<source file='{reseed_iso}'/>"),
-                    ET.fromstring("<target dev='hdc' bus='ide'/>"),
-                    ET.fromstring("<readonly/>"),
-                ])
+                ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"}).extend(
+                    [
+                        ET.fromstring("<driver name='qemu' type='raw'/>"),
+                        ET.fromstring(f"<source file='{reseed_iso}'/>"),
+                        ET.fromstring("<target dev='hdc' bus='ide'/>"),
+                        ET.fromstring("<readonly/>"),
+                    ]
+                )
             except subprocess.CalledProcessError:
-                reseed_iso = None  # tant pis pour la personnalisation, le clone reste fonctionnel
+                reseed_iso = None  # too bad for the customization, the clone remains functional
 
         new_xml = ET.tostring(root, encoding="unicode")
 
@@ -1833,16 +1889,18 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
                 try:
                     release_static_ip(conn, iface_network, mac)
                 except libvirt.libvirtError:
-                    pass
+                    logger.debug("Ignored exception in clone_vm()", exc_info=True)
             msg = describe_exception(exc)
             log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Échec de la définition du clone : {msg}")
+            raise HTTPException(status_code=500, detail=f"Clone definition failed: {msg}") from exc
 
         rename_vm_ssh_user(name, payload.new_name)
         rename_vm_os_label(name, payload.new_name)
         log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}", task_id=task_id)
         return {
-            "source": name, "clone": new_domain.name(), "etat": "arretee",
+            "source": name,
+            "clone": new_domain.name(),
+            "etat": "arretee",
             "personnalisation_invite": reseed_iso is not None,
         }
     finally:
@@ -1851,29 +1909,27 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
 
 class MigrateRequest(BaseModel):
     target_node: str
-    # Verifications de compatibilite (chantier 6) : une heuristique peut se
-    # tromper, l'admin garde le dernier mot -- ne desactive que le REFUS,
-    # les controles restent journalises.
+    # Compatibility checks: a heuristic can be wrong, so the admin has the last word.
+    # This only disables the REFUSAL, and the checks are still logged.
     ignorer_verifications: bool = False
 
 
 def _norm_node(n):
-    """None/'local'/'kvm-lab' (ancienne sentinelle) = hote local."""
-    return None if n in (None, "", "local", "kvm-lab") else n
+    """None/'local' = the local host."""
+    return None if n in (None, "", "local") else n
 
 
-# _pool_target_path/_domain_disk_paths/_uses_shared_storage deplacees dans
-# app/core/libvirt_utils.py (chantier 17, HA) -- partagees avec la
-# detection de stockage partage necessaire a la protection HA. Voir
-# pool_type_and_target_path/domain_disk_paths/uses_shared_storage.
+# _pool_target_path/_domain_disk_paths/_uses_shared_storage moved to
+# app/core/libvirt_utils.py: shared with the shared-storage detection needed for
+# HA protection. See pool_type_and_target_path/domain_disk_paths/uses_shared_storage.
 
 
 def _migration_progress_job(stop_event, task_id, node, vm_name):
-    """Tourne dans son PROPRE thread (troisieme, avec sa propre connexion
-    libvirt -- jamais partager un objet Domain entre threads) pendant que
-    le thread principal est bloque dans domain.migrate(). jobInfo() peut
-    echouer transitoirement (pas encore de job demarre, job termine entre
-    deux appels) -- jamais fatal ici, juste ignore, best-effort."""
+    """Runs in its OWN thread (a third one, with its own libvirt connection: never share
+    a Domain object between threads) while the main thread is blocked in
+    domain.migrate(). jobInfo() can fail transiently (no job started yet, job
+    finished between two calls), which is never fatal here: just ignored,
+    best-effort."""
     conn = None
     try:
         conn = open_conn(node)
@@ -1887,10 +1943,10 @@ def _migration_progress_job(stop_event, task_id, node, vm_name):
                     pct = min(99, int(data_processed * 100 / data_total))
                     update_task_progress(task_id, pct)
             except libvirt.libvirtError:
-                pass
+                logger.debug("Ignored exception in _migration_progress_job()", exc_info=True)
             stop_event.wait(2)
     except libvirt.libvirtError:
-        pass
+        logger.debug("Ignored exception in _migration_progress_job()", exc_info=True)
     finally:
         if conn:
             conn.close()
@@ -1910,96 +1966,100 @@ def _cdrom_source_paths(domain):
 
 
 def _delete_paths_on_node(paths, node_name):
-    """Best-effort : supprime une liste de fichiers, LOCALEMENT si
-    node_name est None/"kvm-lab", via SSH (cle cluster) sinon -- meme
-    logique que _perform_vm_deletion (backlog 2026-09-18), reutilisee ici
-    pour nettoyer le disque SOURCE apres une migration reussie en
-    stockage NON partage. BUG REEL trouve en testant les actions VM
-    multi-nœuds (sans rapport direct, decouvert au passage) : une
-    migration VIR_MIGRATE_NON_SHARED_DISK copie le disque vers la
-    destination mais NE SUPPRIME JAMAIS le fichier source -- chaque
-    migration laissait un qcow2 + ISO cloud-init orphelins sur le nœud
-    d'origine, silencieusement, a chaque fois."""
+    """Best-effort: delete a list of files, LOCALLY if node_name is None/"local", over
+    SSH (cluster key) otherwise: the same logic as _perform_vm_deletion, reused
+    here to clean up the SOURCE disk after a successful migration on NON-shared
+    storage. A real bug found when testing multi-node VM actions: a
+    VIR_MIGRATE_NON_SHARED_DISK migration copies the disk to the destination but
+    NEVER deletes the source file, so every migration silently left an orphan
+    qcow2 + cloud-init ISO on the origin node."""
     if not paths:
         return
-    if not node_name or node_name == "kvm-lab":
+    if not node_name or node_name == "local":
         for p in paths:
             Path(p).unlink(missing_ok=True)
         return
-    from app.core.cluster import get_node, get_cluster_private_key_path
+    from app.core.cluster import get_node, node_ssh_options
+
     remote_node = get_node(node_name)
     if not remote_node:
         return
-    key_path = str(get_cluster_private_key_path())
-    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    ssh_opts = node_ssh_options()
     ssh_target = f"{remote_node['ssh_user']}@{remote_node['hostname']}"
     for p in paths:
         subprocess.run(
             ["ssh", *ssh_opts, "-p", str(remote_node["ssh_port"]), ssh_target, "rm", "-f", str(p)],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
 
 
 def _copy_file_to_node(local_path, node_name, remote_path):
-    """scp best-effort d'un fichier LOCAL vers le meme chemin absolu sur un
-    nœud distant, via la cle SSH dediee au cluster (meme cle que les
-    connexions qemu+ssh://). BUG REEL trouve en testant une vraie
-    migration (kvm-lab -> serveur-antho) : VIR_MIGRATE_NON_SHARED_DISK ne
-    copie QUE les disques device='disk', jamais les CD-ROM/ISO
-    device='cdrom' -- l'ISO cloud-init (creee pour chaque VM, voir
-    vm_builder.py::create_cloudinit_iso) manquait donc systematiquement
-    sur la destination, migration refusee ('impossible d'acceder au
-    fichier de stockage'). Uniquement supporte depuis le nœud LOCAL
-    (Hyperlite pilote toujours depuis kvm-lab, voir cluster.py) -- migrer
-    une VM entre deux nœuds distants echouera ici avec une erreur claire
-    plutot que d'etre geree en silence."""
-    from app.core.cluster import get_node, get_cluster_private_key_path
+    """Best-effort scp of a LOCAL file to the same absolute path on a remote node,
+    with the SSH key dedicated to the cluster (the same key as the qemu+ssh://
+    connections). A real bug found when testing a real migration:
+    VIR_MIGRATE_NON_SHARED_DISK only copies device='disk' disks, never the
+    device='cdrom' CD-ROMs/ISOs, so the cloud-init ISO (created for every VM,
+    see vm_builder.py::create_cloudinit_iso) was systematically missing on the
+    destination and the migration was refused ('unable to access the storage
+    file'). Only supported from the LOCAL node (Hyperlite always drives from the
+    local host, see cluster.py): migrating a VM between two remote nodes fails
+    here with a clear error rather than being handled silently."""
+    from app.core.cluster import get_node, node_ssh_options
+
     node = get_node(node_name)
     if not node:
-        raise RuntimeError(f"Nœud '{node_name}' introuvable")
-    key_path = str(get_cluster_private_key_path())
+        raise RuntimeError(f"Node '{node_name}' not found")
     remote_dir = str(Path(remote_path).parent)
     ssh_target = f"{node['ssh_user']}@{node['hostname']}"
-    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    ssh_opts = node_ssh_options()
     mkdir_r = subprocess.run(
         ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), ssh_target, "mkdir", "-p", remote_dir],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     if mkdir_r.returncode != 0:
-        raise RuntimeError(f"Préparation du répertoire distant échouée ({remote_dir} sur {node_name}) : {mkdir_r.stderr.strip()[:300]}")
+        raise RuntimeError(
+            f"Preparing the remote directory failed ({remote_dir} on {node_name}): {mkdir_r.stderr.strip()[:300]}"
+        )
     scp_r = subprocess.run(
         ["scp", *ssh_opts, "-P", str(node["ssh_port"]), local_path, f"{ssh_target}:{remote_path}"],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     if scp_r.returncode != 0:
-        raise RuntimeError(f"Copie de '{Path(local_path).name}' vers {node_name} échouée : {scp_r.stderr.strip()[:300]}")
+        raise RuntimeError(f"Copy of '{Path(local_path).name}' to {node_name} failed: {scp_r.stderr.strip()[:300]}")
 
 
 def _copy_file_from_node(node_name, remote_path, local_path):
-    """Symetrique de _copy_file_to_node -- scp d'un fichier depuis un nœud
-    distant vers kvm-lab (LOCAL), meme cle SSH dediee au cluster. Necessaire
-    pour la migration nœud distant -> kvm-lab (backlog 2026-09-18, confiance
-    SSH inverse) : la MEME limitation que documentee pour le sens aller
-    s'applique en miroir ici -- VIR_MIGRATE_NON_SHARED_DISK ne copie que les
-    disques device='disk', jamais les CD-ROM/ISO. BUG REEL trouve en testant
-    CE backlog precisement (masque jusqu'ici par le bug ORPHELIN corrige au
-    meme moment : un fichier cloud-init.iso laisse par erreur sur kvm-lab
-    apres une precedente migration aller donnait l'illusion que le sens
-    retour fonctionnait, alors que rien ne copiait vraiment ce fichier)."""
-    from app.core.cluster import get_node, get_cluster_private_key_path
+    """Mirror of _copy_file_to_node: scp of a file from a remote node to the LOCAL
+    host, with the same SSH key dedicated to the cluster. Needed for migration
+    from a remote node to the local host (reverse SSH trust): the SAME limitation
+    as documented for the forward direction applies here in mirror, since
+    VIR_MIGRATE_NON_SHARED_DISK only copies device='disk' disks, never
+    CD-ROMs/ISOs. A real bug found when testing this precisely, previously masked
+    by the ORPHAN bug fixed at the same time: a cloud-init.iso file wrongly left
+    on the local host after a previous forward migration gave the illusion that
+    the return direction worked, whereas nothing really copied that file."""
+    from app.core.cluster import get_node, node_ssh_options
+
     node = get_node(node_name)
     if not node:
-        raise RuntimeError(f"Nœud '{node_name}' introuvable")
-    key_path = str(get_cluster_private_key_path())
+        raise RuntimeError(f"Node '{node_name}' not found")
     Path(local_path).parent.mkdir(parents=True, exist_ok=True)
     ssh_target = f"{node['ssh_user']}@{node['hostname']}"
-    ssh_opts = ["-i", key_path, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    ssh_opts = node_ssh_options()
     scp_r = subprocess.run(
         ["scp", *ssh_opts, "-P", str(node["ssh_port"]), f"{ssh_target}:{remote_path}", local_path],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     if scp_r.returncode != 0:
-        raise RuntimeError(f"Copie de '{Path(remote_path).name}' depuis {node_name} échouée : {scp_r.stderr.strip()[:300]}")
+        raise RuntimeError(f"Copy of '{Path(remote_path).name}' from {node_name} failed: {scp_r.stderr.strip()[:300]}")
 
 
 def _domain_network_names(domain):
@@ -2013,91 +2073,86 @@ def _domain_network_names(domain):
 
 
 def _ensure_networks_active(conn, network_names):
-    """Demarre (et autostart) sur `conn` chaque reseau libvirt nomme dans
-    network_names s'il existe mais est inactif -- BUG REEL trouve en
-    testant une vraie migration cross-site (kvm-lab -> serveur-antho,
-    installe manuellement donc jamais passe par l'installeur Hyperlite,
-    voir ensure_default_pool pour le meme genre de garde-fou cote
-    stockage) : le reseau 'default' existait mais n'etait pas demarre sur
-    le nœud de destination, migration refusee par libvirt avec une erreur
-    peu actionnable ('le réseau default n'est pas actif'). Plutot que de
-    laisser echouer et deviner, Hyperlite corrige lui-meme le cas courant.
-    Ne fait rien si le reseau n'existe pas du tout sur la destination --
-    ca, ca reste une vraie erreur a remonter telle quelle (mauvaise
-    config, pas un simple oubli de demarrage)."""
+    """Start (and autostart) on `conn` every libvirt network named in network_names
+    that exists but is inactive. A real bug found when testing a real
+    cross-site migration to a manually installed node that never went through
+    the Hyperlite installer (see ensure_default_pool for the same kind of guard
+    on the storage side): the 'default' network existed but was not started on
+    the destination node, and libvirt refused the migration with a poorly
+    actionable error ("network default is not active"). Rather than letting it
+    fail and leaving the user to guess, Hyperlite fixes the common case itself.
+    It does nothing if the network does not exist at all on the destination:
+    that remains a real error to report as is (a misconfiguration, not a simple
+    forgotten start)."""
     for name in network_names:
         try:
             net = conn.networkLookupByName(name)
         except libvirt.libvirtError:
-            continue  # reseau absent cote destination : migrate() echouera avec une erreur claire, rien a "reparer" ici
+            logger.debug("Ignored exception in _ensure_networks_active()", exc_info=True)
+            continue  # network missing on the destination: migrate() will fail with a clear error, nothing to "repair" here
         if not net.isActive():
             net.create()
             net.setAutostart(True)
 
 
 def _local_migrate_uri_host():
-    """Adresse par laquelle CE nœud (kvm-lab, jamais une ligne de la table
-    `nodes` -- c'est l'hote local ou tourne Hyperlite lui-meme) est
-    joignable par un AUTRE nœud pour le flux de donnees QEMU d'une
-    migration -- utile seulement quand kvm-lab est la DESTINATION d'une
-    migration (le sens largement le plus frequent, VERS un nœud distant
-    enregistre, n'en a pas besoin, voir plus bas). Interroge Tailscale
-    (deja en place sur ce projet, voir CLAUDE.md) plutot que de deviner ou
-    coder une IP en dur. Best-effort : None si indisponible, la migration
-    tentera alors sans migrate_uri explicite plutot que d'echouer ici."""
+    """Address through which THIS node (the local host, never a row of the `nodes`
+    table: it is the host running Hyperlite itself) is reachable by ANOTHER node
+    for the QEMU data stream of a migration. Only useful when the local host is
+    the DESTINATION of a migration (the far more frequent direction, TOWARDS a
+    registered remote node, does not need it, see below). It queries Tailscale
+    (already used by this project) rather than guessing or hard-coding an IP.
+    Best-effort: None if unavailable, and the migration then tries without an
+    explicit migrate_uri instead of failing here."""
     try:
         r = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip().splitlines()[0]
     except (OSError, subprocess.SubprocessError):
-        pass
+        logger.debug("Ignored exception in _local_migrate_uri_host()", exc_info=True)
     return None
 
 
 def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
-    from app.core.cluster import get_node, build_libvirt_uri
-    # "kvm-lab" est la convention FRONTEND pour l'hote local (voir
-    # fetchNodes(), dashboard/src/api/client.js) -- jamais une ligne de la
-    # table `nodes` cote backend. BUG REEL trouve en testant un aller-
-    # retour complet (kvm-lab -> serveur-antho -> kvm-lab) : open_conn()
-    # tente de RESOUDRE "kvm-lab" comme un nœud distant enregistre et
-    # echoue avec 404 des que target_node vaut litteralement "kvm-lab" --
-    # traduit ici en None (= connexion locale, meme convention que partout
-    # ailleurs dans le code, voir open_conn()).
-    dest_node_key = None if target_node == "kvm-lab" else target_node
+    from app.core.cluster import build_libvirt_uri, get_node
+
+    # "local" is the FRONTEND convention for the local host (see
+    # fetchNodes(), dashboard/src/api/client.js), never a row of the `nodes` table on
+    # the backend. A real bug found when testing a complete round trip: open_conn()
+    # tries to RESOLVE it as a registered remote node and fails with 404 as soon as
+    # target_node is that literal value. It is translated here to None (= a local
+    # connection, the same convention as everywhere else in the code, see open_conn()).
+    dest_node_key = None if target_node == "local" else target_node
     src_conn = open_conn(source_node)
     dest_conn = None
     stop_event = threading.Event()
-    progress_thread = threading.Thread(target=_migration_progress_job, args=(stop_event, task_id, source_node, vm_name), daemon=True)
+    progress_thread = threading.Thread(
+        target=_migration_progress_job, args=(stop_event, task_id, source_node, vm_name), daemon=True
+    )
     try:
         domain = src_conn.lookupByName(vm_name)
         dest_conn = open_conn(dest_node_key)
 
         _ensure_networks_active(dest_conn, _domain_network_names(domain))
 
-        # Chemins des disques SOURCE, captures AVANT la migration (backlog
-        # 2026-09-18) : necessaires pour nettoyer le disque d'origine APRES
-        # une migration reussie en stockage non partage (voir plus bas) --
-        # le domaine source est UNDEFINE (VIR_MIGRATE_UNDEFINE_SOURCE) une
-        # fois la migration terminee, plus interrogeable a ce moment-la.
+        # Paths of the SOURCE disks, captured BEFORE the migration: needed to clean up the
+        # original disk AFTER a successful migration on non-shared storage (see below).
+        # The source domain is UNDEFINED (VIR_MIGRATE_UNDEFINE_SOURCE) once the migration
+        # is over, so it can no longer be queried at that point.
         source_disk_paths = domain_disk_paths(domain)
 
-        # BUG REEL trouve en testant CE backlog precisement (migration
-        # nœud distant -> kvm-lab, stockage NON partage) : "Cannot access
-        # storage file ... No such file or directory" -- confirme via
-        # recherche (wiki.libvirt.org/Migration_fails_because_disk_image_
-        # cannot_be_found.html) que certaines combinaisons de version
-        # libvirt exigent que le fichier destination existe DEJA avant le
-        # transfert NON_SHARED_DISK, la creation automatique cote
-        # destination ne se declenchant pas de facon fiable dans ce sens
-        # precis (fonctionne bien dans le sens kvm-lab -> nœud distant,
-        # jamais rencontre ce probleme la). Corrige en PRE-CREANT les
-        # fichiers qcow2 vierges de la bonne taille sur kvm-lab avant
-        # d'appeler migrateToURI3 -- taille lue via domain.blockInfo() (API
-        # libvirt, fonctionne a travers la connexion distante, pas besoin
-        # d'un acces fichier direct qui se heurterait de toute facon au
-        # verrou d'ecriture d'un disque de VM ACTIVE).
-        if source_node and source_node != "kvm-lab" and dest_node_key is None:
+        # Real bug found when testing a migration from a remote node to the local host on
+        # NON-shared storage: "Cannot access storage file ... No such file or directory".
+        # Confirmed through research (wiki.libvirt.org/Migration_fails_because_disk_image_
+        # cannot_be_found.html) that some libvirt versions require the destination file to
+        # ALREADY exist before the NON_SHARED_DISK transfer: the automatic creation on the
+        # destination side does not trigger reliably in this specific direction (it works
+        # in the local host -> remote node direction). Fixed by PRE-CREATING blank qcow2
+        # files of the right size on the local host before calling migrateToURI3. The size
+        # is read with domain.blockInfo() (a libvirt API that works through the remote
+        # connection, with no need for direct file access, which would collide with the
+        # write lock of an ACTIVE VM's disk anyway).
+        if source_node and source_node != "local" and dest_node_key is None:
             root_for_targets = ET.fromstring(domain.XMLDesc(0))
             for disk_el in root_for_targets.findall(".//devices/disk"):
                 if disk_el.get("device") != "disk":
@@ -2111,26 +2166,25 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
                     capacity = domain.blockInfo(dev)[0]
                     subprocess.run(
                         ["qemu-img", "create", "-f", "qcow2", path, str(capacity)],
-                        check=True, capture_output=True, text=True,
+                        check=True,
+                        capture_output=True,
+                        text=True,
                     )
                 except (libvirt.libvirtError, subprocess.CalledProcessError):
-                    pass  # best-effort -- migrateToURI3 remontera une erreur claire si la pre-creation echoue
+                    logger.debug(
+                        "Ignored exception in _migrate_vm_job()", exc_info=True
+                    )  # best-effort: migrateToURI3 will report a clear error if the pre-creation fails
 
-        # ISO cloud-init/CD-ROM attachees : jamais copiees par libvirt
-        # (VIR_MIGRATE_NON_SHARED_DISK ne copie que device='disk') -- gere
-        # ici manuellement dans LES DEUX SENS (backlog 2026-09-18 : le sens
-        # inverse nœud distant -> kvm-lab a ete ajoute en meme temps que la
-        # confiance SSH inverse, voir cluster.py::ensure_reverse_trust).
-        # BUG REEL trouve en testant precisement ce sens : sans cette
-        # copie, la migration echoue ('impossible d'acceder au fichier de
-        # stockage') des que le domaine destination reference une ISO
-        # absente sur kvm-lab -- masque un temps par le bug ORPHELIN
-        # corrige au meme moment (un fichier cloud-init.iso oublie sur
-        # kvm-lab par une migration ALLER precedente donnait l'illusion
-        # que le retour marchait, en coincidant par hasard avec le meme
-        # chemin attendu).
+        # Attached cloud-init ISOs/CD-ROMs are never copied by libvirt
+        # (VIR_MIGRATE_NON_SHARED_DISK only copies device='disk'): handled manually here
+        # in BOTH directions. Without this copy the migration fails ('unable to access the
+        # storage file') as soon as the destination domain references an ISO that is
+        # missing on the destination. It was hidden for a while by the ORPHAN bug fixed at
+        # the same time (a cloud-init.iso file left by an earlier forward migration gave
+        # the illusion that the return direction worked, by coincidence with the same
+        # expected path).
         copied_cdrom_paths = []
-        if not source_node or source_node == "kvm-lab":
+        if not source_node or source_node == "local":
             for cdrom_path in _cdrom_source_paths(domain):
                 if Path(cdrom_path).exists():
                     _copy_file_to_node(cdrom_path, target_node, cdrom_path)
@@ -2141,16 +2195,16 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
                     _copy_file_from_node(source_node, cdrom_path, cdrom_path)
                     copied_cdrom_paths.append(cdrom_path)
                 except RuntimeError:
-                    pass  # ISO absente/injoignable cote source -- laisse migrateToURI3 echouer avec une erreur claire plutot que de deviner
+                    logger.debug(
+                        "Ignored exception in _migrate_vm_job()", exc_info=True
+                    )  # ISO missing/unreachable on the source side: let migrateToURI3 fail with a clear error rather than guessing
 
         shared = uses_shared_storage(src_conn, dest_conn, domain)
-        # BUG REEL trouve en testant (grave : plantait le thread AVANT
-        # meme le premier appel a jobInfo, hors du except libvirt.libvirtError
-        # ci-dessous -- une tache restait bloquee "en_cours" pour toujours,
-        # sans aucune trace pour l'utilisateur autre que les logs serveur) :
-        # la constante s'appelle VIR_MIGRATE_PERSIST_DEST dans cette version
-        # de libvirt-python, pas VIR_MIGRATE_PERSISTENT (qui n'existe pas du
-        # tout -- verifie via dir(libvirt)).
+        # The constant is called VIR_MIGRATE_PERSIST_DEST in this libvirt-python version,
+        # not VIR_MIGRATE_PERSISTENT (which does not exist at all, verified through
+        # dir(libvirt)). The wrong name crashed the thread BEFORE the first jobInfo call,
+        # outside the `except libvirt.libvirtError` below, leaving a task stuck "en_cours"
+        # forever with no trace for the user other than the server logs.
         flags = (
             libvirt.VIR_MIGRATE_LIVE
             | libvirt.VIR_MIGRATE_PEER2PEER
@@ -2160,46 +2214,39 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         if not shared:
             flags |= libvirt.VIR_MIGRATE_NON_SHARED_DISK
 
-        # PAS de VIR_MIGRATE_TUNNELLED : teste en reel (chantier 27) et
-        # echoue systematiquement avec 'erreur interne : la clé de
-        # l'argument host ne doit pas avoir une valeur Null' des que
-        # PEER2PEER+TUNNELLED sont combines sur cette version de libvirt
-        # (9.0.0, Debian 12) avec une URI qemu+ssh:// portant des
-        # parametres de requete (keyfile=/no_verify=1/sshauth=privkey) --
-        # tres probablement un bug de libvirt lui-meme dans ce chemin de
-        # code specifique, pas quelque chose de corrigeable cote Hyperlite.
-        # SANS tunnel, le flux de donnees QEMU (memoire + disque si
-        # VIR_MIGRATE_NON_SHARED_DISK) passe DIRECTEMENT entre les deux
-        # hotes plutot que par le tunnel SSH -- acceptable ici : un nœud
-        # enregistre (voir cluster.py) doit deja etre joignable directement
-        # pour SSH, donc l'est presque toujours aussi pour ce flux direct
-        # (confirme reellement entre kvm-lab et serveur-antho via
-        # Tailscale, deux sites differents). Deuxieme bug reel trouve en
-        # meme temps : sans le preciser explicitement, QEMU tente de
-        # resoudre le PROPRE nom d'hote du nœud de destination tel qu'IL le
-        # connait de lui-meme (ex. 'hyperlite.home', pas resolvable depuis
-        # kvm-lab) plutot que l'adresse par laquelle Hyperlite l'a
-        # effectivement joint -- corrige en fournissant migrate_uri
-        # explicitement, avec l'adresse deja verifiee joignable (le meme
-        # `hostname` enregistre que celui utilise pour la connexion
-        # qemu+ssh:// elle-meme).
+        # NO VIR_MIGRATE_TUNNELLED: tested for real, and it systematically fails with
+        # 'internal error: the host argument key must not have a Null value' as soon as
+        # PEER2PEER+TUNNELLED are combined on this libvirt version (9.0.0, Debian 12) with
+        # a qemu+ssh:// URI carrying query parameters (keyfile=/sshauth=privkey). It is
+        # very probably a libvirt bug in that specific code path, not something fixable on
+        # the Hyperlite side. WITHOUT the tunnel, the QEMU data stream (memory + disk with
+        # VIR_MIGRATE_NON_SHARED_DISK) goes DIRECTLY between the two hosts rather than
+        # through the SSH tunnel. That is acceptable here: a registered node (see
+        # cluster.py) must already be directly reachable for SSH, so it almost always is
+        # for this direct stream too (confirmed for real between two hosts on different
+        # sites through Tailscale). A second real bug found at the same time: without
+        # being told explicitly, QEMU tries to resolve the destination node's OWN host name
+        # as IT knows it (e.g. 'hyperlite.home', not resolvable from the other host)
+        # rather than the address through which Hyperlite actually reached it. Fixed by
+        # providing migrate_uri explicitly, with the address already verified reachable
+        # (the same registered `hostname` used for the qemu+ssh:// connection itself).
         if dest_node_key is None:
             local_addr = _local_migrate_uri_host()
-            if source_node and source_node != "kvm-lab":
-                # Migration nœud distant -> kvm-lab (backlog 2026-09-18,
-                # confiance SSH inverse -- voir cluster.py::ensure_reverse_trust).
-                # "qemu:///system" tel quel serait interprete PAR LE
-                # LIBVIRTD SOURCE (celui du nœud distant, cette URI est
-                # executee LA-BAS) comme "moi-meme" -- exactement le bug
-                # deja documente ("Attempt to migrate guest to the same
-                # host"). Il faut une URI qemu+ssh:// EXPLICITE vers
-                # kvm-lab, authentifiee avec la cle dediee poussee sur CE
-                # nœud a son enregistrement (jamais la cle partagee
-                # kvm-lab -> nœuds, voir la docstring d'ensure_reverse_trust
-                # pour le pourquoi).
+            if source_node and source_node != "local":
+                # Migration from a remote node to the local host (see
+                # cluster.py::ensure_reverse_trust). A plain "qemu:///system" would be interpreted
+                # BY THE SOURCE LIBVIRTD (the remote node's, since this URI runs THERE) as
+                # "myself", which is exactly the already documented bug ("Attempt to migrate guest
+                # to the same host"). An EXPLICIT qemu+ssh:// URI to the local host is needed,
+                # authenticated with the dedicated key pushed to THIS node at its registration
+                # (never the shared local host -> nodes key, see the ensure_reverse_trust docstring
+                # for why).
                 from app.core.cluster import get_reverse_key_remote_path
+
                 if not local_addr:
-                    raise RuntimeError("Adresse Tailscale de kvm-lab introuvable -- migration nœud distant -> kvm-lab impossible sans elle")
+                    raise RuntimeError(
+                        "Tailscale address of the local host not found: migration from a remote node to the local host is impossible without it"
+                    )
                 dest_uri = f"qemu+ssh://root@{local_addr}/system?keyfile={get_reverse_key_remote_path()}&no_verify=1&sshauth=privkey"
             else:
                 dest_uri = "qemu:///system"
@@ -2212,41 +2259,42 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         progress_thread.start()
         domain.migrateToURI3(dest_uri, migrate_params, flags)
 
-        # Nettoyage du disque SOURCE (backlog 2026-09-18, bug reel trouve
-        # en testant les actions VM multi-nœuds) : VIR_MIGRATE_NON_SHARED_DISK
-        # copie vers la destination mais NE SUPPRIME JAMAIS le fichier
-        # d'origine -- chaque migration en stockage non partage laissait un
-        # qcow2 orphelin sur le nœud source, systematiquement, sans que
-        # rien ne le signale. Uniquement si `not shared` : un disque sur
-        # stockage PARTAGE ne doit evidemment jamais etre supprime (c'est
-        # le MEME fichier vu par les deux nœuds).
+        # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
+        # but NEVER deletes the original file, so every migration on non-shared storage
+        # systematically left an orphan qcow2 on the source node with nothing to signal it.
+        # Only if `not shared`: a disk on SHARED storage must obviously never be deleted
+        # (it is the SAME file seen by both nodes).
         if not shared:
             _delete_paths_on_node(source_disk_paths, source_node)
-            # cdrom copiees plus haut (uniquement le sens kvm-lab -> nœud
-            # distant, voir copied_cdrom_paths) -- le fichier source (sur
-            # kvm-lab, donc toujours un unlink LOCAL ici) devient inutile
-            # une fois la copie sur la destination confirmee reussie.
+            # cdrom files copied above (only the local host -> remote node direction, see
+            # copied_cdrom_paths): the source file (on the local host, so always a LOCAL
+            # unlink here) becomes useless once the copy to the destination is confirmed
+            # successful.
             _delete_paths_on_node(copied_cdrom_paths, source_node)
 
         stop_event.set()
         update_task_progress(task_id, 100)
         finish_task(task_id, "termine")
-        log_action(username, "migrate_vm", vm_name, "succes", f"{source_node} -> {target_node} (stockage {'partagé' if shared else 'copié'})")
+        log_action(
+            username,
+            "migrate_vm",
+            vm_name,
+            "succes",
+            f"{source_node} -> {target_node} ({'shared' if shared else 'copied'} storage)",
+        )
     except libvirt.libvirtError as e:
         stop_event.set()
         msg = describe_exception(e)
         finish_task(task_id, "echec", msg)
         log_action(username, "migrate_vm", vm_name, "echec", msg)
     except Exception as e:
-        # Filet de securite generique (chantier 26/27, robustesse demandee
-        # explicitement le 2026-09-17) : TOUTE exception inattendue doit
-        # quand meme cloturer la tache -- sinon elle reste "en_cours" pour
-        # toujours dans l'UI, sans aucune explication visible pour
-        # l'utilisateur. Trouve reellement necessaire en testant (voir
-        # commentaire ci-dessus sur VIR_MIGRATE_PERSIST_DEST).
+        # Generic safety net: ANY unexpected exception must still close the task,
+        # otherwise it stays "en_cours" forever in the UI with no visible explanation for
+        # the user. It was really needed in testing (see the comment above about
+        # VIR_MIGRATE_PERSIST_DEST).
         stop_event.set()
-        finish_task(task_id, "echec", f"Erreur interne : {e}")
-        log_action(username, "migrate_vm", vm_name, "echec", f"Erreur interne : {e}")
+        finish_task(task_id, "echec", f"Internal error: {e}")
+        log_action(username, "migrate_vm", vm_name, "echec", f"Internal error: {e}")
     finally:
         stop_event.set()
         src_conn.close()
@@ -2256,16 +2304,16 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
 @router.get("/{name}/migration-check")
 def migration_check(name: str, target_node: str, node: str | None = None, user: dict = Depends(require_role("admin"))):
-    """Diagnostic de compatibilite AVANT migration (chantier 6 du mandat
-    portabilite) : lecture seule, ne migre rien. Voir app/core/cluster_compat.py."""
+    """Compatibility diagnostic BEFORE a migration: read-only, it migrates nothing. See
+    app/core/cluster_compat.py."""
     if _norm_node(target_node) == _norm_node(node):
-        raise HTTPException(status_code=422, detail="Le nœud de destination doit être différent du nœud source")
+        raise HTTPException(status_code=422, detail="The destination node must be different from the source node")
     src_conn = open_conn(_norm_node(node))
     try:
         try:
             domain = src_conn.lookupByName(name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         dst_conn = open_conn(_norm_node(target_node))
         try:
             return cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dst_conn, domain))
@@ -2276,56 +2324,59 @@ def migration_check(name: str, target_node: str, node: str | None = None, user: 
 
 
 @router.post("/{name}/migrate", status_code=202)
-def migrate_vm(name: str, payload: MigrateRequest, node: str | None = None, user: dict = Depends(require_role("admin"))):
-    """Migration a chaud vers un autre nœud (chantier 27, s'appuie sur le
-    stockage partage du chantier 26 quand disponible). Reservee aux admins
-    (pas un privilege ACL par-VM comme vm.clone) : deplacer une VM change
-    l'allocation de ressources d'un nœud DU CLUSTER ENTIER, une portee
-    au-dela de ce qu'une ACL scopee a une VM est censee couvrir."""
+def migrate_vm(
+    name: str, payload: MigrateRequest, node: str | None = None, user: dict = Depends(require_role("admin"))
+):
+    """Live migration to another node (relying on shared storage when available).
+    Restricted to admins (not a per-VM ACL privilege like vm.clone): moving a VM
+    changes the resource allocation of a node OF THE WHOLE CLUSTER, a scope beyond
+    what an ACL scoped to one VM is meant to cover."""
     if _norm_node(payload.target_node) == _norm_node(node):
-        raise HTTPException(status_code=422, detail="Le nœud de destination doit être différent du nœud source")
-    # Migration nœud distant -> kvm-lab (backlog 2026-09-18) : longtemps
-    # bloquee ici (voir CLAUDE.md, historique) car la migration peer-to-
-    # peer est initiee par le libvirtd SOURCE, qui a besoin de pouvoir se
-    # connecter LUI-MEME vers kvm-lab -- desormais possible via une
-    # confiance SSH inverse dediee, etablie automatiquement a
-    # l'enregistrement de chaque nœud (voir cluster.py::ensure_reverse_trust,
-    # cle PROPRE a ce nœud, jamais partagee). Si cette confiance n'a pas pu
-    # etre etablie (nœud enregistre avant ce correctif, ou echec best-effort
-    # a l'epoque), la migration echouera avec une erreur SSH claire cote
-    # tache plutot qu'un refus a priori ici.
+        raise HTTPException(status_code=422, detail="The destination node must be different from the source node")
+    # Migration from a remote node to the local host was long blocked here, because
+    # peer-to-peer migration is initiated by the SOURCE libvirtd, which needs to be
+    # able to connect ITSELF to the local host. It is now possible through a dedicated
+    # reverse SSH trust, established automatically when each node is registered (see
+    # cluster.py::ensure_reverse_trust, a key SPECIFIC to that node, never shared). If
+    # that trust could not be established (a node registered before this existed, or a
+    # best-effort failure at the time), the migration fails with a clear SSH error on
+    # the task side rather than being refused a priori here.
 
     src_conn = open_conn(node)
     try:
         try:
             domain = src_conn.lookupByName(name)
         except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if not domain.isActive():
-            raise HTTPException(status_code=409, detail="La VM doit être active pour une migration à chaud (utilisez l'export/import pour une VM arrêtée)")
+            raise HTTPException(
+                status_code=409,
+                detail="The VM must be running for a live migration (use export/import for a stopped VM)",
+            )
 
-        # Verifie la destination des maintenant (erreur claire immediate,
-        # open_conn leve deja une HTTPException explicite si le nœud est
-        # introuvable ou injoignable) plutot que de laisser echouer le
-        # thread d'arriere-plan sans autre forme de proces pour l'utilisateur.
-        # "kvm-lab" = convention frontend pour l'hote local, jamais une
-        # ligne de la table `nodes` (voir _migrate_vm_job pour le meme
-        # traitement, bug reel trouve en testant un aller-retour complet).
+        # Check the destination right away (a clear immediate error: open_conn already
+        # raises an explicit HTTPException if the node is not found or unreachable) rather
+        # than letting the background thread fail with no other form of trial for the
+        # user. "local" is the frontend convention for the local
+        # host, never a row of the `nodes` table (see _migrate_vm_job for the same
+        # treatment).
         dest_conn = open_conn(_norm_node(payload.target_node))
         try:
             compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dest_conn, domain))
             if compat["resume"]["bloquant"] and not payload.ignorer_verifications:
                 blocages = [c["message"] for c in compat["controles"] if c["statut"] == "blocking"]
-                raise HTTPException(status_code=409, detail="Migration refusée par le diagnostic de compatibilité : " + " ; ".join(blocages))
+                raise HTTPException(
+                    status_code=409, detail="Migration refused by the compatibility diagnostic: " + " ; ".join(blocages)
+                )
             try:
                 dest_conn.lookupByName(name)
-                raise HTTPException(status_code=409, detail=f"Une VM '{name}' existe déjà sur le nœud de destination")
+                raise HTTPException(status_code=409, detail=f"A VM '{name}' already exists on the destination node")
             except libvirt.libvirtError:
-                pass
+                logger.debug("Ignored exception in migrate_vm()", exc_info=True)
         finally:
             dest_conn.close()
 
-        source_node = node or "kvm-lab"
+        source_node = node or "local"
         task_id = create_task("migrate_vm", name, node=source_node, username=user["username"])
         threading.Thread(
             target=_migrate_vm_job,
@@ -2348,15 +2399,15 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_cdrom", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "set_vm_cdrom", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         iso_filename = Path(payload.iso).name
         if not iso_filename.lower().endswith(".iso"):
-            raise HTTPException(status_code=422, detail="Nom d'ISO invalide")
+            raise HTTPException(status_code=422, detail="Invalid ISO name")
         iso_path = ISOS_DIR / iso_filename
         if not iso_path.exists():
-            raise HTTPException(status_code=404, detail=f"ISO '{iso_filename}' introuvable")
+            raise HTTPException(status_code=404, detail=f"ISO '{iso_filename}' not found")
 
         root = ET.fromstring(domain.XMLDesc(0))
         devices_el = root.find(".//devices")
@@ -2385,13 +2436,13 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
                     '<driver name="qemu" type="raw"/>'
                     f'<source file="{escape(str(iso_path))}"/>'
                     '<target dev="hdc" bus="ide"/>'
-                    '<readonly/>'
-                    '</disk>'
+                    "<readonly/>"
+                    "</disk>"
                 )
                 domain.attachDeviceFlags(new_cdrom_xml, flags)
         except libvirt.libvirtError as exc:
             log_action(user["username"], "set_vm_cdrom", name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Échec du montage : {exc}")
+            raise HTTPException(status_code=500, detail=f"Mount failed: {exc}") from exc
 
         log_action(user["username"], "set_vm_cdrom", name, "succes", iso_filename)
         return {"vm": name, "iso": iso_filename}
@@ -2406,8 +2457,8 @@ def eject_vm_cdrom(name: str, user: dict = Depends(require_vm_privilege("vm.hard
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "eject_vm_cdrom", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "eject_vm_cdrom", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(0))
         devices_el = root.find(".//devices")
@@ -2418,7 +2469,7 @@ def eject_vm_cdrom(name: str, user: dict = Depends(require_vm_privilege("vm.hard
                     cdrom = disk
                     break
         if cdrom is None:
-            raise HTTPException(status_code=404, detail="Aucun lecteur CD sur cette VM")
+            raise HTTPException(status_code=404, detail="No CD drive on this VM")
 
         source = cdrom.find("source")
         if source is not None:
@@ -2433,7 +2484,7 @@ def eject_vm_cdrom(name: str, user: dict = Depends(require_vm_privilege("vm.hard
             domain.updateDeviceFlags(new_xml, flags)
         except libvirt.libvirtError as exc:
             log_action(user["username"], "eject_vm_cdrom", name, "echec", str(exc))
-            raise HTTPException(status_code=500, detail=f"Échec de l'éjection : {exc}")
+            raise HTTPException(status_code=500, detail=f"Eject failed: {exc}") from exc
 
         log_action(user["username"], "eject_vm_cdrom", name, "succes")
         return {"vm": name, "ejecte": True}
@@ -2448,8 +2499,8 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_metrics", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "get_vm_metrics", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if not domain.isActive():
             return {
@@ -2482,13 +2533,13 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
                 try:
                     disk_samples[dev] = domain.blockStats(dev)
                 except libvirt.libvirtError:
-                    pass
+                    logger.debug("Ignored exception in sample()", exc_info=True)
             net_samples = {}
             for dev in iface_devs:
                 try:
                     net_samples[dev] = domain.interfaceStats(dev)
                 except libvirt.libvirtError:
-                    pass
+                    logger.debug("Ignored exception in sample()", exc_info=True)
             return cpu_time, disk_samples, net_samples
 
         cpu1, disk1, net1 = sample()
@@ -2511,29 +2562,33 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
             elif "rss" in mem_stats:
                 memoire_utilisee_mo = round(mem_stats["rss"] / 1024, 1)
         except libvirt.libvirtError:
-            pass
+            logger.debug("Ignored exception in get_vm_metrics()", exc_info=True)
 
         disques = []
         for dev in disk_devs:
             if dev in disk1 and dev in disk2:
                 rd_rate = max(0, (disk2[dev][1] - disk1[dev][1]) / elapsed)
                 wr_rate = max(0, (disk2[dev][3] - disk1[dev][3]) / elapsed)
-                disques.append({
-                    "cible": dev,
-                    "lecture_ko_s": round(rd_rate / 1024, 1),
-                    "ecriture_ko_s": round(wr_rate / 1024, 1),
-                })
+                disques.append(
+                    {
+                        "cible": dev,
+                        "lecture_ko_s": round(rd_rate / 1024, 1),
+                        "ecriture_ko_s": round(wr_rate / 1024, 1),
+                    }
+                )
 
         reseaux = []
         for dev in iface_devs:
             if dev in net1 and dev in net2:
                 rx_rate = max(0, (net2[dev][0] - net1[dev][0]) / elapsed)
                 tx_rate = max(0, (net2[dev][4] - net1[dev][4]) / elapsed)
-                reseaux.append({
-                    "interface": dev,
-                    "reception_ko_s": round(rx_rate / 1024, 1),
-                    "emission_ko_s": round(tx_rate / 1024, 1),
-                })
+                reseaux.append(
+                    {
+                        "interface": dev,
+                        "reception_ko_s": round(rx_rate / 1024, 1),
+                        "emission_ko_s": round(tx_rate / 1024, 1),
+                    }
+                )
 
         log_action(user["username"], "get_vm_metrics", name, "succes")
         return {
@@ -2548,27 +2603,25 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         conn.close()
 
 
-# Chantier 12 : au-dela de ce delai sans SSH fonctionnel, on arrete de
-# poller passivement pour toujours et on declare l'installation en echec --
-# avant ce correctif, un install cassee (ISO incompatible, erreur de
-# partitionnement, panne reseau pendant l'installation...) restait "en
-# cours" indefiniment, sans jamais remonter d'erreur exploitable (constate
-# en pratique : plusieurs tentatives "ubuntu-autoinstall-fix" dans le
-# journal d'audit, jamais nettoyees). 30 minutes est large pour les familles
-# gerees (kickstart/autoinstall), meme sur un disque lent.
+# Beyond this delay without a working SSH, passive polling stops and the
+# installation is declared failed. Before, a broken install (an incompatible ISO,
+# a partitioning error, a network outage during the installation...) stayed "in
+# progress" indefinitely and never reported an actionable error (seen in
+# practice: several stale "ubuntu-autoinstall-fix" attempts in the audit log,
+# never cleaned up). 30 minutes is generous for the supported families
+# (kickstart/autoinstall), even on a slow disk.
 PROVISIONING_TIMEOUT_S = 1800
 
 
 @router.get("/{name}/provisioning")
 def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
-    """Etat d'une installation automatisee (Kickstart/autoinstall) en cours,
-    pour la barre de progression du dashboard. Signal utilise : une vraie
-    authentification SSH avec la cle d'automatisation Hyperlite reussit-elle
-    -- PAS juste "le port 22 repond" (constate en test sur Ubuntu : l'ISO
-    live-server fait tourner son propre sshd des le tout debut de
-    l'installation, bien avant que le systeme final n'existe, donc le port
-    est joignable tres tot sans que notre cle y soit pour autant autorisee
-    -- ca donnait un faux "termine" premature)."""
+    """State of an unattended installation (Kickstart/autoinstall) in progress, for the
+    dashboard's progress bar. The signal used is whether a real SSH
+    authentication with the Hyperlite automation key succeeds, NOT just "port 22
+    answers" (seen in testing on Ubuntu: the live-server ISO runs its own sshd
+    from the very start of the installation, long before the final system exists,
+    so the port is reachable very early without our key being authorized there,
+    which gave a false, premature "finished")."""
     prov = get_provisioning(name)
     if not prov:
         return {"provisioning": False}
@@ -2587,13 +2640,13 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            return _fail("La VM a disparu pendant l'installation automatisée (supprimée ?)")
+            return _fail("The VM disappeared during the unattended installation (deleted?)")
 
         started = datetime.fromisoformat(prov["started_at"])
-        elapsed_s = int((datetime.now(timezone.utc) - started).total_seconds())
+        elapsed_s = int((datetime.now(UTC) - started).total_seconds())
 
         if elapsed_s > PROVISIONING_TIMEOUT_S:
-            return _fail(f"Timeout : SSH toujours inaccessible après {elapsed_s // 60} minutes")
+            return _fail(f"Timeout: SSH still unreachable after {elapsed_s // 60} minutes")
 
         if not domain.isActive():
             return {"provisioning": True, "phase": "arretee", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
@@ -2607,27 +2660,42 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
         try:
             result = subprocess.run(
                 [
-                    "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-                    "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
-                    "-i", str(key_path), f"{username}@{ip}", "true",
+                    "ssh",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=3",
+                    "-i",
+                    str(key_path),
+                    f"{username}@{ip}",
+                    "true",
                 ],
-                capture_output=True, timeout=6,
+                capture_output=True,
+                timeout=6,
             )
         except subprocess.TimeoutExpired:
-            return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
+            return {
+                "provisioning": True,
+                "phase": "installation",
+                "os_family": prov["os_family"],
+                "elapsed_s": elapsed_s,
+                "ip": ip,
+            }
 
         if result.returncode == 0:
             clear_provisioning(name)
-            # Ubuntu/autoinstall a demarre sur un noyau/initrd extrait de
-            # l'ISO (voir create_vm, extract_casper_kernel) pour ajouter
-            # "autoinstall" a la ligne de commande -- ce n'est plus
-            # necessaire une fois l'OS installe sur le disque, et le laisser
-            # ferait rebooter la VM indefiniment sur l'installeur live au
-            # lieu du systeme installe (le <boot order> normal, sur le
-            # disque, n'est jamais consulte tant que <kernel>/<initrd> sont
-            # presents). On retire l'override du XML PERSISTANT uniquement :
-            # la VM continue de tourner sans interruption avec sa
-            # configuration live actuelle jusqu'au prochain redemarrage.
+            # Ubuntu/autoinstall started on a kernel/initrd extracted from the ISO (see
+            # create_vm, extract_casper_kernel) to add "autoinstall" to the command line. That
+            # is no longer needed once the OS is installed on the disk, and leaving it would
+            # make the VM reboot forever into the live installer instead of the installed
+            # system (the normal <boot order>, on the disk, is never consulted while
+            # <kernel>/<initrd> are present). The override is removed from the PERSISTENT XML
+            # only: the VM keeps running without interruption with its current live
+            # configuration until the next restart.
             if prov["os_family"] == "autoinstall":
                 try:
                     current_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
@@ -2635,12 +2703,18 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
                     if new_xml != current_xml:
                         conn.defineXML(new_xml)
                 except (libvirt.libvirtError, ET.ParseError):
-                    pass
+                    logger.debug("Ignored exception in get_vm_provisioning()", exc_info=True)
             if task_id:
                 finish_task(task_id, "termine")
             log_action(user["username"], "provisioning_complete", name, "succes")
             return {"provisioning": False, "just_finished": True}
-        return {"provisioning": True, "phase": "installation", "os_family": prov["os_family"], "elapsed_s": elapsed_s, "ip": ip}
+        return {
+            "provisioning": True,
+            "phase": "installation",
+            "os_family": prov["os_family"],
+            "elapsed_s": elapsed_s,
+            "ip": ip,
+        }
     finally:
         conn.close()
 
@@ -2656,8 +2730,8 @@ def create_console_ticket(name: str, user: dict = Depends(require_vm_privilege("
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_console_ticket", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "create_console_ticket", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(0))
         devices_el = root.find(".//devices")
@@ -2665,26 +2739,26 @@ def create_console_ticket(name: str, user: dict = Depends(require_vm_privilege("
 
         if graphics is None:
             if domain.isActive():
-                log_action(user["username"], "create_console_ticket", name, "echec", "pas de VNC (VM active)")
+                log_action(user["username"], "create_console_ticket", name, "echec", "no VNC (VM running)")
                 raise HTTPException(
                     status_code=409,
-                    detail="Cette VM a été créée avant l'ajout de la console. Arrêtez-la puis redémarrez-la une fois pour activer la console.",
+                    detail="This VM was created before the console was added. Stop it, then start it once again to enable the console.",
                 )
             ensure_vnc_graphics(conn, domain)
-            log_action(user["username"], "create_console_ticket", name, "echec", "VNC ajouté, VM arrêtée")
-            raise HTTPException(status_code=409, detail="Console activée sur cette VM : démarrez-la puis réessayez.")
+            log_action(user["username"], "create_console_ticket", name, "echec", "VNC added, VM stopped")
+            raise HTTPException(status_code=409, detail="Console enabled on this VM: start it, then try again.")
 
         if not domain.isActive():
-            log_action(user["username"], "create_console_ticket", name, "echec", "VM arrêtée")
-            raise HTTPException(status_code=409, detail="La VM doit être démarrée pour ouvrir une console")
+            log_action(user["username"], "create_console_ticket", name, "echec", "VM stopped")
+            raise HTTPException(status_code=409, detail="The VM must be started to open a console")
 
         port = graphics.get("port")
         if not port or port == "-1":
-            log_action(user["username"], "create_console_ticket", name, "echec", "port VNC indisponible")
-            raise HTTPException(status_code=500, detail="Port VNC indisponible pour le moment")
+            log_action(user["username"], "create_console_ticket", name, "echec", "VNC port unavailable")
+            raise HTTPException(status_code=500, detail="VNC port not available yet")
 
         now = time.time()
-        for old_ticket, (old_vm, old_port, old_expiry) in list(CONSOLE_TICKETS.items()):
+        for old_ticket, (_old_vm, _old_port, old_expiry) in list(CONSOLE_TICKETS.items()):
             if old_expiry < now:
                 CONSOLE_TICKETS.pop(old_ticket, None)
 
@@ -2724,9 +2798,9 @@ async def vm_console(websocket: WebSocket, name: str):
                 writer.write(data)
                 await writer.drain()
         except (WebSocketDisconnect, RuntimeError):
-            pass
+            logger.debug("Ignored exception in ws_to_tcp()", exc_info=True)
         except Exception:
-            pass
+            logger.debug("Ignored exception in ws_to_tcp()", exc_info=True)
         finally:
             writer.close()
 
@@ -2738,22 +2812,23 @@ async def vm_console(websocket: WebSocket, name: str):
                     break
                 await websocket.send_bytes(data)
         except Exception:
-            pass
+            logger.debug("Ignored exception in tcp_to_ws()", exc_info=True)
 
     task1 = asyncio.ensure_future(ws_to_tcp())
     task2 = asyncio.ensure_future(tcp_to_ws())
-    done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
+    _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
         t.cancel()
     try:
         await websocket.close()
     except RuntimeError:
-        pass
+        logger.debug("Ignored exception in vm_console()", exc_info=True)
 
 
-# --- Terminal SSH web (xterm.js + shell distant via la cle d'automatisation) ---
-# Reserve au role admin : la cle d'automatisation se connecte a l'utilisateur cloud-init
-# de la VM, qui a un sudo NOPASSWD complet - ouvrir ce terminal equivaut a un acces root.
+# --- Web SSH terminal (xterm.js + a remote shell through the automation key) ---
+# Restricted to the admin role: the automation key connects to the VM's cloud-init
+# user, which has full passwordless sudo, so opening this terminal is equivalent to
+# root access.
 
 TERMINAL_TICKETS = {}
 TERMINAL_TICKET_TTL = 30
@@ -2766,31 +2841,31 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_vm_privilege(
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM introuvable")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' introuvable")
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if not domain.isActive():
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM arrêtée")
-            raise HTTPException(status_code=409, detail="La VM doit être démarrée pour ouvrir un terminal")
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM stopped")
+            raise HTTPException(status_code=409, detail="The VM must be started to open a terminal")
 
         ip = _get_ip(domain)
         if not ip:
             log_action(user["username"], "create_terminal_ticket", name, "echec", "IP inconnue")
-            raise HTTPException(status_code=409, detail="Adresse IP de la VM inconnue pour le moment (pas encore de bail DHCP ?)")
+            raise HTTPException(status_code=409, detail="VM IP address not known yet (no DHCP lease yet?)")
 
         ssh_user = get_vm_ssh_user(name)
         if not ssh_user:
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "utilisateur SSH inconnu")
+            log_action(user["username"], "create_terminal_ticket", name, "echec", "unknown SSH user")
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"Aucun utilisateur SSH connu pour '{name}' (VM créée avant cette fonctionnalité). "
-                    "Déployez la clé d'automatisation avec un ssh-copy-id manuel puis réessayez."
+                    f"No known SSH user for '{name}' (VM created before this feature). "
+                    "Deploy the automation key with a manual ssh-copy-id, then try again."
                 ),
             )
 
         now = time.time()
-        for old_ticket, (old_vm, old_ip, old_user, old_expiry) in list(TERMINAL_TICKETS.items()):
+        for old_ticket, (_old_vm, _old_ip, _old_user, old_expiry) in list(TERMINAL_TICKETS.items()):
             if old_expiry < now:
                 TERMINAL_TICKETS.pop(old_ticket, None)
 
@@ -2820,18 +2895,21 @@ async def vm_terminal(websocket: WebSocket, name: str):
     private_key = get_automation_private_key_path()
     try:
         ssh_conn = await asyncssh.connect(
-            ip, username=ssh_user, client_keys=[str(private_key)],
-            known_hosts=None, connect_timeout=10,
+            ip,
+            username=ssh_user,
+            client_keys=[str(private_key)],
+            known_hosts=None,
+            connect_timeout=10,
         )
     except (asyncssh.Error, OSError) as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Échec de connexion SSH à {ip} : {e}\x1b[0m\r\n")
+        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] SSH connection to {ip} failed: {e}\x1b[0m\r\n")
         await websocket.close(code=1011)
         return
 
     try:
         process = await ssh_conn.create_process(term_type="xterm-256color", term_size=(80, 24))
     except asyncssh.Error as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Échec d'ouverture du shell : {e}\x1b[0m\r\n")
+        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Failed to open the shell: {e}\x1b[0m\r\n")
         ssh_conn.close()
         await websocket.close(code=1011)
         return
@@ -2845,18 +2923,18 @@ async def vm_terminal(websocket: WebSocket, name: str):
                         dims = json.loads(msg[1:])
                         process.change_terminal_size(int(dims["cols"]), int(dims["rows"]))
                     except (ValueError, KeyError, TypeError):
-                        pass
+                        logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
                 else:
                     process.stdin.write(msg)
         except (WebSocketDisconnect, RuntimeError):
-            pass
+            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
         except Exception:
-            pass
+            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
         finally:
             try:
                 process.stdin.write_eof()
             except Exception:
-                pass
+                logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
 
     async def ssh_to_ws():
         try:
@@ -2866,19 +2944,19 @@ async def vm_terminal(websocket: WebSocket, name: str):
                     break
                 await websocket.send_text(data)
         except Exception:
-            pass
+            logger.debug("Ignored exception in ssh_to_ws()", exc_info=True)
 
     task1 = asyncio.ensure_future(ws_to_ssh())
     task2 = asyncio.ensure_future(ssh_to_ws())
-    done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
+    _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
         t.cancel()
     try:
         process.close()
     except Exception:
-        pass
+        logger.debug("Ignored exception in vm_terminal()", exc_info=True)
     ssh_conn.close()
     try:
         await websocket.close()
     except (RuntimeError, WebSocketDisconnect):
-        pass
+        logger.debug("Ignored exception in vm_terminal()", exc_info=True)

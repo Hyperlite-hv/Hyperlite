@@ -5,11 +5,11 @@ from pathlib import Path
 import libvirt
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
-from app.core.security import get_current_user, require_role
 from app.core.audit import log_action
-from app.core.libvirt_utils import open_conn
-from app.core.tasks import create_task, finish_task
 from app.core.error_messages import describe_exception
+from app.core.libvirt_utils import open_conn
+from app.core.security import get_current_user, require_role
+from app.core.tasks import create_task, finish_task
 from app.core.vm_builder import validate_name
 
 router = APIRouter(prefix="/isos", tags=["isos"])
@@ -47,14 +47,14 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
     task_id = create_task("upload_iso", filename, username=user["username"])
 
     if not filename.lower().endswith(".iso"):
-        finish_task(task_id, "echec", "Le fichier doit avoir l'extension .iso")
-        raise HTTPException(status_code=422, detail="Le fichier doit avoir l'extension .iso")
+        finish_task(task_id, "echec", "The file must have the .iso extension")
+        raise HTTPException(status_code=422, detail="The file must have the .iso extension")
     base_name = filename[:-4]
     try:
         validate_name(base_name)
     except ValueError as exc:
         finish_task(task_id, "echec", str(exc))
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     dest = ISOS_DIR / filename
     try:
@@ -64,12 +64,12 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
         finally:
             await file.close()
     except OSError as e:
-        # Sans ce filet, une ecriture qui echoue (disque plein, permissions...)
-        # laisserait la tache bloquee "en_cours" indefiniment dans le suivi --
-        # jamais "termine", jamais "echec", juste un fantome dans l'onglet Tâches.
+        # Safety net: without it, a failing write (disk full, permissions...) would
+        # leave the task stuck in "en_cours" forever in the task list, never
+        # "termine" and never "echec".
         msg = describe_exception(e)
         finish_task(task_id, "echec", msg)
-        raise HTTPException(status_code=500, detail=f"Échec de l'écriture de l'ISO : {msg}")
+        raise HTTPException(status_code=500, detail=f"Failed to write the ISO: {msg}") from e
 
     log_action(user["username"], "upload_iso", filename, "succes", task_id=task_id)
     return {"nom": filename, "taille_mo": round(dest.stat().st_size / (1024 * 1024), 1)}
@@ -79,17 +79,17 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
 def delete_iso(filename: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
     if not filename.lower().endswith(".iso"):
-        raise HTTPException(status_code=422, detail="Nom de fichier invalide")
+        raise HTTPException(status_code=422, detail="Invalid file name")
     path = ISOS_DIR / filename
     if not path.exists():
-        raise HTTPException(status_code=404, detail=f"ISO '{filename}' introuvable")
+        raise HTTPException(status_code=404, detail=f"ISO '{filename}' not found")
     if not confirm:
-        raise HTTPException(status_code=400, detail="Confirmation requise (?confirm=true)")
+        raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
 
     conn = open_conn()
     try:
         if _iso_in_use(conn, str(path)):
-            raise HTTPException(status_code=409, detail="ISO utilisée par une VM, éjectez-la d'abord")
+            raise HTTPException(status_code=409, detail="ISO in use by a VM, eject it first")
     finally:
         conn.close()
 

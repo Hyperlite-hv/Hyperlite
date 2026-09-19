@@ -1,17 +1,17 @@
-"""Exposition des metriques -- chantier 10 de la roadmap vSphere/vCenter.
+"""Metrics exposure.
 
-Deux facades sur les memes donnees (voir app/core/metrics.py pour la
-collecte) :
-  - GET /metrics : format d'exposition Prometheus (texte brut), pour brancher
-    un vrai Prometheus + Grafana derriere -- gauges "instantanees" (dernier
-    echantillon raw), pas d'historique (c'est le role de Prometheus lui-meme
-    une fois branche de le retenir).
-  - GET /vms/{name}/metrics/history et /host/metrics/history : historique
-    persiste, consomme par les graphes internes du dashboard (1h -> palier
-    raw, 24h/semaine/mois -> palier hourly, voir metrics.py pour le detail
-    des paliers).
+Two facades over the same data (see app/core/metrics.py for collection):
+  - GET /metrics: Prometheus exposition format (plain text), to plug a real
+    Prometheus + Grafana behind it. These are "instantaneous" gauges (latest
+    raw sample) with no history: retaining history is Prometheus' own job once
+    connected.
+  - GET /vms/{name}/metrics/history and /host/metrics/history: persisted
+    history, consumed by the dashboard's internal charts (1h -> raw tier,
+    24h/week/month -> hourly tier, see metrics.py for the tiers).
+
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -30,9 +30,9 @@ _RANGES = {
 
 def _history(cible, range_key):
     if range_key not in _RANGES:
-        raise HTTPException(status_code=422, detail=f"range invalide, attendu l'un de {list(_RANGES)}")
+        raise HTTPException(status_code=422, detail=f"Invalid range, expected one of {list(_RANGES)}")
     delta, tier = _RANGES[range_key]
-    since = (datetime.now(timezone.utc) - delta).isoformat()
+    since = (datetime.now(UTC) - delta).isoformat()
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT ts, cpu_pct, mem_used_mb, mem_total_mb, disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps "
@@ -72,30 +72,32 @@ def _task_stats():
             "FROM tasks WHERE statut = 'termine' AND fin_le IS NOT NULL"
         ).fetchone()
     return {
-        "running": running, "total": total, "failed": failed,
+        "running": running,
+        "total": total,
+        "failed": failed,
         "avg_duration_s": round(avg_row["avg_s"], 2) if avg_row["avg_s"] is not None else 0,
     }
 
 
 @router.get("/metrics")
 def prometheus_metrics(user: dict = Depends(get_current_user)):
-    """Format d'exposition Prometheus (text/plain), voir
-    https://prometheus.io/docs/instrumenting/exposition_formats/ -- pas de
-    lib externe necessaire, le format est volontairement simple a generer a
-    la main pour un nombre de series aussi reduit."""
+    """Prometheus exposition format (text/plain), see
+    https://prometheus.io/docs/instrumenting/exposition_formats/. No external
+    library is needed: the format is deliberately simple to generate by hand
+    for such a small number of series."""
     lines = []
 
     def gauge(metric, help_text):
         lines.append(f"# HELP {metric} {help_text}")
         lines.append(f"# TYPE {metric} gauge")
 
-    gauge("hyperlite_cpu_percent", "Utilisation CPU (%), hôte ou VM")
-    gauge("hyperlite_memory_used_mb", "Mémoire utilisée (Mo)")
-    gauge("hyperlite_memory_total_mb", "Mémoire totale/allouée (Mo)")
-    gauge("hyperlite_disk_read_bytes_per_second", "Débit de lecture disque (o/s)")
-    gauge("hyperlite_disk_write_bytes_per_second", "Débit d'écriture disque (o/s)")
-    gauge("hyperlite_network_rx_bytes_per_second", "Débit réseau entrant (o/s)")
-    gauge("hyperlite_network_tx_bytes_per_second", "Débit réseau sortant (o/s)")
+    gauge("hyperlite_cpu_percent", "CPU usage (%), host or VM")
+    gauge("hyperlite_memory_used_mb", "Memory used (MiB)")
+    gauge("hyperlite_memory_total_mb", "Total/allocated memory (MiB)")
+    gauge("hyperlite_disk_read_bytes_per_second", "Disk read throughput (bytes/s)")
+    gauge("hyperlite_disk_write_bytes_per_second", "Disk write throughput (bytes/s)")
+    gauge("hyperlite_network_rx_bytes_per_second", "Incoming network throughput (bytes/s)")
+    gauge("hyperlite_network_tx_bytes_per_second", "Outgoing network throughput (bytes/s)")
 
     for row in _latest_by_cible():
         labels = f'{{scope="{row["scope"]}",target="{row["cible"]}"}}'
@@ -112,14 +114,15 @@ def prometheus_metrics(user: dict = Depends(get_current_user)):
                 lines.append(f"{metric}{labels} {row[field]}")
 
     stats = _task_stats()
-    gauge("hyperlite_jobs_running", "Tâches actuellement en cours")
+    gauge("hyperlite_jobs_running", "Tasks currently running")
     lines.append(f"hyperlite_jobs_running {stats['running']}")
-    gauge("hyperlite_jobs_total", "Nombre total de tâches enregistrées")
+    gauge("hyperlite_jobs_total", "Total number of recorded tasks")
     lines.append(f"hyperlite_jobs_total {stats['total']}")
-    gauge("hyperlite_jobs_failed_total", "Nombre total de tâches en échec")
+    gauge("hyperlite_jobs_failed_total", "Total number of failed tasks")
     lines.append(f"hyperlite_jobs_failed_total {stats['failed']}")
-    gauge("hyperlite_jobs_avg_duration_seconds", "Durée moyenne des tâches terminées (s)")
+    gauge("hyperlite_jobs_avg_duration_seconds", "Average duration of finished tasks (s)")
     lines.append(f"hyperlite_jobs_avg_duration_seconds {stats['avg_duration_s']}")
 
     from fastapi.responses import PlainTextResponse
+
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
