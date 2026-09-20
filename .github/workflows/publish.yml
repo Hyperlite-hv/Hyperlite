@@ -3,10 +3,13 @@ name: Publish
 # Builds the package and the ISO, signs the APT repository, publishes it to the mirror and updates the
 # ISO release. All the logic is in scripts/ci-publish.sh.
 #
-# The signing key and the mirror deploy key are secrets of the protected `release` environment: they
+# It runs on every push to master (the version is stamped into the artifacts, nothing is committed back, so
+# it cannot trigger itself) and by hand. The signing key and the mirror deploy key are secrets of the protected `release` environment: they
 # are only available to a job that runs on the protected branch, after the environment's own rules
 # (for example a required reviewer). Pull requests and forks never run this workflow.
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -95,7 +98,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
           SKIP_ISO: ${{ inputs.skip_iso && '1' || '0' }}
-          SOURCE_COMMIT: ${{ github.sha }}
         run: bash scripts/ci-publish.sh
       - name: Remove the secrets from the runner
         if: always()

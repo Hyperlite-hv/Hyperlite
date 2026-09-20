@@ -39,15 +39,11 @@ Known limitation: the watchdog restores files but does not roll back dpkg's reco
 
 `installer/build-deb.sh` builds `hyperlite_<version>_amd64.deb` from the files tracked by Git plus the built dashboard. `installer/build-apt-repo.sh` assembles and signs a classic Debian repository (`dists/` and `pool/`) in `installer/apt-repo/` with a GPG key kept outside the repository (`/root/.hyperlite-apt-gpg`); only the public key is published.
 
-`scripts/git-hooks/post-merge` automates publishing on a dedicated build machine: after `master` advances it bumps `VERSION`, rebuilds the package, the repository and the ISO, refreshes the `gh-pages` mirror and the stable `appliance-iso-latest` release. The signing key never leaves that machine and no third-party CI has access to it. Configure the hook with an untracked `.publish.env` file (see the header of the script).
+Publishing is automated by the **Publish** workflow (see "Publishing from GitHub Actions" below): after every change on `master` it builds the package and the ISO, signs the repository, updates the mirror and the stable `appliance-iso-latest` release. `scripts/git-hooks/post-merge` is the previous mechanism, kept only as a manual fallback on a build machine (it is not installed on the reference one); do not run both at once, they would publish the same version twice.
 
 ### Serving the repository
 
-GitHub Pages is a multi-node CDN without strong consistency between files published together, so `apt update` can transiently fail with *File has unexpected size*. For dependable installs serve `installer/apt-repo/` from a single origin, for example with nginx (`installer/hyperlite-apt-repo.nginx.conf`, which must be copied and its listen address edited) bound to a private interface.
-
-## Build requirements
-
-Building the package needs Python, Node.js 20.19+, `dpkg-dev`, `apt-utils`, `gnupg`, `rsync` and, for the ISO, `xorriso`, `isolinux` and `openssl`.
+The mirror is served by GitHub Pages. Its index files are verified after every publication and every 30 minutes (see "Monitoring the APT mirror"), and the publication script refuses to leave an index that differs from the signed one it just built. Serving `installer/apt-repo/` from a single origin (for example nginx, `installer/hyperlite-apt-repo.nginx.conf`, bound to a private interface) remains possible for an isolated network, but it must not become a second source for the machines: see "Single source of truth for updates".
 
 ### Monitoring the APT mirror
 
@@ -107,7 +103,7 @@ The previous address (served from the code repository before it moved to the org
 
 The **Publish** workflow (`.github/workflows/publish.yml`, logic in `scripts/ci-publish.sh`) builds the
 package and the ISO, signs the APT repository, pushes it to the mirror and updates the ISO release. It
-replaces the manual `git pull` on a build machine. The version is stamped into the artifacts only; it is not
+replaces the manual `git pull` on a build machine and runs on every push to `master`. The version is stamped into the artifacts only; it is not
 committed back, so no direct push to a protected branch is needed and there is no version-bump commit to
 synchronize.
 

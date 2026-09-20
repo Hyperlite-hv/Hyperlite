@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- Publication is automatic: the `Publish` workflow runs on every push to `master` (package, signed APT repository, mirror, ISO release), replacing the post-merge hook on the build machine. The version is stamped into the artifacts only, so no version-bump commit or `master`/`test` synchronization is needed any more.
+
 - The code repository moved to the `Hyperlite-hv` organization; links, package homepage and the ISO address follow, and the transitional legacy mirror is retired.
 
 - The public APT repository moves to the organization mirror (`Hyperlite-hv/hyperlite-hv.github.io`, independent of the code repository); previous mirrors keep receiving publications during the migration.
