@@ -1,0 +1,10 @@
+[Unit]
+Description=Check that the public Hyperlite APT mirror is consistent
+
+[Service]
+Type=oneshot
+# Optional: HYPERLITE_ALERT_WEBHOOK=<url> (chat or ntfy webhook) and HYPERLITE_MIRROR_URL.
+EnvironmentFile=-/root/hyperlite/.publish.env
+ExecStart=/bin/bash /root/hyperlite/scripts/verify-apt-mirror.sh
+StandardOutput=append:/root/hyperlite-backups/mirror-check.log
+StandardError=append:/root/hyperlite-backups/mirror-check.log
