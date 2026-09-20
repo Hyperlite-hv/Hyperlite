@@ -102,3 +102,22 @@ sudo apt update
 ```
 
 The previous address (served from the code repository before it moved to the organization) is retired: a machine still using it must switch with the command above.
+
+### Publishing from GitHub Actions
+
+The **Publish** workflow (`.github/workflows/publish.yml`, logic in `scripts/ci-publish.sh`) builds the
+package and the ISO, signs the APT repository, pushes it to the mirror and updates the ISO release. It
+replaces the manual `git pull` on a build machine. The version is stamped into the artifacts only; it is not
+committed back, so no direct push to a protected branch is needed and there is no version-bump commit to
+synchronize.
+
+- It runs on `master` only, from the protected **`release`** environment, whose rules (deployment
+  branch, required reviewers) are set in the repository settings. Pull requests and forks never run it.
+- Secrets of the `release` environment: `GPG_PRIVATE_KEY` (the armored signing key),
+  `GPG_PASSPHRASE` (only if the key has one) and `MIRROR_DEPLOY_KEY` (private half of a deploy key with
+  write access to the mirror repository).
+- Run it by hand from the Actions tab (*Run workflow*): `dry_run` builds, signs and verifies everything
+  without pushing to the mirror or the release.
+- `scripts/ci-publish.sh` can also be run anywhere the key is available (`DRY_RUN=1` to try).
+- Keep an encrypted copy of the signing key outside GitHub and outside any machine that can be lost
+  together with it: if the key is lost, every machine refuses updates until a new key is distributed.
