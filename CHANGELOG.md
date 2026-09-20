@@ -26,6 +26,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Update backups no longer include uploaded ISOs, VM backups, exports, templates or imported disks (each backup was ~12 GB), and only the newest 3 are kept.
 - Update rollback: the watchdog now survives the service restart (transient systemd unit) and restores the backup over the real files instead of a nested copy.
 - `/health` reports `hyperlite_version`; the update dialog no longer reports success when the release was rolled back.
 - A throwaway development admin password file (data/initial-admin-password.txt) had been committed by mistake and was shipped in the package; it is removed from Git and ignored.
