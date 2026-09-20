@@ -85,6 +85,14 @@ def serve_favicon():
     return JSONResponse(status_code=404, content={"detail": "favicon not found"})
 
 
+def _running_version():
+    """Version of the code that is actually running (the VERSION file shipped with it)."""
+    try:
+        return (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip() or None
+    except OSError:
+        return None
+
+
 @app.get("/health")
 def health():
     import platform
@@ -103,6 +111,7 @@ def health():
     try:
         return {
             "status": "ok",
+            "hyperlite_version": _running_version(),
             "hypervisor": conn.getType(),
             "hostname": conn.getHostname(),
             "libvirt_version": conn.getLibVersion(),
