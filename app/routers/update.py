@@ -24,12 +24,13 @@ import shutil
 import subprocess
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.audit import log_action
+from app.core.database import get_conn
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 
@@ -427,8 +428,40 @@ def _run_update_job_apt(task_id, username):
         log_action(username, "hyperlite_update", str(exc), "echec")
 
 
+UPDATE_IN_PROGRESS_WINDOW = timedelta(minutes=15)
+_apply_lock = threading.Lock()
+
+
+def _update_in_progress():
+    """Username of whoever started an update that is still running, else None.
+
+    Only tasks started recently count: a task left 'en_cours' by a crash must not block
+    updates forever."""
+    cutoff = (datetime.now(UTC) - UPDATE_IN_PROGRESS_WINDOW).isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT username FROM tasks WHERE type = 'hyperlite_update' AND statut = 'en_cours' "
+            "AND cree_le > ? ORDER BY cree_le DESC LIMIT 1",
+            (cutoff,),
+        ).fetchone()
+    return (row["username"] or "another administrator") if row else None
+
+
 @router.post("/apply", status_code=202)
 def apply_update(user: dict = Depends(require_role("admin"))):
+    # Two administrators (or a double click) must not start two updates at once: two package
+    # installs, two backups and two restarts at the same time would corrupt each other.
+    with _apply_lock:
+        running_for = _update_in_progress()
+        if running_for:
+            raise HTTPException(
+                status_code=409,
+                detail=f"An update started by {running_for} is already running. Wait for it to finish.",
+            )
+        return _start_update(user)
+
+
+def _start_update(user):
     if _install_method() == "apt":
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
         threading.Thread(target=_run_update_job_apt, args=(task_id, user["username"]), daemon=True).start()

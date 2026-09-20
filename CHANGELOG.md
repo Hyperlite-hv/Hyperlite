@@ -27,6 +27,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Two administrators can no longer start two updates at once (HTTP 409 naming who started the running one); publishing takes a lock so simultaneous `git pull` runs on the build host queue up.
 - Update backups no longer include uploaded ISOs, VM backups, exports, templates or imported disks (each backup was ~12 GB), and only the newest 3 are kept.
 - Update rollback: the watchdog now survives the service restart (transient systemd unit) and restores the backup over the real files instead of a nested copy.
 - `/health` reports `hyperlite_version`; the update dialog no longer reports success when the release was rolled back.
