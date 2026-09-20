@@ -29,6 +29,11 @@ git clone -q --depth 1 --branch gh-pages "$REMOTE" "$WORK/repo"
 rsync -a --checksum --delete --exclude=.git "$SRC"/ "$WORK/repo"/
 
 cd "$WORK/repo"
+# A CI runner has no git identity; the commit needs one.
+if [ -z "$(git config user.email || true)" ]; then
+    git config user.email "publisher@users.noreply.github.com"
+    git config user.name "Hyperlite publisher"
+fi
 if [ -n "$(git status --porcelain)" ]; then
     git add -A
     git commit -q -m "Automatic publication ${VERSION} (post-merge, commit ${SOURCE_COMMIT})"
