@@ -101,5 +101,4 @@ sudo sed -i -E 's#^(deb \[[^]]*\] )[^ ]+#\1https://hyperlite-hv.github.io#' /etc
 sudo apt update
 ```
 
-Remove the legacy entry once no machine uses it (a transferred code repository no longer serves
-the old GitHub Pages address).
+The previous address (served from the code repository before it moved to the organization) is retired: a machine still using it must switch with the command above.
