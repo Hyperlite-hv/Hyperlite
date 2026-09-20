@@ -85,6 +85,32 @@ before saving. It lets people who were shared a node reach only the Hyperlite we
 - The assistant reads `CLAUDE.md` for the project conventions. Keep that file accurate and
   free of private data.
 
+## Co-maintainers (full access)
+
+A co-maintainer has the same rights as the owner: GitHub Admin, a named Hyperlite `admin`
+account, and access to the build and production hosts. The rights are the same, so the habits
+must be too:
+
+- **Own credentials, always.** Your own GitHub token, your own SSH key added to the hosts
+  (`authorized_keys`, with a comment naming you), your own Hyperlite account with two-factor
+  authentication. The audit log then says who did what. Never reuse another person's key,
+  token or password, and never copy the APT signing key.
+- **Stay on the pull request flow even though you could bypass it.** Administrators can
+  bypass branch protection (the publishing hook needs that). Do not use it for normal work.
+- **Look before you start.** Check open pull requests and recent commits so two people do not
+  fix the same thing. Prefix branch names with your initials (`ab/fix-...`) to avoid clashes.
+- **Announce operations on shared hosts.** Before restarting a service, updating production
+  or running heavy tests on the build host, tell the others.
+- **Publication and production updates are serialized by the software**, as a safety net, not
+  as a plan: publishing takes a lock (a second publication waits for the first) and the update
+  button refuses to start while another update is running (HTTP 409 naming who started it).
+  Still agree on who does it.
+- **End-to-end tests on a shared host:** give each person a different `E2E_PORT` (default
+  8011) and run them one at a time, because they share the libvirt host.
+- **Assistants act with your rights.** With full access, keep your assistant's permission
+  rules strict for destructive actions on shared or production hosts, and read what it
+  proposes before approving.
+
 ## Publishing and production
 
 - Publishing (APT repository and ISO) is done by a hook on a single build machine, with the
