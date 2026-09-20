@@ -170,6 +170,18 @@ def _apt_update_with_retry(attempts, delay_s, timeout=60):
     return last
 
 
+def _explain_apt_error(stderr):
+    """Turn the apt messages caused by an out-of-sync repository mirror into something actionable."""
+    text = (stderr or "").strip()
+    if any(marker in text for marker in ("unexpected size", "Hash Sum mismatch", "Mirror sync in progress")):
+        return (
+            "The update repository is being refreshed and its files are momentarily out of sync. "
+            "This usually clears within a few minutes: try again shortly. "
+            f"Technical detail: {text[:240]}"
+        )
+    return text[:400]
+
+
 def _check_update_apt():
     installed = _dpkg_installed_version()
     # For /update/check (an interactive call, the user is waiting in front of the
@@ -177,7 +189,7 @@ def _check_update_apt():
     # rather than make the user wait needlessly after a simple click.
     upd = _apt_update_with_retry(attempts=4, delay_s=8, timeout=25)
     if upd is None or upd.returncode != 0:
-        detail = upd.stderr.strip()[:400] if upd is not None else "timed out"
+        detail = _explain_apt_error(upd.stderr) if upd is not None else "timed out"
         return {
             "verifiable": False,
             "erreur": f"Unable to contact the APT repository: {detail}",
