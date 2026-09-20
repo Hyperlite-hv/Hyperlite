@@ -31,7 +31,7 @@ Hyperlite runs as `root` (it manages libvirt, networks, storage and a host shell
 
 ### Option 1: appliance ISO
 
-Download `hyperlite-appliance-amd64.iso` from the [releases page](https://github.com/twikles/hyperlite/releases), write it to a USB stick and boot the target machine. The installation is unattended and **erases the disks**. See [docs/deployment.md](docs/deployment.md) for the details.
+Download [`hyperlite-appliance-amd64.iso`](https://github.com/twikles/hyperlite/releases/download/appliance-iso-latest/hyperlite-appliance-amd64.iso) (with its `.sha256` and `.sig` files, see [docs/deployment.md](docs/deployment.md) to verify them), write it to a USB stick and boot the target machine. The installation is unattended and **erases the disks**. See [docs/deployment.md](docs/deployment.md) for the details.
 
 ### Option 2: APT repository on an existing Debian
 
