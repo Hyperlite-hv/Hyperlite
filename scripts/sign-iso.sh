@@ -9,9 +9,12 @@ DIR="$(dirname "$ISO")"; NAME="$(basename "$ISO")"
 ( cd "$DIR" && sha256sum "$NAME" > "$NAME.sha256" )
 GNUPGHOME="${GNUPGHOME:-/root/.hyperlite-apt-gpg}"
 KEY_UID="Hyperlite Apt Repository <apt@hyperlite.local>"
+PASSFILE="$(mktemp)"
+trap 'rm -f "$PASSFILE"' EXIT
+printf '%s' "${HYPERLITE_GPG_PASSPHRASE:-}" > "$PASSFILE"
 rm -f "$ISO.sig"
 if [ -d "$GNUPGHOME" ] && GNUPGHOME="$GNUPGHOME" gpg --list-secret-keys "$KEY_UID" >/dev/null 2>&1; then
-    GNUPGHOME="$GNUPGHOME" gpg --batch --yes --pinentry-mode loopback --passphrase '' \
+    GNUPGHOME="$GNUPGHOME" gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PASSFILE" \
         --local-user "$KEY_UID" --armor --detach-sign -o "$ISO.sig" "$ISO"
     echo "signed: $ISO.sig"
 else
