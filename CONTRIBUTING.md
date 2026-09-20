@@ -10,7 +10,9 @@ Thanks for your interest. Hyperlite is licensed under the PolyForm Noncommercial
   - Start every change from `test` on a short-lived branch (`feat/...`, `fix/...`, `docs/...`), open a pull request **into `test`**, and delete the branch after the merge.
   - Never push directly to `master` or `test`.
   - To release, open a pull request from `test` into `master` once `test` is validated (CI green and the end-to-end suite passing). Publishing (APT repository, ISO) only follows `master`.
+  - Dependabot opens its pull requests against  (see ).
   - Urgent production fixes use a `hotfix/...` branch from `master`, and are merged back into `test` afterwards.
+- New here, or bringing an AI assistant? Read [docs/onboarding.md](docs/onboarding.md) for the access checklist and the working rules.
 - Keep pull requests small and focused. Explain *why* in the description.
 - Do not commit secrets, real hostnames or IP addresses of private infrastructure.
 
