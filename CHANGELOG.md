@@ -26,6 +26,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- The package now depends on cloud-image-utils, genisoimage and wget, which VM creation needs (a clean install could not create VMs).
 - Automation job buttons and the snapshot Restore button now have per-item accessible names.
 - Remaining French error message in the email notification sender.
 - A wrong code when enabling two-factor authentication, or a wrong password when disabling it, now returns HTTP 400 instead of 401, so the dashboard no longer treats it as an expired session.
