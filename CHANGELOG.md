@@ -26,6 +26,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Update rollback: the watchdog now survives the service restart (transient systemd unit) and restores the backup over the real files instead of a nested copy.
+- `/health` reports `hyperlite_version`; the update dialog no longer reports success when the release was rolled back.
 - A throwaway development admin password file (data/initial-admin-password.txt) had been committed by mistake and was shipped in the package; it is removed from Git and ignored.
 - The package now depends on cloud-image-utils, genisoimage and wget, which VM creation needs (a clean install could not create VMs).
 - Automation job buttons and the snapshot Restore button now have per-item accessible names.
