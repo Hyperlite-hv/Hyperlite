@@ -5,7 +5,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: Hyperlite <noreply@example.invalid>
 Depends: python3 (>= 3.11), python3-venv, python3-pip, libvirt-dev, pkg-config, gcc, libvirt-daemon-system, libvirt-daemon-driver-lxc, qemu-kvm, qemu-utils, cloud-image-utils, genisoimage, wget, openssl, openssh-client
-Homepage: https://github.com/twikles/hyperlite
+Homepage: https://github.com/Hyperlite-hv/Hyperlite
 Description: Hyperlite hypervisor (FastAPI + libvirt/QEMU-KVM)
  Hyperlite est un hyperviseur web auto-heberge : API FastAPI + libvirt
  cote backend, interface React cote frontend. Ce paquet installe/met a
