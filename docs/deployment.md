@@ -114,8 +114,8 @@ synchronize.
 - It runs on `master` only, from the protected **`release`** environment, whose rules (deployment
   branch, required reviewers) are set in the repository settings. Pull requests and forks never run it.
 - Secrets of the `release` environment: `GPG_PRIVATE_KEY` (the armored signing key),
-  `GPG_PASSPHRASE` (only if the key has one) and `MIRROR_DEPLOY_KEY` (private half of a deploy key with
-  write access to the mirror repository).
+  `GPG_PASSPHRASE` (only if the key has one) and `MIRROR_TOKEN` (a fine-grained personal access token
+  limited to the mirror repository, with *Contents: read and write*; it expires, note the date and renew it).
 - Run it by hand from the Actions tab (*Run workflow*): `dry_run` builds, signs and verifies everything
   without pushing to the mirror or the release.
 - `scripts/ci-publish.sh` can also be run anywhere the key is available (`DRY_RUN=1` to try).
