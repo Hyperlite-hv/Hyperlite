@@ -1,0 +1,88 @@
+name: Publish
+
+# Builds the package and the ISO, signs the APT repository, publishes it to the mirror and updates the
+# ISO release. All the logic is in scripts/ci-publish.sh.
+#
+# The signing key and the mirror deploy key are secrets of the protected `release` environment: they
+# are only available to a job that runs on the protected branch, after the environment's own rules
+# (for example a required reviewer). Pull requests and forks never run this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, sign and check everything without pushing to the mirror or the release"
+        type: boolean
+        default: true
+      skip_iso:
+        description: "Do not build the ISO"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 60
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils xorriso isolinux syslinux-utils \
+            rsync gnupg openssl cpio genisoimage
+      - name: Install the dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+      - name: Cache the Debian installer image
+        uses: actions/cache@v4
+        with:
+          path: installer/.iso-cache
+          key: debian-netinst-${{ hashFiles('installer/build-iso.sh') }}
+      - name: Import the signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -p "$GNUPGHOME" && chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          gpg --list-secret-keys --keyid-format long | grep -c '^sec' | sed 's/^/secret keys imported: /'
+      - name: Prepare the deploy key of the mirror
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$MIRROR_DEPLOY_KEY" > ~/.ssh/mirror_deploy_key
+          chmod 600 ~/.ssh/mirror_deploy_key
+          {
+            echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/mirror_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+            echo "HYPERLITE_MIRROR_REPO=git@github.com:Hyperlite-hv/hyperlite-hv.github.io.git"
+          } >> "$GITHUB_ENV"
+      - name: Publish
+        env:
+          HYPERLITE_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+          SKIP_ISO: ${{ inputs.skip_iso && '1' || '0' }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: bash scripts/ci-publish.sh
+      - name: Remove the secrets from the runner
+        if: always()
+        run: |
+          rm -f ~/.ssh/mirror_deploy_key
+          rm -rf "$RUNNER_TEMP/gnupg"
