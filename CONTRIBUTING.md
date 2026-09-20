@@ -21,7 +21,7 @@ Thanks for your interest. Hyperlite is licensed under the PolyForm Noncommercial
 Requirements: Python 3.11+, libvirt development headers (`libvirt-dev`, `pkg-config`, a C compiler) to build `libvirt-python`, and Node.js 20.19+ for the dashboard.
 
 ```bash
-git clone https://github.com/twikles/hyperlite.git
+git clone https://github.com/Hyperlite-hv/Hyperlite.git
 cd hyperlite
 
 python3 -m venv venv
