@@ -32,7 +32,9 @@ done
 if [ "$OK" -eq 0 ]; then
     log "FAILURE: the service still does not answer after 10 attempts: automatic ROLLBACK."
     if [ -f "$BACKUP_TARBALL" ]; then
-        tar -xzf "$BACKUP_TARBALL" -C "$REPO_DIR"
+        # The archive is rooted at the directory NAME (tar -C <parent> <name>), so it must be
+        # extracted from the PARENT: extracting inside $REPO_DIR nests a copy and restores nothing.
+        tar -xzf "$BACKUP_TARBALL" -C "$(dirname "$REPO_DIR")"
         log "Backup restored from $BACKUP_TARBALL"
         systemctl restart hyperlite
         log "Service restarted on the previous code."
