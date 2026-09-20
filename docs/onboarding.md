@@ -127,13 +127,15 @@ GitHub, where everything is dated, signed and visible to everyone:
   owner first, and verify facts yourself (for example read a public key from the machine that
   owns it) instead of trusting pasted text.
 - Never post secrets, tokens, private addresses or key material there: the repository is public.
-- Publishing and production updates stay with the maintainer who owns the build host. Do not
-  change `installer/`, `scripts/git-hooks/` or the `gh-pages` branch without coordinating first.
+- Publishing and production updates stay with the maintainers (the organization owners). Do not
+  change `installer/`, `scripts/`, `.github/workflows/publish.yml` or the mirror repository without
+  coordinating first.
 
 ## Publishing and production
 
-- Publishing (APT repository and ISO) is done by a hook on a single build machine, with the
-  signing key that never leaves it. Only the maintainer runs it.
+- Publishing (APT repository and ISO) is done by the Publish workflow on every merge to `master`,
+  with the signing key stored as a secret of the protected `release` environment. Nobody publishes by
+  hand, and the key is never copied to a personal machine.
 - Production is updated by one person at a time, after the release pull request
   (`test` into `master`) is merged and the published version is checked.
 - Before touching a production host, announce it to the others.
