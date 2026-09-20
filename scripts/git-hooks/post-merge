@@ -73,9 +73,19 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
         # done by a separate script that clears the Git variables this hook inherits from
         # `git pull` and verifies the published index files; doing it inline in a worktree made
         # the signed Release files silently miss the mirror commit (apt: "unexpected size").
-        if bash "$REPO_DIR/scripts/publish-gh-pages.sh" \
-            "$REPO_DIR/installer/apt-repo" "$(git remote get-url origin)" \
-            "$(cat "$REPO_DIR/VERSION")" "${CURRENT_COMMIT:0:8}"; then
+        MIRROR_REPO="${HYPERLITE_MIRROR_REPO:-$(git remote get-url origin)}"
+        MIRROR_OK=1
+        # The main mirror first, then the previous ones still in use (see apt-source.conf).
+        # shellcheck disable=SC2086
+        for target in "$MIRROR_REPO" ${HYPERLITE_LEGACY_MIRROR_REPOS:-}; do
+            if ! bash "$REPO_DIR/scripts/publish-gh-pages.sh" \
+                "$REPO_DIR/installer/apt-repo" "$target" \
+                "$(cat "$REPO_DIR/VERSION")" "${CURRENT_COMMIT:0:8}"; then
+                echo "[post-merge] WARNING: publication to $target failed or could not be verified"
+                MIRROR_OK=0
+            fi
+        done
+        if [ "$MIRROR_OK" -eq 1 ]; then
             echo "[post-merge] gh-pages mirror republished"
             # GitHub Pages needs a few minutes to serve the new files: check in the background,
             # as a client would see them, and log (and alert, if configured) when they never agree.
