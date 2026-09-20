@@ -54,6 +54,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 | Document | Content |
 |---|---|
 | [docs/webui-test-matrix.md](docs/webui-test-matrix.md) | Web UI end-to-end coverage matrix and how to run it |
+| [docs/onboarding.md](docs/onboarding.md) | Access and working rules for a new contributor and their AI assistant |
 | [docs/architecture.md](docs/architecture.md) | Components, data model, security model |
 | [docs/features.md](docs/features.md) | Feature reference and known scope limits |
 | [docs/configuration.md](docs/configuration.md) | Environment variables and files |

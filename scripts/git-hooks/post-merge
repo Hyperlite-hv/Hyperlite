@@ -34,6 +34,11 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 (
     LOG="/root/hyperlite-backups/publish.log"
     mkdir -p /root/hyperlite-backups
+    # One publication at a time: two people pulling master at the same moment would otherwise
+    # build and sign in the same directories at once. The second run waits, then re-checks
+    # whether its commit is already published.
+    exec 9>/root/hyperlite-backups/publish.lock
+    flock 9
     MARKER="$REPO_DIR/.last-published-commit"
     CURRENT_COMMIT="$(git rev-parse HEAD)"
 
