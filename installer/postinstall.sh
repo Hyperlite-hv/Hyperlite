@@ -10,9 +10,8 @@
 # therefore NATIVELY managed by apt from its first boot, and updates never
 # require rebuilding or reflashing an ISO.
 #
-# The repository location is configurable: build-iso.sh writes it to
-# apt-source.conf next to this script when HYPERLITE_APT_URL is set while
-# building the ISO. Without it, the public repository is used.
+# The repository location comes from installer/apt-source.conf, embedded next to this
+# script by build-iso.sh.
 set -e
 
 log() { echo "[hyperlite-postinstall] $*"; }
@@ -33,9 +32,14 @@ log "=== 1/6: preparing APT ==="
 # an error as soon as ANY single source fails. The line is removed first.
 sed -i '/^deb cdrom:/d' /etc/apt/sources.list
 
-HYPERLITE_APT_URL="https://twikles.github.io/hyperlite"
+# The repository location comes from installer/apt-source.conf (the single source of truth),
+# embedded in the ISO by build-iso.sh.
 # shellcheck disable=SC1091
 [ -f "$INSTALLER_DIR/apt-source.conf" ] && . "$INSTALLER_DIR/apt-source.conf"
+if [ -z "${HYPERLITE_APT_URL:-}" ]; then
+    log "ERROR: no repository location (apt-source.conf is missing from the installer)"
+    exit 1
+fi
 KEYRING=/usr/share/keyrings/hyperlite-archive-keyring.gpg
 
 install_repository_source() {
