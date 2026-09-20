@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- A `Publish` GitHub workflow and `scripts/ci-publish.sh` that build, sign and publish the package, the APT repository and the ISO from a clean checkout (manual dispatch with a dry run for now); the signing passphrase and key location come from the environment.
 - APT mirror monitoring: `scripts/verify-apt-mirror.sh` (run after each publication and every 30 minutes by a systemd timer, optional webhook alert), and an actionable message in the update dialog when the mirror is momentarily out of sync.
 - Coordination between people and their AI assistants through a pinned GitHub issue, with rules in `CLAUDE.md` and `docs/onboarding.md`.
 - Contributor onboarding guide (): GitHub role and token, private network access, accounts, development environment and rules for AI assistants.

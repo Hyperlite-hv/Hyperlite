@@ -130,23 +130,9 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
             [ -f "$extra" ] && ISO_ASSETS+=("$extra")
         done
         ISO_TAG="appliance-iso-latest"
-        ISO_NOTES="Unattended installation ISO of the Hyperlite appliance (Debian 13, preseed installer), rebuilt and republished automatically at EVERY change on master (stable download link, always the latest version).
-
-Version at the time of this publication: $(cat VERSION), source commit ${CURRENT_COMMIT}.
-
-SHA-256: $(cut -d' ' -f1 installer/hyperlite-appliance-amd64.iso.sha256 2>/dev/null || echo unavailable) (files hyperlite-appliance-amd64.iso.sha256 and .sig are attached; the signature is made with the repository key hyperlite-archive-keyring.asc). Installed systems record their build in /etc/hyperlite-build-info.
-
-This is the moving 'latest' build. Versioned, immutable releases are published separately (see the releases list).
-
-Once installed, the appliance manages itself through apt (the same repository as above, see dists/): the 'Check for updates' button of the dashboard works normally from the first boot, regardless of the date of this ISO.
-
-Installation:
-sudo dd if=hyperlite-appliance-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
-(or Rufus / balenaEtcher on Windows)
-
-The installer asks for the root password. The Hyperlite admin account gets a random initial password shown on the console banner and in /root/.hyperlite-initial-password.
-
-A single manual confirmation is required during the installation (LVM confirmation screen: a deliberate Debian Installer safeguard against data loss, which cannot be bypassed by preseed)."
+        ISO_NOTES="$(sed -e "s|@VERSION@|$(cat VERSION)|" -e "s|@COMMIT@|${CURRENT_COMMIT}|" \
+            -e "s|@SHA256@|$(cut -d' ' -f1 installer/hyperlite-appliance-amd64.iso.sha256 2>/dev/null || echo unavailable)|" \
+            installer/iso-release-notes.tmpl)"
 
         if [ "$ISO_BUILT" = "1" ]; then
             if gh release view "$ISO_TAG" >/dev/null 2>&1; then
