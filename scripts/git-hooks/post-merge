@@ -12,9 +12,8 @@
 #   chmod +x <repo>/.git/hooks/post-merge
 #
 # Optional local configuration: a `.publish.env` file at the repository root
-# (never committed, listed in .gitignore) may export HYPERLITE_APT_URL, the
-# address of the APT repository baked into the ISO (see installer/build-iso.sh).
-# Without it the ISO uses the public mirror.
+# (never committed, listed in .gitignore) may export HYPERLITE_APT_URL to override, for
+# a test, the address in installer/apt-source.conf (the single source of truth).
 #
 # The version is generated automatically (timestamp to the minute) rather than
 # relying on someone remembering to bump VERSION by hand: every distinct commit
@@ -24,6 +23,8 @@
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
 cd "$REPO_DIR" || exit 0
+# shellcheck disable=SC1091
+[ -f "$REPO_DIR/installer/apt-source.conf" ] && . "$REPO_DIR/installer/apt-source.conf"
 # shellcheck disable=SC1091
 [ -f "$REPO_DIR/.publish.env" ] && . "$REPO_DIR/.publish.env"
 export HYPERLITE_APT_URL

@@ -64,3 +64,22 @@ inconsistent, 2 stale (an expected version is missing), 3 unreachable.
 - Set `HYPERLITE_ALERT_WEBHOOK` (a chat or ntfy webhook URL) in the untracked `.publish.env` to be
   alerted on failure. Never commit it.
 - On an appliance, the update dialog explains a momentarily out-of-sync mirror and asks to retry.
+
+### Single source of truth for updates
+
+There is one public location for installing and updating Hyperlite, defined in one file:
+`installer/apt-source.conf` (`HYPERLITE_APT_URL`). The ISO embeds it (the installed appliance
+gets that repository as its APT source), the post-install script, the mirror check and the
+publishing hook read it, and a test fails if another repository address is hard-coded in the
+scripts or the application.
+
+- **Machines** (appliances, servers, cluster nodes) use that repository and nothing else. Do not
+  point a machine at a private mirror: it would drift from what everyone else receives.
+- **The ISO** is published once, as the GitHub release `appliance-iso-latest`, and installs the
+  package from that same repository, so a fresh install and an update always agree.
+- **To move the repository** (for example to a new GitHub owner, whose Pages address differs):
+  change `installer/apt-source.conf`, publish, then run on every existing machine
+  `sed -i 's#^deb \(\[[^]]*\] \)[^ ]*#deb \1<new-address>#' /etc/apt/sources.list.d/hyperlite.list`
+  followed by `apt update`. Old addresses of a transferred repository are not redirected for
+  GitHub Pages, so do this before retiring the old one.
+- An exported `HYPERLITE_APT_URL` overrides the file, for tests only.
