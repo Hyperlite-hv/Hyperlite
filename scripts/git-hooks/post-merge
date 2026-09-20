@@ -76,6 +76,10 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
             "$REPO_DIR/installer/apt-repo" "$(git remote get-url origin)" \
             "$(cat "$REPO_DIR/VERSION")" "${CURRENT_COMMIT:0:8}"; then
             echo "[post-merge] gh-pages mirror republished"
+            # GitHub Pages needs a few minutes to serve the new files: check in the background,
+            # as a client would see them, and log (and alert, if configured) when they never agree.
+            (setsid bash "$REPO_DIR/scripts/verify-apt-mirror.sh" \
+                --expect-version "$(cat "$REPO_DIR/VERSION")" --wait 900 >> "$LOG" 2>&1 < /dev/null &)
         else
             echo "[post-merge] WARNING: republication to gh-pages failed or could not be verified (non-blocking)"
         fi
