@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- E2E coverage for automation jobs, snapshot restore, SMTP notifications and multi-session behavior; optional Firefox and WebKit projects; advisory `e2e` CI job.
 - Branching model documented in `CONTRIBUTING.md` (`test` = development, `master` = production); CI and CodeQL now also run on pushes to `test`.
 - End-to-end web UI test suite (Playwright) against a real backend, with a coverage matrix in `docs/webui-test-matrix.md` (`npm run test:e2e`).
 - Backups now record the VM's vCPU, memory and network so a restore to a new VM rebuilds the original hardware.
@@ -25,6 +26,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Automation job buttons and the snapshot Restore button now have per-item accessible names.
+- Remaining French error message in the email notification sender.
 - A wrong code when enabling two-factor authentication, or a wrong password when disabling it, now returns HTTP 400 instead of 401, so the dashboard no longer treats it as an expired session.
 - Webhook URLs are validated when the channel is created, not only when a notification is sent.
 
