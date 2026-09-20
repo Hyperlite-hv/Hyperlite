@@ -4,7 +4,7 @@
 # A mismatch is what makes clients fail with "File has unexpected size".
 #
 # Usage: verify-apt-mirror.sh [--url URL] [--expect-version VERSION] [--wait SECONDS]
-#   --url             mirror base URL (default: $HYPERLITE_MIRROR_URL or the public GitHub Pages mirror)
+#   --url             mirror base URL (default: $HYPERLITE_MIRROR_URL, else installer/apt-source.conf)
 #   --expect-version  also require this package version to be listed (detects a stale mirror)
 #   --wait            keep retrying for up to SECONDS before giving up (a CDN needs a few minutes)
 #
@@ -14,7 +14,16 @@
 # Plain requests on purpose, no cache-busting: what matters is what a real client is served.
 set -u
 
-URL="${HYPERLITE_MIRROR_URL:-https://twikles.github.io/hyperlite}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${HYPERLITE_MIRROR_URL:-}" ] && [ -f "$SCRIPT_DIR/../installer/apt-source.conf" ]; then
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/../installer/apt-source.conf"
+fi
+URL="${HYPERLITE_MIRROR_URL:-${HYPERLITE_APT_URL:-}}"
+if [ -z "$URL" ]; then
+    echo "no mirror URL: pass --url or set HYPERLITE_MIRROR_URL" >&2
+    exit 64
+fi
 EXPECT=""
 WAIT=0
 while [ $# -gt 0 ]; do

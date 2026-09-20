@@ -65,6 +65,12 @@ mkdir -p "$HL_DIR"
 # fresh appliance is natively managed by apt from its first boot. Updates
 # therefore never require rebuilding or reflashing an ISO, and the ISO stays
 # small (no source code or Git history to embed).
+# Single source of truth: installer/apt-source.conf. An exported HYPERLITE_APT_URL overrides it,
+# for tests only.
+if [ -z "${HYPERLITE_APT_URL:-}" ] && [ -f "$SCRIPT_DIR/apt-source.conf" ]; then
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/apt-source.conf"
+fi
 if [ -n "${HYPERLITE_APT_URL:-}" ]; then
     echo "HYPERLITE_APT_URL=\"$HYPERLITE_APT_URL\"" > "$HL_DIR/apt-source.conf"
     log "APT repository baked into the ISO: $HYPERLITE_APT_URL"

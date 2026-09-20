@@ -14,6 +14,8 @@ set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APT_REPO="$REPO_DIR/installer/apt-repo"
+# shellcheck disable=SC1091
+[ -f "$REPO_DIR/installer/apt-source.conf" ] && . "$REPO_DIR/installer/apt-source.conf"
 GNUPGHOME="/root/.hyperlite-apt-gpg"
 KEY_UID="Hyperlite Apt Repository <apt@hyperlite.local>"
 
@@ -63,7 +65,7 @@ cat > "$APT_REPO/README.md" <<EOF
 # Hyperlite APT repository
 
 Replace \`<repository-url>\` with the address where this directory is served
-(for example \`https://twikles.github.io/hyperlite\` for the public mirror).
+(the public mirror is \`${HYPERLITE_APT_URL:-<not configured>}\`).
 
 \`\`\`bash
 curl -fsSL <repository-url>/hyperlite-archive-keyring.asc | gpg --dearmor -o /usr/share/keyrings/hyperlite-archive-keyring.gpg
