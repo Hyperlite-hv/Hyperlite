@@ -26,6 +26,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A throwaway development admin password file (data/initial-admin-password.txt) had been committed by mistake and was shipped in the package; it is removed from Git and ignored.
 - The package now depends on cloud-image-utils, genisoimage and wget, which VM creation needs (a clean install could not create VMs).
 - Automation job buttons and the snapshot Restore button now have per-item accessible names.
 - Remaining French error message in the email notification sender.
