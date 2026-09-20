@@ -65,3 +65,57 @@ jobs:
           for f in installer/*.sh installer/deb/postinst scripts/*.sh scripts/git-hooks/post-merge; do
             bash -n "$f"
           done
+
+  e2e:
+    # End-to-end suite against a real backend and a real libvirt/QEMU.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
+            libvirt-daemon-system qemu-system-x86 qemu-utils genisoimage wget dnsmasq-base cloud-image-utils libvirt-daemon-driver-lxc
+      - name: Enable KVM when the runner exposes it
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+      - name: Start libvirt and the isolated test network
+        run: |
+          sudo systemctl start libvirtd
+          cat > /tmp/isolated.xml <<'XML'
+          <network><name>hyperlite-isolated</name><bridge name="virbr-e2e"/><ip address="192.168.199.1" netmask="255.255.255.0"><dhcp><range start="192.168.199.10" end="192.168.199.100"/></dhcp></ip></network>
+          XML
+          sudo virsh net-define /tmp/isolated.xml
+          sudo virsh net-start hyperlite-isolated
+      - name: Backend environment
+        run: |
+          python -m venv venv
+          venv/bin/pip install -r requirements.txt
+      - name: Build the dashboard and install browsers
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+      - name: Run the end-to-end suite
+        working-directory: dashboard
+        run: sudo -E env "PATH=$PATH" npx playwright test
+      - name: Upload the report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: dashboard/e2e-report
+          retention-days: 7
