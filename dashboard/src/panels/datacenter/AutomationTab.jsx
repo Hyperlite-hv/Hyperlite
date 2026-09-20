@@ -157,14 +157,14 @@ export default function AutomationTab() {
                 </div>
                 {job.description && <div className="text-xs text-anthracite-400 truncate">{job.description}</div>}
               </div>
-              <input aria-label="targets (VMs separated by commas)"
+              <input aria-label={`Targets for ${job.name} (VMs separated by commas)`}
                 className="input w-48 text-xs" placeholder="targets (VMs separated by commas)"
                 value={runForm[job.id] || ""} onChange={(e) => setRunForm((f) => ({ ...f, [job.id]: e.target.value }))}
               />
               {isAdmin && (
                 <>
-                  <button className="btn-secondary" onClick={() => handleRun(job, true)} title="Dry-run">Dry run</button>
-                  <button className="btn-primary" onClick={() => handleRun(job, false)}><Play size={13} /> Run</button>
+                  <button aria-label={`Dry run ${job.name}`} className="btn-secondary" onClick={() => handleRun(job, true)} title="Dry-run">Dry run</button>
+                  <button aria-label={`Run ${job.name}`} className="btn-primary" onClick={() => handleRun(job, false)}><Play size={13} /> Run</button>
                   {!job.predefined_key && <button aria-label={`Delete job ${job.name}`} className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
                 </>
               )}
