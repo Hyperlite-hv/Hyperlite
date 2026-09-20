@@ -17,6 +17,7 @@ actionable message. This is the intended "clean handling", not an oversight.
 
 """
 
+import contextlib
 import logging
 import os
 import shutil
@@ -64,10 +65,31 @@ def _spawn_outside_service(unit_prefix, argv):
     subprocess.Popen(argv, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# Exclusions from the backup tarball: only DERIVED code/state, never data
-# (hyperlite.db, data/ and .env stay included, which is precisely what a rollback
-# must be able to restore).
-_BACKUP_EXCLUDES = ["--exclude=venv", "--exclude=dashboard/node_modules", "--exclude=dashboard/dist", "--exclude=.git"]
+# Exclusions from the backup tarball: DERIVED code/state, plus the bulky user data an update
+# never touches (uploaded ISOs, VM backups, exports, templates, imported disks). hyperlite.db,
+# .env and the rest of data/ stay included, which is what a rollback must be able to restore.
+# Excluded files are simply left in place by a rollback (tar extraction never deletes), so
+# leaving them out cannot lose them; including them made each backup ~12 GB.
+_BACKUP_EXCLUDES = [
+    "--exclude=venv",
+    "--exclude=dashboard/node_modules",
+    "--exclude=dashboard/dist",
+    "--exclude=.git",
+    "--exclude=data/isos",
+    "--exclude=data/backups",
+    "--exclude=data/vm-exports",
+    "--exclude=data/templates",
+    "--exclude=data/imported-disks",
+]
+UPDATE_BACKUPS_KEPT = 3
+
+
+def _prune_old_backups(directory, keep=UPDATE_BACKUPS_KEPT):
+    """Keep only the newest `keep` update backups; other files in the directory are never touched."""
+    backups = sorted(Path(directory).glob("hyperlite-backup-*.tar.gz"), key=lambda p: p.name, reverse=True)
+    for old in backups[keep:]:
+        with contextlib.suppress(OSError):
+            old.unlink()
 
 
 def _run(cmd, cwd=None, timeout=180):
@@ -242,6 +264,7 @@ def _backup(task_id):
     # Fixed by considering only code 2+ as a real error.
     if r.returncode >= 2:
         raise RuntimeError(f"Backup failed: {r.stderr.strip()[:400]}")
+    _prune_old_backups(BACKUP_DIR)
     return tarball
 
 
