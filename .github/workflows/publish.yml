@@ -64,17 +64,31 @@ jobs:
           gpg --list-secret-keys --keyid-format long | grep -c '^sec' | sed 's/^/secret keys imported: /'
       - name: Prepare the credentials of the mirror
         env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: |
-          # A fine-grained token limited to the mirror repository (contents: write), passed to git through
-          # its environment configuration so it never appears in a URL or a command line.
-          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$MIRROR_TOKEN" | base64 -w0)"
-          echo "::add-mask::$header"
-          {
-            echo "GIT_CONFIG_COUNT=1"
-            echo "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader"
-            echo "GIT_CONFIG_VALUE_0=$header"
-          } >> "$GITHUB_ENV"
+          # Either a deploy key (preferred: limited to the mirror repository, no expiry) or a fine-grained
+          # token limited to it. Neither ever appears on a command line or in a URL.
+          if [ -n "$MIRROR_DEPLOY_KEY" ]; then
+            install -m 700 -d ~/.ssh
+            printf '%s\n' "$MIRROR_DEPLOY_KEY" > ~/.ssh/mirror_deploy_key
+            chmod 600 ~/.ssh/mirror_deploy_key
+            {
+              echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/mirror_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+              echo "HYPERLITE_MIRROR_REPO=git@github.com:Hyperlite-hv/hyperlite-hv.github.io.git"
+            } >> "$GITHUB_ENV"
+          elif [ -n "$MIRROR_TOKEN" ]; then
+            header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$MIRROR_TOKEN" | base64 -w0)"
+            echo "::add-mask::$header"
+            {
+              echo "GIT_CONFIG_COUNT=1"
+              echo "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader"
+              echo "GIT_CONFIG_VALUE_0=$header"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::error::No credentials for the mirror: add the environment secret MIRROR_DEPLOY_KEY (or MIRROR_TOKEN)"
+            exit 1
+          fi
       - name: Publish
         env:
           HYPERLITE_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -85,4 +99,6 @@ jobs:
         run: bash scripts/ci-publish.sh
       - name: Remove the secrets from the runner
         if: always()
-        run: rm -rf "$RUNNER_TEMP/gnupg"
+        run: |
+          rm -f ~/.ssh/mirror_deploy_key
+          rm -rf "$RUNNER_TEMP/gnupg"
