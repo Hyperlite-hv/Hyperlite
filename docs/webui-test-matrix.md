@@ -17,9 +17,9 @@ npm run test:e2e       # starts its own backend via e2e/start-backend.sh
 
 Requirements: a Linux host with libvirt/QEMU (`/dev/kvm` recommended), the backend virtualenv at
 `../venv`, and the `hyperlite-isolated` libvirt network. Set `E2E_BASE_URL` to test an already
-running instance instead. Reports, traces and screenshots go to `e2e-report/` and `e2e-results/`
-(git-ignored). CI cannot run the libvirt-dependent specs (no hypervisor on hosted runners); the
-unit and API suites run there, the E2E suite is run on a virtualization-capable host.
+running instance instead. `E2E_ALL_BROWSERS=1` adds the Firefox and WebKit projects (install them with `npx playwright install --with-deps firefox webkit`; use `npm run test:e2e:all-browsers`). Reports, traces and screenshots go to `e2e-report/` and `e2e-results/`
+(git-ignored). CI runs the unit and API suites as required checks and the E2E suite as an advisory `e2e` job
+(libvirt is installed on the hosted runner; it becomes required once it has proven stable).
 
 ## Status legend
 
@@ -46,7 +46,7 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 | VM lifecycle | Start, no second start offered, force stop after confirmation, edit memory when stopped, memory refused while running | Yes | `vm.spec.ts` | PASS | Graceful shutdown depends on guest ACPI; not asserted |
 | VM console | Graphical console window opens for a running VM | Yes | `vm.spec.ts` | PARTIALLY TESTED | Window opening only; no pixels/keystrokes verified |
 | VM deletion | Confirmation naming the VM, disk removed | Yes | `vm.spec.ts` | PASS | - |
-| Snapshots | One snapshot on double-click, then deleted | Yes | `vm.spec.ts` | PARTIALLY TESTED | Snapshot restore not covered in the UI |
+| Snapshots | One snapshot on double-click then deleted; restore after a confirmation naming the snapshot (cancel changes nothing, confirm brings the VM configuration back) | Yes | `vm.spec.ts`, `coverage.spec.ts` | PASS | Restore of a running VM with memory not covered |
 | Clone | Clone after a name prompt; cancel creates nothing | Yes | `vm-advanced.spec.ts` | PASS | - |
 | Templates | Convert to template, deploy a new VM | Yes | `vm-advanced.spec.ts` | PASS | - |
 | Backups | Cold backup created, restored to a new VM, restored VM starts | Yes | `vm-advanced.spec.ts` | PASS | Hot backup and scheduled jobs not covered |
@@ -56,20 +56,20 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 | Storage pools | Create a directory pool, persists, remove; default pool and duplicate refused | Yes | `settings.spec.ts` | PASS | NFS and ZFS pools not covered (need a server / ZFS module) |
 | Virtual networks | Create an isolated network, duplicate and invalid bridge refused, delete after confirmation | Yes | `network.spec.ts` | PASS | Network firewall rules not covered |
 | ISO images | Upload, list, cancel and confirm deletion | Yes | `destructive.spec.ts` | PASS | - |
-| Notifications | Test button delivers a real request to a local receiver; non-http(s) URL refused | Yes | `settings.spec.ts` | PASS | Email (SMTP) channel not covered |
+| Notifications | Test button delivers a real request to a local webhook receiver and a real SMTP message to a local SMTP receiver; non-http(s) URL refused; SMTP password never returned; unreachable SMTP server gives a readable error | Yes | `settings.spec.ts`, `coverage.spec.ts` | PARTIALLY TESTED | Email channel is created through the API in the test: the UI form always enables STARTTLS, and the local test receiver has none |
 | Deployment profile | Choice persists after reload | Yes | `settings.spec.ts` | PASS | - |
 | Destructive actions | Confirmation dialog names the resource; cancel keeps it | Yes | `destructive.spec.ts`, `vm.spec.ts`, `network.spec.ts`, `users.spec.ts` | PASS | Automation jobs, HA, containers, nodes share the same dialog but are not each exercised |
 | Degraded modes | 401, 403, 409, 422, 429, 500, malformed JSON, offline and recovery, slow and never-ending loads, double-click | Mixed: statuses forced by route mocking, the UI behavior is real | `degraded.spec.ts` | PASS | 404 handled by the generic error path; not asserted separately |
 | Keyboard use | Tab order, visible focus, dialogs trap focus and close on Escape, tree and tabs operable | Yes | `keyboard-responsive.spec.ts` | PASS | - |
 | Accessibility scan | No serious or critical axe violations on the audited pages | Yes | `pages.spec.ts` | PARTIALLY TESTED | Automated scan does not replace a screen-reader review |
 | Responsive layout | 1920, 1366, 820, 390 and 640 px: no horizontal scroll, actions reachable, phone menu | Yes | `keyboard-responsive.spec.ts` | PASS | Chromium only |
-| Automation (jobs) | Tab renders | Yes | `pages.spec.ts` | PARTIALLY TESTED | Creating and running a job is not covered |
+| Automation (jobs) | Create a host job, dry run does not execute, real run executes, failing command recorded as failed, duplicate name refused, delete after a confirmation naming the job, read-only user refused by the backend | Yes | `automation.spec.ts` | PASS | Jobs targeting VMs (SSH into a guest) not covered |
 | Containers (LXC) | Tab renders | Yes | `pages.spec.ts` | PARTIALLY TESTED | Creation needs image download and LXC driver; not covered |
 | Nodes, migration | Tab renders; single node | Loopback only | `pages.spec.ts` | BLOCKED | Adding a second node and live migration need a second hypervisor host |
 | High availability | Tab renders | Yes | `pages.spec.ts` | BLOCKED | Failure detection and recovery need at least two nodes and shared storage |
 | Updates | Update dialog opens | Yes | `keyboard-responsive.spec.ts` | PARTIALLY TESTED | Applying an update needs the APT repository and is destructive |
-| Multi-user concurrency | Two users at once | Yes | - | NOT TESTED | Two simultaneous sessions editing the same resource |
-| Browsers | Chromium | Yes | all | PARTIALLY TESTED | Firefox and WebKit not run |
+| Multi-user concurrency | A user deleted by an administrator is signed out on reload while the admin session keeps working; a change made in one admin session is visible in another after reload | Yes | `coverage.spec.ts` | PARTIALLY TESTED | No live push between sessions (the UI refreshes on reload or polling); simultaneous edits of the same resource not covered |
+| Browsers | Full suite on Chromium, Firefox and WebKit (one fresh backend per browser, `npm run test:e2e:all-browsers`) | Yes | all | PASS | Mobile browsers and real Safari not run |
 
 ## Defects found and fixed while writing the suite
 
@@ -84,6 +84,8 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 - Pages could show an endless spinner or a raw JavaScript error: shared loading and error states.
 - Missing accessible names, roles, focus handling and low-contrast colors on many controls.
 - French wording left in permission role labels and event names.
+- Job buttons of the Automation tab and the snapshot Restore button had no per-item accessible name.
+- A French error message remained in the email notification sender.
 - Deploy dialog of the Templates tab was not an accessible dialog.
 - Converting a VM to a template left its cloud-init ISO behind: now removed.
 - Restoring a backup to a new VM ignored the original vCPU, memory and network (1 vCPU, 1 GiB,
