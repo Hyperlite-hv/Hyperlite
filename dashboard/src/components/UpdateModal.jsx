@@ -53,18 +53,27 @@ export default function UpdateModal({ onClose }) {
         await new Promise((r) => setTimeout(r, 1000));
       }
       setPhase("restarting");
-      // The service restarts ~2 s after the task ends: we wait for an answer from
-      // /health, with a generous delay (frontend build + restart).
-      const deadline = Date.now() + 60000;
+      // The service restarts ~2 s after the task ends: we wait for /health to answer. With APT
+      // the target version is known, so success also requires the RUNNING version to be that
+      // one: when the server watchdog rolls a broken release back, /health answers again but
+      // on the previous version, which must not be reported as a successful update.
+      const target = info?.branche === "apt" ? info.commit_distant : null;
+      const deadline = Date.now() + 120000;
+      let runningVersion = null;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
           const res = await fetch("/health");
-          if (res.ok) { setPhase("ok"); return; }
+          if (res.ok) {
+            runningVersion = (await res.json()).hyperlite_version ?? null;
+            if (!target || runningVersion === target) { setPhase("ok"); return; }
+          }
         } catch { /* service restarting, expected */ }
       }
       setPhase("failed");
-      setError("The service no longer responds after 60 s. The server watchdog may have had to restore the previous version: check manually.");
+      setError(runningVersion
+        ? `The new version did not start: the service is running ${runningVersion} again (the update was rolled back). Check the server logs before retrying.`
+        : "The service no longer responds after 120 s. The server watchdog may have had to restore the previous version: check manually.");
     } catch (e) {
       setPhase("failed");
       setError(e.message);
