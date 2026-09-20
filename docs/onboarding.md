@@ -64,7 +64,7 @@ before saving. It lets people who were shared a node reach only the Hyperlite we
 - Clone the repository and work from `test`:
 
   ```bash
-  git clone https://github.com/twikles/hyperlite.git
+  git clone https://github.com/Hyperlite-hv/Hyperlite.git
   cd hyperlite
   git checkout -b feat/my-change origin/test
   ```
