@@ -29,12 +29,13 @@ test.describe("Degraded backend behavior", () => {
     await expect(page.getByText(/Cannot read properties/)).toHaveCount(0);
   });
 
-  test("losing the network shows a clear message and the page recovers when it returns", async ({ page, context }) => {
+  test("losing the network shows a clear message and the page recovers when it returns", async ({ page }) => {
     await uiLogin(page);
-    await context.setOffline(true);
+    // Aborting the request behaves the same in every browser; context.setOffline does not in Firefox.
+    await page.route("**/networks", (route) => route.abort("connectionrefused"));
     await page.getByRole("tab", { name: "Network", exact: true }).click();
     await expect(page.getByText(/Cannot reach the server/)).toBeVisible();
-    await context.setOffline(false);
+    await page.unroute("**/networks");
     await page.reload();
     await expect(page.getByRole("button", { name: "Create a virtual network" })).toBeVisible();
   });

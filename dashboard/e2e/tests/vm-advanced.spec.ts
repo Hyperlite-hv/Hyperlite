@@ -34,7 +34,9 @@ test.afterAll(async ({ request }) => {
       await request.delete(`/vms/${name}?confirm=true`, { headers: auth() });
     }
   }
-  await request.delete(`/templates/${TEMPLATE}`, { headers: auth() });
+  await request.delete(`/templates/${TEMPLATE}?confirm=true`, { headers: auth() });
+  const exportsRes = await request.get("/vm-exports", { headers: auth() });
+  if (exportsRes.ok()) for (const f of (await exportsRes.json()) as Array<{ nom: string }>) if (f.nom.startsWith(PREFIX)) await request.delete(`/vm-exports/${encodeURIComponent(f.nom)}`, { headers: auth() });
   const backups = await request.get("/backups", { headers: auth() });
   if (backups.ok()) for (const b of (await backups.json()) as Array<{ id: number; vm_name: string }>) if (ALL.includes(b.vm_name)) await request.delete(`/backups/${b.id}?confirm=true`, { headers: auth() });
 });

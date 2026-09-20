@@ -115,7 +115,7 @@ def _send_email(config, title, message, event, result):
     required = ["smtp_host", "smtp_port", "from_addr", "to_addr"]
     missing = [k for k in required if not config.get(k)]
     if missing:
-        raise ValueError(f"Champs manquants : {', '.join(missing)}")
+        raise ValueError(f"Missing fields: {', '.join(missing)}")
 
     msg = EmailMessage()
     msg["Subject"] = f"[Hyperlite] {title}"
