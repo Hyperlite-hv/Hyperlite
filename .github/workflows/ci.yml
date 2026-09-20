@@ -88,7 +88,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
-            libvirt-daemon-system qemu-system-x86 qemu-utils genisoimage wget
+            libvirt-daemon-system qemu-system-x86 qemu-utils genisoimage wget dnsmasq-base
       - name: Enable KVM when the runner exposes it
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
