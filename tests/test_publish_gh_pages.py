@@ -93,3 +93,20 @@ def test_a_relative_source_path_is_accepted(tmp_path):
     result = _run(["bash", str(SCRIPT), "apt-repo", str(remote), "v2", "abc"], cwd=tmp_path)
     assert "verified" in result.stdout
     assert _published(remote, "dists/stable/Release") == "release-2\n"
+
+
+def test_it_commits_even_when_git_has_no_identity(tmp_path):
+    remote = _make_remote(tmp_path)
+    built = tmp_path / "apt-repo"
+    _write_repo(built, "2")
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith(("GIT_AUTHOR", "GIT_COMMITTER", "EMAIL"))
+    }
+    env.update({"HOME": str(home), "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})
+    result = subprocess.run(
+        ["bash", str(SCRIPT), str(built), str(remote), "v2", "abc"], env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert _published(remote, "dists/stable/Release") == "release-2\n"
