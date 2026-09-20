@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: pip
     directory: /
+    target-branch: test
     schedule:
       interval: weekly
     groups:
@@ -9,6 +10,7 @@ updates:
         update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /dashboard
+    target-branch: test
     schedule:
       interval: weekly
     groups:
@@ -39,5 +41,6 @@ updates:
         update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
+    target-branch: test
     schedule:
       interval: weekly
