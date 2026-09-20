@@ -67,10 +67,8 @@ jobs:
           done
 
   e2e:
-    # End-to-end suite against a real backend and a real libvirt/QEMU. Advisory until it has
-    # proven stable on hosted runners.
+    # End-to-end suite against a real backend and a real libvirt/QEMU.
     runs-on: ubuntu-24.04
-    continue-on-error: true
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
