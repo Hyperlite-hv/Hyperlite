@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- The APT repository address now lives in one file (`installer/apt-source.conf`) read by the ISO build, the post-install script, the mirror check and the publishing hook; a test fails if another address is hard-coded.
+
 - All repository content, user-facing text, logs and error messages are now in English. API and database wire identifiers and values are unchanged (French) for compatibility.
 - The web dashboard requires Node.js 20.19+ to build (React Router 7, Vite 7).
 - The legacy vanilla-JS frontend (`/legacy`, `/static`) was removed; the React dashboard is the only interface.
