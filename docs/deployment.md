@@ -85,3 +85,21 @@ scripts or the application.
   followed by `apt update`. Old addresses of a transferred repository are not redirected for
   GitHub Pages, so do this before retiring the old one.
 - An exported `HYPERLITE_APT_URL` overrides the file, for tests only.
+
+### Moving to the organization mirror
+
+The public repository is served by GitHub Pages from the `Hyperlite-hv/hyperlite-hv.github.io`
+repository (`gh-pages` branch), at the address in `installer/apt-source.conf`. That repository is
+independent of the code repository, so the address does not change when the code moves.
+
+While machines still use a previous address, list its repository in
+`HYPERLITE_LEGACY_MIRROR_REPOS`: every publication is then pushed to it as well. To switch a
+machine to the current address:
+
+```bash
+sudo sed -i -E 's#^(deb \[[^]]*\] )[^ ]+#\1https://hyperlite-hv.github.io#' /etc/apt/sources.list.d/hyperlite.list
+sudo apt update
+```
+
+Remove the legacy entry once no machine uses it (a transferred code repository no longer serves
+the old GitHub Pages address).
