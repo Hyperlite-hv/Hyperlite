@@ -75,8 +75,10 @@ scripts or the application.
 
 - **Machines** (appliances, servers, cluster nodes) use that repository and nothing else. Do not
   point a machine at a private mirror: it would drift from what everyone else receives.
-- **The ISO** is published once, as the GitHub release `appliance-iso-latest`, and installs the
-  package from that same repository, so a fresh install and an update always agree.
+- **The ISO** is published once, as the GitHub release `appliance-iso-latest` (address in
+  `HYPERLITE_ISO_URL` of the same file, checked against the README by a test), with its SHA-256 sum
+  and signature. It embeds the package of its own version and configures the same repository for
+  later updates, so a fresh install and an update always agree.
 - **To move the repository** (for example to a new GitHub owner, whose Pages address differs):
   change `installer/apt-source.conf`, publish, then run on every existing machine
   `sed -i 's#^deb \(\[[^]]*\] \)[^ ]*#deb \1<new-address>#' /etc/apt/sources.list.d/hyperlite.list`

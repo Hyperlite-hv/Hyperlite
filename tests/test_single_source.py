@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONF = ROOT / "installer" / "apt-source.conf"
-ADDRESS = re.compile(r"github\.io|https?://\d{1,3}(?:\.\d{1,3}){3}:\d+")
+ADDRESS = re.compile(r"github\.io|https?://\d{1,3}(?:\.\d{1,3}){3}:\d+|releases/download/")
 
 
 def _sources():
@@ -41,3 +41,12 @@ def test_the_mirror_check_reads_the_canonical_address():
         ["bash", "-c", f'. "{CONF}"; echo "$HYPERLITE_APT_URL"'], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip().startswith("https://")
+
+
+def test_the_documentation_links_to_the_canonical_iso_address():
+    iso_url = re.search(r'^HYPERLITE_ISO_URL="([^"]+)"$', CONF.read_text(), re.M).group(1)
+    for name in ("README.md", "docs/deployment.md"):
+        text = (ROOT / name).read_text()
+        links = re.findall(r"https://github\.com/[^\s)`]*/releases/download/[^\s)`]*", text)
+        assert links or name != "README.md", "README.md must link to the ISO"
+        assert all(link == iso_url for link in links), f"{name} links to an ISO address other than {iso_url}"
