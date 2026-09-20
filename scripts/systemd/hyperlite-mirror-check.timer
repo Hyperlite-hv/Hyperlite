@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic check of the Hyperlite APT mirror
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

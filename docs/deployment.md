@@ -48,3 +48,19 @@ GitHub Pages is a multi-node CDN without strong consistency between files publis
 ## Build requirements
 
 Building the package needs Python, Node.js 20.19+, `dpkg-dev`, `apt-utils`, `gnupg`, `rsync` and, for the ISO, `xorriso`, `isolinux` and `openssl`.
+
+### Monitoring the APT mirror
+
+`scripts/verify-apt-mirror.sh` checks the public mirror the way apt sees it: the signed `Release`
+announces a size and a SHA-256 for each index file, and the files served next to it must match
+(a mismatch is the "File has unexpected size" error on clients). Exit codes: 0 consistent, 1
+inconsistent, 2 stale (an expected version is missing), 3 unreachable.
+
+- The publishing hook runs it in the background after each publication and waits up to 15
+  minutes for GitHub Pages to serve the new files; the result is written to `publish.log`.
+- `scripts/systemd/hyperlite-mirror-check.{service,timer}` run it every 30 minutes on the build
+  host (install them in `/etc/systemd/system`, then `systemctl enable --now
+  hyperlite-mirror-check.timer`); results go to `mirror-check.log`.
+- Set `HYPERLITE_ALERT_WEBHOOK` (a chat or ntfy webhook URL) in the untracked `.publish.env` to be
+  alerted on failure. Never commit it.
+- On an appliance, the update dialog explains a momentarily out-of-sync mirror and asks to retry.
