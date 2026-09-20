@@ -67,7 +67,7 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 | Containers (LXC) | Tab renders | Yes | `pages.spec.ts` | PARTIALLY TESTED | Creation needs image download and LXC driver; not covered |
 | Nodes, migration | Tab renders; single node | Loopback only | `pages.spec.ts` | BLOCKED | Adding a second node and live migration need a second hypervisor host |
 | High availability | Tab renders | Yes | `pages.spec.ts` | BLOCKED | Failure detection and recovery need at least two nodes and shared storage |
-| Updates | Update dialog opens | Yes | `keyboard-responsive.spec.ts` | PARTIALLY TESTED | Applying an update needs the APT repository and is destructive |
+| Updates | From the dashboard: check, apply a good release (service restarts on the new version), apply a broken release (the watchdog rolls back and the UI reports it) | Yes, on a VM installed from the published ISO with a temporary signed APT repository | manual run (Playwright script, not in the suite) | PASS | Not automated in CI: it needs an installed appliance and a package repository; the git installation method was not exercised |
 | Multi-user concurrency | A user deleted by an administrator is signed out on reload while the admin session keeps working; a change made in one admin session is visible in another after reload | Yes | `coverage.spec.ts` | PARTIALLY TESTED | No live push between sessions (the UI refreshes on reload or polling); simultaneous edits of the same resource not covered |
 | Browsers | Full suite on Chromium, Firefox and WebKit (one fresh backend per browser, `npm run test:e2e:all-browsers`) | Yes | all | PASS | Mobile browsers and real Safari not run |
 
@@ -84,6 +84,9 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 - Pages could show an endless spinner or a raw JavaScript error: shared loading and error states.
 - Missing accessible names, roles, focus handling and low-contrast colors on many controls.
 - French wording left in permission role labels and event names.
+- The rollback watchdog never ran: it was started inside the service's cgroup and killed by the restart. It now runs in a transient systemd unit.
+- When the watchdog did run, it extracted the backup into a nested directory and restored nothing. It now extracts from the parent directory.
+- The update dialog announced success after a rollback. `/health` now reports the running version and the dialog requires it to match the target.
 - Job buttons of the Automation tab and the snapshot Restore button had no per-item accessible name.
 - A French error message remained in the email notification sender.
 - Deploy dialog of the Templates tab was not an accessible dialog.
