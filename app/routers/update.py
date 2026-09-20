@@ -19,6 +19,7 @@ actionable message. This is the intended "clean handling", not an oversight.
 
 import logging
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -38,6 +39,30 @@ router = APIRouter(prefix="/update", tags=["update"])
 REPO_DIR = Path(__file__).resolve().parent.parent.parent  # /root/hyperlite
 BACKUP_DIR = Path("/root/hyperlite-backups")
 WATCHDOG_SCRIPT = REPO_DIR / "scripts" / "update_watchdog.sh"
+
+
+def _spawn_outside_service(unit_prefix, argv):
+    """Run a command that must survive the restart of hyperlite.service.
+
+    start_new_session is not enough: the process stays in the service's cgroup, and
+    `systemctl restart` kills the whole cgroup, watchdog included (the rollback safety
+    net never ran). A transient systemd unit lives outside that cgroup. Falls back to a
+    detached process where systemd-run is unavailable."""
+    if shutil.which("systemd-run"):
+        unit = f"{unit_prefix}-{int(time.time())}"
+        try:
+            subprocess.run(
+                ["systemd-run", "--quiet", "--collect", f"--unit={unit}", *argv],
+                check=True,
+                timeout=15,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+        except (subprocess.SubprocessError, OSError):
+            logging.getLogger(__name__).warning("systemd-run failed, using a detached process")
+    subprocess.Popen(argv, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 
 # Exclusions from the backup tarball: only DERIVED code/state, never data
 # (hyperlite.db, data/ and .env stay included, which is precisely what a rollback
@@ -285,18 +310,11 @@ def _run_update_job(task_id, username, branch):
         # systemctl stops it. It, not this thread, verifies that the NEW code starts
         # correctly and rolls back automatically if not (see scripts/update_watchdog.sh;
         # this process cannot verify its own replacement).
-        subprocess.Popen(
+        _spawn_outside_service(
+            "hyperlite-update-watchdog",
             ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
-        subprocess.Popen(
-            ["bash", "-c", "sleep 2 && systemctl restart hyperlite"],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
         # This process will die in ~2 s (the restart above): the task is marked
         # "termine" optimistically before dying rather than leaving a task forever
@@ -368,18 +386,11 @@ def _run_update_job_apt(task_id, username):
         # The same safety net as the Git path: a detached watchdog BEFORE the restart
         # (it survives the death of this process), which verifies that the new code starts
         # correctly and restores the tarball otherwise.
-        subprocess.Popen(
+        _spawn_outside_service(
+            "hyperlite-update-watchdog",
             ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
-        subprocess.Popen(
-            ["bash", "-c", "sleep 2 && systemctl restart hyperlite"],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
         finish_task(task_id, "termine")
         log_action(username, "hyperlite_update", f"{old_version} -> {new_version}", "succes")
