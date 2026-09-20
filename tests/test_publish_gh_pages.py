@@ -84,3 +84,12 @@ def test_nothing_is_committed_when_nothing_changed(tmp_path):
     _run(["bash", str(SCRIPT), str(built), str(remote), "v1", "abc"])
     log = _run(["git", "--git-dir", str(remote), "log", "--oneline", "gh-pages"]).stdout.strip().splitlines()
     assert len(log) == 1
+
+
+def test_a_relative_source_path_is_accepted(tmp_path):
+    remote = _make_remote(tmp_path)
+    built = tmp_path / "apt-repo"
+    _write_repo(built, "2")
+    result = _run(["bash", str(SCRIPT), "apt-repo", str(remote), "v2", "abc"], cwd=tmp_path)
+    assert "verified" in result.stdout
+    assert _published(remote, "dists/stable/Release") == "release-2\n"

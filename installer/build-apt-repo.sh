@@ -16,8 +16,13 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APT_REPO="$REPO_DIR/installer/apt-repo"
 # shellcheck disable=SC1091
 [ -f "$REPO_DIR/installer/apt-source.conf" ] && . "$REPO_DIR/installer/apt-source.conf"
-GNUPGHOME="/root/.hyperlite-apt-gpg"
+GNUPGHOME="${GNUPGHOME:-/root/.hyperlite-apt-gpg}"
 KEY_UID="Hyperlite Apt Repository <apt@hyperlite.local>"
+# Passphrase of the signing key, when it has one (a CI secret): read from a private file so it never
+# appears on a command line. Empty for a key without passphrase.
+PASSFILE="$(mktemp)"
+trap 'rm -f "$PASSFILE"' EXIT
+printf '%s' "${HYPERLITE_GPG_PASSPHRASE:-}" > "$PASSFILE"
 
 log() { echo "[build-apt-repo] $*"; }
 
@@ -27,7 +32,7 @@ export GNUPGHOME
 
 if ! gpg --list-secret-keys "$KEY_UID" >/dev/null 2>&1; then
     log "generating the repository signing key (first time)"
-    gpg --batch --quiet --pinentry-mode loopback --passphrase '' --quick-generate-key "$KEY_UID" ed25519 sign 0
+    gpg --batch --quiet --pinentry-mode loopback --passphrase-file "$PASSFILE" --quick-generate-key "$KEY_UID" ed25519 sign 0
 fi
 KEY_ID=$(gpg --list-secret-keys --with-colons "$KEY_UID" | awk -F: '/^fpr:/ {print $10; exit}')
 log "signing key: $KEY_ID"
@@ -53,9 +58,9 @@ log "generating Release"
     release . > Release )
 
 log "signing (detached Release.gpg + InRelease, like a real Debian repository)"
-gpg --batch --yes --pinentry-mode loopback --passphrase '' --default-key "$KEY_ID" \
+gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PASSFILE" --default-key "$KEY_ID" \
     -abs -o "$APT_REPO/dists/stable/Release.gpg" "$APT_REPO/dists/stable/Release"
-gpg --batch --yes --pinentry-mode loopback --passphrase '' --default-key "$KEY_ID" \
+gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PASSFILE" --default-key "$KEY_ID" \
     --clearsign -o "$APT_REPO/dists/stable/InRelease" "$APT_REPO/dists/stable/Release"
 
 log "exporting the public key (to install on each appliance)"
