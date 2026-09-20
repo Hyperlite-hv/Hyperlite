@@ -28,6 +28,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- The gh-pages APT mirror no longer serves a stale signed Release: the post-merge hook inherited Git variables that hid the changes of Release, InRelease and Release.gpg, so apt reported "File has unexpected size". The mirror is now published by a script that clears them, compares contents and verifies the result.
 - Two administrators can no longer start two updates at once (HTTP 409 naming who started the running one); publishing takes a lock so simultaneous `git pull` runs on the build host queue up.
 - Update backups no longer include uploaded ISOs, VM backups, exports, templates or imported disks (each backup was ~12 GB), and only the newest 3 are kept.
 - Update rollback: the watchdog now survives the service restart (transient systemd unit) and restores the backup over the real files instead of a nested copy.

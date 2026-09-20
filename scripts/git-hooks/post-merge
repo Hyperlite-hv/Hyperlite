@@ -68,38 +68,17 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
             exit 1
         fi
 
-        # Republishes to gh-pages through a temporary worktree. Deliberately
-        # best-effort (a failure is not fatal for the rest of the script): this
-        # mirror is not the source used by postinstall.sh by default when a
-        # single-origin repository is configured (see the note about GitHub
-        # Pages CDN consistency in installer/build-apt-repo.sh), but a failure is
-        # announced rather than silently ignored.
-        # `git worktree add "$WORKTREE" gh-pages` only advances the LOCAL
-        # `gh-pages` branch on the very FIRST run (it is then created tracking
-        # origin/gh-pages); later runs reuse that local branch FROZEN at its
-        # starting point even if `origin/gh-pages` has advanced since (e.g.
-        # another machine also publishing), and the push is then rejected
-        # ("fetch first"). `-B` forces the local `gh-pages` branch to match
-        # `origin/gh-pages` on EVERY run before applying the new files. This is
-        # safe: it is only a generated mirror (a full rsync --delete each time),
-        # with no local history to preserve.
-        git fetch origin gh-pages --quiet
-        WORKTREE="$(mktemp -d)"
-        git worktree add "$WORKTREE" -B gh-pages origin/gh-pages
-        rsync -a --delete --exclude=.git installer/apt-repo/ "$WORKTREE/"
-        if (
-            cd "$WORKTREE" || exit 1
-            if ! git diff --quiet || [ -n "$(git status --porcelain)" ]; then
-                git add -A
-                git commit -m "Automatic publication $(cat "$REPO_DIR/VERSION") (post-merge, commit ${CURRENT_COMMIT:0:8})" --quiet
-                git push origin gh-pages
-            fi
-        ); then
+        # Republishes to gh-pages (best effort: a failure is announced, not fatal). The work is
+        # done by a separate script that clears the Git variables this hook inherits from
+        # `git pull` and verifies the published index files; doing it inline in a worktree made
+        # the signed Release files silently miss the mirror commit (apt: "unexpected size").
+        if bash "$REPO_DIR/scripts/publish-gh-pages.sh" \
+            "$REPO_DIR/installer/apt-repo" "$(git remote get-url origin)" \
+            "$(cat "$REPO_DIR/VERSION")" "${CURRENT_COMMIT:0:8}"; then
             echo "[post-merge] gh-pages mirror republished"
         else
-            echo "[post-merge] WARNING: republication to gh-pages failed (non-blocking)"
+            echo "[post-merge] WARNING: republication to gh-pages failed or could not be verified (non-blocking)"
         fi
-        git worktree remove "$WORKTREE" --force
 
         # Commits the VERSION bump on master itself. Without it the working tree
         # would stay "dirty" permanently (VERSION modified but not committed),
