@@ -55,21 +55,21 @@ export default function ResourceTree() {
   }, [nodes, vms, storagePools, treeFilter, searchQuery]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col border-t border-white/6 mt-1 pt-2">
-      <div className="flex gap-0.5 mx-2.5 mb-1.5 p-0.5 rounded-md bg-black/20">
+    <div className="flex min-h-0 flex-1 flex-col border-t border-sidebar-border mt-1 pt-2">
+      <div className="flex gap-0.5 mx-2 mb-1.5 p-0.5 rounded-md bg-black/20 group-data-[collapsible=icon]:hidden">
         {FILTERS.map((f) => (
           <button
             key={f.id}
             onClick={() => setTreeFilter(f.id)}
             className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
-              treeFilter === f.id ? "bg-chrome-700 text-chrome-100" : "text-chrome-400 hover:text-chrome-100"
+              treeFilter === f.id ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/60 hover:text-sidebar-accent-foreground"
             }`}
           >
             {f.label}
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-y-auto p-1.5 pt-0.5">
+      <div className="flex-1 overflow-y-auto p-1 pt-0.5 group-data-[collapsible=icon]:hidden">
         <div role="tree" aria-label="Resources">
           <ResourceTreeNode node={tree} />
         </div>

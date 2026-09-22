@@ -10,6 +10,9 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { fetchHostMetricsHistory, fetchTasks } from "../../api/client";
 import { formatMo, formatUptime, formatKbps } from "../../utils/format";
 import { statusColor, chartColors } from "../../theme/colors";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 
 function sumDefined(items, key) {
   const defined = items.filter((i) => i[key] != null);
@@ -126,51 +129,51 @@ export default function DatacenterSummaryTab() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="card p-4">
-          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+        <Card className="p-4">
+          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-foreground">
             <Cpu size={16} className="text-accent-blue" /> CPU usage
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {avgCpu != null ? `${Math.round(avgCpu * 100)}%` : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">{cpuNodes.length} node(s) measured</span>
+            <span className="text-[11px] text-muted-foreground">{cpuNodes.length} node(s) measured</span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart data={chartData} series={[{ key: "cpu", label: "CPU", color: chartColors.cpu }]} yFormatter={(v) => `${Math.round(v * 100)}%`} height={140} />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-muted-foreground">No history yet.</div>
           )}
-        </div>
+        </Card>
 
-        <div className="card p-4">
-          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+        <Card className="p-4">
+          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-foreground">
             <MemoryStick size={16} className="text-accent-blue" /> Memory usage
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {totalRamMo != null && usedRamMo != null ? `${Math.round((usedRamMo / totalRamMo) * 100)}%` : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">
+            <span className="text-[11px] text-muted-foreground">
               {totalRamMo != null && usedRamMo != null ? `${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}` : ""}
             </span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart data={chartData} series={[{ key: "ramMo", label: "RAM", color: chartColors.cpu }]} yFormatter={(v) => formatMo(v)} height={140} />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-muted-foreground">No history yet.</div>
           )}
-        </div>
+        </Card>
 
-        <div className="card p-4">
-          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+        <Card className="p-4">
+          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-foreground">
             <Network size={16} className="text-accent-blue" /> Network (local host)
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {latest ? formatKbps((latest.net_rx_bps ?? 0) / 1024) : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">current incoming</span>
+            <span className="text-[11px] text-muted-foreground">current incoming</span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart
@@ -179,153 +182,153 @@ export default function DatacenterSummaryTab() {
               yFormatter={(v) => formatKbps(v)} height={140}
             />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-muted-foreground">No history yet.</div>
           )}
-        </div>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <div className="card p-4 xl:col-span-7">
+        <Card className="p-4 xl:col-span-7">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+            <h3 className="flex items-center gap-2 text-[13px] font-bold text-foreground">
               <Server size={16} className="text-accent-blue" /> Nodes
             </h3>
-            <button className="btn-primary" onClick={() => navigateTo("datacenter", null, "nodes")}>
-              <Plus size={14} /> Add a node
-            </button>
+            <Button onClick={() => navigateTo("datacenter", null, "nodes")}>
+              <Plus /> Add a node
+            </Button>
           </div>
           <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Nodes table">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
-                  <th className="pb-2 pr-2">Name</th>
-                  <th className="pb-2 pr-2">Status</th>
-                  <th className="pb-2 pr-2">CPU</th>
-                  <th className="pb-2 pr-2">Memory</th>
-                  <th className="pb-2 pr-2">Disk</th>
-                  <th className="pb-2 pr-2 text-right">VMs</th>
-                  <th className="pb-2 text-right">Uptime</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-anthracite-600">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>CPU</TableHead>
+                  <TableHead>Memory</TableHead>
+                  <TableHead>Disk</TableHead>
+                  <TableHead className="text-right">VMs</TableHead>
+                  <TableHead className="text-right">Uptime</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {enrichedNodes.map((n) => {
                   const ramPct = n.memoire_totale_mo ? (n.memoire_utilisee_mo / n.memoire_totale_mo) * 100 : null;
                   const diskPct = n.stockage_total_go ? (n.stockage_utilise_go / n.stockage_total_go) * 100 : null;
                   const vmTotal = (n.vms_actives ?? 0) + (n.vms_arretees ?? 0);
                   return (
-                    <tr key={n.id} className="cursor-pointer hover:bg-anthracite-900" onClick={() => navigateTo("node", n.id, "summary")}>
-                      <td className="py-2.5 pr-2">
+                    <TableRow key={n.id} className="cursor-pointer" onClick={() => navigateTo("node", n.id, "summary")}>
+                      <TableCell>
                         <div className="flex items-center gap-2.5">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-blue/10 text-accent-blue"><Server size={15} /></span>
                           <div className="min-w-0">
-                            <div className="truncate font-semibold text-anthracite-100">{n.nom}</div>
-                            <div className="truncate font-mono text-[10.5px] text-anthracite-400">{n.ip || "--"}</div>
+                            <div className="truncate font-semibold text-foreground">{n.nom}</div>
+                            <div className="truncate font-mono text-[10.5px] text-muted-foreground">{n.ip || "--"}</div>
                           </div>
                         </div>
-                      </td>
-                      <td className="py-2.5 pr-2"><StatusBadge etat={n.etat} /></td>
-                      <td className="py-2.5 pr-2"><UsageBar pct={n.cpu_utilisation != null ? n.cpu_utilisation * 100 : null} color={chartColors.cpu} /></td>
-                      <td className="py-2.5 pr-2"><UsageBar pct={ramPct} color={statusColor("actif")} /></td>
-                      <td className="py-2.5 pr-2"><UsageBar pct={diskPct} color={statusColor("avertissement")} /></td>
-                      <td className="py-2.5 pr-2 text-right font-mono text-xs text-anthracite-300">{n.vms_actives ?? 0} / {vmTotal}</td>
-                      <td className="py-2.5 text-right font-mono text-xs text-anthracite-300">{n.uptime_s ? formatUptime(n.uptime_s) : "n/a"}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell><StatusBadge etat={n.etat} /></TableCell>
+                      <TableCell><UsageBar pct={n.cpu_utilisation != null ? n.cpu_utilisation * 100 : null} color={chartColors.cpu} /></TableCell>
+                      <TableCell><UsageBar pct={ramPct} color={statusColor("actif")} /></TableCell>
+                      <TableCell><UsageBar pct={diskPct} color={statusColor("avertissement")} /></TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">{n.vms_actives ?? 0} / {vmTotal}</TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">{n.uptime_s ? formatUptime(n.uptime_s) : "n/a"}</TableCell>
+                    </TableRow>
                   );
                 })}
                 {enrichedNodes.length === 0 && (
-                  <tr><td colSpan={7} className="py-4 text-center text-sm text-anthracite-400">No nodes.</td></tr>
+                  <TableRow><TableCell colSpan={7} className="py-4 text-center text-sm text-muted-foreground">No nodes.</TableCell></TableRow>
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </div>
+        </Card>
 
-        <div className="card p-4 xl:col-span-5">
-          <h3 className="mb-3 text-[13px] font-bold text-anthracite-100">VM status</h3>
-          <div className="divide-y divide-anthracite-600">
+        <Card className="p-4 xl:col-span-5">
+          <h3 className="mb-3 text-[13px] font-bold text-foreground">VM status</h3>
+          <div className="divide-y divide-border">
             {vmCounts.map(({ etat, label, count }) => (
               <div key={etat} className="flex items-center gap-3 py-2.5 text-sm">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor(etat) }} />
-                <span className="flex-1 font-semibold text-anthracite-200">{label}</span>
-                <span className="font-mono text-[14px] font-extrabold text-anthracite-100">{count}</span>
-                <span className="w-14 text-right font-mono text-xs text-anthracite-400">
+                <span className="flex-1 font-semibold text-foreground/90">{label}</span>
+                <span className="font-mono text-[14px] font-extrabold text-foreground">{count}</span>
+                <span className="w-14 text-right font-mono text-xs text-muted-foreground">
                   {totalVms ? `${((count / totalVms) * 100).toFixed(1)}%` : "--"}
                 </span>
               </div>
             ))}
             {autreCount > 0 && (
               <div className="flex items-center gap-3 py-2.5 text-sm">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-anthracite-500" />
-                <span className="flex-1 font-semibold text-anthracite-200">Other</span>
-                <span className="font-mono text-[14px] font-extrabold text-anthracite-100">{autreCount}</span>
-                <span className="w-14 text-right font-mono text-xs text-anthracite-400">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                <span className="flex-1 font-semibold text-foreground/90">Other</span>
+                <span className="font-mono text-[14px] font-extrabold text-foreground">{autreCount}</span>
+                <span className="w-14 text-right font-mono text-xs text-muted-foreground">
                   {totalVms ? `${((autreCount / totalVms) * 100).toFixed(1)}%` : "--"}
                 </span>
               </div>
             )}
-            {totalVms === 0 && <div className="py-2 text-sm text-anthracite-400">No VMs yet.</div>}
+            {totalVms === 0 && <div className="py-2 text-sm text-muted-foreground">No VMs yet.</div>}
           </div>
           {totalVms > 0 && (
-            <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-anthracite-900">
+            <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-background">
               {vmCounts.filter((c) => c.count > 0).map(({ etat, count }) => (
                 <div key={etat} style={{ width: `${(count / totalVms) * 100}%`, backgroundColor: statusColor(etat) }} />
               ))}
-              {autreCount > 0 && <div style={{ width: `${(autreCount / totalVms) * 100}%` }} className="bg-anthracite-500" />}
+              {autreCount > 0 && <div style={{ width: `${(autreCount / totalVms) * 100}%` }} className="bg-muted-foreground/50" />}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
-      <div className="card p-4">
+      <Card className="p-4">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+          <h3 className="flex items-center gap-2 text-[13px] font-bold text-foreground">
             <Clock size={16} className="text-accent-blue" /> Recent tasks
           </h3>
-          <button className="text-xs font-semibold text-accent-blue hover:underline" onClick={() => navigateTo("datacenter", null, "activity")}>
+          <Button variant="link" className="h-auto p-0 text-accent-blue" onClick={() => navigateTo("datacenter", null, "activity")}>
             View the whole journal →
-          </button>
+          </Button>
         </div>
         <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Recent tasks table">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
-                <th className="pb-2 pr-2">Time</th>
-                <th className="pb-2 pr-2">Node</th>
-                <th className="pb-2 pr-2">User</th>
-                <th className="pb-2 pr-2">Task</th>
-                <th className="pb-2">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-anthracite-600">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>Node</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Task</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {recentTasks == null && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400"><LoadingState /></td></tr>
+                <TableRow><TableCell colSpan={5} className="py-3 text-sm text-muted-foreground"><LoadingState /></TableCell></TableRow>
               )}
               {recentTasks && recentTasks.length === 0 && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">No recent activity.</td></tr>
+                <TableRow><TableCell colSpan={5} className="py-3 text-sm text-muted-foreground">No recent activity.</TableCell></TableRow>
               )}
               {recentTasks && recentTasks.map((t) => (
-                <tr key={t.id}>
-                  <td className="py-2.5 pr-2 font-mono text-xs text-anthracite-300">{formatHeure(t.cree_le)}</td>
-                  <td className="py-2.5 pr-2 text-anthracite-200">{t.node || "local"}</td>
-                  <td className="py-2.5 pr-2 text-anthracite-200">{t.username || "--"}</td>
-                  <td className="py-2.5 pr-2 text-anthracite-100">
+                <TableRow key={t.id}>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{formatHeure(t.cree_le)}</TableCell>
+                  <TableCell className="text-foreground/90">{t.node || "local"}</TableCell>
+                  <TableCell className="text-foreground/90">{t.username || "--"}</TableCell>
+                  <TableCell className="text-foreground">
                     {TASK_LABELS[t.type] || t.type}
-                    {t.cible && <span className="text-anthracite-400"> — {t.cible}</span>}
-                  </td>
-                  <td className="py-2.5">
+                    {t.cible && <span className="text-muted-foreground"> — {t.cible}</span>}
+                  </TableCell>
+                  <TableCell>
                     <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{
                       backgroundColor: `${statusColor(STATUT_ETAT[t.statut])}1A`, color: statusColor(STATUT_ETAT[t.statut]),
                     }}>
                       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor(STATUT_ETAT[t.statut]) }} />
                       {STATUT_LABEL[t.statut] || t.statut}
                     </span>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
