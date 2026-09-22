@@ -2,8 +2,8 @@ import { useEffect, useRef } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../store/useInfraStore";
-import Tabs from "../components/Tabs";
 import StatusBadge from "../components/StatusBadge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import DatacenterSummaryTab from "../panels/datacenter/DatacenterSummaryTab";
 import DcStorageTab from "../panels/datacenter/StorageTab";
@@ -144,12 +144,17 @@ export default function CentralPanel() {
   if (selection.type === "storage") {
     return (
       <div className="p-4">
-        <h2 className="text-lg font-semibold text-anthracite-100">{selection.id}</h2>
-        <p className="mt-1 text-sm text-anthracite-300">Select a node to see the details of its storage pools ("Disk storage" tab).</p>
+        <h2 className="text-lg font-semibold text-foreground">{selection.id}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Select a node to see the details of its storage pools ("Disk storage" tab).</p>
       </div>
     );
   }
 
+  // The Datacenter level's tab strip was removed here on purpose: every one of
+  // its tabs is already reachable from the sidebar rail (Sidebar.jsx), and
+  // showing both was a duplicated navigation path (flagged in the UI audit).
+  // Node/VM levels keep a tab strip since the rail has no equivalent for them.
+  const isDatacenter = selection.type === "datacenter";
   const tabSet = selection.type === "node" ? NODE_TABS : selection.type === "vm" ? VM_TABS : DATACENTER_TABS;
   const resource = selection.type === "vm" ? vms.find((v) => v.nom === selection.id)
     : selection.type === "node" ? nodes.find((n) => n.id === selection.id)
@@ -158,12 +163,20 @@ export default function CentralPanel() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-anthracite-600">
-        <h2 className="text-base font-semibold text-anthracite-100">{titleFor(selection, nodes, vms)}</h2>
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
+        <h2 className="text-base font-semibold text-foreground">{titleFor(selection, nodes, vms)}</h2>
         {resource?.etat && <StatusBadge etat={resource.etat} />}
         {resource?.alerte && <span className="text-xs text-status-warning">{resource.alerte}</span>}
       </div>
-      <Tabs tabs={tabSet} active={activeTab} onChange={setActiveTab} />
+      {!isDatacenter && (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList variant="line" className="px-4 border-b border-border w-full justify-start overflow-x-auto">
+            {tabSet.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
       <div className="flex-1 overflow-y-auto p-4">
         <ActiveComponent resource={resource} selection={selection} />
       </div>

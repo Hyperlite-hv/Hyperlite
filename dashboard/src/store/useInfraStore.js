@@ -39,12 +39,8 @@ export const useInfraStore = create((set, get) => ({
                         // the logic already handled by CentralPanel (pendingTab/clearPendingTab,
                         // unchanged). CentralPanel remains the only writer (setActiveTab).
   activeTab: "summary",
-  // Mobile sidebar: a real bug found when testing at phone width (~400px): the side
-  // column (a fixed 268px) took the whole screen and the central content became
-  // unusable. Below the `md` breakpoint (see Sidebar.jsx/Header.jsx), the sidebar
-  // becomes an overlaid drawer controlled by this state instead of always being
-  // visible.
-  mobileSidebarOpen: false,
+  // Mobile sidebar open/collapse state lives in shadcn's <SidebarProvider> (see
+  // AppShell.jsx / useSidebar()), not here.
 
   // ---- Tasks (real actions of this session) & notifications ----
   tasks: [],
@@ -105,14 +101,6 @@ export const useInfraStore = create((set, get) => ({
 
   setActiveTab(tab) {
     set({ activeTab: tab });
-  },
-
-  toggleMobileSidebar() {
-    set((s) => ({ mobileSidebarOpen: !s.mobileSidebarOpen }));
-  },
-
-  closeMobileSidebar() {
-    set({ mobileSidebarOpen: false });
   },
 
   setSearchQuery(q) {

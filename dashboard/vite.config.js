@@ -14,6 +14,9 @@ const proxied = ["/auth", "/dashboard", "/vms", "/storage", "/networks", "/templ
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: { "@": new URL("./src", import.meta.url).pathname },
+  },
   test: { exclude: ["e2e/**", "node_modules/**", "dist/**"] },
   server: {
     proxy: Object.fromEntries(
