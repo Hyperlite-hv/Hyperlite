@@ -1,6 +1,5 @@
-import { useModalBehavior } from "../hooks/useModalBehavior";
 import { useEffect, useState } from "react";
-import { X, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check } from "lucide-react";
 import StepNode from "./steps/StepNode";
 import StepTemplate from "./steps/StepTemplate";
 import StepResources from "./steps/StepResources";
@@ -9,6 +8,8 @@ import StepReview from "./steps/StepReview";
 import { useInfraStore } from "../store/useInfraStore";
 import { createVM, fetchHostProfile } from "../api/client";
 import { detectOsFamily } from "../utils/osFamily";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const STEPS = [
   { id: "node", label: "Node", Component: StepNode },
@@ -41,7 +42,6 @@ function initialForm(nodes, networks, defaults) {
 }
 
 export default function VMWizard({ open, onClose }) {
-  const dialogRef = useModalBehavior(open, () => { onClose(); reset(); });
   const nodes = useInfraStore((s) => s.nodes);
   const networks = useInfraStore((s) => s.networks);
   const storagePools = useInfraStore((s) => s.storagePools);
@@ -76,6 +76,11 @@ export default function VMWizard({ open, onClose }) {
   function reset() {
     setStepIndex(0);
     setForm(initialForm(nodes, networks, profileDefaults));
+  }
+
+  function closeAndReset() {
+    onClose();
+    reset();
   }
 
   async function handleCreate() {
@@ -113,21 +118,20 @@ export default function VMWizard({ open, onClose }) {
   const canNext = stepIndex !== 2 || (form.name && (importMode ? Boolean(form.importDisk) : (manualInstall || (form.username && form.password.length >= 4))));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div ref={dialogRef} className="card w-full max-w-2xl overflow-hidden" role="dialog" aria-modal="true" aria-label="Create a virtual machine">
-        <div className="flex items-center justify-between border-b border-anthracite-600 px-5 py-3">
-          <h2 className="text-sm font-semibold text-anthracite-100">Create a virtual machine</h2>
-          <button aria-label="Close" onClick={() => { onClose(); reset(); }} className="text-anthracite-400 hover:text-anthracite-100"><X size={16} /></button>
-        </div>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) closeAndReset(); }}>
+      <DialogContent className="w-full max-w-2xl p-0 gap-0 overflow-hidden">
+        <DialogHeader className="border-b border-border px-5 py-3 space-y-0">
+          <DialogTitle>Create a virtual machine</DialogTitle>
+        </DialogHeader>
 
         <div className="flex gap-1 px-5 pt-3">
           {STEPS.map((s, i) => (
-            <div key={s.id} className={`flex-1 h-1 rounded-full ${i <= stepIndex ? "bg-accent-blue" : "bg-anthracite-600"}`} />
+            <div key={s.id} className={`flex-1 h-1 rounded-full transition-colors duration-300 ${i <= stepIndex ? "bg-accent-blue" : "bg-border"}`} />
           ))}
         </div>
         <div className="flex justify-between px-5 pt-1.5 pb-3">
           {STEPS.map((s, i) => (
-            <span key={s.id} className={`text-[11px] ${i === stepIndex ? "text-anthracite-100 font-medium" : "text-anthracite-400"}`}>{s.label}</span>
+            <span key={s.id} className={`text-[11px] ${i === stepIndex ? "text-foreground font-medium" : "text-muted-foreground"}`}>{s.label}</span>
           ))}
         </div>
 
@@ -135,21 +139,21 @@ export default function VMWizard({ open, onClose }) {
           <Step form={form} patch={patch} nodes={nodes} networks={networks} storagePools={storagePools} />
         </div>
 
-        <div className="flex justify-between border-t border-anthracite-600 px-5 py-3">
-          <button className="btn-secondary" disabled={stepIndex === 0} onClick={() => setStepIndex((i) => i - 1)}>
-            <ChevronLeft size={14} /> Previous
-          </button>
+        <DialogFooter className="border-t border-border px-5 py-3 sm:justify-between">
+          <Button variant="secondary" disabled={stepIndex === 0} onClick={() => setStepIndex((i) => i - 1)}>
+            <ChevronLeft /> Previous
+          </Button>
           {isLast ? (
-            <button className="btn-primary" onClick={handleCreate}>
-              <Check size={14} /> Create the VM
-            </button>
+            <Button onClick={handleCreate}>
+              <Check /> Create the VM
+            </Button>
           ) : (
-            <button className="btn-primary" disabled={!canNext} onClick={() => setStepIndex((i) => i + 1)}>
-              Next <ChevronRight size={14} />
-            </button>
+            <Button disabled={!canNext} onClick={() => setStepIndex((i) => i + 1)}>
+              Next <ChevronRight />
+            </Button>
           )}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
