@@ -4,11 +4,11 @@ import Header from "./Header";
 import Sidebar from "./Sidebar";
 import CentralPanel from "./CentralPanel";
 import TaskLogPanel from "./TaskLogPanel";
-import ToastContainer from "../components/ToastContainer";
 import { useInfraStore } from "../store/useInfraStore";
 import { useUrlParamsToSelection, useSelectionToUrl } from "../hooks/useUrlSync";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 
 const REFRESH_MS = 6000;
 
@@ -49,7 +49,7 @@ export default function AppShell() {
           </div>
           <TaskLogPanel />
         </SidebarInset>
-        <ToastContainer />
+        <Toaster position="bottom-right" />
         <ConfirmHost />
       </SidebarProvider>
     </TooltipProvider>
