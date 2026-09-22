@@ -6,6 +6,9 @@ import ProgressBar from "../../components/ProgressBar";
 import { fetchSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, fetchTaskDetail } from "../../api/client";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 // Real: GET/POST /vms/{name}/snapshots + POST .../restore?confirm=true + DELETE
 // .../{snapshot_name}.
@@ -53,7 +56,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
   }, []);
 
   if (!vm) return null;
-  if (snapshots == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (snapshots == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   // VM on a ZFS pool: read directly from vm.stockage_zfs (GET /vms,
   // app/routers/vms.py::_domain_summary). The first version deduced it from the list
@@ -125,7 +128,7 @@ export default function VMSnapshotsTab({ resource: vm }) {
       {snapshots.length >= 3 && (
         <div className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2">
           <AlertTriangle size={15} className="text-status-warning shrink-0 mt-0.5" />
-          <p className="text-xs text-anthracite-200">
+          <p className="text-xs text-foreground/80">
             {snapshots.length} active snapshots on this VM.{" "}
             {isZfsBacked
               ? "Every ZFS snapshot kept takes space on the pool: delete the ones that are no longer useful as soon as possible."
@@ -135,36 +138,36 @@ export default function VMSnapshotsTab({ resource: vm }) {
       )}
 
       {isAdmin && (
-        <button className="btn-primary" disabled={busy} onClick={handleCreate}>
-          <Camera size={14} /> Create a snapshot
-        </button>
+        <Button disabled={busy} onClick={handleCreate}>
+          <Camera /> Create a snapshot
+        </Button>
       )}
 
       {job && (
-        <div className="card p-3 space-y-1.5">
+        <Card className="p-3 space-y-1.5 animate-in fade-in-0 duration-150">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-anthracite-100">{job.label}</span>
-            <span className="text-xs text-anthracite-400">{formatElapsed(job.startedAt)} elapsed</span>
+            <span className="text-foreground">{job.label}</span>
+            <span className="text-xs text-muted-foreground">{formatElapsed(job.startedAt)} elapsed</span>
           </div>
           <ProgressBar indeterminate statut="en_cours" />
-          <p className="text-[11px] text-anthracite-400">
+          <p className="text-[11px] text-muted-foreground">
             {isZfsBacked
               ? "Native ZFS snapshot (disk only, nearly instantaneous)."
               : "May take several seconds if the VM is running (memory is included automatically)."}
           </p>
-        </div>
+        </Card>
       )}
 
-      <div className="card divide-y divide-anthracite-600">
-        {snapshots.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No snapshots.</div>}
+      <Card className="p-0 divide-y divide-border">
+        {snapshots.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No snapshots.</div>}
         {snapshots.map((s) => (
-          <div key={s.nom} className="flex items-center gap-3 px-4 py-2.5" style={{ paddingLeft: `${16 + depthOf(s) * 20}px` }}>
-            <Camera size={14} className="text-anthracite-400 shrink-0" />
+          <div key={s.nom} className="flex items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-muted/40" style={{ paddingLeft: `${16 + depthOf(s) * 20}px` }}>
+            <Camera size={14} className="text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-anthracite-100">
-                {s.nom} {s.actuel && <span className="ml-1 rounded-sm bg-accent-blue/20 px-1.5 py-0.5 text-[10px] text-accent-blue">current</span>}
+              <div className="text-sm text-foreground">
+                {s.nom} {s.actuel && <Badge variant="secondary" className="ml-1 bg-accent-blue/20 text-accent-blue">current</Badge>}
               </div>
-              <div className="text-xs text-anthracite-400 truncate">
+              <div className="text-xs text-muted-foreground truncate">
                 {s.description || "--"} {s.date_creation ? `-- ${s.date_creation}` : ""}
                 {s.etat_vm === "disque_seul"
                   ? " -- ZFS, disk only (never memory)"
@@ -173,13 +176,13 @@ export default function VMSnapshotsTab({ resource: vm }) {
             </div>
             {isAdmin && (
               <>
-                <button aria-label={`Restore snapshot ${s.nom}`} className="btn-secondary" disabled={busy} onClick={() => setPending({ action: "restore", snap: s })}><RotateCcw size={13} /> Restore</button>
-                <button aria-label={`Delete snapshot ${s.nom}`} className="btn-danger" disabled={busy} onClick={() => setPending({ action: "delete", snap: s })}><Trash2 size={13} /></button>
+                <Button aria-label={`Restore snapshot ${s.nom}`} variant="secondary" size="sm" disabled={busy} onClick={() => setPending({ action: "restore", snap: s })}><RotateCcw /> Restore</Button>
+                <Button aria-label={`Delete snapshot ${s.nom}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" disabled={busy} onClick={() => setPending({ action: "delete", snap: s })}><Trash2 size={13} /></Button>
               </>
             )}
           </div>
         ))}
-      </div>
+      </Card>
 
       <ConfirmDialog
         open={!!pending}

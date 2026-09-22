@@ -10,6 +10,10 @@ import {
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import { backupModeLabel, frequencyLabel } from "../../lib/labels";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function formatSize(bytes) {
   if (!bytes) return "--";
@@ -106,68 +110,71 @@ export default function VMBackupTab({ resource: vm }) {
   return (
     <div className="space-y-4">
       {isAdmin && (
-        <button className="btn-primary" disabled={busy} onClick={handleBackupNow}>
-          <Play size={14} /> Back up now
-        </button>
+        <Button disabled={busy} onClick={handleBackupNow}>
+          <Play /> Back up now
+        </Button>
       )}
 
-      <div className="card">
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-anthracite-600">
-          <CalendarClock size={15} className="text-anthracite-400" />
-          <h3 className="text-sm font-semibold text-anthracite-100">Scheduled backup</h3>
+      <Card className="p-0">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
+          <CalendarClock size={15} className="text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-foreground">Scheduled backup</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2 p-4">
-          <select aria-label="Backup frequency" className="input" disabled={!isAdmin} value={form.frequence} onChange={(e) => setForm((f) => ({ ...f, frequence: e.target.value }))}>
-            <option value="quotidien">Daily</option>
-            <option value="hebdomadaire">Weekly (Monday)</option>
-            <option value="mensuel">Monthly</option>
-          </select>
-          <input aria-label="Backup time" type="time" className="input" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
-          <label className="text-xs text-anthracite-400 flex items-center gap-1.5">
+          <Select disabled={!isAdmin} value={form.frequence} onValueChange={(v) => setForm((f) => ({ ...f, frequence: v }))}>
+            <SelectTrigger aria-label="Backup frequency" className="w-auto"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="quotidien">Daily</SelectItem>
+              <SelectItem value="hebdomadaire">Weekly (Monday)</SelectItem>
+              <SelectItem value="mensuel">Monthly</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input aria-label="Backup time" type="time" className="w-auto" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
+          <label className="text-xs text-muted-foreground flex items-center gap-1.5">
             Retention
-            <input type="number" min={1} max={365} className="input w-20" disabled={!isAdmin}
+            <Input type="number" min={1} max={365} className="w-20" disabled={!isAdmin}
               value={form.retention_count} onChange={(e) => setForm((f) => ({ ...f, retention_count: Number(e.target.value) }))} />
             backups
           </label>
           {isAdmin && (
             <div className="ml-auto flex gap-2">
-              {schedule && <button className="btn-secondary" disabled={busy} onClick={handleDeleteSchedule}>Disable</button>}
-              <button className="btn-primary" disabled={busy} onClick={handleSaveSchedule}><Save size={13} /> Save</button>
+              {schedule && <Button variant="secondary" disabled={busy} onClick={handleDeleteSchedule}>Disable</Button>}
+              <Button disabled={busy} onClick={handleSaveSchedule}><Save /> Save</Button>
             </div>
           )}
         </div>
         {schedule && (
-          <div className="px-4 pb-3 text-xs text-anthracite-400">
+          <div className="px-4 pb-3 text-xs text-muted-foreground">
             Next run: {schedule.prochaine_execution ? new Date(schedule.prochaine_execution).toLocaleString(undefined) : "--"}
             {schedule.derniere_execution && ` — last: ${new Date(schedule.derniere_execution).toLocaleString(undefined)}`}
           </div>
         )}
-      </div>
+      </Card>
 
-      <div className="card divide-y divide-anthracite-600">
-        {backups == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
-        {backups && backups.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No backups.</div>}
+      <Card className="p-0 divide-y divide-border">
+        {backups == null && <div className="px-4 py-3 text-sm text-muted-foreground"><LoadingState /></div>}
+        {backups && backups.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No backups.</div>}
         {backups && backups.map((b) => (
-          <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+          <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors duration-150 hover:bg-muted/40">
             <span className={`h-2 w-2 rounded-full shrink-0 ${b.statut === "termine" ? "bg-status-running" : b.statut === "echec" ? "bg-status-error" : "bg-status-warning animate-pulse"}`} />
-            <span className="text-anthracite-100">{new Date(b.cree_le).toLocaleString(undefined)}</span>
-            <span className="text-xs text-anthracite-400">{backupModeLabel(b.mode)}</span>
-            <span className="text-xs text-anthracite-400">{formatSize(b.taille_octets)}</span>
+            <span className="text-foreground">{new Date(b.cree_le).toLocaleString(undefined)}</span>
+            <span className="text-xs text-muted-foreground">{backupModeLabel(b.mode)}</span>
+            <span className="text-xs text-muted-foreground">{formatSize(b.taille_octets)}</span>
             {b.erreur && <span className="text-xs text-status-error truncate" title={b.erreur}>{b.erreur}</span>}
             {isAdmin && b.statut === "termine" && (
               <div className="ml-auto flex gap-1.5">
-                <button className="btn-secondary" onClick={() => setPending({ action: "restore-overwrite", backup: b })} title="Restore over the original VM">
-                  <RotateCcw size={13} /> In place
-                </button>
-                <button className="btn-secondary" onClick={() => handleRestoreNew(b)} title="Restore to a new VM">
+                <Button variant="secondary" size="sm" onClick={() => setPending({ action: "restore-overwrite", backup: b })} title="Restore over the original VM">
+                  <RotateCcw /> In place
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => handleRestoreNew(b)} title="Restore to a new VM">
                   New VM
-                </button>
-                <button aria-label={`Delete backup #${b.id}`} className="btn-danger" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></button>
+                </Button>
+                <Button aria-label={`Delete backup #${b.id}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></Button>
               </div>
             )}
           </div>
         ))}
-      </div>
+      </Card>
 
       <ConfirmDialog
         open={!!pending}

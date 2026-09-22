@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Monitor, TerminalSquare, ExternalLink } from "lucide-react";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Opens the console/terminal in a separate browser window (like Proxmox/vSphere)
 // rather than in the current tab: the dashboard stays usable while a console
@@ -12,7 +15,7 @@ export default function VMConsoleTab({ resource: vm }) {
   const [mode, setMode] = useState("vnc"); // "vnc" | "terminal"
 
   if (!isAdmin) {
-    return <p className="text-sm text-anthracite-400">Console reserved for the admin role.</p>;
+    return <p className="text-sm text-muted-foreground">Console reserved for the admin role.</p>;
   }
   if (!vm) return null;
 
@@ -25,31 +28,23 @@ export default function VMConsoleTab({ resource: vm }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-0.5 rounded-md bg-anthracite-700 p-0.5 w-fit">
-        <button
-          onClick={() => setMode("vnc")}
-          className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${mode === "vnc" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
-        >
-          <Monitor size={13} /> Graphical console (VNC)
-        </button>
-        <button
-          onClick={() => setMode("terminal")}
-          className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${mode === "terminal" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
-        >
-          <TerminalSquare size={13} /> SSH terminal
-        </button>
-      </div>
+      <Tabs value={mode} onValueChange={setMode}>
+        <TabsList className="w-fit">
+          <TabsTrigger value="vnc"><Monitor /> Graphical console (VNC)</TabsTrigger>
+          <TabsTrigger value="terminal"><TerminalSquare /> SSH terminal</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-      <div className="card flex flex-col items-center gap-3 p-10 text-center">
-        {mode === "vnc" ? <Monitor size={28} className="text-anthracite-400" /> : <TerminalSquare size={28} className="text-anthracite-400" />}
-        <p className="text-sm text-anthracite-300">
+      <Card className="flex flex-col items-center gap-3 p-10 text-center">
+        {mode === "vnc" ? <Monitor size={28} className="text-muted-foreground" /> : <TerminalSquare size={28} className="text-muted-foreground" />}
+        <p className="text-sm text-foreground/80">
           {mode === "vnc" ? "The graphical console" : "The SSH terminal"} opens in a separate window, to keep this dashboard usable while the connection stays open.
         </p>
-        <button className="btn-primary" disabled={vm.etat !== "actif"} onClick={openWindow}>
-          <ExternalLink size={14} /> Open in a new window
-        </button>
-        {vm.etat !== "actif" && <p className="text-xs text-anthracite-400">The VM must be started.</p>}
-      </div>
+        <Button disabled={vm.etat !== "actif"} onClick={openWindow}>
+          <ExternalLink /> Open in a new window
+        </Button>
+        {vm.etat !== "actif" && <p className="text-xs text-muted-foreground">The VM must be started.</p>}
+      </Card>
     </div>
   );
 }
