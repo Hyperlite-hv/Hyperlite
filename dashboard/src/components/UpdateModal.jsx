@@ -1,8 +1,9 @@
-import { useModalBehavior } from "../hooks/useModalBehavior";
 import { useEffect, useState } from "react";
-import { X, RefreshCw, ShieldAlert, CheckCircle2, XCircle } from "lucide-react";
+import { RefreshCw, ShieldAlert, CheckCircle2, XCircle } from "lucide-react";
 import ProgressBar from "./ProgressBar";
 import { fetchUpdateCheck, applyUpdate, fetchTaskDetail } from "../api/client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const STEP_ORDER = [
   [5, "Backing up the current state"],
@@ -30,7 +31,6 @@ function shortVersion(v) {
   return v.includes(".") ? v : v.slice(0, 8);
 }
 export default function UpdateModal({ onClose }) {
-  const dialogRef = useModalBehavior(true, onClose);
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting | ok | failed
@@ -83,26 +83,25 @@ export default function UpdateModal({ onClose }) {
   const currentStepIdx = task ? STEP_ORDER.findIndex(([pct]) => pct >= (task.progres ?? 0)) : -1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div ref={dialogRef} className="card w-[520px] max-w-[90vw] p-5 space-y-4" role="dialog" aria-modal="true" aria-label="Hyperlite update">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-anthracite-100">Hyperlite update</h3>
-          <button aria-label="Close" onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="w-[520px] max-w-[90vw]">
+        <DialogHeader>
+          <DialogTitle>Hyperlite update</DialogTitle>
+        </DialogHeader>
 
         {error && <p className="text-sm text-status-error">{error}</p>}
 
         {phase === "idle" && info && (
           <>
-            {!info.verifiable && <p className="text-sm text-anthracite-300">{info.erreur}</p>}
+            {!info.verifiable && <p className="text-sm text-foreground/80">{info.erreur}</p>}
             {info.verifiable && (
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-anthracite-400">Local version</span><span className="font-mono text-anthracite-200">{shortVersion(info.commit_local)}</span></div>
-                <div className="flex justify-between"><span className="text-anthracite-400">Remote version</span><span className="font-mono text-anthracite-200">{shortVersion(info.commit_distant) ?? "--"}</span></div>
-                <div className="flex justify-between"><span className="text-anthracite-400">Status</span><span className={info.a_jour ? "text-status-running" : "text-status-warning"}>{info.a_jour ? "Up to date" : "New version available"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Local version</span><span className="font-mono text-foreground/90">{shortVersion(info.commit_local)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Remote version</span><span className="font-mono text-foreground/90">{shortVersion(info.commit_distant) ?? "--"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className={info.a_jour ? "text-status-running" : "text-status-warning"}>{info.a_jour ? "Up to date" : "New version available"}</span></div>
 
                 {info.changelog?.length > 0 && (
-                  <div className="mt-2 rounded-md bg-anthracite-700/60 p-2 max-h-32 overflow-y-auto font-mono text-xs text-anthracite-300">
+                  <div className="mt-2 rounded-md bg-muted/60 p-2 max-h-32 overflow-y-auto font-mono text-xs text-foreground/80">
                     {info.changelog.map((l, i) => <div key={i}>{l}</div>)}
                   </div>
                 )}
@@ -110,56 +109,55 @@ export default function UpdateModal({ onClose }) {
                 {!info.arbre_propre && (
                   <div className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 mt-2">
                     <ShieldAlert size={14} className="text-status-warning shrink-0 mt-0.5" />
-                    <p className="text-xs text-anthracite-200">
+                    <p className="text-xs text-foreground/90">
                       Working tree is not clean (uncommitted changes): the update is blocked to avoid a conflict. Commit or discard the local changes first.
                     </p>
                   </div>
                 )}
 
-                <p className="text-xs text-anthracite-400 mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                   It only touches the Hyperlite API and interface: VMs that are already running are neither stopped nor restarted. A full backup is taken before any change, with automatic restoration on failure.
                 </p>
               </div>
             )}
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={onClose}>Close</button>
-              <button
-                className="btn-primary"
+            <DialogFooter>
+              <Button variant="secondary" onClick={onClose}>Close</Button>
+              <Button
                 disabled={!info.verifiable || info.a_jour || !info.arbre_propre}
                 onClick={handleApply}
               >
-                <RefreshCw size={14} /> Update
-              </button>
-            </div>
+                <RefreshCw /> Update
+              </Button>
+            </DialogFooter>
           </>
         )}
 
         {(phase === "updating" || phase === "restarting") && (
           <div className="space-y-3">
             <ProgressBar value={task?.progres ?? 5} statut="en_cours" />
-            <div className="text-sm text-anthracite-200">
+            <div className="text-sm text-foreground/90">
               {phase === "restarting" ? "Restarting the service, verification in progress..." : (STEP_ORDER[currentStepIdx]?.[1] ?? "Preparing...")}
             </div>
-            <p className="text-xs text-anthracite-400">Do not close this window.</p>
+            <p className="text-xs text-muted-foreground">Do not close this window.</p>
           </div>
         )}
 
         {phase === "ok" && (
           <div className="flex flex-col items-center gap-2 py-4">
             <CheckCircle2 size={32} className="text-status-running" />
-            <p className="text-sm text-anthracite-100">Update applied, the service is responding.</p>
-            <button className="btn-primary mt-2" onClick={() => window.location.reload()}>Reload the page</button>
+            <p className="text-sm text-foreground">Update applied, the service is responding.</p>
+            <Button className="mt-2" onClick={() => window.location.reload()}>Reload the page</Button>
           </div>
         )}
 
         {phase === "failed" && (
           <div className="flex flex-col items-center gap-2 py-4">
             <XCircle size={32} className="text-status-error" />
-            <p className="text-sm text-anthracite-100 text-center">Update failed.</p>
-            <button className="btn-secondary mt-2" onClick={onClose}>Close</button>
+            <p className="text-sm text-foreground text-center">Update failed.</p>
+            <Button variant="secondary" className="mt-2" onClick={onClose}>Close</Button>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
