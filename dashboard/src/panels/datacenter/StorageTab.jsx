@@ -5,11 +5,22 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 import { fetchIsoTemplates, deleteIso, createStoragePool, deleteStoragePool } from "../../api/client";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // "zfs": a ZFS pool managed outside libvirt (see app/core/zfs_storage.py), backed
 // for now by a loopback file (size_gb). It is single-node and always created on
 // the local host: the node selector is ignored on the backend side for this type.
 const EMPTY_FORM = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20" };
+
+const POOL_TYPES = [
+  { value: "dir", label: "Local directory", Icon: HardDrive },
+  { value: "netfs", label: "NFS share", Icon: Network },
+  { value: "zfs", label: "ZFS", Icon: Layers },
+];
 
 // Pools: an aggregated view of GET /storage across all nodes. ISO images: the real
 // list/upload/deletion through GET/POST/DELETE /isos. Pool creation/deletion
@@ -89,123 +100,116 @@ export default function StorageTab() {
 
   return (
     <div className="space-y-5">
-      <div className="card">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-anthracite-600">
-          <h3 className="text-sm font-semibold text-anthracite-100">Storage pools</h3>
+      <Card className="p-0">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+          <h3 className="text-sm font-semibold text-foreground">Storage pools</h3>
           {isAdmin && (
-            <button className="btn-secondary" onClick={() => setFormOpen((o) => !o)}>
-              <Plus size={14} /> Create a pool
-            </button>
+            <Button variant="secondary" onClick={() => setFormOpen((o) => !o)}>
+              <Plus /> Create a pool
+            </Button>
           )}
         </div>
 
         {formOpen && (
-          <form onSubmit={handleCreatePool} className="space-y-3 border-b border-anthracite-600 px-4 py-4">
+          <form onSubmit={handleCreatePool} className="space-y-3 border-b border-border px-4 py-4 animate-in fade-in-0 slide-in-from-top-1 duration-150">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-anthracite-300">Pool name</label>
-                <input aria-label="Pool name" className="input mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. nfs-shared" />
+                <Label className="text-xs font-medium text-foreground/80">Pool name</Label>
+                <Input aria-label="Pool name" className="mt-1" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. nfs-shared" />
               </div>
               <div>
-                <label className="text-xs font-medium text-anthracite-300">Node</label>
-                <select aria-label="Node" className="input mt-1" value={form.node} onChange={(e) => setForm({ ...form, node: e.target.value })}>
-                  {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
-                </select>
+                <Label className="text-xs font-medium text-foreground/80">Node</Label>
+                <Select value={form.node} onValueChange={(v) => setForm({ ...form, node: v })}>
+                  <SelectTrigger aria-label="Node" className="mt-1 w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {nodes.map((n) => <SelectItem key={n.id} value={n.id}>{n.nom}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, type: "dir" })}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${form.type === "dir" ? "border-accent-blue bg-accent-blue/10 text-accent-blue" : "border-anthracite-600 text-anthracite-300"}`}
-              >
-                <HardDrive size={14} /> Local directory
-              </button>
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, type: "netfs" })}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${form.type === "netfs" ? "border-accent-blue bg-accent-blue/10 text-accent-blue" : "border-anthracite-600 text-anthracite-300"}`}
-              >
-                <Network size={14} /> NFS share
-              </button>
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, type: "zfs" })}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${form.type === "zfs" ? "border-accent-blue bg-accent-blue/10 text-accent-blue" : "border-anthracite-600 text-anthracite-300"}`}
-              >
-                <Layers size={14} /> ZFS
-              </button>
+              {POOL_TYPES.map(({ value, label, Icon }) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={form.type === value ? "default" : "outline"}
+                  className={`flex-1 ${form.type === value ? "" : "text-foreground/80"}`}
+                  onClick={() => setForm({ ...form, type: value })}
+                >
+                  <Icon /> {label}
+                </Button>
+              ))}
             </div>
 
             {form.type === "dir" ? (
               <div>
-                <label className="text-xs font-medium text-anthracite-300">Local path (optional)</label>
-                <input aria-label="Local path (optional)" className="input mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (automatic if empty)" />
+                <Label className="text-xs font-medium text-foreground/80">Local path (optional)</Label>
+                <Input aria-label="Local path (optional)" className="mt-1" value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} placeholder="/var/lib/libvirt/hyperlite-pools/... (automatic if empty)" />
               </div>
             ) : form.type === "netfs" ? (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-anthracite-300">NFS server host</label>
-                  <input aria-label="NFS server host" className="input mt-1" required value={form.nfs_host} onChange={(e) => setForm({ ...form, nfs_host: e.target.value })} placeholder="e.g. 192.168.1.10" />
+                  <Label className="text-xs font-medium text-foreground/80">NFS server host</Label>
+                  <Input aria-label="NFS server host" className="mt-1" required value={form.nfs_host} onChange={(e) => setForm({ ...form, nfs_host: e.target.value })} placeholder="e.g. 192.168.1.10" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-anthracite-300">Exported path</label>
-                  <input aria-label="Exported path" className="input mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/share" />
+                  <Label className="text-xs font-medium text-foreground/80">Exported path</Label>
+                  <Input aria-label="Exported path" className="mt-1" required value={form.nfs_export_path} onChange={(e) => setForm({ ...form, nfs_export_path: e.target.value })} placeholder="/srv/share" />
                 </div>
               </div>
             ) : (
               <div>
-                <label className="text-xs font-medium text-anthracite-300">Size (GB, loopback file)</label>
-                <input aria-label="Size (GB, loopback file)" type="number" min="1" max="4096" className="input mt-1" required value={form.size_gb} onChange={(e) => setForm({ ...form, size_gb: e.target.value })} />
-                <p className="mt-1 text-xs text-anthracite-400">ZFS pool created on the local host only, backed by a file. VMs created on it use raw block disks (zvols).</p>
+                <Label className="text-xs font-medium text-foreground/80">Size (GB, loopback file)</Label>
+                <Input aria-label="Size (GB, loopback file)" type="number" min="1" max="4096" className="mt-1" required value={form.size_gb} onChange={(e) => setForm({ ...form, size_gb: e.target.value })} />
+                <p className="mt-1 text-xs text-muted-foreground">ZFS pool created on the local host only, backed by a file. VMs created on it use raw block disks (zvols).</p>
               </div>
             )}
 
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn-secondary" onClick={() => setFormOpen(false)}>Cancel</button>
-              <button type="submit" disabled={busy} className="btn-primary">{busy ? "Creating..." : "Create"}</button>
+              <Button type="button" variant="secondary" onClick={() => setFormOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={busy}>{busy ? "Creating..." : "Create"}</Button>
             </div>
           </form>
         )}
 
-        <div className="divide-y divide-anthracite-600">
-          <div className="grid grid-cols-6 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
+        <div className="divide-y divide-border">
+          <div className="grid grid-cols-6 gap-2 px-4 py-2 text-xs font-medium text-muted-foreground">
             <span>Pool</span><span>Node</span><span>Type</span><span>Capacity</span><span>Available</span><span />
           </div>
           {storagePools.map((p) => (
-            <div key={`${p.node}-${p.nom}`} className="grid grid-cols-6 gap-2 px-4 py-2.5 text-sm items-center">
-              <span className="text-anthracite-100">{p.nom}</span>
-              <span className="text-anthracite-300">{p.node}</span>
-              <span className="text-anthracite-300">{p.type === "netfs" ? "NFS" : p.type === "zfs" ? "ZFS" : p.type}</span>
-              <span className="text-anthracite-300">{p.capacite_go} GB</span>
-              <span className="text-anthracite-300">{p.disponible_go} GB</span>
+            <div key={`${p.node}-${p.nom}`} className="grid grid-cols-6 gap-2 px-4 py-2.5 text-sm items-center transition-colors duration-150 hover:bg-muted/40">
+              <span className="text-foreground">{p.nom}</span>
+              <span className="text-foreground/80">{p.node}</span>
+              <span className="text-foreground/80">{p.type === "netfs" ? "NFS" : p.type === "zfs" ? "ZFS" : p.type}</span>
+              <span className="text-foreground/80">{p.capacite_go} GB</span>
+              <span className="text-foreground/80">{p.disponible_go} GB</span>
               <span className="text-right">
                 {isAdmin && p.nom !== "default" && (
-                  <button aria-label={`Delete pool ${p.nom}`} className="btn-danger" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></button>
+                  <Button aria-label={`Delete pool ${p.nom}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDeletePool(p)}><Trash2 size={13} /></Button>
                 )}
               </span>
             </div>
           ))}
         </div>
-      </div>
+      </Card>
 
-      <div className="card p-5">
-        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">ISO images</h3>
+      <Card className="p-5">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">ISO images</h3>
         {isAdmin && <IsoUploadDropzone onDone={reloadIsos} />}
-        <div className="mt-4 divide-y divide-anthracite-600">
-          {(isos || []).length === 0 && isos != null && <div className="py-3 text-sm text-anthracite-400">No ISO.</div>}
+        <div className="mt-4 divide-y divide-border">
+          {(isos || []).length === 0 && isos != null && <div className="py-3 text-sm text-muted-foreground">No ISO.</div>}
           {(isos || []).map((iso) => (
-            <div key={iso.nom} className="flex items-center gap-3 py-2.5 text-sm">
-              <span className="text-anthracite-100 flex-1 truncate">{iso.nom}</span>
-              <span className="text-anthracite-400 text-xs">{iso.taille_mo} MB</span>
+            <div key={iso.nom} className="flex items-center gap-3 py-2.5 text-sm transition-colors duration-150 hover:bg-muted/40">
+              <span className="text-foreground flex-1 truncate">{iso.nom}</span>
+              <span className="text-muted-foreground text-xs">{iso.taille_mo} MB</span>
               {isAdmin && (
-                <button aria-label={`Delete ISO ${iso.nom}`} className="btn-danger" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></button>
+                <Button aria-label={`Delete ISO ${iso.nom}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDelete(iso.nom)}><Trash2 size={13} /></Button>
               )}
             </div>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
