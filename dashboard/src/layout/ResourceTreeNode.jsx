@@ -39,7 +39,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
           else if (e.key === "ArrowRight" && hasChildren && !expanded) setExpanded(true);
           else if (e.key === "ArrowLeft" && hasChildren && expanded) setExpanded(false);
         }}
-        className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-sm cursor-pointer select-none ${
+        className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-sm cursor-pointer select-none transition-colors duration-150 ${
           isSelected ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold" : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60"
         }`}
         style={{ paddingLeft: 6 + depth * 14 }}
