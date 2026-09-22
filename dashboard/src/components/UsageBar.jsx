@@ -3,15 +3,15 @@
 // DatacenterSummaryTab).
 export default function UsageBar({ pct, color = "#4F46E5", width = 54 }) {
   if (pct == null) {
-    return <span className="text-[11px] text-anthracite-400">n/a</span>;
+    return <span className="text-[11px] text-muted-foreground">n/a</span>;
   }
   const clamped = Math.max(0, Math.min(100, pct));
   return (
     <div className="flex items-center gap-1.5">
-      <div className="h-1.5 shrink-0 overflow-hidden rounded-full bg-anthracite-900" style={{ width }}>
-        <div className="h-full rounded-full" style={{ width: `${clamped}%`, backgroundColor: color }} />
+      <div className="h-1.5 shrink-0 overflow-hidden rounded-full bg-background" style={{ width }}>
+        <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${clamped}%`, backgroundColor: color }} />
       </div>
-      <span className="w-8 shrink-0 font-mono text-[11px] text-anthracite-300">{Math.round(clamped)}%</span>
+      <span className="w-8 shrink-0 font-mono text-[11px] text-foreground/80">{Math.round(clamped)}%</span>
     </div>
   );
 }

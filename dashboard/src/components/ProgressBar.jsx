@@ -15,14 +15,14 @@ export default function ProgressBar({ value, statut = "en_cours", size = "md", i
 
   if (indeterminate) {
     return (
-      <div className={`w-full ${height} rounded-full bg-anthracite-600 overflow-hidden`}>
+      <div className={`w-full ${height} rounded-full bg-muted overflow-hidden`}>
         <div className={`${height} w-2/5 ${colorClass} rounded-full animate-pulse`} />
       </div>
     );
   }
 
   return (
-    <div className={`w-full ${height} rounded-full bg-anthracite-600 overflow-hidden`}>
+    <div className={`w-full ${height} rounded-full bg-muted overflow-hidden`}>
       <div
         className={`${height} ${colorClass} rounded-full transition-[width] duration-300 ease-out`}
         style={{ width: `${pct}%` }}
