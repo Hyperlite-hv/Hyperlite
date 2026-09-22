@@ -14,6 +14,11 @@ import { useInfraStore } from "../../store/useInfraStore";
 import StatusBadge from "../../components/StatusBadge";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { statusLabel } from "../../lib/labels";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 
 // Real: GET/POST/DELETE /containers (see app/routers/containers.py). LXC
 // containers through libvirt's native LXC driver, in addition to the existing
@@ -161,24 +166,24 @@ export default function ContainersTab() {
     window.open(`/container-terminal/${encodeURIComponent(ct.nom)}`, `hyperlite-ct-terminal-${ct.nom}`, "width=1000,height=700,noopener");
   }
 
-  if (containers == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (containers == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-anthracite-400 max-w-2xl">
+      <p className="text-xs text-muted-foreground max-w-2xl">
         LXC containers (libvirt's native driver, independent of QEMU/KVM VMs): a minimal Debian 12 system, with terminal access through the same SSH automation key as VMs. The very first creation downloads and prepares the base image (a few minutes); the following ones are fast (local copy).
       </p>
 
       {isAdmin && (
-        <button className="btn-primary" onClick={() => setCreating((c) => !c)}>
-          <Plus size={14} /> Create a container
-        </button>
+        <Button onClick={() => setCreating((c) => !c)}>
+          <Plus /> Create a container
+        </Button>
       )}
 
       {creating && (
-        <div className="card p-4 space-y-4">
+        <Card className="p-4 space-y-4 animate-in fade-in-0 slide-in-from-top-1 duration-150">
           <div>
-            <label className="text-xs font-medium text-anthracite-300 mb-1.5 block">Image</label>
+            <Label className="text-xs font-medium text-foreground/80 mb-1.5 block">Image</Label>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
               {TEMPLATE_GALLERY.map((t) => {
                 const selected = form.image === t.key;
@@ -187,14 +192,14 @@ export default function ContainersTab() {
                     type="button"
                     key={t.label}
                     onClick={() => { setForm((f) => ({ ...f, image: t.key })); setDockerQuery(""); setDockerResults([]); }}
-                    className={`relative flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors ${
-                      selected ? "border-accent-blue bg-accent-blue/10" : "border-anthracite-600 hover:border-anthracite-500"
+                    className={`relative flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors duration-150 ${
+                      selected ? "border-accent-blue bg-accent-blue/10" : "border-border hover:border-muted-foreground/40"
                     }`}
                   >
-                    <t.Icon size={16} className={selected ? "text-accent-blue shrink-0 mt-0.5" : "text-anthracite-400 shrink-0 mt-0.5"} />
+                    <t.Icon size={16} className={selected ? "text-accent-blue shrink-0 mt-0.5" : "text-muted-foreground shrink-0 mt-0.5"} />
                     <div className="min-w-0">
-                      <div className="text-sm text-anthracite-100 truncate">{t.label}</div>
-                      <div className="text-[11px] text-anthracite-400 truncate">{t.desc}</div>
+                      <div className="text-sm text-foreground truncate">{t.label}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">{t.desc}</div>
                     </div>
                     {selected && <Check size={13} className="absolute right-2 top-2 text-accent-blue" />}
                   </button>
@@ -203,111 +208,111 @@ export default function ContainersTab() {
             </div>
 
             <div className="relative mt-2">
-              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-anthracite-400" />
-              <input aria-label="Another Docker Hub image: search or type a reference, e.g. traefik, ghcr.io/foo/bar:tag"
-                className="input w-full pl-8"
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input aria-label="Another Docker Hub image: search or type a reference, e.g. traefik, ghcr.io/foo/bar:tag"
+                className="w-full pl-8"
                 placeholder="Another Docker Hub image: search or type a reference, e.g. traefik, ghcr.io/foo/bar:tag"
                 value={dockerQuery}
                 onChange={(e) => { setDockerQuery(e.target.value); setForm((f) => ({ ...f, image: e.target.value })); }}
               />
               {dockerResults.length > 0 && (
-                <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-md border border-anthracite-600 bg-anthracite-800 divide-y divide-anthracite-600 shadow-lg">
+                <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-md border border-border bg-popover divide-y divide-border shadow-lg">
                   {dockerResults.map((r) => (
                     <button
                       type="button"
                       key={r.nom}
                       onClick={() => { setForm((f) => ({ ...f, image: `${r.nom}:latest` })); setDockerQuery(""); setDockerResults([]); }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-anthracite-700"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors duration-150 hover:bg-muted"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 text-sm text-anthracite-100">
+                        <div className="flex items-center gap-1.5 text-sm text-foreground">
                           <span className="truncate">{r.nom}</span>
-                          {r.officielle && <span className="shrink-0 rounded-sm bg-accent-blue/20 px-1 text-[10px] text-accent-blue">official</span>}
+                          {r.officielle && <Badge variant="secondary" className="shrink-0 bg-accent-blue/20 text-accent-blue">official</Badge>}
                         </div>
-                        {r.description && <div className="truncate text-xs text-anthracite-400">{r.description}</div>}
+                        {r.description && <div className="truncate text-xs text-muted-foreground">{r.description}</div>}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1 text-xs text-anthracite-400"><Star size={11} /> {r.etoiles}</div>
+                      <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Star size={11} /> {r.etoiles}</div>
                     </button>
                   ))}
                 </div>
               )}
             </div>
             {form.image && !TEMPLATE_GALLERY.some((t) => t.key === form.image) && (
-              <p className="mt-1 text-[11px] text-anthracite-400">Selected image: <span className="text-anthracite-300">{form.image}</span></p>
+              <p className="mt-1 text-[11px] text-muted-foreground">Selected image: <span className="text-foreground/80">{form.image}</span></p>
             )}
           </div>
 
           <div className="grid grid-cols-4 gap-2">
-            <input aria-label="Name" className="input" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <input aria-label="vCPU" className="input" type="number" min={1} max={16} placeholder="vCPU" value={form.vcpu} onChange={(e) => setForm((f) => ({ ...f, vcpu: Number(e.target.value) }))} />
-            <input aria-label="RAM (MB)" className="input" type="number" min={128} step={128} placeholder="RAM (MB)" value={form.memory_mb} onChange={(e) => setForm((f) => ({ ...f, memory_mb: Number(e.target.value) }))} />
-            <input aria-label="Network" className="input" placeholder="Network" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
-            <input aria-label="User" className="input" placeholder="User" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
-            <input aria-label="Password" className="input" type="password" placeholder="Password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+            <Input aria-label="Name" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <Input aria-label="vCPU" type="number" min={1} max={16} placeholder="vCPU" value={form.vcpu} onChange={(e) => setForm((f) => ({ ...f, vcpu: Number(e.target.value) }))} />
+            <Input aria-label="RAM (MB)" type="number" min={128} step={128} placeholder="RAM (MB)" value={form.memory_mb} onChange={(e) => setForm((f) => ({ ...f, memory_mb: Number(e.target.value) }))} />
+            <Input aria-label="Network" placeholder="Network" value={form.network} onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))} />
+            <Input aria-label="User" placeholder="User" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+            <Input aria-label="Password" type="password" placeholder="Password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
           </div>
           <div className="flex justify-end gap-2">
-            <button className="btn-secondary" onClick={() => setCreating(false)}>Cancel</button>
-            <button className="btn-primary" disabled={busy || !form.name || !form.username || !form.password} onClick={handleCreate}>
+            <Button variant="secondary" onClick={() => setCreating(false)}>Cancel</Button>
+            <Button disabled={busy || !form.name || !form.username || !form.password} onClick={handleCreate}>
               {busy ? "Creating..." : "Create"}
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
       )}
 
-      <div className="card divide-y divide-anthracite-600">
-        {containers.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No containers yet.</div>}
+      <Card className="p-0 divide-y divide-border">
+        {containers.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No containers yet.</div>}
         {containers.map((ct) => (
-          <div key={ct.nom} className="flex items-center gap-3 px-4 py-3 text-sm">
-            <Box size={15} className="text-anthracite-400 shrink-0" />
+          <div key={ct.nom} className="flex items-center gap-3 px-4 py-3 text-sm transition-colors duration-150 hover:bg-muted/40">
+            <Box size={15} className="text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-0">
-              <div className="text-anthracite-100">{ct.nom}</div>
-              <div className="text-xs text-anthracite-400">{ct.vcpu} vCPU, {ct.memoire_mo} MB{ct.ip ? ` — ${ct.ip}` : ""}</div>
+              <div className="text-foreground">{ct.nom}</div>
+              <div className="text-xs text-muted-foreground">{ct.vcpu} vCPU, {ct.memoire_mo} MB{ct.ip ? ` — ${ct.ip}` : ""}</div>
             </div>
             <StatusBadge etat={ct.etat === "actif" ? "actif" : "arrete"} />
             {isAdmin && ct.etat === "actif" && (
-              <button aria-label="Terminal" className="btn-secondary" title="Terminal" onClick={() => openTerminal(ct)}><TerminalSquare size={13} /></button>
+              <Button aria-label="Terminal" size="icon" variant="secondary" className="size-7" title="Terminal" onClick={() => openTerminal(ct)}><TerminalSquare size={13} /></Button>
             )}
             {isAdmin && ct.etat !== "actif" && (
-              <button aria-label="Start" className="btn-secondary" title="Start" onClick={() => handleStart(ct)}><Play size={13} /></button>
+              <Button aria-label="Start" size="icon" variant="secondary" className="size-7" title="Start" onClick={() => handleStart(ct)}><Play size={13} /></Button>
             )}
             {isAdmin && ct.etat === "actif" && (
-              <button aria-label="Stop" className="btn-secondary" title="Stop" onClick={() => handleStop(ct)}><Square size={13} /></button>
+              <Button aria-label="Stop" size="icon" variant="secondary" className="size-7" title="Stop" onClick={() => handleStop(ct)}><Square size={13} /></Button>
             )}
             {isAdmin && ct.etat !== "actif" && (
-              <button aria-label="Clone" className="btn-secondary" title="Clone" onClick={() => handleClone(ct)}><Copy size={13} /></button>
+              <Button aria-label="Clone" size="icon" variant="secondary" className="size-7" title="Clone" onClick={() => handleClone(ct)}><Copy size={13} /></Button>
             )}
             {isAdmin && ct.etat !== "actif" && (
-              <button aria-label={`Back up container ${ct.nom}`} className="btn-secondary" title="Back up" onClick={() => handleBackup(ct)}><Archive size={13} /></button>
+              <Button aria-label={`Back up container ${ct.nom}`} size="icon" variant="secondary" className="size-7" title="Back up" onClick={() => handleBackup(ct)}><Archive size={13} /></Button>
             )}
-            {isAdmin && <button aria-label={`Delete container ${ct.nom}`} className="btn-danger" title="Delete" onClick={() => setToDelete(ct)}><Trash2 size={13} /></button>}
+            {isAdmin && <Button aria-label={`Delete container ${ct.nom}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" title="Delete" onClick={() => setToDelete(ct)}><Trash2 size={13} /></Button>}
           </div>
         ))}
-      </div>
+      </Card>
 
       {isAdmin && backups && backups.length > 0 && (
-        <div className="card">
-          <div className="px-4 py-2.5 border-b border-anthracite-600">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
+        <Card className="p-0">
+          <div className="px-4 py-2.5 border-b border-border">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Archive size={15} /> Container backups
             </h3>
           </div>
-          <div className="divide-y divide-anthracite-600">
+          <div className="divide-y divide-border">
             {backups.map((b) => (
-              <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+              <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors duration-150 hover:bg-muted/40">
                 <div className="flex-1 min-w-0">
-                  <div className="text-anthracite-100 truncate">{b.container_name}</div>
-                  <div className="text-xs text-anthracite-400">
+                  <div className="text-foreground truncate">{b.container_name}</div>
+                  <div className="text-xs text-muted-foreground">
                     {new Date(b.cree_le).toLocaleString()} — {b.taille_octets ? `${(b.taille_octets / 1024 / 1024).toFixed(0)} MB` : "..."} — {statusLabel(b.statut)}
                   </div>
                 </div>
                 {b.statut === "termine" && (
-                  <button aria-label={`Restore backup #${b.id}`} className="btn-secondary" title="Restore" onClick={() => handleRestoreBackup(b)}><RotateCcw size={13} /></button>
+                  <Button aria-label={`Restore backup #${b.id}`} size="icon" variant="secondary" className="size-7" title="Restore" onClick={() => handleRestoreBackup(b)}><RotateCcw size={13} /></Button>
                 )}
-                <button aria-label={`Delete backup #${b.id}`} className="btn-danger" title="Delete" onClick={() => handleDeleteBackup(b)}><Trash2 size={13} /></button>
+                <Button aria-label={`Delete backup #${b.id}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" title="Delete" onClick={() => handleDeleteBackup(b)}><Trash2 size={13} /></Button>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       <ConfirmDialog
