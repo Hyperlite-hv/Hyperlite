@@ -73,35 +73,6 @@
   }
 }
 
-@utility btn {
-  @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
-}
-
-@utility btn-primary {
-  @apply btn bg-accent-blue text-white hover:bg-[#4338CA] shadow-[0_4px_12px_rgba(79,70,229,0.3)];
-}
-
-@utility btn-secondary {
-  @apply btn bg-anthracite-600 text-anthracite-100 hover:bg-anthracite-500;
-}
-
-@utility btn-danger {
-  /* "Muted" treatment (tinted background + red text, not a solid fill). */
-  @apply btn bg-status-error/10 text-status-error border border-status-error/30 hover:bg-status-error/20;
-}
-
-@utility card {
-  @apply bg-anthracite-800 border border-anthracite-600 rounded-2xl shadow-panel;
-}
-
-@utility input {
-  @apply w-full rounded-md bg-anthracite-900 border border-anthracite-500 px-3 py-1.5 text-sm text-anthracite-100 placeholder-anthracite-300 focus:outline-hidden focus:ring-1 focus:ring-accent-blue;
-}
-
-@utility toast-enter {
-  animation: toast-in 180ms ease-out;
-}
-
 @layer base {
   /* "anthracite" content ramp: white/lavender/charcoal by default (light
      mode), the former dark gray gradient under .dark (dark mode unchanged).
@@ -159,11 +130,6 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-anthracite-400;
   }
-}
-
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Indeterminate progress bar (unattended ISO installation in progress, see

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Monitor, TerminalSquare, Plug, Unplug } from "lucide-react";
 import { createConsoleTicket, createTerminalTicket } from "../api/client";
 import { ensureXtermLoaded, wsUrl } from "../utils/loadXterm";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Real WebSocket relay (VNC through noVNC, terminal through xterm.js) to a VM,
 // using the same ticket + WS flow as the existing backend. Extracted from
@@ -118,34 +120,26 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center gap-2">
-        <div className="flex gap-0.5 rounded-md bg-anthracite-700 p-0.5">
-          <button
-            onClick={() => { cleanup(); setMode("vnc"); }}
-            className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${mode === "vnc" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
-          >
-            <Monitor size={13} /> Graphical console (VNC)
-          </button>
-          <button
-            onClick={() => { cleanup(); setMode("terminal"); }}
-            className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${mode === "terminal" ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
-          >
-            <TerminalSquare size={13} /> SSH terminal
-          </button>
-        </div>
+        <Tabs value={mode} onValueChange={(v) => { cleanup(); setMode(v); }}>
+          <TabsList>
+            <TabsTrigger value="vnc"><Monitor /> Graphical console (VNC)</TabsTrigger>
+            <TabsTrigger value="terminal"><TerminalSquare /> SSH terminal</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {status === "connected" ? (
-          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Disconnect</button>
+          <Button variant="secondary" className="ml-auto" onClick={cleanup}><Unplug /> Disconnect</Button>
         ) : (
-          <button className="btn-primary ml-auto" disabled={!vmActive || status === "connecting"} onClick={connect}>
-            <Plug size={13} /> {status === "connecting" ? "Connecting..." : "Connect"}
-          </button>
+          <Button className="ml-auto" disabled={!vmActive || status === "connecting"} onClick={connect}>
+            <Plug /> {status === "connecting" ? "Connecting..." : "Connect"}
+          </Button>
         )}
       </div>
 
-      {!vmActive && <p className="text-xs text-anthracite-400">The VM must be started.</p>}
+      {!vmActive && <p className="text-xs text-muted-foreground">The VM must be started.</p>}
       {error && <p className="text-xs text-status-error">{error}</p>}
 
-      <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-anthracite-600">
+      <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-border">
         <div ref={screenRef} className="h-full w-full" />
       </div>
     </div>
