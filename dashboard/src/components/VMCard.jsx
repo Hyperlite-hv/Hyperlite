@@ -22,7 +22,7 @@ export default function VMCard({ vm }) {
     <>
       <div
         onDoubleClick={() => setPanelOpen(true)}
-        className="flex cursor-pointer flex-col gap-3.5 rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground/40"
+        className="flex cursor-pointer flex-col gap-3.5 rounded-lg border border-border bg-card p-4 transition-[border-color,box-shadow,transform] duration-200 hover:border-muted-foreground/40 hover:shadow-lg hover:-translate-y-0.5"
       >
         <div className="flex items-start gap-3">
           <div className="flex min-w-0 flex-col gap-1">

@@ -17,6 +17,11 @@ import {
   cloneVM, createTemplateFromVM, migrateVM, fetchMigrationCheck, fetchHaProtected, enableHa, disableHa,
   fetchVMAutoCleanup, setVMAutoCleanup, disableVMAutoCleanup,
 } from "../../api/client";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function VMSummaryTab({ resource: vm }) {
   const [confirm, setConfirm] = useState(null); // "stop" | "force-stop" | "delete" | null
@@ -207,112 +212,122 @@ export default function VMSummaryTab({ resource: vm }) {
     <div className="space-y-5">
       {isAdmin && (
         <div className="flex flex-wrap gap-2">
-          <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={() => act("start")}>
-            <Play size={14} /> Start
-          </button>
-          <button className="btn-secondary" disabled={vm.etat !== "actif"} onClick={() => setConfirm("stop")}>
-            <Square size={14} /> Stop
-          </button>
-          <button
-            className="btn-secondary text-status-error"
+          <Button variant="secondary" disabled={vm.etat === "actif"} onClick={() => act("start")}>
+            <Play /> Start
+          </Button>
+          <Button variant="secondary" disabled={vm.etat !== "actif"} onClick={() => setConfirm("stop")}>
+            <Square /> Stop
+          </Button>
+          <Button
+            variant="secondary"
+            className="text-status-error"
             disabled={vm.etat !== "actif"}
             title="Powers the VM off immediately without waiting for the guest (equivalent to pulling the plug). Use it if the clean shutdown does not respond."
             onClick={() => setConfirm("force-stop")}
           >
-            <Power size={14} /> Force stop
-          </button>
-          <button className="btn-secondary" disabled={vm.etat !== "actif"} onClick={() => act("restart")}>
-            <RotateCw size={14} /> Restart
-          </button>
-          <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={handleClone}>
-            <Copy size={14} /> Clone
-          </button>
-          <button className="btn-secondary" disabled={vm.etat === "actif"} onClick={handleToTemplate}>
-            <Layers size={14} /> To template
-          </button>
-          <button
-            className="btn-secondary"
+            <Power /> Force stop
+          </Button>
+          <Button variant="secondary" disabled={vm.etat !== "actif"} onClick={() => act("restart")}>
+            <RotateCw /> Restart
+          </Button>
+          <Button variant="secondary" disabled={vm.etat === "actif"} onClick={handleClone}>
+            <Copy /> Clone
+          </Button>
+          <Button variant="secondary" disabled={vm.etat === "actif"} onClick={handleToTemplate}>
+            <Layers /> To template
+          </Button>
+          <Button
+            variant="secondary"
             disabled={vm.etat !== "actif" || migrationTargets.length === 0}
             title={migrationTargets.length === 0 ? "No other online node available" : "Migrate this VM to another node without shutting it down"}
             onClick={() => setMigrateOpen((o) => !o)}
           >
-            <ArrowRightLeft size={14} /> Migrate
-          </button>
-          <button
-            className={haProtected ? "btn-secondary text-status-running" : "btn-secondary"}
+            <ArrowRightLeft /> Migrate
+          </Button>
+          <Button
+            variant="secondary"
+            className={haProtected ? "text-status-running" : ""}
             disabled={haBusy}
             title={haProtected ? "Disable HA protection (manual recovery if the node fails)" : "Enable HA protection: requires a disk on a shared storage pool"}
             onClick={handleToggleHa}
           >
-            {haProtected ? <ShieldCheck size={14} /> : <ShieldOff size={14} />} {haBusy ? "..." : haProtected ? "HA protected" : "Protect (HA)"}
-          </button>
-          <button
-            className={autoCleanup?.active ? "btn-secondary text-status-warning" : "btn-secondary"}
+            {haProtected ? <ShieldCheck /> : <ShieldOff />} {haBusy ? "..." : haProtected ? "HA protected" : "Protect (HA)"}
+          </Button>
+          <Button
+            variant="secondary"
+            className={autoCleanup?.active ? "text-status-warning" : ""}
             title="Automatically deletes this VM after N days of continuous shutdown (a running VM is never affected)"
             onClick={() => setCleanupOpen((o) => !o)}
           >
-            <Timer size={14} /> {autoCleanup?.active ? `Auto cleanup (${autoCleanup.inactive_days}d)` : "Auto cleanup"}
-          </button>
-          <button className="btn-danger ml-auto" disabled={vm.etat === "actif"} onClick={() => setConfirm("delete")}>
-            <Trash2 size={14} /> Delete
-          </button>
+            <Timer /> {autoCleanup?.active ? `Auto cleanup (${autoCleanup.inactive_days}d)` : "Auto cleanup"}
+          </Button>
+          <Button
+            variant="outline"
+            className="ml-auto text-status-error border-status-error/30 hover:bg-status-error/10"
+            disabled={vm.etat === "actif"}
+            onClick={() => setConfirm("delete")}
+          >
+            <Trash2 /> Delete
+          </Button>
         </div>
       )}
 
       {migrateOpen && (
-        <div className="card flex flex-wrap items-center gap-3 p-4">
-          <span className="text-sm text-anthracite-200">Migrate <b className="text-anthracite-100">{vm.nom}</b> to</span>
-          <select aria-label="Migration target node" className="input w-auto" value={migrateTarget} onChange={(e) => setMigrateTarget(e.target.value)}>
-            <option value="">Choose a node…</option>
-            {migrationTargets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
-          </select>
-          <button className="btn-primary" disabled={!migrateTarget || migrating || migrateCheck?.loading || migrateBlocked} onClick={handleMigrate}>
+        <Card className="flex flex-wrap items-center gap-3 p-4 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+          <span className="text-sm text-foreground/90">Migrate <b className="text-foreground">{vm.nom}</b> to</span>
+          <Select value={migrateTarget} onValueChange={setMigrateTarget}>
+            <SelectTrigger aria-label="Migration target node" className="w-auto"><SelectValue placeholder="Choose a node…" /></SelectTrigger>
+            <SelectContent>
+              {migrationTargets.map((n) => <SelectItem key={n.id} value={n.id}>{n.nom}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button disabled={!migrateTarget || migrating || migrateCheck?.loading || migrateBlocked} onClick={handleMigrate}>
             {migrating ? "Starting..." : "Migrate"}
-          </button>
-          <button className="btn-secondary" onClick={() => setMigrateOpen(false)}>Cancel</button>
-          {migrateCheck?.loading && <p className="w-full text-xs text-anthracite-400">Checking compatibility…</p>}
+          </Button>
+          <Button variant="secondary" onClick={() => setMigrateOpen(false)}>Cancel</Button>
+          {migrateCheck?.loading && <p className="w-full text-xs text-muted-foreground">Checking compatibility…</p>}
           {migrateCheck?.error && <p className="w-full text-xs text-status-warning">Diagnostic unavailable ({migrateCheck.error}): the migration can still be attempted, the server will check it.</p>}
           {migrateCheck?.report && <CompatChecks report={migrateCheck.report} />}
           {migrateCheck?.report?.resume?.bloquant && (
-            <label className="flex w-full items-center gap-2 text-xs text-anthracite-300">
-              <input type="checkbox" checked={ignoreChecks} onChange={(e) => setIgnoreChecks(e.target.checked)} />
+            <label className="flex w-full items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox checked={ignoreChecks} onCheckedChange={(v) => setIgnoreChecks(!!v)} />
               Ignore the detected blockers and try the migration anyway
             </label>
           )}
-          <p className="w-full text-xs text-anthracite-400">
+          <p className="w-full text-xs text-muted-foreground">
             Live migration: the VM keeps running during the transfer. If the disk is not on a shared pool, it is copied during the migration, which can take a while depending on its size.
           </p>
-        </div>
+        </Card>
       )}
 
       {cleanupOpen && (
-        <div className="card flex flex-wrap items-center gap-3 p-4">
-          <span className="text-sm text-anthracite-200">Delete <b className="text-anthracite-100">{vm.nom}</b> after</span>
-          <input aria-label="Inactivity threshold in days"
-            type="number" min={1} max={365} className="input w-20"
+        <Card className="flex flex-wrap items-center gap-3 p-4 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+          <span className="text-sm text-foreground/90">Delete <b className="text-foreground">{vm.nom}</b> after</span>
+          <Input aria-label="Inactivity threshold in days"
+            type="number" min={1} max={365} className="w-20"
             value={cleanupDays} onChange={(e) => setCleanupDays(Number(e.target.value))}
           />
-          <span className="text-sm text-anthracite-200">day(s) of continuous shutdown</span>
-          <button className="btn-primary" disabled={cleanupBusy} onClick={handleSetCleanup}>
+          <span className="text-sm text-foreground/90">day(s) of continuous shutdown</span>
+          <Button disabled={cleanupBusy} onClick={handleSetCleanup}>
             {cleanupBusy ? "..." : autoCleanup?.active ? "Update" : "Enable"}
-          </button>
+          </Button>
           {autoCleanup?.active && (
-            <button className="btn-danger" disabled={cleanupBusy} onClick={handleDisableCleanup}>Disable</button>
+            <Button variant="outline" className="text-status-error border-status-error/30 hover:bg-status-error/10" disabled={cleanupBusy} onClick={handleDisableCleanup}>Disable</Button>
           )}
-          <button className="btn-secondary" onClick={() => setCleanupOpen(false)}>Close</button>
-          <p className="w-full text-xs text-anthracite-400">
+          <Button variant="secondary" onClick={() => setCleanupOpen(false)}>Close</Button>
+          <p className="w-full text-xs text-muted-foreground">
             The counter only runs while the VM is stopped (restarting it resets it to zero), and an HA-protected VM is never affected. An alert is sent ~24 h before the actual deletion.
           </p>
-        </div>
+        </Card>
       )}
 
       {vm.etat !== "actif" ? (
-        <div className="card p-8 text-center text-sm text-anthracite-400">VM stopped: no live metrics.</div>
+        <Card className="p-8 text-center text-sm text-muted-foreground">VM stopped: no live metrics.</Card>
       ) : provisioning ? (
         <ProvisioningBar status={provStatus} />
       ) : (
         <>
-          <div className="card grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
+          <Card className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
             <GaugeRing label="CPU" ratio={current?.cpu ?? 0} valueLabel={`${vm.vcpu} vCPU`} colorClass="text-accent-blue" />
             <GaugeRing
               label="RAM"
@@ -321,19 +336,19 @@ export default function VMSummaryTab({ resource: vm }) {
               colorClass="text-accent-orange"
             />
             <div className="flex flex-col items-center justify-center gap-1 text-center">
-              <div className="text-sm text-anthracite-300">
+              <div className="text-sm text-foreground/90">
                 {(current?.disques || []).map((d) => (
                   <div key={d.cible}>{d.cible} : {formatKbps(d.lecture_ko_s)} read / {formatKbps(d.ecriture_ko_s)} written</div>
                 ))}
               </div>
-              <div className="text-xs text-anthracite-400 mt-1">Disks (instantaneous throughput)</div>
+              <div className="text-xs text-muted-foreground mt-1">Disks (instantaneous throughput)</div>
             </div>
-          </div>
+          </Card>
 
           {error && <div className="text-xs text-status-error">Error reading the metrics: {error}</div>}
 
-          <div className="card p-5">
-            <h3 className="text-sm font-semibold text-anthracite-100">CPU & RAM (current session)</h3>
+          <Card className="p-5">
+            <h3 className="text-sm font-semibold text-foreground">CPU & RAM (current session)</h3>
             <div className="mt-3">
               <MetricChart
                 data={data}
@@ -344,10 +359,10 @@ export default function VMSummaryTab({ resource: vm }) {
                 yFormatter={(v) => `${Math.round(v * 100)}%`}
               />
             </div>
-          </div>
+          </Card>
 
-          <div className="card p-5">
-            <h3 className="text-sm font-semibold text-anthracite-100">Network (KB/s)</h3>
+          <Card className="p-5">
+            <h3 className="text-sm font-semibold text-foreground">Network (KB/s)</h3>
             <div className="mt-3">
               <MetricChart
                 data={data}
@@ -358,27 +373,27 @@ export default function VMSummaryTab({ resource: vm }) {
                 yFormatter={(v) => formatKbps(v)}
               />
             </div>
-          </div>
+          </Card>
         </>
       )}
 
       <MetricsHistoryCard title="CPU history (persisted)" fetcher={(range) => fetchVMMetricsHistory(vm.nom, range)} />
 
-      <div className="card p-5">
-        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Status</h3>
+      <Card className="p-5">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">Status</h3>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <div><dt className="text-anthracite-400 text-xs">Uptime</dt><dd className="text-anthracite-100">{formatUptime(vm.uptime_s)}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">IP address</dt><dd className="text-anthracite-100">{vm.ip || "--"}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">Detected OS</dt><dd className="text-anthracite-100">{vm.os || "--"}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">SSH user</dt><dd className="text-anthracite-100">{vm.utilisateur_ssh || "unknown"}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">Uptime</dt><dd className="text-foreground">{formatUptime(vm.uptime_s)}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">IP address</dt><dd className="text-foreground">{vm.ip || "--"}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">Detected OS</dt><dd className="text-foreground">{vm.os || "--"}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">SSH user</dt><dd className="text-foreground">{vm.utilisateur_ssh || "unknown"}</dd></div>
           <div>
-            <dt className="text-anthracite-400 text-xs">Automatic cleanup</dt>
-            <dd className={autoCleanup?.active ? "text-status-warning" : "text-anthracite-100"}>
+            <dt className="text-muted-foreground text-xs">Automatic cleanup</dt>
+            <dd className={autoCleanup?.active ? "text-status-warning" : "text-foreground"}>
               {autoCleanup?.active ? `Active: ${autoCleanup.inactive_days} d of shutdown` : "Inactive"}
             </dd>
           </div>
         </dl>
-      </div>
+      </Card>
 
       <ConfirmDialog
         open={confirm === "stop"}
