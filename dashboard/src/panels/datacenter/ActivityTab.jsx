@@ -4,6 +4,9 @@ import { RefreshCw } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge";
 import { fetchTasks } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // The same persisted `tasks` table as NodeTasksTab.jsx (GET /tasks, see
 // app/core/tasks.py) but without a per-node filter: "Recent activity" at the
@@ -38,10 +41,10 @@ function formatDuree(debut, fin) {
 export default function ActivityTab() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [rows, setRows] = useState(null);
-  const [statutFiltre, setStatutFiltre] = useState("");
+  const [statutFiltre, setStatutFiltre] = useState("all");
 
   const load = useCallback(() => {
-    fetchTasks({ statut: statutFiltre || undefined, limit: 200 })
+    fetchTasks({ statut: statutFiltre === "all" ? undefined : statutFiltre, limit: 200 })
       .then(setRows)
       .catch((e) => pushToast({ kind: "error", title: "Tasks error", message: e.message }));
   }, [statutFiltre, pushToast]);
@@ -55,46 +58,42 @@ export default function ActivityTab() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <select aria-label="Filter by status"
-          value={statutFiltre}
-          onChange={(e) => setStatutFiltre(e.target.value)}
-          className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
-        >
-          <option value="">All statuses</option>
-          <option value="en_cours">Running</option>
-          <option value="termine">Completed</option>
-          <option value="echec">Failed</option>
-        </select>
-        <button
-          onClick={load}
-          className="ml-auto flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-anthracite-300 hover:text-anthracite-100 border border-anthracite-600 rounded-md"
-        >
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <Select value={statutFiltre} onValueChange={setStatutFiltre}>
+          <SelectTrigger aria-label="Filter by status" className="w-auto"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="en_cours">Running</SelectItem>
+            <SelectItem value="termine">Completed</SelectItem>
+            <SelectItem value="echec">Failed</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button variant="outline" className="ml-auto" onClick={load}>
+          <RefreshCw /> Refresh
+        </Button>
       </div>
 
-      <div className="card divide-y divide-anthracite-600 max-h-[70vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Recent activity">
-        <div className="grid grid-cols-[150px_1fr_1fr_120px_110px_80px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
+      <Card className="p-0 divide-y divide-border max-h-[70vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Recent activity">
+        <div className="grid grid-cols-[150px_1fr_1fr_120px_110px_80px] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground sticky top-0 bg-card">
           <span>Time</span><span>Task</span><span>Target</span><span>Node</span><span>User</span><span>Duration</span>
         </div>
 
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
-        {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No recent activity.</div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-muted-foreground"><LoadingState /></div>}
+        {rows && rows.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No recent activity.</div>}
 
         {rows && rows.map((t) => (
-          <div key={t.id} className="grid grid-cols-[150px_1fr_1fr_120px_110px_80px] gap-2 px-4 py-2 text-sm items-center">
-            <span className="text-anthracite-400 text-xs font-mono">{formatHeure(t.cree_le)}</span>
-            <span className="flex items-center gap-1.5 text-anthracite-100">
+          <div key={t.id} className="grid grid-cols-[150px_1fr_1fr_120px_110px_80px] gap-2 px-4 py-2 text-sm items-center transition-colors duration-150 hover:bg-muted/40">
+            <span className="text-muted-foreground text-xs font-mono">{formatHeure(t.cree_le)}</span>
+            <span className="flex items-center gap-1.5 text-foreground">
               <StatusBadge etat={STATUT_ETAT[t.statut]} showLabel={false} />
               {TASK_LABELS[t.type] || t.type}
             </span>
-            <span className="text-anthracite-300 truncate" title={t.erreur || ""}>{t.cible || "--"}</span>
-            <span className="text-anthracite-400 text-xs truncate">{t.node || "--"}</span>
-            <span className="text-anthracite-400 text-xs truncate">{t.username || "--"}</span>
-            <span className="text-anthracite-400 text-xs">{formatDuree(t.debut_le, t.fin_le)}</span>
+            <span className="text-foreground/80 truncate" title={t.erreur || ""}>{t.cible || "--"}</span>
+            <span className="text-muted-foreground text-xs truncate">{t.node || "--"}</span>
+            <span className="text-muted-foreground text-xs truncate">{t.username || "--"}</span>
+            <span className="text-muted-foreground text-xs">{formatDuree(t.debut_le, t.fin_le)}</span>
           </div>
         ))}
-      </div>
+      </Card>
     </div>
   );
 }

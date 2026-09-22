@@ -3,6 +3,10 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { fetchNodeCapabilitiesById } from "../../api/client";
 import { compareNodes, NA } from "../../lib/capabilitiesView";
 import DeploymentProfileCard from "../../components/DeploymentProfileCard";
+import { Card } from "@/components/ui/card";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 // Node comparison table: highlights what DIFFERS between machines, a prerequisite
 // to a migration or to adding a node. The "informational" rows (RAM, CPU model...)
@@ -32,57 +36,57 @@ export default function CompatibilityTab() {
     <div className="space-y-4">
       <DeploymentProfileCard />
       <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-anthracite-300">
+        <p className="text-sm text-foreground/80">
           Comparison of the capabilities detected on each node of the cluster.
           {loaded.length === 1 && " Only one node: add another (Nodes tab) to see the differences."}
         </p>
-        <label className="flex items-center gap-2 text-sm text-anthracite-300">
-          <input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />
+        <Label className="flex items-center gap-2 text-sm text-foreground/80">
+          <Checkbox checked={onlyDiff} onCheckedChange={(v) => setOnlyDiff(!!v)} />
           Differences only
-        </label>
+        </Label>
       </div>
 
       {Object.entries(errors).map(([id, msg]) => (
-        <div key={id} className="card px-4 py-3 text-sm text-status-error">Node {id} : {msg}</div>
+        <Card key={id} className="px-4 py-3 text-sm text-status-error">Node {id} : {msg}</Card>
       ))}
 
       {loaded.length > 1 && (
-        <div className={`card px-4 py-3 text-sm ${blocking.length ? "text-status-warning" : "text-status-running"}`}>
+        <Card className={`px-4 py-3 text-sm ${blocking.length ? "text-status-warning" : "text-status-running"}`}>
           {blocking.length
             ? `${blocking.length} capability difference(s) between nodes that may affect migration or HA: ${blocking.map((r) => r.label).join(", ")}.`
             : "No functional capability differences between the nodes."}
-        </div>
+        </Card>
       )}
 
-      <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Node comparison">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-anthracite-600 text-left text-anthracite-300">
-              <th className="px-4 py-3 font-medium">Capability</th>
-              {loaded.map((n) => <th key={n.id} className="px-4 py-3 font-medium">{n.nom}</th>)}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-anthracite-600">
+      <Card className="p-0 overflow-x-auto" tabIndex={0} role="region" aria-label="Node comparison">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Capability</TableHead>
+              {loaded.map((n) => <TableHead key={n.id}>{n.nom}</TableHead>)}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {shown.length === 0 && (
-              <tr><td className="px-4 py-3 text-anthracite-400" colSpan={loaded.length + 1}>
+              <TableRow><TableCell className="text-muted-foreground" colSpan={loaded.length + 1}>
                 {loaded.length === 0 ? "Detection in progress..." : "No differences."}
-              </td></tr>
+              </TableCell></TableRow>
             )}
             {shown.map((r) => (
-              <tr key={r.key} className={r.differe && !r.informatif ? "bg-status-warning/10" : ""}>
-                <td className="px-4 py-2.5 text-anthracite-300">
+              <TableRow key={r.key} className={r.differe && !r.informatif ? "bg-status-warning/10" : ""}>
+                <TableCell className="text-foreground/80">
                   {r.section} : {r.label}{r.differe && r.informatif ? " (informational)" : ""}
-                </td>
+                </TableCell>
                 {loaded.map((n) => (
-                  <td key={n.id} className={`px-4 py-2.5 font-mono ${r.values[n.id] === NA ? "text-anthracite-400" : "text-anthracite-100"}`}>
+                  <TableCell key={n.id} className={`font-mono ${r.values[n.id] === NA ? "text-muted-foreground" : "text-foreground"}`}>
                     {String(r.values[n.id])}
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   );
 }
