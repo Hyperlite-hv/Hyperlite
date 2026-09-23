@@ -60,6 +60,7 @@ class VMCreate(BaseModel):
     username: str | None = None
     password: str | None = None
     iso: str | None = None
+    drivers_iso: str | None = None
     # Name of a file already uploaded through POST /vm-disks (see
     # app/routers/vm_disks.py): the VM boots directly from this disk (an OS is already
     # installed on it) instead of the preinstalled Debian 12 image or an installation
@@ -93,6 +94,21 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             errors.append(f"ISO '{payload.iso}' not found")
         else:
             iso_path = candidate
+
+    drivers_iso_path = None
+    if payload.drivers_iso:
+        if not payload.iso or payload.import_disk:
+            raise HTTPException(status_code=422, detail="Driver media requires an installation ISO")
+        if (
+            Path(payload.drivers_iso).name != payload.drivers_iso
+            or "\\" in payload.drivers_iso
+            or not payload.drivers_iso.lower().endswith(".iso")
+        ):
+            raise HTTPException(status_code=422, detail="Invalid driver ISO name")
+        candidate = safe_child(ISOS_DIR, payload.drivers_iso)
+        if not candidate.is_file():
+            raise HTTPException(status_code=422, detail=f"Driver ISO '{payload.drivers_iso}' not found")
+        drivers_iso_path = candidate
 
     import_disk_path = None
     if payload.import_disk:
@@ -294,6 +310,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             payload.network,
             iso_path=iso_path,
             seed_iso_path=seed_iso_path,
+            drivers_iso_path=drivers_iso_path,
             mac=mac,
             kernel_path=kernel_path,
             initrd_path=initrd_path,
