@@ -113,19 +113,26 @@ export default function DatacenterSummaryTab() {
   const stoppedVms = vmCounts.find((c) => c.etat === "arrete")?.count ?? 0;
 
   const onlineNodes = enrichedNodes.filter((n) => n.etat === "online").length;
-  const alertCount = enrichedNodes.filter((n) => {
+  const alertingNodes = enrichedNodes.filter((n) => {
     const cpuAlert = n.cpu_utilisation != null && n.cpu_utilisation >= ALERT_THRESHOLD;
     const ramAlert = n.memoire_totale_mo && n.memoire_utilisee_mo != null && n.memoire_utilisee_mo / n.memoire_totale_mo >= ALERT_THRESHOLD;
     return cpuAlert || ramAlert;
-  }).length;
+  });
+  const alertCount = alertingNodes.length;
+
+  // Everything shown on this page should lead somewhere: the first matching
+  // resource for a given tile/row, or undefined (no link) when nothing matches.
+  const firstVmByEtat = (etat) => vms.find((v) => v.etat === etat);
+  const goToVm = (v) => v && (() => navigateTo("vm", v.nom, "summary"));
+  const goToNode = (n) => n && (() => navigateTo("node", n.id, "summary"));
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile icon={Server} label="Nodes" value={enrichedNodes.length} foot={`${onlineNodes} online`} tone="blue" />
-        <StatTile icon={MonitorPlay} label="Running VMs" value={runningVms} foot={`of ${totalVms} in total`} tone="green" />
-        <StatTile icon={Square} label="Stopped VMs" value={stoppedVms} foot={`of ${totalVms} in total`} tone="gray" />
-        <StatTile icon={AlertTriangle} label="Alerts" value={alertCount} foot={alertCount ? "to watch" : "none"} tone="amber" />
+        <StatTile icon={Server} label="Nodes" value={enrichedNodes.length} foot={`${onlineNodes} online`} tone="blue" onClick={enrichedNodes.length ? () => navigateTo("datacenter", null, "nodes") : undefined} />
+        <StatTile icon={MonitorPlay} label="Running VMs" value={runningVms} foot={`of ${totalVms} in total`} tone="green" onClick={goToVm(firstVmByEtat("actif"))} />
+        <StatTile icon={Square} label="Stopped VMs" value={stoppedVms} foot={`of ${totalVms} in total`} tone="gray" onClick={goToVm(firstVmByEtat("arrete"))} />
+        <StatTile icon={AlertTriangle} label="Alerts" value={alertCount} foot={alertCount ? "to watch" : "none"} tone="amber" onClick={goToNode(alertingNodes[0])} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -246,26 +253,46 @@ export default function DatacenterSummaryTab() {
         <Card className="p-4 xl:col-span-5">
           <h3 className="mb-3 text-[13px] font-bold text-foreground">VM status</h3>
           <div className="divide-y divide-border">
-            {vmCounts.map(({ etat, label, count }) => (
-              <div key={etat} className="flex items-center gap-3 py-2.5 text-sm">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor(etat) }} />
-                <span className="flex-1 font-semibold text-foreground/90">{label}</span>
-                <span className="font-mono text-[14px] font-extrabold text-foreground">{count}</span>
-                <span className="w-14 text-right font-mono text-xs text-muted-foreground">
-                  {totalVms ? `${((count / totalVms) * 100).toFixed(1)}%` : "--"}
-                </span>
-              </div>
-            ))}
-            {autreCount > 0 && (
-              <div className="flex items-center gap-3 py-2.5 text-sm">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/50" />
-                <span className="flex-1 font-semibold text-foreground/90">Other</span>
-                <span className="font-mono text-[14px] font-extrabold text-foreground">{autreCount}</span>
-                <span className="w-14 text-right font-mono text-xs text-muted-foreground">
-                  {totalVms ? `${((autreCount / totalVms) * 100).toFixed(1)}%` : "--"}
-                </span>
-              </div>
-            )}
+            {vmCounts.map(({ etat, label, count }) => {
+              const onClick = count > 0 ? goToVm(firstVmByEtat(etat)) : undefined;
+              return (
+                <div
+                  key={etat}
+                  role={onClick ? "button" : undefined}
+                  tabIndex={onClick ? 0 : undefined}
+                  onClick={onClick}
+                  onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+                  className={`flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                >
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor(etat) }} />
+                  <span className="flex-1 font-semibold text-foreground/90">{label}</span>
+                  <span className="font-mono text-[14px] font-extrabold text-foreground">{count}</span>
+                  <span className="w-14 text-right font-mono text-xs text-muted-foreground">
+                    {totalVms ? `${((count / totalVms) * 100).toFixed(1)}%` : "--"}
+                  </span>
+                </div>
+              );
+            })}
+            {autreCount > 0 && (() => {
+              const knownEtats = new Set(VM_STATUS_ORDER.map((s) => s.etat));
+              const onClick = goToVm(vms.find((v) => !knownEtats.has(v.etat)));
+              return (
+                <div
+                  role={onClick ? "button" : undefined}
+                  tabIndex={onClick ? 0 : undefined}
+                  onClick={onClick}
+                  onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+                  className={`flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                >
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <span className="flex-1 font-semibold text-foreground/90">Other</span>
+                  <span className="font-mono text-[14px] font-extrabold text-foreground">{autreCount}</span>
+                  <span className="w-14 text-right font-mono text-xs text-muted-foreground">
+                    {totalVms ? `${((autreCount / totalVms) * 100).toFixed(1)}%` : "--"}
+                  </span>
+                </div>
+              );
+            })()}
             {totalVms === 0 && <div className="py-2 text-sm text-muted-foreground">No VMs yet.</div>}
           </div>
           {totalVms > 0 && (
@@ -306,8 +333,17 @@ export default function DatacenterSummaryTab() {
               {recentTasks && recentTasks.length === 0 && (
                 <TableRow><TableCell colSpan={5} className="py-3 text-sm text-muted-foreground">No recent activity.</TableCell></TableRow>
               )}
-              {recentTasks && recentTasks.map((t) => (
-                <TableRow key={t.id}>
+              {recentTasks && recentTasks.map((t) => {
+                // Link each row to the most specific resource still around: the VM it
+                // targeted if it still exists (a deleted VM's tasks stay plain text,
+                // there is nothing left to open), otherwise the node it ran on.
+                const targetVm = t.cible && vms.find((v) => v.nom === t.cible);
+                const targetNode = enrichedNodes.find((n) => n.id === (t.node || "local"));
+                const rowClick = targetVm ? () => navigateTo("vm", targetVm.nom, "summary")
+                  : targetNode ? () => navigateTo("node", targetNode.id, "summary")
+                  : undefined;
+                return (
+                <TableRow key={t.id} className={rowClick ? "cursor-pointer" : ""} onClick={rowClick}>
                   <TableCell className="font-mono text-xs text-muted-foreground">{formatHeure(t.cree_le)}</TableCell>
                   <TableCell className="text-foreground/90">{t.node || "local"}</TableCell>
                   <TableCell className="text-foreground/90">{t.username || "--"}</TableCell>
@@ -324,7 +360,8 @@ export default function DatacenterSummaryTab() {
                     </span>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </div>
