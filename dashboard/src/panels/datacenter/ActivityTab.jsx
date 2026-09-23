@@ -6,7 +6,7 @@ import { fetchTasks } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // The same persisted `tasks` table as NodeTasksTab.jsx (GET /tasks, see
 // app/core/tasks.py) but without a per-node filter: "Recent activity" at the
@@ -58,15 +58,12 @@ export default function ActivityTab() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <Select value={statutFiltre} onValueChange={setStatutFiltre}>
-          <SelectTrigger aria-label="Filter by status" className="w-auto"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="en_cours">Running</SelectItem>
-            <SelectItem value="termine">Completed</SelectItem>
-            <SelectItem value="echec">Failed</SelectItem>
-          </SelectContent>
-        </Select>
+        <NativeSelect aria-label="Filter by status" className="w-auto" value={statutFiltre} onChange={(e) => setStatutFiltre(e.target.value)}>
+          <option value="all">All statuses</option>
+          <option value="en_cours">Running</option>
+          <option value="termine">Completed</option>
+          <option value="echec">Failed</option>
+        </NativeSelect>
         <Button variant="outline" className="ml-auto" onClick={load}>
           <RefreshCw /> Refresh
         </Button>

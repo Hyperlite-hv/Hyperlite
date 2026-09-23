@@ -7,7 +7,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { fetchHaProtected, disableHa, recoverHa } from "../../api/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 function formatDate(iso) {
   if (!iso) return "--";
@@ -95,12 +95,15 @@ export default function HaTab() {
               <div className="flex items-center justify-end gap-2">
                 {down && (
                   <>
-                    <Select value={recoverTarget[r.vm_name] || ""} onValueChange={(v) => setRecoverTarget({ ...recoverTarget, [r.vm_name]: v })}>
-                      <SelectTrigger aria-label="Recovery node" size="sm" className="w-auto text-xs"><SelectValue placeholder="Recover on…" /></SelectTrigger>
-                      <SelectContent>
-                        {targets.map((n) => <SelectItem key={n.id} value={n.id}>{n.nom}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <NativeSelect
+                      aria-label="Recovery node"
+                      className="w-auto text-xs"
+                      value={recoverTarget[r.vm_name] || ""}
+                      onChange={(e) => setRecoverTarget({ ...recoverTarget, [r.vm_name]: e.target.value })}
+                    >
+                      <option value="">Recover on…</option>
+                      {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+                    </NativeSelect>
                     <Button
                       size="sm"
                       disabled={!recoverTarget[r.vm_name] || busy === r.vm_name}

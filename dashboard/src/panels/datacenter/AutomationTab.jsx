@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 
 // Real: GET/POST/DELETE /jobs, POST /jobs/{id}/run, GET /jobs/{id}/runs,
@@ -123,25 +123,19 @@ export default function AutomationTab() {
           <div className="space-y-2">
             {form.steps.map((s, i) => (
               <div key={i} className="flex items-center gap-2">
-                <Select value={s.cible_type} onValueChange={(v) => updateStep(i, { cible_type: v })}>
-                  <SelectTrigger aria-label="Step target type" className="w-36"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="host">Host</SelectItem>
-                    <SelectItem value="vm">A specific VM</SelectItem>
-                    <SelectItem value="chaque_cible">Each target of the run</SelectItem>
-                  </SelectContent>
-                </Select>
+                <NativeSelect aria-label="Step target type" className="w-36" value={s.cible_type} onChange={(e) => updateStep(i, { cible_type: e.target.value })}>
+                  <option value="host">Host</option>
+                  <option value="vm">A specific VM</option>
+                  <option value="chaque_cible">Each target of the run</option>
+                </NativeSelect>
                 {s.cible_type === "vm" && (
                   <Input aria-label="VM name" className="w-32" placeholder="VM name" value={s.cible || ""} onChange={(e) => updateStep(i, { cible: e.target.value })} />
                 )}
                 <Input aria-label="shell command" className="flex-1" placeholder="shell command" value={s.commande} onChange={(e) => updateStep(i, { commande: e.target.value })} />
-                <Select value={s.condition_type} onValueChange={(v) => updateStep(i, { condition_type: v })}>
-                  <SelectTrigger aria-label="Success condition type" className="w-32"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="exit_code">Return code</SelectItem>
-                    <SelectItem value="stdout_contains">Output contains</SelectItem>
-                  </SelectContent>
-                </Select>
+                <NativeSelect aria-label="Success condition type" className="w-32" value={s.condition_type} onChange={(e) => updateStep(i, { condition_type: e.target.value })}>
+                  <option value="exit_code">Return code</option>
+                  <option value="stdout_contains">Output contains</option>
+                </NativeSelect>
                 <Input aria-label="Success condition value" className="w-24" placeholder={s.condition_type === "exit_code" ? "0" : "pattern"} value={s.condition_valeur || ""} onChange={(e) => updateStep(i, { condition_valeur: e.target.value })} />
                 <Button aria-label={`Remove step ${i + 1}`} size="icon" variant="outline" className="size-9 shrink-0 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => removeStep(i)}><Trash2 size={13} /></Button>
               </div>

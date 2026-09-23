@@ -6,7 +6,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Real: GET /audit, which reads the audit_log table fed from the start by every
 // backend endpoint (log_action() is called everywhere). Filters by status/type/
@@ -41,21 +41,15 @@ export default function JournalTab() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <Select value={resultFiltre} onValueChange={setResultFiltre}>
-          <SelectTrigger aria-label="Filter by result" className="w-auto"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All results</SelectItem>
-            <SelectItem value="succes">Success</SelectItem>
-            <SelectItem value="echec">Failure</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={actionFiltre} onValueChange={setActionFiltre}>
-          <SelectTrigger aria-label="Filter by action type" className="w-auto"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All action types</SelectItem>
-            {actions.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <NativeSelect aria-label="Filter by result" className="w-auto" value={resultFiltre} onChange={(e) => setResultFiltre(e.target.value)}>
+          <option value="all">All results</option>
+          <option value="succes">Success</option>
+          <option value="echec">Failure</option>
+        </NativeSelect>
+        <NativeSelect aria-label="Filter by action type" className="w-auto" value={actionFiltre} onChange={(e) => setActionFiltre(e.target.value)}>
+          <option value="all">All action types</option>
+          {actions.map((a) => <option key={a} value={a}>{a}</option>)}
+        </NativeSelect>
         <Input aria-label="User..."
           type="text"
           placeholder="User..."

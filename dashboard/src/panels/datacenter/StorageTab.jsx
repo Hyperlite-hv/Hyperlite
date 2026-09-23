@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // "zfs": a ZFS pool managed outside libvirt (see app/core/zfs_storage.py), backed
 // for now by a loopback file (size_gb). It is single-node and always created on
@@ -119,12 +119,9 @@ export default function StorageTab() {
               </div>
               <div>
                 <Label className="text-xs font-medium text-foreground/80">Node</Label>
-                <Select value={form.node} onValueChange={(v) => setForm({ ...form, node: v })}>
-                  <SelectTrigger aria-label="Node" className="mt-1 w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {nodes.map((n) => <SelectItem key={n.id} value={n.id}>{n.nom}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <NativeSelect aria-label="Node" className="mt-1 w-full" value={form.node} onChange={(e) => setForm({ ...form, node: e.target.value })}>
+                  {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+                </NativeSelect>
               </div>
             </div>
 

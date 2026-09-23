@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Global roles (app/core/database.py: role IN ('admin','observateur')) are
 // unchanged by this system, which only ADDS scoped rights on top of them (see
@@ -225,13 +225,10 @@ function UsersSection({ users, reload, pushToast }) {
       <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-4">
         <Input aria-label="Username" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
         <Input aria-label="Password (min. 4)" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-        <Select value={newRole} onValueChange={setNewRole}>
-          <SelectTrigger aria-label="Role of the new user"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="observateur">observer</SelectItem>
-            <SelectItem value="admin">admin</SelectItem>
-          </SelectContent>
-        </Select>
+        <NativeSelect aria-label="Role of the new user" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+          <option value="observateur">observer</option>
+          <option value="admin">admin</option>
+        </NativeSelect>
         <Button disabled={busy || !newUsername.trim() || newPassword.length < 4} onClick={handleCreate}>
           <Plus /> Create
         </Button>
@@ -245,13 +242,16 @@ function UsersSection({ users, reload, pushToast }) {
             <div key={u.username} className="flex items-center justify-between py-2 text-sm">
               <span className="text-foreground">{u.username}{u.username === me && <span className="text-muted-foreground"> (you)</span>}</span>
               <div className="flex items-center gap-2">
-                <Select value={u.role} disabled={busy || u.username === me} onValueChange={(v) => handleRoleChange(u.username, v)}>
-                  <SelectTrigger aria-label={`Role of ${u.username}`} size="sm" className="w-auto text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="observateur">observer</SelectItem>
-                    <SelectItem value="admin">admin</SelectItem>
-                  </SelectContent>
-                </Select>
+                <NativeSelect
+                  aria-label={`Role of ${u.username}`}
+                  className="w-auto text-xs"
+                  value={u.role}
+                  disabled={busy || u.username === me}
+                  onChange={(e) => handleRoleChange(u.username, e.target.value)}
+                >
+                  <option value="observateur">observer</option>
+                  <option value="admin">admin</option>
+                </NativeSelect>
                 <Button aria-label={u.username === me ? "You cannot delete yourself" : `Delete user ${u.username}`}
                   variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-status-error disabled:opacity-30"
                   disabled={busy || u.username === me}
@@ -471,12 +471,15 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                 </div>
                 {available.length > 0 && (
                   <div className="flex gap-1.5">
-                    <Select value={vmSelect[p.id] || ""} onValueChange={(v) => setVmSelect((s) => ({ ...s, [p.id]: v }))}>
-                      <SelectTrigger aria-label={`VM to add to pool ${p.nom}`} size="sm" className="text-xs"><SelectValue placeholder="Choose a VM..." /></SelectTrigger>
-                      <SelectContent>
-                        {available.map((v) => <SelectItem key={v.nom} value={v.nom}>{v.nom}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <NativeSelect
+                      aria-label={`VM to add to pool ${p.nom}`}
+                      className="text-xs"
+                      value={vmSelect[p.id] || ""}
+                      onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}
+                    >
+                      <option value="">Choose a VM...</option>
+                      {available.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)}
+                    </NativeSelect>
                     <Button variant="secondary" size="sm" className="shrink-0" disabled={busy || !vmSelect[p.id]} onClick={() => handleAddVm(p.id)}>Add</Button>
                   </div>
                 )}
@@ -540,59 +543,44 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
           <div className="grid grid-cols-2 gap-2 mb-2 sm:grid-cols-4">
             <div>
               <Label className="text-[11px] text-muted-foreground mb-1 block">Who</Label>
-              <Select value={subjectType} onValueChange={(v) => { setSubjectType(v); setSubjectId(""); }}>
-                <SelectTrigger aria-label="Who" size="sm" className="text-xs w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="user">User</SelectItem>
-                  <SelectItem value="group">Group</SelectItem>
-                </SelectContent>
-              </Select>
+              <NativeSelect aria-label="Who" className="text-xs w-full" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
+                <option value="user">User</option>
+                <option value="group">Group</option>
+              </NativeSelect>
             </div>
             <div>
               <Label className="text-[11px] text-muted-foreground mb-1 block">&nbsp;</Label>
-              <Select value={subjectId} onValueChange={setSubjectId}>
-                <SelectTrigger aria-label="Subject" size="sm" className="text-xs w-full"><SelectValue placeholder="Choose..." /></SelectTrigger>
-                <SelectContent>
-                  {subjectType === "user"
-                    ? users.map((u) => <SelectItem key={u.username} value={u.username}>{u.username}</SelectItem>)
-                    : groups.map((g) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <NativeSelect aria-label="Subject" className="text-xs w-full" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                <option value="">Choose...</option>
+                {subjectType === "user"
+                  ? users.map((u) => <option key={u.username} value={u.username}>{u.username}</option>)
+                  : groups.map((g) => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+              </NativeSelect>
             </div>
             <div>
               <Label className="text-[11px] text-muted-foreground mb-1 block">Role</Label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger aria-label="Role" size="sm" className="text-xs w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(roles).map(([key, r]) => <SelectItem key={key} value={key}>{r.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <NativeSelect aria-label="Role" className="text-xs w-full" value={role} onChange={(e) => setRole(e.target.value)}>
+                {Object.entries(roles).map(([key, r]) => <option key={key} value={key}>{r.label}</option>)}
+              </NativeSelect>
             </div>
             <div>
               <Label className="text-[11px] text-muted-foreground mb-1 block">On</Label>
-              <Select value={resourceType} onValueChange={(v) => { setResourceType(v); setResourceId(""); }}>
-                <SelectTrigger aria-label="On" size="sm" className="text-xs w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="vm">A VM</SelectItem>
-                  <SelectItem value="pool">A pool</SelectItem>
-                  <SelectItem value="container">A container</SelectItem>
-                </SelectContent>
-              </Select>
+              <NativeSelect aria-label="On" className="text-xs w-full" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
+                <option value="vm">A VM</option>
+                <option value="pool">A pool</option>
+                <option value="container">A container</option>
+              </NativeSelect>
             </div>
           </div>
           <div className="flex gap-2 mb-3">
-            <Select value={resourceId} onValueChange={setResourceId}>
-              <SelectTrigger aria-label="Resource" className="flex-1">
-                <SelectValue placeholder={resourceType === "vm" ? "Choose a VM..." : resourceType === "pool" ? "Choose a pool..." : "Choose a container..."} />
-              </SelectTrigger>
-              <SelectContent>
-                {resourceType === "vm"
-                  ? vms.map((v) => <SelectItem key={v.nom} value={v.nom}>{v.nom}</SelectItem>)
-                  : resourceType === "pool"
-                  ? pools.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)
-                  : (containers || []).map((c) => <SelectItem key={c.nom} value={c.nom}>{c.nom}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <NativeSelect aria-label="Resource" className="flex-1" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
+              <option value="">{resourceType === "vm" ? "Choose a VM..." : resourceType === "pool" ? "Choose a pool..." : "Choose a container..."}</option>
+              {resourceType === "vm"
+                ? vms.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)
+                : resourceType === "pool"
+                ? pools.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)
+                : (containers || []).map((c) => <option key={c.nom} value={c.nom}>{c.nom}</option>)}
+            </NativeSelect>
             <Button className="shrink-0" disabled={busy || !subjectId || !resourceId} onClick={handleCreate}>
               <Plus /> Assign
             </Button>

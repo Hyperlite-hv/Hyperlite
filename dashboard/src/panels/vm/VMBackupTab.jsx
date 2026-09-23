@@ -13,7 +13,7 @@ import { backupModeLabel, frequencyLabel } from "../../lib/labels";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 function formatSize(bytes) {
   if (!bytes) return "--";
@@ -121,14 +121,17 @@ export default function VMBackupTab({ resource: vm }) {
           <h3 className="text-sm font-semibold text-foreground">Scheduled backup</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2 p-4">
-          <Select disabled={!isAdmin} value={form.frequence} onValueChange={(v) => setForm((f) => ({ ...f, frequence: v }))}>
-            <SelectTrigger aria-label="Backup frequency" className="w-auto"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="quotidien">Daily</SelectItem>
-              <SelectItem value="hebdomadaire">Weekly (Monday)</SelectItem>
-              <SelectItem value="mensuel">Monthly</SelectItem>
-            </SelectContent>
-          </Select>
+          <NativeSelect
+            aria-label="Backup frequency"
+            className="w-auto"
+            disabled={!isAdmin}
+            value={form.frequence}
+            onChange={(e) => setForm((f) => ({ ...f, frequence: e.target.value }))}
+          >
+            <option value="quotidien">Daily</option>
+            <option value="hebdomadaire">Weekly (Monday)</option>
+            <option value="mensuel">Monthly</option>
+          </NativeSelect>
           <Input aria-label="Backup time" type="time" className="w-auto" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
           <label className="text-xs text-muted-foreground flex items-center gap-1.5">
             Retention

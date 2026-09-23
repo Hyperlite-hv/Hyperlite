@@ -30,7 +30,7 @@ function shortVersion(v) {
   if (!v) return v;
   return v.includes(".") ? v : v.slice(0, 8);
 }
-export default function UpdateModal({ open, onClose }) {
+export default function UpdateModal({ open, onClose, triggerRef }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting | ok | failed
@@ -88,7 +88,18 @@ export default function UpdateModal({ open, onClose }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[520px] max-w-[90vw]">
+      <DialogContent
+        className="w-[520px] max-w-[90vw]"
+        // See the note in VMWizard.jsx: explicit focus restore to the trigger
+        // rather than relying on Radix's implicit capture (this modal is
+        // opened from a DropdownMenuItem, not a direct DialogTrigger click).
+        onCloseAutoFocus={(e) => {
+          if (triggerRef?.current) {
+            e.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Hyperlite update</DialogTitle>
         </DialogHeader>
