@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
@@ -6,14 +7,30 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// Radix's AlertDialog already provides the focus trap / focus-restore / Escape
-// behavior this component used to implement by hand (see git history): trapping
-// focus, defaulting to the safe choice, and restoring focus to the trigger on
-// close.
+// Radix's AlertDialog provides the focus trap / Escape-to-cancel behavior, but its
+// own focus-restore-on-close only works when Radix's own <AlertDialogTrigger>
+// opened it. Every caller here opens it by flipping an externally-owned `open`
+// prop instead (a button somewhere else in a list, a delete icon, ...), so Radix
+// never learns which element to return focus to and Escape/close leaves focus
+// nowhere. onOpenAutoFocus fires right as Radix's own FocusScope mounts, before
+// it moves focus into the dialog, so document.activeElement there is still
+// whatever was focused just before (the button that was clicked) -- captured in
+// an event callback, not during render.
 export default function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", danger = true, onConfirm, onCancel }) {
+  const triggerRef = useRef(null);
+
   return (
     <AlertDialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
-      <AlertDialogContent className="max-w-sm">
+      <AlertDialogContent
+        className="max-w-sm"
+        onOpenAutoFocus={() => { triggerRef.current = document.activeElement; }}
+        onCloseAutoFocus={(e) => {
+          if (triggerRef.current instanceof HTMLElement && document.body.contains(triggerRef.current)) {
+            e.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+      >
         <AlertDialogHeader className="flex-row items-start gap-3 space-y-0">
           <div className={`mt-0.5 rounded-full p-1.5 ${danger ? "bg-status-error/15 text-status-error" : "bg-accent-blue/15 text-accent-blue"}`}>
             <AlertTriangle size={18} />

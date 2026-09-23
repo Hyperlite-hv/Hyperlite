@@ -3,7 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../store/useInfraStore";
 import StatusBadge from "../components/StatusBadge";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import DatacenterSummaryTab from "../panels/datacenter/DatacenterSummaryTab";
 import DcStorageTab from "../panels/datacenter/StorageTab";
@@ -163,16 +163,23 @@ export default function CentralPanel() {
         {resource?.etat && <StatusBadge etat={resource.etat} />}
         {resource?.alerte && <span className="text-xs text-status-warning">{resource.alerte}</span>}
       </div>
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      {/* TabsContent below is not decorative: Radix's TabsTrigger always sets
+          aria-controls pointing at its matching content id, whether or not that
+          content is rendered. Without a real TabsContent here, every trigger's
+          aria-controls pointed at an id that did not exist in the DOM (an
+          axe "aria-valid-attr-value" violation on every Datacenter/Node/VM tab
+          bar). Wrapping ActiveComponent in TabsContent for the active value gives
+          that id a real target, with no visible/behavioral change. */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1">
         <TabsList variant="line" className="px-4 border-b border-border w-full justify-start overflow-x-auto">
           {tabSet.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
           ))}
         </TabsList>
+        <TabsContent value={activeTab} tabIndex={0} className="min-h-0 overflow-y-auto p-4">
+          <ActiveComponent resource={resource} selection={selection} />
+        </TabsContent>
       </Tabs>
-      <div className="flex-1 overflow-y-auto p-4">
-        <ActiveComponent resource={resource} selection={selection} />
-      </div>
     </div>
   );
 }

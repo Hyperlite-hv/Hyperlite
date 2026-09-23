@@ -80,6 +80,15 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   // mounted while closed, so without the guard it would hit the backend on
   // every page load instead of only when the modal is actually opened.
   useEffect(() => { if (open) reloadTokens(); }, [open]);
+  // Same "stays mounted while closed" consequence for the freshly-created token:
+  // without this, closing and reopening the dialog would still show the
+  // reveal-once token banner from the previous visit instead of a clean modal.
+  useEffect(() => {
+    if (!open) {
+      setFreshToken(null); setCopied(false); setNewTokenName("");
+      setSetupData(null); setConfirmCode(""); setDisablePassword("");
+    }
+  }, [open]);
 
   async function handleCreateToken(e) {
     e.preventDefault();

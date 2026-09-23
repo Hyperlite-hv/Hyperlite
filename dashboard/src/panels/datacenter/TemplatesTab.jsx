@@ -83,7 +83,7 @@ export default function TemplatesTab() {
       <Dialog open={!!deployTarget} onOpenChange={(o) => { if (!o) setDeployTarget(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Deploy "{deployTarget?.nom}"</DialogTitle>
+            <DialogTitle>Deploy {deployTarget?.nom}</DialogTitle>
           </DialogHeader>
           <div>
             <Label htmlFor="deploy-name" className="mb-1.5 text-xs font-medium text-muted-foreground">Name of the new VM</Label>

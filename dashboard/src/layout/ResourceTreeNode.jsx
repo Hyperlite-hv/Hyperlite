@@ -59,7 +59,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
         )}
         <span className="truncate">{node.label}</span>
         {node.badge != null && (
-          <span className="ml-auto text-[11px] text-sidebar-foreground/50 shrink-0">{node.badge}</span>
+          <span className="ml-auto text-[11px] text-sidebar-foreground/70 shrink-0">{node.badge}</span>
         )}
       </div>
       {hasChildren && expanded && (
