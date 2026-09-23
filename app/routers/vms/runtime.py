@@ -88,7 +88,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
                 if domain.isActive():
                     raise HTTPException(status_code=409, detail="Shut down the VM before adding a CD drive")
                 target_dev = payload.target_dev or "hdc"
-                if root.find(f"./devices/disk/target[@dev='{target_dev}']") is not None:
+                if any(target.get("dev") == target_dev for target in root.findall("./devices/disk/target")):
                     raise HTTPException(status_code=409, detail="This target is already used by a disk")
                 new_cdrom_xml = (
                     '<disk type="file" device="cdrom">'
