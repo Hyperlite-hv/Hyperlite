@@ -3,6 +3,7 @@ import { HardDrive } from "lucide-react";
 import { fetchIsoTemplates, fetchVmDisks } from "../../api/client";
 import { detectOsFamily } from "../../utils/osFamily";
 import VmDiskUploadDropzone from "../../components/VmDiskUploadDropzone";
+import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 
 // Three distinct cases on the real backend side (app/core/vm_builder.py +
 // app/core/unattended_install.py + POST /vms):
@@ -34,7 +35,7 @@ export default function StepTemplate({ form, patch }) {
         <button
           type="button"
           className={!importMode ? "btn-primary flex-1 py-1.5! text-xs" : "btn-secondary flex-1 py-1.5! text-xs"}
-          onClick={() => patch({ importDisk: "" })}
+          onClick={() => patch({ importDisk: null })}
         >
           Base image / ISO
         </button>
@@ -118,6 +119,22 @@ export default function StepTemplate({ form, patch }) {
           </div>
         </label>
       ))}
+      {form.iso && (
+        <div className="space-y-2 rounded-md border border-anthracite-600 p-3">
+          <label className="block text-sm text-anthracite-100" htmlFor="drivers-iso">Windows / additional drivers ISO (optional)</label>
+          <select id="drivers-iso" className="input" value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
+            <option value="">None</option>
+            {isos.filter((iso) => iso.nom !== form.iso).map((iso) => <option key={iso.nom} value={iso.nom}>{iso.nom}</option>)}
+          </select>
+          <p className="text-xs text-anthracite-300">
+            Installing Windows? Upload and select the VirtIO Windows driver ISO. It stays in a separate CD drive alongside the Windows installer.
+            At the disk selection screen, choose Load driver and browse to the vioscsi folder for your Windows version and amd64 architecture.
+            After installation, run the VirtIO guest tools from this CD for network and other drivers.
+          </p>
+          <a className="text-xs text-accent-blue underline" href="https://virtio-win.github.io/Knowledge-Base/Driver-installation.html" target="_blank" rel="noreferrer">Get VirtIO Windows drivers and installation instructions</a>
+          <IsoUploadDropzone onDone={() => fetchIsoTemplates().then(setIsos)} />
+        </div>
+      )}
       </>
       )}
     </div>

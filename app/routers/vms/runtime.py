@@ -4,6 +4,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 from xml.sax.saxutils import escape
 
 import libvirt
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 class CdromRequest(BaseModel):
     iso: str
+    target_dev: Literal["hda", "hdb", "hdc", "hdd"] | None = None
 
 
 @router.put("/{name}/cdrom")
@@ -58,7 +60,13 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
         cdrom = None
         if devices_el is not None:
             for disk in devices_el.findall("disk"):
-                if disk.get("device") == "cdrom":
+                target = disk.find("target")
+                if payload.target_dev and target is not None and target.get("dev") == payload.target_dev:
+                    if disk.get("device") != "cdrom":
+                        raise HTTPException(status_code=409, detail="This target is already used by a disk")
+                    cdrom = disk
+                    break
+                if disk.get("device") == "cdrom" and payload.target_dev is None:
                     cdrom = disk
                     break
 
@@ -75,11 +83,18 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
                 new_xml = ET.tostring(cdrom, encoding="unicode")
                 domain.updateDeviceFlags(new_xml, flags)
             else:
+                # IDE drives cannot be hot-plugged. Existing drives can still
+                # change media live, including while Windows Setup is running.
+                if domain.isActive():
+                    raise HTTPException(status_code=409, detail="Shut down the VM before adding a CD drive")
+                target_dev = payload.target_dev or "hdc"
+                if root.find(f"./devices/disk/target[@dev='{target_dev}']") is not None:
+                    raise HTTPException(status_code=409, detail="This target is already used by a disk")
                 new_cdrom_xml = (
                     '<disk type="file" device="cdrom">'
                     '<driver name="qemu" type="raw"/>'
                     f'<source file="{escape(str(iso_path))}"/>'
-                    '<target dev="hdc" bus="ide"/>'
+                    f'<target dev="{target_dev}" bus="ide"/>'
                     "<readonly/>"
                     "</disk>"
                 )
@@ -95,7 +110,11 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
 
 
 @router.delete("/{name}/cdrom")
-def eject_vm_cdrom(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+def eject_vm_cdrom(
+    name: str,
+    target_dev: Literal["hda", "hdb", "hdc", "hdd"] | None = None,
+    user: dict = Depends(require_vm_privilege("vm.hardware")),
+):
     conn = open_conn()
     try:
         try:
@@ -109,7 +128,10 @@ def eject_vm_cdrom(name: str, user: dict = Depends(require_vm_privilege("vm.hard
         cdrom = None
         if devices_el is not None:
             for disk in devices_el.findall("disk"):
-                if disk.get("device") == "cdrom":
+                target = disk.find("target")
+                if disk.get("device") == "cdrom" and (
+                    target_dev is None or (target is not None and target.get("dev") == target_dev)
+                ):
                     cdrom = disk
                     break
         if cdrom is None:

@@ -22,6 +22,7 @@ function initialForm(nodes, networks, defaults) {
   return {
     node: nodes[0]?.id || "",
     iso: "",
+    driversIso: "",
     importDisk: null,
     name: "",
     // Defaults come from the deployment PROFILE (GET /host/profile), already bounded
@@ -85,6 +86,7 @@ export default function VMWizard({ open, onClose }) {
       name: form.name, vcpu: form.vcpu, memory_mb: form.memory_mb,
       disks: form.disks, network: form.network, username: form.username,
       password: form.password, iso: form.iso || null,
+      drivers_iso: form.iso && !form.importDisk ? form.driversIso || null : null,
       import_disk: form.importDisk || null,
       storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? form.autoCleanupDays : null,

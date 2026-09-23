@@ -18,6 +18,9 @@ Hyperlite is a self-hosted virtualization manager: a FastAPI backend that drives
 
 See [docs/features.md](docs/features.md) for details.
 
+For Windows guests, including Windows Server 2025, see [the Windows installation guide](docs/windows.md)
+for attaching VirtIO driver media and making the system disk visible in Windows Setup.
+
 ## Requirements
 
 - A 64-bit x86 Linux host with hardware virtualization (KVM). Debian 12 and 13 are the tested platforms.
