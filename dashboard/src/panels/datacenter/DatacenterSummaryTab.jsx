@@ -1,7 +1,7 @@
 import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Server, MonitorPlay, Square, AlertTriangle, Cpu, MemoryStick, Network, Clock, Plus } from "lucide-react";
+import { Server, MonitorPlay, Square, AlertTriangle, Cpu, MemoryStick, Network, Clock, Plus, ChevronRight } from "lucide-react";
 import StatTile from "../../components/StatTile";
 import StatusBadge from "../../components/StatusBadge";
 import UsageBar from "../../components/UsageBar";
@@ -215,6 +215,7 @@ export default function DatacenterSummaryTab() {
                   <TableHead>Disk</TableHead>
                   <TableHead className="text-right">VMs</TableHead>
                   <TableHead className="text-right">Uptime</TableHead>
+                  <TableHead className="w-6" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -223,7 +224,7 @@ export default function DatacenterSummaryTab() {
                   const diskPct = n.stockage_total_go ? (n.stockage_utilise_go / n.stockage_total_go) * 100 : null;
                   const vmTotal = (n.vms_actives ?? 0) + (n.vms_arretees ?? 0);
                   return (
-                    <TableRow key={n.id} className="cursor-pointer" onClick={() => navigateTo("node", n.id, "summary")}>
+                    <TableRow key={n.id} className="group cursor-pointer" onClick={() => navigateTo("node", n.id, "summary")}>
                       <TableCell>
                         <div className="flex items-center gap-2.5">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-blue/10 text-accent-blue"><Server size={15} /></span>
@@ -239,11 +240,14 @@ export default function DatacenterSummaryTab() {
                       <TableCell><UsageBar pct={diskPct} color={statusColor("avertissement")} /></TableCell>
                       <TableCell className="text-right font-mono text-xs text-muted-foreground">{n.vms_actives ?? 0} / {vmTotal}</TableCell>
                       <TableCell className="text-right font-mono text-xs text-muted-foreground">{n.uptime_s ? formatUptime(n.uptime_s) : "n/a"}</TableCell>
+                      <TableCell>
+                        <ChevronRight size={14} className="text-accent-blue opacity-0 -translate-x-1 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-hover:translate-x-0" />
+                      </TableCell>
                     </TableRow>
                   );
                 })}
                 {enrichedNodes.length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="py-4 text-center text-sm text-muted-foreground">No nodes.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="py-4 text-center text-sm text-muted-foreground">No nodes.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -262,7 +266,7 @@ export default function DatacenterSummaryTab() {
                   tabIndex={onClick ? 0 : undefined}
                   onClick={onClick}
                   onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
-                  className={`flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                  className={`group flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
                 >
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor(etat) }} />
                   <span className="flex-1 font-semibold text-foreground/90">{label}</span>
@@ -270,6 +274,7 @@ export default function DatacenterSummaryTab() {
                   <span className="w-14 text-right font-mono text-xs text-muted-foreground">
                     {totalVms ? `${((count / totalVms) * 100).toFixed(1)}%` : "--"}
                   </span>
+                  <ChevronRight size={14} className={`shrink-0 text-accent-blue transition-[opacity,transform] duration-150 ${onClick ? "opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0" : "opacity-0"}`} />
                 </div>
               );
             })}
@@ -282,7 +287,7 @@ export default function DatacenterSummaryTab() {
                   tabIndex={onClick ? 0 : undefined}
                   onClick={onClick}
                   onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
-                  className={`flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                  className={`group flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
                 >
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/50" />
                   <span className="flex-1 font-semibold text-foreground/90">Other</span>
@@ -290,6 +295,7 @@ export default function DatacenterSummaryTab() {
                   <span className="w-14 text-right font-mono text-xs text-muted-foreground">
                     {totalVms ? `${((autreCount / totalVms) * 100).toFixed(1)}%` : "--"}
                   </span>
+                  <ChevronRight size={14} className={`shrink-0 text-accent-blue transition-[opacity,transform] duration-150 ${onClick ? "opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0" : "opacity-0"}`} />
                 </div>
               );
             })()}
@@ -324,14 +330,15 @@ export default function DatacenterSummaryTab() {
                 <TableHead>User</TableHead>
                 <TableHead>Task</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-6" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {recentTasks == null && (
-                <TableRow><TableCell colSpan={5} className="py-3 text-sm text-muted-foreground"><LoadingState /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-3 text-sm text-muted-foreground"><LoadingState /></TableCell></TableRow>
               )}
               {recentTasks && recentTasks.length === 0 && (
-                <TableRow><TableCell colSpan={5} className="py-3 text-sm text-muted-foreground">No recent activity.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-3 text-sm text-muted-foreground">No recent activity.</TableCell></TableRow>
               )}
               {recentTasks && recentTasks.map((t) => {
                 // Link each row to the most specific resource still around: the VM it
@@ -343,7 +350,7 @@ export default function DatacenterSummaryTab() {
                   : targetNode ? () => navigateTo("node", targetNode.id, "summary")
                   : undefined;
                 return (
-                <TableRow key={t.id} className={rowClick ? "cursor-pointer" : ""} onClick={rowClick}>
+                <TableRow key={t.id} className={`group ${rowClick ? "cursor-pointer" : "hover:bg-transparent"}`} onClick={rowClick}>
                   <TableCell className="font-mono text-xs text-muted-foreground">{formatHeure(t.cree_le)}</TableCell>
                   <TableCell className="text-foreground/90">{t.node || "local"}</TableCell>
                   <TableCell className="text-foreground/90">{t.username || "--"}</TableCell>
@@ -358,6 +365,11 @@ export default function DatacenterSummaryTab() {
                       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor(STATUT_ETAT[t.statut]) }} />
                       {STATUT_LABEL[t.statut] || t.statut}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    {rowClick && (
+                      <ChevronRight size={14} className="text-accent-blue opacity-0 -translate-x-1 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-hover:translate-x-0" />
+                    )}
                   </TableCell>
                 </TableRow>
                 );
