@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 // Self-service panel opened from the user menu (Header.jsx), not a Datacenter
 // tab: these are settings of the signed-in ACCOUNT, not of the managed
 // infrastructure.
-export default function AccountSecurityModal({ onClose }) {
+export default function AccountSecurityModal({ open, onClose }) {
   const totpEnabled = useAuthStore((s) => s.totpEnabled);
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -76,7 +76,10 @@ export default function AccountSecurityModal({ onClose }) {
   const [busyToken, setBusyToken] = useState(false);
 
   const reloadTokens = () => fetchApiTokens().then(setTokens).catch(() => {});
-  useEffect(() => { reloadTokens(); }, []);
+  // Guarded on `open`: see the note in VMWizard.jsx — this component now stays
+  // mounted while closed, so without the guard it would hit the backend on
+  // every page load instead of only when the modal is actually opened.
+  useEffect(() => { if (open) reloadTokens(); }, [open]);
 
   async function handleCreateToken(e) {
     e.preventDefault();
@@ -113,7 +116,7 @@ export default function AccountSecurityModal({ onClose }) {
   }
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="w-[560px] max-w-full max-h-[85vh] overflow-y-auto space-y-6">
         <DialogHeader>
           <DialogTitle>Account security</DialogTitle>

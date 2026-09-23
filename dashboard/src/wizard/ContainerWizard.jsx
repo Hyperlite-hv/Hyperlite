@@ -38,7 +38,8 @@ export default function ContainerWizard({ open, onClose }) {
     return () => clearTimeout(id);
   }, [dockerQuery, form.image]);
 
-  if (!open) return null;
+  // No `if (!open) return null` here: see the note in VMWizard.jsx — it would
+  // unmount the <Dialog> itself and skip Radix's close animation / focus-restore.
 
   function patch(fields) {
     setForm((f) => ({ ...f, ...fields }));

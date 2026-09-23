@@ -30,15 +30,19 @@ function shortVersion(v) {
   if (!v) return v;
   return v.includes(".") ? v : v.slice(0, 8);
 }
-export default function UpdateModal({ onClose }) {
+export default function UpdateModal({ open, onClose }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting | ok | failed
   const [task, setTask] = useState(null);
 
   useEffect(() => {
+    // Guarded on `open`: the component now stays mounted while closed (see the
+    // note in VMWizard.jsx), so without this it would call the backend on
+    // every page load instead of only when the modal is actually opened.
+    if (!open) return;
     fetchUpdateCheck().then(setInfo).catch((e) => setError(e.message));
-  }, []);
+  }, [open]);
 
   async function handleApply() {
     setPhase("updating");
@@ -83,7 +87,7 @@ export default function UpdateModal({ onClose }) {
   const currentStepIdx = task ? STEP_ORDER.findIndex(([pct]) => pct >= (task.progres ?? 0)) : -1;
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="w-[520px] max-w-[90vw]">
         <DialogHeader>
           <DialogTitle>Hyperlite update</DialogTitle>

@@ -67,7 +67,12 @@ export default function VMWizard({ open, onClose }) {
     return () => { alive = false; };
   }, [open]);
 
-  if (!open) return null;
+  // No `if (!open) return null` here: that would unmount the <Dialog> element
+  // itself the instant it closes, which skips Radix's own close animation AND
+  // its focus-restore-to-trigger behavior (both rely on the Dialog staying
+  // mounted while its internal Presence handles hiding the content). `open`
+  // is passed straight through to Radix, which already renders nothing while
+  // closed.
 
   function patch(fields) {
     setForm((f) => ({ ...f, ...fields }));
