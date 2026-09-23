@@ -100,3 +100,18 @@ def test_driver_iso_path_is_xml_escaped():
     path = "/isos/drivers & 'tools'.iso"
     xml = build(drivers_iso_path=path)
     assert xml.find("devices/disk/target[@dev='hdd']/../source").get("file") == path
+
+
+def test_windows_profile_uses_native_sata_and_network_devices():
+    xml = build(iso_path="/isos/windows-server-2025.iso", disk_bus="sata", interface_model="e1000e")
+    disk = xml.find("devices/disk[@device='disk']")
+    assert disk.find("target").get("bus") == "sata"
+    assert xml.find("devices/controller[@type='scsi']") is None
+    assert xml.find("devices/interface/model").get("type") == "e1000e"
+
+
+def test_windows_iso_detection():
+    from app.core.unattended_install import detect_windows
+
+    assert detect_windows("fr-fr_windows_server_2025_x64.iso")
+    assert not detect_windows("ubuntu-26.04-live-server.iso")
