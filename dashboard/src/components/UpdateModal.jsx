@@ -43,6 +43,12 @@ export default function UpdateModal({ open, onClose, triggerRef }) {
     if (!open) return;
     fetchUpdateCheck().then(setInfo).catch((e) => setError(e.message));
   }, [open]);
+  // Same "stays mounted while closed" consequence: without resetting these,
+  // closing the dialog after a failed/finished update and reopening it would
+  // show that stale outcome instead of a fresh check.
+  useEffect(() => {
+    if (!open) { setPhase("idle"); setTask(null); setError(null); }
+  }, [open]);
 
   async function handleApply() {
     setPhase("updating");

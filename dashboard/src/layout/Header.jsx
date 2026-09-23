@@ -77,7 +77,7 @@ export default function Header() {
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-card px-4 md:gap-4 md:px-6">
-      <SidebarTrigger className="md:hidden" />
+      <SidebarTrigger aria-label="Open navigation" className="md:hidden" />
 
       {/* Not just CSS-hidden below md: conditionally UNMOUNTED, so its "Datacenter"
           root-crumb text does not sit ahead of the always-visible page title (see
@@ -95,7 +95,7 @@ export default function Header() {
 
       <div className="flex items-center gap-2 shrink-0">
         {isAdmin && (
-          <Button ref={createVmTriggerRef} className="rounded-full" onClick={() => setWizardOpen(true)}>
+          <Button ref={createVmTriggerRef} aria-label="Create VM" className="rounded-full" onClick={() => setWizardOpen(true)}>
             <Plus /> <span className="hidden sm:inline">Create VM</span>
           </Button>
         )}
