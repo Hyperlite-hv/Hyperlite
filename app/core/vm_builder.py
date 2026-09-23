@@ -365,6 +365,7 @@ def build_domain_xml(
     kernel_path=None,
     initrd_path=None,
     kernel_cmdline=None,
+    drivers_iso_path=None,
 ):
     # Boot order PER DEVICE (<boot order='N'/> on each <disk>) rather than the
     # global <os><boot dev=.../></os> list: SeaBIOS does not reliably fall back
@@ -461,6 +462,18 @@ def build_domain_xml(
       <target dev='hdb' bus='ide'/>
     </disk>"""
 
+    # Windows Setup needs the VirtIO SCSI driver before it can see the system disk.
+    # Keep driver media on its own IDE drive, readable without a VirtIO driver,
+    # and never include it in the boot order.
+    drivers_xml = ""
+    if drivers_iso_path:
+        driver_cd = ET.Element("disk", {"type": "file", "device": "cdrom"})
+        ET.SubElement(driver_cd, "driver", {"name": "qemu", "type": "raw"})
+        ET.SubElement(driver_cd, "source", {"file": str(drivers_iso_path)})
+        ET.SubElement(driver_cd, "target", {"dev": "hdd", "bus": "ide"})
+        ET.SubElement(driver_cd, "readonly")
+        drivers_xml = ET.tostring(driver_cd, encoding="unicode")
+
     # Explicit mac (see app/core/network_alloc.py): it allows reserving a fixed IP on
     # the libvirt network side before even defining the domain, instead of letting
     # libvirt generate a random one.
@@ -509,7 +522,7 @@ def build_domain_xml(
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}
+    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}{drivers_xml}
     <interface type='network'>
       <source network='{network}'/>
       {mac_xml}<model type='virtio'/>

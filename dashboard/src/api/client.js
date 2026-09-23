@@ -50,6 +50,14 @@ function jsonBody(payload) {
   return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
 }
 
+export function mountVMDriversIso(name, iso) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cdrom`, { method: "PUT", ...jsonBody({ iso, target_dev: "hdd" }) });
+}
+
+export function ejectVMDriversIso(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cdrom?target_dev=hdd`, { method: "DELETE" });
+}
+
 // Per-VM resource limits derived from the real host (GET /host/limits), which
 // replace the 1-2 vCPU / 256-2048 MB bounds that were hard-coded in the forms.
 export async function fetchHostLimits() {

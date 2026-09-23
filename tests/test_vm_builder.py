@@ -75,3 +75,28 @@ def test_network_interface_uses_the_requested_network():
 def test_special_characters_in_names_cannot_inject_xml():
     xml = build(vm_name="vm1", network="default")
     assert xml.tag == "domain"
+
+
+def test_windows_driver_media_does_not_replace_or_boot_before_installer():
+    xml = build(cloudinit_path=None, iso_path="/isos/windows.iso", drivers_iso_path="/isos/virtio-win.iso")
+    cds = {d.find("target").get("dev"): d for d in xml.findall("devices/disk[@device='cdrom']")}
+    assert set(cds) == {"hda", "hdd"}
+    assert cds["hda"].find("source").get("file") == "/isos/windows.iso"
+    assert cds["hda"].find("boot").get("order") == "2"
+    assert cds["hdd"].find("source").get("file") == "/isos/virtio-win.iso"
+    assert cds["hdd"].find("target").get("bus") == "ide"
+    assert cds["hdd"].find("readonly") is not None
+    assert cds["hdd"].find("boot") is None
+    assert xml.find("devices/controller[@type='scsi']").get("model") == "virtio-scsi"
+
+
+def test_driver_media_has_unique_target_with_linux_seed_media():
+    xml = build(iso_path="/isos/linux.iso", seed_iso_path="/images/seed.iso", drivers_iso_path="/isos/extra.iso")
+    targets = [d.find("target").get("dev") for d in xml.findall("devices/disk")]
+    assert len(targets) == len(set(targets))
+
+
+def test_driver_iso_path_is_xml_escaped():
+    path = "/isos/drivers & 'tools'.iso"
+    xml = build(drivers_iso_path=path)
+    assert xml.find("devices/disk/target[@dev='hdd']/../source").get("file") == path

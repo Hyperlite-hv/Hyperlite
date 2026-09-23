@@ -23,6 +23,7 @@ export default function StepReview({ form, nodes }) {
     ["Node", nodeName],
     ["Name", form.name || "--"],
     ["ISO", form.iso || "None"],
+    ["Drivers ISO", form.iso ? form.driversIso || "None" : "None"],
     ["System disk", !installMode ? "Debian 12 preinstalled" : `Blank (${osFamily ? FAMILY_LABEL[osFamily] : "manual installation"})`],
     ["vCPU", form.vcpu],
     ["Memory", `${form.memory_mb} MB`],
