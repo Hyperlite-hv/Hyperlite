@@ -1,52 +1,55 @@
-# Installing Windows guests
+# Installing Windows Server guests
 
-Hyperlite presents VM disks through a **VirtIO SCSI** controller and the network
-adapter through VirtIO. Windows installation media does not normally include these
-drivers: an empty disk selection screen does not mean that the virtual disk is missing.
+## New VM
 
-## New VM (including Windows Server 2025)
+1. Upload the Windows Server installation ISO under **Storage**.
+2. Select it in **Create VM**. Hyperlite detects common Windows ISO filenames.
+   For a renamed ISO, select **Windows / Windows Server** under **Operating system**.
+3. Set the name and review resources. Selecting Windows raises the suggested
+   minimums to 2 vCPUs, 4 GiB RAM and a 64 GB system disk. Host allocation limits
+   still apply; adjust resources for your workload and Windows edition.
+4. Create and start the VM. Open the console, press a key to boot the DVD if
+   requested, and follow Windows Setup normally.
 
-1. Obtain your Windows installation ISO and a recent signed VirtIO Windows driver
-   ISO from the [VirtIO project](https://virtio-win.github.io/Knowledge-Base/Driver-installation.html).
-   Use a release supporting your Windows version; old driver media may not support Server 2025.
-2. Upload the Windows ISO in **Storage**. In the VM wizard select it as the installation ISO.
-3. Upload the driver ISO using the upload control below **Windows / additional drivers ISO**,
-   then select it in that dropdown. The upload does not select the ISO automatically.
-4. Allocate sufficient CPU, memory and disk space for your Windows edition. Create and
-   start the VM, open the VNC console, and press a key to boot the Windows DVD when prompted.
-5. At the Windows disk selection screen, choose **Load driver**, browse the separate
-   VirtIO CD and select **vioscsi**, your Windows version and **amd64**. Keep the option
-   to hide incompatible drivers enabled. The controller is VirtIO SCSI, so use
-   `vioscsi`, not `viostor` (which is for VirtIO block disks).
-6. Once the disk appears, continue the installation. Both ISOs remain mounted; after
-   the first reboot, let Windows boot from its system disk rather than pressing a key
-   to restart the DVD installer.
-7. In Windows, run the VirtIO guest-tools installer from the driver CD to install the
-   network driver (NetKVM) and other guest drivers. Reboot if requested.
+The Windows profile uses a SATA (AHCI) disk controller so Windows Setup does not
+need a separate storage driver ISO. It uses an emulated Intel `e1000e` network
+adapter. Linux guests keep VirtIO SCSI and VirtIO networking. The choice is applied
+at creation; existing guests and imported disks are not automatically converted.
 
-The driver CD is a read-only IDE device (`hdd`), which Windows Setup can read before
-loading VirtIO drivers. It has no boot priority. The installation DVD remains `hda`.
-Existing Linux creation and unattended-installation behavior is unchanged.
+Disks appear as **Disk 1 (system)**, **Disk 2**, etc. in the wizard. The separate
+**Disk controller** selector offers **Automatic**, **SATA** and **VirtIO SCSI**.
+Automatic selects SATA for Windows and generic installation media, and VirtIO SCSI for Linux.
+Overriding it to VirtIO SCSI for Windows requires loading the corresponding driver
+during Setup. Hyperlite's VirtIO SCSI is not the same controller as VMware SCSI.
 
-## An existing VM is stuck at disk selection
+Additional driver media is available under the collapsed **Advanced: additional
+drivers** section. It is optional for SATA storage. Changing a running installation's
+disk controller requires preparing the appropriate boot driver first; installing
+guest tools alone does not change the VM's hardware.
 
-Upload the VirtIO ISO under **Storage**. In the VM's **Hardware** tab, select it under
-**Windows drivers CD (hdd)** and click **Mount drivers**. If that CD drive does not
-exist yet, shut down the VM before adding it, then start the VM again. Existing CD
-drives support media changes while running. Load `vioscsi` in Windows Setup as above.
-This does not recreate, format or change the disk controller of the VM.
+## Existing VM with VirtIO SCSI disks
 
-**Eject drivers** removes only the media in `hdd`, leaving the installation DVD alone.
+If an older Windows VM has no visible disk in Setup, obtain compatible signed
+drivers from the [VirtIO project](https://virtio-win.github.io/Knowledge-Base/Driver-installation.html).
+Upload its ISO in **Storage**, shut down the VM and mount it using **Hardware →
+Windows drivers CD (hdd) → Mount drivers**. Start the VM and choose **Load driver**
+in Windows Setup, then browse to `vioscsi`, the matching Windows version and `amd64`.
+The Windows installation DVD remains in its own drive. Ejecting the driver ISO
+affects only `hdd`.
 
-## Scope and verification
+## Scope
 
-This feature supplies driver media; it does not automate Windows Setup, provide a
-Windows license, or configure UEFI, Secure Boot or a TPM. Check the firmware and
-hardware requirements of your chosen Windows edition separately (especially Windows 11).
-Driver loading and a full installation must be verified on a suitable KVM host;
-unit tests of domain XML alone do not establish Windows compatibility.
+This simplifies virtual hardware selection; Windows Setup remains interactive.
+Hyperlite does not supply Windows licenses or installation media. The profile does
+not configure UEFI, Secure Boot or a TPM, and is not a complete Windows 11 profile.
+Guest installation and networking must be validated with the selected Windows media
+on a suitable KVM host; XML/unit tests alone do not establish guest compatibility.
 
-The creation API accepts optional `drivers_iso` alongside `iso` (uploaded filenames).
-The existing CD-ROM endpoints accept an optional IDE `target_dev`: in the PUT body
-for mounting, or as a DELETE query parameter for ejection. Omitting it preserves
-the previous first-CD behavior.
+See the [compatibility matrix](guest-compatibility.md) for other guest families and
+the remaining work toward broader OS support.
+
+The API accepts `guest_os` (`auto`, `windows`, `linux`, `other`; default `auto`) and optional
+`drivers_iso` alongside the installation `iso`. Automatic detection uses the filename,
+not the contents of the ISO. Use an explicit profile for ambiguous names.
+`disk_controller` accepts `auto`, `sata` or `virtio-scsi`; default `auto` follows
+the guest profile. An explicit controller also applies to disk imports.

@@ -23,8 +23,7 @@ class DiskAttach(BaseModel):
     target_dev: str = "sdb"
 
 
-# libvirt bus to use depending on the target_dev prefix, to stay consistent with
-# the virtio-scsi controller (sd*) set up by build_domain_xml on all VMs.
+# Default buses for older guests; SATA guests inherit their existing disk bus.
 DEV_BUS_PREFIXES = {"sd": "scsi", "vd": "virtio", "hd": "ide"}
 
 
@@ -41,6 +40,13 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
         except libvirt.libvirtError:
             log_action(user["username"], "attach_disk", name, "echec", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+
+        if payload.target_dev.startswith("sd"):
+            root = ET.fromstring(domain.XMLDesc(0))
+            if any(t.get("bus") == "sata" for t in root.findall("./devices/disk[@device='disk']/target")):
+                bus = "sata"
+                if domain.isActive():
+                    raise HTTPException(status_code=409, detail="Shut down the VM before adding a SATA disk")
 
         try:
             pool = conn.storagePoolLookupByName(payload.pool)
@@ -268,11 +274,14 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
             raise HTTPException(status_code=404, detail=f"Network '{payload.network}' not found") from None
 
         vlan_xml = f"<vlan><tag id='{payload.vlan_tag}'/></vlan>" if payload.vlan_tag is not None else ""
+        root = ET.fromstring(domain.XMLDesc(0))
+        model = root.find("./devices/interface/model")
+        interface_model = "e1000e" if model is not None and model.get("type") == "e1000e" else "virtio"
         iface_xml = f"""
         <interface type='network'>
           <source network='{payload.network}'/>
           {vlan_xml}
-          <model type='virtio'/>
+          <model type='{interface_model}'/>
         </interface>
         """
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
