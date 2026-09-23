@@ -8,7 +8,7 @@ import StepNetwork from "./steps/StepNetwork";
 import StepReview from "./steps/StepReview";
 import { useInfraStore } from "../store/useInfraStore";
 import { createVM, fetchHostProfile } from "../api/client";
-import { detectOsFamily } from "../utils/osFamily";
+import { installationFamily, isWindowsInstall } from "../utils/osFamily";
 
 const STEPS = [
   { id: "node", label: "Node", Component: StepNode },
@@ -23,6 +23,8 @@ function initialForm(nodes, networks, defaults) {
     node: nodes[0]?.id || "",
     iso: "",
     driversIso: "",
+    guestOs: "auto",
+    diskController: "auto",
     importDisk: null,
     name: "",
     // Defaults come from the deployment PROFILE (GET /host/profile), already bounded
@@ -71,7 +73,14 @@ export default function VMWizard({ open, onClose }) {
   if (!open) return null;
 
   function patch(fields) {
-    setForm((f) => ({ ...f, ...fields }));
+    setForm((f) => {
+      const next = { ...f, ...fields };
+      if (isWindowsInstall(next) && !isWindowsInstall(f)) {
+        return { ...next, driversIso: "", vcpu: Math.max(next.vcpu, 2), memory_mb: Math.max(next.memory_mb, 4096),
+          disks: next.disks.map((d, i) => i === 0 ? { ...d, size_gb: Math.max(d.size_gb, 64) } : d) };
+      }
+      return next;
+    });
   }
 
   function reset() {
@@ -87,6 +96,8 @@ export default function VMWizard({ open, onClose }) {
       disks: form.disks, network: form.network, username: form.username,
       password: form.password, iso: form.iso || null,
       drivers_iso: form.iso && !form.importDisk ? form.driversIso || null : null,
+      guest_os: form.guestOs,
+      disk_controller: form.diskController,
       import_disk: form.importDisk || null,
       storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? form.autoCleanupDays : null,
@@ -110,7 +121,7 @@ export default function VMWizard({ open, onClose }) {
   // StepTemplate/StepResources/detectOsFamily). Without an ISO (cloud-init) or with
   // a recognized ISO (unattended installation), the account is indeed created by
   // Hyperlite, so it is always required here.
-  const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
+  const manualInstall = Boolean(form.iso) && !installationFamily(form);
   const importMode = form.importDisk != null;
   const canNext = stepIndex !== 2 || (form.name && (importMode ? Boolean(form.importDisk) : (manualInstall || (form.username && form.password.length >= 4))));
 

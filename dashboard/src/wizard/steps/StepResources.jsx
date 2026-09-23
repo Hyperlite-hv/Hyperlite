@@ -1,5 +1,5 @@
 import { Plus, X } from "lucide-react";
-import { detectOsFamily } from "../../utils/osFamily";
+import { diskController, guestProfile, installationFamily } from "../../utils/osFamily";
 import { useHostLimits } from "../../hooks/useHostLimits";
 import OverallocationNote from "../../components/OverallocationNote";
 
@@ -13,7 +13,7 @@ export default function StepResources({ form, patch, storagePools = [] }) {
   // app/routers/vms.py::create_vm), and only ACTIVE pools, since an inactive pool
   // would make the VM creation fail.
   const selectablePools = storagePools.filter((p) => ["dir", "netfs", "zfs"].includes(p.type) && p.etat === "actif");
-  const manualInstall = Boolean(form.iso) && !detectOsFamily(form.iso);
+  const manualInstall = Boolean(form.iso) && !installationFamily(form);
   const importMode = form.importDisk != null;
   function updateDisk(i, size_gb) {
     const disks = form.disks.map((d, idx) => (idx === i ? { size_gb } : d));
@@ -48,11 +48,24 @@ export default function StepResources({ form, patch, storagePools = [] }) {
       <OverallocationNote limits={limits} vcpu={form.vcpu} memoryMb={form.memory_mb} diskGb={Math.max(0, ...form.disks.map((d) => d.size_gb || 0))} />
 
       <div>
+        <label htmlFor="disk-controller" className="text-xs font-medium text-anthracite-300">Disk controller</label>
+        <select id="disk-controller" className="input mt-1" value={form.diskController || "auto"} onChange={(e) => patch({ diskController: e.target.value })}>
+          <option value="auto">Automatic (recommended): {guestProfile(form) === "linux" ? "VirtIO SCSI" : "SATA"}</option>
+          <option value="sata">SATA — compatible with Windows Setup</option>
+          <option value="virtio-scsi">VirtIO SCSI — optimized performance</option>
+        </select>
+        <p className="mt-1 text-xs text-anthracite-400">
+          {diskController(form) === "sata" ? "Standard AHCI storage. Modern Windows installers include the driver." : guestProfile(form) === "windows" ? "Windows requires VirtIO SCSI drivers. Add the driver ISO in Template → Advanced: additional drivers." : "The guest OS must include VirtIO SCSI drivers. Choose SATA for installers without them."}
+          {importMode && " For an imported disk, select a controller whose boot driver is already installed in the guest."}
+        </p>
+      </div>
+
+      <div>
         <label className="text-xs font-medium text-anthracite-300">Disks (GB)</label>
         <div className="mt-1 space-y-1.5">
           {form.disks.map((d, i) => (
             <div key={i} className="flex items-center gap-2">
-              <span className="w-10 font-mono text-xs text-anthracite-400">sd{String.fromCharCode(97 + i)}</span>
+              <span className="w-28 shrink-0 text-xs text-anthracite-400">Disk {i + 1}{i === 0 ? " (system)" : ""}</span>
               {importMode && i === 0 ? (
                 <span className="input flex items-center text-anthracite-400">Size of the imported disk (ignored)</span>
               ) : (
