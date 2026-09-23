@@ -1,4 +1,5 @@
 import LoadingState from "../../components/LoadingState";
+import DriversIsoControl from "../../components/DriversIsoControl";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
 import { Cpu, MemoryStick, HardDrive, Network, Trash2, Plus } from "lucide-react";
@@ -89,7 +90,7 @@ function DiskSection({ vmName, isAdmin }) {
           <div key={d.cible} className="flex items-center gap-3 px-4 py-2.5 text-sm">
             <span className="font-mono text-anthracite-100 w-16">{d.cible}</span>
             <span className="text-anthracite-400 text-xs">{d.bus || "?"}</span>
-            <span className="text-anthracite-300 flex-1 truncate">{d.type === "cdrom" ? "cloud-init / ISO" : d.source}</span>
+            <span className="text-anthracite-300 flex-1 truncate">{d.source || "Empty drive"}</span>
             {isAdmin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && (
               <button aria-label={`Detach disk ${d.cible}`} className="btn-danger" disabled={busy} onClick={() => handleDetach(d.cible)}><Trash2 size={13} /></button>
             )}
@@ -97,6 +98,9 @@ function DiskSection({ vmName, isAdmin }) {
         ))}
       </div>
 
+      {isAdmin && (
+        <DriversIsoControl vmName={vmName} onChanged={reload} />
+      )}
       {isAdmin && (
         <div className="px-4 py-3 border-t border-anthracite-600 space-y-2">
           <div className="text-xs font-medium text-anthracite-300">Add a device</div>
