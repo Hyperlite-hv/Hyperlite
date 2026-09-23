@@ -176,7 +176,11 @@ export default function CentralPanel() {
             <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value={activeTab} tabIndex={0} className="min-h-0 overflow-y-auto p-4">
+        <TabsContent
+          value={activeTab}
+          tabIndex={0}
+          className="min-h-0 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-blue"
+        >
           <ActiveComponent resource={resource} selection={selection} />
         </TabsContent>
       </Tabs>
