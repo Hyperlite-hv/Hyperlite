@@ -8,6 +8,10 @@ function Table({
   return (
     <div
       data-slot="table-container"
+      // Keyboard-reachable when it actually scrolls (a wide table under a
+      // narrower viewport): this is the real overflow-x-auto container, not
+      // whatever wrapper a caller puts around <Table> itself.
+      tabIndex={0}
       className="relative w-full overflow-x-auto"
     >
       <table

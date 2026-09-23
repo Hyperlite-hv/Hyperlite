@@ -359,8 +359,13 @@ export default function DatacenterSummaryTab() {
                     {t.cible && <span className="text-muted-foreground"> — {t.cible}</span>}
                   </TableCell>
                   <TableCell>
-                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{
-                      backgroundColor: `${statusColor(STATUT_ETAT[t.statut])}1A`, color: statusColor(STATUT_ETAT[t.statut]),
+                    {/* Text stays a solid neutral color rather than the status hue
+                        itself: statusColor() values are tuned for the small dot /
+                        chart lines, not for text-on-their-own-10%-tint, which falls
+                        well under 4.5:1 for every one of them (~3:1). Same
+                        colored-dot-plus-neutral-label pattern as StatusBadge.jsx. */}
+                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-foreground/90" style={{
+                      backgroundColor: `${statusColor(STATUT_ETAT[t.statut])}1A`,
                     }}>
                       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor(STATUT_ETAT[t.statut]) }} />
                       {STATUT_LABEL[t.statut] || t.statut}

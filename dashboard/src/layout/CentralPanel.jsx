@@ -179,7 +179,10 @@ export default function CentralPanel() {
         <TabsContent
           value={activeTab}
           tabIndex={0}
-          className="min-h-0 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-blue"
+          // ring-inset (not the default outset ring): this element is the
+          // scrollable region itself (overflow-y-auto), which would otherwise
+          // clip its own focus ring at the edges.
+          className="min-h-0 overflow-y-auto p-4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-blue/50"
         >
           <ActiveComponent resource={resource} selection={selection} />
         </TabsContent>
