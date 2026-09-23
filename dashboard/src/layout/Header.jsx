@@ -138,20 +138,20 @@ export default function Header() {
               {username} <span className="text-xs font-normal text-muted-foreground">({isAdmin ? "admin" : "observer"})</span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={toggleTheme}>
+            <DropdownMenuItem role="button" onClick={toggleTheme}>
               {theme === "dark" ? <Sun /> : <Moon />}
               {theme === "dark" ? "Light mode" : "Dark mode"}
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setUpdateOpen(true)}>
+              <DropdownMenuItem role="button" onClick={() => setUpdateOpen(true)}>
                 <RefreshCw /> Check for updates
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={() => setSecurityOpen(true)}>
+            <DropdownMenuItem role="button" onClick={() => setSecurityOpen(true)}>
               <ShieldIcon /> Account security
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={logout} variant="destructive">
+            <DropdownMenuItem role="button" onClick={logout} variant="destructive">
               <LogOut /> Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -160,8 +160,8 @@ export default function Header() {
 
       <VMWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <ContainerWizard open={containerWizardOpen} onClose={() => setContainerWizardOpen(false)} />
-      {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} />}
-      {securityOpen && <AccountSecurityModal onClose={() => setSecurityOpen(false)} />}
+      <UpdateModal open={updateOpen} onClose={() => setUpdateOpen(false)} />
+      <AccountSecurityModal open={securityOpen} onClose={() => setSecurityOpen(false)} />
     </header>
   );
 }

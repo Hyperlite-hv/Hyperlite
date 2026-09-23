@@ -150,11 +150,6 @@ export default function CentralPanel() {
     );
   }
 
-  // The Datacenter level's tab strip was removed here on purpose: every one of
-  // its tabs is already reachable from the sidebar rail (Sidebar.jsx), and
-  // showing both was a duplicated navigation path (flagged in the UI audit).
-  // Node/VM levels keep a tab strip since the rail has no equivalent for them.
-  const isDatacenter = selection.type === "datacenter";
   const tabSet = selection.type === "node" ? NODE_TABS : selection.type === "vm" ? VM_TABS : DATACENTER_TABS;
   const resource = selection.type === "vm" ? vms.find((v) => v.nom === selection.id)
     : selection.type === "node" ? nodes.find((n) => n.id === selection.id)
@@ -168,15 +163,13 @@ export default function CentralPanel() {
         {resource?.etat && <StatusBadge etat={resource.etat} />}
         {resource?.alerte && <span className="text-xs text-status-warning">{resource.alerte}</span>}
       </div>
-      {!isDatacenter && (
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList variant="line" className="px-4 border-b border-border w-full justify-start overflow-x-auto">
-            {tabSet.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      )}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList variant="line" className="px-4 border-b border-border w-full justify-start overflow-x-auto">
+          {tabSet.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
       <div className="flex-1 overflow-y-auto p-4">
         <ActiveComponent resource={resource} selection={selection} />
       </div>
