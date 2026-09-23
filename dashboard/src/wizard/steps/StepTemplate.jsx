@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { HardDrive } from "lucide-react";
 import { fetchIsoTemplates, fetchVmDisks } from "../../api/client";
-import { detectOsFamily } from "../../utils/osFamily";
+import { installationFamily, diskController, isWindowsInstall } from "../../utils/osFamily";
 import VmDiskUploadDropzone from "../../components/VmDiskUploadDropzone";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 
@@ -23,7 +23,8 @@ export default function StepTemplate({ form, patch }) {
   useEffect(() => { fetchIsoTemplates().then(setIsos); }, []);
   const reloadDisks = () => fetchVmDisks().then(setDisks);
   useEffect(() => { reloadDisks(); }, []);
-  const osFamily = detectOsFamily(form.iso);
+  const osFamily = installationFamily(form);
+  const windowsInstall = isWindowsInstall(form);
   const importMode = form.importDisk != null;
   useEffect(() => {
     if (importMode && !form.importDisk && disks.length > 0) patch({ importDisk: disks[0].nom });
@@ -82,6 +83,12 @@ export default function StepTemplate({ form, patch }) {
             Base image: <span className="text-anthracite-100 font-medium">Debian 12 (cloud-init)</span>
             <div className="text-xs text-anthracite-400 mt-0.5">Preinstalled and ready to use (user/password defined in the next step).</div>
           </>
+        ) : windowsInstall ? (
+          <>
+            Windows installation: <span className="text-anthracite-100 font-medium">manual installation</span>
+            <div className="text-xs text-anthracite-400 mt-0.5">{diskController(form) === "sata" ? "No storage driver ISO needed. Create the VM, start it and follow Windows Setup in the console." : "VirtIO SCSI selected: add its Windows driver ISO under Advanced below, or choose Automatic / SATA in the resources step."}</div>
+            <div className="text-xs text-anthracite-300 mt-1">Legacy BIOS only. Windows 11 requirements (UEFI, Secure Boot capability and TPM 2.0) are not provided by this profile.</div>
+          </>
         ) : osFamily === "kickstart" ? (
           <>
             System disk: <span className="text-anthracite-100 font-medium">blank, unattended installation (Kickstart)</span>
@@ -120,20 +127,29 @@ export default function StepTemplate({ form, patch }) {
         </label>
       ))}
       {form.iso && (
-        <div className="space-y-2 rounded-md border border-anthracite-600 p-3">
+        <>
+        <label className="block text-sm text-anthracite-100" htmlFor="guest-os">Operating system</label>
+        <select id="guest-os" className="input" value={form.guestOs || "auto"} onChange={(e) => patch({ guestOs: e.target.value })}>
+          <option value="auto">Detect automatically</option>
+          <option value="windows">Windows / Windows Server</option>
+          <option value="linux">Linux (VirtIO)</option>
+          <option value="other">Other / generic (SATA, Intel E1000e)</option>
+        </select>
+        <p className="text-xs text-anthracite-400">Automatic detection uses the ISO filename. Unknown media uses generic hardware. Guests must support x86-64 legacy BIOS; a hardware profile does not certify OS compatibility.</p>
+        <details className="space-y-2 rounded-md border border-anthracite-600 p-3">
+          <summary className="cursor-pointer text-sm text-anthracite-300">Advanced: additional drivers</summary>
           <label className="block text-sm text-anthracite-100" htmlFor="drivers-iso">Windows / additional drivers ISO (optional)</label>
           <select id="drivers-iso" className="input" value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
             <option value="">None</option>
             {isos.filter((iso) => iso.nom !== form.iso).map((iso) => <option key={iso.nom} value={iso.nom}>{iso.nom}</option>)}
           </select>
           <p className="text-xs text-anthracite-300">
-            Installing Windows? Upload and select the VirtIO Windows driver ISO. It stays in a separate CD drive alongside the Windows installer.
-            At the disk selection screen, choose Load driver and browse to the vioscsi folder for your Windows version and amd64 architecture.
-            After installation, run the VirtIO guest tools from this CD for network and other drivers.
+            Optional media for additional guest drivers. SATA needs no extra storage driver; VirtIO SCSI requires its driver during Windows Setup.
           </p>
           <a className="text-xs text-accent-blue underline" href="https://virtio-win.github.io/Knowledge-Base/Driver-installation.html" target="_blank" rel="noreferrer">Get VirtIO Windows drivers and installation instructions</a>
           <IsoUploadDropzone onDone={() => fetchIsoTemplates().then(setIsos)} />
-        </div>
+        </details>
+        </>
       )}
       </>
       )}

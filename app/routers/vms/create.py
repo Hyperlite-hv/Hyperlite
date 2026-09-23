@@ -1,6 +1,7 @@
 import logging
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 import libvirt
 from fastapi import Depends, HTTPException
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.core import zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
+from app.core.guest_hardware import guest_profile
 from app.core.libvirt_utils import (
     open_conn,
     pool_type_and_target_path,
@@ -61,6 +63,8 @@ class VMCreate(BaseModel):
     password: str | None = None
     iso: str | None = None
     drivers_iso: str | None = None
+    guest_os: Literal["auto", "windows", "linux", "other"] = "auto"
+    disk_controller: Literal["auto", "sata", "virtio-scsi"] = "auto"
     # Name of a file already uploaded through POST /vm-disks (see
     # app/routers/vm_disks.py): the VM boots directly from this disk (an OS is already
     # installed on it) instead of the preinstalled Debian 12 image or an installation
@@ -129,7 +133,14 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     # no web SSH terminal until access is configured by hand). Without an ISO the
     # behaviour is unchanged: the preinstalled Debian 12 image + cloud-init.
     install_mode = iso_path is not None
-    os_family = detect_os_family(payload.iso) if install_mode else None
+    profile = guest_profile(payload.iso if install_mode else None, payload.guest_os)
+    compatible_devices = profile in {"windows", "other"}
+    disk_bus = (
+        "sata"
+        if payload.disk_controller == "sata" or (payload.disk_controller == "auto" and compatible_devices)
+        else "scsi"
+    )
+    os_family = detect_os_family(payload.iso) if install_mode and profile == "linux" else None
     automated_install = install_mode and os_family is not None
     # "Disk import" mode: the disk already has its own OS and accounts, so there is
     # neither cloud-init/kickstart nor credentials to ask for at creation (see
@@ -315,6 +326,8 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             kernel_path=kernel_path,
             initrd_path=initrd_path,
             kernel_cmdline=kernel_cmdline,
+            disk_bus=disk_bus,
+            interface_model="e1000e" if compatible_devices else "virtio",
         )
         domain = conn.defineXML(xml)
         if needs_account:

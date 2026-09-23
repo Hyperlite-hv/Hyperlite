@@ -1,4 +1,4 @@
-import { detectOsFamily } from "../../utils/osFamily";
+import { diskController, guestProfile, installationFamily } from "../../utils/osFamily";
 
 const FAMILY_LABEL = { kickstart: "Kickstart (unattended)", autoinstall: "Autoinstall (unattended)" };
 
@@ -7,13 +7,15 @@ export default function StepReview({ form, nodes }) {
   const totalDisk = form.disks.reduce((a, d) => a + d.size_gb, 0);
   const installMode = Boolean(form.iso);
   const importMode = form.importDisk != null;
-  const osFamily = detectOsFamily(form.iso);
+  const profile = guestProfile(form);
+  const osFamily = installationFamily(form);
   const manualInstall = installMode && !osFamily;
 
   const rows = importMode ? [
     ["Node", nodeName],
     ["Name", form.name || "--"],
     ["System disk", `Imported (${form.importDisk || "--"})`],
+    ["Disk controller", diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"],
     ["vCPU", form.vcpu],
     ["Memory", `${form.memory_mb} MB`],
     ["Network", form.network],
@@ -23,6 +25,10 @@ export default function StepReview({ form, nodes }) {
     ["Node", nodeName],
     ["Name", form.name || "--"],
     ["ISO", form.iso || "None"],
+    ["Hardware profile", { windows: "Windows", linux: "Linux", other: "Other / generic" }[profile]],
+    ["Disk controller", diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"],
+    ["Network adapter", profile === "linux" ? "VirtIO" : "Intel E1000e"],
+    ["Firmware", "Legacy BIOS (x86-64)"],
     ["Drivers ISO", form.iso ? form.driversIso || "None" : "None"],
     ["System disk", !installMode ? "Debian 12 preinstalled" : `Blank (${osFamily ? FAMILY_LABEL[osFamily] : "manual installation"})`],
     ["vCPU", form.vcpu],

@@ -366,7 +366,11 @@ def build_domain_xml(
     initrd_path=None,
     kernel_cmdline=None,
     drivers_iso_path=None,
+    disk_bus="scsi",
+    interface_model="virtio",
 ):
+    if disk_bus not in {"scsi", "sata"} or interface_model not in {"virtio", "e1000e"}:
+        raise ValueError("Unsupported VM hardware profile")
     # Boot order PER DEVICE (<boot order='N'/> on each <disk>) rather than the
     # global <os><boot dev=.../></os> list: SeaBIOS does not reliably fall back
     # between several IDE CD-ROMs with the global list (it picks the first CD-ROM
@@ -396,14 +400,14 @@ def build_domain_xml(
     <disk type='block' device='disk'>
       <driver name='qemu' type='raw'/>
       <source dev='{disk_path}'/>
-      <target dev='{dev}' bus='scsi'/>{boot_order}
+      <target dev='{dev}' bus='{disk_bus}'/>{boot_order}
     </disk>"""
         else:
             disks_xml += f"""
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{disk_path}'/>
-      <target dev='{dev}' bus='scsi'/>{boot_order}
+      <target dev='{dev}' bus='{disk_bus}'/>{boot_order}
     </disk>"""
 
     # The installation ISO is placed on 'hda' (the first IDE device): the kickstart
@@ -501,6 +505,9 @@ def build_domain_xml(
     # (and its real limitation seen in testing).
     cluster_cpu_xml = _compute_migratable_cpu_xml()
     cpu_xml = cluster_cpu_xml if cluster_cpu_xml else "<cpu mode='host-model'/>"
+    storage_controller = (
+        "<controller type='scsi' model='virtio-scsi'/>" if disk_bus == "scsi" else "<controller type='sata' index='0'/>"
+    )
 
     return f"""
 <domain type='kvm'>
@@ -522,10 +529,10 @@ def build_domain_xml(
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <controller type='scsi' model='virtio-scsi'/>{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}{drivers_xml}
+    {storage_controller}{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}{drivers_xml}
     <interface type='network'>
       <source network='{network}'/>
-      {mac_xml}<model type='virtio'/>
+      {mac_xml}<model type='{interface_model}'/>
     </interface>
     <console type='pty'/>
     <channel type='unix'>

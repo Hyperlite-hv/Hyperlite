@@ -18,6 +18,7 @@ Known limitation: each OS family has its own answer file format; only RHEL
 Subiquity installer, "live-server" ISO) are covered. An unrecognized ISO falls
 back to the existing manual installation (see vms.create_vm)."""
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -31,6 +32,17 @@ from .vm_builder import IMAGES_DIR
 
 KICKSTART_FAMILIES = ("rhel", "centos", "rocky", "almalinux", "alma-", "fedora")
 AUTOINSTALL_FAMILIES = ("ubuntu",)
+
+
+def detect_windows(iso_filename):
+    """Return whether an ISO is a Windows installer handled with native SATA devices."""
+    if not iso_filename:
+        return False
+    name = iso_filename.lower()
+    return bool(
+        re.search(r"windows|(?:^|[^a-z0-9])(?:win|server)[-_ ]?(?:10|11|2016|2019|2022|2025)(?:[^0-9]|$)", name)
+    )
+
 
 # Cache of the extracted casper kernels/initrds: one extraction per ISO (reused
 # for every VM created from the same file), not one per VM creation. It lives
