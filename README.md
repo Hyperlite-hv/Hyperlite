@@ -18,8 +18,9 @@ Hyperlite is a self-hosted virtualization manager: a FastAPI backend that drives
 
 See [docs/features.md](docs/features.md) for details.
 
-For Windows guests, including Windows Server 2025, see [the Windows installation guide](docs/windows.md)
-for attaching VirtIO driver media and making the system disk visible in Windows Setup.
+For Windows guests, including Windows Server 2025, see [the Windows installation guide](docs/windows.md).
+The Windows profile defaults to SATA storage to avoid loading a separate storage driver.
+See [guest compatibility and hardware profiles](docs/guest-compatibility.md) for tested scope and firmware limitations.
 
 ## Requirements
 
