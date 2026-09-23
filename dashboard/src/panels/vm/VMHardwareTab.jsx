@@ -14,7 +14,7 @@ import { useHostLimits } from "../../hooks/useHostLimits";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // "Add a device" menu: computes the next free sdX device and detaches network
 // interfaces by MAC address.
@@ -104,13 +104,10 @@ function DiskSection({ vmName, isAdmin }) {
       {isAdmin && (
         <div className="px-4 py-3 border-t border-border space-y-2">
           <div className="text-xs font-medium text-foreground/90">Add a device</div>
-          <Select value={source} onValueChange={setSource}>
-            <SelectTrigger aria-label="Disk to attach" className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__new__">+ New disk...</SelectItem>
-              {volumes.map((v) => <SelectItem key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <NativeSelect aria-label="Disk to attach" className="w-full" value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="__new__">+ New disk...</option>
+            {volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</option>)}
+          </NativeSelect>
           {source === "__new__" && (
             <div className="flex gap-2">
               <Input aria-label="volume name" className="flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="volume name" />
@@ -195,12 +192,9 @@ function NetworkSection({ vmName, isAdmin }) {
       </div>
       {isAdmin && (
         <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
-          <Select value={addNet} onValueChange={setAddNet}>
-            <SelectTrigger aria-label="Network to attach" className="flex-1"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {networks.map((n) => <SelectItem key={n.nom} value={n.nom}>{n.nom} ({n.type})</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <NativeSelect aria-label="Network to attach" className="flex-1" value={addNet} onChange={(e) => setAddNet(e.target.value)}>
+            {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({n.type})</option>)}
+          </NativeSelect>
           <Input aria-label="VLAN (optional)"
             type="number" min={1} max={4094} placeholder="VLAN (optional)" className="w-36"
             value={vlanTag} onChange={(e) => setVlanTag(e.target.value)}

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Bounds DERIVED from the real host through GET /host/limits, instead of a fixed
 // 2 vCPU/2 GB cap. The user account is required without an ISO (cloud-init) AND
@@ -75,14 +75,12 @@ export default function StepResources({ form, patch, storagePools = [] }) {
       {selectablePools.length > 0 && (
         <div>
           <Label className="text-xs font-medium text-foreground/80">Storage pool</Label>
-          <Select value={form.storagePool} onValueChange={(v) => patch({ storagePool: v })}>
-            <SelectTrigger aria-label="Storage pool" className="mt-1 w-full"><SelectValue placeholder="Default (local)" /></SelectTrigger>
-            <SelectContent>
-              {selectablePools.map((p) => (
-                <SelectItem key={p.nom} value={p.nom}>{p.nom} ({p.type}, {p.disponible_go} GB free)</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <NativeSelect aria-label="Storage pool" className="mt-1 w-full" value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
+            <option value="">Default (local)</option>
+            {selectablePools.map((p) => (
+              <option key={p.nom} value={p.nom}>{p.nom} ({p.type}, {p.disponible_go} GB free)</option>
+            ))}
+          </NativeSelect>
           <p className="mt-1 text-[11px] text-muted-foreground">
             Choosing a shared network storage pool (netfs) then allows this VM to be protected with HA or live-migrated.
           </p>

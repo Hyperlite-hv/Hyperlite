@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 // Self-service panel opened from the user menu (Header.jsx), not a Datacenter
 // tab: these are settings of the signed-in ACCOUNT, not of the managed
 // infrastructure.
-export default function AccountSecurityModal({ open, onClose }) {
+export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   const totpEnabled = useAuthStore((s) => s.totpEnabled);
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -117,7 +117,18 @@ export default function AccountSecurityModal({ open, onClose }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[560px] max-w-full max-h-[85vh] overflow-y-auto space-y-6">
+      <DialogContent
+        className="w-[560px] max-w-full max-h-[85vh] overflow-y-auto space-y-6"
+        // See the note in VMWizard.jsx: explicit focus restore to the trigger
+        // rather than relying on Radix's implicit capture (this modal is
+        // opened from a DropdownMenuItem, not a direct DialogTrigger click).
+        onCloseAutoFocus={(e) => {
+          if (triggerRef?.current) {
+            e.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Account security</DialogTitle>
         </DialogHeader>

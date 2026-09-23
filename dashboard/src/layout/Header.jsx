@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plus, Box, Bell, Sun, Moon, LogOut, ShieldCheck as ShieldIcon, RefreshCw } from "lucide-react";
 import SearchBar from "../components/SearchBar";
 import VMWizard from "../wizard/VMWizard";
@@ -7,7 +7,7 @@ import UpdateModal from "../components/UpdateModal";
 import AccountSecurityModal from "../components/AccountSecurityModal";
 import { useInfraStore } from "../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -33,7 +33,7 @@ function Breadcrumb({ selection, nodes, vms, navigateTo }) {
     : null;
 
   return (
-    <div className="hidden shrink-0 items-center gap-1.5 text-[13px] font-bold text-foreground md:flex">
+    <div className="flex shrink-0 items-center gap-1.5 text-[13px] font-bold text-foreground">
       <button
         className="hover:text-primary transition-colors"
         onClick={() => navigateTo("datacenter", null, "summary")}
@@ -52,9 +52,13 @@ function Breadcrumb({ selection, nodes, vms, navigateTo }) {
 
 export default function Header() {
   const [wizardOpen, setWizardOpen] = useState(false);
+  const createVmTriggerRef = useRef(null);
   const [containerWizardOpen, setContainerWizardOpen] = useState(false);
+  const createContainerTriggerRef = useRef(null);
   const [updateOpen, setUpdateOpen] = useState(false);
+  const updateTriggerRef = useRef(null);
   const [securityOpen, setSecurityOpen] = useState(false);
+  const securityTriggerRef = useRef(null);
 
   const theme = useInfraStore((s) => s.theme);
   const toggleTheme = useInfraStore((s) => s.toggleTheme);
@@ -66,6 +70,7 @@ export default function Header() {
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore(selectIsAdmin);
   const logout = useAuthStore((s) => s.logout);
+  const { isMobile } = useSidebar();
 
   const runningCount = tasks.filter((t) => t.statut === "en_cours").length;
   const recentTasks = tasks.slice(0, 5);
@@ -74,7 +79,11 @@ export default function Header() {
     <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-border bg-card px-4 md:gap-4 md:px-6">
       <SidebarTrigger className="md:hidden" />
 
-      <Breadcrumb selection={selection} nodes={nodes} vms={vms} navigateTo={navigateTo} />
+      {/* Not just CSS-hidden below md: conditionally UNMOUNTED, so its "Datacenter"
+          root-crumb text does not sit ahead of the always-visible page title (see
+          CentralPanel.jsx's <h2>) in DOM order and get matched first (and found
+          hidden) by anything that queries by that exact text on a narrow screen. */}
+      {!isMobile && <Breadcrumb selection={selection} nodes={nodes} vms={vms} navigateTo={navigateTo} />}
 
       <Separator orientation="vertical" className="hidden h-5 md:block" />
 
@@ -86,12 +95,12 @@ export default function Header() {
 
       <div className="flex items-center gap-2 shrink-0">
         {isAdmin && (
-          <Button className="rounded-full" onClick={() => setWizardOpen(true)}>
+          <Button ref={createVmTriggerRef} className="rounded-full" onClick={() => setWizardOpen(true)}>
             <Plus /> <span className="hidden sm:inline">Create VM</span>
           </Button>
         )}
         {isAdmin && (
-          <Button variant="secondary" className="hidden sm:inline-flex" onClick={() => setContainerWizardOpen(true)}>
+          <Button ref={createContainerTriggerRef} variant="secondary" className="hidden sm:inline-flex" onClick={() => setContainerWizardOpen(true)}>
             <Box /> Create container
           </Button>
         )}
@@ -143,11 +152,11 @@ export default function Header() {
               {theme === "dark" ? "Light mode" : "Dark mode"}
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem role="button" onClick={() => setUpdateOpen(true)}>
+              <DropdownMenuItem ref={updateTriggerRef} role="button" onClick={() => setUpdateOpen(true)}>
                 <RefreshCw /> Check for updates
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem role="button" onClick={() => setSecurityOpen(true)}>
+            <DropdownMenuItem ref={securityTriggerRef} role="button" onClick={() => setSecurityOpen(true)}>
               <ShieldIcon /> Account security
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -158,10 +167,10 @@ export default function Header() {
         </DropdownMenu>
       </div>
 
-      <VMWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
-      <ContainerWizard open={containerWizardOpen} onClose={() => setContainerWizardOpen(false)} />
-      <UpdateModal open={updateOpen} onClose={() => setUpdateOpen(false)} />
-      <AccountSecurityModal open={securityOpen} onClose={() => setSecurityOpen(false)} />
+      <VMWizard open={wizardOpen} onClose={() => setWizardOpen(false)} triggerRef={createVmTriggerRef} />
+      <ContainerWizard open={containerWizardOpen} onClose={() => setContainerWizardOpen(false)} triggerRef={createContainerTriggerRef} />
+      <UpdateModal open={updateOpen} onClose={() => setUpdateOpen(false)} triggerRef={updateTriggerRef} />
+      <AccountSecurityModal open={securityOpen} onClose={() => setSecurityOpen(false)} triggerRef={securityTriggerRef} />
     </header>
   );
 }

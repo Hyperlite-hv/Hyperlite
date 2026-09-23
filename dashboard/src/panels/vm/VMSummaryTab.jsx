@@ -21,7 +21,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 export default function VMSummaryTab({ resource: vm }) {
   const [confirm, setConfirm] = useState(null); // "stop" | "force-stop" | "delete" | null
@@ -275,12 +275,10 @@ export default function VMSummaryTab({ resource: vm }) {
       {migrateOpen && (
         <Card className="flex flex-wrap items-center gap-3 p-4 animate-in fade-in-0 slide-in-from-top-1 duration-150">
           <span className="text-sm text-foreground/90">Migrate <b className="text-foreground">{vm.nom}</b> to</span>
-          <Select value={migrateTarget} onValueChange={setMigrateTarget}>
-            <SelectTrigger aria-label="Migration target node" className="w-auto"><SelectValue placeholder="Choose a node…" /></SelectTrigger>
-            <SelectContent>
-              {migrationTargets.map((n) => <SelectItem key={n.id} value={n.id}>{n.nom}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <NativeSelect aria-label="Migration target node" className="w-auto" value={migrateTarget} onChange={(e) => setMigrateTarget(e.target.value)}>
+            <option value="">Choose a node…</option>
+            {migrationTargets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+          </NativeSelect>
           <Button disabled={!migrateTarget || migrating || migrateCheck?.loading || migrateBlocked} onClick={handleMigrate}>
             {migrating ? "Starting..." : "Migrate"}
           </Button>

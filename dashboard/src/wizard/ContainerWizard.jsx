@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Deliberately a single screen (no steps like VMWizard): a container is created
 // with far fewer choices than a VM (no ISO/OS to pick). See
@@ -17,7 +17,7 @@ function initialForm(networks) {
   return { name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: networks[0]?.nom || "default", image: "" };
 }
 
-export default function ContainerWizard({ open, onClose }) {
+export default function ContainerWizard({ open, onClose, triggerRef }) {
   const networks = useInfraStore((s) => s.networks);
   const addTask = useInfraStore((s) => s.addTask);
   const completeTask = useInfraStore((s) => s.completeTask);
@@ -73,7 +73,17 @@ export default function ContainerWizard({ open, onClose }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) closeAndReset(); }}>
-      <DialogContent className="w-full max-w-md p-0 gap-0 overflow-hidden">
+      <DialogContent
+        className="w-full max-w-md p-0 gap-0 overflow-hidden"
+        // See the note in VMWizard.jsx: explicit focus restore to the trigger
+        // button rather than relying on Radix's implicit capture.
+        onCloseAutoFocus={(e) => {
+          if (triggerRef?.current) {
+            e.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+      >
         <DialogHeader className="border-b border-border px-5 py-3 space-y-0">
           <DialogTitle>Create a container</DialogTitle>
         </DialogHeader>
@@ -171,13 +181,10 @@ export default function ContainerWizard({ open, onClose }) {
 
           <div>
             <Label className="text-xs font-medium text-foreground/80">Network</Label>
-            <Select value={form.network} onValueChange={(v) => patch({ network: v })}>
-              <SelectTrigger aria-label="Network" className="mt-1 w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {networks.length === 0 && <SelectItem value="default">default</SelectItem>}
-                {networks.map((n) => <SelectItem key={n.nom} value={n.nom}>{n.nom}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <NativeSelect aria-label="Network" className="mt-1 w-full" value={form.network} onChange={(e) => patch({ network: e.target.value })}>
+              {networks.length === 0 && <option value="default">default</option>}
+              {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom}</option>)}
+            </NativeSelect>
           </div>
 
           <div className="grid grid-cols-2 gap-2">

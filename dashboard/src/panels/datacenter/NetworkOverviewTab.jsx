@@ -12,7 +12,7 @@ import ConfirmDialog from "../../components/ConfirmDialog";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Local component (not exported) rather than an inline arrow function in the
 // .map() below: useCallback needs to be kept stable PER network (same reason as
@@ -94,14 +94,11 @@ export default function NetworkOverviewTab() {
         <Card className="p-4 space-y-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
           <div className="grid grid-cols-2 gap-2">
             <Input aria-label="Name" placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <Select value={form.mode} onValueChange={(v) => setForm((f) => ({ ...f, mode: v }))}>
-              <SelectTrigger aria-label="Network mode"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="isole">Isolated (no external access)</SelectItem>
-                <SelectItem value="nat">NAT (outbound through the host)</SelectItem>
-                <SelectItem value="bridge">Bridge to an existing physical network</SelectItem>
-              </SelectContent>
-            </Select>
+            <NativeSelect aria-label="Network mode" value={form.mode} onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}>
+              <option value="isole">Isolated (no external access)</option>
+              <option value="nat">NAT (outbound through the host)</option>
+              <option value="bridge">Bridge to an existing physical network</option>
+            </NativeSelect>
           </div>
           {form.mode === "bridge" ? (
             <Input aria-label="Host bridge name (e.g. br0)" className="w-full" placeholder="Host bridge name (e.g. br0)" value={form.bridge_name} onChange={(e) => setForm((f) => ({ ...f, bridge_name: e.target.value }))} />

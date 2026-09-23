@@ -41,7 +41,7 @@ function initialForm(nodes, networks, defaults) {
   };
 }
 
-export default function VMWizard({ open, onClose }) {
+export default function VMWizard({ open, onClose, triggerRef }) {
   const nodes = useInfraStore((s) => s.nodes);
   const networks = useInfraStore((s) => s.networks);
   const storagePools = useInfraStore((s) => s.storagePools);
@@ -124,7 +124,20 @@ export default function VMWizard({ open, onClose }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) closeAndReset(); }}>
-      <DialogContent className="w-full max-w-2xl p-0 gap-0 overflow-hidden">
+      <DialogContent
+        className="w-full max-w-2xl p-0 gap-0 overflow-hidden"
+        // Explicit instead of relying on Radix's implicit "last focused
+        // element before mount" capture: the trigger button lives outside
+        // this always-mounted Dialog, opened via a state toggle rather than
+        // a direct user click on Radix's own DialogTrigger, which is a path
+        // Radix's own auto-capture doesn't reliably cover.
+        onCloseAutoFocus={(e) => {
+          if (triggerRef?.current) {
+            e.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+      >
         <DialogHeader className="border-b border-border px-5 py-3 space-y-0">
           <DialogTitle>Create a virtual machine</DialogTitle>
         </DialogHeader>

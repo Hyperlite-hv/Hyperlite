@@ -5,7 +5,7 @@ import { useInfraStore } from "../store/useInfraStore";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 const PROTOCOLS = ["tcp", "udp", "icmp", "all"];
 
@@ -53,39 +53,33 @@ export default function FirewallRulesEditor({ title, fetchConfig, saveConfig, is
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
         <ShieldCheck size={15} className="text-muted-foreground" />
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        <Select disabled={!isAdmin} value={config.default_policy} onValueChange={(v) => setConfig((c) => ({ ...c, default_policy: v }))}>
-          <SelectTrigger aria-label="Default firewall policy" className="ml-auto w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="accept">Default: allow</SelectItem>
-            <SelectItem value="drop">Default: block</SelectItem>
-          </SelectContent>
-        </Select>
+        <NativeSelect
+          aria-label="Default firewall policy"
+          className="ml-auto w-40"
+          disabled={!isAdmin}
+          value={config.default_policy}
+          onChange={(e) => setConfig((c) => ({ ...c, default_policy: e.target.value }))}
+        >
+          <option value="accept">Default: allow</option>
+          <option value="drop">Default: block</option>
+        </NativeSelect>
       </div>
       <div className="divide-y divide-border">
         {config.rules.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No rules: all traffic follows the default policy.</div>}
         {config.rules.map((rule, i) => (
           <div key={i} className="flex items-center gap-2 px-4 py-2 text-sm">
-            <Select disabled={!isAdmin} value={rule.action} onValueChange={(v) => updateRule(i, { action: v })}>
-              <SelectTrigger aria-label="Rule action" className="w-28"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="accept">Allow</SelectItem>
-                <SelectItem value="drop">Block</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select disabled={!isAdmin} value={rule.direction} onValueChange={(v) => updateRule(i, { direction: v })}>
-              <SelectTrigger aria-label="Rule direction" className="w-24"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="in">Inbound</SelectItem>
-                <SelectItem value="out">Outbound</SelectItem>
-                <SelectItem value="inout">Both</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select disabled={!isAdmin} value={rule.protocol} onValueChange={(v) => updateRule(i, { protocol: v })}>
-              <SelectTrigger aria-label="Rule protocol" className="w-24"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PROTOCOLS.map((p) => <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <NativeSelect aria-label="Rule action" className="w-28" disabled={!isAdmin} value={rule.action} onChange={(e) => updateRule(i, { action: e.target.value })}>
+              <option value="accept">Allow</option>
+              <option value="drop">Block</option>
+            </NativeSelect>
+            <NativeSelect aria-label="Rule direction" className="w-24" disabled={!isAdmin} value={rule.direction} onChange={(e) => updateRule(i, { direction: e.target.value })}>
+              <option value="in">Inbound</option>
+              <option value="out">Outbound</option>
+              <option value="inout">Both</option>
+            </NativeSelect>
+            <NativeSelect aria-label="Rule protocol" className="w-24" disabled={!isAdmin} value={rule.protocol} onChange={(e) => updateRule(i, { protocol: e.target.value })}>
+              {PROTOCOLS.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+            </NativeSelect>
             {(rule.protocol === "tcp" || rule.protocol === "udp") && (
               <Input aria-label="port"
                 type="number" min={1} max={65535} placeholder="port" className="w-24" disabled={!isAdmin}

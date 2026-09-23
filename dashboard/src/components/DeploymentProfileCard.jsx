@@ -3,7 +3,7 @@ import { fetchHostProfile, setHostProfile, setHostAllocation } from "../api/clie
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 import { useInfraStore } from "../store/useInfraStore";
 import { Card } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 
 const SOURCE = { detecte: "detected", choisi: "chosen by an admin", configuration: "forced by HYPERLITE_PROFILE" };
 
@@ -50,16 +50,15 @@ export default function DeploymentProfileCard() {
           Deployment profile: {data.profils[data.actif].libelle}
           <span className="ml-2 text-xs font-normal text-foreground/80">({SOURCE[data.source]})</span>
         </div>
-        <Select
+        <NativeSelect
+          aria-label="Deployment profile"
+          className="w-64"
           value={data.choix in data.profils ? data.choix : "auto"}
           disabled={!isAdmin || busy || forced}
-          onValueChange={choose}
+          onChange={(e) => choose(e.target.value)}
         >
-          <SelectTrigger aria-label="Deployment profile" className="w-64"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {options.map(([k, label]) => <SelectItem key={k} value={k}>{label}</SelectItem>)}
-          </SelectContent>
-        </Select>
+          {options.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </NativeSelect>
       </div>
       <div className="px-4 py-3 text-sm text-foreground/80 space-y-1">
         <p>{data.reglages.description}</p>
@@ -71,12 +70,15 @@ export default function DeploymentProfileCard() {
       <div className="border-t border-border px-4 py-3 space-y-2">
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm font-semibold text-foreground">Resource allocation to VMs: {alloc.politiques[alloc.actif].libelle}</div>
-          <Select value={alloc.actif} disabled={!isAdmin || busy || allocForced} onValueChange={chooseAllocation}>
-            <SelectTrigger aria-label="Resource allocation policy" className="w-64"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {Object.entries(alloc.politiques).map(([k, p]) => <SelectItem key={k} value={k}>{p.libelle}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <NativeSelect
+            aria-label="Resource allocation policy"
+            className="w-64"
+            value={alloc.actif}
+            disabled={!isAdmin || busy || allocForced}
+            onChange={(e) => chooseAllocation(e.target.value)}
+          >
+            {Object.entries(alloc.politiques).map(([k, p]) => <option key={k} value={k}>{p.libelle}</option>)}
+          </NativeSelect>
         </div>
         <p className="text-sm text-foreground/80">{alloc.politiques[alloc.actif].description}</p>
         {allocForced && <p className="text-sm text-status-warning">Forced by the HYPERLITE_ALLOCATION environment variable: can only be changed on the server side.</p>}
