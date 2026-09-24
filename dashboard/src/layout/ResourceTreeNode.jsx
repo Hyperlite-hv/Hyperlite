@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronRight, ChevronDown, Database, Server, Box, Layers, HardDrive } from "lucide-react";
 import { statusColor } from "../theme/colors";
 import { useInfraStore } from "../store/useInfraStore";
+import { useSidebar } from "@/components/ui/sidebar";
 
 const ICONS = { datacenter: Database, node: Server, group: Layers, vm: Box, storage: HardDrive };
 const SELECTABLE = new Set(["datacenter", "node", "vm", "storage"]);
@@ -10,7 +11,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const selection = useInfraStore((s) => s.selection);
   const select = useInfraStore((s) => s.select);
-  const closeMobileSidebar = useInfraStore((s) => s.closeMobileSidebar);
+  const { setOpenMobile } = useSidebar();
 
   const hasChildren = node.children && node.children.length > 0;
   const Icon = ICONS[node.type] || Box;
@@ -22,7 +23,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
     // Closes the mobile drawer only on a real leaf (VM/pool, or a node without
     // children); otherwise a simple expand/collapse of "Datacenter"/node would close
     // the drawer before the user could pick a child.
-    if (SELECTABLE.has(node.type) && !hasChildren) closeMobileSidebar();
+    if (SELECTABLE.has(node.type) && !hasChildren) setOpenMobile(false);
   };
 
   return (
@@ -38,18 +39,18 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
           else if (e.key === "ArrowRight" && hasChildren && !expanded) setExpanded(true);
           else if (e.key === "ArrowLeft" && hasChildren && expanded) setExpanded(false);
         }}
-        className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-sm cursor-pointer select-none ${
-          isSelected ? "bg-chrome-700 text-chrome-100 font-semibold" : "text-chrome-100/80 hover:bg-chrome-700/60"
+        className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-sm cursor-pointer select-none transition-colors duration-150 ${
+          isSelected ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold" : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60"
         }`}
         style={{ paddingLeft: 6 + depth * 14 }}
         onClick={activate}
       >
         {hasChildren ? (
-          expanded ? <ChevronDown size={13} className="text-chrome-400 shrink-0" /> : <ChevronRight size={13} className="text-chrome-400 shrink-0" />
+          expanded ? <ChevronDown size={13} className="text-sidebar-foreground/50 shrink-0" /> : <ChevronRight size={13} className="text-sidebar-foreground/50 shrink-0" />
         ) : (
           <span className="w-[13px] shrink-0" />
         )}
-        <Icon size={14} className="text-chrome-400 shrink-0" />
+        <Icon size={14} className="text-sidebar-foreground/50 shrink-0" />
         {node.etat && (
           <span
             className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -58,7 +59,7 @@ export default function ResourceTreeNode({ node, depth = 0 }) {
         )}
         <span className="truncate">{node.label}</span>
         {node.badge != null && (
-          <span className="ml-auto text-[11px] text-chrome-400 shrink-0">{node.badge}</span>
+          <span className="ml-auto text-[11px] text-sidebar-foreground/70 shrink-0">{node.badge}</span>
         )}
       </div>
       {hasChildren && expanded && (

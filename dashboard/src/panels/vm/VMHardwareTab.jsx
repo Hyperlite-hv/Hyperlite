@@ -12,6 +12,10 @@ import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import FirewallRulesEditor from "../../components/FirewallRulesEditor";
 import { useHostLimits } from "../../hooks/useHostLimits";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // "Add a device" menu: computes the next free sdX device and detaches network
 // interfaces by MAC address.
@@ -45,7 +49,7 @@ function DiskSection({ vmName, isAdmin }) {
 
   useEffect(() => { setNewName(`${vmName}-disk-${Date.now().toString().slice(-5)}`); reload(); }, [vmName, reload]);
 
-  if (disks == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (disks == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   const nextDev = nextScsiDev(disks);
 
@@ -80,19 +84,19 @@ function DiskSection({ vmName, isAdmin }) {
   }
 
   return (
-    <div className="card">
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-anthracite-600">
-        <HardDrive size={15} className="text-anthracite-400" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Disks</h3>
+    <Card className="p-0">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
+        <HardDrive size={15} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold text-foreground">Disks</h3>
       </div>
-      <div className="divide-y divide-anthracite-600">
+      <div className="divide-y divide-border">
         {disks.map((d) => (
-          <div key={d.cible} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-            <span className="font-mono text-anthracite-100 w-16">{d.cible}</span>
-            <span className="text-anthracite-400 text-xs">{d.bus || "?"}</span>
-            <span className="text-anthracite-300 flex-1 truncate">{d.source || "Empty drive"}</span>
+          <div key={d.cible} className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors duration-150 hover:bg-muted/40">
+            <span className="font-mono text-foreground w-16">{d.cible}</span>
+            <span className="text-muted-foreground text-xs">{d.bus || "?"}</span>
+            <span className="text-foreground/80 flex-1 truncate">{d.source || "Empty drive"}</span>
             {isAdmin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && (
-              <button aria-label={`Detach disk ${d.cible}`} className="btn-danger" disabled={busy} onClick={() => handleDetach(d.cible)}><Trash2 size={13} /></button>
+              <Button aria-label={`Detach disk ${d.cible}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" disabled={busy} onClick={() => handleDetach(d.cible)}><Trash2 size={13} /></Button>
             )}
           </div>
         ))}
@@ -102,27 +106,27 @@ function DiskSection({ vmName, isAdmin }) {
         <DriversIsoControl vmName={vmName} onChanged={reload} />
       )}
       {isAdmin && (
-        <div className="px-4 py-3 border-t border-anthracite-600 space-y-2">
-          <div className="text-xs font-medium text-anthracite-300">Add a device</div>
-          <select aria-label="Disk to attach" className="input" value={source} onChange={(e) => setSource(e.target.value)}>
+        <div className="px-4 py-3 border-t border-border space-y-2">
+          <div className="text-xs font-medium text-foreground/90">Add a device</div>
+          <NativeSelect aria-label="Disk to attach" className="w-full" value={source} onChange={(e) => setSource(e.target.value)}>
             <option value="__new__">+ New disk...</option>
             {volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</option>)}
-          </select>
+          </NativeSelect>
           {source === "__new__" && (
             <div className="flex gap-2">
-              <input aria-label="volume name" className="input flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="volume name" />
-              <input aria-label="New disk size in GB" type="number" min={1} max={hostLimits?.disque_go.max} className="input w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
-              <span className="self-center text-xs text-anthracite-400">GB</span>
+              <Input aria-label="volume name" className="flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="volume name" />
+              <Input aria-label="New disk size in GB" type="number" min={1} max={hostLimits?.disque_go.max} className="w-24" value={newSize} onChange={(e) => setNewSize(Number(e.target.value))} />
+              <span className="self-center text-xs text-muted-foreground">GB</span>
             </div>
           )}
           <div className="flex items-center gap-2">
-            {nextDev ? <span className="text-xs font-mono text-anthracite-400">will be attached as <b className="text-anthracite-200">{nextDev}</b></span>
+            {nextDev ? <span className="text-xs font-mono text-muted-foreground">will be attached as <b className="text-foreground/90">{nextDev}</b></span>
               : <span className="text-xs text-status-error">No letter available</span>}
-            <button className="btn-secondary ml-auto" disabled={busy || !nextDev} onClick={handleAttach}><Plus size={13} /> Attach</button>
+            <Button variant="secondary" className="ml-auto" disabled={busy || !nextDev} onClick={handleAttach}><Plus /> Attach</Button>
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -147,7 +151,7 @@ function NetworkSection({ vmName, isAdmin }) {
 
   useEffect(() => { reload(); }, [vmName, reload]);
 
-  if (info == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (info == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   async function handleDetach(mac) {
     if (!(await confirmAction({ title: `Remove network interface ${mac}?`, message: "The VM loses this network interface.", confirmLabel: "Remove" }))) return;
@@ -174,35 +178,35 @@ function NetworkSection({ vmName, isAdmin }) {
   }
 
   return (
-    <div className="card">
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-anthracite-600">
-        <Network size={15} className="text-anthracite-400" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Network interfaces</h3>
+    <Card className="p-0">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
+        <Network size={15} className="text-muted-foreground" />
+        <h3 className="text-sm font-semibold text-foreground">Network interfaces</h3>
       </div>
-      <div className="divide-y divide-anthracite-600">
+      <div className="divide-y divide-border">
         {info.interfaces.map((iface) => (
-          <div key={iface.mac} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-            <span className="text-anthracite-100">{iface.reseau || "--"}</span>
-            <span className="text-anthracite-400 text-xs font-mono">{iface.mac}</span>
+          <div key={iface.mac} className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors duration-150 hover:bg-muted/40">
+            <span className="text-foreground">{iface.reseau || "--"}</span>
+            <span className="text-muted-foreground text-xs font-mono">{iface.mac}</span>
             {isAdmin && info.interfaces.length > 1 && (
-              <button aria-label={`Remove interface ${iface.mac}`} className="btn-danger ml-auto" disabled={busy} onClick={() => handleDetach(iface.mac)}><Trash2 size={13} /></button>
+              <Button aria-label={`Remove interface ${iface.mac}`} size="icon" variant="outline" className="ml-auto size-7 text-status-error border-status-error/30 hover:bg-status-error/10" disabled={busy} onClick={() => handleDetach(iface.mac)}><Trash2 size={13} /></Button>
             )}
           </div>
         ))}
       </div>
       {isAdmin && (
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-anthracite-600">
-          <select aria-label="Network to attach" className="input flex-1" value={addNet} onChange={(e) => setAddNet(e.target.value)}>
+        <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
+          <NativeSelect aria-label="Network to attach" className="flex-1" value={addNet} onChange={(e) => setAddNet(e.target.value)}>
             {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({n.type})</option>)}
-          </select>
-          <input aria-label="VLAN (optional)"
-            type="number" min={1} max={4094} placeholder="VLAN (optional)" className="input w-36"
+          </NativeSelect>
+          <Input aria-label="VLAN (optional)"
+            type="number" min={1} max={4094} placeholder="VLAN (optional)" className="w-36"
             value={vlanTag} onChange={(e) => setVlanTag(e.target.value)}
           />
-          <button className="btn-secondary" disabled={busy} onClick={handleAttach}><Plus size={13} /> Add</button>
+          <Button variant="secondary" disabled={busy} onClick={handleAttach}><Plus /> Add</Button>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -214,18 +218,18 @@ export default function VMHardwareTab({ resource: vm }) {
 
   return (
     <div className="space-y-4">
-      <div className="card divide-y divide-anthracite-600">
+      <Card className="p-0 divide-y divide-border">
         <div className="flex items-center gap-3 px-4 py-3">
-          <Cpu size={16} className="text-anthracite-400 shrink-0" />
-          <span className="text-sm text-anthracite-200 flex-1">Processor</span>
-          <span className="text-sm text-anthracite-100 font-mono">{vm.vcpu} vCPU</span>
+          <Cpu size={16} className="text-muted-foreground shrink-0" />
+          <span className="text-sm text-foreground/90 flex-1">Processor</span>
+          <span className="text-sm text-foreground font-mono">{vm.vcpu} vCPU</span>
         </div>
         <div className="flex items-center gap-3 px-4 py-3">
-          <MemoryStick size={16} className="text-anthracite-400 shrink-0" />
-          <span className="text-sm text-anthracite-200 flex-1">Memory</span>
-          <span className="text-sm text-anthracite-100 font-mono">{vm.memoire_mo} MB</span>
+          <MemoryStick size={16} className="text-muted-foreground shrink-0" />
+          <span className="text-sm text-foreground/90 flex-1">Memory</span>
+          <span className="text-sm text-foreground font-mono">{vm.memoire_mo} MB</span>
         </div>
-      </div>
+      </Card>
 
       <DiskSection vmName={vm.nom} isAdmin={isAdmin} />
       <NetworkSection vmName={vm.nom} isAdmin={isAdmin} />

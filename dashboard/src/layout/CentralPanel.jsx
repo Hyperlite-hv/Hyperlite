@@ -2,8 +2,8 @@ import { useEffect, useRef } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../store/useInfraStore";
-import Tabs from "../components/Tabs";
 import StatusBadge from "../components/StatusBadge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import DatacenterSummaryTab from "../panels/datacenter/DatacenterSummaryTab";
 import DcStorageTab from "../panels/datacenter/StorageTab";
@@ -144,8 +144,8 @@ export default function CentralPanel() {
   if (selection.type === "storage") {
     return (
       <div className="p-4">
-        <h2 className="text-lg font-semibold text-anthracite-100">{selection.id}</h2>
-        <p className="mt-1 text-sm text-anthracite-300">Select a node to see the details of its storage pools ("Disk storage" tab).</p>
+        <h2 className="text-lg font-semibold text-foreground">{selection.id}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Select a node to see the details of its storage pools ("Disk storage" tab).</p>
       </div>
     );
   }
@@ -158,15 +158,35 @@ export default function CentralPanel() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-anthracite-600">
-        <h2 className="text-base font-semibold text-anthracite-100">{titleFor(selection, nodes, vms)}</h2>
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
+        <h2 className="text-base font-semibold text-foreground">{titleFor(selection, nodes, vms)}</h2>
         {resource?.etat && <StatusBadge etat={resource.etat} />}
         {resource?.alerte && <span className="text-xs text-status-warning">{resource.alerte}</span>}
       </div>
-      <Tabs tabs={tabSet} active={activeTab} onChange={setActiveTab} />
-      <div className="flex-1 overflow-y-auto p-4">
-        <ActiveComponent resource={resource} selection={selection} />
-      </div>
+      {/* TabsContent below is not decorative: Radix's TabsTrigger always sets
+          aria-controls pointing at its matching content id, whether or not that
+          content is rendered. Without a real TabsContent here, every trigger's
+          aria-controls pointed at an id that did not exist in the DOM (an
+          axe "aria-valid-attr-value" violation on every Datacenter/Node/VM tab
+          bar). Wrapping ActiveComponent in TabsContent for the active value gives
+          that id a real target, with no visible/behavioral change. */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1">
+        <TabsList variant="line" className="px-4 border-b border-border w-full justify-start overflow-x-auto">
+          {tabSet.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent
+          value={activeTab}
+          tabIndex={0}
+          // ring-inset (not the default outset ring): this element is the
+          // scrollable region itself (overflow-y-auto), which would otherwise
+          // clip its own focus ring at the edges.
+          className="min-h-0 overflow-y-auto p-4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-blue/50"
+        >
+          <ActiveComponent resource={resource} selection={selection} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

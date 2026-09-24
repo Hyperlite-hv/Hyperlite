@@ -1,7 +1,7 @@
 import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Users, Boxes, ShieldCheck, UserPlus } from "lucide-react";
+import { Plus, Trash2, Users, Boxes, ShieldCheck, UserPlus, X } from "lucide-react";
 import {
   fetchUsers, createUser, updateUser, deleteUser,
   fetchGroups, createGroup, deleteGroup, addGroupMember, removeGroupMember,
@@ -12,6 +12,13 @@ import {
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Global roles (app/core/database.py: role IN ('admin','observateur')) are
 // unchanged by this system, which only ADDS scoped rights on top of them (see
@@ -56,17 +63,17 @@ export default function PermissionsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="card p-4">
-        <h3 className="text-sm font-semibold text-anthracite-100 mb-2">Global roles</h3>
-        <div className="divide-y divide-anthracite-600">
+      <Card className="p-4">
+        <h3 className="text-sm font-semibold text-foreground mb-2">Global roles</h3>
+        <div className="divide-y divide-border">
           {GLOBAL_ROLES.map((r) => (
             <div key={r.nom} className="py-2">
-              <div className="text-sm font-medium text-anthracite-100">{r.nom}</div>
-              <div className="text-xs text-anthracite-400">{r.description}</div>
+              <div className="text-sm font-medium text-foreground">{r.nom}</div>
+              <div className="text-xs text-muted-foreground">{r.description}</div>
             </div>
           ))}
         </div>
-      </div>
+      </Card>
 
       <UsersSection users={users} reload={reloadAll} pushToast={pushToast} />
 
@@ -117,52 +124,52 @@ function CustomRolesSection({ customRoles, privileges, reload, pushToast }) {
   const selectedCount = Object.values(selected).filter(Boolean).length;
 
   return (
-    <div className="card p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-1">
-        <ShieldCheck size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Custom roles</h3>
+        <ShieldCheck size={15} className="text-foreground/80" />
+        <h3 className="text-sm font-semibold text-foreground">Custom roles</h3>
       </div>
-      <p className="text-xs text-anthracite-400 mb-3">Build a role by picking exactly the allowed actions, in addition to Reader/Operator/Manager.</p>
+      <p className="text-xs text-muted-foreground mb-3">Build a role by picking exactly the allowed actions, in addition to Reader/Operator/Manager.</p>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400"><LoadingState /></p>
+        <p className="text-sm text-muted-foreground"><LoadingState /></p>
       ) : (
         <>
-          <div className="rounded-md border border-anthracite-600 p-3 mb-3">
-            <input aria-label="Role name (e.g. backups-only)" className="input mb-2" placeholder="Role name (e.g. backups-only)" value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="rounded-md border border-border p-3 mb-3">
+            <Input aria-label="Role name (e.g. backups-only)" className="mb-2" placeholder="Role name (e.g. backups-only)" value={name} onChange={(e) => setName(e.target.value)} />
             <div className="grid grid-cols-1 gap-1.5 mb-2 sm:grid-cols-2">
               {Object.entries(privileges).map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-xs text-anthracite-200 cursor-pointer">
-                  <input type="checkbox" checked={!!selected[key]} onChange={() => toggle(key)} />
+                <Label key={key} className="flex items-center gap-2 text-xs text-foreground/90 cursor-pointer font-normal">
+                  <Checkbox checked={!!selected[key]} onCheckedChange={() => toggle(key)} />
                   {label}
-                </label>
+                </Label>
               ))}
             </div>
-            <button className="btn-primary" disabled={busy || !name.trim() || selectedCount === 0} onClick={handleCreate}>
-              <Plus size={14} /> Create ({selectedCount} privilege{selectedCount > 1 ? "s" : ""})
-            </button>
+            <Button disabled={busy || !name.trim() || selectedCount === 0} onClick={handleCreate}>
+              <Plus /> Create ({selectedCount} privilege{selectedCount > 1 ? "s" : ""})
+            </Button>
           </div>
 
           {customRoles.length === 0 ? (
-            <p className="text-sm text-anthracite-400">No custom roles.</p>
+            <p className="text-sm text-muted-foreground">No custom roles.</p>
           ) : (
-            <div className="divide-y divide-anthracite-600">
+            <div className="divide-y divide-border">
               {customRoles.map((r) => (
                 <div key={r.key} className="flex items-center justify-between py-2 text-sm">
                   <div>
-                    <span className="text-anthracite-100 font-medium">{r.label}</span>
-                    <span className="text-anthracite-400"> -- {[...r.privileges].map((p) => privileges[p] || p).join(", ")}</span>
+                    <span className="text-foreground font-medium">{r.label}</span>
+                    <span className="text-muted-foreground"> -- {[...r.privileges].map((p) => privileges[p] || p).join(", ")}</span>
                   </div>
-                  <button aria-label={`Delete role ${r.label}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
+                  <Button aria-label={`Delete role ${r.label}`} variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-status-error" disabled={busy} onClick={() => handleDelete(r.id, r.label)}>
                     <Trash2 size={14} />
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
           )}
         </>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -209,55 +216,56 @@ function UsersSection({ users, reload, pushToast }) {
   }
 
   return (
-    <div className="card p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
-        <UserPlus size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Users</h3>
+        <UserPlus size={15} className="text-foreground/80" />
+        <h3 className="text-sm font-semibold text-foreground">Users</h3>
       </div>
 
       <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-4">
-        <input aria-label="Username" className="input" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
-        <input aria-label="Password (min. 4)" className="input" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-        <select aria-label="Role of the new user" className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+        <Input aria-label="Username" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+        <Input aria-label="Password (min. 4)" type="password" placeholder="Password (min. 4)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <NativeSelect aria-label="Role of the new user" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
           <option value="observateur">observer</option>
           <option value="admin">admin</option>
-        </select>
-        <button className="btn-primary" disabled={busy || !newUsername.trim() || newPassword.length < 4} onClick={handleCreate}>
-          <Plus size={14} /> Create
-        </button>
+        </NativeSelect>
+        <Button disabled={busy || !newUsername.trim() || newPassword.length < 4} onClick={handleCreate}>
+          <Plus /> Create
+        </Button>
       </div>
 
       {users == null ? (
-        <p className="text-sm text-anthracite-400"><LoadingState /></p>
+        <p className="text-sm text-muted-foreground"><LoadingState /></p>
       ) : (
-        <div className="divide-y divide-anthracite-600">
+        <div className="divide-y divide-border">
           {users.map((u) => (
             <div key={u.username} className="flex items-center justify-between py-2 text-sm">
-              <span className="text-anthracite-100">{u.username}{u.username === me && <span className="text-anthracite-400"> (you)</span>}</span>
+              <span className="text-foreground">{u.username}{u.username === me && <span className="text-muted-foreground"> (you)</span>}</span>
               <div className="flex items-center gap-2">
-                <select aria-label={`Role of ${u.username}`}
-                  className="input text-xs py-1 w-auto"
+                <NativeSelect
+                  aria-label={`Role of ${u.username}`}
+                  className="w-auto text-xs"
                   value={u.role}
                   disabled={busy || u.username === me}
                   onChange={(e) => handleRoleChange(u.username, e.target.value)}
                 >
                   <option value="observateur">observer</option>
                   <option value="admin">admin</option>
-                </select>
-                <button aria-label={u.username === me ? "You cannot delete yourself" : `Delete user ${u.username}`}
-                  className="text-anthracite-400 hover:text-status-error disabled:opacity-30 disabled:hover:text-anthracite-400"
+                </NativeSelect>
+                <Button aria-label={u.username === me ? "You cannot delete yourself" : `Delete user ${u.username}`}
+                  variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-status-error disabled:opacity-30"
                   disabled={busy || u.username === me}
                   title={u.username === me ? "You cannot delete yourself" : "Delete"}
                   onClick={() => handleDelete(u.username)}
                 >
                   <Trash2 size={14} />
-                </button>
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -316,54 +324,54 @@ function GroupsSection({ groups, reload, pushToast }) {
   }
 
   return (
-    <div className="card p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
-        <Users size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">User groups</h3>
+        <Users size={15} className="text-foreground/80" />
+        <h3 className="text-sm font-semibold text-foreground">User groups</h3>
       </div>
 
       <div className="flex gap-2 mb-3">
-        <input aria-label="Group name (e.g. devs)" className="input" placeholder="Group name (e.g. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <Input aria-label="Group name (e.g. devs)" placeholder="Group name (e.g. devs)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
-        <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
-          <Plus size={14} /> Create
-        </button>
+        <Button className="shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
+          <Plus /> Create
+        </Button>
       </div>
 
       {groups == null ? (
-        <p className="text-sm text-anthracite-400"><LoadingState /></p>
+        <p className="text-sm text-muted-foreground"><LoadingState /></p>
       ) : groups.length === 0 ? (
-        <p className="text-sm text-anthracite-400">No groups. Create a group to assign rights to several users at once.</p>
+        <p className="text-sm text-muted-foreground">No groups. Create a group to assign rights to several users at once.</p>
       ) : (
         <div className="space-y-3">
           {groups.map((g) => (
-            <div key={g.id} className="rounded-md border border-anthracite-600 p-3">
+            <div key={g.id} className="rounded-md border border-border p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-anthracite-100">{g.name}</span>
-                <button aria-label={`Delete group ${g.name}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
+                <span className="text-sm font-medium text-foreground">{g.name}</span>
+                <Button aria-label={`Delete group ${g.name}`} variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-status-error" disabled={busy} onClick={() => handleDelete(g.id, g.name)}>
                   <Trash2 size={14} />
-                </button>
+                </Button>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {g.membres.length === 0 && <span className="text-xs text-anthracite-400">No members</span>}
+                {g.membres.length === 0 && <span className="text-xs text-muted-foreground">No members</span>}
                 {g.membres.map((m) => (
-                  <span key={m} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
+                  <Badge key={m} variant="secondary" className="gap-1">
                     {m}
-                    <button className="text-anthracite-400 hover:text-status-error" onClick={() => handleRemoveMember(g.id, m)}>x</button>
-                  </span>
+                    <button className="text-muted-foreground hover:text-status-error" onClick={() => handleRemoveMember(g.id, m)}><X size={11} /></button>
+                  </Badge>
                 ))}
               </div>
               <div className="flex gap-1.5">
-                <input aria-label="username" className="input text-xs py-1" placeholder="username" value={memberInputs[g.id] || ""}
+                <Input aria-label="username" className="text-xs" placeholder="username" value={memberInputs[g.id] || ""}
                   onChange={(e) => setMemberInputs((s) => ({ ...s, [g.id]: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleAddMember(g.id)} />
-                <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy} onClick={() => handleAddMember(g.id)}>Add</button>
+                <Button variant="secondary" size="sm" className="shrink-0" disabled={busy} onClick={() => handleAddMember(g.id)}>Add</Button>
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -421,53 +429,58 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
   }
 
   return (
-    <div className="card p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
-        <Boxes size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">VM pools</h3>
+        <Boxes size={15} className="text-foreground/80" />
+        <h3 className="text-sm font-semibold text-foreground">VM pools</h3>
       </div>
-      <p className="text-xs text-anthracite-400 mb-3">Group VMs (e.g. "Project-A") to assign them rights in one go, without listing them one by one.</p>
+      <p className="text-xs text-muted-foreground mb-3">Group VMs (e.g. "Project-A") to assign them rights in one go, without listing them one by one.</p>
 
       <div className="flex gap-2 mb-3">
-        <input aria-label="Pool name (e.g. project-a)" className="input" placeholder="Pool name (e.g. project-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
+        <Input aria-label="Pool name (e.g. project-a)" placeholder="Pool name (e.g. project-a)" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
-        <button className="btn-primary shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
-          <Plus size={14} /> Create
-        </button>
+        <Button className="shrink-0" disabled={busy || !newName.trim()} onClick={handleCreate}>
+          <Plus /> Create
+        </Button>
       </div>
 
       {pools == null ? (
-        <p className="text-sm text-anthracite-400"><LoadingState /></p>
+        <p className="text-sm text-muted-foreground"><LoadingState /></p>
       ) : pools.length === 0 ? (
-        <p className="text-sm text-anthracite-400">No pools.</p>
+        <p className="text-sm text-muted-foreground">No pools.</p>
       ) : (
         <div className="space-y-3">
           {pools.map((p) => {
             const available = vms.filter((v) => !p.vms.includes(v.nom));
             return (
-              <div key={p.id} className="rounded-md border border-anthracite-600 p-3">
+              <div key={p.id} className="rounded-md border border-border p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-anthracite-100">{p.name}</span>
-                  <button aria-label={`Delete pool ${p.name}`} className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
+                  <span className="text-sm font-medium text-foreground">{p.name}</span>
+                  <Button aria-label={`Delete pool ${p.name}`} variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-status-error" disabled={busy} onClick={() => handleDelete(p.id, p.name)}>
                     <Trash2 size={14} />
-                  </button>
+                  </Button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {p.vms.length === 0 && <span className="text-xs text-anthracite-400">No VMs</span>}
+                  {p.vms.length === 0 && <span className="text-xs text-muted-foreground">No VMs</span>}
                   {p.vms.map((v) => (
-                    <span key={v} className="flex items-center gap-1 rounded-sm bg-anthracite-700 px-2 py-0.5 text-xs text-anthracite-100">
+                    <Badge key={v} variant="secondary" className="gap-1">
                       {v}
-                      <button className="text-anthracite-400 hover:text-status-error" onClick={() => handleRemoveVm(p.id, v)}>x</button>
-                    </span>
+                      <button className="text-muted-foreground hover:text-status-error" onClick={() => handleRemoveVm(p.id, v)}><X size={11} /></button>
+                    </Badge>
                   ))}
                 </div>
                 {available.length > 0 && (
                   <div className="flex gap-1.5">
-                    <select aria-label={`VM to add to pool ${p.nom}`} className="input text-xs py-1" value={vmSelect[p.id] || ""} onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}>
+                    <NativeSelect
+                      aria-label={`VM to add to pool ${p.nom}`}
+                      className="text-xs"
+                      value={vmSelect[p.id] || ""}
+                      onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}
+                    >
                       <option value="">Choose a VM...</option>
                       {available.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)}
-                    </select>
-                    <button className="btn-secondary text-xs py-1 shrink-0" disabled={busy || !vmSelect[p.id]} onClick={() => handleAddVm(p.id)}>Add</button>
+                    </NativeSelect>
+                    <Button variant="secondary" size="sm" className="shrink-0" disabled={busy || !vmSelect[p.id]} onClick={() => handleAddVm(p.id)}>Add</Button>
                   </div>
                 )}
               </div>
@@ -475,7 +488,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
           })}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -517,90 +530,88 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
   }
 
   return (
-    <div className="card p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
-        <ShieldCheck size={15} className="text-anthracite-300" />
-        <h3 className="text-sm font-semibold text-anthracite-100">Assignments (who has which role, on what)</h3>
+        <ShieldCheck size={15} className="text-foreground/80" />
+        <h3 className="text-sm font-semibold text-foreground">Assignments (who has which role, on what)</h3>
       </div>
 
       {!ready ? (
-        <p className="text-sm text-anthracite-400"><LoadingState /></p>
+        <p className="text-sm text-muted-foreground"><LoadingState /></p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 mb-2 sm:grid-cols-4">
             <div>
-              <label className="text-[11px] text-anthracite-400">Who</label>
-              <select aria-label="Who" className="input text-xs py-1.5" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
+              <Label className="text-[11px] text-muted-foreground mb-1 block">Who</Label>
+              <NativeSelect aria-label="Who" className="text-xs w-full" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setSubjectId(""); }}>
                 <option value="user">User</option>
                 <option value="group">Group</option>
-              </select>
+              </NativeSelect>
             </div>
             <div>
-              <label className="text-[11px] text-anthracite-400">&nbsp;</label>
-              <select aria-label="Subject" className="input text-xs py-1.5" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+              <Label className="text-[11px] text-muted-foreground mb-1 block">&nbsp;</Label>
+              <NativeSelect aria-label="Subject" className="text-xs w-full" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
                 <option value="">Choose...</option>
                 {subjectType === "user"
                   ? users.map((u) => <option key={u.username} value={u.username}>{u.username}</option>)
                   : groups.map((g) => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
-              </select>
+              </NativeSelect>
             </div>
             <div>
-              <label className="text-[11px] text-anthracite-400">Role</label>
-              <select aria-label="Role" className="input text-xs py-1.5" value={role} onChange={(e) => setRole(e.target.value)}>
+              <Label className="text-[11px] text-muted-foreground mb-1 block">Role</Label>
+              <NativeSelect aria-label="Role" className="text-xs w-full" value={role} onChange={(e) => setRole(e.target.value)}>
                 {Object.entries(roles).map(([key, r]) => <option key={key} value={key}>{r.label}</option>)}
-              </select>
+              </NativeSelect>
             </div>
             <div>
-              <label className="text-[11px] text-anthracite-400">On</label>
-              <select aria-label="On" className="input text-xs py-1.5" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
+              <Label className="text-[11px] text-muted-foreground mb-1 block">On</Label>
+              <NativeSelect aria-label="On" className="text-xs w-full" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }}>
                 <option value="vm">A VM</option>
                 <option value="pool">A pool</option>
                 <option value="container">A container</option>
-              </select>
+              </NativeSelect>
             </div>
           </div>
           <div className="flex gap-2 mb-3">
-            <select aria-label="Resource" className="input" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
-              <option value="">
-                {resourceType === "vm" ? "Choose a VM..." : resourceType === "pool" ? "Choose a pool..." : "Choose a container..."}
-              </option>
+            <NativeSelect aria-label="Resource" className="flex-1" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
+              <option value="">{resourceType === "vm" ? "Choose a VM..." : resourceType === "pool" ? "Choose a pool..." : "Choose a container..."}</option>
               {resourceType === "vm"
                 ? vms.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)
                 : resourceType === "pool"
                 ? pools.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)
                 : (containers || []).map((c) => <option key={c.nom} value={c.nom}>{c.nom}</option>)}
-            </select>
-            <button className="btn-primary shrink-0" disabled={busy || !subjectId || !resourceId} onClick={handleCreate}>
-              <Plus size={14} /> Assign
-            </button>
+            </NativeSelect>
+            <Button className="shrink-0" disabled={busy || !subjectId || !resourceId} onClick={handleCreate}>
+              <Plus /> Assign
+            </Button>
           </div>
 
           {roles[role] && (
-            <p className="text-[11px] text-anthracite-400 mb-3">{roles[role].description}</p>
+            <p className="text-[11px] text-muted-foreground mb-3">{roles[role].description}</p>
           )}
 
           {acl && acl.length > 0 ? (
-            <div className="divide-y divide-anthracite-600">
+            <div className="divide-y divide-border">
               {acl.map((a) => (
                 <div key={a.id} className="flex items-center justify-between py-2 text-sm">
-                  <div className="text-anthracite-100">
+                  <div className="text-foreground">
                     <span className="font-medium">{a.subject_type === "group" ? `Group ${a.subject_label}` : a.subject_label}</span>
-                    <span className="text-anthracite-400"> -- {roles[a.role]?.label || a.role} -- </span>
+                    <span className="text-muted-foreground"> -- {roles[a.role]?.label || a.role} -- </span>
                     <span>
                       {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Conteneur ${a.resource_label}` : a.resource_label}
                     </span>
                   </div>
-                  <button aria-label="Remove assignment" className="text-anthracite-400 hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
+                  <Button aria-label="Remove assignment" variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>
                     <Trash2 size={14} />
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-anthracite-400">No assignments: access stays limited to the global roles above.</p>
+            <p className="text-sm text-muted-foreground">No assignments: access stays limited to the global roles above.</p>
           )}
         </>
       )}
-    </div>
+    </Card>
   );
 }

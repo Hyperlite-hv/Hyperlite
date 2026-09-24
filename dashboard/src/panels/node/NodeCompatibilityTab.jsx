@@ -3,11 +3,13 @@ import { RefreshCw } from "lucide-react";
 import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility } from "../../api/client";
 import CompatChecks from "../../components/CompatChecks";
 import { flattenCapabilities, deriveFeatures, NA } from "../../lib/capabilitiesView";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 const FEATURE_STYLE = {
   actif: ["text-status-running", "Active"],
   limite: ["text-status-warning", "Limited"],
-  inconnu: ["text-anthracite-400", "Unknown"],
+  inconnu: ["text-muted-foreground", "Unknown"],
 };
 const PREFLIGHT_STYLE = {
   ok: ["text-status-running", "OK"],
@@ -18,10 +20,10 @@ const PREFLIGHT_STYLE = {
 
 function Section({ title, children }) {
   return (
-    <div className="card">
-      <div className="px-4 py-3 border-b border-anthracite-600 text-sm font-semibold text-anthracite-100">{title}</div>
-      <div className="divide-y divide-anthracite-600">{children}</div>
-    </div>
+    <Card className="p-0">
+      <div className="px-4 py-3 border-b border-border text-sm font-semibold text-foreground">{title}</div>
+      <div className="divide-y divide-border">{children}</div>
+    </Card>
   );
 }
 
@@ -62,26 +64,26 @@ export default function NodeCompatibilityTab({ resource: node }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-anthracite-300">
+        <p className="text-sm text-foreground/80">
           What this node can really do, detected (never assumed). "{NA}" = not detectable from here.
         </p>
-        <button className="btn-secondary" onClick={load} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
-        </button>
+        <Button variant="secondary" onClick={load} disabled={loading}>
+          <RefreshCw className={loading ? "animate-spin" : ""} /> Refresh
+        </Button>
       </div>
 
-      {error && <div className="card px-4 py-3 text-sm text-status-error">Error: {error}</div>}
-      {!caps && !error && <div className="card px-4 py-3 text-sm text-anthracite-400">Detection in progress...</div>}
+      {error && <Card className="px-4 py-3 text-sm text-status-error">Error: {error}</Card>}
+      {!caps && !error && <Card className="px-4 py-3 text-sm text-muted-foreground">Detection in progress...</Card>}
 
       {features.length > 0 && (
         <Section title="Features">
           {features.map((f) => {
             const [cls, label] = FEATURE_STYLE[f.etat];
             return (
-              <div key={f.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm">
+              <div key={f.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm transition-colors duration-150 hover:bg-muted/40">
                 <div>
-                  <div className="text-anthracite-100">{f.label}</div>
-                  {f.detail && <div className="mt-0.5 text-xs text-anthracite-300">{f.detail}</div>}
+                  <div className="text-foreground">{f.label}</div>
+                  {f.detail && <div className="mt-0.5 text-xs text-foreground/80">{f.detail}</div>}
                 </div>
                 <span className={`shrink-0 font-medium ${cls}`}>{label}</span>
               </div>
@@ -104,11 +106,11 @@ export default function NodeCompatibilityTab({ resource: node }) {
           {preflight.controles.filter((c) => c.statut !== "ok").map((c) => {
             const [cls, label] = PREFLIGHT_STYLE[c.statut];
             return (
-              <div key={c.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm">
+              <div key={c.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm transition-colors duration-150 hover:bg-muted/40">
                 <div>
-                  <div className="text-anthracite-100">{c.message}</div>
-                  {c.fonctionnalite && <div className="mt-0.5 text-xs text-anthracite-300">Impact: {c.fonctionnalite}</div>}
-                  {c.action && <div className="mt-0.5 text-xs text-anthracite-300">Action: {c.action}</div>}
+                  <div className="text-foreground">{c.message}</div>
+                  {c.fonctionnalite && <div className="mt-0.5 text-xs text-foreground/80">Impact: {c.fonctionnalite}</div>}
+                  {c.action && <div className="mt-0.5 text-xs text-foreground/80">Action: {c.action}</div>}
                 </div>
                 <span className={`shrink-0 font-medium ${cls}`}>{label}</span>
               </div>
@@ -120,9 +122,9 @@ export default function NodeCompatibilityTab({ resource: node }) {
       {sections.map((s) => (
         <Section key={s} title={s}>
           {rows.filter((r) => r.section === s).map((r) => (
-            <div key={r.key} className="flex items-center justify-between gap-4 px-4 py-2.5 text-sm">
-              <span className="text-anthracite-300">{r.label}</span>
-              <span className={`text-right font-mono ${r.value === NA ? "text-anthracite-400" : "text-anthracite-100"}`}>{String(r.value)}</span>
+            <div key={r.key} className="flex items-center justify-between gap-4 px-4 py-2.5 text-sm transition-colors duration-150 hover:bg-muted/40">
+              <span className="text-foreground/80">{r.label}</span>
+              <span className={`text-right font-mono ${r.value === NA ? "text-muted-foreground" : "text-foreground"}`}>{String(r.value)}</span>
             </div>
           ))}
         </Section>

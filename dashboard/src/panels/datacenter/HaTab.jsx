@@ -5,6 +5,9 @@ import { ShieldCheck, ShieldOff, LifeBuoy, RefreshCw } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge";
 import { useInfraStore } from "../../store/useInfraStore";
 import { fetchHaProtected, disableHa, recoverHa } from "../../api/client";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 
 function formatDate(iso) {
   if (!iso) return "--";
@@ -61,19 +64,19 @@ export default function HaTab() {
 
   return (
     <div className="space-y-5">
-      <div className="card p-4">
-        <p className="text-sm text-anthracite-300">
+      <Card className="p-4">
+        <p className="text-sm text-foreground/80">
           The protected VMs below must have all their disks on a <b>shared</b> storage pool (NFS, Storage tab). If the node of a protected VM goes down, an alert appears here. Recovery to another node is always <b>triggered manually</b> by an admin (never automatic, to avoid any risk of corruption if the node is in fact only temporarily unreachable).
         </p>
-      </div>
+      </Card>
 
-      <div className="card divide-y divide-anthracite-600">
-        <div className="grid grid-cols-5 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
+      <Card className="p-0 divide-y divide-border">
+        <div className="grid grid-cols-5 gap-2 px-4 py-2 text-xs font-medium text-muted-foreground">
           <span>VM</span><span>Current node</span><span>Node status</span><span>Last sync</span><span />
         </div>
-        {rows == null && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
+        {rows == null && <div className="px-4 py-3 text-sm text-muted-foreground"><LoadingState /></div>}
         {rows && rows.length === 0 && (
-          <div className="px-4 py-6 text-sm text-anthracite-400 text-center">
+          <div className="px-4 py-6 text-sm text-muted-foreground text-center">
             No protected VMs. Enable HA protection from the Summary tab of a running VM (a disk on a shared pool is required).
           </div>
         )}
@@ -81,46 +84,47 @@ export default function HaTab() {
           const down = r.statut_noeud === "hors_ligne";
           const targets = nodes.filter((n) => n.id !== r.node && n.etat === "online");
           return (
-            <div key={r.vm_name} className="grid grid-cols-5 gap-2 px-4 py-3 text-sm items-center">
-              <span className="text-anthracite-100 font-medium flex items-center gap-2">
+            <div key={r.vm_name} className="grid grid-cols-5 gap-2 px-4 py-3 text-sm items-center transition-colors duration-150 hover:bg-muted/40">
+              <span className="text-foreground font-medium flex items-center gap-2">
                 {down ? <ShieldOff size={14} className="text-status-error shrink-0" /> : <ShieldCheck size={14} className="text-status-running shrink-0" />}
                 {r.vm_name}
               </span>
-              <span className="text-anthracite-300">{r.node}</span>
+              <span className="text-foreground/80">{r.node}</span>
               <span><StatusBadge etat={down ? "erreur" : "actif"} /></span>
-              <span className="text-anthracite-400 text-xs font-mono">{formatDate(r.last_synced_at)}</span>
+              <span className="text-muted-foreground text-xs font-mono">{formatDate(r.last_synced_at)}</span>
               <div className="flex items-center justify-end gap-2">
                 {down && (
                   <>
-                    <select aria-label="Recovery node"
-                      className="input w-auto text-xs py-1"
+                    <NativeSelect
+                      aria-label="Recovery node"
+                      className="w-auto text-xs"
                       value={recoverTarget[r.vm_name] || ""}
                       onChange={(e) => setRecoverTarget({ ...recoverTarget, [r.vm_name]: e.target.value })}
                     >
                       <option value="">Recover on…</option>
                       {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
-                    </select>
-                    <button
-                      className="btn-primary py-1!"
+                    </NativeSelect>
+                    <Button
+                      size="sm"
                       disabled={!recoverTarget[r.vm_name] || busy === r.vm_name}
                       onClick={() => handleRecover(r.vm_name)}
                     >
-                      <LifeBuoy size={13} /> {busy === r.vm_name ? "..." : "Recover"}
-                    </button>
+                      <LifeBuoy /> {busy === r.vm_name ? "..." : "Recover"}
+                    </Button>
                   </>
                 )}
-                <button className="btn-secondary py-1!" onClick={() => handleDisable(r.vm_name)}>
-                  <ShieldOff size={13} /> Disable
-                </button>
+                <Button variant="secondary" size="sm" onClick={() => handleDisable(r.vm_name)}>
+                  <ShieldOff /> Disable
+                </Button>
               </div>
             </div>
           );
         })}
-      </div>
+      </Card>
 
-      <button className="text-xs text-accent-blue hover:underline flex items-center gap-1.5" onClick={reload}>
-        <RefreshCw size={12} /> Refresh
-      </button>
+      <Button variant="link" className="h-auto p-0 text-accent-blue" onClick={reload}>
+        <RefreshCw /> Refresh
+      </Button>
     </div>
   );
 }

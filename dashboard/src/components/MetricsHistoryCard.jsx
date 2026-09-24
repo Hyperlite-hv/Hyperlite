@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import MetricChart from "./MetricChart";
 import { chartColors } from "../theme/colors";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const RANGES = [
   { key: "1h", label: "1 h" },
@@ -37,28 +39,22 @@ export default function MetricsHistoryCard({ title, fetcher }) {
   }));
 
   return (
-    <div className="card p-5">
+    <Card className="p-5">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-anthracite-100">{title}</h3>
-        <div className="flex gap-0.5 rounded-md bg-anthracite-700 p-0.5">
-          {RANGES.map((r) => (
-            <button
-              key={r.key}
-              onClick={() => setRange(r.key)}
-              className={`rounded-sm px-2.5 py-1 text-xs font-medium ${range === r.key ? "bg-accent-blue text-white" : "text-anthracite-300"}`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <Tabs value={range} onValueChange={setRange}>
+          <TabsList>
+            {RANGES.map((r) => <TabsTrigger key={r.key} value={r.key}>{r.label}</TabsTrigger>)}
+          </TabsList>
+        </Tabs>
       </div>
       {error && <p className="mt-2 text-xs text-status-error">{error}</p>}
-      {rows != null && rows.length === 0 && <p className="mt-3 text-sm text-anthracite-400">Not enough history yet for this period.</p>}
+      {rows != null && rows.length === 0 && <p className="mt-3 text-sm text-muted-foreground">Not enough history yet for this period.</p>}
       {rows != null && rows.length > 0 && (
         <div className="mt-3">
           <MetricChart data={data} series={[{ key: "cpu", label: "CPU", color: chartColors.cpu }]} yFormatter={(v) => `${Math.round(v * 100)}%`} height={140} />
         </div>
       )}
-    </div>
+    </Card>
   );
 }
