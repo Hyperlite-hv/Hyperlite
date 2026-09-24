@@ -22,7 +22,7 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
 
 const DATACENTER_TABS: Record<string, string> = {
   summary: "Summary", activity: "Recent activity", storage: "Storage", templates: "Templates", backups: "Backups", exports: "Exports",
-  permissions: "Permissions", reseau: "Network", automation: "Automation", containers: "Containers", nodes: "Nodes", ha: "HA",
+  permissions: "Users and access", reseau: "Network", automation: "Automation", containers: "Containers", nodes: "Nodes", ha: "HA",
   compat: "Compatibility", notifications: "Notifications", sso: "SSO", journal: "Journal",
 };
 const NODE_TABS = ["Summary", "System summary", "Network", "Disk storage", "Tasks", "Compatibility", "Shell"];
@@ -31,7 +31,6 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
   test("shows landmarks, the skip link and the hierarchical inventory", async ({ page, problems }) => {
     await nextLogin(page);
     await expect(page.getByRole("banner")).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Inventory" })).toBeVisible();
     await expect(page.getByRole("main")).toBeVisible();
     const tree = page.getByRole("tree", { name: "Inventory tree" });
@@ -123,7 +122,7 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await nextLogin(page);
     await page.getByRole("treeitem", { name: /node, / }).click();
     await expect(page).toHaveURL(/\/node\/local/);
-    await page.getByRole("tab", { name: "System summary" }).click();
+    await page.getByRole("tab", { name: "Monitor" }).click();
     await expect(page).toHaveURL(/tab=system/);
     await page.goBack();
     await expect(page).toHaveURL(/\/node\/local$/);
@@ -140,34 +139,52 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     }
   });
 
-  test("all seven node tabs are reachable", async ({ page }) => {
+  test("all seven node pages are reachable (Summary, Monitor > 2, Configure > 4)", async ({ page }) => {
     await nextLogin(page);
-    await page.goto("/node/local");
-    for (const label of NODE_TABS) {
-      const tab = page.locator(".nx-tabs").getByRole("tab", { name: label, exact: true });
-      await tab.click();
-      await expect(tab).toHaveAttribute("aria-selected", "true");
+    for (const [id, label] of [["summary", "Summary"], ["system", "System summary"], ["tasks", "Tasks"], ["network", "Network"], ["disk", "Disk storage"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
+      await page.goto(id === "summary" ? "/node/local" : `/node/local?tab=${id}`);
+      await expect(page.getByRole("main").getByRole("tab", { name: label, exact: true }), id).toHaveAttribute("aria-selected", "true");
     }
   });
 
-  test("rail sections open the expected areas", async ({ page }) => {
+  test("Datacenter has vSphere-style tabs; Configure lists its pages in a grouped vertical menu", async ({ page }) => {
     await nextLogin(page);
-    const rail = page.getByRole("navigation", { name: "Main navigation" });
-    for (const [section, tab] of [["Infrastructure", "Nodes"], ["Activity", "Recent activity"], ["Security", "Permissions"], ["Settings", "Automation"]] as const) {
-      await rail.getByRole("button", { name: section }).click();
-      await expect(page.getByRole("tab", { name: tab, exact: true })).toHaveAttribute("aria-selected", "true");
-      await expect(rail.getByRole("button", { name: section })).toHaveAttribute("aria-current", "page");
+    const top = page.getByRole("tablist", { name: "Datacenter" });
+    for (const name of ["Summary", "Monitor", "Configure", "Permissions", "Containers"]) await expect(top.getByRole("tab", { name })).toBeVisible();
+    await top.getByRole("tab", { name: "Configure" }).click();
+    const menu = page.getByRole("tablist", { name: "Section pages" });
+    await expect(menu.getByRole("tab", { name: "Nodes" })).toHaveAttribute("aria-selected", "true");
+    await menu.getByRole("tab", { name: "Storage" }).click();
+    await expect(page).toHaveURL(/tab=storage/);
+    await expect(page.getByRole("heading", { name: "Storage", level: 2 })).toBeVisible();
+    await menu.getByRole("tab", { name: "Storage" }).press("ArrowDown");
+    await expect(page).toHaveURL(/tab=reseau/);
+    await top.getByRole("tab", { name: "Monitor" }).click();
+    await expect(page).toHaveURL(/tab=activity/);
+  });
+
+  test("inventory views (hosts, VMs, storage, networks) and the Actions menu", async ({ page }) => {
+    await nextLogin(page);
+    const views = page.getByRole("tablist", { name: "Inventory view" });
+    for (const [name, expected] of [["VMs and containers", /Virtual machines/], ["Storage pools", /node, /], ["Virtual networks", /Datacenter/], ["Hosts and servers", /node, /]] as const) {
+      await views.getByRole("tab", { name }).click();
+      await expect(views.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByRole("tree").getByRole("treeitem", { name: expected }).first()).toBeVisible();
     }
+    await page.getByRole("button", { name: /^Actions/ }).click();
+    await expect(page.getByRole("menuitem", { name: "Copy link" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /Create · Virtual machine/ })).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
   test("language and theme switches apply immediately and persist", async ({ page }) => {
     await nextLogin(page);
     await page.getByRole("button", { name: "Language" }).click();
     await page.getByRole("menuitem", { name: "Français" }).click();
-    await expect(page.getByRole("navigation", { name: "Navigation principale" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Configurer" })).toBeVisible();
     await expect(page.getByPlaceholder("Trouver un nœud ou une VM")).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("navigation", { name: "Navigation principale" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Configurer" })).toBeVisible();
     await page.getByRole("button", { name: "Thème" }).click();
     await page.getByRole("menuitem", { name: "Clair" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");

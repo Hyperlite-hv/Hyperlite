@@ -4,7 +4,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
 import { useExplorerStore } from "./store";
-import { buildServerTree, buildPoolTree, filterTree, flatten, defaultOpen } from "./buildTree";
+import { buildServerTree, buildPoolTree, buildPerspectiveTree, filterTree, flatten, defaultOpen } from "./buildTree";
 import Tree from "./Tree";
 import Menu, { MenuItem } from "../components/Menu";
 import { Skeleton } from "../components/States";
@@ -13,6 +13,13 @@ import { capabilities, vmActionState } from "../lib/capabilities";
 import { relativeTime } from "../lib/format";
 import { selectionToPath } from "../lib/urls";
 import { useVmActions } from "../lib/vmActions";
+
+const PERSPECTIVES = [
+  ["hosts", <g key="h" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="2.5" width="14" height="6" rx="1" /><rect x="3" y="11.5" width="14" height="6" rx="1" /><path d="M6 5.5h.01M6 14.5h.01" strokeLinecap="round" /></g>],
+  ["vms", <g key="v" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2.5" y="3.5" width="15" height="10" rx="1.2" /><path d="M7 17h6M10 13.5V17" strokeLinecap="round" /></g>],
+  ["storage", <g key="s" fill="none" stroke="currentColor" strokeWidth="1.5"><ellipse cx="10" cy="5" rx="6" ry="2.5" /><path d="M4 5v10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5M4 10c0 1.4 2.7 2.5 6 2.500s6-1.1 6-2.5" /></g>],
+  ["networks", <g key="n" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="10" cy="10" r="7" /><path d="M3 10h14M10 3c2 2 3 4.5 3 7s-1 5-3 7c-2-2-3-4.5-3-7s1-5 3-7z" /></g>],
+];
 
 function selectionMatches(row, sel) {
   return !!row.selection && row.selection.type === sel.type && (row.selection.id ?? null) === (sel.id ?? null);
@@ -29,8 +36,8 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
   const { containers, pools, poolsState, updatedAt, failing } = useFreshness(useShallow((s) => ({
     containers: s.containers, pools: s.pools, poolsState: s.poolsState, updatedAt: s.updatedAt, failing: s.failing,
   })));
-  const { mode, setMode, toggled, setOpen, query, setQuery, density, pushRecent } = useExplorerStore(useShallow((s) => ({
-    mode: s.mode, setMode: s.setMode, toggled: s.toggled, setOpen: s.setOpen, query: s.query, setQuery: s.setQuery, density: s.density, pushRecent: s.pushRecent,
+  const { perspective, setPerspective, mode, setMode, toggled, setOpen, query, setQuery, density, pushRecent } = useExplorerStore(useShallow((s) => ({
+    perspective: s.perspective, setPerspective: s.setPerspective, mode: s.mode, setMode: s.setMode, toggled: s.toggled, setOpen: s.setOpen, query: s.query, setQuery: s.setQuery, density: s.density, pushRecent: s.pushRecent,
   })));
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const select = useInfraStore((s) => s.select);
@@ -51,13 +58,15 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
     return () => window.removeEventListener("nx:focus-search", focus);
   }, []);
 
-  const poolBlocked = mode === "pool" && pools == null;
+  const inHosts = perspective === "hosts";
+  const poolBlocked = inHosts && mode === "pool" && pools == null;
   const built = useMemo(() => {
     const data = { nodes, vms, containers, storagePools, networks, pools };
+    if (!inHosts) return buildPerspectiveTree(perspective, data, t);
     if (mode === "pool") return pools == null ? [] : buildPoolTree(data, t);
     return buildServerTree(data, t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, vms, containers, storagePools, networks, pools, mode, lang]);
+  }, [nodes, vms, containers, storagePools, networks, pools, mode, perspective, lang]);
 
   const { rows, matches } = useMemo(() => filterTree(built, query), [built, query]);
   const searching = query.trim().length > 0;
@@ -90,12 +99,21 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
 
   return (
     <aside id="nx-inventory" className="nx-inv" data-open={open ? "true" : "false"} aria-label={t("inv.title")}>
+      <div className="nx-persp" role="tablist" aria-label={t("inv.persp")}>
+        {PERSPECTIVES.map(([id, icon]) => (
+          <button key={id} type="button" role="tab" aria-selected={perspective === id} aria-label={t(`inv.persp.${id}`)} title={t(`inv.persp.${id}`)} onClick={() => setPerspective(id)}>
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">{icon}</svg>
+          </button>
+        ))}
+      </div>
       <div className="nx-inv-head">
-        <span className="nx-inv-title">{t("inv.title")}</span>
-        <div className="nx-seg" role="group" aria-label={t("inv.mode")}>
-          <button type="button" aria-pressed={mode === "server"} onClick={() => setMode("server")}>{t("inv.server")}</button>
-          <button type="button" aria-pressed={mode === "pool"} onClick={() => setMode("pool")}>{t("inv.pool")}</button>
-        </div>
+        <span className="nx-inv-title">{t(`inv.persp.${perspective}`)}</span>
+        {inHosts && (
+          <div className="nx-seg" role="group" aria-label={t("inv.mode")}>
+            <button type="button" aria-pressed={mode === "server"} onClick={() => setMode("server")}>{t("inv.server")}</button>
+            <button type="button" aria-pressed={mode === "pool"} onClick={() => setMode("pool")}>{t("inv.pool")}</button>
+          </div>
+        )}
       </div>
 
       <div className="nx-search" role="search">
@@ -150,7 +168,7 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
         </div>
       )}
 
-      {!nothingLoaded && !error && vms.length === 0 && !searching && mode === "server" && (
+      {!nothingLoaded && !error && vms.length === 0 && !searching && inHosts && mode === "server" && (
         <div className="nx-inv-empty" role="status">
           <span>{t("inv.noVms")}</span>
           {caps.create && <button type="button" className="nx-btn nx-btn--primary" onClick={onCreateVm}>{t("action.createVm")}</button>}
@@ -158,7 +176,7 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
       )}
 
       <div className="nx-inv-foot" role="status">
-        {mode === "pool" && !poolBlocked ? <div>{t("inv.poolNote")}</div> : null}
+        {inHosts && mode === "pool" && !poolBlocked ? <div>{t("inv.poolNote")}</div> : null}
         {stale ? <span className="nx-tone-warning">▲ {t("inv.stale")} · {t("inv.updated", { t: relativeTime(updatedAt, lang, now) })}</span>
           : updatedAt ? t("inv.updated", { t: relativeTime(updatedAt, lang, now) }) : ""}
       </div>

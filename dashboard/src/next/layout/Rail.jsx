@@ -14,7 +14,7 @@ const ICONS = {
 // Section rail. Sections are entry points onto the same views as before: Overview/Infrastructure/
 // Activity/Security/Settings open Datacenter tabs (all 16 stay reachable); Virtual Machines opens
 // the VM table of the local node until the dedicated list is rebuilt.
-export default function Rail() {
+export default function Rail({ variant = "top" }) {
   const t = useT();
   const selection = useInfraStore((s) => s.selection);
   const activeTab = useInfraStore((s) => s.activeTab);
@@ -35,11 +35,11 @@ export default function Rail() {
   ];
 
   return (
-    <nav className="nx-rail" aria-label={t("nav.main")}>
+    <nav className={`nx-rail nx-rail--${variant}`} aria-label={t("nav.main")}>
       {items.map(([id, go]) => (
         <button key={id} type="button" aria-current={current === id ? "page" : undefined} onClick={go}>
-          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">{ICONS[id]}</svg>
-          <span>{t(`nav.${id}`)}</span>
+          {variant === "bottom" && <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">{ICONS[id]}</svg>}
+          <span>{variant === "bottom" && (id === "infrastructure" || id === "vms") ? t(`nav.${id}.short`) : t(`nav.${id}`)}</span>
         </button>
       ))}
     </nav>

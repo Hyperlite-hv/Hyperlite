@@ -45,10 +45,10 @@ export default function Palette({ open, onClose, setWizards }) {
       }
     }
     const go = [
-      ["nav.overview", () => navigateTo("datacenter", null, "summary")], ["nav.infrastructure", () => navigateTo("datacenter", null, "nodes")],
-      ["nav.activity", () => navigateTo("datacenter", null, "activity")], ["nav.security", () => navigateTo("datacenter", null, "permissions")],
-      ["nav.settings", () => navigateTo("datacenter", null, "automation")],
-    ].map(([k, run]) => ({ group: "cmd.group.go", id: `g:${k}`, label: t(k), run }));
+      ["tab.summary", () => navigateTo("datacenter", null, "summary")], ["tab.monitor", () => navigateTo("datacenter", null, "activity")],
+      ["tab.configure", () => navigateTo("datacenter", null, "nodes")], ["tab.permissions", () => navigateTo("datacenter", null, "permissions")],
+      ["tab.containers", () => navigateTo("datacenter", null, "containers")],
+    ].map(([k, run]) => ({ group: "cmd.group.go", id: `g:${k}`, label: `${t("inv.datacenter")} › ${t(k)}`, run }));
     return [...res, ...actions.filter((a) => match(a.label)), ...go.filter((g) => match(g.label))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, nodes, vms, caps.create, caps.admin]);
