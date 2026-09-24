@@ -27,7 +27,7 @@ export default function GaugeRing({ label, ratio, valueLabel, size = 96, colorCl
     <div className="flex flex-col items-center gap-2">
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} className="stroke-anthracite-600" fill="none" />
+          <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} className="stroke-border" fill="none" />
           {hasData ? (
             <circle
               cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none"
@@ -39,19 +39,19 @@ export default function GaugeRing({ label, ratio, valueLabel, size = 96, colorCl
             <circle
               cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none"
               strokeDasharray="3 6" strokeLinecap="round"
-              className="text-anthracite-400" stroke="currentColor"
+              className="text-muted-foreground" stroke="currentColor"
             />
           )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={hasData ? "text-lg font-semibold text-anthracite-100" : "text-xs font-medium text-anthracite-400"}>
+          <span className={hasData ? "text-lg font-semibold text-foreground" : "text-xs font-medium text-muted-foreground"}>
             {hasData ? `${pct}%` : "n/a"}
           </span>
         </div>
       </div>
       <div className="text-center">
-        <div className="text-xs font-medium text-anthracite-200">{label}</div>
-        {valueLabel && <div className="text-[11px] text-anthracite-300">{valueLabel}</div>}
+        <div className="text-xs font-medium text-foreground/90">{label}</div>
+        {valueLabel && <div className="text-[11px] text-foreground/80">{valueLabel}</div>}
       </div>
     </div>
   );

@@ -20,7 +20,7 @@ export default function StatusBadge({ etat, showLabel = true, size = "sm" }) {
         className={`${dotSize} rounded-full shrink-0`}
         style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}99` }}
       />
-      {showLabel && <span className="text-anthracite-200 text-xs">{LABELS[etat] || etat}</span>}
+      {showLabel && <span className="text-foreground/90 text-xs">{LABELS[etat] || etat}</span>}
     </span>
   );
 }
