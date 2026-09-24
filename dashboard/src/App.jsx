@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import AppShell from "./layout/AppShell";
+const NextApp = lazy(() => import("./next/NextApp"));
 import LoginScreen from "./auth/LoginScreen";
 import ConsoleWindow from "./console/ConsoleWindow";
 import HostShellWindow from "./console/HostShellWindow";
@@ -27,6 +28,8 @@ export default function App() {
 function MainApp() {
   const status = useAuthStore((s) => s.status);
   const restoreSession = useAuthStore((s) => s.restoreSession);
+  // Decided once per mount (reads and clears the ?ui= parameter).
+  const [nextUi] = useState(readNextUi);
 
   useEffect(() => { restoreSession(); }, [restoreSession]);
 
@@ -37,6 +40,8 @@ function MainApp() {
     return <LoginScreen />;
   }
 
+  if (nextUi) return <Suspense fallback={null}><NextApp /></Suspense>;
+
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/datacenter" replace />} />
@@ -46,4 +51,19 @@ function MainApp() {
       <Route path="*" element={<Navigate to="/datacenter" replace />} />
     </Routes>
   );
+}
+
+// The rebuilt interface is opt-in until the migration is complete: `?ui=next` switches to it and
+// remembers the choice, `?ui=legacy` (or the "classic interface" menu entry) switches back.
+function readNextUi() {
+  const params = new URLSearchParams(window.location.search);
+  const asked = params.get("ui");
+  if (asked === "next" || asked === "legacy") {
+    try { localStorage.setItem("hyperlite-ui", asked); } catch { /* storage unavailable: applies to this load only */ }
+    params.delete("ui");
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    return asked === "next";
+  }
+  try { return localStorage.getItem("hyperlite-ui") === "next"; } catch { return false; }
 }
