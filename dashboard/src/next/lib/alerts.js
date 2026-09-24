@@ -17,3 +17,10 @@ export function deriveAlerts({ nodes = [], vms = [], storagePools = [], tasks = 
   const order = { danger: 0, warning: 1, offline: 2 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
 }
+
+// Global health for the top bar badge: critical > attention (warnings, offline nodes) > healthy.
+export function summarizeHealth(alerts) {
+  const critical = alerts.filter((a) => a.level === "danger").length;
+  const attention = alerts.length - critical;
+  return { level: critical ? "critical" : attention ? "attention" : "ok", critical, attention, total: alerts.length };
+}

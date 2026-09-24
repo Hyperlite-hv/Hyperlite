@@ -7,6 +7,8 @@ import { useThemeStore } from "../tokens/theme";
 import { useFreshness } from "../lib/inventory";
 import { capabilities } from "../lib/capabilities";
 import { relativeTime } from "../lib/format";
+import { deriveAlerts, summarizeHealth } from "../lib/alerts";
+import StatusIndicator from "../components/StatusIndicator";
 import Menu, { MenuItem } from "../components/Menu";
 import VMWizard from "../../wizard/VMWizard";
 import ContainerWizard from "../../wizard/ContainerWizard";
@@ -35,7 +37,9 @@ export default function TopBar({ onOpenPalette, onToggleInventory, inventoryOpen
   const lang = useLangStore((s) => s.lang);
   const setLang = useLangStore((s) => s.setLang);
   const { mode, setMode } = useThemeStore(useShallow((s) => ({ mode: s.mode, setMode: s.setMode })));
-  const tasks = useInfraStore((s) => s.tasks);
+  const { tasks, nodes, vms, storagePools } = useInfraStore(useShallow((s) => ({ tasks: s.tasks, nodes: s.nodes, vms: s.vms, storagePools: s.storagePools })));
+  const health = summarizeHealth(deriveAlerts({ nodes, vms, storagePools, tasks }));
+  const healthInfo = health.level === "critical" ? { key: "health.crit", shape: "diamond", tone: "danger" } : health.level === "attention" ? { key: "health.warn", shape: "triangle", tone: "warning" } : { key: "health.ok", shape: "dot", tone: "success" };
   const username = useAuthStore((s) => s.username);
   const role = useAuthStore((s) => s.role);
   const logout = useAuthStore((s) => s.logout);
@@ -58,6 +62,10 @@ export default function TopBar({ onOpenPalette, onToggleInventory, inventoryOpen
       </button>
       <span className="nx-brand"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="16" height="16" rx="4" fill="var(--color-accent)" /><path d="M6 6v8M14 6v8M6 10h8" stroke="var(--color-text-on-accent)" strokeWidth="1.8" strokeLinecap="round" /></svg><span className="nx-hide-narrow">{t("app.name")}</span></span>
       <span className="nx-top-spacer" />
+      <button type="button" className="nx-btn nx-btn--ghost nx-health" aria-label={`${t("health.label")}: ${t(healthInfo.key, { n: health.level === "critical" ? health.critical : health.attention })}`} onClick={() => window.dispatchEvent(new CustomEvent("nx:dock", { detail: "alerts" }))}>
+        <StatusIndicator override={healthInfo} compact />
+        <span className="nx-hide-narrow">{t(healthInfo.key, { n: health.level === "critical" ? health.critical : health.attention })}</span>
+      </button>
       <span className="nx-fresh nx-hide-narrow" role="status">{updatedAt ? t("top.updated", { t: relativeTime(updatedAt, lang) }) : ""}</span>
       <button type="button" className="nx-find" onClick={onOpenPalette} aria-label={t("find.open")}>
         <Icon d="M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10zM11 11l3.5 3.5" />

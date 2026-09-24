@@ -190,6 +190,19 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
+  test("a health badge is always visible and opens the alerts; node pages show a breadcrumb", async ({ page }) => {
+    await nextLogin(page);
+    const badge = page.getByRole("button", { name: /Infrastructure health/ });
+    await expect(badge).toBeVisible();
+    await badge.click();
+    await expect(page.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
+    await page.goto("/node/local");
+    const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(crumbs.getByRole("button", { name: "Datacenter" })).toBeVisible();
+    await crumbs.getByRole("button", { name: "Datacenter" }).click();
+    await expect(page).toHaveURL(/\/datacenter/);
+  });
+
   test("the task dock starts collapsed and opens on demand", async ({ page }) => {
     await nextLogin(page);
     const dock = page.getByRole("region", { name: "Tasks" }).first();
