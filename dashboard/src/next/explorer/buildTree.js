@@ -122,6 +122,26 @@ export function buildPoolTree({ nodes, vms, containers, pools }, t) {
   return [aggregate(root)];
 }
 
+// vSphere-style inventory perspectives (icon tabs above the tree): each one is another way to walk
+// the same data. "hosts" is the Server/Pool tree above; these three are flat, task-oriented views.
+export function buildPerspectiveTree(perspective, { nodes, vms, containers, storagePools, networks }, t) {
+  const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const dc = (children) => aggregate({ key: "dc", kind: "dc", label: t("inv.datacenter"), sub: null, info: null, count: null, selection: { type: "datacenter", id: null }, children, hay: normalize(t("inv.datacenter")) });
+  if (perspective === "vms") {
+    const v = vms.map((x) => vmRow(x, nodeName(x.node), "pv:", t, true));
+    const c = (containers || []).map((x) => containerRow(x, nodeName("local"), "pv:", t));
+    return [dc([category("pv-vms", "dc", t("inv.vms"), v, t), category("pv-containers", "dc", t("inv.containers"), c, t)])];
+  }
+  if (perspective === "storage") {
+    return [dc(nodes.map((n) => ({
+      key: `ps:node:${n.id}`, kind: "node", label: n.nom, sub: null, info: stateInfo("node", n.etat), count: null, selection: { type: "node", id: n.id }, resource: n,
+      children: storagePools.filter((p) => p.node === n.id).map((p) => poolRow(p, n, t)), hay: normalize(n.nom),
+    })))];
+  }
+  const local = nodes.find((n) => n.id === "local") || nodes[0];
+  return [dc((networks || []).map((x) => networkRow(x, local || { id: "local", nom: "" }, t)))];
+}
+
 const CONTAINER_KINDS = new Set(["dc", "node", "category", "pool"]);
 
 // Keeps rows that match, and their ancestors. A matching container row (node, pool...) keeps its

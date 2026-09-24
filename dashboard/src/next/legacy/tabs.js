@@ -36,14 +36,6 @@ export const DATACENTER_TABS = {
   exports: ExportsTab, permissions: PermissionsTab, reseau: NetworkOverviewTab, automation: AutomationTab, containers: ContainersTab,
   nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalTab,
 };
-export const SECTIONS = {
-  overview: ["summary"],
-  infrastructure: ["nodes", "ha", "compat", "storage", "reseau", "templates", "backups", "exports"],
-  vms: ["containers"],
-  activity: ["activity", "journal"],
-  security: ["permissions", "sso"],
-  settings: ["automation", "notifications"],
-};
 export const NODE_TABS = {
   summary: NodeSummaryTab, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,
 };
@@ -51,6 +43,42 @@ export const VM_TABS = {
   summary: VMSummaryTab, console: VMConsoleTab, hardware: VMHardwareTab, options: VMOptionsTab, backup: VMBackupTab, snapshots: VMSnapshotsTab,
 };
 
-export function sectionOfTab(tab) {
-  return Object.keys(SECTIONS).find((s) => SECTIONS[s].includes(tab)) || "overview";
+
+// vSphere-style model: every inventory object has a few top tabs; a top tab that holds several
+// pages shows them as a vertical menu on its left. Page ids are the historical `?tab=` ids, so
+// every existing link keeps working.
+const page = (id, group, label) => ({ page: id, group, label });
+export const OBJECT_TABS = {
+  datacenter: [
+    { id: "summary", label: "tab.summary", pages: [page("summary")] },
+    { id: "monitor", label: "tab.monitor", pages: [page("activity", "group.monitor"), page("journal")] },
+    { id: "configure", label: "tab.configure", pages: [
+      page("nodes", "group.cluster"), page("ha"), page("compat"),
+      page("storage", "group.resources"), page("reseau"), page("templates"),
+      page("backups", "group.protection"), page("exports"),
+      page("automation", "group.services"), page("notifications"),
+    ] },
+    { id: "permissions", label: "tab.permissions", pages: [page("permissions", "group.access", "tab.permissions.page"), page("sso")] },
+    { id: "containers", label: "tab.containers", pages: [page("containers")] },
+  ],
+  node: [
+    { id: "summary", label: "tab.summary", pages: [page("summary")] },
+    { id: "monitor", label: "tab.monitor", pages: [page("system", "group.monitor"), page("tasks")] },
+    { id: "configure", label: "tab.configure", pages: [page("network", "group.resources"), page("disk"), page("compat", "group.cluster"), page("shell", "group.platform")] },
+  ],
+  vm: [
+    { id: "summary", label: "tab.summary", pages: [page("summary")] },
+    { id: "console", label: "tab.console", pages: [page("console")] },
+    { id: "configure", label: "tab.configure", pages: [page("hardware", "group.resources"), page("options")] },
+    { id: "snapshots", label: "tab.snapshots", pages: [page("snapshots")] },
+    { id: "backup", label: "tab.backup", pages: [page("backup")] },
+  ],
+};
+
+// Resolves the top tab that owns a page id (unknown ids fall back to the first tab).
+export function locate(type, pageId) {
+  const tabs = OBJECT_TABS[type] || OBJECT_TABS.datacenter;
+  const top = tabs.find((t) => t.pages.some((p) => p.page === pageId)) || tabs[0];
+  const found = top.pages.find((p) => p.page === pageId) || top.pages[0];
+  return { tabs, top, page: found.page };
 }

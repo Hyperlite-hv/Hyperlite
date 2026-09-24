@@ -157,6 +157,7 @@ export default function Tree({ flat, selectionKey, focusKey, setFocusKey, onActi
                 aria-label={rowName(item, t)}
                 tabIndex={row.key === tabKey ? 0 : -1}
                 className="nx-row"
+                data-offline={row.kind === "node" && row.info?.tone === "offline" ? "true" : undefined}
                 style={{ paddingLeft: 6 + (level - 1) * 14 }}
                 onFocus={() => setFocusKey(row.key)}
                 onClick={() => onActivate(row, item)}

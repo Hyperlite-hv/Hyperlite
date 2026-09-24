@@ -35,7 +35,7 @@ export default function TopBar({ onOpenPalette, onToggleInventory, inventoryOpen
   const lang = useLangStore((s) => s.lang);
   const setLang = useLangStore((s) => s.setLang);
   const { mode, setMode } = useThemeStore(useShallow((s) => ({ mode: s.mode, setMode: s.setMode })));
-  const { selection, nodes, vms, tasks, navigateTo } = useInfraStore(useShallow((s) => ({ selection: s.selection, nodes: s.nodes, vms: s.vms, tasks: s.tasks, navigateTo: s.navigateTo })));
+  const tasks = useInfraStore((s) => s.tasks);
   const username = useAuthStore((s) => s.username);
   const role = useAuthStore((s) => s.role);
   const logout = useAuthStore((s) => s.logout);
@@ -51,21 +51,12 @@ export default function TopBar({ onOpenPalette, onToggleInventory, inventoryOpen
   const collapsed = useInfraStore((s) => s.taskLogCollapsed);
   const toggleTaskLog = useInfraStore((s) => s.toggleTaskLog);
 
-  const crumb = selection.type === "node" ? (nodes.find((n) => n.id === selection.id)?.nom || selection.id)
-    : selection.type === "vm" ? selection.id : selection.type === "storage" ? selection.id : null;
-  const nodeOfVm = selection.type === "vm" ? nodes.find((n) => n.id === vms.find((v) => v.nom === selection.id)?.node) : null;
-
   return (
     <header className="nx-top">
       <button type="button" className="nx-btn nx-btn--icon nx-only-narrow" aria-label={t("inv.open")} aria-expanded={inventoryOpen} aria-controls="nx-inventory" onClick={onToggleInventory}>
         <Icon d="M2 4h12M2 8h12M2 12h12" />
       </button>
       <span className="nx-brand"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="16" height="16" rx="4" fill="var(--color-accent)" /><path d="M6 6v8M14 6v8M6 10h8" stroke="var(--color-text-on-accent)" strokeWidth="1.8" strokeLinecap="round" /></svg><span className="nx-hide-narrow">{t("app.name")}</span></span>
-      <nav className="nx-crumbs" aria-label="Breadcrumb">
-        <button type="button" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>
-        {nodeOfVm && (<><span aria-hidden="true">›</span><button type="button" onClick={() => navigateTo("node", nodeOfVm.id, "summary")}>{nodeOfVm.nom}</button></>)}
-        {crumb && (<><span aria-hidden="true">›</span><span className="nx-crumb-current" aria-current="page">{crumb}</span></>)}
-      </nav>
       <span className="nx-top-spacer" />
       <span className="nx-fresh nx-hide-narrow" role="status">{updatedAt ? t("top.updated", { t: relativeTime(updatedAt, lang) }) : ""}</span>
       <button type="button" className="nx-find" onClick={onOpenPalette} aria-label={t("find.open")}>

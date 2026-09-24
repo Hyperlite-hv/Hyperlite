@@ -11,15 +11,16 @@ function load() {
       favorites: Array.isArray(v.favorites) ? v.favorites : [],
       recents: Array.isArray(v.recents) ? v.recents : [],
       density: v.density === "compact" ? "compact" : "comfortable",
+      perspective: ["hosts", "vms", "storage", "networks"].includes(v.perspective) ? v.perspective : "hosts",
     };
   } catch {
-    return { mode: "server", toggled: {}, favorites: [], recents: [], density: "comfortable" };
+    return { mode: "server", toggled: {}, favorites: [], recents: [], density: "comfortable", perspective: "hosts" };
   }
 }
 
 function save(s) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ mode: s.mode, toggled: s.toggled, favorites: s.favorites, recents: s.recents, density: s.density }));
+    localStorage.setItem(KEY, JSON.stringify({ mode: s.mode, toggled: s.toggled, favorites: s.favorites, recents: s.recents, density: s.density, perspective: s.perspective }));
   } catch { /* storage unavailable: preferences last for this session only */ }
 }
 
@@ -39,4 +40,5 @@ export const useExplorerStore = create((set, get) => ({
     save(get());
   },
   setDensity(density) { set({ density }); save(get()); },
+  setPerspective(perspective) { set({ perspective }); save(get()); },
 }));

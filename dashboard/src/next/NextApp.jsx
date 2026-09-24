@@ -10,7 +10,6 @@ import { useInfraStore } from "../store/useInfraStore";
 import { usePolling } from "./lib/polling";
 import { refreshInventory, refreshExtras } from "./lib/inventory";
 import TopBar from "./layout/TopBar";
-import Rail from "./layout/Rail";
 import Workspace from "./layout/Workspace";
 import Dock from "./layout/Dock";
 import Palette from "./layout/Palette";
@@ -65,6 +64,12 @@ export default function NextApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  useEffect(() => {
+    const on = (e) => setWizards({ [e.detail]: true });
+    window.addEventListener("nx:wizard", on);
+    return () => window.removeEventListener("nx:wizard", on);
+  }, []);
+
   const closeDrawer = () => setInventoryOpen(false);
   // Escape closes the narrow-screen drawer.
   useEffect(() => {
@@ -79,7 +84,6 @@ export default function NextApp() {
       <div className="nx-root">
         <a className="nx-skip" href="#nx-main" onClick={(e) => { e.preventDefault(); document.getElementById("nx-main")?.focus(); }}>{t("skip")}</a>
         <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleInventory={() => setInventoryOpen((o) => !o)} inventoryOpen={inventoryOpen} wizards={wizards} setWizards={setWizards} />
-        <Rail />
         <Explorer open={inventoryOpen} onNavigate={closeDrawer} onCreateVm={() => setWizards({ vm: true })} />
         <Routes>
           <Route path="/" element={<Navigate to="/datacenter" replace />} />
