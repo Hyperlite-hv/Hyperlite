@@ -113,6 +113,13 @@ export default function Workspace({ children }) {
       {selection.type === "node" && resource?.distant && <div className="nx-banner nx-banner--info" role="status">{t("res.remoteBanner")}</div>}
       {selection.type === "vm" && resource && nodes.find((n) => n.id === resource.node)?.distant && <div className="nx-banner nx-banner--info" role="status">{t("res.remoteBanner")}</div>}
 
+      {(selection.type === "node" || selection.type === "vm") && (
+        <nav className="nx-crumbrow" aria-label="Breadcrumb">
+          <button type="button" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>
+          {selection.type === "vm" && resource && (<><span aria-hidden="true">›</span><button type="button" onClick={() => navigateTo("node", resource.node, "summary")}>{nodes.find((n) => n.id === resource.node)?.nom || resource.node}</button></>)}
+          <span aria-hidden="true">›</span><span aria-current="page">{title}</span>
+        </nav>
+      )}
       <div className="nx-reshead">
         <svg className="nx-objicon" width="22" height="22" viewBox="0 0 20 20" aria-hidden="true">{OBJ_ICON[selection.type] || OBJ_ICON.datacenter}</svg>
         <h1 style={offlineNode ? { fontStyle: "italic" } : undefined}>{title}</h1>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { normalizeDetail } from "../next/lib/errors";
-import { deriveAlerts } from "../next/lib/alerts";
+import { deriveAlerts, summarizeHealth } from "../next/lib/alerts";
 import { stateInfo } from "../next/lib/enums";
 import { capabilities, vmActionState } from "../next/lib/capabilities";
 import { resolveTheme } from "../next/tokens/theme";
@@ -66,5 +66,13 @@ describe("states, capabilities, urls, theme, i18n", () => {
       const ph = (s) => (s.match(/\{\w+\}/g) || []).sort().join();
       expect(ph(fr[k]), k).toBe(ph(en[k]));
     }
+  });
+});
+
+describe("global health badge", () => {
+  it("is ok without alerts, attention for warnings/offline nodes, critical when something is red", () => {
+    expect(summarizeHealth([]).level).toBe("ok");
+    expect(summarizeHealth([{ level: "warning" }, { level: "offline" }])).toMatchObject({ level: "attention", attention: 2 });
+    expect(summarizeHealth([{ level: "danger" }, { level: "warning" }])).toMatchObject({ level: "critical", critical: 1, attention: 1 });
   });
 });

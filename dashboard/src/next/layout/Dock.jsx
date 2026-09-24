@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
@@ -18,6 +18,11 @@ export default function Dock() {
   })));
   const [tab, setTab] = useState("tasks");
   const [openId, setOpenId] = useState(null);
+  useEffect(() => {
+    const on = (e) => { setTab(e.detail); if (useInfraStore.getState().taskLogCollapsed) useInfraStore.getState().toggleTaskLog(); };
+    window.addEventListener("nx:dock", on);
+    return () => window.removeEventListener("nx:dock", on);
+  }, []);
   const running = tasks.filter((x) => x.statut === "en_cours").length;
   const alerts = deriveAlerts({ nodes, vms, storagePools, tasks });
   const open = !collapsed;
