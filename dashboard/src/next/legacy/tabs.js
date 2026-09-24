@@ -16,7 +16,7 @@ import JournalTab from "../../panels/datacenter/JournalTab";
 import ExportsTab from "../../panels/datacenter/ExportsTab";
 import ActivityTab from "../../panels/datacenter/ActivityTab";
 import CompatibilityTab from "../../panels/datacenter/CompatibilityTab";
-import NodeSummaryTab from "../../panels/node/NodeSummaryTab";
+import NodeSummary from "../pages/NodeSummary";
 import NodeSystemTab from "../../panels/node/NodeSystemTab";
 import NodeNetworkTab from "../../panels/node/NodeNetworkTab";
 import NodeDiskTab from "../../panels/node/NodeDiskTab";
@@ -37,7 +37,7 @@ export const DATACENTER_TABS = {
   nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalTab,
 };
 export const NODE_TABS = {
-  summary: NodeSummaryTab, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,
+  summary: NodeSummary, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,
 };
 export const VM_TABS = {
   summary: VMSummaryTab, console: VMConsoleTab, hardware: VMHardwareTab, options: VMOptionsTab, backup: VMBackupTab, snapshots: VMSnapshotsTab,

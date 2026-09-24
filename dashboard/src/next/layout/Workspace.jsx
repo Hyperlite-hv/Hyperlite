@@ -134,7 +134,7 @@ export default function Workspace({ children }) {
           <span className="nx-relative">
             <button ref={actionsBtn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((o) => !o)}>{t("actions")} <span aria-hidden="true">▾</span></button>
             <Menu open={actionsOpen} onClose={() => setActionsOpen(false)} label={t("actions")} returnFocusRef={actionsBtn} style={{ top: "calc(100% + 4px)", right: 0 }}>
-              {vm && ["start", "stop", "restart", "console"].map((a) => { const s2 = act(a); return <MenuItem key={a} disabled={!s2.enabled} reason={s2.reason ? t(s2.reason) : undefined} onSelect={() => { setActionsOpen(false); if (a === "console") vmActions.openConsole(vm); else vmActions.run(vm, a); }}>{t(`menu.${a}`)}</MenuItem>; })}
+              {vm && ["start", "stop", "restart", "console", "force-stop"].map((a) => { const s2 = act(a); return <MenuItem key={a} danger={a === "force-stop"} disabled={!s2.enabled} reason={s2.reason ? t(s2.reason) : undefined} onSelect={() => { setActionsOpen(false); if (a === "console") vmActions.openConsole(vm); else vmActions.run(vm, a); }}>{t(a === "force-stop" ? "menu.forceStop" : `menu.${a}`)}</MenuItem>; })}
               {vm?.ip && <MenuItem onSelect={() => { setActionsOpen(false); copy(vm.ip); }}>{t("menu.copyIp")}</MenuItem>}
               {(isDc && caps.create) && (<>
                 <MenuItem onSelect={() => { setActionsOpen(false); wizard("vm"); }}>{`${t("action.create")} · ${t("action.createVm")}`}</MenuItem>

@@ -20,7 +20,7 @@ export function vmActionState(action, vm, caps) {
   const running = vm?.etat === "actif";
   switch (action) {
     case "start": return running ? { enabled: false, reason: "menu.reason.running" } : { enabled: true };
-    case "stop": case "restart": return running ? { enabled: true } : { enabled: false, reason: "menu.reason.notRunning" };
+    case "stop": case "force-stop": case "restart": return running ? { enabled: true } : { enabled: false, reason: "menu.reason.notRunning" };
     case "delete": return !caps.delete ? { enabled: false, reason: "menu.reason.admin" } : running ? { enabled: false, reason: "menu.reason.mustStop" } : { enabled: true };
     case "console": return running ? { enabled: true } : { enabled: false, reason: "menu.reason.notRunning" };
     default: return { enabled: true };

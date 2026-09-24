@@ -189,7 +189,7 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
           return (
             <>
               <MenuItem onSelect={() => { setMenu(null); activate(menu.row); }}>{t("menu.open")}</MenuItem>
-              {item("start", t("menu.start"))}{item("stop", t("menu.stop"))}{item("restart", t("menu.restart"))}{item("console", t("menu.console"))}
+              {item("start", t("menu.start"))}{item("stop", t("menu.stop"))}{item("restart", t("menu.restart"))}{item("console", t("menu.console"))}<hr />{item("force-stop", t("menu.forceStop"))}
               <hr />
               {vm.ip && <MenuItem onSelect={() => { setMenu(null); copy(vm.ip); }}>{t("menu.copyIp")}</MenuItem>}
               <MenuItem onSelect={() => { setMenu(null); copy(`${window.location.origin}${selectionToPath({ type: "vm", id: vm.nom })}`); }}>{t("menu.copyLink")}</MenuItem>

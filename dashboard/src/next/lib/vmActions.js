@@ -14,6 +14,10 @@ export function useVmActions() {
         const ok = await confirmAction({ title: `Stop ${vm.nom}?`, message: "The guest receives a shutdown request (ACPI). Whether it stops depends on the guest cooperating; use Force stop if it does not.", confirmLabel: "Stop", danger: false });
         if (!ok) return;
         await runVMAction(vm.nom, "stop", { force: false });
+      } else if (action === "force-stop") {
+        const ok = await confirmAction({ title: `Force stop ${vm.nom}?`, message: "This is equivalent to pulling the power cable: the guest is powered off immediately, unsaved data may be lost and its filesystems may need a check at the next boot. Prefer Stop (clean shutdown) when the guest responds.", confirmLabel: "Force stop", danger: true });
+        if (!ok) return;
+        await runVMAction(vm.nom, "stop", { force: true });
       } else if (action === "restart") {
         const ok = await confirmAction({ title: `Restart ${vm.nom}?`, message: "Restart is a hard power cycle: the guest is powered off immediately, without a clean shutdown, then started again.", confirmLabel: "Restart", danger: true });
         if (!ok) return;
