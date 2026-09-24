@@ -65,5 +65,7 @@ function readNextUi() {
     window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
     return asked === "next";
   }
-  try { return localStorage.getItem("hyperlite-ui") === "next"; } catch { return false; }
+  // VITE_DEFAULT_UI=next makes the rebuilt interface the default of a build (preview deployments).
+  const fallback = import.meta.env.VITE_DEFAULT_UI === "next" ? "next" : "legacy";
+  try { return (localStorage.getItem("hyperlite-ui") || fallback) === "next"; } catch { return fallback === "next"; }
 }
