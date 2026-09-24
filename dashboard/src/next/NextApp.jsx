@@ -1,0 +1,98 @@
+import { useCallback, useEffect, useState } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import "./next.css";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
+import ConfirmHost from "../components/ConfirmHost";
+import { useT, useLangStore } from "./i18n";
+import { useThemeStore } from "./tokens/theme";
+import { useInfraStore } from "../store/useInfraStore";
+import { usePolling } from "./lib/polling";
+import { refreshInventory, refreshExtras } from "./lib/inventory";
+import TopBar from "./layout/TopBar";
+import Rail from "./layout/Rail";
+import Workspace from "./layout/Workspace";
+import Dock from "./layout/Dock";
+import Palette from "./layout/Palette";
+import Explorer from "./explorer/Explorer";
+
+const REFRESH_MS = 6000;
+const EXTRAS_MS = 15000;
+
+// Root of the rebuilt interface. Same auth, stores, API client and routes as the legacy UI (this
+// component is rendered by App.jsx once the session is authenticated).
+export default function NextApp() {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const initTheme = useThemeStore((s) => s.init);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [wizards, setWizards] = useState({});
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.ui = "next";
+    root.lang = lang;
+    const cleanup = initTheme();
+    return () => {
+      cleanup?.();
+      delete root.dataset.ui; delete root.dataset.theme;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
+
+  // The task dock starts collapsed (calm by default); it shows a running-task count and can be opened at any time.
+  useEffect(() => { useInfraStore.setState({ taskLogCollapsed: true }); }, []);
+
+  useEffect(() => { refreshInventory({ initial: true }).catch(() => {}); refreshExtras(); }, []);
+  usePolling(useCallback(() => refreshInventory(), []), REFRESH_MS);
+  usePolling(useCallback(() => refreshExtras(), []), EXTRAS_MS);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target?.tagName || "").toLowerCase();
+      const typing = tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); setInventoryOpen((o) => !o); return; }
+      if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setInventoryOpen(true);
+        setTimeout(() => window.dispatchEvent(new CustomEvent("nx:focus-search")), 30);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const closeDrawer = () => setInventoryOpen(false);
+  // Escape closes the narrow-screen drawer.
+  useEffect(() => {
+    if (!inventoryOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape" && window.innerWidth < 1024) setInventoryOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inventoryOpen]);
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <div className="nx-root">
+        <a className="nx-skip" href="#nx-main" onClick={(e) => { e.preventDefault(); document.getElementById("nx-main")?.focus(); }}>{t("skip")}</a>
+        <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleInventory={() => setInventoryOpen((o) => !o)} inventoryOpen={inventoryOpen} wizards={wizards} setWizards={setWizards} />
+        <Rail />
+        <Explorer open={inventoryOpen} onNavigate={closeDrawer} onCreateVm={() => setWizards({ vm: true })} />
+        <Routes>
+          <Route path="/" element={<Navigate to="/datacenter" replace />} />
+          <Route path="/datacenter" element={<Workspace />} />
+          <Route path="/node/:id" element={<Workspace />} />
+          <Route path="/vm/:id" element={<Workspace />} />
+          <Route path="*" element={<Navigate to="/datacenter" replace />} />
+        </Routes>
+        <Dock />
+        <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} setWizards={setWizards} />
+      </div>
+      <Toaster position="bottom-right" />
+      <ConfirmHost />
+    </TooltipProvider>
+  );
+}
