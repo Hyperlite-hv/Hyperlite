@@ -4,9 +4,11 @@ import Header from "./Header";
 import Sidebar from "./Sidebar";
 import CentralPanel from "./CentralPanel";
 import TaskLogPanel from "./TaskLogPanel";
-import ToastContainer from "../components/ToastContainer";
 import { useInfraStore } from "../store/useInfraStore";
 import { useUrlParamsToSelection, useSelectionToUrl } from "../hooks/useUrlSync";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 
 const REFRESH_MS = 6000;
 
@@ -31,24 +33,25 @@ export default function AppShell() {
   }, [refreshAll]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-anthracite-900">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header />
-        <div className="flex-1 overflow-hidden">
-          {loading ? (
-            <div className="flex h-full items-center justify-center text-sm text-anthracite-400">Loading the infrastructure...</div>
-          ) : error ? (
-            <div className="flex h-full items-center justify-center text-sm text-status-error">Error: {error}</div>
-          ) : (
-            <CentralPanel />
-          )}
-        </div>
-        {/* Real bug found by eyeballing the UI (Playwright): placed as a direct sibling of the Sidebar+content column (root container in flex-row), TaskLogPanel rendered as a narrow column on the right of the whole screen instead of a bar at the bottom. Kept inside the content column (below Header+CentralPanel). */}
-        <TaskLogPanel />
-      </div>
-      <ToastContainer />
-      <ConfirmHost />
-</div>
+    <TooltipProvider delayDuration={300}>
+      <SidebarProvider>
+        <Sidebar />
+        <SidebarInset className="overflow-hidden">
+          <Header />
+          <div className="flex-1 overflow-hidden">
+            {loading ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading the infrastructure...</div>
+            ) : error ? (
+              <div className="flex h-full items-center justify-center text-sm text-destructive">Error: {error}</div>
+            ) : (
+              <CentralPanel />
+            )}
+          </div>
+          <TaskLogPanel />
+        </SidebarInset>
+        <Toaster position="bottom-right" />
+        <ConfirmHost />
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }

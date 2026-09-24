@@ -23,15 +23,15 @@ export default function CompatChecks({ report }) {
         return (
           <div key={`${c.id}-${i}`} className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-anthracite-100">{c.message}</div>
-              {c.action && <div className="text-xs text-anthracite-300">Action: {c.action}</div>}
+              <div className="text-foreground">{c.message}</div>
+              {c.action && <div className="text-xs text-foreground/80">Action: {c.action}</div>}
             </div>
             <span className={`shrink-0 text-xs font-medium ${cls}`}>{label}</span>
           </div>
         );
       })}
       {ok.length > 0 && (
-        <button type="button" className="text-xs text-anthracite-300 underline" onClick={() => setShowOk((v) => !v)}>
+        <button type="button" className="text-xs text-foreground/80 underline transition-colors duration-150 hover:text-foreground" onClick={() => setShowOk((v) => !v)}>
           {showOk ? "Hide" : "Show"} the {ok.length} passed check(s)
         </button>
       )}

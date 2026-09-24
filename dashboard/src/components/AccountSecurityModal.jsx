@@ -1,19 +1,21 @@
-import { useModalBehavior } from "../hooks/useModalBehavior";
 import LoadingState from "./LoadingState";
 import { confirmAction } from "../store/useConfirmStore";
 import { useEffect, useState } from "react";
-import { X, ShieldCheck, ShieldOff, KeyRound, Plus, Trash2, Copy, Check } from "lucide-react";
+import { ShieldCheck, ShieldOff, KeyRound, Plus, Trash2, Copy, Check } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useInfraStore } from "../store/useInfraStore";
 import {
   setup2FA, confirm2FA, disable2FA, fetchApiTokens, createApiToken, deleteApiToken,
 } from "../api/client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 // Self-service panel opened from the user menu (Header.jsx), not a Datacenter
 // tab: these are settings of the signed-in ACCOUNT, not of the managed
 // infrastructure.
-export default function AccountSecurityModal({ onClose }) {
-  const dialogRef = useModalBehavior(true, onClose);
+export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   const totpEnabled = useAuthStore((s) => s.totpEnabled);
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -74,7 +76,19 @@ export default function AccountSecurityModal({ onClose }) {
   const [busyToken, setBusyToken] = useState(false);
 
   const reloadTokens = () => fetchApiTokens().then(setTokens).catch(() => {});
-  useEffect(() => { reloadTokens(); }, []);
+  // Guarded on `open`: see the note in VMWizard.jsx — this component now stays
+  // mounted while closed, so without the guard it would hit the backend on
+  // every page load instead of only when the modal is actually opened.
+  useEffect(() => { if (open) reloadTokens(); }, [open]);
+  // Same "stays mounted while closed" consequence for the freshly-created token:
+  // without this, closing and reopening the dialog would still show the
+  // reveal-once token banner from the previous visit instead of a clean modal.
+  useEffect(() => {
+    if (!open) {
+      setFreshToken(null); setCopied(false); setNewTokenName("");
+      setSetupData(null); setConfirmCode(""); setDisablePassword("");
+    }
+  }, [open]);
 
   async function handleCreateToken(e) {
     e.preventDefault();
@@ -111,16 +125,26 @@ export default function AccountSecurityModal({ onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div ref={dialogRef} className="card w-[560px] max-w-full max-h-[85vh] overflow-y-auto p-5 space-y-6" role="dialog" aria-modal="true" aria-label="Account security">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-anthracite-100">Account security</h3>
-          <button aria-label="Close" onClick={onClose} className="text-anthracite-400 hover:text-anthracite-100"><X size={18} /></button>
-        </div>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent
+        className="w-[560px] max-w-full max-h-[85vh] overflow-y-auto space-y-6"
+        // See the note in VMWizard.jsx: explicit focus restore to the trigger
+        // rather than relying on Radix's implicit capture (this modal is
+        // opened from a DropdownMenuItem, not a direct DialogTrigger click).
+        onCloseAutoFocus={(e) => {
+          if (triggerRef?.current) {
+            e.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Account security</DialogTitle>
+        </DialogHeader>
 
         {/* --- 2FA --- */}
         <section className="space-y-3">
-          <h4 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <ShieldCheck size={15} /> Two-factor authentication (TOTP)
           </h4>
 
@@ -129,101 +153,101 @@ export default function AccountSecurityModal({ onClose }) {
               <p className="text-sm text-status-running">2FA is enabled on this account.</p>
               <form onSubmit={handleDisable} className="flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="text-xs font-medium text-anthracite-300">Password (to disable)</label>
-                  <input aria-label="Password (to disable)" type="password" className="input mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
+                  <Label className="text-xs font-medium text-foreground/80">Password (to disable)</Label>
+                  <Input aria-label="Password (to disable)" type="password" className="mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
                 </div>
-                <button type="submit" disabled={busy2fa} className="btn-danger">
-                  <ShieldOff size={14} /> Disable
-                </button>
+                <Button type="submit" disabled={busy2fa} variant="outline" className="text-status-error border-status-error/30 hover:bg-status-error/10">
+                  <ShieldOff /> Disable
+                </Button>
               </form>
             </div>
           )}
 
           {!totpEnabled && !setupData && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-anthracite-400">Not enabled: protects sign-in with a one-time code in addition to the password.</p>
-              <button onClick={handleStartSetup} disabled={busy2fa} className="btn-primary shrink-0">
+              <p className="text-sm text-muted-foreground">Not enabled: protects sign-in with a one-time code in addition to the password.</p>
+              <Button onClick={handleStartSetup} disabled={busy2fa} className="shrink-0">
                 {busy2fa ? "..." : "Enable"}
-              </button>
+              </Button>
             </div>
           )}
 
           {setupData && (
-            <form onSubmit={handleConfirm} className="space-y-3 rounded-md border border-anthracite-600 p-3">
-              <p className="text-xs text-anthracite-300">
+            <form onSubmit={handleConfirm} className="space-y-3 rounded-md border border-border p-3 animate-in fade-in-0 duration-150">
+              <p className="text-xs text-foreground/80">
                 Scan this QR code with an authenticator app (Google Authenticator, Aegis, 1Password...), then enter the generated code to confirm.
               </p>
               <div
                 className="mx-auto w-40 rounded-md bg-white p-2 [&_svg]:w-full [&_svg]:h-full"
                 dangerouslySetInnerHTML={{ __html: setupData.qr_code_svg }}
               />
-              <p className="text-center font-mono text-[11px] text-anthracite-400 break-all">{setupData.secret}</p>
+              <p className="text-center font-mono text-[11px] text-muted-foreground break-all">{setupData.secret}</p>
               <div className="flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="text-xs font-medium text-anthracite-300">6-digit code</label>
-                  <input aria-label="6-digit code"
-                    className="input mt-1 text-center tracking-[0.3em]" autoFocus inputMode="numeric" maxLength={6}
+                  <Label className="text-xs font-medium text-foreground/80">6-digit code</Label>
+                  <Input aria-label="6-digit code"
+                    className="mt-1 text-center tracking-[0.3em]" autoFocus inputMode="numeric" maxLength={6}
                     value={confirmCode} onChange={(e) => setConfirmCode(e.target.value.replace(/\D/g, ""))}
                   />
                 </div>
-                <button type="submit" disabled={busy2fa || confirmCode.length !== 6} className="btn-primary">Confirm</button>
-                <button type="button" className="btn-secondary" onClick={() => { setSetupData(null); setConfirmCode(""); }}>Cancel</button>
+                <Button type="submit" disabled={busy2fa || confirmCode.length !== 6}>Confirm</Button>
+                <Button type="button" variant="secondary" onClick={() => { setSetupData(null); setConfirmCode(""); }}>Cancel</Button>
               </div>
             </form>
           )}
         </section>
 
         {/* --- Jetons API --- */}
-        <section className="space-y-3 border-t border-anthracite-600 pt-4">
-          <h4 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
+        <section className="space-y-3 border-t border-border pt-4">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <KeyRound size={15} /> API tokens
           </h4>
-          <p className="text-xs text-anthracite-400">
+          <p className="text-xs text-muted-foreground">
             To authenticate scripts or automation (Terraform, cron...) without using your password. Each token can be revoked individually.
           </p>
 
           {freshToken && (
-            <div className="space-y-2 rounded-md border border-status-warning/40 bg-status-warning/10 p-3">
-              <p className="text-xs text-anthracite-200">
+            <div className="space-y-2 rounded-md border border-status-warning/40 bg-status-warning/10 p-3 animate-in fade-in-0 duration-150">
+              <p className="text-xs text-foreground/90">
                 Copy this token now: it will never be shown again.
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 truncate rounded-sm bg-anthracite-900 px-2 py-1.5 text-xs text-anthracite-100">{freshToken.token}</code>
-                <button className="btn-secondary py-1.5!" onClick={copyToken}>
+                <code className="flex-1 truncate rounded-sm bg-background px-2 py-1.5 text-xs text-foreground">{freshToken.token}</code>
+                <Button variant="secondary" size="sm" onClick={copyToken}>
                   {copied ? <Check size={13} /> : <Copy size={13} />}
-                </button>
+                </Button>
               </div>
-              <button className="text-xs text-anthracite-400 hover:text-anthracite-200" onClick={() => setFreshToken(null)}>Dismiss</button>
+              <button className="text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground/90" onClick={() => setFreshToken(null)}>Dismiss</button>
             </div>
           )}
 
           <form onSubmit={handleCreateToken} className="flex items-end gap-2">
             <div className="flex-1">
-              <label className="text-xs font-medium text-anthracite-300">Token name</label>
-              <input aria-label="Token name" className="input mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
+              <Label className="text-xs font-medium text-foreground/80">Token name</Label>
+              <Input aria-label="Token name" className="mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
             </div>
-            <button type="submit" disabled={busyToken || !newTokenName.trim()} className="btn-secondary">
-              <Plus size={14} /> Create
-            </button>
+            <Button type="submit" disabled={busyToken || !newTokenName.trim()} variant="secondary">
+              <Plus /> Create
+            </Button>
           </form>
 
-          <div className="divide-y divide-anthracite-600 rounded-md border border-anthracite-600">
-            {tokens == null && <div className="px-3 py-2 text-xs text-anthracite-400"><LoadingState /></div>}
-            {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-anthracite-400 text-center">No tokens.</div>}
+          <div className="divide-y divide-border rounded-md border border-border">
+            {tokens == null && <div className="px-3 py-2 text-xs text-muted-foreground"><LoadingState /></div>}
+            {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-muted-foreground text-center">No tokens.</div>}
             {tokens && tokens.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted/40">
                 <div className="min-w-0 flex-1">
-                  <div className="text-anthracite-100 truncate">{t.name}</div>
-                  <div className="text-anthracite-400 text-xs">
+                  <div className="text-foreground truncate">{t.name}</div>
+                  <div className="text-muted-foreground text-xs">
                     Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
                   </div>
                 </div>
-                <button aria-label={`Revoke token ${t.name}`} className="btn-danger py-1!" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></button>
+                <Button aria-label={`Revoke token ${t.name}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></Button>
               </div>
             ))}
           </div>
         </section>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

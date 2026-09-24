@@ -31,7 +31,7 @@ function MainApp() {
   useEffect(() => { restoreSession(); }, [restoreSession]);
 
   if (status === "checking") {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Checking the session...</div>;
+    return <div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">Checking the session...</div>;
   }
   if (status === "anonymous") {
     return <LoginScreen />;

@@ -4,6 +4,7 @@ import HostShellPanel from "../components/HostShellPanel";
 import LoginScreen from "../auth/LoginScreen";
 import { useAuthStore, selectIsAdmin } from "../store/useAuthStore";
 import { fetchDashboardSummary } from "../api/client";
+import { Button } from "@/components/ui/button";
 
 // Standalone page opened through window.open() (see NodeShellTab.jsx), the same
 // principle as ConsoleWindow.jsx for VMs: same origin, so the same session (JWT in
@@ -22,21 +23,21 @@ export default function HostShellWindow() {
   }, [status]);
 
   if (status === "checking") {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Checking the session...</div>;
+    return <div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">Checking the session...</div>;
   }
   if (status === "anonymous") {
     return <LoginScreen />;
   }
   if (!isAdmin) {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Host shell reserved for the admin role.</div>;
+    return <div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">Host shell reserved for the admin role.</div>;
   }
 
   return (
-    <div className="flex h-screen flex-col bg-anthracite-900 p-3 gap-3">
+    <div className="flex h-screen flex-col bg-background p-3 gap-3">
       <div className="flex items-center gap-2 shrink-0">
         <Server size={15} className="text-accent-blue" />
-        <span className="text-sm font-semibold text-anthracite-100">Host shell — {hostname}</span>
-        <button className="btn-secondary ml-auto" onClick={() => window.close()}>Close the window</button>
+        <span className="text-sm font-semibold text-foreground">Host shell — {hostname}</span>
+        <Button variant="secondary" className="ml-auto" onClick={() => window.close()}>Close the window</Button>
       </div>
       <div className="flex-1 min-h-0">
         <HostShellPanel hostname={hostname} />

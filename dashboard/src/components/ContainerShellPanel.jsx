@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plug, Unplug } from "lucide-react";
 import { createContainerTerminalTicket } from "../api/client";
 import { ensureXtermLoaded, wsUrl } from "../utils/loadXterm";
+import { Button } from "@/components/ui/button";
 
 // SSH terminal of a container: the same ticket + WebSocket + xterm.js relay as
 // HostShellPanel/ConsolePanel (per-VM SSH terminal), a different backend entry
@@ -67,17 +68,17 @@ export default function ContainerShellPanel({ name }) {
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center gap-2">
         {status === "connected" ? (
-          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Disconnect</button>
+          <Button variant="secondary" className="ml-auto" onClick={cleanup}><Unplug /> Disconnect</Button>
         ) : (
-          <button className="btn-primary ml-auto" disabled={status === "connecting"} onClick={connect}>
-            <Plug size={13} /> {status === "connecting" ? "Connecting..." : "Open the terminal"}
-          </button>
+          <Button className="ml-auto" disabled={status === "connecting"} onClick={connect}>
+            <Plug /> {status === "connecting" ? "Connecting..." : "Open the terminal"}
+          </Button>
         )}
       </div>
 
       {error && <p className="text-xs text-status-error">{error}</p>}
 
-      <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-anthracite-600">
+      <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-border">
         <div ref={screenRef} className="h-full w-full" />
       </div>
     </div>
