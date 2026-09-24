@@ -3,6 +3,7 @@ import { normalizeDetail } from "../next/lib/errors";
 import { deriveAlerts, summarizeHealth } from "../next/lib/alerts";
 import { stateInfo } from "../next/lib/enums";
 import { capabilities, vmActionState } from "../next/lib/capabilities";
+import { formatVersionInt } from "../next/lib/format";
 import { resolveTheme } from "../next/tokens/theme";
 import { selectionToPath, withTab } from "../next/lib/urls";
 import en from "../next/i18n/en";
@@ -74,5 +75,13 @@ describe("global health badge", () => {
     expect(summarizeHealth([]).level).toBe("ok");
     expect(summarizeHealth([{ level: "warning" }, { level: "offline" }])).toMatchObject({ level: "attention", attention: 2 });
     expect(summarizeHealth([{ level: "danger" }, { level: "warning" }])).toMatchObject({ level: "critical", critical: 1, attention: 1 });
+  });
+});
+
+describe("version formatting", () => {
+  it("decodes libvirt/QEMU integer versions", () => {
+    expect(formatVersionInt(9000000)).toBe("9.0.0");
+    expect(formatVersionInt(7002022)).toBe("7.2.22");
+    expect(formatVersionInt(null)).toBeNull();
   });
 });

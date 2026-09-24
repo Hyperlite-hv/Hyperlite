@@ -203,6 +203,32 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await expect(page).toHaveURL(/\/datacenter/);
   });
 
+  test("node summary: capacity bars with trends, VM list with a cards/table switch, health, activity, alerts", async ({ page }) => {
+    await nextLogin(page);
+    await page.goto("/node/local");
+    const main = page.getByRole("main");
+    for (const name of ["CPU", "Memory", "Storage", "Network"]) await expect(main.getByText(name, { exact: true }).first()).toBeVisible();
+    await expect(main.getByRole("meter", { name: "Storage" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Node health" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Recent activity" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: /^Alerts/ })).toBeVisible();
+    await main.getByRole("button", { name: "Table" }).click();
+    await expect(main.getByRole("table")).toBeVisible();
+    await expect(main.getByRole("columnheader", { name: "vCPU" })).toBeVisible();
+    await main.getByRole("button", { name: "Cards" }).click();
+    await expect(main.getByRole("table")).toHaveCount(0);
+  });
+
+  test("a VM Actions menu separates the clean stop from the forced stop", async ({ page }) => {
+    await nextLogin(page);
+    const vm = page.getByRole("tree").getByRole("treeitem", { name: /virtual machine, / }).first();
+    test.skip(!(await vm.count()), "no VM on this host");
+    await vm.click();
+    await page.getByRole("button", { name: /^Actions/ }).click();
+    await expect(page.getByRole("menuitem", { name: /^Stop/ })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /Force stop/ })).toBeVisible();
+  });
+
   test("the task dock starts collapsed and opens on demand", async ({ page }) => {
     await nextLogin(page);
     const dock = page.getByRole("region", { name: "Tasks" }).first();
