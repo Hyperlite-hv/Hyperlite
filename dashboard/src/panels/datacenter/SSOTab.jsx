@@ -3,6 +3,11 @@ import { useEffect, useState } from "react";
 import { KeyRound, Save } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { fetchSsoConfig, updateSsoConfig } from "../../api/client";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 const EMPTY = {
   enabled: false, issuer: "", client_id: "", client_secret: "", redirect_uri: "",
@@ -47,37 +52,34 @@ export default function SSOTab() {
     }
   }
 
-  if (loading) return <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (loading) return <div className="px-4 py-3 text-sm text-muted-foreground"><LoadingState /></div>;
 
   return (
     <div className="space-y-5">
-      <div className="card">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-anthracite-600">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-anthracite-100">
+      <Card className="p-0">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <KeyRound size={15} /> Single sign-on (OIDC SSO)
           </h3>
-          <button
-            type="button"
-            onClick={() => setForm((f) => ({ ...f, enabled: !f.enabled }))}
-            className={`rounded-full px-3 py-1 text-xs font-medium border ${form.enabled ? "border-status-ok bg-status-ok/10 text-status-ok" : "border-anthracite-600 text-anthracite-300"}`}
-          >
+          <Label className="flex items-center gap-2 text-xs font-medium text-foreground/80">
             {form.enabled ? "Enabled" : "Disabled"}
-          </button>
+            <Switch checked={form.enabled} onCheckedChange={(v) => setForm((f) => ({ ...f, enabled: v }))} />
+          </Label>
         </div>
 
-        <p className="px-4 pt-3 text-xs text-anthracite-400">
+        <p className="px-4 pt-3 text-xs text-muted-foreground">
           Local password authentication always remains possible in parallel (fallback if the IdP is unreachable or misconfigured): SSO is added on top, it never replaces it.
         </p>
 
         <form onSubmit={handleSave} className="space-y-3 px-4 py-4">
           <div>
-            <label className="text-xs font-medium text-anthracite-300">Issuer (OIDC discovery URL)</label>
-            <input aria-label="Issuer (OIDC discovery URL)"
-              className="input mt-1" value={form.issuer}
+            <Label className="text-xs font-medium text-foreground/80">Issuer (OIDC discovery URL)</Label>
+            <Input aria-label="Issuer (OIDC discovery URL)"
+              className="mt-1" value={form.issuer}
               onChange={(e) => setForm({ ...form, issuer: e.target.value })}
               placeholder="https://idp.example.com/realms/hyperlite"
             />
-            <p className="mt-1 text-[11px] text-anthracite-400">
+            <p className="mt-1 text-[11px] text-muted-foreground">
               Hyperlite automatically fetches the authorization/token/keys URLs from
               {" "}<code>{"{issuer}"}/.well-known/openid-configuration</code>.
             </p>
@@ -85,15 +87,15 @@ export default function SSOTab() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-anthracite-300">Client ID</label>
-              <input aria-label="Client ID" className="input mt-1" value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} />
+              <Label className="text-xs font-medium text-foreground/80">Client ID</Label>
+              <Input aria-label="Client ID" className="mt-1" value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs font-medium text-anthracite-300">
-                Client secret {secretSet && <span className="text-anthracite-400">(already saved)</span>}
-              </label>
-              <input aria-label="Client secret"
-                type="password" className="input mt-1" value={form.client_secret}
+              <Label className="text-xs font-medium text-foreground/80">
+                Client secret {secretSet && <span className="text-muted-foreground">(already saved)</span>}
+              </Label>
+              <Input aria-label="Client secret"
+                type="password" className="mt-1" value={form.client_secret}
                 onChange={(e) => setForm({ ...form, client_secret: e.target.value })}
                 placeholder={secretSet ? "leave empty to keep the current one" : ""}
               />
@@ -101,42 +103,42 @@ export default function SSOTab() {
           </div>
 
           <div>
-            <label className="text-xs font-medium text-anthracite-300">Redirect URL (redirect_uri)</label>
-            <input aria-label="Redirect URL (redirect_uri)"
-              className="input mt-1" value={form.redirect_uri}
+            <Label className="text-xs font-medium text-foreground/80">Redirect URL (redirect_uri)</Label>
+            <Input aria-label="Redirect URL (redirect_uri)"
+              className="mt-1" value={form.redirect_uri}
               onChange={(e) => setForm({ ...form, redirect_uri: e.target.value })}
               placeholder="https://hyperlite.example.com:8000/auth/sso/callback"
             />
-            <p className="mt-1 text-[11px] text-anthracite-400">
+            <p className="mt-1 text-[11px] text-muted-foreground">
               Must be registered identically on the IdP side, and reachable from the user's browser.
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-anthracite-300">Groups claim</label>
-              <input aria-label="Groups claim" className="input mt-1" value={form.group_claim} onChange={(e) => setForm({ ...form, group_claim: e.target.value })} />
+              <Label className="text-xs font-medium text-foreground/80">Groups claim</Label>
+              <Input aria-label="Groups claim" className="mt-1" value={form.group_claim} onChange={(e) => setForm({ ...form, group_claim: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs font-medium text-anthracite-300">IdP groups → admin role</label>
-              <input aria-label="IdP groups → admin role"
-                className="input mt-1" value={form.admin_groups}
+              <Label className="text-xs font-medium text-foreground/80">IdP groups → admin role</Label>
+              <Input aria-label="IdP groups → admin role"
+                className="mt-1" value={form.admin_groups}
                 onChange={(e) => setForm({ ...form, admin_groups: e.target.value })}
                 placeholder="hyperlite-admins, infra-team"
               />
             </div>
           </div>
-          <p className="text-[11px] text-anthracite-400">
+          <p className="text-[11px] text-muted-foreground">
             Any SSO user belonging to one of these groups (comma-separated) gets the admin role, and everyone else gets observateur. Re-evaluated at every sign-in.
           </p>
 
           <div className="flex justify-end">
-            <button type="submit" disabled={saving} className="btn-primary">
-              <Save size={14} /> {saving ? "Saving..." : "Save"}
-            </button>
+            <Button type="submit" disabled={saving}>
+              <Save /> {saving ? "Saving..." : "Save"}
+            </Button>
           </div>
         </form>
-      </div>
+      </Card>
     </div>
   );
 }

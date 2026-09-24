@@ -6,6 +6,11 @@ import { fetchJobs, createJob, deleteJob, runJob, fetchJobRuns, fetchJobRun } fr
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import { statusLabel } from "../../lib/labels";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { NativeSelect } from "@/components/ui/native-select";
 
 
 // Real: GET/POST/DELETE /jobs, POST /jobs/{id}/run, GET /jobs/{id}/runs,
@@ -99,97 +104,97 @@ export default function AutomationTab() {
     }
   }
 
-  if (jobs == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (jobs == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   return (
     <div className="space-y-3">
       {isAdmin && (
-        <button className="btn-primary" onClick={() => setCreating((c) => !c)}>
-          <Plus size={14} /> Create a custom job
-        </button>
+        <Button onClick={() => setCreating((c) => !c)}>
+          <Plus /> Create a custom job
+        </Button>
       )}
 
       {creating && (
-        <div className="card p-4 space-y-3">
+        <Card className="p-4 space-y-3 animate-in fade-in-0 slide-in-from-top-1 duration-150">
           <div className="grid grid-cols-2 gap-2">
-            <input aria-label="Job name" className="input" placeholder="Job name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <input aria-label="Description (optional)" className="input" placeholder="Description (optional)" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+            <Input aria-label="Job name" placeholder="Job name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <Input aria-label="Description (optional)" placeholder="Description (optional)" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="space-y-2">
             {form.steps.map((s, i) => (
               <div key={i} className="flex items-center gap-2">
-                <select aria-label="Step target type" className="input w-36" value={s.cible_type} onChange={(e) => updateStep(i, { cible_type: e.target.value })}>
+                <NativeSelect aria-label="Step target type" className="w-36" value={s.cible_type} onChange={(e) => updateStep(i, { cible_type: e.target.value })}>
                   <option value="host">Host</option>
                   <option value="vm">A specific VM</option>
                   <option value="chaque_cible">Each target of the run</option>
-                </select>
+                </NativeSelect>
                 {s.cible_type === "vm" && (
-                  <input aria-label="VM name" className="input w-32" placeholder="VM name" value={s.cible || ""} onChange={(e) => updateStep(i, { cible: e.target.value })} />
+                  <Input aria-label="VM name" className="w-32" placeholder="VM name" value={s.cible || ""} onChange={(e) => updateStep(i, { cible: e.target.value })} />
                 )}
-                <input aria-label="shell command" className="input flex-1" placeholder="shell command" value={s.commande} onChange={(e) => updateStep(i, { commande: e.target.value })} />
-                <select aria-label="Success condition type" className="input w-32" value={s.condition_type} onChange={(e) => updateStep(i, { condition_type: e.target.value })}>
+                <Input aria-label="shell command" className="flex-1" placeholder="shell command" value={s.commande} onChange={(e) => updateStep(i, { commande: e.target.value })} />
+                <NativeSelect aria-label="Success condition type" className="w-32" value={s.condition_type} onChange={(e) => updateStep(i, { condition_type: e.target.value })}>
                   <option value="exit_code">Return code</option>
                   <option value="stdout_contains">Output contains</option>
-                </select>
-                <input aria-label="Success condition value" className="input w-24" placeholder={s.condition_type === "exit_code" ? "0" : "pattern"} value={s.condition_valeur || ""} onChange={(e) => updateStep(i, { condition_valeur: e.target.value })} />
-                <button aria-label={`Remove step ${i + 1}`} className="btn-danger" onClick={() => removeStep(i)}><Trash2 size={13} /></button>
+                </NativeSelect>
+                <Input aria-label="Success condition value" className="w-24" placeholder={s.condition_type === "exit_code" ? "0" : "pattern"} value={s.condition_valeur || ""} onChange={(e) => updateStep(i, { condition_valeur: e.target.value })} />
+                <Button aria-label={`Remove step ${i + 1}`} size="icon" variant="outline" className="size-9 shrink-0 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => removeStep(i)}><Trash2 size={13} /></Button>
               </div>
             ))}
           </div>
           <div className="flex justify-between">
-            <button className="btn-secondary" onClick={addStep}><Plus size={13} /> Add a step</button>
+            <Button variant="secondary" onClick={addStep}><Plus /> Add a step</Button>
             <div className="flex gap-2">
-              <button className="btn-secondary" onClick={() => setCreating(false)}>Cancel</button>
-              <button className="btn-primary" disabled={busy || !form.name} onClick={handleCreate}>Create</button>
+              <Button variant="secondary" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button disabled={busy || !form.name} onClick={handleCreate}>Create</Button>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
-      <div className="card divide-y divide-anthracite-600">
+      <Card className="p-0 divide-y divide-border">
         {jobs.map((job) => (
           <div key={job.id}>
-            <div className="flex items-center gap-3 px-4 py-3">
-              <Zap size={15} className="text-anthracite-400 shrink-0" />
+            <div className="flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/40">
+              <Zap size={15} className="text-muted-foreground shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="text-sm text-anthracite-100">
-                  {job.name} {job.predefined_key && <span className="ml-1 rounded-sm bg-accent-blue/20 px-1.5 py-0.5 text-[10px] text-accent-blue">predefined</span>}
+                <div className="text-sm text-foreground">
+                  {job.name} {job.predefined_key && <Badge variant="secondary" className="ml-1 bg-accent-blue/20 text-accent-blue">predefined</Badge>}
                 </div>
-                {job.description && <div className="text-xs text-anthracite-400 truncate">{job.description}</div>}
+                {job.description && <div className="text-xs text-muted-foreground truncate">{job.description}</div>}
               </div>
-              <input aria-label={`Targets for ${job.name} (VMs separated by commas)`}
-                className="input w-48 text-xs" placeholder="targets (VMs separated by commas)"
+              <Input aria-label={`Targets for ${job.name} (VMs separated by commas)`}
+                className="w-48 text-xs" placeholder="targets (VMs separated by commas)"
                 value={runForm[job.id] || ""} onChange={(e) => setRunForm((f) => ({ ...f, [job.id]: e.target.value }))}
               />
               {isAdmin && (
                 <>
-                  <button aria-label={`Dry run ${job.name}`} className="btn-secondary" onClick={() => handleRun(job, true)} title="Dry-run">Dry run</button>
-                  <button aria-label={`Run ${job.name}`} className="btn-primary" onClick={() => handleRun(job, false)}><Play size={13} /> Run</button>
-                  {!job.predefined_key && <button aria-label={`Delete job ${job.name}`} className="btn-danger" onClick={() => handleDelete(job)}><Trash2 size={13} /></button>}
+                  <Button aria-label={`Dry run ${job.name}`} variant="secondary" size="sm" onClick={() => handleRun(job, true)} title="Dry-run">Dry run</Button>
+                  <Button aria-label={`Run ${job.name}`} size="sm" onClick={() => handleRun(job, false)}><Play /> Run</Button>
+                  {!job.predefined_key && <Button aria-label={`Delete job ${job.name}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDelete(job)}><Trash2 size={13} /></Button>}
                 </>
               )}
-              <button className="text-anthracite-400" onClick={() => toggleExpand(job)}>
+              <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" onClick={() => toggleExpand(job)}>
                 {expanded === job.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </button>
+              </Button>
             </div>
 
             {expanded === job.id && (
-              <div className="px-8 pb-3 space-y-2">
-                <div className="text-xs text-anthracite-400">Run history:</div>
-                {!runs[job.id] && <div className="text-xs text-anthracite-400"><LoadingState /></div>}
-                {runs[job.id] && runs[job.id].length === 0 && <div className="text-xs text-anthracite-400">No runs.</div>}
+              <div className="px-8 pb-3 space-y-2 animate-in fade-in-0 duration-150">
+                <div className="text-xs text-muted-foreground">Run history:</div>
+                {!runs[job.id] && <div className="text-xs text-muted-foreground"><LoadingState /></div>}
+                {runs[job.id] && runs[job.id].length === 0 && <div className="text-xs text-muted-foreground">No runs.</div>}
                 {runs[job.id] && runs[job.id].map((r) => (
                   <div key={r.id} className="text-xs">
-                    <button className="flex items-center gap-2 text-anthracite-300 hover:text-anthracite-100" onClick={() => openRunDetail(r.id)}>
+                    <button className="flex items-center gap-2 text-foreground/80 transition-colors duration-150 hover:text-foreground" onClick={() => openRunDetail(r.id)}>
                       {r.statut === "succes" ? <CheckCircle2 size={12} className="text-status-running" />
                         : r.statut === "echec" ? <XCircle size={12} className="text-status-error" />
                         : <Loader2 size={12} className="animate-spin text-accent-blue" />}
                       {new Date(r.started_at).toLocaleString(undefined)} — {r.dry_run ? "dry run" : "real"} — {r.resultat || statusLabel(r.statut)}
                     </button>
                     {openRun === r.id && runDetail && (
-                      <div className="mt-1 ml-5 space-y-1 rounded-md bg-anthracite-700/60 p-2 font-mono">
+                      <div className="mt-1 ml-5 space-y-1 rounded-md bg-muted/60 p-2 font-mono">
                         {runDetail.logs.map((l) => (
-                          <div key={l.id} className={l.reussi ? "text-anthracite-300" : "text-status-error"}>
+                          <div key={l.id} className={l.reussi ? "text-foreground/80" : "text-status-error"}>
                             [{l.cible}] {l.commande} → exit={l.exit_code} {l.stdout ? `| ${l.stdout.trim().slice(0, 200)}` : ""}
                           </div>
                         ))}
@@ -201,7 +206,7 @@ export default function AutomationTab() {
             )}
           </div>
         ))}
-      </div>
+      </Card>
     </div>
   );
 }

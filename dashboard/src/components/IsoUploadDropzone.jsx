@@ -3,6 +3,7 @@ import { UploadCloud, FileText } from "lucide-react";
 import ProgressBar from "./ProgressBar";
 import { getAuthToken } from "../api/client";
 import { useInfraStore } from "../store/useInfraStore";
+import { Card } from "@/components/ui/card";
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} o`;
@@ -77,12 +78,12 @@ export default function IsoUploadDropzone({ onDone }) {
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
         onClick={() => inputRef.current?.click()}
-        className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors ${
-          dragOver ? "border-accent-blue bg-accent-blue/5" : "border-anthracite-500 hover:border-anthracite-400"
+        className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors duration-150 ${
+          dragOver ? "border-accent-blue bg-accent-blue/5" : "border-muted-foreground/40 hover:border-muted-foreground/70"
         }`}
       >
-        <UploadCloud size={28} className="text-anthracite-300" />
-        <p className="text-sm text-anthracite-200">Drop an ISO image here, or click to browse</p>
+        <UploadCloud size={28} className="text-foreground/80" />
+        <p className="text-sm text-foreground/90">Drop an ISO image here, or click to browse</p>
         <input aria-label="ISO image file"
           ref={inputRef}
           type="file"
@@ -93,20 +94,20 @@ export default function IsoUploadDropzone({ onDone }) {
       </div>
 
       {upload && (
-        <div className="mt-4 card p-3">
-          <div className="flex items-center gap-2 text-sm text-anthracite-100">
-            <FileText size={15} className="text-anthracite-300 shrink-0" />
+        <Card className="mt-4 p-3 animate-in fade-in-0 duration-150">
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <FileText size={15} className="text-foreground/80 shrink-0" />
             <span className="truncate">{upload.file.name}</span>
-            <span className="ml-auto text-xs text-anthracite-400 shrink-0">{formatBytes(upload.loaded)} / {formatBytes(upload.file.size)}</span>
+            <span className="ml-auto text-xs text-muted-foreground shrink-0">{formatBytes(upload.loaded)} / {formatBytes(upload.file.size)}</span>
           </div>
           <div className="mt-2">
             <ProgressBar value={(upload.loaded / (upload.file.size || 1)) * 100} statut={upload.statut} />
           </div>
-          <div className="mt-1.5 flex justify-between text-xs text-anthracite-400">
+          <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
             <span>{upload.statut === "termine" ? "Upload complete" : `${(upload.speed / 1024 / 1024).toFixed(1)} MB/s`}</span>
             <span>{upload.statut === "termine" ? "" : `Estimated time remaining: ${formatEta(upload.etaS)}`}</span>
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import ConsolePanel from "../components/ConsolePanel";
 import LoginScreen from "../auth/LoginScreen";
 import { useAuthStore } from "../store/useAuthStore";
 import { fetchVM } from "../api/client";
+import { Button } from "@/components/ui/button";
 
 // Standalone page (no AppShell, no sidebar/header) opened in a separate
 // window/tab through window.open(), see VMConsoleTab.jsx. Same origin as the rest
@@ -30,19 +31,19 @@ export default function ConsoleWindow() {
   }, [name, status]);
 
   if (status === "checking") {
-    return <div className="flex h-screen items-center justify-center bg-anthracite-900 text-sm text-anthracite-400">Checking the session...</div>;
+    return <div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">Checking the session...</div>;
   }
   if (status === "anonymous") {
     return <LoginScreen />;
   }
 
   return (
-    <div className="flex h-screen flex-col bg-anthracite-900 p-3 gap-3">
+    <div className="flex h-screen flex-col bg-background p-3 gap-3">
       <div className="flex items-center gap-2 shrink-0">
         <Server size={15} className="text-accent-blue" />
-        <span className="text-sm font-semibold text-anthracite-100">{name}</span>
-        {vm?.etat && <span className="text-xs text-anthracite-400">({vm.etat})</span>}
-        <button className="btn-secondary ml-auto" onClick={() => window.close()}>Close the window</button>
+        <span className="text-sm font-semibold text-foreground">{name}</span>
+        {vm?.etat && <span className="text-xs text-muted-foreground">({vm.etat})</span>}
+        <Button variant="secondary" className="ml-auto" onClick={() => window.close()}>Close the window</Button>
       </div>
       {error && <p className="text-xs text-status-error">{error}</p>}
       <div className="flex-1 min-h-0">

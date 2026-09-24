@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import GaugeRing from "../../components/GaugeRing";
 import MetricsHistoryCard from "../../components/MetricsHistoryCard";
 import { fetchHostMetricsHistory } from "../../api/client";
+import { Card } from "@/components/ui/card";
 
 // Real, from GET /health (platform/sys/fastapi/uvicorn introspection + libvirt,
 // see app/main.py) and GET /host/metrics/history (continuous collection, see
@@ -35,19 +36,19 @@ export default function NodeSystemTab({ resource: node }) {
 
   return (
     <div className="space-y-4">
-      <div className="card divide-y divide-anthracite-600">
+      <Card className="p-0 divide-y divide-border">
         {error && <div className="px-4 py-3 text-sm text-status-error">Error: {error}</div>}
-        {!health && !error && <div className="px-4 py-3 text-sm text-anthracite-400"><LoadingState /></div>}
+        {!health && !error && <div className="px-4 py-3 text-sm text-muted-foreground"><LoadingState /></div>}
         {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between px-4 py-3 text-sm">
-            <span className="text-anthracite-300">{label}</span>
-            <span className="text-anthracite-100 font-mono">{value}</span>
+          <div key={label} className="flex items-center justify-between px-4 py-3 text-sm transition-colors duration-150 hover:bg-muted/40">
+            <span className="text-foreground/90">{label}</span>
+            <span className="text-foreground font-mono">{value}</span>
           </div>
         ))}
-      </div>
+      </Card>
 
       {latest && (
-        <div className="card grid grid-cols-2 gap-6 p-5">
+        <Card className="grid grid-cols-2 gap-6 p-5">
           <GaugeRing label="Host CPU" ratio={(latest.cpu_pct ?? 0) / 100} valueLabel={`${latest.cpu_pct ?? 0}%`} colorClass="text-accent-blue" />
           <GaugeRing
             label="Host RAM"
@@ -55,7 +56,7 @@ export default function NodeSystemTab({ resource: node }) {
             valueLabel={latest.mem_total_mb ? `${Math.round(latest.mem_used_mb)} / ${Math.round(latest.mem_total_mb)} MB` : "--"}
             colorClass="text-accent-orange"
           />
-        </div>
+        </Card>
       )}
 
       <MetricsHistoryCard title="Host CPU history (persisted)" fetcher={fetchHostMetricsHistory} />

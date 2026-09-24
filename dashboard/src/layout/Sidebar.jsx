@@ -1,43 +1,113 @@
-import { X } from "lucide-react";
+import {
+  LayoutDashboard, Activity, Box, HardDrive, Network, Layers,
+  CalendarClock, PackageOpen, ShieldCheck, Workflow, Server, ScrollText, LifeBuoy, Bell, ClipboardCheck,
+} from "lucide-react";
 import HyperliteLogo from "../components/HyperliteLogo";
-import SidebarRail from "./SidebarRail";
 import ResourceTree from "./ResourceTree";
 import { useInfraStore } from "../store/useInfraStore";
+import {
+  Sidebar as SidebarRoot,
+  SidebarHeader,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  useSidebar,
+} from "@/components/ui/sidebar";
 
-// Unified side column: logo + navigation rail + Datacenter tree in a single
-// indigo band. From `md` up, always visible as a fixed column (original
-// behaviour). Below that (phone), it becomes an overlaid drawer (fixed +
-// backdrop) controlled by mobileSidebarOpen. Real bug found when testing at phone
-// width: the fixed 268px column took the whole screen, leaving no usable content.
-export default function Sidebar() {
-  const mobileOpen = useInfraStore((s) => s.mobileSidebarOpen);
-  const close = useInfraStore((s) => s.closeMobileSidebar);
+// Same navigation model as before the redesign (Proxmox VE-style rail: one entry
+// per Datacenter section, modelled on DATACENTER_TABS in CentralPanel.jsx), now
+// hosted in a real shadcn Sidebar instead of a hand-rolled column. Since this rail
+// covers every Datacenter tab, CentralPanel no longer renders a second, duplicate
+// tab bar for the Datacenter level (see the "navigation" note there) — this is the
+// single entry point for that level, the top tab bar in CentralPanel is reserved
+// for Node/VM detail, which have no rail equivalent.
+const TOP_ITEMS = [
+  { tab: "summary", label: "Dashboard", Icon: LayoutDashboard },
+  { tab: "activity", label: "Recent activity", Icon: Activity },
+];
+const GROUPS = [
+  {
+    label: "Resources",
+    items: [
+      { tab: "containers", label: "Containers", Icon: Box },
+      { tab: "storage", label: "Storage", Icon: HardDrive },
+      { tab: "reseau", label: "Network", Icon: Network },
+      { tab: "templates", label: "Templates / ISO", Icon: Layers },
+      { tab: "nodes", label: "Nodes", Icon: Server },
+      { tab: "ha", label: "HA", Icon: LifeBuoy },
+      { tab: "compat", label: "Compatibility", Icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { tab: "backups", label: "Backups", Icon: CalendarClock },
+      { tab: "exports", label: "Exports", Icon: PackageOpen },
+      { tab: "automation", label: "Automation", Icon: Workflow },
+      { tab: "permissions", label: "Permissions", Icon: ShieldCheck },
+      { tab: "journal", label: "Journal", Icon: ScrollText },
+      { tab: "notifications", label: "Notifications", Icon: Bell },
+    ],
+  },
+];
+
+function NavItem({ tab, label, Icon }) {
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const isActive = useInfraStore((s) => s.selection.type === "datacenter" && s.activeTab === tab);
+  const { setOpenMobile } = useSidebar();
 
   return (
-    <>
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={close} />
-      )}
-      <div
-        className={`fixed inset-y-0 left-0 z-50 flex h-full w-[268px] shrink-0 flex-col bg-chrome-900 border-r border-chrome-950 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={isActive}
+        tooltip={label}
+        onClick={() => { navigateTo("datacenter", null, tab); setOpenMobile(false); }}
       >
-        <div className="flex shrink-0 items-center gap-2.5 px-4 py-3.5">
-          <HyperliteLogo size={28} />
-          <div className="leading-tight">
-            <div className="text-[15px] font-extrabold tracking-tight text-white">Hyperlite</div>
-            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-chrome-400">Hypervisor</div>
-          </div>
-          <button className="ml-auto rounded-md p-1.5 text-chrome-400 hover:bg-white/6 hover:text-chrome-100 md:hidden" onClick={close} aria-label="Close navigation">
-            <X size={17} />
-          </button>
+        <Icon />
+        <span>{label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+export default function Sidebar() {
+  return (
+    <SidebarRoot collapsible="icon" className="border-sidebar-border">
+      <SidebarHeader className="flex-row items-center gap-2.5 px-2 py-3">
+        <HyperliteLogo size={28} />
+        <div className="leading-tight group-data-[collapsible=icon]:hidden">
+          <div className="text-[15px] font-extrabold tracking-tight text-sidebar-foreground">Hyperlite</div>
+          <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-sidebar-foreground/60">Hypervisor</div>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <SidebarRail />
-          <ResourceTree />
-        </div>
-      </div>
-    </>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {TOP_ITEMS.map((item) => <NavItem key={item.tab} {...item} />)}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        {GROUPS.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => <NavItem key={item.tab} {...item} />)}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+        <SidebarGroup className="min-h-0 flex-1">
+          <SidebarGroupContent className="flex min-h-0 flex-1 flex-col">
+            <ResourceTree />
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+    </SidebarRoot>
   );
 }

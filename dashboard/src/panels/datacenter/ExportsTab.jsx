@@ -4,6 +4,8 @@ import { PackageOpen, Download, Trash2 } from "lucide-react";
 import { fetchVmExports, downloadVmExport, deleteVmExport } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 function formatSize(bytes) {
   if (!bytes) return "--";
@@ -51,38 +53,38 @@ export default function ExportsTab() {
     }
   }
 
-  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (rows == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   if (rows.length === 0) {
     return (
-      <div className="card flex flex-col items-center gap-2 p-8 text-center">
-        <PackageOpen size={26} className="text-anthracite-400" />
-        <p className="text-sm text-anthracite-300">No exports yet.</p>
-        <p className="text-xs text-anthracite-400 max-w-sm">
+      <Card className="flex flex-col items-center gap-2 p-8 text-center">
+        <PackageOpen size={26} className="text-muted-foreground" />
+        <p className="text-sm text-foreground/80">No exports yet.</p>
+        <p className="text-xs text-muted-foreground max-w-sm">
           From a VM, open its actions menu and choose "Export disk" to produce a file that can be downloaded here (system disk only).
         </p>
-      </div>
+      </Card>
     );
   }
 
   return (
     <>
-      <div className="card divide-y divide-anthracite-600">
-        <div className="grid grid-cols-[1fr_110px_140px_90px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
+      <Card className="p-0 divide-y divide-border">
+        <div className="grid grid-cols-[1fr_110px_140px_90px] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground">
           <span>File</span><span>Size</span><span>Created on</span><span></span>
         </div>
         {rows.map((r) => (
-          <div key={r.nom} className="grid grid-cols-[1fr_110px_140px_90px] gap-2 px-4 py-2 text-sm items-center">
-            <span className="text-anthracite-100 truncate font-mono text-xs" title={r.nom}>{r.nom}</span>
-            <span className="text-xs text-anthracite-400">{formatSize(r.taille_octets)}</span>
-            <span className="text-anthracite-400 text-xs font-mono">{new Date(r.modifie_le).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+          <div key={r.nom} className="grid grid-cols-[1fr_110px_140px_90px] gap-2 px-4 py-2 text-sm items-center transition-colors duration-150 hover:bg-muted/40">
+            <span className="text-foreground truncate font-mono text-xs" title={r.nom}>{r.nom}</span>
+            <span className="text-xs text-muted-foreground">{formatSize(r.taille_octets)}</span>
+            <span className="text-muted-foreground text-xs font-mono">{new Date(r.modifie_le).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
             <div className="flex justify-end gap-1.5">
-              <button aria-label="Download" className="btn-secondary" title="Download" onClick={() => handleDownload(r.nom)}><Download size={13} /></button>
-              <button aria-label={`Delete export ${r.nom}`} className="btn-danger" title="Delete" onClick={() => setToDelete(r)}><Trash2 size={13} /></button>
+              <Button aria-label="Download" size="icon" variant="secondary" className="size-7" title="Download" onClick={() => handleDownload(r.nom)}><Download size={13} /></Button>
+              <Button aria-label={`Delete export ${r.nom}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" title="Delete" onClick={() => setToDelete(r)}><Trash2 size={13} /></Button>
             </div>
           </div>
         ))}
-      </div>
+      </Card>
 
       <ConfirmDialog
         open={!!toDelete}
