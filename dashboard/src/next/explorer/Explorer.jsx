@@ -36,8 +36,8 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
   const { containers, pools, poolsState, updatedAt, failing } = useFreshness(useShallow((s) => ({
     containers: s.containers, pools: s.pools, poolsState: s.poolsState, updatedAt: s.updatedAt, failing: s.failing,
   })));
-  const { perspective, setPerspective, mode, setMode, toggled, setOpen, query, setQuery, density, pushRecent } = useExplorerStore(useShallow((s) => ({
-    perspective: s.perspective, setPerspective: s.setPerspective, mode: s.mode, setMode: s.setMode, toggled: s.toggled, setOpen: s.setOpen, query: s.query, setQuery: s.setQuery, density: s.density, pushRecent: s.pushRecent,
+  const { perspective, setPerspective, mode, setMode, toggled, setOpen, query, setQuery, density, setDensity, pushRecent } = useExplorerStore(useShallow((s) => ({
+    perspective: s.perspective, setPerspective: s.setPerspective, mode: s.mode, setMode: s.setMode, toggled: s.toggled, setOpen: s.setOpen, query: s.query, setQuery: s.setQuery, density: s.density, setDensity: s.setDensity, pushRecent: s.pushRecent,
   })));
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const select = useInfraStore((s) => s.select);
@@ -114,6 +114,20 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
             <button type="button" aria-pressed={mode === "pool"} onClick={() => setMode("pool")}>{t("inv.pool")}</button>
           </div>
         )}
+        <button
+          type="button"
+          className="nx-btn nx-btn--icon nx-btn--ghost"
+          aria-pressed={density === "compact"}
+          aria-label={t(density === "compact" ? "inv.density.comfortable" : "inv.density.compact")}
+          title={t("inv.density")}
+          onClick={() => setDensity(density === "compact" ? "comfortable" : "compact")}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+            {density === "compact"
+              ? <path d="M2 3h12M2 6h12M2 9h12M2 12h12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              : <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
+          </svg>
+        </button>
       </div>
 
       <div className="nx-search" role="search">
@@ -180,6 +194,7 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
         {stale ? <span className="nx-tone-warning">▲ {t("inv.stale")} · {t("inv.updated", { t: relativeTime(updatedAt, lang, now) })}</span>
           : updatedAt ? t("inv.updated", { t: relativeTime(updatedAt, lang, now) }) : ""}
       </div>
+      {!nothingLoaded && !error && !poolBlocked && <div className="nx-inv-hint" aria-hidden="true">{t("inv.hint")}</div>}
 
       <Menu open={!!menu} onClose={() => setMenu(null)} label={menu?.row.label} returnFocusRef={menuReturn} style={menu ? { position: "fixed", left: Math.min(menu.pos.x, window.innerWidth - 220), top: Math.min(menu.pos.y, window.innerHeight - 260) } : undefined}>
         {menu && menu.row.kind === "vm" && (() => {

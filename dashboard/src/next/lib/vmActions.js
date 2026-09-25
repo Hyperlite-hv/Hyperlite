@@ -1,32 +1,37 @@
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { errorMessage } from "./errors";
+import { useT } from "../i18n";
+
+const ACTION_LABEL_KEY = { start: "menu.start", stop: "confirm.stop.confirm", "force-stop": "confirm.forceStop.confirm", restart: "confirm.restart.confirm" };
 
 // Same store action (runVMAction) and same API calls as the legacy UI; the only additions are
 // confirmations for Stop and Restart (Restart is a hard power cycle: the client always sends force=true).
 export function useVmActions() {
+  const t = useT();
   const runVMAction = useInfraStore((s) => s.runVMAction);
   const pushToast = useInfraStore((s) => s.pushToast);
 
   async function run(vm, action) {
     try {
       if (action === "stop") {
-        const ok = await confirmAction({ title: `Stop ${vm.nom}?`, message: "The guest receives a shutdown request (ACPI). Whether it stops depends on the guest cooperating; use Force stop if it does not.", confirmLabel: "Stop", danger: false });
+        const ok = await confirmAction({ title: t("confirm.stop.title", { name: vm.nom }), message: t("confirm.stop.message"), confirmLabel: t("confirm.stop.confirm"), danger: false });
         if (!ok) return;
         await runVMAction(vm.nom, "stop", { force: false });
       } else if (action === "force-stop") {
-        const ok = await confirmAction({ title: `Force stop ${vm.nom}?`, message: "This is equivalent to pulling the power cable: the guest is powered off immediately, unsaved data may be lost and its filesystems may need a check at the next boot. Prefer Stop (clean shutdown) when the guest responds.", confirmLabel: "Force stop", danger: true });
+        const ok = await confirmAction({ title: t("confirm.forceStop.title", { name: vm.nom }), message: t("confirm.forceStop.message"), confirmLabel: t("confirm.forceStop.confirm"), danger: true });
         if (!ok) return;
         await runVMAction(vm.nom, "stop", { force: true });
       } else if (action === "restart") {
-        const ok = await confirmAction({ title: `Restart ${vm.nom}?`, message: "Restart is a hard power cycle: the guest is powered off immediately, without a clean shutdown, then started again.", confirmLabel: "Restart", danger: true });
+        const ok = await confirmAction({ title: t("confirm.restart.title", { name: vm.nom }), message: t("confirm.restart.message"), confirmLabel: t("confirm.restart.confirm"), danger: true });
         if (!ok) return;
         await runVMAction(vm.nom, "restart");
       } else {
         await runVMAction(vm.nom, action);
       }
     } catch (e) {
-      pushToast({ kind: "error", title: `${action} failed`, message: errorMessage(e) });
+      const label = ACTION_LABEL_KEY[action] ? t(ACTION_LABEL_KEY[action]) : action;
+      pushToast({ kind: "error", title: t("action.failed", { action: label }), message: errorMessage(e, t("err.unknown")) });
     }
   }
 
