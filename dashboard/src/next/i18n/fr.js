@@ -988,6 +988,8 @@ export default {
   "cw.failed": "Le conteneur n’a pas pu être créé.",
   "cw.e.vcpu": "Entier de 1 à 16.",
   "cw.e.memory": "Nombre entier de Mo, au moins 128.",
+  "nav.resize": "Redimensionner la barre latérale (flèches, Entrée pour rétablir)",
+  "nav.split": "Redimensionner la zone de navigation (flèches haut/bas, Entrée pour rétablir)",
   "loading": "Chargement…",
   "session.checking": "Vérification de la session…",
 };

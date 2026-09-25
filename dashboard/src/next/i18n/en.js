@@ -956,6 +956,8 @@ export default {
   "cw.failed": "The container could not be created.",
   "cw.e.vcpu": "Whole number from 1 to 16.",
   "cw.e.memory": "Whole number of MB, at least 128.",
+  "nav.resize": "Resize the sidebar (arrows, Enter to reset)",
+  "nav.split": "Resize the navigation area (up/down arrows, Enter to reset)",
   "loading": "Loading…",
   "session.checking": "Checking the session…",
 };
