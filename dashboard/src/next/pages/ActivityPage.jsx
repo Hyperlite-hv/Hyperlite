@@ -24,7 +24,9 @@ function csv(rows) {
 
 // Activity: every persisted task with the filters the API already supports (status, type, target,
 // user, period), live refresh, error detail and a CSV export.
-export default function ActivityPage() {
+// On a node page (`selection.type === "node"`) the same view is scoped to that node.
+export default function ActivityPage({ selection }) {
+  const nodeId = selection?.type === "node" ? selection.id : undefined;
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const navigateTo = useInfraStore((s) => s.navigateTo);
@@ -39,10 +41,10 @@ export default function ActivityPage() {
   const load = useCallback(async () => {
     try {
       const depuis = SINCE[f.since] ? new Date(Date.now() - SINCE[f.since] * 1000).toISOString() : undefined;
-      const r = await fetchTasks({ statut: f.statut, type: f.type, cible: f.cible, username: f.username, depuis, limit: 200, tri: "cree_le", ordre: "desc" });
+      const r = await fetchTasks({ node: nodeId, statut: f.statut, type: f.type, cible: f.cible, username: f.username, depuis, limit: 200, tri: "cree_le", ordre: "desc" });
       setRows(Array.isArray(r) ? r : []); setNow(Date.now()); setError(null);
     } catch (e) { setError(normalizeDetail(e.message)); }
-  }, [f]);
+  }, [f, nodeId]);
   usePolling(load, 8000);
   useEffect(() => { load(); }, [load]);
 

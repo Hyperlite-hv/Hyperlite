@@ -344,6 +344,15 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await expect.poll(() => state(request), { timeout: 60_000 }).toBe("actif");
     await expect(page.getByRole("main").getByText("Running").first()).toBeVisible({ timeout: 30_000 });
 
+    // console tab: the launcher is enabled for a running VM and opens the console window
+    await page.goto(`/vm/${NAME}?tab=console`);
+    const [popup] = await Promise.all([page.context().waitForEvent("page"), page.getByRole("main").getByRole("button", { name: "Open in a new window" }).click()]);
+    expect(popup.url()).toContain(`/console/${NAME}?mode=vnc`);
+    await popup.close();
+    await page.getByRole("button", { name: "SSH terminal" }).click();
+    await expect(page.getByRole("main").getByRole("note")).toContainText("Root-equivalent");
+    await page.goto(`/vm/${NAME}`);
+
     // clean Stop asks for a confirmation; cancelling changes nothing
     await page.getByRole("button", { name: /^Actions/ }).click();
     await page.getByRole("menuitem", { name: /^Stop/ }).click();
