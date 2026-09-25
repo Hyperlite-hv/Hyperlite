@@ -41,6 +41,7 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
     await expect(dlg.getByRole("button", { name: "Next" })).toBeEnabled();
     await dlg.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(await state(page.request)).toBe("missing");
   });

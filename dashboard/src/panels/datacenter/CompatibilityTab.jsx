@@ -17,15 +17,18 @@ export default function CompatibilityTab() {
   const [errors, setErrors] = useState({});
   const [onlyDiff, setOnlyDiff] = useState(true);
 
+  // Keyed on the node ids, not on the `nodes` array: the store replaces that array on every 6 s refresh,
+  // which used to reset the table and re-request every node's capabilities each time.
+  const nodeKey = nodes.map((n) => n.id).join("|");
   useEffect(() => {
     setProfiles({});
     setErrors({});
-    nodes.forEach((n) => {
-      fetchNodeCapabilitiesById(n.id)
-        .then((p) => setProfiles((prev) => ({ ...prev, [n.id]: p })))
-        .catch((e) => setErrors((prev) => ({ ...prev, [n.id]: e.message })));
+    nodeKey.split("|").filter(Boolean).forEach((id) => {
+      fetchNodeCapabilitiesById(id)
+        .then((p) => setProfiles((prev) => ({ ...prev, [id]: p })))
+        .catch((e) => setErrors((prev) => ({ ...prev, [id]: e.message })));
     });
-  }, [nodes]);
+  }, [nodeKey]);
 
   const loaded = useMemo(() => nodes.filter((n) => profiles[n.id]), [nodes, profiles]);
   const rows = useMemo(() => compareNodes(Object.fromEntries(loaded.map((n) => [n.id, profiles[n.id]]))), [loaded, profiles]);

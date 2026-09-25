@@ -42,24 +42,23 @@ test.afterAll(async ({ request }) => {
 });
 
 test.describe("Advanced VM operations (real backend)", () => {
-  test("cloning a VM creates an independent VM after a name prompt", async ({ page, request }) => {
+  test("cloning a VM creates an independent VM after a name dialog", async ({ page, request }) => {
     await uiLogin(page);
     await selectVm(page, SRC);
-    page.once("dialog", (d) => {
-      expect(d.type()).toBe("prompt");
-      void d.accept(CLONE);
-    });
     await page.getByRole("button", { name: "Clone", exact: true }).click();
+    const nameDialog = page.getByRole("dialog", { name: /Clone/ });
+    await nameDialog.getByRole("textbox", { name: "Name of the copy" }).fill(CLONE);
+    await nameDialog.getByRole("button", { name: "Clone", exact: true }).click();
     await expect.poll(() => exists(request, CLONE), { timeout: 120_000 }).toBe(true);
     await expect(page.getByRole("treeitem", { name: new RegExp(CLONE) })).toBeVisible({ timeout: 60_000 });
     expect(existsSync(`/var/lib/libvirt/images/${CLONE}.qcow2`)).toBe(true);
   });
 
-  test("cancelling the clone prompt creates nothing", async ({ page, request }) => {
+  test("cancelling the clone dialog creates nothing", async ({ page, request }) => {
     await uiLogin(page);
     await selectVm(page, SRC);
-    page.once("dialog", (d) => void d.dismiss());
     await page.getByRole("button", { name: "Clone", exact: true }).click();
+    await page.getByRole("dialog", { name: /Clone/ }).getByRole("button", { name: "Cancel" }).click();
     await page.waitForLoadState("networkidle");
     const vms = (await (await request.get("/vms", { headers: auth() })).json()) as Array<{ nom: string }>;
     expect(vms.filter((v) => v.nom.startsWith(`${PREFIX}clone-`)).map((v) => v.nom)).toEqual([CLONE]);
@@ -68,10 +67,14 @@ test.describe("Advanced VM operations (real backend)", () => {
   test("a VM converted to a template can be deployed as a new VM", async ({ page, request }) => {
     await uiLogin(page);
     await selectVm(page, CLONE);
-    page.once("dialog", (d) => void d.accept(TEMPLATE));
     await page.getByRole("button", { name: "To template" }).click();
+    const tplDialog = page.getByRole("dialog", { name: /template/ });
+    await tplDialog.getByRole("textbox", { name: "Name of the template" }).fill(TEMPLATE);
+    await tplDialog.getByRole("button", { name: "Convert" }).click();
     await expect.poll(async () => (await request.get("/templates", { headers: auth() })).ok() && ((await (await request.get("/templates", { headers: auth() })).json()) as Array<{ nom: string }>).some((t) => t.nom === TEMPLATE), { timeout: 60_000 }).toBe(true);
     expect(await exists(request, CLONE), "the source VM is consumed by the conversion").toBe(false);
+    // The screen leaves the consumed VM on its own; reloading before that lands on /vm/<gone VM>.
+    await expect(page).toHaveURL(/\/datacenter/);
 
     await page.reload();
     await page.getByRole("tab", { name: "Templates", exact: true }).click();
@@ -92,11 +95,10 @@ test.describe("Advanced VM operations (real backend)", () => {
     await page.reload();
     await selectVm(page, SRC);
     await page.getByRole("tab", { name: "Backup", exact: true }).click();
-    page.once("dialog", (d) => {
-      expect(d.type()).toBe("prompt");
-      void d.accept(RESTORED);
-    });
     await page.getByRole("button", { name: "New VM" }).first().click();
+    const restoreDialog = page.getByRole("dialog", { name: /Restore backup/ });
+    await restoreDialog.getByRole("textbox", { name: "Name of the new VM" }).fill(RESTORED);
+    await restoreDialog.getByRole("button", { name: "Restore" }).click();
     await expect.poll(() => exists(request, RESTORED), { timeout: 180_000 }).toBe(true);
     expect(existsSync(`/var/lib/libvirt/images/${RESTORED}.qcow2`)).toBe(true);
     const start = await request.post(`/vms/${RESTORED}/start`, { headers: auth() });

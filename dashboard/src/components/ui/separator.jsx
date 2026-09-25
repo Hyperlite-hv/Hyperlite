@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { cn } from "cn"
+import { cn } from "@/lib/cn"
 import { Separator as SeparatorPrimitive } from "radix-ui"
 
 function Separator({

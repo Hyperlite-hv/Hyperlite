@@ -472,7 +472,7 @@ function PoolsSection({ pools, vms, reload, pushToast }) {
                 {available.length > 0 && (
                   <div className="flex gap-1.5">
                     <NativeSelect
-                      aria-label={`VM to add to pool ${p.nom}`}
+                      aria-label={`VM to add to pool ${p.name}`}
                       className="text-xs"
                       value={vmSelect[p.id] || ""}
                       onChange={(e) => setVmSelect((s) => ({ ...s, [p.id]: e.target.value }))}
@@ -598,7 +598,7 @@ function AclSection({ acl, roles, groups, pools, vms, containers, users, reload,
                     <span className="font-medium">{a.subject_type === "group" ? `Group ${a.subject_label}` : a.subject_label}</span>
                     <span className="text-muted-foreground"> -- {roles[a.role]?.label || a.role} -- </span>
                     <span>
-                      {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Conteneur ${a.resource_label}` : a.resource_label}
+                      {a.resource_type === "pool" ? `Pool ${a.resource_label}` : a.resource_type === "container" ? `Container ${a.resource_label}` : a.resource_label}
                     </span>
                   </div>
                   <Button aria-label="Remove assignment" variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-status-error" disabled={busy} onClick={() => handleDelete(a.id)}>

@@ -1,3 +1,4 @@
+import { promptText } from "../../store/usePromptStore";
 import LoadingState from "../../components/LoadingState";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
@@ -118,7 +119,7 @@ export default function ContainersTab() {
   }
 
   async function handleClone(ct) {
-    const newName = window.prompt(`Name of the copy of '${ct.nom}':`, `${ct.nom}-clone`);
+    const newName = await promptText({ title: `Clone ${ct.nom}`, label: "Name of the copy", defaultValue: `${ct.nom}-clone`, confirmLabel: "Clone", validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v) ? "" : "Use letters, digits and hyphens (2 to 63 characters, starting with a letter or digit).") });
     if (!newName || !newName.trim()) return;
     try {
       await cloneContainer(ct.nom, newName.trim());
@@ -140,7 +141,7 @@ export default function ContainersTab() {
   }
 
   async function handleRestoreBackup(b) {
-    const newName = window.prompt(`Restore the backup of '${b.container_name}' under which name?`, `${b.container_name}-restored`);
+    const newName = await promptText({ title: `Restore the backup of ${b.container_name}`, label: "Name of the restored container", defaultValue: `${b.container_name}-restored`, confirmLabel: "Restore", validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v) ? "" : "Use letters, digits and hyphens (2 to 63 characters, starting with a letter or digit).") });
     if (!newName || !newName.trim()) return;
     try {
       await restoreContainerBackup(b.id, newName.trim());

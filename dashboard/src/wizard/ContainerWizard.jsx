@@ -74,7 +74,7 @@ export default function ContainerWizard({ open, onClose, triggerRef }) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) closeAndReset(); }}>
       <DialogContent
-        className="w-full max-w-md p-0 gap-0 overflow-hidden"
+        className="w-full max-w-md sm:max-w-md p-0 gap-0 overflow-hidden"
         // See the note in VMWizard.jsx: explicit focus restore to the trigger
         // button rather than relying on Radix's implicit capture.
         onCloseAutoFocus={(e) => {
@@ -199,7 +199,7 @@ export default function ContainerWizard({ open, onClose, triggerRef }) {
           </div>
         </div>
 
-        <DialogFooter className="border-t border-border px-5 py-3">
+        <DialogFooter className="mx-0 mb-0 border-t border-border px-5 py-3">
           <Button variant="secondary" onClick={closeAndReset}>Cancel</Button>
           <Button disabled={!canCreate} onClick={handleCreate}>
             <Check /> {busy ? "Creating..." : "Create the container"}

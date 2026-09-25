@@ -92,3 +92,11 @@ def test_deleting_a_custom_role_removes_the_acls_that_used_it(database):
     assert permissions.has_privilege(user("bob"), "vm1", "vm.view")
     permissions.delete_custom_role(role_id)
     assert not permissions.has_privilege(user("bob"), "vm1", "vm.view")
+
+
+def test_terminal_ticket_is_admin_only(client, auth_headers):
+    # The web SSH terminal lands in a passwordless-sudo shell: neither the
+    # observer console right nor a VM ACL may open it, only the admin role.
+    headers = auth_headers("watcher", "observateur")
+    permissions.create_acl("user", "watcher", "gestionnaire", "vm", "vm1")
+    assert client.post("/vms/vm1/terminal-ticket", headers=headers).status_code == 403

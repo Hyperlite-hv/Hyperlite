@@ -9,8 +9,8 @@ import react from "@vitejs/plugin-react";
 // The backend serves HTTPS (self-signed certificate, see data/tls/): "secure:
 // false" disables trust-chain verification for this internal dev proxy only,
 // without which Vite would reject the self-signed certificate.
-const BACKEND = "https://127.0.0.1:8000";
-const proxied = ["/auth", "/dashboard", "/vms", "/storage", "/networks", "/templates", "/isos", "/audit", "/health"];
+const BACKEND = "http://127.0.0.1:8001";
+const proxied = ["/auth", "/dashboard", "/vms", "/storage", "/networks", "/templates", "/isos", "/audit", "/health", "/host", "/nodes", "/tasks", "/containers", "/backups", "/jobs", "/pools", "/groups", "/acl", "/ha", "/notifications", "/update", "/vm-disks", "/vm-exports"];
 
 export default defineConfig({
   plugins: [react()],

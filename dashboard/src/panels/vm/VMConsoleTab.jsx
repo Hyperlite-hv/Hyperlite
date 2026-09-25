@@ -30,8 +30,8 @@ export default function VMConsoleTab({ resource: vm }) {
     <div className="space-y-4">
       <Tabs value={mode} onValueChange={setMode}>
         <TabsList className="w-fit">
-          <TabsTrigger value="vnc"><Monitor /> Graphical console (VNC)</TabsTrigger>
-          <TabsTrigger value="terminal"><TerminalSquare /> SSH terminal</TabsTrigger>
+          <TabsTrigger aria-controls={undefined} value="vnc"><Monitor /> Graphical console (VNC)</TabsTrigger>
+          <TabsTrigger aria-controls={undefined} value="terminal"><TerminalSquare /> SSH terminal</TabsTrigger>
         </TabsList>
       </Tabs>
 
