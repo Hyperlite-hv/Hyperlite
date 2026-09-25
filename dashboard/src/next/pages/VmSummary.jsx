@@ -8,6 +8,7 @@ import { usePolling } from "../lib/polling";
 import { taskLabel } from "../lib/enums";
 import { formatSizeMb, formatUptimeLong, clockTime } from "../lib/format";
 import KpiTile from "../components/KpiTile";
+import StatTile from "../components/StatTile";
 import StatusIndicator from "../components/StatusIndicator";
 import VMSummaryTab from "../../panels/vm/VMSummaryTab";
 
@@ -63,8 +64,8 @@ export default function VmSummary({ resource: vm, selection }) {
       <div className="nx-grid nx-grid--4" role="group" aria-label={t("ns.resources")}>
         <KpiTile label={t("ns.cpu")} value={cpu != null ? `${Math.round(cpu)} %` : null} ratio={cpu != null ? cpu / 100 : null} sub={t("vm.allocVcpu", { n: vm.vcpu })} series={data.slice(-40).map((p) => p.cpu * 100)} unavailable={unavailable(cpu == null ? t("ns.collecting") : null)} />
         <KpiTile label={t("ns.memory")} value={ram != null ? `${Math.round(ram * 100)} %` : null} ratio={ram} sub={current?.ramAlloueeMo ? `${formatSizeMb(current.ramUseeMo, lang)} / ${formatSizeMb(current.ramAlloueeMo, lang)}` : t("vm.allocRam", { n: formatSizeMb(vm.memoire_mo, lang) })} series={data.slice(-40).map((p) => p.ram * 100)} unavailable={unavailable(ram == null ? t("ns.collecting") : null)} />
-        <KpiTile label={t("vm.disk")} value={diskRead != null ? rate(diskRead + diskWrite, lang) : null} sub={diskRead != null ? `↓ ${rate(diskRead, lang)} · ↑ ${rate(diskWrite, lang)}` : ""} series={data.slice(-40).map((p) => (p.disques || []).reduce((a, d) => a + (d.lecture_ko_s || 0) + (d.ecriture_ko_s || 0), 0))} unavailable={unavailable(diskRead == null ? t("ns.collecting") : null)} />
-        <KpiTile label={t("ns.network")} value={current ? rate(current.netIn + current.netOut, lang) : null} sub={current ? `↓ ${rate(current.netIn, lang)} · ↑ ${rate(current.netOut, lang)}` : ""} series={data.slice(-40).map((p) => p.netIn + p.netOut)} unavailable={unavailable(current == null ? t("ns.collecting") : null)} />
+        <StatTile label={t("vm.disk")} value={diskRead != null ? rate(diskRead + diskWrite, lang) : null} sub={diskRead != null ? `↓ ${rate(diskRead, lang)} · ↑ ${rate(diskWrite, lang)}` : ""} series={data.slice(-40).map((p) => (p.disques || []).reduce((a, d) => a + (d.lecture_ko_s || 0) + (d.ecriture_ko_s || 0), 0))} unavailable={unavailable(diskRead == null ? t("ns.collecting") : null)} />
+        <StatTile label={t("ns.network")} value={current ? rate(current.netIn + current.netOut, lang) : null} sub={current ? `↓ ${rate(current.netIn, lang)} · ↑ ${rate(current.netOut, lang)}` : ""} series={data.slice(-40).map((p) => p.netIn + p.netOut)} unavailable={unavailable(current == null ? t("ns.collecting") : null)} />
       </div>
 
       <div className="nx-cols">

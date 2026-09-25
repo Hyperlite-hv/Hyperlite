@@ -1,6 +1,5 @@
 // Bridge to the screens that are not rebuilt yet: the same panel components, rendered inside the new
 // workspace. Each domain replaces its entries here as it is migrated (see docs/frontend-rebuild/07).
-import DatacenterSummaryTab from "../../panels/datacenter/DatacenterSummaryTab";
 import DcStorageTab from "../../panels/datacenter/StorageTab";
 import BackupsTab from "../../panels/datacenter/BackupsTab";
 import PermissionsTab from "../../panels/datacenter/PermissionsTab";
@@ -18,6 +17,7 @@ import ActivityTab from "../../panels/datacenter/ActivityTab";
 import CompatibilityTab from "../../panels/datacenter/CompatibilityTab";
 import NodeSummary from "../pages/NodeSummary";
 import VmList from "../pages/VmList";
+import Overview from "../pages/Overview";
 import VmSummary from "../pages/VmSummary";
 import NodeSystemTab from "../../panels/node/NodeSystemTab";
 import NodeNetworkTab from "../../panels/node/NodeNetworkTab";
@@ -33,7 +33,7 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
-  summary: DatacenterSummaryTab, vms: VmList, activity: ActivityTab, storage: DcStorageTab, templates: TemplatesTab, backups: BackupsTab,
+  summary: Overview, vms: VmList, activity: ActivityTab, storage: DcStorageTab, templates: TemplatesTab, backups: BackupsTab,
   exports: ExportsTab, permissions: PermissionsTab, reseau: NetworkOverviewTab, automation: AutomationTab, containers: ContainersTab,
   nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalTab,
 };
