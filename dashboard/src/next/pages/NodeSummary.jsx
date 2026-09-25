@@ -13,6 +13,8 @@ import { formatSizeMb, formatSizeGb, formatUptimeLong, clockTime, formatVersionI
 import KpiTile from "../components/KpiTile";
 import StatusIndicator from "../components/StatusIndicator";
 
+// An API answer can be null (e.g. a dev proxy that does not relay the route): treat it as empty.
+const asList = (v) => (Array.isArray(v) ? v : []);
 const VIEW_KEY = "hyperlite-next-vmview";
 const AUTO_TABLE_FROM = 5; // cards are readable for a handful of VMs, a table scales past that
 
@@ -51,11 +53,11 @@ export default function NodeSummary({ resource: node }) {
 
   const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* preference only */ } };
 
-  usePolling(async () => { if (isLocal) setRows(await fetchHostMetricsHistory("1h")); }, 15000, { enabled: !!isLocal });
-  useEffect(() => { if (isLocal) fetchHostMetricsHistory("1h").then(setRows).catch(() => {}); }, [isLocal]);
+  usePolling(async () => { if (isLocal) setRows(asList(await fetchHostMetricsHistory("1h"))); }, 15000, { enabled: !!isLocal });
+  useEffect(() => { if (isLocal) fetchHostMetricsHistory("1h").then((r) => setRows(asList(r))).catch(() => {}); }, [isLocal]);
   useEffect(() => { if (node) fetchNodeCapabilitiesById(node.id).then(setHostCaps).catch(() => setHostCaps(null)); }, [node]);
-  usePolling(async () => { setRecent(await fetchTasks({ limit: 8, tri: "cree_le", ordre: "desc" })); }, 10000);
-  useEffect(() => { fetchTasks({ limit: 8, tri: "cree_le", ordre: "desc" }).then(setRecent).catch(() => setRecent([])); }, []);
+  usePolling(async () => { setRecent(asList(await fetchTasks({ limit: 8, tri: "cree_le", ordre: "desc" }))); }, 10000);
+  useEffect(() => { fetchTasks({ limit: 8, tri: "cree_le", ordre: "desc" }).then((r) => setRecent(asList(r))).catch(() => setRecent([])); }, []);
 
   const nodeVms = useMemo(() => vms.filter((v) => v.node === node?.id), [vms, node]);
   const shown = useMemo(() => {
