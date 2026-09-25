@@ -54,6 +54,14 @@ export default function Palette({ open, onClose, setWizards }) {
   }, [q, nodes, vms, caps.create, caps.admin]);
 
   useEffect(() => { setIdx(0); }, [q]);
+
+  // Escape closes the palette wherever the focus is (not only while the field has it).
+  useEffect(() => {
+    if (!open) return undefined;
+    const onEsc = (e) => { if (e.key === "Escape") { e.preventDefault(); onClose(); } };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [open, onClose]);
   if (!open) return null;
 
   const choose = (it) => { onClose(); it.run(); };
