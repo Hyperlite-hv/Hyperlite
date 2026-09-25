@@ -1,6 +1,6 @@
 // Bridge to the screens that are not rebuilt yet: the same panel components, rendered inside the new
 // workspace. Each domain replaces its entries here as it is migrated (see docs/frontend-rebuild/07).
-import PermissionsTab from "../../panels/datacenter/PermissionsTab";
+import SecurityPage from "../pages/SecurityPage";
 import TemplatesTab from "../../panels/datacenter/TemplatesTab";
 import AutomationTab from "../../panels/datacenter/AutomationTab";
 import NodesPage from "../pages/NodesPage";
@@ -35,7 +35,7 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: TemplatesTab, backups: BackupsPage,
-  exports: ExportsPage, permissions: PermissionsTab, reseau: NetworkPage, automation: AutomationTab, containers: ContainersPage,
+  exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationTab, containers: ContainersPage,
   nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsTab, sso: SSOTab, journal: JournalPage,
 };
 export const NODE_TABS = {
