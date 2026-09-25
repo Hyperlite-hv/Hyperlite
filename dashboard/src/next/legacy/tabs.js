@@ -7,7 +7,7 @@ import NodesTab from "../../panels/datacenter/NodesTab";
 import HaTab from "../../panels/datacenter/HaTab";
 import NotificationsTab from "../../panels/datacenter/NotificationsTab";
 import SSOTab from "../../panels/datacenter/SSOTab";
-import ContainersTab from "../../panels/datacenter/ContainersTab";
+import ContainersPage from "../pages/ContainersPage";
 import CompatibilityTab from "../../panels/datacenter/CompatibilityTab";
 import NodeSummary from "../pages/NodeSummary";
 import VmList from "../pages/VmList";
@@ -35,7 +35,7 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: TemplatesTab, backups: BackupsPage,
-  exports: ExportsPage, permissions: PermissionsTab, reseau: NetworkPage, automation: AutomationTab, containers: ContainersTab,
+  exports: ExportsPage, permissions: PermissionsTab, reseau: NetworkPage, automation: AutomationTab, containers: ContainersPage,
   nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalPage,
 };
 export const NODE_TABS = {
