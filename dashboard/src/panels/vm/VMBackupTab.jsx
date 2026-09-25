@@ -1,3 +1,4 @@
+import { promptText } from "../../store/usePromptStore";
 import LoadingState from "../../components/LoadingState";
 import { confirmAction as askConfirm } from "../../store/useConfirmStore";
 import { useCallback, useEffect, useState } from "react";
@@ -43,6 +44,14 @@ export default function VMBackupTab({ resource: vm }) {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // While a backup is running, follow it (the API returns no task id): refresh every 4 s until it ends.
+  const running = Boolean(backups?.some((b) => b.statut !== "termine" && b.statut !== "echec"));
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = setInterval(reload, 4000);
+    return () => clearInterval(id);
+  }, [running, reload]);
+
   if (!vm) return null;
 
   async function handleBackupNow() {
@@ -50,7 +59,7 @@ export default function VMBackupTab({ resource: vm }) {
     try {
       await createBackup(vm.nom);
       pushToast({ kind: "success", title: "Backup started", message: `${vm.nom}: see the Tasks tab for progress` });
-      setTimeout(reload, 3000);
+      setTimeout(reload, 1500);
     } catch (e) {
       pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally { setBusy(false); }
@@ -97,7 +106,7 @@ export default function VMBackupTab({ resource: vm }) {
   }
 
   async function handleRestoreNew(backup) {
-    const newName = window.prompt(`Name of the new VM restored from backup #${backup.id}:`, `${vm.nom}-restored`);
+    const newName = await promptText({ title: `Restore backup #${backup.id} to a new VM`, label: "Name of the new VM", defaultValue: `${vm.nom}-restored`, confirmLabel: "Restore", validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v) ? "" : "Use letters, digits and hyphens (2 to 63 characters, starting with a letter or digit).") });
     if (!newName || !newName.trim()) return;
     try {
       await restoreBackup(backup.id, "new", newName.trim());
@@ -133,6 +142,7 @@ export default function VMBackupTab({ resource: vm }) {
             <option value="mensuel">Monthly</option>
           </NativeSelect>
           <Input aria-label="Backup time" type="time" className="w-auto" disabled={!isAdmin} value={form.heure} onChange={(e) => setForm((f) => ({ ...f, heure: e.target.value }))} />
+          <span className="text-xs text-muted-foreground" title="Scheduled backups run on the server clock, in UTC">UTC</span>
           <label className="text-xs text-muted-foreground flex items-center gap-1.5">
             Retention
             <Input type="number" min={1} max={365} className="w-20" disabled={!isAdmin}
@@ -164,6 +174,11 @@ export default function VMBackupTab({ resource: vm }) {
             <span className="text-xs text-muted-foreground">{backupModeLabel(b.mode)}</span>
             <span className="text-xs text-muted-foreground">{formatSize(b.taille_octets)}</span>
             {b.erreur && <span className="text-xs text-status-error truncate" title={b.erreur}>{b.erreur}</span>}
+            {isAdmin && b.statut === "echec" && (
+              <div className="ml-auto flex gap-1.5">
+                <Button aria-label={`Delete failed backup #${b.id}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => setPending({ action: "delete", backup: b })}><Trash2 size={13} /></Button>
+              </div>
+            )}
             {isAdmin && b.statut === "termine" && (
               <div className="ml-auto flex gap-1.5">
                 <Button variant="secondary" size="sm" onClick={() => setPending({ action: "restore-overwrite", backup: b })} title="Restore over the original VM">

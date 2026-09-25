@@ -1,3 +1,4 @@
+import { promptText } from "../../store/usePromptStore";
 import { useEffect, useState } from "react";
 import { Play, Square, Power, RotateCw, Trash2, Copy, Layers, ArrowRightLeft, ShieldCheck, ShieldOff, Timer } from "lucide-react";
 import GaugeRing from "../../components/GaugeRing";
@@ -160,7 +161,7 @@ export default function VMSummaryTab({ resource: vm }) {
   }
 
   async function handleClone() {
-    const newName = window.prompt(`Name of the copy of '${vm.nom}':`, `${vm.nom}-clone`);
+    const newName = await promptText({ title: `Clone ${vm.nom}`, message: "Creates an independent copy of this VM (disks included).", label: "Name of the copy", defaultValue: `${vm.nom}-clone`, confirmLabel: "Clone", validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v) ? "" : "Use letters, digits and hyphens (2 to 63 characters, starting with a letter or digit).") });
     if (!newName || !newName.trim()) return;
     try {
       await cloneVM(vm.nom, newName.trim());
@@ -191,7 +192,7 @@ export default function VMSummaryTab({ resource: vm }) {
   }
 
   async function handleToTemplate() {
-    const tplName = window.prompt(`Name of the template to create from '${vm.nom}':`, vm.nom);
+    const tplName = await promptText({ title: `Convert ${vm.nom} to a template`, message: "The VM is consumed by the conversion (this cannot be undone).", label: "Name of the template", defaultValue: vm.nom, confirmLabel: "Convert", validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v) ? "" : "Use letters, digits and hyphens (2 to 63 characters, starting with a letter or digit).") });
     if (!tplName || !tplName.trim()) return;
     try {
       await createTemplateFromVM(vm.nom, tplName.trim());
