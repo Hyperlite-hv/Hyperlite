@@ -57,10 +57,10 @@ export default function Overview() {
       )}
 
       <div className="nx-grid nx-grid--4" role="group" aria-label={t("ov.inventory")}>
-        <StatTile label={t("nav.nodes")} value={`${online} / ${nodes.length}`} sub={t("ov.nodesOnline")} onClick={() => navigateTo("datacenter", null, "nodes")} />
-        <StatTile label={t("nav.vms")} value={`${running} / ${vms.length}`} sub={problems ? t("ov.vmsProblems", { n: problems }) : t("ov.vmsRunning")} onClick={() => navigateTo("datacenter", null, "vms")} />
-        <StatTile label={t("nav.containers")} value={containers.length} sub={t("ov.containersSub", { n: containers.filter((c) => c.etat === "actif").length })} onClick={() => navigateTo("datacenter", null, "containers")} />
-        <StatTile label={t("nav.storage")} value={storagePools.length} sub={t("ov.poolsSub")} onClick={() => navigateTo("datacenter", null, "storage")} />
+        <StatTile tone="accent" icon={<><g stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3.5" width="14" height="5" rx="1" /><rect x="3" y="11.5" width="14" height="5" rx="1" /></g></>} label={t("nav.nodes")} value={`${online} / ${nodes.length}`} sub={t("ov.nodesOnline")} onClick={() => navigateTo("datacenter", null, "nodes")} />
+        <StatTile tone="success" icon={<><g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="14" height="9" rx="1.2" /><path d="M7 17h6M10 13v4" /></g></>} label={t("nav.vms")} value={`${running} / ${vms.length}`} sub={problems ? t("ov.vmsProblems", { n: problems }) : t("ov.vmsRunning")} onClick={() => navigateTo("datacenter", null, "vms")} />
+        <StatTile tone="info" icon={<><path d="M10 3l6 3.4v7.2L10 17l-6-3.4V6.4L10 3zM4 6.5l6 3.3 6-3.3M10 9.8V17" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></>} label={t("nav.containers")} value={containers.length} sub={t("ov.containersSub", { n: containers.filter((c) => c.etat === "actif").length })} onClick={() => navigateTo("datacenter", null, "containers")} />
+        <StatTile tone="warning" icon={<><g stroke="currentColor" strokeWidth="1.5"><ellipse cx="10" cy="5.5" rx="6" ry="2.3" /><path d="M4 5.5v9c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3v-9M4 10c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3" /></g></>} label={t("nav.storage")} value={storagePools.length} sub={t("ov.poolsSub")} onClick={() => navigateTo("datacenter", null, "storage")} />
       </div>
 
       <div className="nx-grid nx-grid--4" role="group" aria-label={t("ns.resources")}>

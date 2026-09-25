@@ -17,21 +17,21 @@
                        deliberately denser scale than a typical page, closer to an ops console */
   /* Surfaces */
   --color-bg-app: #0B1220;
-  --color-bg-sidebar: #0B1220;
-  --color-bg-workspace: #0B1220;
-  --color-bg-surface: #111C2E;
-  --color-bg-surface-raised: #172033;
-  --color-bg-hover: #141E33;
-  --color-bg-selected: #102438;
+  --color-bg-sidebar: #08101D;
+  --color-bg-workspace: #0D1626;
+  --color-bg-surface: #121E33;
+  --color-bg-surface-raised: #192740;
+  --color-bg-hover: #172338;
+  --color-bg-selected: #12304A;
   /* Borders */
   --color-border-subtle: #1E2A3F;
-  --color-border-default: #253449;
-  --color-border-strong: #53688B;
+  --color-border-default: #26374F;
+  --color-border-strong: #5F759D;
   --color-border-focus: #38BDF8;
   /* Text */
   --color-text-primary: #E7ECF3;
-  --color-text-secondary: #8592AB;
-  --color-text-muted: #7C8AA3;
+  --color-text-secondary: #9AA7BE;
+  --color-text-muted: #8B98B0;
   --color-text-disabled: #64748B;
   --color-text-on-accent: #04121F;
   /* Functional */
@@ -40,14 +40,15 @@
   --color-info: #38BDF8;
   --color-success: #22C55E;
   --color-warning: #F59E0B;
-  --color-danger: #F05252;
-  --color-offline: #7C8BA1;
-  --color-unknown: #7C8BA1;
+  --color-danger: #F76F6F;
+  --color-offline: #8F9CB2;
+  --color-unknown: #8F9CB2;
   --color-success-subtle: color-mix(in oklab, var(--color-success) 14%, var(--color-bg-surface));
   --color-warning-subtle: color-mix(in oklab, var(--color-warning) 14%, var(--color-bg-surface));
   --color-danger-subtle: color-mix(in oklab, var(--color-danger) 14%, var(--color-bg-surface));
   --color-info-subtle: color-mix(in oklab, var(--color-info) 14%, var(--color-bg-surface));
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 16%, var(--color-bg-surface));
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.35);
   /* Typography */
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -66,7 +67,7 @@
   /* Structure */
   --radius-xs: 2px; --radius-sm: 4px; --radius-md: 6px; --radius-lg: 10px;
   --border-width: 1px;
-  --sidebar-width: 14.5rem;
+  --sidebar-width: 15.5rem;
   --topbar-height: 3rem;
   --dock-height: 15rem;
   --duration-fast: 120ms; --duration-base: 180ms; --duration-slow: 240ms;
@@ -412,3 +413,38 @@
 .nx-stat--link:hover { background: var(--color-bg-hover); }
 .nx-progress--inline { display: inline-block; width: 4.5rem; vertical-align: middle; margin-left: var(--space-2); }
 .nx-list--pools li { grid-template-columns: 1.25rem minmax(0, 1fr) auto; }
+
+/* ---------- Visual polish: depth, hierarchy, alignment ---------- */
+.nx-content { padding: var(--space-5) var(--space-6); }
+.nx-ns { gap: var(--space-5); }
+.nx-grid { gap: var(--space-5); }
+.nx-cols { gap: var(--space-5); }
+.nx-card { border-radius: var(--radius-lg); box-shadow: var(--shadow-card); padding: var(--space-5); }
+.nx-card h2 { font-size: var(--font-size-md); color: var(--color-text-primary); margin-bottom: var(--space-4); letter-spacing: 0.005em; }
+.nx-cardhead h2 { margin-bottom: 0; }
+.nx-cardhead { margin-bottom: var(--space-4); }
+.nx-reshead--plain { padding: var(--space-6) var(--space-6) 0; gap: var(--space-1); }
+.nx-reshead--plain h1 { font-size: 1.625rem; font-weight: 650; letter-spacing: -0.015em; }
+.nx-reshead--plain .nx-meta { color: var(--color-text-secondary); }
+.nx-reshead { padding-left: var(--space-6); padding-right: var(--space-6); }
+.nx-crumbrow { padding-left: var(--space-6); }
+.nx-tabs { padding: 0 var(--space-5); }
+.nx-btn { border-radius: var(--radius-lg); }
+.nx-nav-item { border-radius: var(--radius-lg); padding: 0.45rem 0.65rem; font-size: var(--font-size-md); position: relative; }
+.nx-nav-item.active { box-shadow: inset 2px 0 0 var(--color-accent); }
+.nx-nav-group-label { padding-top: var(--space-4); }
+.nx-table th, .nx-table td { padding: 0.65rem var(--space-3); }
+.nx-table thead th { border-bottom: 1px solid var(--color-border-default); background: transparent; text-transform: none; letter-spacing: 0; }
+.nx-table tbody tr:last-child th, .nx-table tbody tr:last-child td { border-bottom: 0; }
+.nx-vmcard { border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--shadow-card); }
+
+/* Metric tiles: left-aligned, value first, icon chip; ring tiles put the ring beside the text. */
+.nx-kpi { position: relative; justify-items: start; text-align: left; gap: var(--space-1); padding: var(--space-5); }
+.nx-stat .nx-kpi-value { font-family: var(--font-ui); font-size: 1.875rem; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; margin-top: var(--space-1); }
+.nx-stat-label { font-size: var(--font-size-sm); font-weight: 500; color: var(--color-text-secondary); }
+.nx-stat-icon { position: absolute; top: var(--space-4); right: var(--space-4); width: 2.25rem; height: 2.25rem; border-radius: var(--radius-lg); display: grid; place-items: center; background: color-mix(in oklab, currentColor 14%, transparent); }
+.nx-kpi--ring { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-4); row-gap: 2px; align-items: center; }
+.nx-kpi--ring .nx-gauge, .nx-kpi--ring .nx-gauge--empty { grid-row: 1 / span 3; }
+.nx-kpi--ring .nx-kpi-label { font-size: var(--font-size-sm); }
+.nx-kpi--ring .nx-mono { font-size: var(--font-size-xs); }
+.nx-spark { margin-top: var(--space-3); }
