@@ -42,7 +42,7 @@ async function open(page: Page) {
 test("lists containers with state text, gates stop/delete behind confirmations, and creates from the gallery", async ({ page }) => {
   const api = await open(page);
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { name: /^Containers/ })).toBeVisible();
+  await expect(main.getByRole("heading", { level: 2, name: /^Containers/ })).toBeVisible();
   await expect(main.getByRole("row", { name: /web1/ })).toContainText("192.168.122.50");
   await expect(main.getByRole("row", { name: /db1/ })).toContainText("Not assigned");
 

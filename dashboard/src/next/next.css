@@ -540,3 +540,5 @@ select.nx-input { height: 2rem; }
 .nx-steps { margin: 0 0 var(--space-3); padding-left: var(--space-5); display: grid; gap: var(--space-1); }
 .nx-subhead { margin: var(--space-3) 0 var(--space-2); font-size: var(--font-size-sm); }
 .nx-logs { margin: var(--space-2) 0 0; padding: var(--space-3); max-height: 20rem; overflow: auto; background: var(--color-bg-app); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--font-size-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.nx-list--checks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.nx-list--checks li { display: grid; grid-template-columns: minmax(7rem, max-content) 1fr; gap: var(--space-3); align-items: start; }

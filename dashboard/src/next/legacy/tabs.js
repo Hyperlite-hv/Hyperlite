@@ -10,6 +10,7 @@ import SsoPage from "../pages/SsoPage";
 import ContainersPage from "../pages/ContainersPage";
 import CompatibilityPage from "../pages/CompatibilityPage";
 import NodeSummary from "../pages/NodeSummary";
+import { NodeSystemPage, NodeNetworkPage, NodeDiskPage, NodeShellPage, NodeCompatPage } from "../pages/NodePages";
 import VmList from "../pages/VmList";
 import Overview from "../pages/Overview";
 import ActivityPage from "../pages/ActivityPage";
@@ -20,13 +21,7 @@ import BackupsPage from "../pages/BackupsPage";
 import ExportsPage from "../pages/ExportsPage";
 import SnapshotsPage from "../pages/SnapshotsPage";
 import VmSummary from "../pages/VmSummary";
-import NodeSystemTab from "../../panels/node/NodeSystemTab";
-import NodeNetworkTab from "../../panels/node/NodeNetworkTab";
-import NodeDiskTab from "../../panels/node/NodeDiskTab";
-import NodeTasksTab from "../../panels/node/NodeTasksTab";
-import NodeShellTab from "../../panels/node/NodeShellTab";
-import NodeCompatibilityTab from "../../panels/node/NodeCompatibilityTab";
-import VMConsoleTab from "../../panels/vm/VMConsoleTab";
+import VmConsole from "../pages/VmConsole";
 import VMHardwareTab from "../../panels/vm/VMHardwareTab";
 import VMOptionsTab from "../../panels/vm/VMOptionsTab";
 import VMBackupTab from "../../panels/vm/VMBackupTab";
@@ -39,10 +34,10 @@ export const DATACENTER_TABS = {
   nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage,
 };
 export const NODE_TABS = {
-  summary: NodeSummary, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,
+  summary: NodeSummary, system: NodeSystemPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
 };
 export const VM_TABS = {
-  summary: VmSummary, console: VMConsoleTab, hardware: VMHardwareTab, options: VMOptionsTab, backup: VMBackupTab, snapshots: VMSnapshotsTab,
+  summary: VmSummary, console: VmConsole, hardware: VMHardwareTab, options: VMOptionsTab, backup: VMBackupTab, snapshots: VMSnapshotsTab,
 };
 
 
