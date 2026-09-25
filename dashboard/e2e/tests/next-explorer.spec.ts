@@ -114,12 +114,12 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
 
   test("Server and Pool modes; the choice survives a reload", async ({ page }) => {
     await nextLogin(page);
-    await page.getByRole("button", { name: "Pool" }).click();
-    await expect(page.getByRole("button", { name: "Pool" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Pool", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pool", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("treeitem", { name: /Unassigned/ })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("button", { name: "Pool" })).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Server" }).click();
+    await expect(page.getByRole("button", { name: "Pool", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Server", exact: true }).click();
     await expect(page.getByRole("treeitem", { name: /node, / })).toBeVisible();
   });
 
@@ -187,6 +187,19 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("the Overview answers: what needs attention, capacity, nodes, pools, recent activity", async ({ page }) => {
+    await nextLogin(page);
+    await page.goto("/datacenter");
+    const main = page.getByRole("main");
+    for (const name of ["Needs attention", "Nodes", "Storage pools", "Recent activity"]) await expect(main.getByRole("heading", { name: new RegExp(`^${name}`) })).toBeVisible();
+    await expect(main.getByRole("group", { name: "Inventory" })).toBeVisible();
+    await main.getByRole("group", { name: "Inventory" }).getByRole("button", { name: /Virtual Machines/i }).click();
+    await expect(page).toHaveURL(/tab=vms/);
+    await page.goto("/datacenter");
+    await main.getByRole("table").getByRole("button").first().click();
+    await expect(page).toHaveURL(/\/node\//);
+  });
+
   test("the Virtual machines page filters by state and sorts its table", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/datacenter?tab=vms");
@@ -230,7 +243,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await nextLogin(page);
     await expect(page.getByRole("button", { name: "Expand tasks panel" })).toBeVisible();
     await page.getByRole("button", { name: "Expand tasks panel" }).click();
-    await expect(page.getByText("No tasks yet.")).toBeVisible();
+    await expect(page.locator(".nx-dock").getByText("No tasks yet.")).toBeVisible();
   });
 
   test("on a tablet the sidebar (with the inventory) opens as a drawer", async ({ page }) => {

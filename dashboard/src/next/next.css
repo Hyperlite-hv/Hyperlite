@@ -407,3 +407,8 @@
 .nx-inv--embedded .nx-inv-head { justify-content: flex-start; padding-top: var(--space-2); padding-bottom: 0; }
 .nx-inv--embedded .nx-seg { flex: 1; } .nx-inv--embedded .nx-seg button { flex: 1; }
 .nx-inv--embedded .nx-inv-foot { padding: var(--space-1) var(--space-3); border-top: 0; }
+
+.nx-stat--link { text-align: left; cursor: pointer; font: inherit; color: inherit; width: 100%; }
+.nx-stat--link:hover { background: var(--color-bg-hover); }
+.nx-progress--inline { display: inline-block; width: 4.5rem; vertical-align: middle; margin-left: var(--space-2); }
+.nx-list--pools li { grid-template-columns: 1.25rem minmax(0, 1fr) auto; }
