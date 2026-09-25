@@ -196,7 +196,7 @@ export default function VMWizard({ open, onClose, triggerRef }) {
             <strong className="font-semibold">The VM could not be created.</strong> <span className="font-mono break-words">{error}</span>
           </div>
         )}
-        <DialogFooter className="border-t border-border px-5 py-3 sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 border-t border-border px-5 py-3 sm:justify-between">
           <Button variant="secondary" disabled={stepIndex === 0 || busy} onClick={() => setStepIndex((i) => i - 1)}>
             <ChevronLeft /> Previous
           </Button>

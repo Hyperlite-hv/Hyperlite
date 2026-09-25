@@ -33,12 +33,13 @@ export default function VMSnapshotsTab({ resource: vm }) {
   const [job, setJob] = useState(null); // { label, startedAt } while a create/restore is in progress
   const [, forceTick] = useState(0);
 
+  const vmName = vm?.nom;
   const reload = useCallback(async () => {
-    try { setSnapshots(await fetchSnapshots(vm.nom)); }
+    try { setSnapshots(await fetchSnapshots(vmName)); }
     catch (e) { pushToast({ kind: "error", title: "Snapshots error", message: e.message }); }
-  }, [vm?.nom, pushToast]);
+  }, [vmName, pushToast]);
 
-  useEffect(() => { if (vm?.nom) reload(); }, [vm?.nom, reload]);
+  useEffect(() => { if (vmName) reload(); }, [vmName, reload]);
 
   // Only refreshes the "Xs elapsed" counter while a job is running.
   useEffect(() => {

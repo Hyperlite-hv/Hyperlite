@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react"
-import { cn } from "cn"
+import { cn } from "@/lib/cn"
 import * as RechartsPrimitive from "recharts"
 
 // Format: { THEME_NAME: CSS_SELECTOR }
