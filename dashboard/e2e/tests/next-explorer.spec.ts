@@ -24,7 +24,7 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
 const DATACENTER_PAGES: Record<string, string> = {
   summary: "Overview", activity: "Recent activity", storage: "Storage", templates: "Templates", backups: "Backups", exports: "Exports",
   permissions: "Permissions", reseau: "Network", automation: "Automation", containers: "Containers", nodes: "Nodes", ha: "HA",
-  compat: "Compatibility", notifications: "Notifications", sso: "SSO", journal: "Journal", vms: "Virtual machines",
+  compat: "Compatibility", notifications: "Notifications", sso: "SSO", journal: "Journal", vms: "Virtual machines", snapshots: "Snapshots",
 };
 
 test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
@@ -211,6 +211,21 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     const nameHeader = main.getByRole("columnheader", { name: /Name/ });
     await nameHeader.getByRole("button").click();
     await expect(nameHeader).toHaveAttribute("aria-sort", /ascending|descending/);
+  });
+
+  test("the Activity page filters tasks and the sidebar groups collapse", async ({ page }) => {
+    await nextLogin(page);
+    await page.goto("/datacenter?tab=activity");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { name: /^Tasks/ })).toBeVisible();
+    const filters = main.getByRole("group", { name: "Task filters" });
+    await filters.getByLabel("Status").selectOption("echec");
+    await filters.getByLabel("Period").selectOption("all");
+    await expect(main.getByRole("button", { name: "Export CSV" })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.getByRole("button", { name: "Exports" })).toHaveCount(0);
+    await nav.getByRole("button", { name: /^▸ More|More/ }).first().click();
+    await expect(nav.getByRole("button", { name: "Exports" })).toBeVisible();
   });
 
   test("a VM page shows state, capacity, identity, protection and every historical operation", async ({ page }) => {

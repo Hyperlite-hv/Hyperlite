@@ -393,7 +393,7 @@
 .nx-ops > summary { cursor: pointer; font-weight: 600; }
 .nx-ops[open] > summary { margin-bottom: var(--space-3); }
 /* Compact inventory when embedded in the sidebar: the group title above already names it. */
-.nx-inv--embedded { height: clamp(13rem, 34vh, 24rem); }
+.nx-inv--embedded { height: clamp(14rem, 34vh, 22rem); }
 .nx-inv--embedded .nx-inv-title, .nx-inv--embedded .nx-inv-hint { display: none; }
 .nx-inv--embedded .nx-inv-head { justify-content: flex-start; padding-top: var(--space-2); padding-bottom: 0; }
 .nx-inv--embedded .nx-seg { flex: 1; } .nx-inv--embedded .nx-seg button { flex: 1; }
@@ -457,3 +457,18 @@
 .nx-trow-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nx-trow .nx-progress { margin: 0 var(--space-3) var(--space-3); }
 .nx-trow-detail { padding: 0 var(--space-3) var(--space-3) 2.75rem; font-size: var(--font-size-xs); }
+.nx-filters { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4); }
+.nx-filters label { display: grid; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nx-rowlink { cursor: pointer; }
+.nx-detailcell { background: var(--color-bg-workspace); padding: var(--space-3) var(--space-4) !important; }
+.nx-nav-group-btn { display: flex; align-items: center; gap: var(--space-2); width: 100%; background: none; border: 0; cursor: pointer; text-align: left; }
+.nx-nav-group-btn:hover { color: var(--color-text-primary); }
+[data-sidebar="collapsed"] .nx-nav-group-btn span[aria-hidden] { display: none; }
+
+/* ---------- Screens not rebuilt yet: same cards, fields and dialogs as the rest ---------- */
+:root[data-ui="next"] [data-slot="card"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
+:root[data-ui="next"] [data-slot="button"] { border-radius: var(--radius-lg); }
+:root[data-ui="next"] [data-slot="input"], :root[data-ui="next"] [data-slot="textarea"], :root[data-ui="next"] [data-slot="native-select"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); }
+:root[data-ui="next"] [data-slot="dialog-content"], :root[data-ui="next"] [data-slot="alert-dialog-content"], :root[data-ui="next"] [data-slot="dropdown-menu-content"] { background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); }
+:root[data-ui="next"] [data-slot="table-head"] { color: var(--color-text-muted); font-weight: 500; }
+:root[data-ui="next"] [data-slot="table-row"] { border-color: var(--color-border-subtle); }

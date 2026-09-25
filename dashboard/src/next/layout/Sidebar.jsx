@@ -47,6 +47,22 @@ function NavItem({ icon, label, count, tone, active, onClick, indent, disabled, 
   );
 }
 
+const GROUPS_KEY = "hyperlite-next-nav-groups";
+function readGroups() { try { return JSON.parse(localStorage.getItem(GROUPS_KEY) || "{}"); } catch { return {}; } }
+
+// A collapsible group of entries. The group that holds the current page is always shown open.
+function NavGroup({ id, label, open, forced, onToggle, children }) {
+  const shown = open || forced;
+  return (
+    <div className="nx-nav-group">
+      <button type="button" className="nx-nav-group-label nx-nav-group-btn" aria-expanded={shown} aria-controls={`nx-group-${id}`} onClick={onToggle}>
+        <span aria-hidden="true">{shown ? "▾" : "▸"}</span> {label}
+      </button>
+      {shown && <div id={`nx-group-${id}`}>{children}</div>}
+    </div>
+  );
+}
+
 export default function Sidebar({ collapsed }) {
   const t = useT();
   const { selection, nodes, vms, storagePools, tasks } = useInfraStore(useShallow((s) => ({ selection: s.selection, nodes: s.nodes, vms: s.vms, storagePools: s.storagePools, tasks: s.tasks })));
@@ -63,6 +79,10 @@ export default function Sidebar({ collapsed }) {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
   const userBtn = useRef(null);
+  const [groups, setGroups] = useState(readGroups);
+  // Everything is open except the rarely used entries, closed until the user opens them.
+  const groupOpen = (id) => (groups[id] ?? id !== "more");
+  const toggleGroup = (id) => setGroups((g) => { const n = { ...g, [id]: !(g[id] ?? id !== "more") }; try { localStorage.setItem(GROUPS_KEY, JSON.stringify(n)); } catch { /* preference only */ } return n; });
   const [invOpen, setInvOpen] = useState(() => { try { return localStorage.getItem("hyperlite-next-inv-open") !== "0"; } catch { return true; } });
   const toggleInv = () => setInvOpen((o) => { const n = !o; try { localStorage.setItem("hyperlite-next-inv-open", n ? "1" : "0"); } catch { /* preference only */ } return n; });
 
@@ -90,41 +110,40 @@ export default function Sidebar({ collapsed }) {
       )}
 
       <div className="nx-nav-scroll">
-        <div className="nx-nav-group">
-          <div className="nx-nav-group-label">{t("nav.group.infrastructure")}</div>
+        <NavGroup id="infra" label={t("nav.group.infrastructure")} open={groupOpen("infra")} forced={onDatacenterTab("summary") || onDatacenterTab("compat") || onDatacenterTab("ha") || onDatacenterTab("nodes") || selection.type === "node"} onToggle={() => toggleGroup("infra")}>
           <NavItem icon="overview" label={t("nav.overview")} active={selection.type === "datacenter" && tab === "summary"} onClick={() => goto("summary")} />
           <NavItem icon="infra" label={t("nav.infrastructure")} active={onDatacenterTab("compat")} onClick={() => goto("compat")} />
           <NavItem icon="cluster" label={t("nav.group.cluster")} active={onDatacenterTab("ha")} onClick={() => goto("ha")} />
           <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes")} onClick={() => goto("nodes")} />
           {activeNode && <NavItem label={activeNode.nom} active indent />}
-        </div>
+        </NavGroup>
 
-        <div className="nx-nav-group">
-          <div className="nx-nav-group-label">{t("nav.group.management")}</div>
+        <NavGroup id="manage" label={t("nav.group.management")} open={groupOpen("manage")} forced={selection.type === "vm" || ["vms", "containers", "storage", "reseau", "backups"].some(onDatacenterTab)} onToggle={() => toggleGroup("manage")}>
           <NavItem icon="vms" label={t("nav.vms")} count={vms.length} active={selection.type === "vm" || onDatacenterTab("vms")} onClick={() => goto("vms")} />
           <NavItem icon="containers" label={t("nav.containers")} count={containers?.length} active={onDatacenterTab("containers")} onClick={() => goto("containers")} />
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
           <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />
-          <NavItem icon="iso" label={t("nav.isoTemplates")} active={onDatacenterTab("templates")} onClick={() => goto("templates")} />
-          <NavItem icon="snapshots" label={t("nav.snapshots")} disabled title={t("nav.comingSoon")} />
           <NavItem icon="backups" label={t("nav.backups")} active={onDatacenterTab("backups")} onClick={() => goto("backups")} />
+        </NavGroup>
+
+        <NavGroup id="more" label={t("nav.group.more")} open={groupOpen("more")} forced={["templates", "snapshots", "exports", "automation"].some(onDatacenterTab)} onToggle={() => toggleGroup("more")}>
+          <NavItem icon="iso" label={t("nav.isoTemplates")} active={onDatacenterTab("templates")} onClick={() => goto("templates")} />
+          <NavItem icon="snapshots" label={t("nav.snapshots")} active={onDatacenterTab("snapshots")} onClick={() => goto("snapshots")} />
           <NavItem icon="exports" label={t("nav.exports")} active={onDatacenterTab("exports")} onClick={() => goto("exports")} />
           <NavItem icon="automation" label={t("nav.automation")} active={onDatacenterTab("automation")} onClick={() => goto("automation")} />
-        </div>
+        </NavGroup>
 
-        <div className="nx-nav-group">
-          <div className="nx-nav-group-label">{t("nav.group.observability")}</div>
+        <NavGroup id="observe" label={t("nav.group.observability")} open={groupOpen("observe")} forced={onDatacenterTab("activity") || onDatacenterTab("journal")} onToggle={() => toggleGroup("observe")}>
           <NavItem icon="monitoring" label={t("nav.monitoring")} active={onDatacenterTab("activity")} onClick={() => goto("activity")} />
           <NavItem icon="alerts" label={t("nav.alerts")} count={health.total || null} tone={health.level === "critical" ? "danger" : "warning"} active={false} onClick={() => window.dispatchEvent(new CustomEvent("nx:dock", { detail: "alerts" }))} />
           <NavItem icon="logs" label={t("nav.systemLogs")} active={onDatacenterTab("journal")} onClick={() => goto("journal")} />
-        </div>
+        </NavGroup>
 
         {caps.admin && (
-          <div className="nx-nav-group">
-            <div className="nx-nav-group-label">{t("nav.group.administration")}</div>
+          <NavGroup id="admin" label={t("nav.group.administration")} open={groupOpen("admin")} forced={onDatacenterTab("permissions") || onDatacenterTab("notifications") || onDatacenterTab("sso")} onToggle={() => toggleGroup("admin")}>
             <NavItem icon="users" label={t("nav.usersRoles")} active={onDatacenterTab("permissions")} onClick={() => goto("permissions")} />
             <NavItem icon="settings" label={t("nav.settings")} active={onDatacenterTab("notifications")} onClick={() => goto("notifications")} />
-          </div>
+          </NavGroup>
         )}
       </div>
 
