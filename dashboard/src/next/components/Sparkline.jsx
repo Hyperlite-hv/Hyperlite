@@ -5,7 +5,7 @@ import { useT } from "../i18n";
 export default function Sparkline({ values, label, tone = "accent", max = null, width = 120, height = 28 }) {
   const t = useT();
   const pts = (values || []).filter((v) => v != null && !Number.isNaN(v));
-  if (pts.length < 2) return <div className="nx-spark nx-muted" role="img" aria-label={`${label}: ${t("ns.collecting")}`}><span aria-hidden="true">{t("ns.collecting")}</span></div>;
+  if (pts.length < 6) return <div className="nx-spark nx-muted" role="img" aria-label={`${label}: ${t("ns.collecting")}`}><span aria-hidden="true">{t("ns.collecting")}</span></div>;
   const lo = Math.min(...pts), hi = max ?? Math.max(...pts);
   const span = hi - (max != null ? 0 : lo) || 1;
   const base = max != null ? 0 : lo;

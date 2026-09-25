@@ -1,10 +1,11 @@
 import Sparkline from "./Sparkline";
 
 // A metric that is a number, not a percentage (counts, throughput): label, big value, detail, trend.
-export default function StatTile({ label, value, sub, series, tone = "accent", unavailable, onClick }) {
+export default function StatTile({ label, value, sub, series, tone = "accent", unavailable, onClick, icon }) {
   const body = (
     <>
-      <div className="nx-muted" style={{ fontSize: "var(--font-size-xs)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+      {icon && <span className={`nx-stat-icon nx-tone-${tone}`} aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none">{icon}</svg></span>}
+      <div className="nx-stat-label">{label}</div>
       {unavailable ? <div className="nx-muted" role="status" style={{ minHeight: "3rem" }}>{unavailable}</div> : (
         <>
           <div className="nx-kpi-value">{value ?? "—"}</div>
