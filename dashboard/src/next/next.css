@@ -386,3 +386,24 @@
 .nx-dl dt { color: var(--color-text-muted); } .nx-dl dd { margin: 0; overflow-wrap: anywhere; }
 .nx-list { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: grid; gap: var(--space-1); }
 .nx-list li { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; font-size: var(--font-size-sm); padding: 2px 0; }
+
+/* ---------- Inventory inside the sidebar, VM collection ---------- */
+.nx-inv-group { flex: none; display: flex; flex-direction: column; border-bottom: 1px solid var(--color-border-subtle); }
+.nx-inv-toggle { display: flex; align-items: center; gap: var(--space-2); width: 100%; background: none; border: 0; cursor: pointer; text-align: left; padding: var(--space-2) var(--space-4); }
+.nx-inv-toggle:hover { background: var(--color-bg-hover); }
+.nx-inv--embedded { grid-area: auto; border: 0; background: none; height: clamp(15rem, 40vh, 28rem); }
+@media (max-width: 1023px) { .nx-inv--embedded { position: static; transform: none; width: auto; box-shadow: none; z-index: auto; top: auto; bottom: auto; left: auto; } }
+.nx-thbtn { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: inherit; font-weight: inherit; }
+.nx-thbtn:hover { color: var(--color-text-primary); }
+.nx-chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.nx-chip { background: none; border: 1px solid var(--color-border-default); border-radius: 999px; padding: 2px var(--space-3); cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.nx-chip:hover { background: var(--color-bg-hover); }
+.nx-chip[aria-pressed="true"] { background: var(--color-bg-selected); color: var(--color-text-primary); border-color: var(--color-accent); font-weight: 600; }
+.nx-ops > summary { cursor: pointer; font-weight: 600; }
+.nx-ops[open] > summary { margin-bottom: var(--space-3); }
+/* Compact inventory when embedded in the sidebar: the group title above already names it. */
+.nx-inv--embedded { height: clamp(13rem, 34vh, 24rem); }
+.nx-inv--embedded .nx-inv-title, .nx-inv--embedded .nx-inv-hint { display: none; }
+.nx-inv--embedded .nx-inv-head { justify-content: flex-start; padding-top: var(--space-2); padding-bottom: 0; }
+.nx-inv--embedded .nx-seg { flex: 1; } .nx-inv--embedded .nx-seg button { flex: 1; }
+.nx-inv--embedded .nx-inv-foot { padding: var(--space-1) var(--space-3); border-top: 0; }

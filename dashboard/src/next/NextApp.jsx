@@ -75,6 +75,12 @@ export default function NextApp() {
     return () => window.removeEventListener("nx:wizard", on);
   }, []);
 
+  useEffect(() => {
+    const close = () => { if (window.innerWidth < 1024) setSidebarOpen(false); };
+    window.addEventListener("nx:navigated", close);
+    return () => window.removeEventListener("nx:navigated", close);
+  }, []);
+
   // Escape closes the narrow-screen drawer.
   useEffect(() => {
     if (!sidebarOpen) return undefined;

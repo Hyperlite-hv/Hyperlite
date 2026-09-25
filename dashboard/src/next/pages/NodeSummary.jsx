@@ -5,39 +5,16 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
-import { capabilities, vmActionState } from "../lib/capabilities";
-import { useVmActions } from "../lib/vmActions";
+import { capabilities } from "../lib/capabilities";
 import { deriveAlerts } from "../lib/alerts";
 import { taskLabel } from "../lib/enums";
 import { formatSizeMb, formatSizeGb, formatUptimeLong, clockTime, formatVersionInt } from "../lib/format";
 import KpiTile from "../components/KpiTile";
+import VmCollection from "../components/VmCollection";
 import StatusIndicator from "../components/StatusIndicator";
 
 // An API answer can be null (e.g. a dev proxy that does not relay the route): treat it as empty.
 const asList = (v) => (Array.isArray(v) ? v : []);
-const VIEW_KEY = "hyperlite-next-vmview";
-const AUTO_TABLE_FROM = 5; // cards are readable for a handful of VMs, a table scales past that
-
-function readView() { try { return localStorage.getItem(VIEW_KEY) || "auto"; } catch { return "auto"; } }
-
-function VmActions({ vm }) {
-  const t = useT();
-  const role = useAuthStore((s) => s.role);
-  const caps = capabilities(role);
-  const { run, openConsole } = useVmActions();
-  const navigateTo = useInfraStore((s) => s.navigateTo);
-  const running = vm.etat === "actif";
-  const power = vmActionState(running ? "stop" : "start", vm, caps);
-  const cons = vmActionState("console", vm, caps);
-  return (
-    <span style={{ display: "inline-flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-      <button type="button" className="nx-btn" aria-disabled={!cons.enabled || undefined} title={!cons.enabled ? t(cons.reason) : undefined} onClick={() => cons.enabled && openConsole(vm)}>{t("menu.console")}</button>
-      <button type="button" className="nx-btn" aria-disabled={!power.enabled || undefined} title={!power.enabled ? t(power.reason) : undefined} onClick={() => power.enabled && run(vm, running ? "stop" : "start")}>{running ? t("menu.stop") : t("menu.start")}</button>
-      <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("vm", vm.nom, "summary")}>{t("menu.open")}</button>
-    </span>
-  );
-}
-
 export default function NodeSummary({ resource: node }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
@@ -47,11 +24,8 @@ export default function NodeSummary({ resource: node }) {
   const [rows, setRows] = useState([]);
   const [hostCaps, setHostCaps] = useState(null);
   const [recent, setRecent] = useState(null);
-  const [view, setViewState] = useState(readView);
-  const [q, setQ] = useState("");
   const isLocal = node?.id === "local";
 
-  const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* preference only */ } };
 
   usePolling(async () => { if (isLocal) setRows(asList(await fetchHostMetricsHistory("1h"))); }, 15000, { enabled: !!isLocal });
   useEffect(() => { if (isLocal) fetchHostMetricsHistory("1h").then((r) => setRows(asList(r))).catch(() => {}); }, [isLocal]);
@@ -60,13 +34,8 @@ export default function NodeSummary({ resource: node }) {
   useEffect(() => { fetchTasks({ limit: 8, tri: "cree_le", ordre: "desc" }).then((r) => setRecent(asList(r))).catch(() => setRecent([])); }, []);
 
   const nodeVms = useMemo(() => vms.filter((v) => v.node === node?.id), [vms, node]);
-  const shown = useMemo(() => {
-    const n = q.trim().toLowerCase();
-    return n ? nodeVms.filter((v) => `${v.nom} ${v.ip || ""} ${v.os || ""}`.toLowerCase().includes(n)) : nodeVms;
-  }, [nodeVms, q]);
   if (!node) return null;
 
-  const mode = view === "auto" ? (nodeVms.length >= AUTO_TABLE_FROM ? "table" : "cards") : view;
   const last = rows[rows.length - 1];
   const cpu = last?.cpu_pct != null ? last.cpu_pct : null;
   const memRatio = last?.mem_total_mb ? last.mem_used_mb / last.mem_total_mb : null;
@@ -95,47 +64,7 @@ export default function NodeSummary({ resource: node }) {
       </div>
 
       <div className="nx-cols">
-        <section className="nx-card" aria-labelledby="ns-vms">
-          <div className="nx-cardhead">
-            <h2 id="ns-vms">{t("ns.vms")} <span className="nx-count">{nodeVms.length}</span></h2>
-            <input className="nx-input" type="search" aria-label={t("ns.filterVms")} placeholder={t("ns.filterVms")} value={q} onChange={(e) => setQ(e.target.value)} />
-            <div className="nx-seg" role="group" aria-label={t("ns.viewMode")}>
-              <button type="button" aria-pressed={mode === "cards"} onClick={() => setView("cards")}>{t("ns.cards")}</button>
-              <button type="button" aria-pressed={mode === "table"} onClick={() => setView("table")}>{t("ns.table")}</button>
-            </div>
-          </div>
-          {nodeVms.length === 0 ? <p className="nx-muted" role="status">{t("ns.noVms")}</p>
-            : shown.length === 0 ? <p className="nx-muted" role="status">{t("find.none", { q })}</p>
-            : mode === "cards" ? (
-              <div className="nx-cards">
-                {shown.map((vm) => (
-                  <article key={vm.nom} className="nx-vmcard" aria-label={vm.nom}>
-                    <header><button type="button" className="nx-link" onClick={() => navigateTo("vm", vm.nom, "summary")}>{vm.nom}</button><StatusIndicator kind="vm" wire={vm.etat} />{vm.uptime_s ? <span className="nx-muted"> · {formatUptimeLong(vm.uptime_s, lang)}</span> : null}</header>
-                    <p className="nx-mono nx-muted">{t("ns.vmSpec", { cpu: vm.vcpu, ram: formatSizeMb(vm.memoire_mo, lang) })} · {vm.ip ? vm.ip : <span title={t("ns.ipHelp")}>{t("ns.ipNa")} ⓘ</span>}</p>
-                    <VmActions vm={vm} />
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="nx-tablewrap">
-                <table className="nx-table">
-                  <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ns.col.name")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ns.memory")}</th><th scope="col">IP</th><th scope="col">{t("ns.col.uptime")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
-                  <tbody>
-                    {shown.map((vm) => (
-                      <tr key={vm.nom}>
-                        <td><StatusIndicator kind="vm" wire={vm.etat} /></td>
-                        <th scope="row"><button type="button" className="nx-link" onClick={() => navigateTo("vm", vm.nom, "summary")}>{vm.nom}</button></th>
-                        <td className="nx-num nx-mono">{vm.vcpu}</td><td className="nx-num nx-mono">{formatSizeMb(vm.memoire_mo, lang)}</td>
-                        <td className="nx-mono">{vm.ip || <span className="nx-muted" title={t("ns.ipHelp")}>{t("ns.ipNa")} ⓘ</span>}</td>
-                        <td className="nx-mono">{formatUptimeLong(vm.uptime_s, lang) || "—"}</td>
-                        <td><VmActions vm={vm} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-        </section>
+        <VmCollection vms={nodeVms} headingId="ns-vms" />
 
         <section className="nx-card" aria-labelledby="ns-health">
           <h2 id="ns-health">{t("ns.health")}</h2>

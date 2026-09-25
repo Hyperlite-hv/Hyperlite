@@ -8,6 +8,7 @@ import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
 import { deriveAlerts, summarizeHealth } from "../lib/alerts";
 import Menu, { MenuItem } from "../components/Menu";
+import Explorer from "../explorer/Explorer";
 import UpdateModal from "../../components/UpdateModal";
 import AccountSecurityModal from "../../components/AccountSecurityModal";
 
@@ -62,6 +63,8 @@ export default function Sidebar({ collapsed }) {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
   const userBtn = useRef(null);
+  const [invOpen, setInvOpen] = useState(() => { try { return localStorage.getItem("hyperlite-next-inv-open") !== "0"; } catch { return true; } });
+  const toggleInv = () => setInvOpen((o) => { const n = !o; try { localStorage.setItem("hyperlite-next-inv-open", n ? "1" : "0"); } catch { /* preference only */ } return n; });
 
   const tab = useInfraStore((s) => s.activeTab);
   const onDatacenterTab = (id) => selection.type === "datacenter" && tab === id;
@@ -77,6 +80,15 @@ export default function Sidebar({ collapsed }) {
         <span className="nx-brand-text"><strong>{t("app.name")}</strong><small>{t("app.tagline")}</small></span>
       </div>
 
+      {!collapsed && (
+        <div className="nx-inv-group">
+          <button type="button" className="nx-nav-group-label nx-inv-toggle" aria-expanded={invOpen} aria-controls="nx-inventory" onClick={toggleInv}>
+            <span aria-hidden="true">{invOpen ? "▾" : "▸"}</span> {t("inv.title")}
+          </button>
+          {invOpen && <Explorer embedded onNavigate={() => window.dispatchEvent(new Event("nx:navigated"))} onCreateVm={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))} />}
+        </div>
+      )}
+
       <div className="nx-nav-scroll">
         <div className="nx-nav-group">
           <div className="nx-nav-group-label">{t("nav.group.infrastructure")}</div>
@@ -89,7 +101,7 @@ export default function Sidebar({ collapsed }) {
 
         <div className="nx-nav-group">
           <div className="nx-nav-group-label">{t("nav.group.management")}</div>
-          <NavItem icon="vms" label={t("nav.vms")} count={vms.length} active={selection.type === "vm"} disabled title={t("nav.comingSoon")} />
+          <NavItem icon="vms" label={t("nav.vms")} count={vms.length} active={selection.type === "vm" || onDatacenterTab("vms")} onClick={() => goto("vms")} />
           <NavItem icon="containers" label={t("nav.containers")} count={containers?.length} active={onDatacenterTab("containers")} onClick={() => goto("containers")} />
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
           <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />
