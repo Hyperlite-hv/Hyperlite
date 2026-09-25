@@ -3,12 +3,12 @@
 import PermissionsTab from "../../panels/datacenter/PermissionsTab";
 import TemplatesTab from "../../panels/datacenter/TemplatesTab";
 import AutomationTab from "../../panels/datacenter/AutomationTab";
-import NodesTab from "../../panels/datacenter/NodesTab";
-import HaTab from "../../panels/datacenter/HaTab";
+import NodesPage from "../pages/NodesPage";
+import HaPage from "../pages/HaPage";
 import NotificationsTab from "../../panels/datacenter/NotificationsTab";
 import SSOTab from "../../panels/datacenter/SSOTab";
 import ContainersPage from "../pages/ContainersPage";
-import CompatibilityTab from "../../panels/datacenter/CompatibilityTab";
+import CompatibilityPage from "../pages/CompatibilityPage";
 import NodeSummary from "../pages/NodeSummary";
 import VmList from "../pages/VmList";
 import Overview from "../pages/Overview";
@@ -36,7 +36,7 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: TemplatesTab, backups: BackupsPage,
   exports: ExportsPage, permissions: PermissionsTab, reseau: NetworkPage, automation: AutomationTab, containers: ContainersPage,
-  nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalPage,
+  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsTab, sso: SSOTab, journal: JournalPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,
