@@ -68,18 +68,24 @@ function DiskSection({ vmName, isAdmin }) {
   async function handleAttach() {
     if (!nextDev) return;
     setBusy(true);
+    let createdVolume = null;
     try {
       let volName = source;
       if (source === "__new__") {
         if (!newName.trim()) { pushToast({ kind: "error", title: "Volume name required" }); setBusy(false); return; }
         const created = await createVolume("default", newName.trim(), newSize);
         volName = created.nom;
+        createdVolume = created.nom;
       }
       await attachDisk(vmName, volName, nextDev);
       pushToast({ kind: "success", title: "Disk attached", message: `${volName} -> ${nextDev}` });
+      // A fresh default name for the next new disk (the same name would be refused).
+      setNewName(`${vmName}-disk-${Date.now().toString().slice(-5)}`);
       await reload();
     } catch (e) {
-      pushToast({ kind: "error", title: "Attach failed", message: e.message });
+      // The volume may exist without being attached: say so and list it, so it can be attached again.
+      pushToast({ kind: "error", title: "Attach failed", message: createdVolume ? `${e.message} — the volume "${createdVolume}" was created and is now listed as a free disk: select it to retry.` : e.message });
+      if (createdVolume) { setSource(createdVolume); await reload(); }
     } finally { setBusy(false); }
   }
 

@@ -209,7 +209,7 @@ export default function NotificationsTab() {
               </div>
               {!c.enabled && <span className="text-xs text-muted-foreground">disabled</span>}
               <Button variant="secondary" size="sm" onClick={() => handleTest(c)} disabled={testingId === c.id}>
-                <Send /> {testingId === c.id ? "..." : "Tester"}
+                <Send /> {testingId === c.id ? "..." : "Test"}
               </Button>
               <Button variant="secondary" size="sm" onClick={() => handleToggle(c)}>
                 <Power /> {c.enabled ? "Disable" : "Enable"}

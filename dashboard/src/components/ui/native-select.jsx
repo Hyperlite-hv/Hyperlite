@@ -1,5 +1,5 @@
 import { ChevronDownIcon } from "lucide-react"
-import { cn } from "cn"
+import { cn } from "@/lib/cn"
 
 // A REAL <select> (not shadcn's Radix-based Select in ./select.jsx): Playwright's
 // `.selectOption()`, used throughout the e2e suite, only works against a native

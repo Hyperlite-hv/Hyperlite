@@ -122,8 +122,8 @@ export default function ConsolePanel({ vmName, vmActive, initialMode = "vnc" }) 
       <div className="flex items-center gap-2">
         <Tabs value={mode} onValueChange={(v) => { cleanup(); setMode(v); }}>
           <TabsList>
-            <TabsTrigger value="vnc"><Monitor /> Graphical console (VNC)</TabsTrigger>
-            <TabsTrigger value="terminal"><TerminalSquare /> SSH terminal</TabsTrigger>
+            <TabsTrigger aria-controls={undefined} value="vnc"><Monitor /> Graphical console (VNC)</TabsTrigger>
+            <TabsTrigger aria-controls={undefined} value="terminal"><TerminalSquare /> SSH terminal</TabsTrigger>
           </TabsList>
         </Tabs>
 

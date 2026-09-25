@@ -1,5 +1,5 @@
 import LoadingState from "../../components/LoadingState";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Camera, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import ProgressBar from "../../components/ProgressBar";
@@ -33,12 +33,13 @@ export default function VMSnapshotsTab({ resource: vm }) {
   const [job, setJob] = useState(null); // { label, startedAt } while a create/restore is in progress
   const [, forceTick] = useState(0);
 
+  const vmName = vm?.nom;
   const reload = useCallback(async () => {
-    try { setSnapshots(await fetchSnapshots(vm.nom)); }
+    try { setSnapshots(await fetchSnapshots(vmName)); }
     catch (e) { pushToast({ kind: "error", title: "Snapshots error", message: e.message }); }
-  }, [vm?.nom, pushToast]);
+  }, [vmName, pushToast]);
 
-  useEffect(() => { if (vm?.nom) reload(); }, [vm?.nom, reload]);
+  useEffect(() => { if (vmName) reload(); }, [vmName, reload]);
 
   // Only refreshes the "Xs elapsed" counter while a job is running.
   useEffect(() => {
@@ -47,12 +48,17 @@ export default function VMSnapshotsTab({ resource: vm }) {
     return () => clearInterval(id);
   }, [job]);
 
+  // Bounded wait (5 minutes) that stops when the tab is left: a stuck task can no longer poll forever.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const waitTask = useCallback(async (taskId) => {
-    for (;;) {
+    for (let i = 0; i < 300; i++) {
+      if (!alive.current) return { statut: "abandonne", erreur: null };
       const t = await fetchTaskDetail(taskId);
       if (t.statut !== "en_cours") return t;
       await new Promise((r) => setTimeout(r, 1000));
     }
+    return { statut: "echec", erreur: "Still running after 5 minutes: check the Activity page for the final result." };
   }, []);
 
   if (!vm) return null;

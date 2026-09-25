@@ -6,6 +6,7 @@ import StepResources from "./steps/StepResources";
 import StepNetwork from "./steps/StepNetwork";
 import StepReview from "./steps/StepReview";
 import { useInfraStore } from "../store/useInfraStore";
+import { confirmAction } from "../store/useConfirmStore";
 import { createVM, fetchHostProfile } from "../api/client";
 import { installationFamily, isWindowsInstall } from "../utils/osFamily";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -55,6 +56,10 @@ export default function VMWizard({ open, onClose, triggerRef }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [form, setForm] = useState(() => initialForm(nodes, networks));
   const [profileDefaults, setProfileDefaults] = useState(null);
+  // Creation is not idempotent: `busy` blocks a second submit, `error` keeps the dialog (and the typed
+  // values) open with a readable message when the backend refuses.
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -96,9 +101,21 @@ export default function VMWizard({ open, onClose, triggerRef }) {
   function closeAndReset() {
     onClose();
     reset();
+    setError(null);
+  }
+
+  // Closing with typed values asks first, so a stray Escape or click never loses the draft.
+  const dirty = Boolean(form.name || form.username || form.password || form.iso || (form.importDisk && form.importDisk !== "__pending__"));
+  async function requestClose() {
+    if (busy) return;
+    if (dirty && !(await confirmAction({ title: "Discard this draft?", message: "The values you entered will be lost.", confirmLabel: "Discard" }))) return;
+    closeAndReset();
   }
 
   async function handleCreate() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
     // Same payload shape as POST /vms on the real backend (app/routers/vms.py
     // VMCreate): name, vcpu, memory_mb, disks[], network, username, password, iso.
     const payload = {
@@ -108,7 +125,7 @@ export default function VMWizard({ open, onClose, triggerRef }) {
       drivers_iso: form.iso && !form.importDisk ? form.driversIso || null : null,
       guest_os: form.guestOs,
       disk_controller: form.diskController,
-      import_disk: form.importDisk || null,
+      import_disk: form.importDisk && form.importDisk !== "__pending__" ? form.importDisk : null,
       storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? form.autoCleanupDays : null,
     };
@@ -121,6 +138,9 @@ export default function VMWizard({ open, onClose, triggerRef }) {
       reset();
     } catch (e) {
       completeTask(taskId, "echec", e.message);
+      setError(e.message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -133,12 +153,12 @@ export default function VMWizard({ open, onClose, triggerRef }) {
   // Hyperlite, so it is always required here.
   const manualInstall = Boolean(form.iso) && !installationFamily(form);
   const importMode = form.importDisk != null;
-  const canNext = stepIndex !== 2 || (form.name && (importMode ? Boolean(form.importDisk) : (manualInstall || (form.username && form.password.length >= 4))));
+  const canNext = stepIndex !== 2 || (form.name && (importMode ? Boolean(form.importDisk && form.importDisk !== "__pending__") : (manualInstall || (form.username && form.password.length >= 4))));
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) closeAndReset(); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogContent
-        className="w-full max-w-2xl p-0 gap-0 overflow-hidden"
+        className="w-full max-w-2xl sm:max-w-2xl p-0 gap-0 overflow-hidden"
         // Explicit instead of relying on Radix's implicit "last focused
         // element before mount" capture: the trigger button lives outside
         // this always-mounted Dialog, opened via a state toggle rather than
@@ -155,28 +175,34 @@ export default function VMWizard({ open, onClose, triggerRef }) {
           <DialogTitle>Create a virtual machine</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-1 px-5 pt-3">
-          {STEPS.map((s, i) => (
-            <div key={s.id} className={`flex-1 h-1 rounded-full transition-colors duration-300 ${i <= stepIndex ? "bg-accent-blue" : "bg-border"}`} />
+        <ol className="flex items-center gap-2 px-5 py-3" aria-label="Steps">
+          {STEPS.map((st, i) => (
+            <li key={st.id} className="flex flex-1 items-center gap-2" aria-current={i === stepIndex ? "step" : undefined}>
+              <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${i < stepIndex ? "bg-accent-blue text-white" : i === stepIndex ? "border-2 border-accent-blue text-foreground" : "border border-border text-muted-foreground"}`}>
+                {i < stepIndex ? <Check size={12} /> : i + 1}
+              </span>
+              <span className={`truncate text-xs ${i === stepIndex ? "font-medium text-foreground" : "hidden text-muted-foreground sm:inline"}`}>{st.label}</span>
+              {i < STEPS.length - 1 && <span className={`h-px flex-1 ${i < stepIndex ? "bg-accent-blue" : "bg-border"}`} />}
+            </li>
           ))}
-        </div>
-        <div className="flex justify-between px-5 pt-1.5 pb-3">
-          {STEPS.map((s, i) => (
-            <span key={s.id} className={`text-[11px] ${i === stepIndex ? "text-foreground font-medium" : "text-muted-foreground"}`}>{s.label}</span>
-          ))}
-        </div>
+        </ol>
 
-        <div className="max-h-[55vh] overflow-y-auto px-5 py-2">
+        <div className="max-h-[62vh] overflow-y-auto px-5 py-2">
           <Step form={form} patch={patch} nodes={nodes} networks={networks} storagePools={storagePools} />
         </div>
 
-        <DialogFooter className="border-t border-border px-5 py-3 sm:justify-between">
-          <Button variant="secondary" disabled={stepIndex === 0} onClick={() => setStepIndex((i) => i - 1)}>
+        {error && (
+          <div role="alert" className="mx-5 mb-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-sm text-status-error">
+            <strong className="font-semibold">The VM could not be created.</strong> <span className="font-mono break-words">{error}</span>
+          </div>
+        )}
+        <DialogFooter className="mx-0 mb-0 border-t border-border px-5 py-3 sm:justify-between">
+          <Button variant="secondary" disabled={stepIndex === 0 || busy} onClick={() => setStepIndex((i) => i - 1)}>
             <ChevronLeft /> Previous
           </Button>
           {isLast ? (
-            <Button onClick={handleCreate}>
-              <Check /> Create the VM
+            <Button onClick={handleCreate} disabled={busy}>
+              <Check /> {busy ? "Creating..." : "Create the VM"}
             </Button>
           ) : (
             <Button disabled={!canNext} onClick={() => setStepIndex((i) => i + 1)}>
