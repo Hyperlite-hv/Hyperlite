@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -65,6 +65,55 @@ function NavGroup({ id, label, open, forced, onToggle, children }) {
   );
 }
 
+const WIDTH_KEY = "hyperlite-next-sidebar-width";
+const MIN_W = 240, MAX_W = 480;
+const clampW = (w) => Math.min(MAX_W, Math.max(MIN_W, Math.round(w)));
+const applyWidth = (px) => document.querySelector(".nx-root")?.style.setProperty("--sidebar-width", `${px}px`);
+
+// Drag (or arrow keys) to widen the sidebar; the width is remembered. Long VM names stay readable.
+function Resizer({ label }) {
+  const [w, setW] = useState(() => { try { const n = Number(localStorage.getItem(WIDTH_KEY)); return n > 0 ? clampW(n) : null; } catch { return null; } });
+  const ref = useRef(null);
+  useEffect(() => { if (w) applyWidth(w); }, [w]);
+  const commit = (n) => { const v = clampW(n); setW(v); try { localStorage.setItem(WIDTH_KEY, String(v)); } catch { /* preference only */ } };
+  const current = () => w ?? ref.current?.parentElement?.getBoundingClientRect().width ?? 264;
+  function onPointerDown(e) {
+    e.preventDefault();
+    const startX = e.clientX, startW = current();
+    const move = (ev) => { const v = clampW(startW + ev.clientX - startX); applyWidth(v); setW(v); };
+    const up = (ev) => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); commit(startW + ev.clientX - startX); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  }
+  function onKeyDown(e) {
+    if (e.key === "ArrowLeft") { e.preventDefault(); commit(current() - 16); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); commit(current() + 16); }
+    else if (e.key === "Home") { e.preventDefault(); commit(MIN_W); }
+    else if (e.key === "End") { e.preventDefault(); commit(MAX_W); }
+    else if (e.key === "Enter" || e.key === "0") { e.preventDefault(); setW(null); try { localStorage.removeItem(WIDTH_KEY); } catch { /* preference only */ } document.querySelector(".nx-root")?.style.removeProperty("--sidebar-width"); }
+  }
+  return <div ref={ref} className="nx-resizer" role="separator" aria-orientation="vertical" aria-label={label} tabIndex={0} aria-valuemin={MIN_W} aria-valuemax={MAX_W} aria-valuenow={Math.round(w ?? 264)} onPointerDown={onPointerDown} onKeyDown={onKeyDown} />;
+}
+
+const NAV_H_KEY = "hyperlite-next-nav-height";
+// Horizontal splitter between the inventory (takes what is left) and the section navigation below it.
+function Splitter({ navRef, height, setHeight, label }) {
+  const commit = (n) => { const v = Math.max(56, Math.min(Math.round(n), Math.round((navRef.current?.parentElement?.clientHeight || 800) * 0.7))); setHeight(v); try { localStorage.setItem(NAV_H_KEY, String(v)); } catch { /* preference only */ } };
+  const cur = () => navRef.current?.getBoundingClientRect().height ?? 200;
+  function onPointerDown(e) {
+    e.preventDefault();
+    const y0 = e.clientY, h0 = cur();
+    const move = (ev) => setHeight(Math.max(56, Math.min(h0 - (ev.clientY - y0), (navRef.current?.parentElement?.clientHeight || 800) * 0.7)));
+    const up = (ev) => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); commit(h0 - (ev.clientY - y0)); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  }
+  function onKeyDown(e) {
+    if (e.key === "ArrowUp") { e.preventDefault(); commit(cur() + 24); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); commit(cur() - 24); }
+    else if (e.key === "Enter") { e.preventDefault(); setHeight(null); try { localStorage.removeItem(NAV_H_KEY); } catch { /* preference only */ } }
+  }
+  return <div className="nx-splitter" role="separator" aria-orientation="horizontal" aria-label={label} tabIndex={0} aria-valuenow={Math.round(height ?? 0)} onPointerDown={onPointerDown} onKeyDown={onKeyDown} />;
+}
+
 export default function Sidebar({ collapsed }) {
   const t = useT();
   const { selection, nodes, vms, storagePools, tasks } = useInfraStore(useShallow((s) => ({ selection: s.selection, nodes: s.nodes, vms: s.vms, storagePools: s.storagePools, tasks: s.tasks })));
@@ -82,9 +131,12 @@ export default function Sidebar({ collapsed }) {
   const [securityOpen, setSecurityOpen] = useState(false);
   const userBtn = useRef(null);
   const [groups, setGroups] = useState(readGroups);
-  // Everything is open except the rarely used entries, closed until the user opens them.
-  const groupOpen = (id) => (groups[id] ?? id !== "more");
-  const toggleGroup = (id) => setGroups((g) => { const n = { ...g, [id]: !(g[id] ?? id !== "more") }; try { localStorage.setItem(GROUPS_KEY, JSON.stringify(n)); } catch { /* preference only */ } return n; });
+  const navRef = useRef(null);
+  const [navH, setNavH] = useState(() => { try { return Number(localStorage.getItem(NAV_H_KEY)) || null; } catch { return null; } });
+  // Infrastructure and Management start open, the rest closed (the group holding the current page is always shown): the inventory keeps the height.
+  const defaultOpen = (id) => id === "infra" || id === "manage";
+  const groupOpen = (id) => groups[id] ?? defaultOpen(id);
+  const toggleGroup = (id) => setGroups((g) => { const n = { ...g, [id]: !(g[id] ?? defaultOpen(id)) }; try { localStorage.setItem(GROUPS_KEY, JSON.stringify(n)); } catch { /* preference only */ } return n; });
   const [invOpen, setInvOpen] = useState(() => { try { return localStorage.getItem("hyperlite-next-inv-open") !== "0"; } catch { return true; } });
   const toggleInv = () => setInvOpen((o) => { const n = !o; try { localStorage.setItem("hyperlite-next-inv-open", n ? "1" : "0"); } catch { /* preference only */ } return n; });
 
@@ -97,6 +149,7 @@ export default function Sidebar({ collapsed }) {
 
   return (
     <nav className={`nx-sidebar${collapsed ? " collapsed" : ""}`} aria-label={t("nav.main")}>
+      {!collapsed && <Resizer label={t("nav.resize")} />}
       <div className="nx-sidebar-brand">
         <span className="nx-brand-mark"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="16" height="16" rx="4" fill="var(--color-accent)" /><path d="M6 6v8M14 6v8M6 10h8" stroke="var(--color-text-on-accent)" strokeWidth="1.8" strokeLinecap="round" /></svg></span>
         <span className="nx-brand-text"><strong>{t("app.name")}</strong><small>{t("app.tagline")}</small></span>
@@ -111,7 +164,8 @@ export default function Sidebar({ collapsed }) {
         </div>
       )}
 
-      <div className="nx-nav-scroll">
+      {!collapsed && <Splitter navRef={navRef} height={navH} setHeight={setNavH} label={t("nav.split")} />}
+      <div className="nx-nav-scroll" ref={navRef} style={navH && !collapsed ? { height: navH, maxHeight: "70%", flex: "none" } : undefined}>
         <NavGroup id="infra" label={t("nav.group.infrastructure")} open={groupOpen("infra")} forced={onDatacenterTab("summary") || onDatacenterTab("compat") || onDatacenterTab("ha") || onDatacenterTab("nodes") || selection.type === "node"} onToggle={() => toggleGroup("infra")}>
           <NavItem icon="overview" label={t("nav.overview")} active={selection.type === "datacenter" && tab === "summary"} onClick={() => goto("summary")} />
           <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes")} onClick={() => goto("nodes")} />

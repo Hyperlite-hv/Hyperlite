@@ -27,6 +27,16 @@ const DATACENTER_PAGES: Record<string, string> = {
   compat: "Compatibility", notifications: "Notifications", sso: "SSO", journal: "Journal", vms: "Virtual machines", snapshots: "Snapshots",
 };
 
+
+// Navigation groups other than Infrastructure and Management start closed: open every group first.
+async function openNavGroups(page: Page) {
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  for (const g of ["Observability", "Administration", "More"]) {
+    const b = nav.getByRole("button", { name: g, exact: true });
+    if ((await b.count()) && (await b.getAttribute("aria-expanded")) === "false") await b.click();
+  }
+}
+
 test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
   test("shows the main landmarks, the sidebar navigation and the hierarchical inventory", async ({ page, problems }) => {
     await nextLogin(page);
@@ -42,12 +52,37 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
   test("the sidebar reaches every Datacenter page and marks the current one", async ({ page }) => {
     await nextLogin(page);
     const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await openNavGroups(page);
     for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users & Roles", "permissions", "Permissions"], ["Overview", "summary", "Overview"]] as const) {
       await nav.getByRole("button", { name: item }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
       if (tab !== "summary") await expect(page).toHaveURL(new RegExp(`tab=${tab}`));
       await expect(nav.getByRole("button", { name: item })).toHaveAttribute("aria-current", "page");
     }
+  });
+
+  test("the sidebar can be widened and its navigation area resized; both are remembered and can be reset", async ({ page }) => {
+    await nextLogin(page);
+    const side = page.getByRole("navigation", { name: "Main navigation" });
+    const width = async () => Math.round((await side.boundingBox())!.width);
+    await page.waitForTimeout(500); // the column width is animated
+    const w0 = await width();
+    const handle = page.getByRole("separator", { name: /Resize the sidebar/ });
+    await handle.focus();
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowRight");
+    await expect.poll(width).toBeGreaterThan(w0 + 40);
+    const split = page.getByRole("separator", { name: /Resize the navigation area/ });
+    const navBox = page.locator(".nx-nav-scroll");
+    const h0 = Math.round((await navBox.boundingBox())!.height);
+    await split.focus();
+    for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowUp");
+    expect(Math.round((await navBox.boundingBox())!.height)).toBeGreaterThan(h0 + 30);
+    await page.reload();
+    await expect(page.locator(".nx-root")).toBeVisible();
+    await expect.poll(width).toBeGreaterThan(w0 + 40); // remembered
+    await page.getByRole("separator", { name: /Resize the sidebar/ }).focus();
+    await page.keyboard.press("Enter"); // reset
+    await expect.poll(width).toBe(w0);
   });
 
   test("arrow keys, Home/End, Right/Left and Enter work in the tree (single tab stop)", async ({ page }) => {
@@ -263,6 +298,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(panel.getByText("No tasks yet.")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
+    await openNavGroups(page);
     await page.getByRole("button", { name: /^Alerts/ }).first().click();
     await expect(panel.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
     await panel.getByRole("button", { name: "Close activity panel" }).click();
