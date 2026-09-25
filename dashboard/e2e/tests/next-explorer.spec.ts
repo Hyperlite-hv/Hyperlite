@@ -239,11 +239,19 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
-  test("the task dock starts collapsed and opens on demand", async ({ page }) => {
+  test("the activity panel is closed by default, opens from the top bar and closes with Escape", async ({ page }) => {
     await nextLogin(page);
-    await expect(page.getByRole("button", { name: "Expand tasks panel" })).toBeVisible();
-    await page.getByRole("button", { name: "Expand tasks panel" }).click();
-    await expect(page.locator(".nx-dock").getByText("No tasks yet.")).toBeVisible();
+    const panel = page.getByRole("complementary", { name: "Activity" });
+    await expect(panel).toBeHidden();
+    await page.getByRole("button", { name: /^Tasks/ }).click();
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("No tasks yet.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await page.getByRole("button", { name: /^Alerts/ }).first().click();
+    await expect(panel.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
+    await panel.getByRole("button", { name: "Close activity panel" }).click();
+    await expect(panel).toBeHidden();
   });
 
   test("on a tablet the sidebar (with the inventory) opens as a drawer", async ({ page }) => {
