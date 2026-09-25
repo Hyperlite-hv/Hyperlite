@@ -13,11 +13,12 @@ import SSOTab from "../../panels/datacenter/SSOTab";
 import ContainersTab from "../../panels/datacenter/ContainersTab";
 import JournalTab from "../../panels/datacenter/JournalTab";
 import ExportsTab from "../../panels/datacenter/ExportsTab";
-import ActivityTab from "../../panels/datacenter/ActivityTab";
 import CompatibilityTab from "../../panels/datacenter/CompatibilityTab";
 import NodeSummary from "../pages/NodeSummary";
 import VmList from "../pages/VmList";
 import Overview from "../pages/Overview";
+import ActivityPage from "../pages/ActivityPage";
+import SnapshotsPage from "../pages/SnapshotsPage";
 import VmSummary from "../pages/VmSummary";
 import NodeSystemTab from "../../panels/node/NodeSystemTab";
 import NodeNetworkTab from "../../panels/node/NodeNetworkTab";
@@ -33,7 +34,7 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
-  summary: Overview, vms: VmList, activity: ActivityTab, storage: DcStorageTab, templates: TemplatesTab, backups: BackupsTab,
+  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: DcStorageTab, templates: TemplatesTab, backups: BackupsTab,
   exports: ExportsTab, permissions: PermissionsTab, reseau: NetworkOverviewTab, automation: AutomationTab, containers: ContainersTab,
   nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalTab,
 };
@@ -62,6 +63,7 @@ export const OBJECT_TABS = {
     { id: "permissions", label: "tab.permissions", pages: [page("permissions", "group.access", "tab.permissions.page"), page("sso")] },
     { id: "containers", label: "tab.containers", pages: [page("containers")] },
     { id: "vms", label: "tab.vms", pages: [page("vms")] },
+    { id: "snapshots", label: "tab.snapshots", pages: [page("snapshots")] },
   ],
   node: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
