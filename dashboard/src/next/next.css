@@ -534,3 +534,4 @@ select.nx-input { height: 2rem; }
 .nx-chip button:hover { color: var(--color-danger); }
 .nx-checks { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); }
 .nx-form--inline { margin-bottom: var(--space-3); }
+.nx-hint--error { color: var(--color-danger); font-weight: 500; }

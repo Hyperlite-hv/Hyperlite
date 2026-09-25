@@ -5,8 +5,8 @@ import TemplatesTab from "../../panels/datacenter/TemplatesTab";
 import AutomationTab from "../../panels/datacenter/AutomationTab";
 import NodesPage from "../pages/NodesPage";
 import HaPage from "../pages/HaPage";
-import NotificationsTab from "../../panels/datacenter/NotificationsTab";
-import SSOTab from "../../panels/datacenter/SSOTab";
+import NotificationsPage from "../pages/NotificationsPage";
+import SsoPage from "../pages/SsoPage";
 import ContainersPage from "../pages/ContainersPage";
 import CompatibilityPage from "../pages/CompatibilityPage";
 import NodeSummary from "../pages/NodeSummary";
@@ -36,7 +36,7 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: TemplatesTab, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationTab, containers: ContainersPage,
-  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsTab, sso: SSOTab, journal: JournalPage,
+  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,
