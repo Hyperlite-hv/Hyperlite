@@ -1,6 +1,5 @@
 // Bridge to the screens that are not rebuilt yet: the same panel components, rendered inside the new
 // workspace. Each domain replaces its entries here as it is migrated (see docs/frontend-rebuild/07).
-import BackupsTab from "../../panels/datacenter/BackupsTab";
 import PermissionsTab from "../../panels/datacenter/PermissionsTab";
 import TemplatesTab from "../../panels/datacenter/TemplatesTab";
 import AutomationTab from "../../panels/datacenter/AutomationTab";
@@ -9,8 +8,6 @@ import HaTab from "../../panels/datacenter/HaTab";
 import NotificationsTab from "../../panels/datacenter/NotificationsTab";
 import SSOTab from "../../panels/datacenter/SSOTab";
 import ContainersTab from "../../panels/datacenter/ContainersTab";
-import JournalTab from "../../panels/datacenter/JournalTab";
-import ExportsTab from "../../panels/datacenter/ExportsTab";
 import CompatibilityTab from "../../panels/datacenter/CompatibilityTab";
 import NodeSummary from "../pages/NodeSummary";
 import VmList from "../pages/VmList";
@@ -18,6 +15,9 @@ import Overview from "../pages/Overview";
 import ActivityPage from "../pages/ActivityPage";
 import StoragePage from "../pages/StoragePage";
 import NetworkPage from "../pages/NetworkPage";
+import JournalPage from "../pages/JournalPage";
+import BackupsPage from "../pages/BackupsPage";
+import ExportsPage from "../pages/ExportsPage";
 import SnapshotsPage from "../pages/SnapshotsPage";
 import VmSummary from "../pages/VmSummary";
 import NodeSystemTab from "../../panels/node/NodeSystemTab";
@@ -34,9 +34,9 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
-  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: TemplatesTab, backups: BackupsTab,
-  exports: ExportsTab, permissions: PermissionsTab, reseau: NetworkPage, automation: AutomationTab, containers: ContainersTab,
-  nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalTab,
+  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: TemplatesTab, backups: BackupsPage,
+  exports: ExportsPage, permissions: PermissionsTab, reseau: NetworkPage, automation: AutomationTab, containers: ContainersTab,
+  nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,

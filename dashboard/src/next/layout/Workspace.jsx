@@ -6,6 +6,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
 import StatusIndicator from "../components/StatusIndicator";
 import { EmptyState } from "../components/States";
+import PermissionNotice from "../components/PermissionNotice";
 import { DATACENTER_TABS, NODE_TABS, VM_TABS, locate } from "../legacy/tabs";
 import Menu, { MenuItem } from "../components/Menu";
 import { selectionToPath, withTab } from "../lib/urls";
@@ -61,6 +62,9 @@ const OBJ_ICON = {
   node: <g fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="14" height="5.5" rx="1" /><rect x="3" y="11.5" width="14" height="5.5" rx="1" /><path d="M6 5.8h.01M6 14.2h.01" strokeLinecap="round" /></g>,
   vm: <g fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2.5" y="3.5" width="15" height="10" rx="1.2" /><path d="M7 17h6M10 13.5V17" strokeLinecap="round" /></g>,
 };
+
+// Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
+const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports"]);
 
 export default function Workspace({ children }) {
   const t = useT();
@@ -183,6 +187,8 @@ export default function Workspace({ children }) {
             <EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>} />
           ) : selection.type === "storage" ? (
             <div className="nx-legacy"><p>{t("res.storagePlaceholder")}</p></div>
+          ) : isDc && ADMIN_ONLY.has(tab) && !caps.admin ? (
+            <PermissionNotice requires={t("top.role.admin")} />
           ) : loading ? null : Active ? (
             <>
               {useSubnav && <h2 className="nx-pagetitle">{t(top.pages.find((x) => x.page === tab)?.label || `tab.${tab}`)}</h2>}
