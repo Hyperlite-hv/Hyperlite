@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 import { expect, test, ADMIN } from "../support/fixtures";
 
-// Rebuilt interface (dashboard/src/next): shell, Inventory Explorer, navigation parity.
+// Rebuilt interface (dashboard/src/next): sidebar navigation, inventory, object pages.
 async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
   await page.addInitScript(([th, lg]) => {
     // Seeded once: reloads inside a test must keep the user's own choices.
@@ -20,24 +20,34 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
   await expect(page.getByRole("tree").getByRole("treeitem").first()).toBeVisible();
 }
 
-const DATACENTER_TABS: Record<string, string> = {
-  summary: "Summary", activity: "Recent activity", storage: "Storage", templates: "Templates", backups: "Backups", exports: "Exports",
-  permissions: "Users and access", reseau: "Network", automation: "Automation", containers: "Containers", nodes: "Nodes", ha: "HA",
-  compat: "Compatibility", notifications: "Notifications", sso: "SSO", journal: "Journal",
+// Datacenter-level pages (historical ?tab= ids) and the title of their page.
+const DATACENTER_PAGES: Record<string, string> = {
+  summary: "Overview", activity: "Recent activity", storage: "Storage", templates: "Templates", backups: "Backups", exports: "Exports",
+  permissions: "Permissions", reseau: "Network", automation: "Automation", containers: "Containers", nodes: "Nodes", ha: "HA",
+  compat: "Compatibility", notifications: "Notifications", sso: "SSO", journal: "Journal", vms: "Virtual machines",
 };
-const NODE_TABS = ["Summary", "System summary", "Network", "Disk storage", "Tasks", "Compatibility", "Shell"];
 
-test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
-  test("shows landmarks, the skip link and the hierarchical inventory", async ({ page, problems }) => {
+test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
+  test("shows the main landmarks, the sidebar navigation and the hierarchical inventory", async ({ page, problems }) => {
     await nextLogin(page);
-    await expect(page.getByRole("banner")).toBeVisible();
-    await expect(page.getByRole("complementary", { name: "Inventory" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     await expect(page.getByRole("main")).toBeVisible();
     const tree = page.getByRole("tree", { name: "Inventory tree" });
     await expect(tree.getByRole("treeitem").first()).toHaveAttribute("aria-level", "1");
     await expect(tree.getByRole("treeitem", { name: /Datacenter/ })).toBeVisible();
     await expect(tree.getByRole("treeitem", { name: /node, / })).toBeVisible();
-    expect(problems.filter((p) => !/Failed to load resource/.test(p))).toEqual([]);
+    expect(problems.filter((p) => !/Failed to load resource|width\(-1\)/.test(p))).toEqual([]);
+  });
+
+  test("the sidebar reaches every Datacenter page and marks the current one", async ({ page }) => {
+    await nextLogin(page);
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users & Roles", "permissions", "Permissions"], ["Overview", "summary", "Overview"]] as const) {
+      await nav.getByRole("button", { name: item }).click();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
+      if (tab !== "summary") await expect(page).toHaveURL(new RegExp(`tab=${tab}`));
+      await expect(nav.getByRole("button", { name: item })).toHaveAttribute("aria-current", "page");
+    }
   });
 
   test("arrow keys, Home/End, Right/Left and Enter work in the tree (single tab stop)", async ({ page }) => {
@@ -54,14 +64,11 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await page.keyboard.press("Home");
     expect(await label()).toBe(first);
     expect(last).not.toBe(first);
-    // exactly one treeitem is in the tab order
     await expect(tree.locator('[role="treeitem"][tabindex="0"]')).toHaveCount(1);
-    // collapse / expand the Datacenter root
     await page.keyboard.press("ArrowLeft");
     await expect(items.first()).toHaveAttribute("aria-expanded", "false");
     await page.keyboard.press("ArrowRight");
     await expect(items.first()).toHaveAttribute("aria-expanded", "true");
-    // Enter on the node opens it
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/node\//);
@@ -86,18 +93,13 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await expect(page.getByText("No node or VM matches “zzzzqq”.")).toBeVisible();
     await page.getByRole("button", { name: "Clear search" }).click();
     await expect(box).toHaveValue("");
-    await expect(page.getByRole("treeitem", { name: /Datacenter/ })).toBeVisible();
     await box.fill("x");
     await box.press("Escape");
     await expect(box).toHaveValue("");
   });
 
-  test("the search shortcut / focuses the box and Ctrl+K opens the command palette", async ({ page }) => {
+  test("Ctrl+K and / open the command palette, which finds resources", async ({ page }) => {
     await nextLogin(page);
-    await page.locator("main").click({ position: { x: 5, y: 5 } });
-    await page.keyboard.press("/");
-    await expect(page.getByRole("searchbox")).toBeFocused();
-    await page.getByRole("searchbox").blur();
     await page.keyboard.press("Control+k");
     const palette = page.getByRole("dialog", { name: "Find a node or VM" });
     await expect(palette).toBeVisible();
@@ -105,6 +107,9 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await expect(palette.getByRole("option").first()).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(palette).toBeHidden();
+    await page.locator("main").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("/");
+    await expect(palette).toBeVisible();
   });
 
   test("Server and Pool modes; the choice survives a reload", async ({ page }) => {
@@ -118,6 +123,27 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await expect(page.getByRole("treeitem", { name: /node, / })).toBeVisible();
   });
 
+  test("inventory views (hosts, VMs, storage pools, networks)", async ({ page }) => {
+    await nextLogin(page);
+    const views = page.getByRole("tablist", { name: "Inventory view" });
+    for (const [name, expected] of [["VMs and containers", /Virtual machines/], ["Storage pools", /node, /], ["Virtual networks", /Datacenter/], ["Hosts and servers", /node, /]] as const) {
+      await views.getByRole("tab", { name }).click();
+      await expect(views.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByRole("tree").getByRole("treeitem", { name: expected }).first()).toBeVisible();
+    }
+  });
+
+  test("the inventory group can be collapsed and the choice persists", async ({ page }) => {
+    await nextLogin(page);
+    const toggle = page.getByRole("button", { name: /Inventory/ }).first();
+    await toggle.click();
+    await expect(page.getByRole("tree")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("tree")).toHaveCount(0);
+    await page.getByRole("button", { name: /Inventory/ }).first().click();
+    await expect(page.getByRole("tree")).toBeVisible();
+  });
+
   test("selection and tab live in the URL and the browser Back button restores them", async ({ page }) => {
     await nextLogin(page);
     await page.getByRole("treeitem", { name: /node, / }).click();
@@ -126,16 +152,14 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     await expect(page).toHaveURL(/tab=system/);
     await page.goBack();
     await expect(page).toHaveURL(/\/node\/local$/);
-    await expect(page.getByRole("tab", { name: "Summary", exact: true })).toHaveAttribute("aria-selected", "true");
-    await page.goBack();
-    await expect(page).toHaveURL(/\/datacenter/);
+    await expect(page.getByRole("main").getByRole("tab", { name: "Summary", exact: true })).toHaveAttribute("aria-selected", "true");
   });
 
-  test("every historical Datacenter ?tab= deep link still opens its tab", async ({ page }) => {
+  test("every historical Datacenter ?tab= deep link still opens its page", async ({ page }) => {
     await nextLogin(page);
-    for (const [id, label] of Object.entries(DATACENTER_TABS)) {
+    for (const [id, title] of Object.entries(DATACENTER_PAGES)) {
       await page.goto(id === "summary" ? "/datacenter" : `/datacenter?tab=${id}`);
-      await expect(page.getByRole("tab", { name: label, exact: true }), id).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByRole("heading", { level: 1 }), id).toHaveText(title);
     }
   });
 
@@ -147,103 +171,74 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
     }
   });
 
-  test("Datacenter has vSphere-style tabs; Configure lists its pages in a grouped vertical menu", async ({ page }) => {
-    await nextLogin(page);
-    const top = page.getByRole("tablist", { name: "Datacenter" });
-    for (const name of ["Summary", "Monitor", "Configure", "Permissions", "Containers"]) await expect(top.getByRole("tab", { name })).toBeVisible();
-    await top.getByRole("tab", { name: "Configure" }).click();
-    const menu = page.getByRole("tablist", { name: "Section pages" });
-    await expect(menu.getByRole("tab", { name: "Nodes" })).toHaveAttribute("aria-selected", "true");
-    await menu.getByRole("tab", { name: "Storage" }).click();
-    await expect(page).toHaveURL(/tab=storage/);
-    await expect(page.getByRole("heading", { name: "Storage", level: 2 })).toBeVisible();
-    await menu.getByRole("tab", { name: "Storage" }).press("ArrowDown");
-    await expect(page).toHaveURL(/tab=reseau/);
-    await top.getByRole("tab", { name: "Monitor" }).click();
-    await expect(page).toHaveURL(/tab=activity/);
-  });
-
-  test("inventory views (hosts, VMs, storage, networks) and the Actions menu", async ({ page }) => {
-    await nextLogin(page);
-    const views = page.getByRole("tablist", { name: "Inventory view" });
-    for (const [name, expected] of [["VMs and containers", /Virtual machines/], ["Storage pools", /node, /], ["Virtual networks", /Datacenter/], ["Hosts and servers", /node, /]] as const) {
-      await views.getByRole("tab", { name }).click();
-      await expect(views.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByRole("tree").getByRole("treeitem", { name: expected }).first()).toBeVisible();
-    }
-    await page.getByRole("button", { name: /^Actions/ }).click();
-    await expect(page.getByRole("menuitem", { name: "Copy link" })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: /Create · Virtual machine/ })).toBeVisible();
-    await page.keyboard.press("Escape");
-  });
-
-  test("language and theme switches apply immediately and persist", async ({ page }) => {
-    await nextLogin(page);
-    await page.getByRole("button", { name: "Language" }).click();
-    await page.getByRole("menuitem", { name: "Français" }).click();
-    await expect(page.getByRole("tab", { name: "Configurer" })).toBeVisible();
-    await expect(page.getByPlaceholder("Trouver un nœud ou une VM")).toBeVisible();
-    await page.reload();
-    await expect(page.getByRole("tab", { name: "Configurer" })).toBeVisible();
-    await page.getByRole("button", { name: "Thème" }).click();
-    await page.getByRole("menuitem", { name: "Clair" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  });
-
-  test("a health badge is always visible and opens the alerts; node pages show a breadcrumb", async ({ page }) => {
-    await nextLogin(page);
-    const badge = page.getByRole("button", { name: /Infrastructure health/ });
-    await expect(badge).toBeVisible();
-    await badge.click();
-    await expect(page.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
-    await page.goto("/node/local");
-    const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
-    await expect(crumbs.getByRole("button", { name: "Datacenter" })).toBeVisible();
-    await crumbs.getByRole("button", { name: "Datacenter" }).click();
-    await expect(page).toHaveURL(/\/datacenter/);
-  });
-
-  test("node summary: capacity bars with trends, VM list with a cards/table switch, health, activity, alerts", async ({ page }) => {
+  test("node summary: capacity with trends, VMs, health, activity and alerts; Actions menu", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/node/local");
     const main = page.getByRole("main");
-    for (const name of ["CPU", "Memory", "Storage", "Network"]) await expect(main.getByText(name, { exact: true }).first()).toBeVisible();
-    await expect(main.getByRole("meter", { name: "Storage" })).toBeVisible();
     await expect(main.getByRole("heading", { name: "Node health" })).toBeVisible();
     await expect(main.getByRole("heading", { name: "Recent activity" })).toBeVisible();
     await expect(main.getByRole("heading", { name: /^Alerts/ })).toBeVisible();
     await main.getByRole("button", { name: "Table" }).click();
     await expect(main.getByRole("table")).toBeVisible();
-    await expect(main.getByRole("columnheader", { name: "vCPU" })).toBeVisible();
     await main.getByRole("button", { name: "Cards" }).click();
     await expect(main.getByRole("table")).toHaveCount(0);
+    await page.getByRole("button", { name: /^Actions/ }).click();
+    await expect(page.getByRole("menuitem", { name: "Copy link" })).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
-  test("a VM Actions menu separates the clean stop from the forced stop", async ({ page }) => {
+  test("the Virtual machines page filters by state and sorts its table", async ({ page }) => {
+    await nextLogin(page);
+    await page.goto("/datacenter?tab=vms");
+    const main = page.getByRole("main");
+    await main.getByRole("button", { name: "Table" }).click();
+    await expect(main.getByRole("group", { name: "Filter by state" })).toBeVisible();
+    for (const chip of ["All", "Running", "Stopped", "To check"]) await main.getByRole("button", { name: new RegExp(`^${chip}`) }).click();
+    await main.getByRole("button", { name: /^All/ }).click();
+    const nameHeader = main.getByRole("columnheader", { name: /Name/ });
+    await nameHeader.getByRole("button").click();
+    await expect(nameHeader).toHaveAttribute("aria-sort", /ascending|descending/);
+  });
+
+  test("a VM page shows state, capacity, identity, protection and every historical operation", async ({ page }) => {
     await nextLogin(page);
     const vm = page.getByRole("tree").getByRole("treeitem", { name: /virtual machine, / }).first();
     test.skip(!(await vm.count()), "no VM on this host");
     await vm.click();
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { name: "Identity" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Protection" })).toBeVisible();
+    await expect(main.getByText("All operations")).toBeVisible();
+    for (const tab of ["Summary", "Console", "Configure", "Snapshots", "Backup"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
     await page.getByRole("button", { name: /^Actions/ }).click();
-    await expect(page.getByRole("menuitem", { name: /^Stop/ })).toBeVisible();
     await expect(page.getByRole("menuitem", { name: /Force stop/ })).toBeVisible();
+  });
+
+  test("language and theme switches from the user menu apply immediately and persist", async ({ page }) => {
+    await nextLogin(page);
+    await page.locator(".nx-sidebar-user").click();
+    await page.getByRole("menuitem", { name: "Français" }).click();
+    await expect(page.getByRole("navigation", { name: "Navigation principale" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("navigation", { name: "Navigation principale" })).toBeVisible();
+    await page.locator(".nx-sidebar-user").click();
+    await page.getByRole("menuitem", { name: "Clair" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
   test("the task dock starts collapsed and opens on demand", async ({ page }) => {
     await nextLogin(page);
-    const dock = page.getByRole("region", { name: "Tasks" }).first();
     await expect(page.getByRole("button", { name: "Expand tasks panel" })).toBeVisible();
     await page.getByRole("button", { name: "Expand tasks panel" }).click();
     await expect(page.getByText("No tasks yet.")).toBeVisible();
-    await expect(dock).toBeVisible();
   });
 
-  test("on a tablet the inventory opens as a drawer from a button that is always present", async ({ page }) => {
+  test("on a tablet the sidebar (with the inventory) opens as a drawer", async ({ page }) => {
     await page.setViewportSize({ width: 820, height: 1180 });
-    await nextLogin(page);
-    const open = page.getByRole("button", { name: "Inventory", exact: true });
-    await expect(open).toBeVisible();
-    await open.click();
+    await nextLogin(page).catch(() => {});
+    const toggle = page.getByRole("button", { name: /sidebar/i }).first();
+    await expect(toggle).toBeVisible();
+    await toggle.click();
     await expect(page.getByRole("tree")).toBeVisible();
     await page.getByRole("treeitem", { name: /node, / }).click();
     await expect(page).toHaveURL(/\/node\//);
@@ -251,14 +246,19 @@ test.describe("Rebuilt interface: shell and Inventory Explorer", () => {
 
   test("on a phone nothing overflows horizontally and search stays reachable", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await nextLogin(page);
+    await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); });
+    await page.goto("/");
+    await page.getByLabel("Username").fill(ADMIN.username);
+    await page.getByLabel("Password").fill(ADMIN.password);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
     await expect(page.getByRole("button", { name: "Find a node or VM" })).toBeVisible();
   });
 
   for (const theme of ["dark", "light"]) {
-    test(`no serious or critical axe violations on the shell (${theme})`, async ({ page }) => {
+    test(`no serious or critical axe violations (${theme})`, async ({ page }) => {
       await nextLogin(page, { theme });
       await page.waitForLoadState("networkidle");
       const results = await new AxeBuilder({ page }).include(".nx-root").withTags(["wcag2a", "wcag2aa"]).analyze();

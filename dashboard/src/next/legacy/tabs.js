@@ -17,13 +17,14 @@ import ExportsTab from "../../panels/datacenter/ExportsTab";
 import ActivityTab from "../../panels/datacenter/ActivityTab";
 import CompatibilityTab from "../../panels/datacenter/CompatibilityTab";
 import NodeSummary from "../pages/NodeSummary";
+import VmList from "../pages/VmList";
+import VmSummary from "../pages/VmSummary";
 import NodeSystemTab from "../../panels/node/NodeSystemTab";
 import NodeNetworkTab from "../../panels/node/NodeNetworkTab";
 import NodeDiskTab from "../../panels/node/NodeDiskTab";
 import NodeTasksTab from "../../panels/node/NodeTasksTab";
 import NodeShellTab from "../../panels/node/NodeShellTab";
 import NodeCompatibilityTab from "../../panels/node/NodeCompatibilityTab";
-import VMSummaryTab from "../../panels/vm/VMSummaryTab";
 import VMConsoleTab from "../../panels/vm/VMConsoleTab";
 import VMHardwareTab from "../../panels/vm/VMHardwareTab";
 import VMOptionsTab from "../../panels/vm/VMOptionsTab";
@@ -32,7 +33,7 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
-  summary: DatacenterSummaryTab, activity: ActivityTab, storage: DcStorageTab, templates: TemplatesTab, backups: BackupsTab,
+  summary: DatacenterSummaryTab, vms: VmList, activity: ActivityTab, storage: DcStorageTab, templates: TemplatesTab, backups: BackupsTab,
   exports: ExportsTab, permissions: PermissionsTab, reseau: NetworkOverviewTab, automation: AutomationTab, containers: ContainersTab,
   nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalTab,
 };
@@ -40,7 +41,7 @@ export const NODE_TABS = {
   summary: NodeSummary, system: NodeSystemTab, network: NodeNetworkTab, disk: NodeDiskTab, tasks: NodeTasksTab, compat: NodeCompatibilityTab, shell: NodeShellTab,
 };
 export const VM_TABS = {
-  summary: VMSummaryTab, console: VMConsoleTab, hardware: VMHardwareTab, options: VMOptionsTab, backup: VMBackupTab, snapshots: VMSnapshotsTab,
+  summary: VmSummary, console: VMConsoleTab, hardware: VMHardwareTab, options: VMOptionsTab, backup: VMBackupTab, snapshots: VMSnapshotsTab,
 };
 
 
@@ -60,6 +61,7 @@ export const OBJECT_TABS = {
     ] },
     { id: "permissions", label: "tab.permissions", pages: [page("permissions", "group.access", "tab.permissions.page"), page("sso")] },
     { id: "containers", label: "tab.containers", pages: [page("containers")] },
+    { id: "vms", label: "tab.vms", pages: [page("vms")] },
   ],
   node: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },

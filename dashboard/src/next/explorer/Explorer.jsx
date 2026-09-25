@@ -25,7 +25,7 @@ function selectionMatches(row, sel) {
   return !!row.selection && row.selection.type === sel.type && (row.selection.id ?? null) === (sel.id ?? null);
 }
 
-export default function Explorer({ open, onNavigate, onCreateVm }) {
+export default function Explorer({ open, onNavigate, onCreateVm, embedded = false }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const { nodes, vms, storagePools, networks, loading, error, selection } = useInfraStore(useShallow((s) => ({
@@ -98,7 +98,7 @@ export default function Explorer({ open, onNavigate, onCreateVm }) {
   const nothingLoaded = loading && nodes.length === 0;
 
   return (
-    <aside id="nx-inventory" className="nx-inv" data-open={open ? "true" : "false"} aria-label={t("inv.title")}>
+    <aside id="nx-inventory" className={`nx-inv${embedded ? " nx-inv--embedded" : ""}`} data-open={open ? "true" : "false"} aria-label={t("inv.title")}>
       <div className="nx-persp" role="tablist" aria-label={t("inv.persp")}>
         {PERSPECTIVES.map(([id, icon]) => (
           <button key={id} type="button" role="tab" aria-selected={perspective === id} aria-label={t(`inv.persp.${id}`)} title={t(`inv.persp.${id}`)} onClick={() => setPerspective(id)}>
