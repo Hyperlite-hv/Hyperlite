@@ -11,6 +11,7 @@ import Menu, { MenuItem } from "../components/Menu";
 import Explorer from "../explorer/Explorer";
 import UpdateModal from "../../components/UpdateModal";
 import AccountSecurityModal from "../../components/AccountSecurityModal";
+import EnclaveMark from "../../components/EnclaveMark";
 
 function Icon({ d, size = 17 }) {
   return <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d={d} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
@@ -151,7 +152,7 @@ export default function Sidebar({ collapsed }) {
     <nav className={`nx-sidebar${collapsed ? " collapsed" : ""}`} aria-label={t("nav.main")}>
       {!collapsed && <Resizer label={t("nav.resize")} />}
       <div className="nx-sidebar-brand">
-        <span className="nx-brand-mark"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="16" height="16" rx="4" fill="var(--color-accent)" /><path d="M6 6v8M14 6v8M6 10h8" stroke="var(--color-text-on-accent)" strokeWidth="1.8" strokeLinecap="round" /></svg></span>
+        <span className="nx-brand-mark"><EnclaveMark size={24} rails="var(--color-text-primary)" core="var(--color-accent)" /></span>
         <span className="nx-brand-text"><strong>{t("app.name")}</strong><small>{t("app.tagline")}</small></span>
       </div>
 
