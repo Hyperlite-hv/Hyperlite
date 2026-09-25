@@ -485,3 +485,16 @@
 /* Wide tables scroll inside their card instead of stretching the page (grid items default to min-width:auto). */
 .nx-ns { grid-template-columns: minmax(0, 1fr); }
 .nx-ns > *, .nx-cols > * { min-width: 0; }
+
+/* ---------- Forms inside cards ---------- */
+.nx-form { display: grid; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); background: var(--color-bg-workspace); }
+.nx-form label { display: grid; gap: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.nx-formgrid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.nx-formgrid--3 { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+.nx-formactions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.nx-hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nx-seg--wide { display: flex; } .nx-seg--wide button { flex: 1; padding: var(--space-2) var(--space-3); }
+.nx-input[aria-invalid="true"] { border-color: var(--color-danger); }
+.nx-list--vols li { grid-template-columns: minmax(0, 1fr) auto auto; }
+.nx-btn--danger:hover:not(:disabled) { background: var(--color-danger-subtle); }
+select.nx-input { height: 2rem; }

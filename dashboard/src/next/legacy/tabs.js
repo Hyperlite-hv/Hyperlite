@@ -1,10 +1,8 @@
 // Bridge to the screens that are not rebuilt yet: the same panel components, rendered inside the new
 // workspace. Each domain replaces its entries here as it is migrated (see docs/frontend-rebuild/07).
-import DcStorageTab from "../../panels/datacenter/StorageTab";
 import BackupsTab from "../../panels/datacenter/BackupsTab";
 import PermissionsTab from "../../panels/datacenter/PermissionsTab";
 import TemplatesTab from "../../panels/datacenter/TemplatesTab";
-import NetworkOverviewTab from "../../panels/datacenter/NetworkOverviewTab";
 import AutomationTab from "../../panels/datacenter/AutomationTab";
 import NodesTab from "../../panels/datacenter/NodesTab";
 import HaTab from "../../panels/datacenter/HaTab";
@@ -18,6 +16,8 @@ import NodeSummary from "../pages/NodeSummary";
 import VmList from "../pages/VmList";
 import Overview from "../pages/Overview";
 import ActivityPage from "../pages/ActivityPage";
+import StoragePage from "../pages/StoragePage";
+import NetworkPage from "../pages/NetworkPage";
 import SnapshotsPage from "../pages/SnapshotsPage";
 import VmSummary from "../pages/VmSummary";
 import NodeSystemTab from "../../panels/node/NodeSystemTab";
@@ -34,8 +34,8 @@ import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
-  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: DcStorageTab, templates: TemplatesTab, backups: BackupsTab,
-  exports: ExportsTab, permissions: PermissionsTab, reseau: NetworkOverviewTab, automation: AutomationTab, containers: ContainersTab,
+  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: TemplatesTab, backups: BackupsTab,
+  exports: ExportsTab, permissions: PermissionsTab, reseau: NetworkPage, automation: AutomationTab, containers: ContainersTab,
   nodes: NodesTab, ha: HaTab, compat: CompatibilityTab, notifications: NotificationsTab, sso: SSOTab, journal: JournalTab,
 };
 export const NODE_TABS = {
