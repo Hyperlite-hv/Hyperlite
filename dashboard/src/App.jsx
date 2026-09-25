@@ -58,14 +58,20 @@ function MainApp() {
 function readNextUi() {
   const params = new URLSearchParams(window.location.search);
   const asked = params.get("ui");
+  const nextDefault = import.meta.env.VITE_DEFAULT_UI === "next";
   if (asked === "next" || asked === "legacy") {
-    try { localStorage.setItem("hyperlite-ui", asked); } catch { /* storage unavailable: applies to this load only */ }
+    // In a build whose default is the rebuilt interface, ?ui=legacy applies to this load only, so a
+    // stored "legacy" choice can never trap the user in the old screens.
+    if (!(nextDefault && asked === "legacy")) {
+      try { localStorage.setItem("hyperlite-ui", asked); } catch { /* storage unavailable: applies to this load only */ }
+    } else {
+      try { localStorage.removeItem("hyperlite-ui"); } catch { /* storage unavailable */ }
+    }
     params.delete("ui");
     const qs = params.toString();
     window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
     return asked === "next";
   }
-  // VITE_DEFAULT_UI=next makes the rebuilt interface the default of a build (preview deployments).
-  const fallback = import.meta.env.VITE_DEFAULT_UI === "next" ? "next" : "legacy";
-  try { return (localStorage.getItem("hyperlite-ui") || fallback) === "next"; } catch { return fallback === "next"; }
+  if (nextDefault) return true;
+  try { return localStorage.getItem("hyperlite-ui") === "next"; } catch { return false; }
 }

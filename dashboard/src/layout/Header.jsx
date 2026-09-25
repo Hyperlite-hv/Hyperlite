@@ -160,6 +160,9 @@ export default function Header() {
               <ShieldIcon /> Account security
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem role="button" onClick={() => { try { localStorage.setItem("hyperlite-ui", "next"); } catch { /* storage unavailable */ } window.location.reload(); }}>
+              <RefreshCw /> Try the new interface
+            </DropdownMenuItem>
             <DropdownMenuItem role="button" onClick={logout} variant="destructive">
               <LogOut /> Sign out
             </DropdownMenuItem>
