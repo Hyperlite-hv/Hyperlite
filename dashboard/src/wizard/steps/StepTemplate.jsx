@@ -5,6 +5,7 @@ import { installationFamily, diskController, isWindowsInstall } from "../../util
 import VmDiskUploadDropzone from "../../components/VmDiskUploadDropzone";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Three distinct cases on the real backend side (app/core/vm_builder.py +
 // app/core/unattended_install.py + POST /vms):
@@ -21,14 +22,14 @@ import { Button } from "@/components/ui/button";
 export default function StepTemplate({ form, patch }) {
   const [isos, setIsos] = useState([]);
   const [disks, setDisks] = useState([]);
-  useEffect(() => { fetchIsoTemplates().then(setIsos); }, []);
-  const reloadDisks = () => fetchVmDisks().then(setDisks);
+  useEffect(() => { fetchIsoTemplates().then(setIsos).catch(() => {}); }, []);
+  const reloadDisks = () => fetchVmDisks().then(setDisks).catch(() => {});
   useEffect(() => { reloadDisks(); }, []);
   const osFamily = installationFamily(form);
   const windowsInstall = isWindowsInstall(form);
   const importMode = form.importDisk != null;
   useEffect(() => {
-    if (importMode && !form.importDisk && disks.length > 0) patch({ importDisk: disks[0].nom });
+    if (importMode && (!form.importDisk || form.importDisk === "__pending__") && disks.length > 0) patch({ importDisk: disks[0].nom });
   }, [importMode, form.importDisk, disks, patch]);
 
   return (
@@ -136,20 +137,20 @@ export default function StepTemplate({ form, patch }) {
       {form.iso && (
         <>
         <label className="block text-sm text-anthracite-100" htmlFor="guest-os">Operating system</label>
-        <select id="guest-os" className="input" value={form.guestOs || "auto"} onChange={(e) => patch({ guestOs: e.target.value })}>
+        <NativeSelect id="guest-os" className="w-full" value={form.guestOs || "auto"} onChange={(e) => patch({ guestOs: e.target.value })}>
           <option value="auto">Detect automatically</option>
           <option value="windows">Windows / Windows Server</option>
           <option value="linux">Linux (VirtIO)</option>
           <option value="other">Other / generic (SATA, Intel E1000e)</option>
-        </select>
+        </NativeSelect>
         <p className="text-xs text-anthracite-400">Automatic detection uses the ISO filename. Unknown media uses generic hardware. Guests must support x86-64 legacy BIOS; a hardware profile does not certify OS compatibility.</p>
         <details className="space-y-2 rounded-md border border-anthracite-600 p-3">
           <summary className="cursor-pointer text-sm text-anthracite-300">Advanced: additional drivers</summary>
           <label className="block text-sm text-anthracite-100" htmlFor="drivers-iso">Windows / additional drivers ISO (optional)</label>
-          <select id="drivers-iso" className="input" value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
+          <NativeSelect id="drivers-iso" className="w-full" value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
             <option value="">None</option>
             {isos.filter((iso) => iso.nom !== form.iso).map((iso) => <option key={iso.nom} value={iso.nom}>{iso.nom}</option>)}
-          </select>
+          </NativeSelect>
           <p className="text-xs text-anthracite-300">
             Optional media for additional guest drivers. SATA needs no extra storage driver; VirtIO SCSI requires its driver during Windows Setup.
           </p>

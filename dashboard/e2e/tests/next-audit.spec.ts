@@ -176,6 +176,44 @@ test("dialogs and menus open, are named, trap focus and close with Escape", asyn
   expect.soft(found.filter((f) => !/HTTP 40[34]/.test(f)), "runtime errors while opening dialogs").toEqual([]);
 });
 
+test("VM wizard: draft is kept until confirmed, refusals are readable, one submit only", async ({ page, request }) => {
+  const found = collect(page);
+  await login(page, { theme: "dark", lang: "en" });
+  const token = await apiLogin(request);
+  const before = ((await (await request.get("/vms", { headers: { Authorization: `Bearer ${token}` } })).json()) as unknown[]).length;
+  await page.getByRole("button", { name: "Create" }).click();
+  await page.getByRole("menuitem", { name: "Virtual machine" }).click();
+  const dlg = page.getByRole("dialog");
+  await expect(dlg.getByRole("list", { name: "Steps" })).toBeVisible();
+  await dlg.getByRole("button", { name: "Next" }).click();
+  await dlg.getByRole("button", { name: "Next" }).click();
+  await dlg.getByRole("textbox", { name: "VM name" }).fill(`${PREFIX}draft`);
+  // Escape with typed values asks first; cancelling keeps everything
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("alertdialog")).toContainText("Discard this draft?");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(dlg.getByRole("textbox", { name: "VM name" })).toHaveValue(`${PREFIX}draft`);
+  // an invalid value is refused by the backend with a readable message, and the dialog stays open
+  await dlg.getByRole("spinbutton", { name: "vCPU" }).fill("0");
+  await dlg.getByRole("textbox", { name: "User" }).fill("tester");
+  await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
+  await dlg.getByRole("button", { name: "Next" }).click();
+  await dlg.getByRole("button", { name: "Next" }).click();
+  const create = dlg.getByRole("button", { name: "Create the VM" });
+  await create.dblclick();
+  const alert = dlg.getByRole("alert");
+  await expect(alert).toContainText("could not be created");
+  await expect(alert).not.toContainText("[object Object]");
+  await expect(dlg).toBeVisible();
+  const after = ((await (await request.get("/vms", { headers: { Authorization: `Bearer ${token}` } })).json()) as unknown[]).length;
+  expect(after).toBe(before);
+  // discarding closes it
+  await page.keyboard.press("Escape");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect.soft(found.filter((f) => !/HTTP 4(00|09|22)/.test(f)), "runtime errors in the wizard").toEqual([]);
+});
+
 test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
   test.describe.configure({ mode: "serial", timeout: 300_000 });
   const NAME = `${PREFIX}audit-${Date.now().toString().slice(-6)}`;
