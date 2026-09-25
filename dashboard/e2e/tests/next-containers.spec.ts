@@ -90,3 +90,44 @@ test("French labels and no horizontal overflow at a narrow width", async ({ page
   await expect(main.getByText("Distribution généraliste")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test("creation dialog: errors next to fields on submit, a refusal keeps the values, one submit only, discard is confirmed", async ({ page }) => {
+  let posts = 0; let refuse = true;
+  await open(page);
+  await page.route(/\/containers$/, async (route) => {
+    const req = route.request();
+    if (req.method() !== "POST") return route.fallback();
+    posts++;
+    await new Promise((r) => setTimeout(r, 300));
+    if (refuse) return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "Image pull failed: registry unreachable" }) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  });
+  await page.getByRole("button", { name: "Create" }).first().click();
+  await page.getByRole("menuitem", { name: "Container" }).click();
+  const dlg = page.getByRole("dialog");
+  await dlg.getByRole("button", { name: "Create the container" }).click();
+  await expect(dlg.getByText(/2 to 63 characters/)).toBeVisible();
+  await expect(dlg.getByLabel("Name", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  expect(posts).toBe(0);
+  await dlg.getByLabel("Name", { exact: true }).fill("cache2");
+  await dlg.getByLabel("User", { exact: true }).fill("ops");
+  await dlg.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
+  await dlg.getByRole("button", { name: /Alpine/ }).click();
+  await dlg.getByRole("button", { name: "Create the container" }).dblclick();
+  await expect(dlg.getByRole("alert")).toContainText("registry unreachable");
+  expect(posts, "requests for a double click").toBe(1);
+  await expect(dlg.getByLabel("Name", { exact: true })).toHaveValue("cache2"); // values kept
+  refuse = false;
+  await dlg.getByRole("button", { name: "Create the container" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
+  expect(posts).toBe(2);
+
+  // Escape with typed values asks before discarding
+  await page.getByRole("button", { name: "Create" }).first().click();
+  await page.getByRole("menuitem", { name: "Container" }).click();
+  await page.getByRole("dialog").getByLabel("Name", { exact: true }).fill("draft");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("alertdialog")).toContainText("Discard this draft?");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});

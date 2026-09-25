@@ -4,8 +4,8 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import Menu, { MenuItem } from "../components/Menu";
-import VMWizard from "../../wizard/VMWizard";
-import ContainerWizard from "../../wizard/ContainerWizard";
+import CreateVmWizard from "../wizard/CreateVmWizard";
+import CreateContainerWizard from "../wizard/CreateContainerWizard";
 import { locate } from "../legacy/tabs";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -79,8 +79,8 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
         </button>
       </span>
 
-      <VMWizard open={!!wizards.vm} onClose={() => setWizards({})} triggerRef={vmBtn} />
-      <ContainerWizard open={!!wizards.container} onClose={() => setWizards({})} triggerRef={ctBtn} />
+      <CreateVmWizard open={!!wizards.vm} onClose={() => setWizards({})} triggerRef={vmBtn} />
+      <CreateContainerWizard open={!!wizards.container} onClose={() => setWizards({})} triggerRef={ctBtn} />
     </header>
   );
 }

@@ -241,42 +241,57 @@ test("dialogs and menus open, are named, trap focus and close with Escape", asyn
   expect.soft(found.filter((f) => !/HTTP 40[34]/.test(f)), "runtime errors while opening dialogs").toEqual([]);
 });
 
-test("VM wizard: draft is kept until confirmed, refusals are readable, one submit only", async ({ page, request }) => {
+test("VM wizard: eight steps, errors stay on the step, draft is kept until confirmed, a refusal is readable, one submit only", async ({ page }) => {
   const found = collect(page);
+  let posts = 0;
+  await page.route(/\/vms$/, async (route) => {
+    const req = route.request();
+    if (req.method() !== "POST") return route.fallback();
+    posts++;
+    await new Promise((r) => setTimeout(r, 400)); // long enough for a double click to be a real double submit
+    return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ detail: [{ loc: ["body", "vcpu"], msg: "Input should be at most 4" }] }) });
+  });
   await login(page, { theme: "dark", lang: "en" });
-  const token = await apiLogin(request);
-  const before = ((await (await request.get("/vms", { headers: { Authorization: `Bearer ${token}` } })).json()) as unknown[]).length;
   await page.getByRole("button", { name: "Create" }).click();
   await page.getByRole("menuitem", { name: "Virtual machine" }).click();
   const dlg = page.getByRole("dialog");
-  await expect(dlg.getByRole("list", { name: "Steps" })).toBeVisible();
+  const steps = dlg.getByRole("list", { name: "Steps" });
+  await expect(steps).toBeVisible();
   // the dialog is wide enough for its stepper and footer (a width override once lost to the default)
   const box = await dlg.boundingBox();
   expect(box!.width, "wizard dialog width").toBeGreaterThan(600);
   await expect(dlg.getByRole("button", { name: "Next" })).toBeInViewport();
-  for (const step of ["Node", "Template", "CPU / RAM / Disk", "Network", "Summary"]) await expect(dlg.getByRole("list", { name: "Steps" }).getByText(step)).toBeVisible();
+  for (const step of ["Source", "Identity", "Placement", "Compute", "Storage", "Network", "Advanced", "Review"]) await expect(steps.getByText(step, { exact: true })).toBeVisible();
+  await dlg.getByRole("button", { name: "Next" }).click(); // source -> identity
+  // an empty name does not advance and says why, next to the field
   await dlg.getByRole("button", { name: "Next" }).click();
-  await dlg.getByRole("button", { name: "Next" }).click();
+  await expect(dlg.getByText(/2 to 63 characters/)).toBeVisible();
+  await expect(dlg.getByRole("textbox", { name: "VM name" })).toHaveAttribute("aria-invalid", "true");
   await dlg.getByRole("textbox", { name: "VM name" }).fill(`${PREFIX}draft`);
   // Escape with typed values asks first; cancelling keeps everything
   await page.keyboard.press("Escape");
   await expect(page.getByRole("alertdialog")).toContainText("Discard this draft?");
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await expect(dlg.getByRole("textbox", { name: "VM name" })).toHaveValue(`${PREFIX}draft`);
-  // an invalid value is refused by the backend with a readable message, and the dialog stays open
-  await dlg.getByRole("spinbutton", { name: "vCPU" }).fill("0");
   await dlg.getByRole("textbox", { name: "User" }).fill("tester");
+  await dlg.getByRole("textbox", { name: "Password" }).fill("abc");
+  await dlg.getByRole("button", { name: "Next" }).click();
+  await expect(dlg.getByText("At least 4 characters.")).toBeVisible();
   await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
-  await dlg.getByRole("button", { name: "Next" }).click();
-  await dlg.getByRole("button", { name: "Next" }).click();
+  for (let i = 0; i < 6; i++) await dlg.getByRole("button", { name: "Next" }).click(); // -> review
+  await expect(dlg.getByRole("region", { name: "Compute" })).toBeVisible();
+  // a refusal keeps the dialog and the values, is readable, and a double click sends one request
   const create = dlg.getByRole("button", { name: "Create the VM" });
   await create.dblclick();
   const alert = dlg.getByRole("alert");
   await expect(alert).toContainText("could not be created");
+  await expect(alert).toContainText("at most 4");
   await expect(alert).not.toContainText("[object Object]");
+  expect(posts, "creation requests").toBe(1);
   await expect(dlg).toBeVisible();
-  const after = ((await (await request.get("/vms", { headers: { Authorization: `Bearer ${token}` } })).json()) as unknown[]).length;
-  expect(after).toBe(before);
+  // going back to fix something keeps the typed values
+  await dlg.getByRole("button", { name: /^Change/ }).nth(1).click();
+  await expect(dlg.getByRole("textbox", { name: "VM name" })).toHaveValue(`${PREFIX}draft`);
   // discarding closes it
   await page.keyboard.press("Escape");
   await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
@@ -308,16 +323,20 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await page.getByRole("button", { name: "Create" }).click();
     await page.getByRole("menuitem", { name: "Virtual machine" }).click();
     const dlg = page.getByRole("dialog");
-    await dlg.getByRole("button", { name: "Next" }).click();
-    await dlg.getByRole("button", { name: "Next" }).click();
+    const next = () => dlg.getByRole("button", { name: "Next" }).click();
+    await next(); // source
     await dlg.getByRole("textbox", { name: "VM name" }).fill(NAME);
-    await dlg.getByRole("spinbutton", { name: "Memory in MB" }).fill("256");
-    await dlg.getByRole("spinbutton", { name: "Size of disk 1 in GB" }).fill("3");
     await dlg.getByRole("textbox", { name: "User" }).fill("tester");
     await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
-    await dlg.getByRole("button", { name: "Next" }).click();
+    await next(); // identity
+    await next(); // placement
+    await dlg.getByRole("spinbutton", { name: "Memory in MB" }).fill("256");
+    await next(); // compute
+    await dlg.getByRole("spinbutton", { name: "Size of disk 1 in GB" }).fill("3");
+    await next(); // storage
     await dlg.getByRole("radio", { name: /hyperlite-isolated/ }).check();
-    await dlg.getByRole("button", { name: "Next" }).click();
+    await next(); // network
+    await next(); // advanced
     await dlg.getByRole("button", { name: "Create the VM" }).click();
 
     // it shows up in the inventory, the VM list and the overview counters
