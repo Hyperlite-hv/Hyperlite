@@ -185,6 +185,11 @@ test("VM wizard: draft is kept until confirmed, refusals are readable, one submi
   await page.getByRole("menuitem", { name: "Virtual machine" }).click();
   const dlg = page.getByRole("dialog");
   await expect(dlg.getByRole("list", { name: "Steps" })).toBeVisible();
+  // the dialog is wide enough for its stepper and footer (a width override once lost to the default)
+  const box = await dlg.boundingBox();
+  expect(box!.width, "wizard dialog width").toBeGreaterThan(600);
+  await expect(dlg.getByRole("button", { name: "Next" })).toBeInViewport();
+  for (const step of ["Node", "Template", "CPU / RAM / Disk", "Network", "Summary"]) await expect(dlg.getByRole("list", { name: "Steps" }).getByText(step)).toBeVisible();
   await dlg.getByRole("button", { name: "Next" }).click();
   await dlg.getByRole("button", { name: "Next" }).click();
   await dlg.getByRole("textbox", { name: "VM name" }).fill(`${PREFIX}draft`);
