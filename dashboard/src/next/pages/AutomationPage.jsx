@@ -1,0 +1,203 @@
+import { useCallback, useEffect, useState } from "react";
+import { fetchJobs, fetchJob, createJob, deleteJob, runJob, fetchJobRuns, fetchJobRun } from "../../api/client";
+import { useInfraStore } from "../../store/useInfraStore";
+import { useAuthStore } from "../../store/useAuthStore";
+import { confirmAction } from "../../store/useConfirmStore";
+import { useT, useLangStore } from "../i18n";
+import { capabilities } from "../lib/capabilities";
+import { errorMessage } from "../lib/errors";
+import StatusIndicator from "../components/StatusIndicator";
+import { EmptyState, ErrorState } from "../components/States";
+
+const newStep = () => ({ cible_type: "host", cible: "", commande: "", condition_type: "exit_code", condition_valeur: "0" });
+const runWire = (s) => (s === "succes" ? "termine" : s === "echec" ? "echec" : "en_cours");
+const targetLabel = (s, t) => (s.cible_type === "host" ? t("au.host") : s.cible_type === "vm" ? `VM ${s.cible}` : t("au.eachTarget"));
+
+// Automation: jobs are ordered shell steps on the host or on VMs. A real run always shows the exact
+// commands first (a dry run only previews); run history refreshes by itself while a run is in progress.
+export default function AutomationPage() {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const caps = capabilities(useAuthStore((s) => s.role));
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [jobs, setJobs] = useState(null);
+  const [error, setError] = useState(null);
+  const [open, setOpen] = useState(null);
+  const [detail, setDetail] = useState({});   // job id -> {steps}
+  const [runs, setRuns] = useState({});
+  const [runOpen, setRunOpen] = useState(null);
+  const [runDetail, setRunDetail] = useState(null);
+  const [targets, setTargets] = useState({});
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ name: "", description: "", steps: [newStep()] });
+  const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(async () => {
+    try { const j = await fetchJobs(); setJobs(Array.isArray(j) ? j : []); setError(null); } catch (e) { setError(errorMessage(e)); }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  const loadRuns = useCallback(async (id) => {
+    try { const r = await fetchJobRuns(id); setRuns((p) => ({ ...p, [id]: Array.isArray(r) ? r : [] })); }
+    catch (e) { pushToast({ kind: "error", title: t("au.historyError"), message: errorMessage(e) }); }
+  }, [pushToast, t]);
+
+  // while the expanded job has a run in progress, refresh its history every 3 s
+  const running = open != null && (runs[open] || []).some((r) => r.statut !== "succes" && r.statut !== "echec");
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = setInterval(() => loadRuns(open), 3000);
+    return () => clearInterval(id);
+  }, [running, open, loadRuns]);
+
+  async function toggle(job) {
+    if (open === job.id) { setOpen(null); return; }
+    setOpen(job.id); setRunOpen(null);
+    loadRuns(job.id);
+    if (!detail[job.id]) fetchJob(job.id).then((d) => setDetail((p) => ({ ...p, [job.id]: d }))).catch(() => {});
+  }
+  async function showRun(id) {
+    if (runOpen === id) { setRunOpen(null); return; }
+    setRunOpen(id); setRunDetail(null);
+    try { setRunDetail(await fetchJobRun(id)); } catch (e) { pushToast({ kind: "error", title: t("au.detailError"), message: errorMessage(e) }); }
+  }
+
+  async function run(job, dry) {
+    const list = (targets[job.id] || "").split(",").map((x) => x.trim()).filter(Boolean);
+    let steps = detail[job.id]?.steps;
+    if (!steps) { try { steps = (await fetchJob(job.id)).steps; } catch { steps = null; } }
+    const needsTargets = (steps || []).some((s) => s.cible_type === "chaque_cible");
+    if (needsTargets && list.length === 0) { pushToast({ kind: "error", title: t("au.needTargets"), message: t("au.needTargetsHelp") }); return; }
+    if (!dry) {
+      const cmds = steps ? steps.map((s, i) => `${i + 1}. [${targetLabel(s, t)}] ${s.commande}`).join("  •  ") : t("au.stepsUnknown");
+      if (!(await confirmAction({ title: t("au.runTitle", { name: job.name }), message: `${t("au.runMsg", { n: list.length })} ${cmds}`, confirmLabel: t("au.run"), danger: true }))) return;
+    }
+    try {
+      await runJob(job.id, list, dry);
+      pushToast({ kind: "success", title: dry ? t("au.dryStarted") : t("au.runStarted"), message: job.name });
+      setOpen(job.id); loadRuns(job.id);
+      setTimeout(() => loadRuns(job.id), 1200);
+    } catch (e) { pushToast({ kind: "error", title: t("au.launchFailed"), message: errorMessage(e) }); }
+  }
+
+  const problems = (s) => ({
+    commande: !s.commande.trim(),
+    cible: s.cible_type === "vm" && !(s.cible || "").trim(),
+    valeur: s.condition_type === "stdout_contains" ? !(s.condition_valeur || "").trim() : !/^-?\d+$/.test((s.condition_valeur ?? "").trim()),
+  });
+  const formOk = form.name.trim() && form.steps.length > 0 && form.steps.every((s) => !Object.values(problems(s)).some(Boolean));
+  const upd = (i, patch) => setForm((f) => ({ ...f, steps: f.steps.map((s, k) => (k === i ? { ...s, ...patch } : s)) }));
+
+  async function create(e) {
+    e.preventDefault();
+    setTouched(true);
+    if (!formOk) return;
+    setBusy(true);
+    try {
+      await createJob({ ...form, name: form.name.trim(), steps: form.steps.map((s) => ({ ...s, cible: s.cible_type === "vm" ? s.cible.trim() : null })) });
+      pushToast({ kind: "success", title: t("au.created"), message: form.name });
+      setCreating(false); setTouched(false); setForm({ name: "", description: "", steps: [newStep()] }); await reload();
+    } catch (er) { pushToast({ kind: "error", title: t("nt.createFailed"), message: errorMessage(er) }); }
+    finally { setBusy(false); }
+  }
+  async function remove(job) {
+    if (!(await confirmAction({ title: t("au.deleteTitle", { name: job.name }), message: t("au.deleteMsg"), confirmLabel: t("menu.delete").replace("…", ""), danger: true }))) return;
+    try { await deleteJob(job.id); pushToast({ kind: "success", title: t("au.deleted"), message: job.name }); await reload(); }
+    catch (e) { pushToast({ kind: "error", title: t("nt.deleteFailed"), message: errorMessage(e) }); }
+  }
+
+  if (error && jobs == null) return <ErrorState message={error} onRetry={reload} />;
+  const list = jobs || [];
+  const bad = (cond) => touched && cond;
+
+  return (
+    <div className="nx-ns">
+      <section className="nx-card" aria-labelledby="au-title">
+        <div className="nx-cardhead">
+          <h2 id="au-title">{t("tab.automation")} <span className="nx-count">{jobs ? list.length : "…"}</span></h2>
+          {caps.admin && <button type="button" className="nx-btn nx-btn--primary" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>{t("au.create")}</button>}
+        </div>
+        <p className="nx-muted" style={{ marginTop: 0, maxWidth: "64ch" }}>{t("au.intro")}</p>
+
+        {creating && (
+          <form className="nx-form" onSubmit={create} noValidate>
+            <div className="nx-formgrid">
+              <label>{t("au.jobName")}<input className="nx-input" aria-label="Job name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-invalid={bad(!form.name.trim()) || undefined} />{bad(!form.name.trim()) && <span className="nx-hint nx-hint--error">{t("nt.required")}</span>}</label>
+              <label>{t("au.description")}<input className="nx-input" aria-label="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+            </div>
+            {form.steps.map((s, i) => {
+              const p = problems(s);
+              return (
+                <fieldset key={i} className="nx-fieldset nx-subcard">
+                  <legend>{t("au.step", { n: i + 1 })}</legend>
+                  <div className="nx-formgrid">
+                    <label>{t("au.target")}<select className="nx-input" aria-label="Step target type" value={s.cible_type} onChange={(e) => upd(i, { cible_type: e.target.value })}><option value="host">{t("au.host")}</option><option value="vm">{t("au.aVm")}</option><option value="chaque_cible">{t("au.eachTarget")}</option></select></label>
+                    {s.cible_type === "vm" && <label>{t("au.vmName")}<input className="nx-input" aria-label="VM name" value={s.cible || ""} onChange={(e) => upd(i, { cible: e.target.value })} aria-invalid={bad(p.cible) || undefined} />{bad(p.cible) && <span className="nx-hint nx-hint--error">{t("nt.required")}</span>}</label>}
+                    <label>{t("au.condition")}<select className="nx-input" aria-label="Success condition type" value={s.condition_type} onChange={(e) => upd(i, { condition_type: e.target.value, condition_valeur: e.target.value === "exit_code" ? "0" : "" })}><option value="exit_code">{t("au.exitCode")}</option><option value="stdout_contains">{t("au.contains")}</option></select></label>
+                    <label>{t("au.conditionValue")}<input className="nx-input nx-mono" aria-label="Success condition value" value={s.condition_valeur || ""} onChange={(e) => upd(i, { condition_valeur: e.target.value })} aria-invalid={bad(p.valeur) || undefined} />{bad(p.valeur) && <span className="nx-hint nx-hint--error">{t(s.condition_type === "exit_code" ? "au.badInt" : "nt.required")}</span>}</label>
+                  </div>
+                  <label>{t("au.command")}<input className="nx-input nx-mono" aria-label="shell command" value={s.commande} onChange={(e) => upd(i, { commande: e.target.value })} placeholder="systemctl status nginx" aria-invalid={bad(p.commande) || undefined} />{bad(p.commande) && <span className="nx-hint nx-hint--error">{t("nt.required")}</span>}</label>
+                  {form.steps.length > 1 && <div><button type="button" className="nx-btn nx-btn--danger" aria-label={`Remove step ${i + 1}`} onClick={() => setForm((f) => ({ ...f, steps: f.steps.filter((_, k) => k !== i) }))}>{t("sec.remove")}</button></div>}
+                </fieldset>
+              );
+            })}
+            <div className="nx-formactions">
+              <button type="button" className="nx-btn" onClick={() => setForm((f) => ({ ...f, steps: [...f.steps, newStep()] }))}>{t("au.addStep")}</button>
+              <button type="button" className="nx-btn" onClick={() => { setCreating(false); setTouched(false); }}>{t("action.cancel")}</button>
+              <button type="submit" className="nx-btn nx-btn--primary" disabled={busy}>{busy ? t("stor.creating") : t("action.create")}</button>
+            </div>
+          </form>
+        )}
+
+        {jobs == null ? <p className="nx-muted" role="status">{t("loading")}</p> : list.length === 0 ? <EmptyState title={t("au.none")} /> : (
+          <div className="nx-stack">
+            {list.map((job) => (
+              <div key={job.id} className="nx-subcard">
+                <div className="nx-cardhead">
+                  <h3>{job.name} {job.predefined_key && <span className="nx-chip">{t("au.predefined")}</span>}</h3>
+                  <button type="button" className="nx-btn" aria-expanded={open === job.id} aria-label={`Show run history of ${job.name}`} onClick={() => toggle(job)}>{t("au.history")}</button>
+                </div>
+                {job.description && <p className="nx-muted" style={{ margin: 0 }}>{job.description}</p>}
+                {caps.admin && (
+                  <div className="nx-inline">
+                    <input className="nx-input" aria-label={`Targets for ${job.name} (VMs separated by commas)`} placeholder={t("au.targets")} value={targets[job.id] || ""} onChange={(e) => setTargets((x) => ({ ...x, [job.id]: e.target.value }))} />
+                    <button type="button" className="nx-btn" aria-label={`Dry run ${job.name}`} onClick={() => run(job, true)}>{t("au.dry")}</button>
+                    <button type="button" className="nx-btn nx-btn--primary" aria-label={`Run ${job.name}`} onClick={() => run(job, false)}>{t("au.run")}</button>
+                    {!job.predefined_key && <button type="button" className="nx-btn nx-btn--danger" aria-label={`Delete job ${job.name}`} onClick={() => remove(job)}>{t("menu.delete").replace("…", "")}</button>}
+                  </div>
+                )}
+                {open === job.id && (
+                  <div>
+                    {detail[job.id]?.steps?.length > 0 && (
+                      <ol className="nx-steps" aria-label={t("au.steps")}>{detail[job.id].steps.map((s) => <li key={s.id ?? s.ordre}><span className="nx-muted">[{targetLabel(s, t)}]</span> <code className="nx-mono">{s.commande}</code></li>)}</ol>
+                    )}
+                    <h4 className="nx-subhead">{t("au.history")}</h4>
+                    {!runs[job.id] ? <p className="nx-muted" role="status">{t("loading")}</p> : runs[job.id].length === 0 ? <p className="nx-muted">{t("au.noRuns")}</p> : (
+                      <ul className="nx-list nx-list--vols">
+                        {runs[job.id].map((r) => (
+                          <li key={r.id}>
+                            <button type="button" className="nx-link" aria-expanded={runOpen === r.id} onClick={() => showRun(r.id)}>{new Date(r.started_at).toLocaleString(lang)}</button>
+                            <span className="nx-inline"><StatusIndicator kind="task" wire={runWire(r.statut)} /><span>{r.dry_run ? t("au.dryRun") : t("au.real")}</span></span>
+                            <span className="nx-muted">{r.resultat || ""}</span>
+                            {runOpen === r.id && (
+                              <div style={{ gridColumn: "1 / -1" }}>
+                                {!runDetail ? <span className="nx-muted">{t("loading")}</span> : runDetail.logs.length === 0 ? <span className="nx-muted">{t("au.noLogs")}</span> : (
+                                  <pre className="nx-logs" tabIndex={0} aria-label={t("au.logs")}>{runDetail.logs.map((l) => `${l.reussi ? "✓" : "✗"} [${l.cible}] ${l.commande} → exit=${l.exit_code}${l.stdout ? `\n${l.stdout.trim().slice(0, 2000)}` : ""}`).join("\n")}</pre>
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
