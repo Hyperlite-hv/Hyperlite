@@ -73,8 +73,12 @@ def list_networks(user: dict = Depends(get_current_user)):
     conn = open_conn()
     try:
         ensure_isolated_network(conn)
-        nets = conn.listAllNetworks()
-        result = [_network_summary(n) for n in nets]
+        result = []
+        for net in conn.listAllNetworks():
+            try:
+                result.append(_network_summary(net))
+            except libvirt.libvirtError:
+                continue  # deleted between the listing and the read: it is simply no longer there
         log_action(user["username"], "list_networks", "networks", "succes")
         return result
     finally:
