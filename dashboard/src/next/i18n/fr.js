@@ -150,6 +150,8 @@ export default {
   "snap.current": "actuel",
   "snap.manage": "Gérer",
   "nav.group.more": "Plus",
+  "nav.ha": "Haute disponibilité",
+  "nav.compat": "Compatibilité",
   "inv.title": "Inventaire",
   "inv.open": "Inventaire",
   "inv.close": "Fermer l’inventaire",
