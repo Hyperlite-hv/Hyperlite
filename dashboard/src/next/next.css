@@ -498,3 +498,14 @@
 .nx-list--vols li { grid-template-columns: minmax(0, 1fr) auto auto; }
 .nx-btn--danger:hover:not(:disabled) { background: var(--color-danger-subtle); }
 select.nx-input { height: 2rem; }
+
+/* Containers */
+.nx-fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-3); min-width: 0; }
+.nx-fieldset legend { font-weight: 600; padding: 0; margin-bottom: var(--space-2); }
+.nx-gallery { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); }
+.nx-tile-pick { display: grid; gap: 2px; text-align: left; padding: var(--space-2) var(--space-3); background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); cursor: pointer; font-size: var(--font-size-sm); }
+.nx-tile-pick:hover { background: var(--color-bg-raised); }
+.nx-tile-pick[aria-pressed="true"] { border-color: var(--color-accent); background: var(--color-bg-selected); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.nx-tile-pick span { font-size: var(--font-size-xs); }
+.nx-rowactions { white-space: nowrap; }
+.nx-rowactions .nx-btn + .nx-btn { margin-left: var(--space-2); }
