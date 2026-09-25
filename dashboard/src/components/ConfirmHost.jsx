@@ -1,10 +1,13 @@
 import { useConfirmStore } from "../store/useConfirmStore";
 import ConfirmDialog from "./ConfirmDialog";
+import PromptDialog from "./PromptDialog";
 
 export default function ConfirmHost() {
   const request = useConfirmStore((s) => s.request);
   const answer = useConfirmStore((s) => s.answer);
   return (
+    <>
+    <PromptDialog />
     <ConfirmDialog
       open={!!request}
       title={request?.title ?? ""}
@@ -14,5 +17,6 @@ export default function ConfirmHost() {
       onConfirm={() => answer(true)}
       onCancel={() => answer(false)}
     />
+    </>
   );
 }

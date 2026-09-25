@@ -227,6 +227,9 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
       await request.post(`/vms/${NAME}/stop?force=true`, { headers: auth() });
       await request.delete(`/vms/${NAME}?confirm=true`, { headers: auth() });
     }
+    // extra disks attached by the test: removed once the VM no longer uses them
+    const vols = await request.get("/storage/default/volumes", { headers: auth() });
+    if (vols.ok()) for (const v of (await vols.json()) as { nom: string }[]) if (v.nom.startsWith(`${NAME}-disk-`)) await request.delete(`/storage/default/volumes/${v.nom}?confirm=true`, { headers: auth() });
   });
 
   test("create through the wizard, see it everywhere, start, force stop with confirmation, delete", async ({ page, request }) => {
@@ -253,7 +256,17 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await page.goto("/datacenter?tab=vms");
     await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible();
 
+    // hardware: two new disks in a row (the second used to be refused: same generated name)
+    await page.goto(`/vm/${NAME}?tab=hardware`);
+    const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length;
+    const start = await disks();
+    for (let i = 1; i <= 2; i++) {
+      await page.getByRole("button", { name: "Attach" }).click();
+      await expect.poll(disks, { timeout: 30_000 }).toBe(start + i);
+    }
+
     // open it from the list; start from the header
+    await page.goto("/datacenter?tab=vms");
     await page.getByRole("main").getByRole("button", { name: NAME }).first().click();
     await expect(page).toHaveURL(new RegExp(`/vm/${NAME}`));
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(NAME);
