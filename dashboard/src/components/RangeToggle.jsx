@@ -11,7 +11,7 @@ export default function RangeToggle({ value, onChange }) {
     <Tabs value={String(value)} onValueChange={(v) => onChange(Number(v))}>
       <TabsList>
         {RANGES.map((r) => (
-          <TabsTrigger key={r.hours} value={String(r.hours)}>{r.label}</TabsTrigger>
+          <TabsTrigger aria-controls={undefined} key={r.hours} value={String(r.hours)}>{r.label}</TabsTrigger>
         ))}
       </TabsList>
     </Tabs>

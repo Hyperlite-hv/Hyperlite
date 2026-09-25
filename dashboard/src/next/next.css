@@ -480,3 +480,8 @@
 .nx-nav-item.active::before { content: ""; position: absolute; left: 0; top: 0.4rem; bottom: 0.4rem; width: 3px; border-radius: 2px; background: var(--color-accent); }
 .nx-nav-group-label { padding-top: var(--space-3); padding-bottom: var(--space-1); }
 .nx-nav-group + .nx-nav-group { margin-top: 0; }
+/* Light theme: tinted accent badges of screens not yet rebuilt need a darker text to stay AA. */
+:root[data-ui="next"][data-theme="light"] [data-slot="badge"][class*="text-accent-blue"] { color: color-mix(in oklab, var(--color-accent) 75%, black); }
+/* Wide tables scroll inside their card instead of stretching the page (grid items default to min-width:auto). */
+.nx-ns { grid-template-columns: minmax(0, 1fr); }
+.nx-ns > *, .nx-cols > * { min-width: 0; }

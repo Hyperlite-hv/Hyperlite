@@ -173,7 +173,7 @@ export default function AutomationTab() {
                   {!job.predefined_key && <Button aria-label={`Delete job ${job.name}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDelete(job)}><Trash2 size={13} /></Button>}
                 </>
               )}
-              <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" onClick={() => toggleExpand(job)}>
+              <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" aria-label={`Show run history of ${job.name}`} onClick={() => toggleExpand(job)}>
                 {expanded === job.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               </Button>
             </div>

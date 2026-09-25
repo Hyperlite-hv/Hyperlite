@@ -44,7 +44,7 @@ export default function MetricsHistoryCard({ title, fetcher }) {
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <Tabs value={range} onValueChange={setRange}>
           <TabsList>
-            {RANGES.map((r) => <TabsTrigger key={r.key} value={r.key}>{r.label}</TabsTrigger>)}
+            {RANGES.map((r) => <TabsTrigger aria-controls={undefined} key={r.key} value={r.key}>{r.label}</TabsTrigger>)}
           </TabsList>
         </Tabs>
       </div>
