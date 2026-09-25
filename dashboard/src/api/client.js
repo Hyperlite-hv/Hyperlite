@@ -23,6 +23,22 @@ export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = fn;
 }
 
+// FastAPI answers `detail` as a string, a list of strings or (validation, 422) a list of
+// {loc, msg, type} objects; joining the latter used to print "[object Object]".
+function formatDetail(d) {
+  if (d == null) return "";
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) return d.map(formatDetail).filter(Boolean).join(" ; ");
+  if (typeof d === "object") {
+    if (d.msg) {
+      const where = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body").join(".") : "";
+      return where ? `${where}: ${d.msg}` : d.msg;
+    }
+    try { return JSON.stringify(d); } catch { return String(d); }
+  }
+  return String(d);
+}
+
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -40,7 +56,7 @@ async function realFetch(path, opts = {}) {
     throw new Error("The server returned an unreadable response.");
   }
   if (!res.ok) {
-    const msg = (data && data.detail) ? (Array.isArray(data.detail) ? data.detail.join(" ; ") : data.detail) : "Unknown error";
+    const msg = (data && data.detail) ? (formatDetail(data.detail) || "Unknown error") : "Unknown error";
     throw new Error(msg);
   }
   return data;

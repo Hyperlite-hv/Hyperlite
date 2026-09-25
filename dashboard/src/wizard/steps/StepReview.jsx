@@ -40,6 +40,8 @@ export default function StepReview({ form, nodes }) {
     manualInstall ? ["User", "Created during the installation"] : ["User", form.username || "--"],
   ];
 
+  if (form.autoCleanupEnabled) rows.push(["Automatic clean-up", `Deleted after ${form.autoCleanupDays} day(s) stopped`]);
+
   return (
     <Card className="p-0 divide-y divide-border">
       {rows.map(([label, value]) => (
