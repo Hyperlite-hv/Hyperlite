@@ -73,6 +73,8 @@ test.describe("Advanced VM operations (real backend)", () => {
     await tplDialog.getByRole("button", { name: "Convert" }).click();
     await expect.poll(async () => (await request.get("/templates", { headers: auth() })).ok() && ((await (await request.get("/templates", { headers: auth() })).json()) as Array<{ nom: string }>).some((t) => t.nom === TEMPLATE), { timeout: 60_000 }).toBe(true);
     expect(await exists(request, CLONE), "the source VM is consumed by the conversion").toBe(false);
+    // The screen leaves the consumed VM on its own; reloading before that lands on /vm/<gone VM>.
+    await expect(page).toHaveURL(/\/datacenter/);
 
     await page.reload();
     await page.getByRole("tab", { name: "Templates", exact: true }).click();

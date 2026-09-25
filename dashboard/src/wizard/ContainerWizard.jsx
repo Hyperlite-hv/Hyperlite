@@ -199,7 +199,7 @@ export default function ContainerWizard({ open, onClose, triggerRef }) {
           </div>
         </div>
 
-        <DialogFooter className="border-t border-border px-5 py-3">
+        <DialogFooter className="mx-0 mb-0 border-t border-border px-5 py-3">
           <Button variant="secondary" onClick={closeAndReset}>Cancel</Button>
           <Button disabled={!canCreate} onClick={handleCreate}>
             <Check /> {busy ? "Creating..." : "Create the container"}

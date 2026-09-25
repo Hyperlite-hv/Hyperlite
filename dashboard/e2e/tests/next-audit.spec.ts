@@ -106,6 +106,71 @@ test("no horizontal overflow and the layout stays usable on five viewports", asy
   }
 });
 
+test("dialogs, menus and the palette stay inside the screen with every action reachable (desktop, tablet, phone)", async ({ page }) => {
+  await login(page, { theme: "dark", lang: "en" });
+  for (const [w, h] of [[1440, 900], [820, 1180], [390, 844]] as const) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/datacenter");
+    await page.waitForTimeout(800);
+    const inside = async (name: string, root: import("@playwright/test").Locator) => {
+      const box = await root.boundingBox();
+      expect.soft(box, `${w}px ${name}: is rendered`).not.toBeNull();
+      if (!box) return;
+      expect.soft(box.x, `${w}px ${name}: left edge`).toBeGreaterThanOrEqual(-1);
+      expect.soft(box.x + box.width, `${w}px ${name}: right edge (${Math.round(box.x + box.width)} > ${w})`).toBeLessThanOrEqual(w + 1);
+      expect.soft(box.y, `${w}px ${name}: top edge`).toBeGreaterThanOrEqual(-1);
+      expect.soft(box.y + box.height, `${w}px ${name}: bottom edge`).toBeLessThanOrEqual(h + 1);
+      const overflow = await root.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect.soft(overflow, `${w}px ${name}: horizontal overflow inside`).toBeLessThanOrEqual(1);
+      for (const b of await root.getByRole("button").all()) {
+        if (!(await b.isVisible())) continue;
+        const bb = await b.boundingBox();
+        if (bb) expect.soft(bb.x + bb.width, `${w}px ${name}: button "${(await b.innerText()).trim().slice(0, 20)}" cut off on the right`).toBeLessThanOrEqual(w + 1);
+      }
+    };
+    // Create menu
+    await page.getByRole("button", { name: "Create" }).click();
+    await inside("Create menu", page.getByRole("menu"));
+    // VM wizard: the stepper and the footer buttons must be visible
+    await page.getByRole("menuitem", { name: "Virtual machine" }).click();
+    const dlg = page.getByRole("dialog");
+    await inside("VM wizard", dlg);
+    await expect.soft(dlg.getByRole("button", { name: "Next" }), `${w}px VM wizard: Next reachable`).toBeInViewport();
+    await page.keyboard.press("Escape");
+    // container wizard
+    await page.getByRole("button", { name: "Create" }).click();
+    await page.getByRole("menuitem", { name: "Container" }).click();
+    await inside("Container wizard", page.getByRole("dialog"));
+    await page.keyboard.press("Escape");
+    // palette
+    await page.keyboard.press("Control+k");
+    await inside("Command palette", page.getByRole("dialog", { name: "Find a node or VM" }));
+    await page.keyboard.press("Escape");
+    // user menu and its dialogs (the sidebar is a drawer below 1024px)
+    const openDrawer = async () => {
+      if (w >= 1024) return;
+      if ((await page.locator(".nx-root").getAttribute("data-sidebar")) !== "open") await page.getByRole("button", { name: "Toggle sidebar" }).click({ timeout: 5000 });
+      await expect(page.locator('.nx-root[data-sidebar="open"]'), `${w}px: the sidebar drawer opens`).toBeVisible({ timeout: 5000 });
+      await page.waitForTimeout(350);
+    };
+    await openDrawer();
+    await page.locator(".nx-sidebar-user").click({ timeout: 8000 });
+    await inside("User menu", page.getByRole("menu"));
+    await page.getByRole("menuitem", { name: "Account security" }).click();
+    await inside("Account security", page.getByRole("dialog"));
+    await page.keyboard.press("Escape");
+    await openDrawer();
+    await page.locator(".nx-sidebar-user").click({ timeout: 8000 });
+    await page.getByRole("menuitem", { name: /Check for updates/ }).click();
+    await inside("Updates dialog", page.getByRole("dialog"));
+    await page.keyboard.press("Escape");
+    // name prompt and confirmation dialogs (opened from the VM page when one exists)
+    await page.goto("/datacenter?tab=vms");
+    await page.waitForTimeout(600);
+    if (w < 1024) await page.keyboard.press("Escape");
+  }
+});
+
 test("keyboard: tab order reaches the skip link, sidebar, inventory, search and page; focus is always visible", async ({ page }) => {
   await login(page, { theme: "dark", lang: "en" });
   await page.goto("/datacenter");
