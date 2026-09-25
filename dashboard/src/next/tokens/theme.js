@@ -2,13 +2,15 @@ import { create } from "zustand";
 
 const KEY = "hyperlite-next-theme";
 const MODES = ["dark", "light", "system"];
+// Light is the default: long administration sessions happen mostly in daylight office settings, and
+// the navigation column keeps the dark frame in both themes.
 
 function readStored() {
   try {
     const v = localStorage.getItem(KEY);
-    return MODES.includes(v) ? v : "dark";
+    return MODES.includes(v) ? v : "light";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 
@@ -33,7 +35,7 @@ function apply(mode) {
 
 export const useThemeStore = create((set, get) => ({
   mode: readStored(),
-  resolved: "dark",
+  resolved: "light",
   init() {
     set({ resolved: apply(get().mode) });
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
