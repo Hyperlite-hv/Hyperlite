@@ -28,7 +28,7 @@ async function open(page: Page, lang = "en") {
 test("webhook and email channels: validation, creation with events, test failure, toggle, confirmed deletion", async ({ page, request }) => {
   await open(page);
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { name: /^Notification channels/ })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { level: 2, name: /^Notification channels/ })).toBeVisible({ timeout: 20_000 });
   await main.getByRole("button", { name: "Add a channel" }).click();
 
   // nothing is sent while the form is invalid, and each error sits next to its field
@@ -76,7 +76,7 @@ test("webhook and email channels: validation, creation with events, test failure
 test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await open(page, "fr");
-  await expect(page.getByRole("main").getByRole("heading", { name: /Canaux de notification/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /Canaux de notification/ })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("main").getByRole("button", { name: "Ajouter un canal" }).click();
   await page.getByRole("main").getByRole("button", { name: "E-mail (SMTP)" }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
