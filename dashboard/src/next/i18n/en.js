@@ -151,6 +151,8 @@ export default {
   "snap.current": "current",
   "snap.manage": "Manage",
   "nav.group.more": "More",
+  "nav.ha": "High availability",
+  "nav.compat": "Compatibility",
   "inv.title": "Inventory",
   "inv.open": "Inventory",
   "inv.close": "Close inventory",

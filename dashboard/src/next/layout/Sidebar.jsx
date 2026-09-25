@@ -20,6 +20,8 @@ const ICONS = {
   overview: "M3 4h6v6H3zM11 4h6v4h-6zM11 10h6v6h-6zM3 12h6v4H3z",
   infra: "M3 6l7-3 7 3-7 3-7-3zM3 6v8l7 3 7-3V6M10 9v8",
   cluster: "M4 4h5v5H4zM11 4h5v5h-5zM4 11h5v5H4zM11 11h5v5h-5z",
+  ha: "M10 17s-6.5-3.8-6.5-8.6A3.6 3.6 0 0110 6.2a3.6 3.6 0 016.5 2.2C16.5 13.2 10 17 10 17zM6.5 10h2l1-2 1.5 3.5 1-1.5h1.5",
+  compat: "M4 3.5h12v13H4zM7 8l1.5 1.5L11 7M7 13h6",
   nodes: "M3 3.5h14v5H3zM3 11.5h14v5H3zM6 6h.01M6 14h.01",
   vms: "M3 4h14v9H3zM7 17h6M10 13v4",
   containers: "M10 3l6 3.4v7.2L10 17l-6-3.4V6.4L10 3zM4 6.5l6 3.3 6-3.3M10 9.8V17",
@@ -112,9 +114,9 @@ export default function Sidebar({ collapsed }) {
       <div className="nx-nav-scroll">
         <NavGroup id="infra" label={t("nav.group.infrastructure")} open={groupOpen("infra")} forced={onDatacenterTab("summary") || onDatacenterTab("compat") || onDatacenterTab("ha") || onDatacenterTab("nodes") || selection.type === "node"} onToggle={() => toggleGroup("infra")}>
           <NavItem icon="overview" label={t("nav.overview")} active={selection.type === "datacenter" && tab === "summary"} onClick={() => goto("summary")} />
-          <NavItem icon="infra" label={t("nav.infrastructure")} active={onDatacenterTab("compat")} onClick={() => goto("compat")} />
-          <NavItem icon="cluster" label={t("nav.group.cluster")} active={onDatacenterTab("ha")} onClick={() => goto("ha")} />
           <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes")} onClick={() => goto("nodes")} />
+          <NavItem icon="ha" label={t("nav.ha")} active={onDatacenterTab("ha")} onClick={() => goto("ha")} />
+          <NavItem icon="compat" label={t("nav.compat")} active={onDatacenterTab("compat")} onClick={() => goto("compat")} />
           {activeNode && <NavItem label={activeNode.nom} active indent />}
         </NavGroup>
 
@@ -124,13 +126,6 @@ export default function Sidebar({ collapsed }) {
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
           <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />
           <NavItem icon="backups" label={t("nav.backups")} active={onDatacenterTab("backups")} onClick={() => goto("backups")} />
-        </NavGroup>
-
-        <NavGroup id="more" label={t("nav.group.more")} open={groupOpen("more")} forced={["templates", "snapshots", "exports", "automation"].some(onDatacenterTab)} onToggle={() => toggleGroup("more")}>
-          <NavItem icon="iso" label={t("nav.isoTemplates")} active={onDatacenterTab("templates")} onClick={() => goto("templates")} />
-          <NavItem icon="snapshots" label={t("nav.snapshots")} active={onDatacenterTab("snapshots")} onClick={() => goto("snapshots")} />
-          <NavItem icon="exports" label={t("nav.exports")} active={onDatacenterTab("exports")} onClick={() => goto("exports")} />
-          <NavItem icon="automation" label={t("nav.automation")} active={onDatacenterTab("automation")} onClick={() => goto("automation")} />
         </NavGroup>
 
         <NavGroup id="observe" label={t("nav.group.observability")} open={groupOpen("observe")} forced={onDatacenterTab("activity") || onDatacenterTab("journal")} onToggle={() => toggleGroup("observe")}>
@@ -145,6 +140,13 @@ export default function Sidebar({ collapsed }) {
             <NavItem icon="settings" label={t("nav.settings")} active={onDatacenterTab("notifications")} onClick={() => goto("notifications")} />
           </NavGroup>
         )}
+
+        <NavGroup id="more" label={t("nav.group.more")} open={groupOpen("more")} forced={["templates", "snapshots", "exports", "automation"].some(onDatacenterTab)} onToggle={() => toggleGroup("more")}>
+          <NavItem icon="iso" label={t("nav.isoTemplates")} active={onDatacenterTab("templates")} onClick={() => goto("templates")} />
+          <NavItem icon="snapshots" label={t("nav.snapshots")} active={onDatacenterTab("snapshots")} onClick={() => goto("snapshots")} />
+          <NavItem icon="exports" label={t("nav.exports")} active={onDatacenterTab("exports")} onClick={() => goto("exports")} />
+          <NavItem icon="automation" label={t("nav.automation")} active={onDatacenterTab("automation")} onClick={() => goto("automation")} />
+        </NavGroup>
       </div>
 
       <div className="nx-relative">
