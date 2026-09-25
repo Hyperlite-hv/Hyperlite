@@ -81,6 +81,11 @@ export default function Workspace({ children }) {
   const Registry = selection.type === "node" ? NODE_TABS : selection.type === "vm" ? VM_TABS : DATACENTER_TABS;
   const Active = Registry[tab];
 
+  const isOverview = isDc && tab === "summary";
+  // Every Datacenter-level page is reached from the sidebar now, so it gets a plain title instead
+  // of the old resource-header + top-tabs + subnav chrome — that inner nav used to repeat entries
+  // (Nœuds, Stockage, Réseau, Sauvegardes…) that already live in the sidebar.
+  const dcPageTitle = isOverview ? t("nav.overview") : t(`tab.${tab}`);
   const title = isDc ? t("res.datacenter") : selection.type === "node" ? (resource?.nom || selection.id) : selection.id;
   const kindLabel = t(`res.${selection.type === "container" ? "container" : selection.type}`);
   const missing = !loading && (selection.type === "vm" || selection.type === "node") && !resource;
@@ -102,10 +107,9 @@ export default function Workspace({ children }) {
   const act = (a) => vmActionState(a, vm, caps);
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsBtn = useRef(null);
-  const wizard = (kind) => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: kind }));
   const copy = (text) => navigator.clipboard?.writeText(text);
   const offlineNode = selection.type === "node" && resource && resource.etat !== "online";
-  const useSubnav = hasTabs && top.pages.length > 1;
+  const useSubnav = hasTabs && !isDc && top.pages.length > 1;
 
   return (
     <main className="nx-main" id="nx-main" tabIndex={-1}>
@@ -120,33 +124,37 @@ export default function Workspace({ children }) {
           <span aria-hidden="true">›</span><span aria-current="page">{title}</span>
         </nav>
       )}
-      <div className="nx-reshead">
-        <svg className="nx-objicon" width="22" height="22" viewBox="0 0 20 20" aria-hidden="true">{OBJ_ICON[selection.type] || OBJ_ICON.datacenter}</svg>
-        <h1 style={offlineNode ? { fontStyle: "italic" } : undefined}>{title}</h1>
-        {offlineNode && <span className="nx-tone-warning" role="status">▲ {t("res.offlineNode")}</span>}
-        {resource?.etat && <StatusIndicator kind={selection.type === "node" ? "node" : "vm"} wire={resource.etat} />}
-        <span className="nx-meta">{kindLabel}{vm?.node ? ` · ${nodes.find((n) => n.id === vm.node)?.nom || vm.node}` : ""}{vm?.ip ? ` · ` : ""}{vm?.ip && <span className="nx-mono">{vm.ip}</span>}</span>
-        <span style={{ marginLeft: "auto", display: "inline-flex", gap: "var(--space-2)", alignItems: "center" }}>
-          {vm && (() => { const c = act("console"); const st = act("start");
-            return vm.etat === "actif"
-              ? <button type="button" className="nx-btn nx-btn--primary" aria-disabled={!c.enabled || undefined} onClick={() => c.enabled && vmActions.openConsole(vm)}>{t("actions.primary.console")}</button>
-              : <button type="button" className="nx-btn nx-btn--primary" aria-disabled={!st.enabled || undefined} title={!st.enabled && st.reason ? t(st.reason) : undefined} onClick={() => st.enabled && vmActions.run(vm, "start")}>{t("menu.start")}{!st.enabled && st.reason && <span className="nx-sr"> — {t(st.reason)}</span>}</button>; })()}
-          <span className="nx-relative">
-            <button ref={actionsBtn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((o) => !o)}>{t("actions")} <span aria-hidden="true">▾</span></button>
-            <Menu open={actionsOpen} onClose={() => setActionsOpen(false)} label={t("actions")} returnFocusRef={actionsBtn} style={{ top: "calc(100% + 4px)", right: 0 }}>
-              {vm && ["start", "stop", "restart", "console", "force-stop"].map((a) => { const s2 = act(a); return <MenuItem key={a} danger={a === "force-stop"} disabled={!s2.enabled} reason={s2.reason ? t(s2.reason) : undefined} onSelect={() => { setActionsOpen(false); if (a === "console") vmActions.openConsole(vm); else vmActions.run(vm, a); }}>{t(a === "force-stop" ? "menu.forceStop" : `menu.${a}`)}</MenuItem>; })}
-              {vm?.ip && <MenuItem onSelect={() => { setActionsOpen(false); copy(vm.ip); }}>{t("menu.copyIp")}</MenuItem>}
-              {(isDc && caps.create) && (<>
-                <MenuItem onSelect={() => { setActionsOpen(false); wizard("vm"); }}>{`${t("action.create")} · ${t("action.createVm")}`}</MenuItem>
-                <MenuItem onSelect={() => { setActionsOpen(false); wizard("container"); }}>{`${t("action.create")} · ${t("action.createContainer")}`}</MenuItem>
-              </>)}
-              <MenuItem onSelect={() => { setActionsOpen(false); copy(window.location.href); }}>{t("menu.copyLink")}</MenuItem>
-            </Menu>
+      {isDc ? (
+        <div className="nx-reshead nx-reshead--plain">
+          <h1>{dcPageTitle}</h1>
+          {isOverview && <span className="nx-meta">{t("nav.overview.desc")}</span>}
+        </div>
+      ) : (
+        <div className="nx-reshead">
+          <svg className="nx-objicon" width="22" height="22" viewBox="0 0 20 20" aria-hidden="true">{OBJ_ICON[selection.type] || OBJ_ICON.datacenter}</svg>
+          <h1 style={offlineNode ? { fontStyle: "italic" } : undefined}>{title}</h1>
+          {offlineNode && <span className="nx-tone-warning" role="status">▲ {t("res.offlineNode")}</span>}
+          {resource?.etat && <StatusIndicator kind={selection.type === "node" ? "node" : "vm"} wire={resource.etat} />}
+          <span className="nx-meta">{kindLabel}{vm?.node ? ` · ${nodes.find((n) => n.id === vm.node)?.nom || vm.node}` : ""}{vm?.ip ? ` · ` : ""}{vm?.ip && <span className="nx-mono">{vm.ip}</span>}</span>
+          <span style={{ marginLeft: "auto", display: "inline-flex", gap: "var(--space-2)", alignItems: "center" }}>
+            {vm && (() => { const c = act("console"); const st = act("start");
+              return vm.etat === "actif"
+                ? <button type="button" className="nx-btn nx-btn--primary" aria-disabled={!c.enabled || undefined} onClick={() => c.enabled && vmActions.openConsole(vm)}>{t("actions.primary.console")}</button>
+                : <button type="button" className="nx-btn nx-btn--primary" aria-disabled={!st.enabled || undefined} title={!st.enabled && st.reason ? t(st.reason) : undefined} onClick={() => st.enabled && vmActions.run(vm, "start")}>{t("menu.start")}{!st.enabled && st.reason && <span className="nx-sr"> — {t(st.reason)}</span>}</button>; })()}
+            <span className="nx-relative">
+              <button ref={actionsBtn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((o) => !o)}>{t("actions")} <span aria-hidden="true">▾</span></button>
+              <Menu open={actionsOpen} onClose={() => setActionsOpen(false)} label={t("actions")} returnFocusRef={actionsBtn} style={{ top: "calc(100% + 4px)", right: 0 }}>
+                {/* the primary button above already covers "console" (running) or "start" (stopped) — not repeated here */}
+                {vm && ["start", "stop", "restart", "console", "force-stop"].filter((a) => a !== (vm.etat === "actif" ? "console" : "start")).map((a) => { const s2 = act(a); return <MenuItem key={a} danger={a === "force-stop"} disabled={!s2.enabled} reason={s2.reason ? t(s2.reason) : undefined} onSelect={() => { setActionsOpen(false); if (a === "console") vmActions.openConsole(vm); else vmActions.run(vm, a); }}>{t(a === "force-stop" ? "menu.forceStop" : `menu.${a}`)}</MenuItem>; })}
+                {vm?.ip && <MenuItem onSelect={() => { setActionsOpen(false); copy(vm.ip); }}>{t("menu.copyIp")}</MenuItem>}
+                <MenuItem onSelect={() => { setActionsOpen(false); copy(window.location.href); }}>{t("menu.copyLink")}</MenuItem>
+              </Menu>
+            </span>
           </span>
-        </span>
-      </div>
+        </div>
+      )}
 
-      {!missing && hasTabs && (
+      {!missing && hasTabs && !isDc && (
         <div className="nx-tabs" role="tablist" aria-label={title} onKeyDown={onTabKeyDown}>
           {topTabs.map((x) => (
             <button key={x.id} id={`nx-top-${x.id}`} type="button" role="tab" aria-selected={top.id === x.id} tabIndex={top.id === x.id ? 0 : -1} onClick={() => goTop(x)}>{t(x.label)}</button>
@@ -169,7 +177,7 @@ export default function Workspace({ children }) {
             ))}
           </div>
         )}
-        <div className="nx-content" data-legacy="true" id="nx-panel" role="tabpanel" aria-labelledby={hasTabs ? (useSubnav ? `nx-tab-${tab}` : `nx-top-${top.id}`) : undefined} tabIndex={0}>
+        <div className="nx-content" data-legacy="true" id="nx-panel" role="tabpanel" aria-labelledby={useSubnav ? `nx-tab-${tab}` : !isDc && hasTabs ? `nx-top-${top.id}` : undefined} tabIndex={0}>
           {children}
           {missing ? (
             <EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>} />

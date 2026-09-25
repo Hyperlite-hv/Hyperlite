@@ -13,7 +13,10 @@ import TopBar from "./layout/TopBar";
 import Workspace from "./layout/Workspace";
 import Dock from "./layout/Dock";
 import Palette from "./layout/Palette";
-import Explorer from "./explorer/Explorer";
+import Sidebar from "./layout/Sidebar";
+
+const SIDEBAR_KEY = "hyperlite-next-sidebar";
+function readSidebarCollapsed() { try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; } }
 
 const REFRESH_MS = 6000;
 const EXTRAS_MS = 15000;
@@ -25,7 +28,8 @@ export default function NextApp() {
   const lang = useLangStore((s) => s.lang);
   const initTheme = useThemeStore((s) => s.init);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [wizards, setWizards] = useState({});
 
   useEffect(() => {
@@ -48,21 +52,22 @@ export default function NextApp() {
   usePolling(useCallback(() => refreshInventory(), []), REFRESH_MS);
   usePolling(useCallback(() => refreshExtras(), []), EXTRAS_MS);
 
+  const toggleSidebar = useCallback(() => {
+    if (window.innerWidth < 1024) { setSidebarOpen((o) => !o); return; }
+    setSidebarCollapsed((c) => { const next = !c; try { localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0"); } catch { /* preference only */ } return next; });
+  }, []);
+
   useEffect(() => {
     const onKey = (e) => {
       const tag = (e.target?.tagName || "").toLowerCase();
       const typing = tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); setInventoryOpen((o) => !o); return; }
-      if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setInventoryOpen(true);
-        setTimeout(() => window.dispatchEvent(new CustomEvent("nx:focus-search")), 30);
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
+      if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setPaletteOpen(true); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [toggleSidebar]);
 
   useEffect(() => {
     const on = (e) => setWizards({ [e.detail]: true });
@@ -70,21 +75,23 @@ export default function NextApp() {
     return () => window.removeEventListener("nx:wizard", on);
   }, []);
 
-  const closeDrawer = () => setInventoryOpen(false);
   // Escape closes the narrow-screen drawer.
   useEffect(() => {
-    if (!inventoryOpen) return undefined;
-    const onKey = (e) => { if (e.key === "Escape" && window.innerWidth < 1024) setInventoryOpen(false); };
+    if (!sidebarOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setSidebarOpen(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [inventoryOpen]);
+  }, [sidebarOpen]);
+
+  const sidebarState = sidebarOpen ? "open" : sidebarCollapsed ? "collapsed" : undefined;
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="nx-root">
+      <div className="nx-root" data-sidebar={sidebarState}>
         <a className="nx-skip" href="#nx-main" onClick={(e) => { e.preventDefault(); document.getElementById("nx-main")?.focus(); }}>{t("skip")}</a>
-        <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleInventory={() => setInventoryOpen((o) => !o)} inventoryOpen={inventoryOpen} wizards={wizards} setWizards={setWizards} />
-        <Explorer open={inventoryOpen} onNavigate={closeDrawer} onCreateVm={() => setWizards({ vm: true })} />
+        <Sidebar collapsed={sidebarCollapsed} />
+        {sidebarOpen && <div className="nx-scrim" style={{ zIndex: 39 }} onClick={() => setSidebarOpen(false)} />}
+        <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleSidebar={toggleSidebar} wizards={wizards} setWizards={setWizards} />
         <Routes>
           <Route path="/" element={<Navigate to="/datacenter" replace />} />
           <Route path="/datacenter" element={<Workspace />} />

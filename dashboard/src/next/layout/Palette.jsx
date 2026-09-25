@@ -62,6 +62,9 @@ export default function Palette({ open, onClose, setWizards }) {
     else if (e.key === "ArrowDown") { e.preventDefault(); setIdx((i) => Math.min(items.length - 1, i + 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setIdx((i) => Math.max(0, i - 1)); }
     else if (e.key === "Enter") { e.preventDefault(); if (items[idx]) choose(items[idx]); }
+    // The input is the dialog's only focusable element (list options aren't in tab order):
+    // trap Tab/Shift+Tab here instead of letting focus escape to the scrim-covered page behind it.
+    else if (e.key === "Tab") { e.preventDefault(); }
   };
   let lastGroup = null;
 
