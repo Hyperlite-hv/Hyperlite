@@ -158,7 +158,7 @@ export default function VMWizard({ open, onClose, triggerRef }) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogContent
-        className="w-full max-w-2xl p-0 gap-0 overflow-hidden"
+        className="w-full max-w-2xl sm:max-w-2xl p-0 gap-0 overflow-hidden"
         // Explicit instead of relying on Radix's implicit "last focused
         // element before mount" capture: the trigger button lives outside
         // this always-mounted Dialog, opened via a state toggle rather than
@@ -181,13 +181,13 @@ export default function VMWizard({ open, onClose, triggerRef }) {
               <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${i < stepIndex ? "bg-accent-blue text-white" : i === stepIndex ? "border-2 border-accent-blue text-foreground" : "border border-border text-muted-foreground"}`}>
                 {i < stepIndex ? <Check size={12} /> : i + 1}
               </span>
-              <span className={`truncate text-xs ${i === stepIndex ? "font-medium text-foreground" : "text-muted-foreground"}`}>{st.label}</span>
+              <span className={`truncate text-xs ${i === stepIndex ? "font-medium text-foreground" : "hidden text-muted-foreground sm:inline"}`}>{st.label}</span>
               {i < STEPS.length - 1 && <span className={`h-px flex-1 ${i < stepIndex ? "bg-accent-blue" : "bg-border"}`} />}
             </li>
           ))}
         </ol>
 
-        <div className="max-h-[55vh] overflow-y-auto px-5 py-2">
+        <div className="max-h-[62vh] overflow-y-auto px-5 py-2">
           <Step form={form} patch={patch} nodes={nodes} networks={networks} storagePools={storagePools} />
         </div>
 
