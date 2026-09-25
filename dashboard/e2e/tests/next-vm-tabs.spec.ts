@@ -59,7 +59,7 @@ test("hardware: attach and detach a disk with confirmation, VLAN is validated, i
   const main = page.getByRole("main");
   const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length;
   const before = await disks();
-  await expect(main.getByRole("heading", { name: /^Disks/ })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { level: 2, name: /^Disks/ })).toBeVisible({ timeout: 20_000 });
   await main.getByLabel("New disk size in GB").fill("0");
   await expect(main.getByRole("button", { name: "Attach", exact: true })).toBeDisabled();
   await main.getByLabel("New disk size in GB").fill("1");
@@ -75,7 +75,7 @@ test("hardware: attach and detach a disk with confirmation, VLAN is validated, i
   await main.getByLabel("VLAN (optional)").fill("5000");
   await expect(main.getByRole("button", { name: "Add an interface" })).toBeDisabled();
   await expect(main.getByText("VLAN from 1 to 4094.")).toBeVisible();
-  await expect(main.getByRole("heading", { name: /^Network interfaces/ })).toBeVisible();
+  await expect(main.getByRole("heading", { level: 2, name: /^Network interfaces/ })).toBeVisible();
 });
 
 test("snapshots: name is validated, create, restore and delete are confirmed and really happen", async ({ page, request }) => {

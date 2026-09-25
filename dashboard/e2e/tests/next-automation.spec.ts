@@ -27,7 +27,7 @@ async function open(page: Page, tab: string, lang = "en") {
 test("automation: step validation, dry run, real run behind a confirmation that lists the commands, output and deletion", async ({ page, request }) => {
   await open(page, "automation");
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { name: /^Automation/ })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { level: 2, name: /^Automation/ })).toBeVisible({ timeout: 20_000 });
   await main.getByRole("button", { name: "Create a custom job" }).click();
 
   await main.getByRole("button", { name: "Create", exact: true }).click(); // invalid: nothing is sent
@@ -98,7 +98,7 @@ test("templates: deploy asks for a valid, unused name; deletion is confirmed", a
 test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await open(page, "automation", "fr");
-  await expect(page.getByRole("main").getByRole("heading", { name: /Automatisation/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /Automatisation/ })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("main").getByRole("button", { name: "Créer une tâche personnalisée" }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

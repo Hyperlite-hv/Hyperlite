@@ -29,7 +29,7 @@ async function open(page: Page) {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=permissions");
-  await expect(page.getByRole("main").getByRole("heading", { name: /^Users/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /^Users/ })).toBeVisible({ timeout: 20_000 });
 }
 const dialogConfirm = async (page: Page, name: string | RegExp) => page.getByRole("alertdialog").getByRole("button", { name, exact: typeof name === "string" }).click();
 
@@ -122,7 +122,7 @@ test("French labels and no overflow on a phone", async ({ page }) => {
   await page.getByRole("button", { name: /Se connecter|Sign in/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=permissions");
-  await expect(page.getByRole("main").getByRole("heading", { name: /^Utilisateurs/ })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("main").getByRole("heading", { name: /Rôles personnalisés/ })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /^Utilisateurs/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /Rôles personnalisés/ })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

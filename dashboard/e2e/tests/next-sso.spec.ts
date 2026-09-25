@@ -70,6 +70,6 @@ test("cannot enable an incomplete configuration; saving sends the fields, keeps 
 test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await open(page, "fr");
-  await expect(page.getByRole("main").getByRole("heading", { name: /Authentification unique/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /Authentification unique/ })).toBeVisible({ timeout: 20_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

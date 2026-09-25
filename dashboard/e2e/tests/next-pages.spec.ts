@@ -36,7 +36,7 @@ test.describe("Storage page", () => {
   test("creates a directory pool, shows its usage and volumes, removes only its definition after a confirmation", async ({ page, request }) => {
     await nextLogin(page, "storage");
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { name: /^Storage pools/ })).toBeVisible();
+    await expect(main.getByRole("heading", { level: 2, name: /^Storage pools/ })).toBeVisible();
     await expect(main.getByRole("meter").first()).toBeVisible();
     await main.getByRole("button", { name: "Create a pool" }).click();
     await main.getByRole("textbox", { name: "Pool name" }).fill(POOL);
@@ -121,7 +121,7 @@ test.describe("Journal, Backups, Exports and the administrator gate", () => {
   test("the journal sends every filter, including the end date, and can be exported", async ({ page }) => {
     await nextLogin(page, "journal");
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { name: /^Journal entries/ })).toBeVisible();
+    await expect(main.getByRole("heading", { level: 2, name: /^Journal entries/ })).toBeVisible();
     await expect(main.getByRole("table")).toBeVisible({ timeout: 20_000 });
     const asked = page.waitForRequest((r) => r.url().includes("/audit?") && r.url().includes("jusqu_a="));
     await main.getByLabel("Show entries until").fill("2099-01-01T00:00");
@@ -134,10 +134,10 @@ test.describe("Journal, Backups, Exports and the administrator gate", () => {
   test("backups and exports show a helpful empty state or their table", async ({ page }) => {
     await nextLogin(page, "backups");
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { name: /^Backups/ })).toBeVisible();
+    await expect(main.getByRole("heading", { level: 2, name: /^Backups/ })).toBeVisible();
     await expect(main.getByText(/No backups yet|Location \/ cause/)).toBeVisible({ timeout: 20_000 });
     await page.goto("/datacenter?tab=exports");
-    await expect(main.getByRole("heading", { name: /^Exports/ })).toBeVisible();
+    await expect(main.getByRole("heading", { level: 2, name: /^Exports/ })).toBeVisible();
     await expect(main.getByText(/No exports yet|Download/).first()).toBeVisible({ timeout: 20_000 });
   });
 

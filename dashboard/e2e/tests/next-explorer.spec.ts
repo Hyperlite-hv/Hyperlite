@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { expect, test, ADMIN } from "../support/fixtures";
+import { apiLogin, expect, test, ADMIN, PREFIX } from "../support/fixtures";
 
 // Rebuilt interface (dashboard/src/next): sidebar navigation, inventory, object pages.
 async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
@@ -38,6 +38,20 @@ async function openNavGroups(page: Page) {
 }
 
 test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
+  // These pages need at least one VM (a fresh CI host has none): create one and remove it afterwards.
+  const VM = `${PREFIX}expl-${Date.now().toString().slice(-6)}`;
+  test.beforeAll(async ({ request }) => {
+    const token = await apiLogin(request);
+    const res = await request.post("/vms", { headers: { Authorization: `Bearer ${token}` }, data: { name: VM, vcpu: 1, memory_mb: 256, disks: [{ size_gb: 3 }], network: "hyperlite-isolated", username: "tester", password: "Testpass1" } });
+    expect(res.ok(), await res.text()).toBe(true);
+    await expect.poll(async () => (await request.get(`/vms/${VM}`, { headers: { Authorization: `Bearer ${token}` } })).ok(), { timeout: 90_000 }).toBe(true);
+  });
+  test.afterAll(async ({ request }) => {
+    const h = { Authorization: `Bearer ${await apiLogin(request)}` };
+    await request.post(`/vms/${VM}/stop?force=true`, { headers: h }).catch(() => {});
+    await request.delete(`/vms/${VM}?confirm=true`, { headers: h }).catch(() => {});
+  });
+
   test("shows the main landmarks, the sidebar navigation and the hierarchical inventory", async ({ page, problems }) => {
     await nextLogin(page);
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
