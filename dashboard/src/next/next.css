@@ -1,57 +1,65 @@
-/* Hyperlite "Infrastructure Control Plane" — design tokens and component styles.
+/* HyperLite — design tokens and component styles (Porphyre palette, "Soft" shapes, IBM Plex).
    Scoped under :root[data-ui="next"] so the legacy interface is never affected.
    Values are validated by src/__tests__/tokens-contrast.test.js (WCAG AA). */
 
 @font-face { font-family: "Inter"; font-weight: 400 800; font-style: normal; font-display: swap; src: url("./fonts/inter-latin-variable.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600 700; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Mono"; font-weight: 600; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2"); }
 
-/* Dark theme (default): near-black navy chrome, cyan brand accent, indigo as the secondary hue
-   for type badges (network kind, etc). Functional colours are nudged a few percent from the
-   brand swatches so they clear AA as text on every surface (tokens test); the brand swatches
-   given by the reference design system are otherwise used verbatim. */
+/* Dark theme: graphite with a faint plum cast. The brand plum is used in its light tone so it reads
+   as text and as a button fill with dark text; borders and separators stay neutral, and the brand
+   stays rare (active navigation, primary action, focus, running operations). Values are checked by
+   src/__tests__/next-tokens.test.js. */
 :root[data-ui="next"] {
   color-scheme: dark;
   font-size: 15px; /* the whole app is rem-based off this root, not the browser's 16px default — a
                        deliberately denser scale than a typical page, closer to an ops console */
   /* Surfaces */
-  --color-bg-app: #0B1220;
-  --color-bg-sidebar: #08101D;
-  --color-bg-workspace: #0D1626;
-  --color-bg-surface: #121E33;
-  --color-bg-surface-raised: #192740;
-  --color-bg-hover: #172338;
-  --color-bg-selected: #12304A;
+  --color-bg-app: #19161A;
+  --color-bg-sidebar: #141215;
+  --color-bg-workspace: #1C191D;
+  --color-bg-surface: #242026;
+  --color-bg-surface-raised: #2C272E;
+  --color-bg-hover: #2E292F;
+  --color-bg-selected: #3A2631;
   /* Borders */
-  --color-border-subtle: #1E2A3F;
-  --color-border-default: #26374F;
-  --color-border-strong: #5F759D;
-  --color-border-focus: #38BDF8;
+  --color-border-subtle: #2E2930;
+  --color-border-default: #3A343B;
+  --color-border-strong: #7A7079;
+  --color-border-focus: #CE9DB2;
   /* Text */
-  --color-text-primary: #E7ECF3;
-  --color-text-secondary: #9AA7BE;
-  --color-text-muted: #8B98B0;
-  --color-text-disabled: #64748B;
-  --color-text-on-accent: #04121F;
-  /* Functional */
-  --color-accent: #38BDF8;
-  --color-accent-2: #7A7DF3;
-  --color-info: #38BDF8;
-  --color-success: #22C55E;
-  --color-warning: #F59E0B;
-  --color-danger: #F76F6F;
-  --color-offline: #8F9CB2;
-  --color-unknown: #8F9CB2;
+  --color-text-primary: #F1ECEE;
+  --color-text-secondary: #B3AAB0;
+  --color-text-muted: #ABA2A8;
+  --color-text-disabled: #6A6268;
+  --color-text-on-accent: #19161A;
+  /* Functional: brand plum, telemetry teal (info, charts), desaturated status colours */
+  --color-accent: #CE9DB2;
+  --color-accent-2: #8DB3BD;
+  --color-info: #6FAAB6;
+  --color-success: #4FAF86;
+  --color-warning: #D9A441;
+  --color-danger: #E0776F;
+  --color-offline: #A0979D;
+  --color-unknown: #A0979D;
   --color-success-subtle: color-mix(in oklab, var(--color-success) 14%, var(--color-bg-surface));
   --color-warning-subtle: color-mix(in oklab, var(--color-warning) 14%, var(--color-bg-surface));
   --color-danger-subtle: color-mix(in oklab, var(--color-danger) 14%, var(--color-bg-surface));
   --color-info-subtle: color-mix(in oklab, var(--color-info) 14%, var(--color-bg-surface));
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 16%, var(--color-bg-surface));
-  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 1px 3px rgba(0, 0, 0, 0.4);
+  /* Aliases used by a few components */
+  --color-bg-raised: var(--color-bg-surface-raised);
+  --color-border: var(--color-border-default);
+  --color-on-accent: var(--color-text-on-accent);
+  /* Flat surfaces: cards rely on borders; only floating layers (menus, palette) get a shadow */
+  --shadow-card: none;
   --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.35);
   /* Typography */
-  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.8125rem;
@@ -65,7 +73,9 @@
   --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
   --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
   /* Structure */
-  --radius-xs: 2px; --radius-sm: 4px; --radius-md: 6px; --radius-lg: 10px;
+  /* "Soft" shapes: 4 counters and checkboxes, 6 badges and small controls, 8 buttons, inputs and menus,
+     12 panels and cards; 16 is reserved for dialogs */
+  --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
   --border-width: 1px;
   --sidebar-width: 15.5rem;
   --topbar-height: 3rem;
@@ -74,22 +84,35 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Light theme: white cards on a soft neutral canvas, white sidebar. The brand cyan is darkened
-   (#0EA5E9 -> #096E9C) so it clears 4.5:1 as link/label text and still contrasts with white
-   button text; the raw brand hue stays in the dark theme where it sits directly on near-black. */
+/* Light theme (default): mineral off-white canvas, near-white panels, dark graphite navigation. The
+   brand plum is dark enough to be link text and to carry white button text. */
 :root[data-ui="next"][data-theme="light"] {
   color-scheme: light;
-  --color-bg-app: #F4F6F9; --color-bg-sidebar: #FFFFFF; --color-bg-workspace: #F4F6F9;
-  --color-bg-surface: #FFFFFF; --color-bg-surface-raised: #EEF1F6;
-  --color-bg-hover: #E8F1FB; --color-bg-selected: #D7EAFB;
-  --color-border-subtle: #E2E8F0; --color-border-default: #D8E0E9;
-  --color-border-strong: #8496AE; --color-border-focus: #096E9C;
-  --color-text-primary: #0F172A; --color-text-secondary: #5A697E;
-  --color-text-muted: #596981; --color-text-disabled: #94A3B8; --color-text-on-accent: #FFFFFF;
-  --color-accent: #096E9C; --color-accent-2: #4E51EF; --color-info: #096E9C; --color-success: #107837;
-  --color-warning: #9D5604; --color-danger: #CA2121; --color-offline: #576983; --color-unknown: #576983;
+  --color-bg-app: #F4F1EF; --color-bg-sidebar: #FCFAF9; --color-bg-workspace: #F4F1EF;
+  --color-bg-surface: #FCFAF9; --color-bg-surface-raised: #F1ECEB;
+  --color-bg-hover: #ECE6E5; --color-bg-selected: #F2E7EC;
+  --color-border-subtle: #E6DFDF; --color-border-default: #DED6D6;
+  --color-border-strong: #8C8388; --color-border-focus: #6E3550;
+  --color-text-primary: #1F1A1D; --color-text-secondary: #5A5256;
+  --color-text-muted: #5A5256; --color-text-disabled: #9E969A; --color-text-on-accent: #FFFFFF;
+  --color-accent: #6E3550; --color-accent-2: #3E6F7A; --color-info: #316874; --color-success: #276B4E;
+  --color-warning: #855611; --color-danger: #A6392F; --color-offline: #645C60; --color-unknown: #645C60;
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 12%, var(--color-bg-surface));
-  --shadow-float: 0 2px 10px rgba(15, 23, 42, 0.10);
+  --shadow-float: 0 2px 10px rgba(31, 26, 29, 0.10);
+}
+
+/* The navigation column stays dark graphite in both themes: it frames the workspace. */
+:root[data-ui="next"][data-theme="light"] .nx-sidebar {
+  color-scheme: dark;
+  --color-bg-sidebar: #19161A; --color-bg-surface: #242026; --color-bg-surface-raised: #2C272E;
+  --color-bg-hover: #2E292F; --color-bg-selected: #3A2631; --color-bg-workspace: #1C191D;
+  --color-border-subtle: #2E2930; --color-border-default: #3A343B; --color-border-strong: #7A7079;
+  --color-border-focus: #CE9DB2;
+  --color-text-primary: #F1ECEE; --color-text-secondary: #B3AAB0; --color-text-muted: #ABA2A8;
+  --color-text-disabled: #6A6268; --color-text-on-accent: #19161A;
+  --color-accent: #CE9DB2; --color-info: #6FAAB6; --color-success: #4FAF86; --color-warning: #D9A441;
+  --color-danger: #E0776F; --color-offline: #A0979D; --color-unknown: #A0979D;
+  color: var(--color-text-primary);
 }
 
 @media (prefers-contrast: more) {
@@ -154,7 +177,7 @@
 .nx-sidebar-brand { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-4); height: var(--topbar-height); flex: none; }
 .nx-brand-mark { flex: none; display: inline-flex; }
 .nx-brand-text { display: flex; flex-direction: column; line-height: 1.2; overflow: hidden; white-space: nowrap; }
-.nx-brand-text strong { font-size: var(--font-size-lg); font-weight: 700; letter-spacing: -0.01em; }
+.nx-brand-text strong { font-size: var(--font-size-lg); font-weight: 600; letter-spacing: -0.015em; }
 .nx-brand-text small { font-size: 0.6875rem; color: var(--color-text-muted); }
 .nx-root[data-sidebar="collapsed"] .nx-brand-text, .nx-root[data-sidebar="collapsed"] .nx-nav-label,
 .nx-root[data-sidebar="collapsed"] .nx-nav-count, .nx-root[data-sidebar="collapsed"] .nx-nav-group-label,
@@ -419,8 +442,8 @@
 .nx-reshead { padding-left: var(--space-6); padding-right: var(--space-6); }
 .nx-crumbrow { padding-left: var(--space-6); }
 .nx-tabs { padding: 0 var(--space-5); }
-.nx-btn { border-radius: var(--radius-lg); }
-.nx-nav-item { border-radius: var(--radius-lg); padding: 0.45rem 0.65rem; font-size: var(--font-size-md); position: relative; }
+.nx-btn { border-radius: var(--radius-md); }
+.nx-nav-item { border-radius: var(--radius-md); padding: 0.45rem 0.65rem; font-size: var(--font-size-md); position: relative; }
 .nx-nav-item.active { box-shadow: inset 2px 0 0 var(--color-accent); }
 .nx-nav-group-label { padding-top: var(--space-4); }
 .nx-table th, .nx-table td { padding: 0.65rem var(--space-3); }
@@ -467,7 +490,7 @@
 
 /* ---------- Screens not rebuilt yet: same cards, fields and dialogs as the rest ---------- */
 :root[data-ui="next"] [data-slot="card"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
-:root[data-ui="next"] [data-slot="button"] { border-radius: var(--radius-lg); }
+:root[data-ui="next"] [data-slot="button"] { border-radius: var(--radius-md); }
 :root[data-ui="next"] [data-slot="input"], :root[data-ui="next"] [data-slot="textarea"], :root[data-ui="next"] [data-slot="native-select"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); }
 :root[data-ui="next"] [data-slot="dialog-content"], :root[data-ui="next"] [data-slot="alert-dialog-content"], :root[data-ui="next"] [data-slot="dropdown-menu-content"] { background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); }
 :root[data-ui="next"] [data-slot="table-head"] { color: var(--color-text-muted); font-weight: 500; }
