@@ -49,6 +49,7 @@ test.describe("Automation jobs (real backend)", () => {
     expect(existsSync(MARKER), "a dry run must not run the command").toBe(false);
 
     await page.getByRole("button", { name: `Run ${OK_JOB}`, exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Run", exact: true }).click();
     await expect.poll(async () => (await runsOf(request, OK_JOB)).filter((r) => !r.dry_run).map((r) => r.statut), { timeout: 30_000 }).toEqual(["succes"]);
     expect(existsSync(MARKER), "the real run executed the command").toBe(true);
   });
@@ -57,6 +58,7 @@ test.describe("Automation jobs (real backend)", () => {
     await openAutomation(page);
     await createHostJob(page, FAIL_JOB, "exit 3");
     await page.getByRole("button", { name: `Run ${FAIL_JOB}`, exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Run", exact: true }).click();
     await expect.poll(async () => (await runsOf(request, FAIL_JOB)).map((r) => r.statut), { timeout: 30_000 }).toEqual(["echec"]);
   });
 

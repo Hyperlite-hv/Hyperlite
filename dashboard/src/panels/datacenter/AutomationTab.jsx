@@ -76,7 +76,7 @@ export default function AutomationTab() {
   }
 
   async function handleDelete(job) {
-    if (!(await confirmAction({ title: `Delete job '${job.name}'?`, message: "The job and its run history are removed.", confirmLabel: "Delete" }))) return;
+    if (!(await confirmAction({ title: `Delete job '${job.name}'?`, message: "The job is removed. Its past runs stay in the audit journal.", confirmLabel: "Delete" }))) return;
     try {
       await deleteJob(job.id);
       pushToast({ kind: "success", title: "Job deleted", message: job.name });
@@ -89,6 +89,8 @@ export default function AutomationTab() {
   async function handleRun(job, dryRun) {
     const raw = runForm[job.id] || "";
     const targets = raw.split(",").map((t) => t.trim()).filter(Boolean);
+    // A real run executes the job's commands: ask first (a dry run only previews).
+    if (!dryRun && !(await confirmAction({ title: `Run '${job.name}'?`, message: `The job's commands will be executed${targets.length ? ` on ${targets.length} target(s)` : ""}. Use "Dry run" to preview without executing.`, confirmLabel: "Run", danger: false }))) return;
     try {
       await runJob(job.id, targets, dryRun);
       pushToast({ kind: "success", title: dryRun ? "Dry run started" : "Run started", message: `${job.name}: see the history below in a few seconds` });

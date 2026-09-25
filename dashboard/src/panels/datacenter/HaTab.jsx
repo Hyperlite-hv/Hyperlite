@@ -50,6 +50,8 @@ export default function HaTab() {
   async function handleRecover(vmName) {
     const target = recoverTarget[vmName];
     if (!target) return;
+    // No fencing: if the node is only temporarily unreachable the VM could run twice. Ask, name the impact.
+    if (!(await confirmAction({ title: `Recover ${vmName} on ${target}?`, message: "Hyperlite has no fencing: if the original node is actually still running, the VM may end up running twice and corrupt its disk. Recover only when you are sure that node is down.", confirmLabel: "Recover", danger: true }))) return;
     setBusy(vmName);
     try {
       await recoverHa(vmName, target);

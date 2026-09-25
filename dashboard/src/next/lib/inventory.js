@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks, fetchContainers, fetchPools } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
+import { useAuthStore } from "../../store/useAuthStore";
 
 // Freshness of the inventory data, so the UI can say when it is stale instead of silently
 // showing old data (the legacy refresh swallows every failure).
@@ -33,6 +34,8 @@ export async function refreshExtras() {
     const containers = await fetchContainers();
     f.setExtras({ containers: Array.isArray(containers) ? containers : [] });
   } catch { /* containers are optional: keep the last list */ }
+  // Resource pools are administrator-only on the backend: do not ask (and collect 403s) for anyone else.
+  if (useAuthStore.getState().role !== "admin") { f.setExtras({ pools: null, poolsState: "forbidden" }); return; }
   try {
     const pools = await fetchPools();
     f.setExtras({ pools: Array.isArray(pools) ? pools : [], poolsState: "ok" });

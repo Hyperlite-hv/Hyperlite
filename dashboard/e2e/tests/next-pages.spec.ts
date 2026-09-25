@@ -23,7 +23,9 @@ async function nextLogin(page: Page, tab: string) {
 }
 
 test.beforeAll(async ({ request }) => { token = await apiLogin(request); });
+const OBS = { username: `${PREFIX}obs-${stamp}`, password: "Observer-Pass-1" };
 test.afterAll(async ({ request }) => {
+  await request.delete(`/auth/users/${OBS.username}`, { headers: auth() }).catch(() => {});
   await request.delete(`/storage/${POOL}?confirm=true&detacher=true`, { headers: auth() }).catch(() => {});
   rmSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`, { recursive: true, force: true });
   await request.delete(`/networks/${NET}?confirm=true`, { headers: auth() }).catch(() => {});
@@ -112,5 +114,51 @@ test.describe("Network page", () => {
       if (!r.ok()) return "retry"; // libvirt can answer 500 for a moment right after a deletion
       return ((await r.json()) as { nom: string }[]).some((n) => n.nom === NET) ? "present" : "gone";
     }, { timeout: 30_000 }).toBe("gone");
+  });
+});
+
+test.describe("Journal, Backups, Exports and the administrator gate", () => {
+  test("the journal sends every filter, including the end date, and can be exported", async ({ page }) => {
+    await nextLogin(page, "journal");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { name: /^Journal entries/ })).toBeVisible();
+    await expect(main.getByRole("table")).toBeVisible({ timeout: 20_000 });
+    const asked = page.waitForRequest((r) => r.url().includes("/audit?") && r.url().includes("jusqu_a="));
+    await main.getByLabel("Show entries until").fill("2099-01-01T00:00");
+    const req = await asked;
+    expect(req.url()).toContain("limit=300");
+    await main.getByLabel("Filter by result").selectOption("echec");
+    await expect(main.getByRole("button", { name: "Export CSV" })).toBeVisible();
+  });
+
+  test("backups and exports show a helpful empty state or their table", async ({ page }) => {
+    await nextLogin(page, "backups");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { name: /^Backups/ })).toBeVisible();
+    await expect(main.getByText(/No backups yet|Location \/ cause/)).toBeVisible({ timeout: 20_000 });
+    await page.goto("/datacenter?tab=exports");
+    await expect(main.getByRole("heading", { name: /^Exports/ })).toBeVisible();
+    await expect(main.getByText(/No exports yet|Download/).first()).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("an observer gets an explanation, not spinners or 403 errors, on administrator pages", async ({ page, request }) => {
+    const created = await request.post("/auth/users", { headers: auth(), data: { ...OBS, role: "observateur" } });
+    expect(created.ok()).toBe(true);
+    const failures: string[] = [];
+    page.on("response", (r) => { if (r.status() === 403) failures.push(new URL(r.url()).pathname); });
+    await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "en"); });
+    await page.goto("/");
+    await page.getByLabel("Username").fill(OBS.username);
+    await page.getByLabel("Password").fill(OBS.password);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
+    for (const tab of ["permissions", "sso", "journal", "exports"]) {
+      await page.goto(`/datacenter?tab=${tab}`);
+      await expect(page.getByRole("main").getByRole("heading", { name: "Administrators only" }), tab).toBeVisible();
+    }
+    await page.waitForTimeout(1500);
+    expect(failures, "no administrator endpoint was called").toEqual([]);
+    // the observer sees no Create menu
+    await expect(page.getByRole("button", { name: "Create", exact: true })).toHaveCount(0);
   });
 });
