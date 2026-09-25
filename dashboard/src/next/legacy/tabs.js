@@ -22,10 +22,8 @@ import ExportsPage from "../pages/ExportsPage";
 import SnapshotsPage from "../pages/SnapshotsPage";
 import VmSummary from "../pages/VmSummary";
 import VmConsole from "../pages/VmConsole";
-import VMHardwareTab from "../../panels/vm/VMHardwareTab";
-import VMOptionsTab from "../../panels/vm/VMOptionsTab";
-import VMBackupTab from "../../panels/vm/VMBackupTab";
-import VMSnapshotsTab from "../../panels/vm/VMSnapshotsTab";
+import { VmSnapshotsPage, VmBackupPage } from "../pages/VmSnapshotsBackup";
+import { VmHardwarePage, VmOptionsPage } from "../pages/VmConfigure";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
@@ -37,7 +35,7 @@ export const NODE_TABS = {
   summary: NodeSummary, system: NodeSystemPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
 };
 export const VM_TABS = {
-  summary: VmSummary, console: VmConsole, hardware: VMHardwareTab, options: VMOptionsTab, backup: VMBackupTab, snapshots: VMSnapshotsTab,
+  summary: VmSummary, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, backup: VmBackupPage, snapshots: VmSnapshotsPage,
 };
 
 
