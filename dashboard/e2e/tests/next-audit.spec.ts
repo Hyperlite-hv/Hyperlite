@@ -86,12 +86,6 @@ for (const [theme, lang] of [["dark", "en"], ["light", "fr"]] as const) {
   });
 }
 
-// The inventory lives in a panel opened from the cluster button of the sidebar.
-async function openInventory(page: Page) {
-  if (!(await page.getByRole("tree").isVisible())) await page.getByRole("button", { name: "Open the inventory" }).click();
-  await expect(page.getByRole("tree").getByRole("treeitem").first()).toBeVisible();
-}
-
 test("no horizontal overflow and the layout stays usable on five viewports", async ({ page, request }) => {
   const vm = await vmName(request);
   await login(page, { theme: "dark", lang: "en" });
@@ -236,15 +230,6 @@ test("dialogs and menus open, are named, trap focus and close with Escape", asyn
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   // tree context menu with the keyboard
-  await openInventory(page);
-  const vm = page.getByRole("tree").getByRole("treeitem", { name: /virtual machine, / }).first();
-  if (await vm.count()) {
-    await vm.focus();
-    await page.keyboard.press("Shift+F10");
-    await expect(page.getByRole("menu")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("menu")).toHaveCount(0);
-  }
   expect.soft(found.filter((f) => !/HTTP 40[34]/.test(f)), "runtime errors while opening dialogs").toEqual([]);
 });
 
@@ -347,9 +332,8 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await dlg.getByRole("button", { name: "Create the VM" }).click();
 
     // it shows up in the inventory, the VM list and the overview counters
-    await page.getByRole("button", { name: "Open the inventory" }).click();
-    await expect(page.getByRole("tree").getByRole("treeitem", { name: new RegExp(NAME) })).toBeVisible({ timeout: 90_000 });
-    await page.keyboard.press("Escape");
+    await page.goto("/datacenter?tab=vms");
+    await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible({ timeout: 90_000 });
     await expect.poll(() => state(request), { timeout: 60_000 }).toBe("arrete");
     await page.goto("/datacenter?tab=vms");
     await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible();

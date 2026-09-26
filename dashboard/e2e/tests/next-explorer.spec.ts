@@ -17,13 +17,7 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
   await page.getByLabel("Password").fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("button", { name: "Open the inventory" })).toBeVisible();
-}
-
-// The inventory lives in a panel opened from the cluster button of the sidebar.
-async function openInventory(page: Page) {
-  if (!(await page.getByRole("tree").isVisible())) await page.getByRole("button", { name: "Open the inventory" }).click();
-  await expect(page.getByRole("tree").getByRole("treeitem").first()).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main navigation" }).locator(".nx-cluster")).toBeVisible();
 }
 
 // Datacenter-level pages (historical ?tab= ids) and the title of their page.
@@ -58,15 +52,18 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await request.delete(`/vms/${VM}?confirm=true`, { headers: h }).catch(() => {});
   });
 
-  test("shows the main landmarks, the sidebar navigation and the hierarchical inventory", async ({ page, problems }) => {
+  test("shows the main landmarks and the sidebar without an inventory tree; the cluster button opens the search", async ({ page, problems }) => {
     await nextLogin(page);
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     await expect(page.getByRole("main")).toBeVisible();
-    await openInventory(page);
-    const tree = page.getByRole("tree", { name: "Inventory tree" });
-    await expect(tree.getByRole("treeitem").first()).toHaveAttribute("aria-level", "1");
-    await expect(tree.getByRole("treeitem", { name: /Datacenter/ })).toBeVisible();
-    await expect(tree.getByRole("treeitem", { name: /node, / })).toBeVisible();
+    await expect(page.getByRole("tree")).toHaveCount(0);
+    await page.locator(".nx-cluster").click();
+    const palette = page.getByRole("dialog", { name: "Find a node or VM" });
+    await expect(palette).toBeVisible();
+    await palette.getByRole("combobox").fill("Datacenter");
+    await expect(palette.getByRole("option").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
     expect(problems.filter((p) => !/Failed to load resource|width\(-1\)/.test(p))).toEqual([]);
   });
 
@@ -100,59 +97,6 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect.poll(width).toBe(w0);
   });
 
-  test("arrow keys, Home/End, Right/Left and Enter work in the tree (single tab stop)", async ({ page }) => {
-    await nextLogin(page);
-    await openInventory(page);
-    const tree = page.getByRole("tree");
-    const items = tree.getByRole("treeitem");
-    await items.first().focus();
-    const label = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
-    const first = await label();
-    await page.keyboard.press("ArrowDown");
-    expect(await label()).not.toBe(first);
-    await page.keyboard.press("End");
-    const last = await label();
-    await page.keyboard.press("Home");
-    expect(await label()).toBe(first);
-    expect(last).not.toBe(first);
-    await expect(tree.locator('[role="treeitem"][tabindex="0"]')).toHaveCount(1);
-    await page.keyboard.press("ArrowLeft");
-    await expect(items.first()).toHaveAttribute("aria-expanded", "false");
-    await page.keyboard.press("ArrowRight");
-    await expect(items.first()).toHaveAttribute("aria-expanded", "true");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/node\//);
-  });
-
-  test("a row navigates and closes the panel, the branch stays expanded, the chevron toggles", async ({ page }) => {
-    await nextLogin(page);
-    await openInventory(page);
-    await page.getByRole("treeitem", { name: /Datacenter/ }).click();
-    await expect(page.getByRole("tree")).toHaveCount(0); // the panel closes after a navigation
-    await openInventory(page);
-    const dc = page.getByRole("treeitem", { name: /Datacenter/ });
-    await expect(dc).toHaveAttribute("aria-expanded", "true");
-    await dc.locator(".nx-chev").click();
-    await expect(dc).toHaveAttribute("aria-expanded", "false");
-  });
-
-  test("search filters with a live result count, highlights, and explains an empty result", async ({ page }) => {
-    await nextLogin(page);
-    await openInventory(page);
-    const box = page.getByRole("searchbox");
-    await box.fill("stor");
-    await expect(page.locator(".nx-results")).toContainText(/result/);
-    await expect(page.locator("mark.nx-hit").first()).toBeVisible();
-    await box.fill("zzzzqq");
-    await expect(page.getByText("No node or VM matches “zzzzqq”.")).toBeVisible();
-    await page.getByRole("button", { name: "Clear search" }).click();
-    await expect(box).toHaveValue("");
-    await box.fill("x");
-    await box.press("Escape");
-    await expect(box).toHaveValue("");
-  });
-
   test("Ctrl+K and / open the command palette, which finds resources", async ({ page }) => {
     await nextLogin(page);
     await page.keyboard.press("Control+k");
@@ -167,49 +111,10 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(palette).toBeVisible();
   });
 
-  test("Server and Pool modes; the choice survives a reload", async ({ page }) => {
-    await nextLogin(page);
-    await openInventory(page);
-    await page.getByRole("button", { name: "Pool", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Pool", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("treeitem", { name: /Unassigned/ })).toBeVisible();
-    await page.reload();
-    await openInventory(page);
-    await expect(page.getByRole("button", { name: "Pool", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Server", exact: true }).click();
-    await expect(page.getByRole("treeitem", { name: /node, / })).toBeVisible();
-  });
-
-  test("inventory views (hosts, VMs, storage pools, networks)", async ({ page }) => {
-    await nextLogin(page);
-    await openInventory(page);
-    const views = page.getByRole("tablist", { name: "Inventory view" });
-    for (const [name, expected] of [["VMs and containers", /Virtual machines/], ["Storage pools", /node, /], ["Virtual networks", /Datacenter/], ["Hosts and servers", /node, /]] as const) {
-      await views.getByRole("tab", { name }).click();
-      await expect(views.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByRole("tree").getByRole("treeitem", { name: expected }).first()).toBeVisible();
-    }
-  });
-
-  test("the inventory panel opens from the cluster button and Ctrl+I, closes with Escape and on a click outside", async ({ page }) => {
-    await nextLogin(page);
-    await expect(page.getByRole("tree")).toHaveCount(0); // calm by default: the sidebar is navigation only
-    await page.getByRole("button", { name: "Open the inventory" }).click();
-    const panel = page.getByRole("dialog", { name: "Inventory" });
-    await expect(panel).toBeVisible();
-    await expect(panel.getByRole("searchbox")).toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect(panel).toBeHidden();
-    await page.keyboard.press("Control+i");
-    await expect(panel).toBeVisible();
-    await page.mouse.click(1000, 500); // outside the panel
-    await expect(panel).toBeHidden();
-  });
-
   test("selection and tab live in the URL and the browser Back button restores them", async ({ page }) => {
     await nextLogin(page);
-    await openInventory(page);
-    await page.getByRole("treeitem", { name: /node, / }).click();
+    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Nodes" }).click();
+    await page.getByRole("main").getByRole("table").getByRole("button").first().click();
     await expect(page).toHaveURL(/\/node\/local/);
     await page.getByRole("tab", { name: "Monitor" }).click();
     await expect(page).toHaveURL(/tab=system/);
@@ -300,9 +205,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
 
   test("a VM page shows state, capacity, identity, protection and every historical operation", async ({ page }) => {
     await nextLogin(page);
-    await openInventory(page);
-    const vm = page.getByRole("tree").getByRole("treeitem", { name: /virtual machine, / }).first();
-    test.skip(!(await vm.count()), "no VM on this host");
+    await page.goto("/datacenter?tab=vms");
+    const vm = page.getByRole("main").getByRole("button", { name: VM }).first();
+    await expect(vm).toBeVisible({ timeout: 30_000 });
     await vm.click();
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { name: "Identity" })).toBeVisible();
@@ -341,16 +246,17 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(panel).toBeHidden();
   });
 
-  test("on a tablet the sidebar opens as a drawer and reaches the inventory panel", async ({ page }) => {
+  test("on a tablet the sidebar opens as a drawer and closes after a navigation", async ({ page }) => {
     await page.setViewportSize({ width: 820, height: 1180 });
     await nextLogin(page).catch(() => {});
     const toggle = page.getByRole("button", { name: /sidebar/i }).first();
     await expect(toggle).toBeVisible();
     await toggle.click();
-    await page.getByRole("button", { name: "Open the inventory" }).click();
-    await expect(page.getByRole("tree")).toBeVisible();
-    await page.getByRole("treeitem", { name: /node, / }).click();
-    await expect(page).toHaveURL(/\/node\//);
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.getByRole("button", { name: "Nodes" })).toBeInViewport();
+    await nav.getByRole("button", { name: "Nodes" }).click();
+    await expect(page).toHaveURL(/tab=nodes/);
+    await expect(nav.getByRole("button", { name: "Nodes" })).not.toBeInViewport();
   });
 
   test("on a phone nothing overflows horizontally and search stays reachable", async ({ page }) => {

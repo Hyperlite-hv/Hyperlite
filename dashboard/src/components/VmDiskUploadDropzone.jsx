@@ -21,7 +21,7 @@ function formatEta(seconds) {
 // The same mechanism as IsoUploadDropzone.jsx (XMLHttpRequest + upload progress
 // event) but to POST /vm-disks: disk files (qcow2/raw/vmdk/vdi/vhd) meant for VM
 // import, distinct from ISOs (installation media).
-export default function VmDiskUploadDropzone({ onDone }) {
+export default function VmDiskUploadDropzone({ onDone, labels = {} }) {
   const [dragOver, setDragOver] = useState(false);
   const [upload, setUpload] = useState(null);
   const inputRef = useRef(null);
@@ -84,7 +84,7 @@ export default function VmDiskUploadDropzone({ onDone }) {
         }`}
       >
         <UploadCloud size={24} className="text-foreground/80" />
-        <p className="text-sm text-foreground/90">Drop a disk file here, or click to browse</p>
+        <p className="text-sm text-foreground/90">{labels.drop ?? "Drop a disk file here, or click to browse"}</p>
         <p className="text-[11px] text-muted-foreground">qcow2, raw, img, vmdk, vdi, vhd, vhdx</p>
         <input aria-label="Disk image file"
           ref={inputRef}
@@ -106,8 +106,8 @@ export default function VmDiskUploadDropzone({ onDone }) {
             <ProgressBar value={(upload.loaded / (upload.file.size || 1)) * 100} statut={upload.statut} />
           </div>
           <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
-            <span>{upload.statut === "termine" ? "Upload complete" : `${(upload.speed / 1024 / 1024).toFixed(1)} MB/s`}</span>
-            <span>{upload.statut === "termine" ? "" : `Estimated time remaining: ${formatEta(upload.etaS)}`}</span>
+            <span>{upload.statut === "termine" ? (labels.done ?? "Upload complete") : `${(upload.speed / 1024 / 1024).toFixed(1)} MB/s`}</span>
+            <span>{upload.statut === "termine" ? "" : `${labels.eta ?? "Estimated time remaining"}: ${formatEta(upload.etaS)}`}</span>
           </div>
         </Card>
       )}

@@ -68,7 +68,7 @@ export default function VmSummary({ resource: vm, selection }) {
         <StatTile label={t("ns.network")} value={current ? rate(current.netIn + current.netOut, lang) : null} sub={current ? `↓ ${rate(current.netIn, lang)} · ↑ ${rate(current.netOut, lang)}` : ""} series={data.slice(-40).map((p) => p.netIn + p.netOut)} unavailable={unavailable(current == null ? t("ns.collecting") : null)} />
       </div>
 
-      <div className="nx-cols">
+      <div className="nx-ov-row">
         <section className="nx-card" aria-labelledby="vm-identity">
           <h2 id="vm-identity">{t("vm.identity")}</h2>
           <dl className="nx-dl">
@@ -83,26 +83,28 @@ export default function VmSummary({ resource: vm, selection }) {
           </dl>
         </section>
 
-        <section className="nx-card" aria-labelledby="vm-protection">
-          <h2 id="vm-protection">{t("vm.protection")}</h2>
-          <dl className="nx-dl">
-            <dt>{t("vm.snapshots")}</dt><dd className="nx-mono">{snaps == null ? "…" : snaps.length}</dd>
-            <dt>{t("vm.lastBackup")}</dt><dd>{backups == null ? "…" : lastBackup ? <span><StatusIndicator kind="task" wire={lastBackup.statut === "termine" || lastBackup.statut === "succes" ? "termine" : lastBackup.statut === "echec" ? "echec" : "en_cours"} compact /> <span className="nx-mono">{clockTime(lastBackup.cree_le, lang)}</span></span> : <span className="nx-muted">{t("vm.noBackup")}</span>}</dd>
-            <dt>HA</dt><dd>{ha == null ? "…" : ha ? t("vm.haOn") : <span className="nx-muted">{t("vm.haOff")}</span>}</dd>
-          </dl>
-        </section>
+        <div className="nx-ov-side">
+          <section className="nx-card" aria-labelledby="vm-protection">
+            <h2 id="vm-protection">{t("vm.protection")}</h2>
+            <dl className="nx-dl">
+              <dt>{t("vm.snapshots")}</dt><dd className="nx-mono">{snaps == null ? "…" : snaps.length}</dd>
+              <dt>{t("vm.lastBackup")}</dt><dd>{backups == null ? "…" : lastBackup ? <span><StatusIndicator kind="task" wire={lastBackup.statut === "termine" || lastBackup.statut === "succes" ? "termine" : lastBackup.statut === "echec" ? "echec" : "en_cours"} compact /> <span className="nx-mono">{clockTime(lastBackup.cree_le, lang)}</span></span> : <span className="nx-muted">{t("vm.noBackup")}</span>}</dd>
+              <dt>HA</dt><dd>{ha == null ? "…" : ha ? t("vm.haOn") : <span className="nx-muted">{t("vm.haOff")}</span>}</dd>
+            </dl>
+          </section>
+          <section className="nx-card" aria-labelledby="vm-activity">
+            <h2 id="vm-activity">{t("ns.activity")}</h2>
+            {recent == null ? <p className="nx-muted">{t("loading")}</p> : recent.length === 0 ? <p className="nx-muted" role="status">{t("dock.none")}</p> : (
+              <ul className="nx-list">
+                {recent.map((r) => (
+                  <li key={r.id}><StatusIndicator kind="task" wire={r.statut} compact /><span>{taskLabel(r.type)}{r.erreur ? <span className="nx-muted"> — {r.erreur}</span> : null}</span><span className="nx-mono nx-muted">{clockTime(r.debut_le || r.cree_le, lang)}</span></li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
 
-      <section className="nx-card" aria-labelledby="vm-activity">
-        <h2 id="vm-activity">{t("ns.activity")}</h2>
-        {recent == null ? <p className="nx-muted">{t("loading")}</p> : recent.length === 0 ? <p className="nx-muted" role="status">{t("dock.none")}</p> : (
-          <ul className="nx-list">
-            {recent.map((r) => (
-              <li key={r.id}><StatusIndicator kind="task" wire={r.statut} compact /><span>{taskLabel(r.type)}{r.erreur ? <span className="nx-muted"> — {r.erreur}</span> : null}</span><span className="nx-mono nx-muted">{clockTime(r.debut_le || r.cree_le, lang)}</span></li>
-            ))}
-          </ul>
-        )}
-      </section>
 
       <details className="nx-card nx-ops">
         <summary>{t("vm.allOps")}</summary>

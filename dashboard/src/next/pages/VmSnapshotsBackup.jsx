@@ -114,7 +114,7 @@ export function VmSnapshotsPage({ resource: vm }) {
               <tbody>
                 {list.map((s) => (
                   <tr key={s.nom}>
-                    <th scope="row" className="nx-mono" style={{ paddingLeft: `calc(var(--space-3) + ${depthOf(s) * 1.25}rem)` }}>{s.nom} {s.actuel && <span className="nx-chip">{t("vs.current")}</span>}</th>
+                    <th scope="row" className="nx-mono" style={{ paddingLeft: `calc(var(--space-3) + ${depthOf(s) * 1.25}rem)` }}>{s.nom} {s.actuel && <span className="nx-tag">{t("vs.current")}</span>}</th>
                     <td>{kind(s)}</td>
                     <td className="nx-mono">{s.date_creation || "—"}</td>
                     <td>{s.description || <span className="nx-muted">—</span>}</td>

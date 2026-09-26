@@ -20,7 +20,7 @@ function formatEta(seconds) {
 
 // Real upload through XMLHttpRequest (the only API with a reliable progress event
 // on upload) to POST /isos.
-export default function IsoUploadDropzone({ onDone }) {
+export default function IsoUploadDropzone({ onDone, labels = {} }) {
   const [dragOver, setDragOver] = useState(false);
   const [upload, setUpload] = useState(null); // { file, loaded, speed, etaS, statut }
   const inputRef = useRef(null);
@@ -83,7 +83,7 @@ export default function IsoUploadDropzone({ onDone }) {
         }`}
       >
         <UploadCloud size={28} className="text-foreground/80" />
-        <p className="text-sm text-foreground/90">Drop an ISO image here, or click to browse</p>
+        <p className="text-sm text-foreground/90">{labels.drop ?? "Drop an ISO image here, or click to browse"}</p>
         <input aria-label="ISO image file"
           ref={inputRef}
           type="file"
@@ -104,8 +104,8 @@ export default function IsoUploadDropzone({ onDone }) {
             <ProgressBar value={(upload.loaded / (upload.file.size || 1)) * 100} statut={upload.statut} />
           </div>
           <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
-            <span>{upload.statut === "termine" ? "Upload complete" : `${(upload.speed / 1024 / 1024).toFixed(1)} MB/s`}</span>
-            <span>{upload.statut === "termine" ? "" : `Estimated time remaining: ${formatEta(upload.etaS)}`}</span>
+            <span>{upload.statut === "termine" ? (labels.done ?? "Upload complete") : `${(upload.speed / 1024 / 1024).toFixed(1)} MB/s`}</span>
+            <span>{upload.statut === "termine" ? "" : `${labels.eta ?? "Estimated time remaining"}: ${formatEta(upload.etaS)}`}</span>
           </div>
         </Card>
       )}
