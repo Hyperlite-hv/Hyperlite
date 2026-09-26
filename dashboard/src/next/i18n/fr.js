@@ -123,6 +123,8 @@ export default {
   "ov.attention": "À traiter",
   "ov.noPools": "Aucun pool de stockage.",
   "ov.free": "libres",
+  "ov.capacity": "Capacité",
+  "ov.capacityScope": "hôte local · dernière heure",
   "dock.title": "Activité",
   "dock.close": "Fermer le panneau d’activité",
   "dock.emptyHelp": "Les actions lancées (démarrage, arrêt, sauvegarde…) apparaissent ici pendant leur exécution.",

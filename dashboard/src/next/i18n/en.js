@@ -124,6 +124,8 @@ export default {
   "ov.attention": "Needs attention",
   "ov.noPools": "No storage pool.",
   "ov.free": "free",
+  "ov.capacity": "Capacity",
+  "ov.capacityScope": "local host · last hour",
   "dock.title": "Activity",
   "dock.close": "Close activity panel",
   "dock.emptyHelp": "Actions you run (start, stop, backup…) appear here while they run.",
