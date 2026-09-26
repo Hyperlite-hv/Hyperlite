@@ -1,11 +1,12 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
-const H = 210, PAD = { l: 34, r: 10, t: 10, b: 24 };
+const PAD = { l: 34, r: 10, t: 10, b: 24 };
 const COLORS = { info: "var(--color-info)", info2: "var(--color-accent-2)", accent: "var(--color-accent)", warning: "var(--color-warning)", muted: "var(--color-text-muted)" };
 
 // Small dependency-free line chart: fixed 0-100 scale (percentages), three grid lines, time ticks, hover read-out.
 // It carries a text summary for assistive technology (min / average / max per series) instead of hundreds of points.
 export default function LineChart({ series, label, formatTime, unit = "%", height = 210 }) {
+  const H = height;
   const [hover, setHover] = useState(null);
   // The viewBox follows the real width so text keeps its size in narrow and wide cards alike.
   const box = useRef(null);
@@ -42,7 +43,7 @@ export default function LineChart({ series, label, formatTime, unit = "%", heigh
 
   return (
     <figure className="nx-chart" style={{ margin: 0 }} ref={box}>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label}. ${summary}`} style={{ width: "100%", height, display: "block" }} onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label}. ${summary}`} style={{ width: "100%", height: "auto", display: "block" }} onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
         {[0, 50, 100].map((g) => (
           <g key={g}><line x1={PAD.l} x2={W - PAD.r} y1={y(g)} y2={y(g)} stroke="var(--color-border-subtle)" strokeWidth="1" /><text x={PAD.l - 6} y={y(g) + 3} textAnchor="end" className="nx-chart-tick">{g}</text></g>
         ))}

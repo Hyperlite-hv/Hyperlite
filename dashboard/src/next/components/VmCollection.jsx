@@ -8,7 +8,6 @@ import { formatSizeMb, formatUptimeLong } from "../lib/format";
 import StatusIndicator from "./StatusIndicator";
 
 const VIEW_KEY = "hyperlite-next-vmview";
-const AUTO_TABLE_FROM = 5; // cards are readable for a handful of VMs, a table scales past that
 const PROBLEM = new Set(["plante", "bloque", "inconnu"]);
 
 function readView() { try { return localStorage.getItem(VIEW_KEY) || "auto"; } catch { return "auto"; } }
@@ -32,8 +31,8 @@ export function VmActions({ vm }) {
 }
 
 // VM collection shared by the node summary and the "Virtual machines" page: filter, state chips,
-// sortable table (default from 5 VMs) or cards, with the same actions everywhere.
-export default function VmCollection({ vms, showNode = false, title, headingId = "vm-collection" }) {
+// sortable table (default) or cards, with the same actions everywhere.
+export default function VmCollection({ vms, showNode = false, title, headingId = "vm-collection", action = null }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const nodes = useInfraStore((s) => s.nodes);
@@ -63,7 +62,7 @@ export default function VmCollection({ vms, showNode = false, title, headingId =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vms, q, chip, sort, nodes]);
 
-  const mode = view === "auto" ? (vms.length >= AUTO_TABLE_FROM ? "table" : "cards") : view;
+  const mode = view === "auto" ? "table" : view; // a dense table by default; cards stay one click away
   const th = (key, label, cls) => (
     <th scope="col" className={cls} aria-sort={sort.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
       <button type="button" className="nx-thbtn" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : 1 }))}>{label}{sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}</button>
@@ -80,6 +79,7 @@ export default function VmCollection({ vms, showNode = false, title, headingId =
           <button type="button" aria-pressed={mode === "cards"} onClick={() => setView("cards")}>{t("ns.cards")}</button>
           <button type="button" aria-pressed={mode === "table"} onClick={() => setView("table")}>{t("ns.table")}</button>
         </div>
+        {action}
       </div>
       <div className="nx-chips" role="group" aria-label={t("vmlist.filterState")}>
         {[["all", t("vmlist.all")], ["running", t("state.running")], ["stopped", t("state.stopped")], ["problems", t("vmlist.problems")]].map(([id, label]) => (
