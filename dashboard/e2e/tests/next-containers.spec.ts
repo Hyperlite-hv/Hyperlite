@@ -32,7 +32,7 @@ async function open(page: Page) {
   const api = await mockApi(page);
   await page.goto("/");
   await page.getByLabel("Username").fill(ADMIN.username);
-  await page.getByLabel("Password").fill(ADMIN.password);
+  await page.getByLabel("Password", { exact: true }).fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=containers");
@@ -42,7 +42,7 @@ async function open(page: Page) {
 test("lists containers with state text, gates stop/delete behind confirmations, and creates from the gallery", async ({ page }) => {
   const api = await open(page);
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { level: 2, name: /^Containers/ })).toBeVisible();
+  await expect(main.getByRole("heading", { level: 1, name: "Containers" })).toBeVisible();
   await expect(main.getByRole("row", { name: /web1/ })).toContainText("192.168.122.50");
   await expect(main.getByRole("row", { name: /db1/ })).toContainText("Not assigned");
 
@@ -61,14 +61,15 @@ test("lists containers with state text, gates stop/delete behind confirmations, 
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click();
   await expect(main.getByRole("row", { name: /db1/ })).toHaveCount(0, { timeout: 15_000 });
 
+  // The page primary opens the same creation dialog as Create › Container (no inline form any more).
   await main.getByRole("button", { name: "Create a container" }).click();
-  const submit = main.getByRole("button", { name: "Create", exact: true });
-  await expect(submit).toBeDisabled();
-  await main.getByRole("button", { name: /Alpine/ }).click();
-  await expect(main.getByRole("button", { name: /Alpine/ })).toHaveAttribute("aria-pressed", "true");
-  await main.getByLabel("Name", { exact: true }).fill("cache1");
-  await main.getByLabel("User", { exact: true }).fill("ops");
-  await main.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
+  const dlg = page.getByRole("dialog", { name: "Create a container" });
+  const submit = dlg.getByRole("button", { name: "Create the container", exact: true });
+  await dlg.getByRole("button", { name: /Alpine/ }).click();
+  await expect(dlg.getByRole("button", { name: /Alpine/ })).toHaveAttribute("aria-pressed", "true");
+  await dlg.getByLabel("Name", { exact: true }).fill("cache1");
+  await dlg.getByLabel("User", { exact: true }).fill("ops");
+  await dlg.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
   await submit.click();
   await expect(main.getByRole("row", { name: /cache1/ })).toBeVisible({ timeout: 15_000 });
   expect(api.created()).toMatchObject({ name: "cache1", image: "alpine:3.19", username: "ops", vcpu: 1, memory_mb: 512 });
@@ -87,7 +88,7 @@ test("French labels and no horizontal overflow at a narrow width", async ({ page
   const main = page.getByRole("main");
   await expect(main.getByRole("button", { name: "Créer un conteneur" })).toBeVisible();
   await main.getByRole("button", { name: "Créer un conteneur" }).click();
-  await expect(main.getByText("Distribution généraliste")).toBeVisible();
+  await expect(page.getByRole("dialog").getByText("Distribution généraliste")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 

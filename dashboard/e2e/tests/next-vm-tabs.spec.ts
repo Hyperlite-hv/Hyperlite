@@ -26,26 +26,32 @@ async function open(page: Page, tab: string, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
   await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
-  await page.getByLabel(/Password|Mot de passe/).fill(ADMIN.password);
+  await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto(`/vm/${NAME}?tab=${tab}`);
 }
 
-test("options: values are validated, resources saved on a stopped VM, limits applied live", async ({ page, request }) => {
-  await open(page, "options");
+test("hardware and options: values are validated, resources saved on a stopped VM, limits applied live", async ({ page, request }) => {
+  // R9: vCPU and memory are edited in Hardware › Processor and memory.
+  await open(page, "hardware");
   const main = page.getByRole("main");
-  const save = main.getByRole("button", { name: "Save", exact: true });
-  await expect(main.getByLabel("vCPU count")).toBeEnabled({ timeout: 20_000 });
+  const compute = main.getByRole("region", { name: "Processor and memory" });
+  const save = compute.getByRole("button", { name: "Save", exact: true });
+  await expect(compute.getByLabel("vCPU count")).toBeEnabled({ timeout: 20_000 });
   await expect(save).toBeDisabled(); // unchanged
-  await main.getByLabel("vCPU count").fill("0");
+  await compute.getByLabel("vCPU count").fill("0");
   await expect(save).toBeDisabled();
-  await expect(main.getByText(/^From \d+ to/).first()).toHaveClass(/nx-hint--error/);
-  await main.getByLabel("vCPU count").fill("2");
+  await expect(compute.getByText(/^From \d+ to/).first()).toHaveClass(/is-error/);
+  await compute.getByLabel("vCPU count").fill("2");
   await save.click();
   await expect.poll(async () => ((await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { vcpu: number }).vcpu, { timeout: 30_000 }).toBe(2);
 
-  const apply = main.getByRole("button", { name: "Apply" });
+  // "Options and limits" keeps only the live cgroups limits, with one "Apply live" button.
+  await main.getByRole("navigation", { name: "Hardware" }).getByRole("button", { name: "Options and limits" }).click();
+  await expect(page).toHaveURL(/tab=options/);
+  await expect(main.getByLabel("vCPU count")).toHaveCount(0);
+  const apply = main.getByRole("button", { name: "Apply live" });
   await main.getByLabel("CPU shares").fill("1");
   await expect(apply).toBeDisabled();
   await expect(main.getByText("Whole number from 2 to 262144.")).toBeVisible();
@@ -64,10 +70,13 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN is 
   const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length;
   const before = await disks();
   await expect(main.getByRole("heading", { level: 2, name: /^Disks/ })).toBeVisible({ timeout: 20_000 });
-  await main.getByLabel("New disk size in GB").fill("0");
-  await expect(main.getByRole("button", { name: "Attach", exact: true })).toBeDisabled();
-  await main.getByLabel("New disk size in GB").fill("1");
-  await main.getByRole("button", { name: "Attach", exact: true }).click();
+  // Adding a disk opens a side drawer.
+  await main.getByRole("button", { name: "Add a disk" }).click();
+  const drawer = page.getByRole("dialog", { name: "Add a disk" });
+  await drawer.getByLabel("New disk size in GB").fill("0");
+  await expect(drawer.getByRole("button", { name: "Add the disk", exact: true })).toBeDisabled();
+  await drawer.getByLabel("New disk size in GB").fill("1");
+  await drawer.getByRole("button", { name: "Add the disk", exact: true }).click();
   await expect.poll(disks, { timeout: 30_000 }).toBe(before + 1);
   await main.getByRole("button", { name: /^Detach disk sd/ }).first().click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
@@ -77,14 +86,17 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN is 
   await expect.poll(disks, { timeout: 30_000 }).toBe(before);
   // interfaces and firewall moved to their own Network tab
   await expect(main.getByRole("heading", { level: 2, name: /^Network interfaces/ })).toHaveCount(0);
-  await main.getByRole("tab", { name: "Options" }).click();
+  await main.getByRole("navigation", { name: "Hardware" }).getByRole("button", { name: "Options and limits" }).click();
   await expect(page).toHaveURL(/tab=options/);
 
   await page.goto(`/vm/${NAME}?tab=network`);
   await expect(main.getByRole("tab", { name: "Network", exact: true })).toHaveAttribute("aria-selected", "true");
-  await main.getByLabel("VLAN (optional)").fill("5000");
-  await expect(main.getByRole("button", { name: "Add an interface" })).toBeDisabled();
-  await expect(main.getByText("VLAN from 1 to 4094.")).toBeVisible();
+  await main.getByRole("button", { name: "Add an interface" }).click();
+  const ifDrawer = page.getByRole("dialog", { name: "Add an interface" });
+  await ifDrawer.getByLabel("VLAN (optional)").fill("5000");
+  await expect(ifDrawer.getByRole("button", { name: "Add the interface" })).toBeDisabled();
+  await expect(ifDrawer.getByText("VLAN from 1 to 4094.")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(main.getByRole("heading", { level: 2, name: /^Network interfaces/ })).toBeVisible();
 });
 
@@ -100,7 +112,8 @@ test("snapshots: name is validated, create, restore and delete are confirmed and
   await dlg.getByRole("textbox").fill("before-upgrade");
   await dlg.getByRole("button", { name: "Create a snapshot" }).click();
   await expect.poll(snaps, { timeout: 60_000 }).toContain("before-upgrade");
-  await expect(main.getByRole("row", { name: /before-upgrade/ })).toBeVisible({ timeout: 20_000 });
+  // The snapshots are a timeline now.
+  await expect(main.getByRole("list", { name: "Snapshot timeline" }).getByText("before-upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
 
   await main.getByRole("button", { name: "Restore snapshot before-upgrade" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
@@ -113,18 +126,21 @@ test("snapshots: name is validated, create, restore and delete are confirmed and
   await expect.poll(snaps, { timeout: 30_000 }).not.toContain("before-upgrade");
 });
 
-test("header actions and performance: Snapshot opens the creation dialog, Migrate explains why it is unavailable", async ({ page }) => {
+test("header actions and performance: Snapshot and Migrate are in the Actions menu, charts only in Performance", async ({ page }) => {
   await open(page, "summary");
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { level: 2, name: "Configuration" })).toBeVisible({ timeout: 20_000 });
-  await expect(main.getByRole("heading", { level: 2, name: /^Performance · last hour/ })).toBeVisible();
+  // R8: KPI tiles on the summary, the full charts only in the Performance tab.
+  await expect(main.getByRole("heading", { level: 2, name: /^Performance · last hour/ })).toHaveCount(0);
   for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
-  const head = page.locator(".nx-headactions");
+  const head = page.locator(".nx-oh-acts");
   // stopped VM on a single-node install: Start is the primary action, Migrate says why it is unavailable
   await expect(head.getByRole("button", { name: "Start", exact: true })).toBeVisible();
-  await expect(head.getByRole("button", { name: /^Migrate…/ })).toHaveAttribute("aria-disabled", "true");
-  await expect(head.getByRole("button", { name: /^Migrate…/ })).toHaveAttribute("title", /Not running|No other online node/);
-  await head.getByRole("button", { name: "Snapshot", exact: true }).click();
+  await head.getByRole("button", { name: /^Actions/ }).click();
+  const migrate = page.getByRole("menuitem", { name: /^Migrate…/ });
+  await expect(migrate).toHaveAttribute("aria-disabled", "true");
+  await expect(migrate).toHaveAttribute("title", /Not running|No other online node/);
+  await page.getByRole("menuitem", { name: "Create a snapshot" }).click();
   await expect(page).toHaveURL(/tab=snapshots/);
   const dlg = page.getByRole("dialog");
   await expect(dlg.getByRole("textbox")).toBeVisible({ timeout: 20_000 });
@@ -141,7 +157,9 @@ test("backup: schedule is validated and saved, a backup runs and can be deleted 
   await open(page, "backup");
   const main = page.getByRole("main");
   const save = main.getByRole("button", { name: "Save", exact: true });
-  await expect(main.getByRole("heading", { name: "Scheduled backup" })).toBeVisible({ timeout: 20_000 });
+  // R10: "Back up now" is the tab primary, the schedule card has a switch and a default Save.
+  await expect(main.getByRole("heading", { name: "Schedule" })).toBeVisible({ timeout: 20_000 });
+  await main.getByRole("switch", { name: "Scheduled backup" }).click();
   await main.getByLabel("Retention (backups kept)").fill("0");
   await expect(save).toBeDisabled();
   await expect(main.getByText("Enter a whole number from 1 to 365.")).toBeVisible();
@@ -159,7 +177,7 @@ test("backup: schedule is validated and saved, a backup runs and can be deleted 
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click();
   await expect(main.getByText("No backups")).toBeVisible({ timeout: 30_000 });
 
-  await main.getByRole("button", { name: "Disable", exact: true }).click();
+  await main.getByRole("switch", { name: "Scheduled backup" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Disable", exact: true }).click();
   await expect.poll(async () => (await (await request.get(`/vms/${NAME}/backup-schedule`, { headers: auth() })).text()), { timeout: 20_000 }).toMatch(/null|^$/);
 });
@@ -169,6 +187,6 @@ test("French labels and no overflow on a phone", async ({ page }) => {
   await open(page, "options", "fr");
   await expect(page.getByRole("main").getByRole("heading", { name: "Limites et priorité (cgroups)" })).toBeVisible({ timeout: 20_000 });
   await page.goto(`/vm/${NAME}?tab=backup`);
-  await expect(page.getByRole("main").getByRole("heading", { name: "Sauvegarde planifiée" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("heading", { name: "Planification" })).toBeVisible({ timeout: 20_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

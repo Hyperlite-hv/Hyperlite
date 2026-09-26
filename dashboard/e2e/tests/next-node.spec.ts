@@ -8,7 +8,7 @@ async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
   await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
-  await page.getByLabel(/Password|Mot de passe/).fill(ADMIN.password);
+  await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
 }
@@ -17,16 +17,20 @@ test("local node: system, network, disk, tasks, compatibility and shell pages sh
   await open(page);
   await page.goto("/node/local?tab=system");
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { name: "System", exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(main.getByText("Kernel")).toBeVisible();
-  await expect(main.getByText("libvirt hostname")).toBeVisible();
+  // Système: hardware (lscpu) and software cards from GET /nodes/{name}/hardware and the live data.
+  await expect(main.getByRole("heading", { name: "Hardware", exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { name: "Software", exact: true })).toBeVisible();
+  await expect(main.getByText("Kernel", { exact: true })).toBeVisible();
+  await expect(main.getByText("Host name", { exact: true })).toBeVisible();
 
   await page.goto("/node/local?tab=network");
   await expect(main.getByRole("table").getByRole("row").nth(1)).toBeVisible({ timeout: 20_000 });
-  await expect(main.getByRole("columnheader", { name: "Bridge" })).toBeVisible();
+  // the host interfaces (sysfs + ip addr), not the libvirt networks
+  for (const col of ["Interface", "Link", "Addresses"]) await expect(main.getByRole("columnheader", { name: col })).toBeVisible();
 
   await page.goto("/node/local?tab=disk");
-  await expect(main.getByRole("table").getByRole("row", { name: /default/ })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("table").getByRole("row", { name: /default/ }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { name: "Physical disks" })).toBeVisible();
 
   // tasks are scoped to the node: the request carries it
   const req = page.waitForRequest((r) => /\/tasks\?/.test(r.url()) && r.url().includes("node=local"));

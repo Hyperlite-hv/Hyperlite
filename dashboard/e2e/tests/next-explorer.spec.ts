@@ -14,28 +14,20 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
   }, [theme, lang]);
   await page.goto("/");
   await page.getByLabel("Username").fill(ADMIN.username);
-  await page.getByLabel("Password").fill(ADMIN.password);
+  await page.getByLabel("Password", { exact: true }).fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("navigation", { name: "Main navigation" }).locator(".nx-cluster")).toBeVisible();
 }
 
 // Datacenter-level pages (historical ?tab= ids) and the title of their page.
+// "templates" is the historical id of the Library page (ISO images and templates).
 const DATACENTER_PAGES: Record<string, string> = {
-  summary: "Overview", activity: "Recent activity", storage: "Storage", templates: "Templates", backups: "Backups", exports: "Exports",
-  permissions: "Permissions", reseau: "Network", automation: "Automation", containers: "Containers", nodes: "Nodes", ha: "HA",
-  compat: "Compatibility", notifications: "Notifications", sso: "SSO", journal: "Journal", vms: "Virtual machines", snapshots: "Snapshots",
+  summary: "Home", activity: "Tasks", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
+  backups: "Backups", exports: "Exports", permissions: "Users and roles", reseau: "Network", automation: "Automation", containers: "Containers",
+  nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Authentication (SSO)",
+  journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots",
 };
-
-
-// Navigation groups other than Infrastructure and Management start closed: open every group first.
-async function openNavGroups(page: Page) {
-  const nav = page.getByRole("navigation", { name: "Main navigation" });
-  for (const g of ["Observability", "Administration", "More"]) {
-    const b = nav.getByRole("button", { name: g, exact: true });
-    if ((await b.count()) && (await b.getAttribute("aria-expanded")) === "false") await b.click();
-  }
-}
 
 test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
   // These pages need at least one VM (a fresh CI host has none): create one and remove it afterwards.
@@ -70,8 +62,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
   test("the sidebar reaches every Datacenter page and marks the current one", async ({ page }) => {
     await nextLogin(page);
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    await openNavGroups(page);
-    for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users & Roles", "permissions", "Permissions"], ["Overview", "summary", "Overview"]] as const) {
+    // The sidebar groups are always open (Infrastructure, Cluster, Protection, Library, Operations, Administration).
+    for (const g of ["Infrastructure", "Cluster", "Protection", "Library", "Operations", "Administration"]) await expect(nav.getByRole("group", { name: g, exact: true })).toBeVisible();
+    for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users and roles", "permissions", "Users and roles"], ["Authentication (SSO)", "sso", "Authentication (SSO)"], ["Audit log", "journal", "Audit log"], ["Home", "summary", "Home"]] as const) {
       await nav.getByRole("button", { name: item }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
       if (tab !== "summary") await expect(page).toHaveURL(new RegExp(`tab=${tab}`));
@@ -116,7 +109,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Nodes" }).click();
     await page.getByRole("main").getByRole("table").getByRole("button").first().click();
     await expect(page).toHaveURL(/\/node\/local/);
-    await page.getByRole("tab", { name: "System summary" }).click();
+    await page.getByRole("tab", { name: "System", exact: true }).click();
     await expect(page).toHaveURL(/tab=system/);
     await page.goBack();
     await expect(page).toHaveURL(/\/node\/local$/);
@@ -133,45 +126,49 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
 
   test("all eight node pages are reachable as flat tabs", async ({ page }) => {
     await nextLogin(page);
-    for (const [id, label] of [["summary", "Summary"], ["perf", "Performance"], ["system", "System summary"], ["tasks", "Tasks"], ["network", "Network"], ["disk", "Disk storage"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
+    for (const [id, label] of [["summary", "Summary"], ["perf", "Performance"], ["system", "System"], ["network", "Network"], ["disk", "Storage"], ["tasks", "Tasks"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
       await page.goto(id === "summary" ? "/node/local" : `/node/local?tab=${id}`);
       await expect(page.getByRole("main").getByRole("tab", { name: label, exact: true }), id).toHaveAttribute("aria-selected", "true");
     }
   });
 
-  test("node summary: configuration, host charts, VMs, activity and alerts; direct actions and Actions menu", async ({ page }) => {
+  test("node summary: KPI strip, VMs on the node, configuration with the alert state, activity; Actions menu", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/node/local");
     const main = page.getByRole("main");
+    await expect(main.getByRole("group", { name: "Node resources" })).toBeVisible();
+    for (const k of ["CPU", "Memory", "Storage"]) await expect(main.getByRole("group", { name: "Node resources" }).getByText(k, { exact: true })).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Virtual machines on this node" })).toBeVisible();
     await expect(main.getByRole("heading", { name: "Configuration" })).toBeVisible();
-    await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toBeVisible();
-    for (const h of ["CPU", "Memory"]) await expect(main.getByRole("heading", { level: 3, name: h, exact: true })).toBeVisible();
+    await expect(main.getByText("Alerts", { exact: true })).toBeVisible();
     await expect(main.getByRole("heading", { name: "Recent activity" })).toBeVisible();
-    await expect(main.getByRole("heading", { name: /^Alerts/ })).toBeVisible();
-    await main.getByRole("button", { name: "Table" }).click();
-    await expect(main.getByRole("table")).toBeVisible();
-    await main.getByRole("button", { name: "Cards" }).click();
-    await expect(main.getByRole("table")).toHaveCount(0);
+    // The full charts live only in the Performance tab (R5).
+    await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toHaveCount(0);
+    // R3 / R4: "New VM" and "Shell" left the header for the Actions menu.
+    const head = page.locator(".nx-oh-acts");
+    await expect(head.getByRole("button", { name: "New VM", exact: true })).toHaveCount(0);
+    await expect(head.getByRole("button", { name: "Shell", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: /^Actions/ }).click();
     await expect(page.getByRole("menuitem", { name: "Copy link" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    const head = page.locator(".nx-headactions");
-    await head.getByRole("button", { name: "New VM", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Create a VM on this node" }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page.keyboard.press("Escape");
-    await head.getByRole("button", { name: "Shell", exact: true }).click();
+    await page.getByRole("button", { name: /^Actions/ }).click();
+    await page.getByRole("menuitem", { name: "Open the shell" }).click();
     await expect(page).toHaveURL(/tab=shell/);
     await main.getByRole("tab", { name: "Performance" }).click();
     await expect(main.getByRole("group", { name: "History range" })).toBeVisible();
   });
 
-  test("the Overview answers: headline figures, host history, nodes, alerts, operations, pools, events", async ({ page }) => {
+  test("the Overview answers: headline figures, nodes, watch list, pools, activity; charts only in Performance", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/datacenter");
     const main = page.getByRole("main");
-    for (const name of ["CPU history", "Memory history", "Nodes", "Alerts", "Storage pools"]) await expect(main.getByRole("heading", { level: 2, name: new RegExp(`^${name}`) })).toBeVisible();
+    for (const name of ["Nodes", "To watch", "Storage pools", "Recent activity"]) await expect(main.getByRole("heading", { level: 2, name: new RegExp(`^${name}`) })).toBeVisible();
+    // R13: no chart on the summary view.
+    await expect(main.getByRole("group", { name: "History range" })).toHaveCount(0);
     await expect(main.getByRole("group", { name: "Inventory" })).toBeVisible();
-    await main.getByRole("group", { name: "Inventory" }).getByRole("button", { name: /Virtual machines/i }).click();
+    await main.getByRole("group", { name: "Inventory" }).getByRole("button", { name: /Virtual Machines/i }).click();
     await expect(page).toHaveURL(/tab=vms/);
     // the three views of the overview
     await page.goto("/datacenter");
@@ -198,7 +195,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(nameHeader).toHaveAttribute("aria-sort", /ascending|descending/);
   });
 
-  test("the Activity page filters tasks and the sidebar groups collapse", async ({ page }) => {
+  test("the Tasks page filters tasks and Exports is in the Protection group", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/datacenter?tab=activity");
     const main = page.getByRole("main");
@@ -206,14 +203,13 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     const filters = main.getByRole("group", { name: "Task filters" });
     await filters.getByLabel("Status").selectOption("echec");
     await filters.getByLabel("Period").selectOption("all");
-    await expect(main.getByRole("button", { name: "Export CSV" })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Export as CSV" })).toBeVisible();
+    // Exports now sits in the Protection group, always visible.
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    await expect(nav.getByRole("button", { name: "Exports" })).toHaveCount(0);
-    await nav.getByRole("button", { name: /^▸ More|More/ }).first().click();
-    await expect(nav.getByRole("button", { name: "Exports" })).toBeVisible();
+    await expect(nav.getByRole("group", { name: "Protection" }).getByRole("button", { name: "Exports" })).toBeVisible();
   });
 
-  test("a VM page shows state, capacity, identity, protection and every historical operation", async ({ page }) => {
+  test("a VM page shows configuration and protection, and every historical operation in the Actions menu", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/datacenter?tab=vms");
     const vm = page.getByRole("main").getByRole("button", { name: VM }).first();
@@ -222,12 +218,17 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { name: "Configuration" })).toBeVisible();
     await expect(main.getByRole("heading", { name: "Protection" })).toBeVisible();
-    await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toBeVisible();
-    await expect(main.getByText("All operations")).toBeVisible();
+    // R7 / R8: no "All operations" block and no chart on the summary.
+    await expect(main.getByText("All operations")).toHaveCount(0);
+    await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toHaveCount(0);
     for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
-    for (const action of ["Snapshot", "Migrate…"]) await expect(page.locator(".nx-headactions").getByRole("button", { name: new RegExp(`^${action}`) })).toBeVisible();
+    // R6: Snapshot and Migrate left the header for the grouped Actions menu, with every historical operation.
+    const head = page.locator(".nx-oh-acts");
+    for (const action of ["Snapshot", "Migrate…"]) await expect(head.getByRole("button", { name: new RegExp(`^${action}`) })).toHaveCount(0);
     await page.getByRole("button", { name: /^Actions/ }).click();
-    await expect(page.getByRole("menuitem", { name: /Force stop/ })).toBeVisible();
+    const menu = page.getByRole("menu");
+    for (const g of ["Power", "Protection", "Lifecycle"]) await expect(menu.getByText(g, { exact: true })).toBeVisible();
+    for (const item of [/Force stop/, /^Restart/, /^Create a snapshot/, /^Back up now/, /^HA protection/, /^Clone/, /^Migrate/, /^Convert to template/, /^Export/, /^Automatic clean-up/, /^Copy link/, /^Delete the VM/]) await expect(menu.getByRole("menuitem", { name: item })).toBeVisible();
   });
 
   test("language and theme switches from the user menu apply immediately and persist", async ({ page }) => {
@@ -246,14 +247,16 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await nextLogin(page);
     const panel = page.getByRole("complementary", { name: "Activity" });
     await expect(panel).toBeHidden();
-    await page.getByRole("banner").getByRole("button", { name: /^Tasks/ }).click();
+    // R2: one Activity button in the top bar; the sidebar has no Alerts entry any more.
+    await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /^Alerts/ })).toHaveCount(0);
+    await page.getByRole("banner").getByRole("button", { name: /^Activity/ }).click();
     await expect(panel).toBeVisible();
-    await expect(panel.getByText("No tasks yet.")).toBeVisible();
+    await expect(panel.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
-    await openNavGroups(page);
-    await page.getByRole("button", { name: /^Alerts/ }).first().click();
-    await expect(panel.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("banner").getByRole("button", { name: /^Activity/ }).click();
+    await panel.getByRole("tab", { name: /^Running tasks/ }).click();
+    await expect(panel.getByText("No task running.")).toBeVisible();
     await panel.getByRole("button", { name: "Close activity panel" }).click();
     await expect(panel).toBeHidden();
   });
@@ -276,7 +279,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); });
     await page.goto("/");
     await page.getByLabel("Username").fill(ADMIN.username);
-    await page.getByLabel("Password").fill(ADMIN.password);
+    await page.getByLabel("Password", { exact: true }).fill(ADMIN.password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);

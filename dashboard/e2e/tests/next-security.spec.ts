@@ -25,22 +25,29 @@ async function open(page: Page) {
   await page.addInitScript(() => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "en"); } });
   await page.goto("/");
   await page.getByLabel("Username").fill(ADMIN.username);
-  await page.getByLabel("Password").fill(ADMIN.password);
+  await page.getByLabel("Password", { exact: true }).fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=permissions");
-  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /^Users/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("tab", { name: /^Users/ })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+}
+// R12: one sub-tab per object, each with one explicit primary that opens its form in a side drawer.
+const tab = (page: Page, name: RegExp) => page.getByRole("main").getByRole("tab", { name }).click();
+async function drawer(page: Page, primary: string) {
+  await page.getByRole("main").getByRole("button", { name: primary, exact: true }).click();
+  return page.getByRole("dialog", { name: primary });
 }
 const dialogConfirm = async (page: Page, name: string | RegExp) => page.getByRole("alertdialog").getByRole("button", { name, exact: typeof name === "string" }).click();
 
 test("users: create with validation, promotion needs a confirmation, self is protected, deletion is confirmed", async ({ page, request }) => {
   await open(page);
   const main = page.getByRole("main");
-  const create = main.getByRole("button", { name: "Create", exact: true }).first();
-  await main.getByLabel("Username", { exact: true }).fill(USER);
-  await main.getByLabel("Password", { exact: true }).fill("abc");
+  const form = await drawer(page, "Create a user");
+  const create = form.getByRole("button", { name: "Create the user", exact: true });
+  await form.getByLabel("Username", { exact: true }).fill(USER);
+  await form.getByLabel("Password", { exact: true }).fill("abc");
   await expect(create).toBeDisabled(); // password shorter than the minimum
-  await main.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
+  await form.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
   await create.click();
   const roleSel = main.getByRole("combobox", { name: `Role of ${USER}` });
   await expect(roleSel).toHaveValue("observateur");
@@ -65,9 +72,10 @@ test("groups, pools, custom roles and assignments: full lifecycle with confirmat
   await open(page);
   const main = page.getByRole("main");
 
-  await main.getByLabel("Group name (e.g. devs)").fill(GROUP);
-  await main.getByRole("region").first(); // sections are landmarks by heading
-  await main.locator("#sec-groups").locator("xpath=ancestor::section").getByRole("button", { name: "Create", exact: true }).click();
+  await tab(page, /^Groups/);
+  const groupForm = await drawer(page, "Create a group");
+  await groupForm.getByLabel("Group name (e.g. devs)").fill(GROUP);
+  await groupForm.getByRole("button", { name: "Create the group", exact: true }).click();
   await expect(main.getByRole("button", { name: `Delete group ${GROUP}` })).toBeVisible();
   await main.getByLabel(`Add a member to ${GROUP}`).selectOption(USER);
   await main.getByRole("button", { name: "Add", exact: true }).first().click();
@@ -76,21 +84,27 @@ test("groups, pools, custom roles and assignments: full lifecycle with confirmat
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await expect(main.getByRole("button", { name: `Remove ${USER}` })).toBeVisible();
 
-  await main.getByLabel("Pool name (e.g. project-a)").fill(POOL);
-  await main.locator("#sec-pools").locator("xpath=ancestor::section").getByRole("button", { name: "Create", exact: true }).click();
+  await tab(page, /^VM pools/);
+  const poolForm = await drawer(page, "Create a VM pool");
+  await poolForm.getByLabel("Pool name (e.g. project-a)").fill(POOL);
+  await poolForm.getByRole("button", { name: "Create the pool", exact: true }).click();
   await expect(main.getByRole("button", { name: `Delete pool ${POOL}` })).toBeVisible();
 
-  await main.getByLabel("Role name").fill(ROLE);
-  await main.getByRole("checkbox").first().check();
-  await main.getByRole("button", { name: /^Create \(1 selected\)/ }).click();
+  await tab(page, /^Roles/);
+  const roleForm = await drawer(page, "Create a role");
+  await roleForm.getByLabel("Role name").fill(ROLE);
+  await roleForm.getByRole("checkbox").first().check();
+  await roleForm.getByRole("button", { name: /^Create \(1 selected\)/ }).click();
   await expect(main.getByRole("button", { name: `Delete role ${ROLE}` })).toBeVisible();
 
   // assignment of the custom role to the user on the pool
-  await main.getByLabel("Subject").selectOption(USER);
-  await main.getByLabel("Role", { exact: true }).selectOption({ label: ROLE });
-  await main.getByLabel("On", { exact: true }).selectOption("pool");
-  await main.getByLabel("Resource").selectOption({ label: POOL });
-  await main.getByRole("button", { name: "Assign" }).click();
+  await tab(page, /^Assignments/);
+  const aclForm = await drawer(page, "Assign a role");
+  await aclForm.getByLabel("Subject").selectOption(USER);
+  await aclForm.getByLabel("Role", { exact: true }).selectOption({ label: ROLE });
+  await aclForm.getByLabel("On", { exact: true }).selectOption("pool");
+  await aclForm.getByLabel("Resource").selectOption({ label: POOL });
+  await aclForm.getByRole("button", { name: "Assign", exact: true }).click();
   await expect.poll(async () => {
     const acl = (await (await request.get("/acl", { headers: auth() })).json()) as { subject_label: string; resource_type: string }[];
     return acl.some((a) => a.subject_label === USER && a.resource_type === "pool");
@@ -101,13 +115,17 @@ test("groups, pools, custom roles and assignments: full lifecycle with confirmat
   await main.getByRole("button", { name: /^Remove assignment/ }).first().click();
   await dialogConfirm(page, "Remove");
   await expect(main.getByText("No assignments")).toBeVisible({ timeout: 15_000 });
+  await tab(page, /^Roles/);
   await main.getByRole("button", { name: `Delete role ${ROLE}` }).click();
   await dialogConfirm(page, "Delete");
+  await tab(page, /^VM pools/);
   await main.getByRole("button", { name: `Delete pool ${POOL}` }).click();
   await dialogConfirm(page, "Delete");
+  await tab(page, /^Groups/);
   await main.getByRole("button", { name: `Delete group ${GROUP}` }).click();
   await dialogConfirm(page, "Delete");
   await expect(main.getByRole("button", { name: `Delete group ${GROUP}` })).toHaveCount(0, { timeout: 15_000 });
+  await tab(page, /^Users/);
   await main.getByRole("button", { name: `Delete user ${USER}` }).click();
   await dialogConfirm(page, "Delete");
   await expect(main.getByRole("combobox", { name: `Role of ${USER}` })).toHaveCount(0, { timeout: 15_000 });
@@ -122,7 +140,7 @@ test("French labels and no overflow on a phone", async ({ page }) => {
   await page.getByRole("button", { name: /Se connecter|Sign in/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=permissions");
-  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /^Utilisateurs/ })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /Rôles personnalisés/ })).toBeVisible();
+  for (const name of [/^Utilisateurs/, /^Groupes/, /^Rôles/, /^Pools de VM/, /^Attributions/]) await expect(page.getByRole("main").getByRole("tab", { name })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("button", { name: "Créer un utilisateur" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

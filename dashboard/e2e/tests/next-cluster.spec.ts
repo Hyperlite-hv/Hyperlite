@@ -9,7 +9,7 @@ async function open(page: Page, tab: string) {
   await page.addInitScript(() => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "en"); } });
   await page.goto("/");
   await page.getByLabel("Username").fill(ADMIN.username);
-  await page.getByLabel("Password").fill(ADMIN.password);
+  await page.getByLabel("Password", { exact: true }).fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto(`/datacenter?tab=${tab}`);
@@ -30,14 +30,16 @@ test("Nodes: this host is listed and opens its page, add form sends the SSH port
   });
   await open(page, "nodes");
   const main = page.getByRole("main");
-  const hostRow = main.getByRole("row", { name: /this host/ });
-  await expect(hostRow).toContainText("Local (libvirt)");
+  const hostRow = main.getByRole("row", { name: /Local \(libvirt\)/ });
+  await expect(hostRow).toContainText("Local node");
   await expect(hostRow.getByRole("button", { name: "Remove node" })).toHaveCount(0); // the local host cannot be removed
+  // The add form is a side drawer (outside <main>).
   await main.getByRole("button", { name: "Add a remote node" }).click();
-  await main.getByLabel("Name", { exact: true }).fill("peer");
-  await main.getByLabel("IP address or hostname").fill("10.0.0.9");
-  await main.getByLabel("SSH port").fill("2222");
-  await main.getByRole("button", { name: "Test and add" }).click();
+  const drawer = page.getByRole("dialog", { name: "Add a remote node" });
+  await drawer.getByLabel("Name", { exact: true }).fill("peer");
+  await drawer.getByLabel("IP address or hostname").fill("10.0.0.9");
+  await drawer.getByLabel("SSH port").fill("2222");
+  await drawer.getByRole("button", { name: "Add the node" }).click();
   await expect.poll(() => added).toMatchObject({ name: "peer", hostname: "10.0.0.9", ssh_port: 2222, ssh_user: "root" });
   await expect(page.getByText("SSH connection refused").first()).toBeVisible();
   added = "list"; // the peer is now registered
@@ -79,6 +81,9 @@ test("Compatibility page lists this host's capabilities and stays inside the vie
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Node comparison" })).toBeVisible();
   await expect(main.getByRole("table")).toBeVisible({ timeout: 20_000 });
-  await expect(main.getByRole("checkbox", { name: "Differences only" })).toBeChecked();
+  // The throwaway host is a single node: the "Differences only" filter only appears with two nodes or more,
+  // and the page says why there is nothing to compare.
+  await expect(main.getByRole("checkbox", { name: "Differences only" })).toHaveCount(0);
+  await expect(main.getByText(/Only one node/)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
