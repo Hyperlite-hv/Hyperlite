@@ -177,13 +177,11 @@ function Interfaces({ vmName, admin, t }) {
   );
 }
 
-// Hardware: processor and memory (changed in Options), disks with ISO drivers, network interfaces, firewall.
+// Hardware: processor and memory (changed in Options) and disks with ISO drivers.
 export function VmHardwarePage({ resource: vm }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const admin = capabilities(useAuthStore((s) => s.role)).admin;
-  const fetchFw = useCallback(() => fetchVMFirewall(vm?.nom), [vm?.nom]);
-  const saveFw = useCallback((c) => setVMFirewall(vm?.nom, c), [vm?.nom]);
   if (!vm) return null;
   return (
     <div className="nx-ns">
@@ -193,6 +191,19 @@ export function VmHardwarePage({ resource: vm }) {
         <p className="nx-hint">{t("vh.computeHelp")}</p>
       </section>
       <Disks vmName={vm.nom} admin={admin} t={t} />
+    </div>
+  );
+}
+
+// Network: interfaces and the VM firewall.
+export function VmNetworkPage({ resource: vm }) {
+  const t = useT();
+  const admin = capabilities(useAuthStore((s) => s.role)).admin;
+  const fetchFw = useCallback(() => fetchVMFirewall(vm?.nom), [vm?.nom]);
+  const saveFw = useCallback((c) => setVMFirewall(vm?.nom, c), [vm?.nom]);
+  if (!vm) return null;
+  return (
+    <div className="nx-ns">
       <Interfaces vmName={vm.nom} admin={admin} t={t} />
       <FirewallRulesEditor title={t("vh.firewall")} fetchConfig={fetchFw} saveConfig={saveFw} isAdmin={admin} />
     </div>

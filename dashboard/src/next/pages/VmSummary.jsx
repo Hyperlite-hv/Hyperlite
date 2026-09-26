@@ -1,56 +1,60 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { fetchSnapshots, fetchVMBackups, fetchHaProtected, fetchTasks } from "../../api/client";
-import { useLiveVMMetrics } from "../../hooks/useLiveVMMetrics";
+import { fetchSnapshots, fetchVMBackups, fetchHaProtected, fetchTasks, fetchVMDisks, fetchVMNetwork, fetchBackupSchedule } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
 import { taskLabel } from "../lib/enums";
-import { formatSizeMb, formatUptimeLong, clockTime } from "../lib/format";
-import KpiTile from "../components/KpiTile";
-import StatTile from "../components/StatTile";
+import { formatSizeMb, formatUptimeLong, clockTime, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
+import { useVmHistory, VmChartGrid } from "./VmPerformance";
 import VMSummaryTab from "../../panels/vm/VMSummaryTab";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
-const rate = (kbs, lang) => (kbs == null ? null : kbs >= 1024 ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(kbs / 1024)} MB/s` : `${Math.round(kbs)} KB/s`);
+const base = (p) => (p ? String(p).split("/").pop() : "");
+const SNAP_ROWS = 5;
+// libvirt reports snapshot times as Unix seconds; older payloads may carry an ISO string.
+const snapTs = (v) => (/^\d+$/.test(String(v ?? "")) ? Number(v) * 1000 : Date.parse(v) || 0);
 
-// VM summary: state first, live capacity with trends, identity, protection and activity of this VM.
-// Every operation of the historical screen (clone, template, migrate, HA, auto-clean-up, delete...)
-// stays available in the "All operations" section until each one is rebuilt.
+// VM summary, laid out like the reference console: the configuration on the left, the last hour of the four
+// performance charts and the latest snapshots on the right, then the activity of this VM. Every operation of the
+// historical screen (clone, template, migrate, HA, auto-clean-up, delete...) stays in "All operations".
 export default function VmSummary({ resource: vm, selection }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
-  const nodes = useInfraStore(useShallow((s) => s.nodes));
-  const running = vm?.etat === "actif";
-  const isLocal = vm?.node === "local";
-  const { data, current } = useLiveVMMetrics(vm?.nom, !!vm && running && isLocal);
+  const { nodes, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, navigateTo: s.navigateTo })));
+  const hist = useVmHistory(vm, "1h");
   const [snaps, setSnaps] = useState(null);
   const [backups, setBackups] = useState(null);
+  const [schedule, setSchedule] = useState(undefined);
   const [ha, setHa] = useState(null);
+  const [disks, setDisks] = useState(null);
+  const [net, setNet] = useState(null);
   const [recent, setRecent] = useState(null);
 
   useEffect(() => {
     if (!vm) return;
-    setSnaps(null); setBackups(null); setHa(null);
+    setSnaps(null); setBackups(null); setSchedule(undefined); setHa(null); setDisks(null); setNet(null);
     fetchSnapshots(vm.nom).then((r) => setSnaps(asList(r))).catch(() => setSnaps([]));
     fetchVMBackups(vm.nom).then((r) => setBackups(asList(r))).catch(() => setBackups([]));
+    fetchBackupSchedule(vm.nom).then((r) => setSchedule(r || null)).catch(() => setSchedule(null));
     fetchHaProtected().then((r) => setHa(asList(r).some((x) => x.vm_name === vm.nom))).catch(() => setHa(false));
+    fetchVMDisks(vm.nom).then((r) => setDisks(asList(r))).catch(() => setDisks(false));
+    fetchVMNetwork(vm.nom).then((r) => setNet(asList(r?.interfaces))).catch(() => setNet(false));
   }, [vm?.nom]); // eslint-disable-line react-hooks/exhaustive-deps
-  usePolling(async () => { if (vm) setRecent(asList(await fetchTasks({ cible: vm.nom, limit: 6, tri: "cree_le", ordre: "desc" }))); }, 10000, { enabled: !!vm });
-  useEffect(() => { if (vm) fetchTasks({ cible: vm.nom, limit: 6, tri: "cree_le", ordre: "desc" }).then((r) => setRecent(asList(r))).catch(() => setRecent([])); }, [vm?.nom]); // eslint-disable-line react-hooks/exhaustive-deps
+  const loadRecent = async () => { if (vm) setRecent(asList(await fetchTasks({ cible: vm.nom, limit: 6, tri: "cree_le", ordre: "desc" }))); };
+  usePolling(loadRecent, 10000, { enabled: !!vm });
+  useEffect(() => { loadRecent().catch(() => setRecent([])); }, [vm?.nom]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!vm) return null;
   const node = nodes.find((n) => n.id === vm.node);
   const na = t("ns.notReported");
-  const stopped = t("vm.stoppedNoLive");
-  const unavailable = (v) => (!isLocal ? t("vm.remoteNoMetrics") : !running ? stopped : v);
-  const cpu = current ? current.cpu * 100 : null;
-  const ram = current ? current.ram : null;
-  const diskRead = current ? (current.disques || []).reduce((a, d) => a + (d.lecture_ko_s || 0), 0) : null;
-  const diskWrite = current ? (current.disques || []).reduce((a, d) => a + (d.ecriture_ko_s || 0), 0) : null;
   const problem = vm.etat === "plante" || vm.etat === "bloque";
   const lastBackup = backups && backups.length ? [...backups].sort((a, b) => String(b.cree_le).localeCompare(String(a.cree_le)))[0] : null;
+  const go = (tab) => navigateTo("vm", vm.nom, tab);
+  const snapList = snaps ? [...snaps].sort((a, b) => snapTs(b.date_creation) - snapTs(a.date_creation)) : [];
+  const snapKind = (s) => (s.etat_vm === "disque_seul" ? t("vs.zfsDisk") : s.etat_vm === "running" ? t("vs.withMemory") : s.etat_vm ? t("vs.diskOnly") : "—");
+  const loadingDd = <span className="nx-muted">…</span>;
 
   return (
     <div className="nx-ns">
@@ -61,37 +65,72 @@ export default function VmSummary({ resource: vm, selection }) {
         </div>
       )}
 
-      <div className="nx-grid nx-grid--4" role="group" aria-label={t("ns.resources")}>
-        <KpiTile label={t("ns.cpu")} value={cpu != null ? `${Math.round(cpu)} %` : null} ratio={cpu != null ? cpu / 100 : null} sub={t("vm.allocVcpu", { n: vm.vcpu })} series={data.slice(-40).map((p) => p.cpu * 100)} unavailable={unavailable(cpu == null ? t("ns.collecting") : null)} />
-        <KpiTile label={t("ns.memory")} value={ram != null ? `${Math.round(ram * 100)} %` : null} ratio={ram} sub={current?.ramAlloueeMo ? `${formatSizeMb(current.ramUseeMo, lang)} / ${formatSizeMb(current.ramAlloueeMo, lang)}` : t("vm.allocRam", { n: formatSizeMb(vm.memoire_mo, lang) })} series={data.slice(-40).map((p) => p.ram * 100)} unavailable={unavailable(ram == null ? t("ns.collecting") : null)} />
-        <StatTile label={t("vm.disk")} value={diskRead != null ? rate(diskRead + diskWrite, lang) : null} sub={diskRead != null ? `↓ ${rate(diskRead, lang)} · ↑ ${rate(diskWrite, lang)}` : ""} series={data.slice(-40).map((p) => (p.disques || []).reduce((a, d) => a + (d.lecture_ko_s || 0) + (d.ecriture_ko_s || 0), 0))} unavailable={unavailable(diskRead == null ? t("ns.collecting") : null)} />
-        <StatTile label={t("ns.network")} value={current ? rate(current.netIn + current.netOut, lang) : null} sub={current ? `↓ ${rate(current.netIn, lang)} · ↑ ${rate(current.netOut, lang)}` : ""} series={data.slice(-40).map((p) => p.netIn + p.netOut)} unavailable={unavailable(current == null ? t("ns.collecting") : null)} />
-      </div>
-
-      <div className="nx-ov-row">
-        <section className="nx-card" aria-labelledby="vm-identity">
-          <h2 id="vm-identity">{t("vm.identity")}</h2>
-          <dl className="nx-dl">
-            <dt>{t("ns.col.state")}</dt><dd><StatusIndicator kind="vm" wire={vm.etat} />{vm.uptime_s ? <span className="nx-muted"> · {formatUptimeLong(vm.uptime_s, lang)}</span> : null}</dd>
-            <dt>{t("ns.node")}</dt><dd className="nx-mono">{node?.nom || vm.node}</dd>
-            <dt>IP</dt><dd className="nx-mono">{vm.ip || <span title={t("ns.ipHelp")}>{t("ns.ipNa")} ⓘ</span>}</dd>
-            <dt>{t("vm.ssh")}</dt><dd className="nx-mono">{vm.utilisateur_ssh ? `${vm.utilisateur_ssh}${vm.ip ? `@${vm.ip}` : ""}` : na}</dd>
-            <dt>{t("vm.os")}</dt><dd>{vm.os || na}</dd>
-            <dt>UUID</dt><dd className="nx-mono">{vm.uuid || na}</dd>
-            <dt>{t("vm.resources")}</dt><dd className="nx-mono">{t("ns.vmSpec", { cpu: vm.vcpu, ram: formatSizeMb(vm.memoire_mo, lang) })}</dd>
-            <dt>{t("vm.storageType")}</dt><dd>{vm.stockage_zfs ? "ZFS" : "qcow2"}</dd>
-          </dl>
-        </section>
-
-        <div className="nx-ov-side">
-          <section className="nx-card" aria-labelledby="vm-protection">
-            <h2 id="vm-protection">{t("vm.protection")}</h2>
-            <dl className="nx-dl">
-              <dt>{t("vm.snapshots")}</dt><dd className="nx-mono">{snaps == null ? "…" : snaps.length}</dd>
-              <dt>{t("vm.lastBackup")}</dt><dd>{backups == null ? "…" : lastBackup ? <span><StatusIndicator kind="task" wire={lastBackup.statut === "termine" || lastBackup.statut === "succes" ? "termine" : lastBackup.statut === "echec" ? "echec" : "en_cours"} compact /> <span className="nx-mono">{clockTime(lastBackup.cree_le, lang)}</span></span> : <span className="nx-muted">{t("vm.noBackup")}</span>}</dd>
-              <dt>HA</dt><dd>{ha == null ? "…" : ha ? t("vm.haOn") : <span className="nx-muted">{t("vm.haOff")}</span>}</dd>
+      <div className="nx-vm-sum">
+        <div className="nx-vm-sum-side">
+          <section className="nx-card" aria-labelledby="vm-config">
+            <div className="nx-cardhead"><h2 id="vm-config">{t("vm.config")}</h2><button type="button" className="nx-linkbtn" onClick={() => go("hardware")}>{t("tab.hardware")} →</button></div>
+            <dl className="nx-dl nx-dl--stack">
+              <dt>{t("ns.col.state")}</dt><dd><StatusIndicator kind="vm" wire={vm.etat} />{vm.uptime_s ? <span className="nx-muted"> · {formatUptimeLong(vm.uptime_s, lang)}</span> : null}</dd>
+              <dt>{t("ns.node")}</dt><dd className="nx-mono">{node?.nom || vm.node}</dd>
+              <dt>{t("vm.os")}</dt><dd>{vm.os || na}</dd>
+              <dt>{t("vh.processor")}</dt><dd className="nx-mono">{vm.vcpu} vCPU</dd>
+              <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memoire_mo, lang)}</dd>
+              <dt>{t("vh.disks")}</dt>
+              <dd>{disks == null ? loadingDd : disks === false ? na : disks.length === 0 ? <span className="nx-muted">{t("vh.noDisks")}</span> : (
+                <ul className="nx-plainlist">{disks.map((d) => <li key={d.cible} className="nx-mono">{d.cible}{d.bus ? ` · ${d.bus}` : ""}{d.source ? <span className="nx-muted"> · {base(d.source)}</span> : d.type === "cdrom" ? <span className="nx-muted"> · {t("vh.emptyDrive")}</span> : null}</li>)}</ul>
+              )}</dd>
+              <dt>{t("vh.interfaces")}</dt>
+              <dd>{net == null ? loadingDd : net === false ? na : net.length === 0 ? <span className="nx-muted">—</span> : (
+                <ul className="nx-plainlist">{net.map((i) => <li key={i.mac}><span className="nx-mono">{i.reseau || i.type_source || "—"}</span> <span className="nx-muted nx-mono">{i.mac}</span></li>)}</ul>
+              )}</dd>
+              <dt>IP</dt><dd className="nx-mono">{vm.ip || <span title={t("ns.ipHelp")}>{t("ns.ipNa")} ⓘ</span>}</dd>
+              <dt>{t("vm.ssh")}</dt><dd className="nx-mono">{vm.utilisateur_ssh ? `${vm.utilisateur_ssh}${vm.ip ? `@${vm.ip}` : ""}` : na}</dd>
+              <dt>{t("vm.storageType")}</dt><dd>{vm.stockage_zfs ? "ZFS" : "qcow2"}</dd>
+              <dt>UUID</dt><dd className="nx-mono nx-break">{vm.uuid || na}</dd>
             </dl>
           </section>
+
+          <section className="nx-card" aria-labelledby="vm-protection">
+            <h2 id="vm-protection">{t("vm.protection")}</h2>
+            <dl className="nx-dl nx-dl--stack">
+              <dt>{t("vm.lastBackup")}</dt><dd>{backups == null ? loadingDd : lastBackup ? <span><StatusIndicator kind="task" wire={lastBackup.statut === "termine" || lastBackup.statut === "succes" ? "termine" : lastBackup.statut === "echec" ? "echec" : "en_cours"} compact /> <span className="nx-mono">{new Date(lastBackup.cree_le).toLocaleString(lang, { dateStyle: "short", timeStyle: "short" })}</span></span> : <span className="nx-muted">{t("vm.noBackup")}</span>}</dd>
+              <dt>{t("vb.schedule")}</dt><dd>{schedule === undefined ? loadingDd : schedule ? <span>{t(`vb.f.${schedule.frequence}`)} · <span className="nx-mono">{schedule.heure} UTC</span></span> : <span className="nx-muted">{t("vm.noSchedule")}</span>}</dd>
+              <dt>HA</dt><dd>{ha == null ? loadingDd : ha ? t("vm.haOn") : <span className="nx-muted">{t("vm.haOff")}</span>}</dd>
+            </dl>
+          </section>
+        </div>
+
+        <div className="nx-vm-sum-main">
+          <section className="nx-card" aria-labelledby="vm-perf">
+            <div className="nx-cardhead"><h2 id="vm-perf">{t("vm.perfLastHour")}</h2><button type="button" className="nx-linkbtn" onClick={() => go("perf")}>{t("vm.perfMore")} →</button></div>
+            <VmChartGrid vm={vm} hist={hist} height={130} />
+          </section>
+
+          <section className="nx-card" aria-labelledby="vm-snaps">
+            <div className="nx-cardhead">
+              <h2 id="vm-snaps">{t("tab.snapshots")} <span className="nx-count">{snaps ? snaps.length : "…"}</span></h2>
+              <button type="button" className="nx-linkbtn" onClick={() => go("snapshots")}>{t("vm.manage")} →</button>
+            </div>
+            {snaps == null ? <p className="nx-muted" role="status">{t("loading")}</p> : snapList.length === 0 ? <p className="nx-muted" role="status">{t("vs.none")}</p> : (
+              <div className="nx-tablewrap">
+                <table className="nx-table">
+                  <thead><tr><th scope="col">{t("ct.name")}</th><th scope="col">{t("vs.kind")}</th><th scope="col">{t("vm.created")}</th><th scope="col">{t("vm.description")}</th></tr></thead>
+                  <tbody>
+                    {snapList.slice(0, SNAP_ROWS).map((s) => (
+                      <tr key={s.nom}>
+                        <th scope="row" className="nx-mono">{s.nom} {s.actuel && <span className="nx-tag">{t("vs.current")}</span>}</th>
+                        <td>{snapKind(s)}</td>
+                        <td className="nx-mono">{formatDateTime(s.date_creation, lang) || "—"}</td>
+                        <td>{s.description || <span className="nx-muted">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {snapList.length > SNAP_ROWS && <p className="nx-muted nx-hint">{t("vm.moreSnaps", { n: snapList.length - SNAP_ROWS })}</p>}
+              </div>
+            )}
+          </section>
+
           <section className="nx-card" aria-labelledby="vm-activity">
             <h2 id="vm-activity">{t("ns.activity")}</h2>
             {recent == null ? <p className="nx-muted">{t("loading")}</p> : recent.length === 0 ? <p className="nx-muted" role="status">{t("dock.none")}</p> : (
@@ -104,7 +143,6 @@ export default function VmSummary({ resource: vm, selection }) {
           </section>
         </div>
       </div>
-
 
       <details className="nx-card nx-ops">
         <summary>{t("vm.allOps")}</summary>

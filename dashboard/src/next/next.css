@@ -727,3 +727,29 @@ select.nx-input { height: 2rem; }
 /* two-column rows of related cards */
 .nx-cols.nx-cols--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 1100px) { .nx-cols.nx-cols--even { grid-template-columns: minmax(0, 1fr); } }
+
+/* VM page (reference console layout): configuration column on the left, charts and snapshots on the right */
+.nx-vm-sum { display: grid; gap: var(--space-4); grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr); align-items: start; }
+.nx-vm-sum-side, .nx-vm-sum-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+@media (max-width: 1100px) { .nx-vm-sum { grid-template-columns: minmax(0, 1fr); } }
+.nx-dl--stack { grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr); }
+.nx-plainlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.nx-break { word-break: break-all; }
+.nx-linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--color-accent); font: inherit; font-size: var(--font-size-sm); font-weight: 600; }
+.nx-linkbtn:hover { text-decoration: underline; }
+.nx-vm-charts { display: grid; gap: var(--space-4) var(--space-5); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 700px) { .nx-vm-charts { grid-template-columns: minmax(0, 1fr); } }
+.nx-vm-chart { min-width: 0; display: flex; flex-direction: column; }
+.nx-vm-chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-1); }
+.nx-vm-chart-head h3 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
+.nx-vm-chart-head span { font-size: var(--font-size-xs); text-align: right; }
+.nx-vm-chart-empty { margin: 0; min-height: 7rem; display: grid; place-items: center; text-align: center; padding: var(--space-3); border: 1px dashed var(--color-border-subtle); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
+/* Direct actions in the resource header; they wrap under the title on narrow screens */
+.nx-headactions { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+/* Migration dialog */
+.nx-dialog { width: min(34rem, 94vw); max-height: 80vh; overflow: auto; background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+.nx-dialog h2 { margin: 0; font-size: var(--font-size-lg); }
+.nx-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+.nx-dialog-field { display: grid; gap: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.nx-vm-chart-head h3 { white-space: nowrap; }
+.nx-dl--stack .nx-progress--inline { display: block; width: 100%; max-width: 12rem; margin-top: var(--space-1); }
