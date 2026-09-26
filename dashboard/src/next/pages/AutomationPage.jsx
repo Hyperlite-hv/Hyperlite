@@ -158,7 +158,7 @@ export default function AutomationPage() {
                         <StatusIndicator kind="task" wire={runWire(r.statut)} compact />
                         <div className="nx-list2-main">
                           <button type="button" className="nx-lnk" style={{ fontWeight: 500 }} aria-expanded={runOpen === r.id} onClick={() => showRun(r.id)}>{new Date(r.started_at).toLocaleString(lang)}</button>
-                          <div className="nx-list2-sub">{r.dry_run ? t("au.dryRun") : t("au.real")}{r.resultat ? ` · ${r.resultat}` : ""}</div>
+                          <div className="nx-list2-sub"><span>{r.dry_run ? t("au.dryRun") : t("au.real")}</span>{r.resultat ? ` · ${r.resultat}` : ""}</div>
                         </div>
                         {runOpen === r.id && (
                           <div style={{ flexBasis: "100%" }}>

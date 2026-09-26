@@ -75,7 +75,7 @@ export default function SsoPage() {
 
   const field = (k, label, props = {}) => (
     <Field label={label} error={problems[k] && problems[k] !== "sso.httpsAdvice" ? t(problems[k]) : null} hint={problems[k] === "sso.httpsAdvice" ? t(problems[k]) : props.help}>
-      {(p) => <input {...p} className={`nx-inp${props.mono === false ? "" : " nx-mono"}`} aria-label={props.aria} value={form[k]} onChange={set(k)} autoComplete="off" {...props.input} />}
+      {(p) => <input {...p} className={`nx-inp${props.mono === false ? "" : " nx-mono"}`} aria-label={label} value={form[k]} onChange={set(k)} autoComplete="off" {...props.input} />}
     </Field>
   );
   const callback = form.redirect_uri || `${window.location.origin}/auth/sso/callback`;
@@ -100,22 +100,22 @@ export default function SsoPage() {
             <fieldset className="nx-fs">
               <legend>{t("sso.providerLegend")}</legend>
               <div className="nx-fg">
-                {field("issuer", t("sso.issuer"), { aria: "Issuer (OIDC discovery URL)", input: { placeholder: "https://idp.example.com/realms/it", inputMode: "url" }, help: t("sso.issuerHelp") })}
-                {field("client_id", "Client ID", { aria: "Client ID" })}
+                {field("issuer", t("sso.issuer"), { input: { placeholder: "https://idp.example.com/realms/it", inputMode: "url" }, help: t("sso.issuerHelp") })}
+                {field("client_id", t("sso.clientId"))}
                 <Field label={<>{t("sso.secret")} {secretSet && <span className="nx-muted">({t("sso.secretSet")})</span>}</>} error={problems.client_secret ? t(problems.client_secret) : null}>
                   {(p) => <input {...p} className="nx-inp" aria-label={t("a11y.client_secret")} type="password" autoComplete="new-password" value={form.client_secret} onChange={set("client_secret")} placeholder={secretSet ? t("sso.secretKeep") : ""} />}
                 </Field>
-                {field("scope", t("sso.scope"), { aria: "Scopes", help: t("sso.scopeHelp") })}
+                {field("scope", t("sso.scope"), { help: t("sso.scopeHelp") })}
               </div>
             </fieldset>
             <fieldset className="nx-fs">
               <legend>{t("sso.mapping")}</legend>
               <div className="nx-fg">
-                {field("group_claim", t("sso.groupClaim"), { aria: "Groups claim" })}
-                {field("admin_groups", t("sso.adminGroups"), { aria: "IdP groups → admin role", input: { placeholder: "hyperlite-admins, infra-team" }, help: t("sso.adminGroupsHelp") })}
+                {field("group_claim", t("sso.groupClaim"))}
+                {field("admin_groups", t("sso.adminGroups"), { input: { placeholder: "hyperlite-admins, infra-team" }, help: t("sso.adminGroupsHelp") })}
               </div>
             </fieldset>
-            {field("redirect_uri", t("sso.redirect"), { aria: "Redirect URL (redirect_uri)", input: { placeholder: callback, inputMode: "url" }, help: t("sso.redirectHelp") })}
+            {field("redirect_uri", t("sso.redirect"), { input: { placeholder: callback, inputMode: "url" }, help: t("sso.redirectHelp") })}
             <div className="nx-inline" style={{ marginTop: "var(--space-2)" }}>
               <span className="nx-muted nx-mono" style={{ fontSize: "var(--fs-12)" }}>{callback}</span>
               <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("sso.copyUrl")} title={t("sso.copyUrl")} onClick={() => navigator.clipboard?.writeText(callback)}><Copy size={14} aria-hidden="true" /></button>

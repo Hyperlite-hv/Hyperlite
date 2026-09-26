@@ -106,7 +106,7 @@ export default function Sidebar({ collapsed }) {
         <button type="button" className="nx-cluster" aria-label={`${host?.nom || t("res.datacenter")} — ${t("cluster.hint")}`} title={t("cluster.hint")} onClick={() => window.dispatchEvent(new Event("nx:palette"))}>
           <span className={`nx-cluster-dot${nodesOnline === nodes.length && nodes.length > 0 ? "" : " is-warn"}`} aria-hidden="true" />
           <span className="nx-cluster-name">{host?.nom || t("res.datacenter")}</span>
-          <span className="nx-cluster-count">{t("nav.nodesCount", { n: nodes.length })}</span>
+          <span className="nx-cluster-count">{nodes.length === 1 ? t("nav.nodeCount1") : t("nav.nodesCount", { n: nodes.length })}</span>
         </button>
       )}
 

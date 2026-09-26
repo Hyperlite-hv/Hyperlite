@@ -140,16 +140,16 @@ export default function NotificationsPage() {
           <button type="button" aria-pressed={form.type === "webhook"} onClick={() => { setForm(EMPTY_WEBHOOK); setTouched(false); }}>Webhook</button>
           <button type="button" aria-pressed={form.type === "email"} onClick={() => { setForm(EMPTY_EMAIL); setTouched(false); }}>{t("nt.email")}</button>
         </div>
-        {input("name", t("nt.name"), "Channel name", { input: { placeholder: "Discord admin" } })}
-        {form.type === "webhook" ? input("url", "Webhook URL", "Webhook URL", { mono: true, input: { inputMode: "url", placeholder: "https://discord.com/api/webhooks/…" } }) : (
+        {input("name", t("nt.name"), t("a11y.channel_name"), { input: { placeholder: "Discord admin" } })}
+        {form.type === "webhook" ? input("url", t("nt.webhookUrl"), t("nt.webhookUrl"), { mono: true, input: { inputMode: "url", placeholder: "https://discord.com/api/webhooks/…" } }) : (
           <>
             <div className="nx-fg">
-              {input("smtp_host", t("nt.smtpHost"), "SMTP server", { mono: true, input: { placeholder: "smtp.example.com" } })}
-              {input("smtp_port", "Port", "Port", { mono: true, input: { inputMode: "numeric" } })}
-              {input("smtp_user", t("nt.smtpUser"), "SMTP user", { input: { autoComplete: "off" } })}
-              {input("smtp_password", t("nt.smtpPassword"), "SMTP password", { hint: t("nt.secretHelp"), input: { type: "password", autoComplete: "new-password" } })}
-              {input("from_addr", t("nt.from"), "Sender (From)", { input: { inputMode: "email", placeholder: "hyperlite@example.com" } })}
-              {input("to_addr", t("nt.to"), "Recipient (To)", { input: { inputMode: "email", placeholder: "you@example.com" } })}
+              {input("smtp_host", t("nt.smtpHost"), t("a11y.smtp_server"), { mono: true, input: { placeholder: "smtp.example.com" } })}
+              {input("smtp_port", t("a11y.smtp_port"), t("a11y.smtp_port"), { mono: true, input: { inputMode: "numeric" } })}
+              {input("smtp_user", t("nt.smtpUser"), t("a11y.smtp_user"), { input: { autoComplete: "off" } })}
+              {input("smtp_password", t("nt.smtpPassword"), t("a11y.smtp_password"), { hint: t("nt.secretHelp"), input: { type: "password", autoComplete: "new-password" } })}
+              {input("from_addr", t("nt.from"), t("a11y.sender_from"), { input: { inputMode: "email", placeholder: "hyperlite@example.com" } })}
+              {input("to_addr", t("nt.to"), t("a11y.recipient_to"), { input: { inputMode: "email", placeholder: "you@example.com" } })}
             </div>
             <label className="nx-check"><input type="checkbox" checked={form.use_tls} onChange={(e) => setForm((f) => ({ ...f, use_tls: e.target.checked }))} /> {t("nt.tls")}</label>
           </>
