@@ -84,21 +84,22 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Light theme (default): mineral off-white canvas, near-white panels, dark graphite navigation. The
-   brand plum is dark enough to be link text and to carry white button text. */
+/* Light theme (default): a warm, dimmed light — mineral grey canvas and soft off-white panels rather
+   than pure white, to limit glare over long sessions; dark graphite navigation. The brand plum is
+   dark enough to be link text and to carry white button text. */
 :root[data-ui="next"][data-theme="light"] {
   color-scheme: light;
-  --color-bg-app: #F4F1EF; --color-bg-sidebar: #FCFAF9; --color-bg-workspace: #F4F1EF;
-  --color-bg-surface: #FCFAF9; --color-bg-surface-raised: #F1ECEB;
-  --color-bg-hover: #ECE6E5; --color-bg-selected: #F2E7EC;
-  --color-border-subtle: #E6DFDF; --color-border-default: #DED6D6;
-  --color-border-strong: #8C8388; --color-border-focus: #6E3550;
-  --color-text-primary: #1F1A1D; --color-text-secondary: #5A5256;
-  --color-text-muted: #5A5256; --color-text-disabled: #9E969A; --color-text-on-accent: #FFFFFF;
-  --color-accent: #6E3550; --color-accent-2: #3E6F7A; --color-info: #316874; --color-success: #276B4E;
-  --color-warning: #855611; --color-danger: #A6392F; --color-offline: #645C60; --color-unknown: #645C60;
+  --color-bg-app: #E2DDDA; --color-bg-sidebar: #EEEAE7; --color-bg-workspace: #E2DDDA;
+  --color-bg-surface: #EEEAE7; --color-bg-surface-raised: #E8E3E0;
+  --color-bg-hover: #DED8D5; --color-bg-selected: #EAD9E1;
+  --color-border-subtle: #D6D0CD; --color-border-default: #CCC5C2;
+  --color-border-strong: #7F767A; --color-border-focus: #6E3550;
+  --color-text-primary: #1F1A1D; --color-text-secondary: #4E464A;
+  --color-text-muted: #4E464A; --color-text-disabled: #948C90; --color-text-on-accent: #FFFFFF;
+  --color-accent: #6E3550; --color-accent-2: #365F69; --color-info: #2A5B66; --color-success: #225A42;
+  --color-warning: #734A0E; --color-danger: #933129; --color-offline: #574F53; --color-unknown: #574F53;
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 12%, var(--color-bg-surface));
-  --shadow-float: 0 2px 10px rgba(31, 26, 29, 0.10);
+  --shadow-float: 0 2px 10px rgba(31, 26, 29, 0.12);
 }
 
 /* The navigation column stays dark graphite in both themes: it frames the workspace. */
@@ -308,7 +309,8 @@
 @media (max-width: 1023px) { .nx-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); } .nx-subnav { border-right: 0; border-bottom: 1px solid var(--color-border-subtle); display: flex; flex-wrap: wrap; padding: var(--space-2); } .nx-subnav-group { display: none; } .nx-subnav [role="tab"] { width: auto; padding: var(--space-2) var(--space-3); } .nx-subnav [role="tab"][aria-selected="true"]::before { display: none; } }
 
 /* ---------- Dock ---------- */
-.nx-progress { height: 6px; background: var(--color-border-subtle); border-radius: 3px; overflow: hidden; }
+.nx-progress { height: 6px; background: var(--color-border-subtle); border-radius: 999px; overflow: hidden; }
+.nx-progress > span { border-radius: inherit; }
 .nx-progress > span { display: block; height: 100%; background: var(--color-accent); }
 
 /* ---------- Palette / dialogs ---------- */
@@ -614,3 +616,40 @@ select.nx-input { height: 2rem; }
 .nx-inv--embedded .nx-persp button { height: 2rem; }
 .nx-inv--embedded .nx-results { min-height: 0; padding-bottom: 0; }
 @media (max-width: 1023px) { .nx-splitter { display: none; } }
+
+/* ---------- Overview ---------- */
+/* Inventory strip: one panel split in four, figures first, no decorative icons. */
+.nx-ov-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0; overflow: hidden; }
+.nx-ov-stat { display: grid; gap: 2px; align-content: start; text-align: left; padding: var(--space-4) var(--space-5); background: none; border: 0; border-left: 1px solid var(--color-border-subtle); cursor: pointer; font: inherit; color: inherit; border-radius: 0; }
+.nx-ov-stat:first-child { border-left: 0; }
+.nx-ov-stat:hover { background: var(--color-bg-hover); }
+.nx-ov-stat:focus-visible { outline-offset: -2px; }
+.nx-ov-stat-label { font-size: var(--font-size-sm); font-weight: 500; color: var(--color-text-secondary); }
+.nx-ov-stat-value { font-size: 1.625rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.nx-ov-stat-value small { font-size: var(--font-size-lg); font-weight: 500; color: var(--color-text-secondary); letter-spacing: 0; }
+.nx-ov-stat-sub { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+@media (max-width: 900px) {
+  .nx-ov-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nx-ov-stat:nth-child(3) { border-left: 0; }
+  .nx-ov-stat:nth-child(n + 3) { border-top: 1px solid var(--color-border-subtle); }
+}
+/* Capacity: one line per resource — name, meter, figure, last-hour trend. */
+.nx-cardhead-note { font-size: var(--font-size-xs); }
+.nx-cap { display: grid; }
+.nx-cap-row { display: grid; grid-template-columns: minmax(8rem, 11rem) minmax(6rem, 1fr) 5.5rem minmax(7rem, 11rem); gap: var(--space-4); align-items: center; padding: var(--space-3) 0; border-top: 1px solid var(--color-border-subtle); }
+.nx-cap-row:first-child { border-top: 0; padding-top: 0; }
+.nx-cap-row:last-child { padding-bottom: 0; }
+.nx-cap-name { display: grid; min-width: 0; }
+.nx-cap-name span { font-weight: 500; }
+.nx-cap-name small { font-size: var(--font-size-xs); color: var(--color-text-muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-cap-meter { height: 8px; background: var(--color-bg-hover); }
+.nx-cap-value { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-2); font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.nx-cap-trend { min-width: 0; }
+.nx-cap-trend .nx-spark { display: block; }
+.nx-cap-na { grid-column: 2 / -1; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+@media (max-width: 700px) {
+  .nx-cap-row { grid-template-columns: minmax(0, 1fr) 5.5rem; }
+  .nx-cap-meter { grid-column: 1 / -1; grid-row: 2; }
+  .nx-cap-trend { display: none; }
+  .nx-cap-na { grid-column: 1 / -1; }
+}
