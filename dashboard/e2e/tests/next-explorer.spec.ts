@@ -116,7 +116,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Nodes" }).click();
     await page.getByRole("main").getByRole("table").getByRole("button").first().click();
     await expect(page).toHaveURL(/\/node\/local/);
-    await page.getByRole("tab", { name: "Monitor" }).click();
+    await page.getByRole("tab", { name: "System summary" }).click();
     await expect(page).toHaveURL(/tab=system/);
     await page.goBack();
     await expect(page).toHaveURL(/\/node\/local$/);
@@ -131,19 +131,21 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     }
   });
 
-  test("all seven node pages are reachable (Summary, Monitor > 2, Configure > 4)", async ({ page }) => {
+  test("all eight node pages are reachable as flat tabs", async ({ page }) => {
     await nextLogin(page);
-    for (const [id, label] of [["summary", "Summary"], ["system", "System summary"], ["tasks", "Tasks"], ["network", "Network"], ["disk", "Disk storage"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
+    for (const [id, label] of [["summary", "Summary"], ["perf", "Performance"], ["system", "System summary"], ["tasks", "Tasks"], ["network", "Network"], ["disk", "Disk storage"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
       await page.goto(id === "summary" ? "/node/local" : `/node/local?tab=${id}`);
       await expect(page.getByRole("main").getByRole("tab", { name: label, exact: true }), id).toHaveAttribute("aria-selected", "true");
     }
   });
 
-  test("node summary: capacity with trends, VMs, health, activity and alerts; Actions menu", async ({ page }) => {
+  test("node summary: configuration, host charts, VMs, activity and alerts; direct actions and Actions menu", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/node/local");
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { name: "Node health" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Configuration" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toBeVisible();
+    for (const h of ["CPU", "Memory"]) await expect(main.getByRole("heading", { level: 3, name: h, exact: true })).toBeVisible();
     await expect(main.getByRole("heading", { name: "Recent activity" })).toBeVisible();
     await expect(main.getByRole("heading", { name: /^Alerts/ })).toBeVisible();
     await main.getByRole("button", { name: "Table" }).click();
@@ -153,6 +155,14 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await page.getByRole("button", { name: /^Actions/ }).click();
     await expect(page.getByRole("menuitem", { name: "Copy link" })).toBeVisible();
     await page.keyboard.press("Escape");
+    const head = page.locator(".nx-headactions");
+    await head.getByRole("button", { name: "New VM", exact: true }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await head.getByRole("button", { name: "Shell", exact: true }).click();
+    await expect(page).toHaveURL(/tab=shell/);
+    await main.getByRole("tab", { name: "Performance" }).click();
+    await expect(main.getByRole("group", { name: "History range" })).toBeVisible();
   });
 
   test("the Overview answers: headline figures, host history, nodes, alerts, operations, pools, events", async ({ page }) => {
@@ -210,10 +220,12 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(vm).toBeVisible({ timeout: 30_000 });
     await vm.click();
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { name: "Identity" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Configuration" })).toBeVisible();
     await expect(main.getByRole("heading", { name: "Protection" })).toBeVisible();
+    await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toBeVisible();
     await expect(main.getByText("All operations")).toBeVisible();
-    for (const tab of ["Summary", "Console", "Configure", "Snapshots", "Backup"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
+    for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
+    for (const action of ["Snapshot", "Migrate…"]) await expect(page.locator(".nx-headactions").getByRole("button", { name: new RegExp(`^${action}`) })).toBeVisible();
     await page.getByRole("button", { name: /^Actions/ }).click();
     await expect(page.getByRole("menuitem", { name: /Force stop/ })).toBeVisible();
   });

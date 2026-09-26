@@ -50,11 +50,15 @@ test("options: values are validated, resources saved on a stopped VM, limits app
   await expect(apply).toBeDisabled();
   await expect(main.getByText("Whole number from 2 to 262144.")).toBeVisible();
   await main.getByLabel("CPU shares").fill("2048");
+  // under load the card can still be settling after the resources save: apply only once the value is really in the form
+  await expect(main.getByLabel("CPU shares")).toHaveValue("2048");
+  await expect(apply).toBeEnabled();
   await apply.click();
+  await expect(page.getByText("Limits applied").first()).toBeVisible({ timeout: 20_000 });
   await expect.poll(async () => ((await (await request.get(`/vms/${NAME}/limits`, { headers: auth() })).json()) as { cpu_shares: number }).cpu_shares, { timeout: 20_000 }).toBe(2048);
 });
 
-test("hardware: attach and detach a disk with confirmation, VLAN is validated, interface list is shown", async ({ page, request }) => {
+test("hardware and network: attach and detach a disk with confirmation, VLAN is validated, interface list is shown", async ({ page, request }) => {
   await open(page, "hardware");
   const main = page.getByRole("main");
   const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length;
@@ -71,7 +75,13 @@ test("hardware: attach and detach a disk with confirmation, VLAN is validated, i
   await main.getByRole("button", { name: /^Detach disk sd/ }).first().click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Detach", exact: true }).click();
   await expect.poll(disks, { timeout: 30_000 }).toBe(before);
+  // interfaces and firewall moved to their own Network tab
+  await expect(main.getByRole("heading", { level: 2, name: /^Network interfaces/ })).toHaveCount(0);
+  await main.getByRole("tab", { name: "Options" }).click();
+  await expect(page).toHaveURL(/tab=options/);
 
+  await page.goto(`/vm/${NAME}?tab=network`);
+  await expect(main.getByRole("tab", { name: "Network", exact: true })).toHaveAttribute("aria-selected", "true");
   await main.getByLabel("VLAN (optional)").fill("5000");
   await expect(main.getByRole("button", { name: "Add an interface" })).toBeDisabled();
   await expect(main.getByText("VLAN from 1 to 4094.")).toBeVisible();
@@ -101,6 +111,30 @@ test("snapshots: name is validated, create, restore and delete are confirmed and
   await main.getByRole("button", { name: "Delete snapshot before-upgrade" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click();
   await expect.poll(snaps, { timeout: 30_000 }).not.toContain("before-upgrade");
+});
+
+test("header actions and performance: Snapshot opens the creation dialog, Migrate explains why it is unavailable", async ({ page }) => {
+  await open(page, "summary");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { level: 2, name: "Configuration" })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { level: 2, name: /^Performance · last hour/ })).toBeVisible();
+  for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
+  const head = page.locator(".nx-headactions");
+  // stopped VM on a single-node install: Start is the primary action, Migrate says why it is unavailable
+  await expect(head.getByRole("button", { name: "Start", exact: true })).toBeVisible();
+  await expect(head.getByRole("button", { name: /^Migrate…/ })).toHaveAttribute("aria-disabled", "true");
+  await expect(head.getByRole("button", { name: /^Migrate…/ })).toHaveAttribute("title", /Not running|No other online node/);
+  await head.getByRole("button", { name: "Snapshot", exact: true }).click();
+  await expect(page).toHaveURL(/tab=snapshots/);
+  const dlg = page.getByRole("dialog");
+  await expect(dlg.getByRole("textbox")).toBeVisible({ timeout: 20_000 });
+  await dlg.getByRole("button", { name: "Cancel" }).click();
+
+  await main.getByRole("tab", { name: "Performance" }).click();
+  await expect(main.getByRole("group", { name: "History range" })).toBeVisible();
+  for (const h of ["CPU", "Memory", "Disk I/O", "Network"]) await expect(main.getByRole("heading", { level: 3, name: h, exact: true })).toBeVisible();
+  await main.getByRole("group", { name: "History range" }).getByRole("button", { name: "7j" }).click();
+  await expect(main.getByRole("group", { name: "History range" }).getByRole("button", { name: "7j" })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("backup: schedule is validated and saved, a backup runs and can be deleted after a confirmation", async ({ page, request }) => {

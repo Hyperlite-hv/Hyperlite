@@ -30,6 +30,15 @@ export function formatSizeGb(gb, lang = "en") {
   if (gb == null || Number.isNaN(gb)) return null;
   return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(gb)} ${lang === "fr" ? "Go" : "GB"}`;
 }
+// Throughput in bytes per second, 1024-based like the sizes (Ko/s in French). `compact` drops the decimals for axes.
+export function formatRate(bps, lang = "en", compact = false) {
+  if (bps == null || Number.isNaN(bps)) return null;
+  const units = lang === "fr" ? ["o/s", "Ko/s", "Mo/s", "Go/s"] : ["B/s", "KB/s", "MB/s", "GB/s"];
+  let v = Math.max(0, bps), i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  const nf = new Intl.NumberFormat(lang, { maximumFractionDigits: compact || i === 0 ? 0 : 1 });
+  return `${nf.format(v)} ${units[i]}`;
+}
 export function formatUptimeLong(seconds, lang = "en") {
   if (!seconds || seconds <= 0) return null;
   const d = Math.floor(seconds / 86400), h = Math.floor((seconds % 86400) / 3600), m = Math.floor((seconds % 3600) / 60);
@@ -37,6 +46,13 @@ export function formatUptimeLong(seconds, lang = "en") {
   if (d > 0) return `${d} ${j} ${h} h`;
   if (h > 0) return `${h} h ${m} min`;
   return `${m} min`;
+}
+// Date and time from an ISO string or a Unix timestamp in seconds (libvirt reports snapshot creation times that way).
+export function formatDateTime(v, lang = "en") {
+  if (v == null || v === "") return "";
+  const d = typeof v === "number" || /^\d+$/.test(String(v)) ? new Date(Number(v) * 1000) : new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  return new Intl.DateTimeFormat(lang, { dateStyle: "short", timeStyle: "short" }).format(d);
 }
 export function clockTime(iso, lang = "en") {
   if (!iso) return "";
