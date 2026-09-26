@@ -121,7 +121,7 @@ function AddDiskDrawer({ open, onClose, vmName, disks, onDone }) {
     <SideDrawer open={open} title={t("vh.addDisk")} onClose={onClose} busy={busy} footer={<>
       <span className="nx-f-h" style={{ marginRight: "auto" }}>{nextDev ? t("vh.willBe", { dev: nextDev }) : t("vh.noLetter")}</span>
       <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
-      <button type="button" className="nx-btn nx-btn--primary" aria-label={t("a11y.attach")} disabled={busy || !nextDev || sizeBad || nameBad} onClick={attach}>{t("vh.attachBtn")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !nextDev || sizeBad || nameBad} onClick={attach}>{t("vh.attachBtn")}</button>
     </>}>
       <Field label={t("vh.pool")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.pool")} value={pool} onChange={(e) => { setPool(e.target.value); setSource("__new__"); }}>{(pools.length ? pools : [{ nom: "default" }]).map((x) => <option key={x.nom} value={x.nom}>{x.nom}{x.disponible_go != null ? ` · ${formatSizeGb(x.disponible_go, lang())} ${t("stor.free").toLowerCase()}` : ""}</option>)}</select>}</Field>
       <Field label={t("vh.disk")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.disk_to_attach")} value={source} onChange={(e) => setSource(e.target.value)}><option value="__new__">{t("vh.newDisk")}</option>{volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</option>)}</select>}</Field>
@@ -238,7 +238,7 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
   return (
     <SideDrawer open={open} title={t("vh.addIf")} onClose={onClose} busy={busy} footer={<>
       <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
-      <button type="button" className="nx-btn nx-btn--primary" aria-label={t("a11y.add_an_interface")} disabled={busy || !net || vlanBad} onClick={add}>{t("vh.addIfBtn")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !net || vlanBad} onClick={add}>{t("vh.addIfBtn")}</button>
     </>}>
       <Field label={t("vh.network")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.network_to_attach")} value={net} onChange={(e) => setNet(e.target.value)}>{networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({t(`net.mode.${n.type}`)})</option>)}</select>}</Field>
       <Field label="VLAN" error={vlanBad ? t("vh.vlanRule") : null} hint={t("vh.vlanHint")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vlan_optional")} type="number" min={1} max={4094} value={vlan} placeholder={t("vh.optional")} onChange={(e) => setVlan(e.target.value)} />}</Field>

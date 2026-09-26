@@ -71,7 +71,7 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
       </button>
       {caps.create && (
         <span className="nx-relative">
-          <button ref={createBtn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen((o) => !o)}>
+          <button ref={createBtn} type="button" className="nx-btn" aria-label={t("action.create")} aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen((o) => !o)}>
             <Plus size={15} aria-hidden="true" /><span className="nx-hide-narrow">{t("action.create")}</span><ChevronDown size={14} aria-hidden="true" />
           </button>
           <Menu open={createOpen} onClose={() => setCreateOpen(false)} label={t("action.create")} returnFocusRef={createBtn} style={{ top: "calc(100% + 4px)", right: 0 }}>

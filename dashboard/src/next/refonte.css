@@ -94,7 +94,9 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-kpi-l { font-size: var(--fs-12); color: var(--color-text-secondary); font-weight: 500; display: flex; gap: 0.4rem; align-items: center; }
 .nx-kpi-v { font-size: var(--fs-26); font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 0.4rem; white-space: nowrap; }
 .nx-kpi-v small { font-size: var(--fs-13); font-weight: 500; color: var(--color-text-muted); }
-.nx-kpi-s { font-size: var(--fs-12); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 6.4rem; }
+.nx-kpi-s { font-size: var(--fs-12); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* room for the sparkline only on tiles that draw one */
+.nx-kpi:has(.nx-spark) .nx-kpi-s { padding-right: 6.4rem; }
 .nx-kpi .nx-spark { position: absolute; right: 0.9333rem; bottom: 0.8rem; width: 5.8667rem; height: 1.7333rem; }
 @media (max-width: 900px) {
   .nx-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -351,7 +353,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-subhead { margin: 0 0 0.5333rem; font-size: var(--fs-13); font-weight: 600; color: var(--color-text-secondary); }
 .nx-termbar { display: flex; align-items: center; gap: 0.5333rem; flex-wrap: wrap; padding: 0.5333rem 0.6667rem; background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-subtle); border-bottom: 0; border-radius: 10px 10px 0 0; }
 .nx-term { min-height: 26rem; background: var(--color-bg-sidebar); border: 1px solid var(--color-border-subtle); border-radius: 0 0 10px 10px; padding: 0.6667rem; overflow: hidden; }
-.nx-term-hint { margin: 0; font-family: var(--font-mono); font-size: var(--fs-125); color: var(--color-text-disabled); }
+.nx-term-hint { margin: 0; font-family: var(--font-mono); font-size: var(--fs-125); color: var(--color-text-secondary); }
 .nx-term .xterm { height: 26rem; }
 .nx-termwrap { position: relative; }
 .nx-termwrap .nx-term-hint { position: absolute; left: 1rem; top: 1rem; }
@@ -393,9 +395,16 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 @media (max-width: 1000px) {
   .nx-wiz3 { grid-template-columns: minmax(0, 1fr); overflow: auto; }
   .nx-steps2 { grid-auto-flow: column; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
-  .nx-steps2 .nx-steplabel { display: none; }
-  .nx-steps2 li.is-current .nx-steplabel { display: inline; }
+  /* labels stay in the accessibility tree: visually hidden, not display:none */
+  .nx-steps2 .nx-steplabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .nx-steps2 li.is-current .nx-steplabel { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .nx-wiz-recap { display: none; }
+}
+/* phones: the eight steps share the row, numbers only (the step title is in the body) */
+@media (max-width: 600px) {
+  .nx-steps2 { grid-auto-columns: minmax(0, 1fr); overflow-x: visible; padding: 0.6667rem 0.4rem; }
+  .nx-steps2 button { justify-content: center; padding: 0; }
+  .nx-steps2 li.is-current .nx-steplabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 :root[data-ui="next"] .nx-wizard2--sm[data-slot="dialog-content"] { width: min(48rem, calc(100vw - 2rem)); max-width: min(48rem, calc(100vw - 2rem)); }
 .nx-wizard2--sm form { display: flex; flex-direction: column; min-height: 0; flex: 1; }

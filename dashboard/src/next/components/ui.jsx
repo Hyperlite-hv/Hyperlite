@@ -200,7 +200,7 @@ export function Field({ label, hint, error, unit, children, id }) {
     <div className="nx-f">
       <label htmlFor={fid}>{label}</label>
       {unit ? <div className="nx-unit">{child}<span aria-hidden="true">{unit}</span></div> : child}
-      {(error || hint) && <span id={`${fid}-h`} className={`nx-f-h${error ? " is-error" : ""}`}>{error || hint}</span>}
+      {(error || hint) && <span id={`${fid}-h`} className={`nx-f-h${error ? " is-error" : ""}`} role={error ? "alert" : undefined}>{error || hint}</span>}
     </div>
   );
 }

@@ -52,7 +52,7 @@ export default function LibraryPage() {
       <div id="lib-panel" role="tabpanel" aria-labelledby={`lib-${tab}`} className="nx-stack">
         {tab === "iso" ? (
           <>
-            {caps.admin && <div ref={drop}><IsoUploadDropzone onDone={loadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta") }} /></div>}
+            {caps.admin && <div ref={drop}><IsoUploadDropzone onDone={loadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} /></div>}
             <div className="nx-card2 nx-card2--flush">
               {isos == null ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : isos.length === 0 ? <Empty icon={Disc3} title={t("stor.noIso")} text={t("lib.isoNoneHelp")} /> : (
                 <div className="nx-tablewrap">

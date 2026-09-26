@@ -57,10 +57,10 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
       )}
       {isAdmin && (
         <div className="nx-card2-foot">
-          <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.add_a_rule")} onClick={() => setConfig((c) => ({ ...c, rules: [...c.rules, { action: "accept", direction: "in", protocol: "tcp", port: null }] }))}><Plus size={14} aria-hidden="true" />{t("fw.add")}</button>
+          <button type="button" className="nx-btn nx-btn--sm" onClick={() => setConfig((c) => ({ ...c, rules: [...c.rules, { action: "accept", direction: "in", protocol: "tcp", port: null }] }))}><Plus size={14} aria-hidden="true" />{t("fw.add")}</button>
           <span className="nx-sp" />
           {dirty && <span className="nx-muted" style={{ fontSize: "var(--fs-12)" }} role="status">{t("sso.unsaved")}</span>}
-          <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.apply")} disabled={busy || !dirty} onClick={apply}>{t("fw.apply")}</button>
+          <button type="button" className="nx-btn nx-btn--sm" disabled={busy || !dirty} onClick={apply}>{t("fw.apply")}</button>
         </div>
       )}
     </Card>

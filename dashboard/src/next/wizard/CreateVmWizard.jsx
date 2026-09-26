@@ -313,7 +313,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                     <option value="">{t("wz.none")}</option>{isos.filter((i) => i.nom !== form.iso).map((i) => <option key={i.nom} value={i.nom}>{i.nom}</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.driversHelp")} <a href="https://virtio-win.github.io/Knowledge-Base/Driver-installation.html" target="_blank" rel="noreferrer">{t("wz.driversLink")}</a></span>
-                  <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta") }} />
+                  <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} />
                 </fieldset>
               )}
               <fieldset className="nx-fieldset">

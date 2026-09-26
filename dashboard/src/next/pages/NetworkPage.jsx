@@ -142,7 +142,7 @@ export default function NetworkPage() {
         <button type="button" className="nx-btn nx-btn--ghost" onClick={close} disabled={busy}>{t("action.cancel")}</button>
         <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={create}>{t("net.create")}</button>
       </>}>
-        {field("name", t("ns.col.name"), "Name", "isolated-lab")}
+        {field("name", t("ns.col.name"), t("a11y.name"), "isolated-lab")}
         <Field label={t("net.mode")}>{(p) => (
           <select {...p} className="nx-inp" aria-label={t("a11y.network_mode")} value={form.mode} onChange={set("mode")}>
             <option value="isole">{t("net.modeIsolated")}</option>
@@ -150,11 +150,11 @@ export default function NetworkPage() {
             <option value="bridge">{t("net.modeBridge")}</option>
           </select>
         )}</Field>
-        {bridge ? field("bridge_name", t("net.bridge"), "Host bridge name (e.g. br0)", "br0") : (<>
-          {field("subnet_address", t("net.gateway"), "Gateway (e.g. 192.168.150.1)", "192.168.150.1")}
+        {bridge ? field("bridge_name", t("net.bridge"), t("a11y.host_bridge_name"), "br0") : (<>
+          {field("subnet_address", t("net.gateway"), t("a11y.gateway"), "192.168.150.1")}
           <div className="nx-fg">
-            {field("dhcp_start", t("net.dhcpStart"), "DHCP start", "192.168.150.10")}
-            {field("dhcp_end", t("net.dhcpEnd"), "DHCP end", "192.168.150.100")}
+            {field("dhcp_start", t("net.dhcpStart"), t("a11y.dhcp_start"), "192.168.150.10")}
+            {field("dhcp_end", t("net.dhcpEnd"), t("a11y.dhcp_end"), "192.168.150.100")}
           </div>
         </>)}
       </SideDrawer>

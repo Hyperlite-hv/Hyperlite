@@ -121,7 +121,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
                     <td><Chip>{u.auth_source === "sso" ? "SSO" : t("sec.local")}</Chip></td>
                     <td>{u.totp_enabled ? <span className="nx-tone-success">{t("sec.on2fa")}</span> : <span className="nx-muted">{t("sec.off2fa")}</span>}</td>
                     <td className="nx-mono nx-muted">{when(u.last_login_at) || t("sec.never")}</td>
-                    <td><div className="nx-ra"><IconBtn label={self ? t("sec.selfDelete") : `Delete user ${u.username}`} title={self ? t("sec.selfDelete") : del(t)} disabled={self} onClick={() => remove(u)} /></div></td>
+                    <td><div className="nx-ra"><IconBtn label={self ? t("sec.selfDelete") : t("a11y.delete_user_x", { v: u.username })} title={self ? t("sec.selfDelete") : del(t)} disabled={self} onClick={() => remove(u)} /></div></td>
                   </tr>
                 );
               })}
@@ -173,7 +173,7 @@ function GroupsTab({ t, run, data, drawer, closeDrawer }) {
         <div className="nx-cols2 nx-cols2--even">
           {data.groups.map((g) => (
             <section key={g.id} className="nx-card2" aria-label={g.name}>
-              <div className="nx-card2-h"><h2>{g.name}</h2><div className="nx-card2-acts"><IconBtn label={`Delete group ${g.name}`} title={del(t)} onClick={() => removeGroup(g)} /></div></div>
+              <div className="nx-card2-h"><h2>{g.name}</h2><div className="nx-card2-acts"><IconBtn label={t("a11y.delete_group_x", { v: g.name })} title={del(t)} onClick={() => removeGroup(g)} /></div></div>
               <div className="nx-card2-b nx-stack">
                 <Chips t={t} list={g.membres} label={`${t("sec.members")} ${g.name}`} none={t("sec.noMembers")} onRemove={(m) => removeMember(g, m)} />
                 <div className="nx-inline">
@@ -206,7 +206,7 @@ function PoolsTab({ t, run, data, vms, drawer, closeDrawer }) {
             const available = vms.filter((v) => !p.vms.includes(v.nom));
             return (
               <section key={p.id} className="nx-card2" aria-label={p.name}>
-                <div className="nx-card2-h"><h2>{p.name}</h2><div className="nx-card2-acts"><IconBtn label={`Delete pool ${p.name}`} title={del(t)} onClick={() => removePool(p)} /></div></div>
+                <div className="nx-card2-h"><h2>{p.name}</h2><div className="nx-card2-acts"><IconBtn label={t("a11y.delete_vmpool_x", { v: p.name })} title={del(t)} onClick={() => removePool(p)} /></div></div>
                 <div className="nx-card2-b nx-stack">
                   <Chips t={t} list={p.vms} label={`VM ${p.name}`} none={t("sec.noVms")} onRemove={(v) => removeVm(p, v)} />
                   {available.length > 0 && (
@@ -254,7 +254,7 @@ function RolesTab({ t, run, data, drawer, closeDrawer }) {
               {Object.entries(data.roles).map(([k, r]) => <tr key={k}><th scope="row">{r.label}</th><td><Chip>{t("sec.scoped")}</Chip></td><td className="nx-wrapcell nx-muted">{r.description}</td><td className="nx-num nx-mono">{countBy(k)}</td><td /></tr>)}
               {data.customRoles.map((r) => (
                 <tr key={r.key}><th scope="row">{r.label}</th><td><Chip tone="info">{t("sec.custom")}</Chip></td><td className="nx-wrapcell nx-muted">{[...r.privileges].map((p) => data.privileges[p] || p).join(", ")}</td><td className="nx-num nx-mono">{countBy(r.key)}</td>
-                  <td><div className="nx-ra"><IconBtn label={`Delete role ${r.label}`} title={del(t)} onClick={() => remove(r)} /></div></td></tr>
+                  <td><div className="nx-ra"><IconBtn label={t("a11y.delete_role_x", { v: r.label })} title={del(t)} onClick={() => remove(r)} /></div></td></tr>
               ))}
             </tbody>
           </table>
@@ -300,7 +300,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
                     <th scope="row">{a.subject_type === "group" ? `${t("sec.group")} ${a.subject_label}` : a.subject_label}</th>
                     <td><Chip tone="accent">{allRoles[a.role]?.label || a.role}</Chip></td>
                     <td className="nx-mono">{resLabel(a)}</td>
-                    <td><div className="nx-ra"><IconBtn label={`Remove assignment ${a.id}`} title={t("sec.remove")} onClick={() => remove(a)} /></div></td>
+                    <td><div className="nx-ra"><IconBtn label={t("a11y.remove_assignment_x", { v: a.id })} title={t("sec.remove")} onClick={() => remove(a)} /></div></td>
                   </tr>
                 ))}
               </tbody>

@@ -9,7 +9,7 @@ import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
 import { PageHeader, Empty } from "../components/ui";
-import { Heart, Info, Monitor } from "lucide-react";
+import { Heart, Info, Monitor, RefreshCw } from "lucide-react";
 
 // High availability: protected VMs with the real status of their node. Recovery is always a manual,
 // confirmed action (no fencing: recovering while the original node still runs could corrupt the disk).
@@ -56,7 +56,8 @@ export default function HaPage() {
 
   return (
     <>
-      <PageHeader title={t("tab.ha")} count={rows ? list.length : null} desc={t("ha.desc")} fresh freshAt={at} />
+      <PageHeader title={t("tab.ha")} count={rows ? list.length : null} desc={t("ha.desc")} fresh freshAt={at}
+        actions={<button type="button" className="nx-btn" onClick={reload}><RefreshCw size={15} aria-hidden="true" />{t("action.refresh")}</button>} />
       <div className="nx-bn" data-tone={online >= 2 && shared > 0 ? "success" : "info"} role="status"><Info size={16} aria-hidden="true" />
         <span className="nx-bn-t">{t("ha.prereq", { nodes: online, pools: shared })}</span></div>
       {error && rows == null ? <ErrorState message={error} onRetry={reload} /> : (
