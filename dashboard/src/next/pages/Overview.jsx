@@ -8,12 +8,34 @@ import { useFreshness } from "../lib/inventory";
 import { deriveAlerts } from "../lib/alerts";
 import { taskLabel } from "../lib/enums";
 import { formatSizeGb, formatSizeMb, formatUptimeLong, clockTime } from "../lib/format";
-import KpiTile from "../components/KpiTile";
-import StatTile from "../components/StatTile";
+import Sparkline from "../components/Sparkline";
 import StatusIndicator from "../components/StatusIndicator";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
-const levelOf = (r) => (r >= 0.9 ? "danger" : r >= 0.8 ? "warning" : "accent");
+// Capacity colours: telemetry teal by default (the brand colour never encodes data), escalated to
+// warning / danger past 80 % / 90 %.
+const levelOf = (r) => (r >= 0.9 ? "danger" : r >= 0.8 ? "warning" : "info");
+
+// One capacity line: name and scope, a meter, the figure, and the last-hour trend when available.
+function CapacityRow({ label, sub, ratio, series, trendLabel, unavailable }) {
+  const t = useT();
+  const pct = ratio != null ? Math.round(ratio * 100) : null;
+  const tone = levelOf(ratio ?? 0);
+  const level = ratio == null ? null : ratio >= 0.9 ? { key: "ns.level.critical", shape: "diamond", tone: "danger" } : ratio >= 0.8 ? { key: "ns.level.high", shape: "triangle", tone: "warning" } : null;
+  return (
+    <div className="nx-cap-row">
+      <div className="nx-cap-name"><span>{label}</span>{sub && <small>{sub}</small>}</div>
+      {unavailable ? <div className="nx-cap-na" role="status">{unavailable}</div> : (
+        <>
+          <span className="nx-progress nx-cap-meter" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%`, background: `var(--color-${tone})` }} /></span>
+          <span className="nx-cap-value">{level && <StatusIndicator override={level} compact />}{pct} %</span>
+          <div className="nx-cap-trend">{series ? <Sparkline values={series} label={trendLabel} tone={tone} max={100} /> : <span className="nx-muted" aria-hidden="true">—</span>}</div>
+        </>
+      )}
+      {!unavailable && <span className="nx-sr">{t("ns.trendHint")}</span>}
+    </div>
+  );
+}
 
 // Datacenter overview: is the infrastructure healthy, what needs attention, how full is it,
 // what just happened. Every figure comes from the API; unavailable ones say so.
@@ -56,25 +78,49 @@ export default function Overview() {
         </div>
       )}
 
-      <div className="nx-grid nx-grid--4" role="group" aria-label={t("ov.inventory")}>
-        <StatTile tone="accent" icon={<><g stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3.5" width="14" height="5" rx="1" /><rect x="3" y="11.5" width="14" height="5" rx="1" /></g></>} label={t("nav.nodes")} value={`${online} / ${nodes.length}`} sub={t("ov.nodesOnline")} onClick={() => navigateTo("datacenter", null, "nodes")} />
-        <StatTile tone="success" icon={<><g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="14" height="9" rx="1.2" /><path d="M7 17h6M10 13v4" /></g></>} label={t("nav.vms")} value={`${running} / ${vms.length}`} sub={problems ? t("ov.vmsProblems", { n: problems }) : t("ov.vmsRunning")} onClick={() => navigateTo("datacenter", null, "vms")} />
-        <StatTile tone="info" icon={<><path d="M10 3l6 3.4v7.2L10 17l-6-3.4V6.4L10 3zM4 6.5l6 3.3 6-3.3M10 9.8V17" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></>} label={t("nav.containers")} value={containers.length} sub={t("ov.containersSub", { n: containers.filter((c) => c.etat === "actif").length })} onClick={() => navigateTo("datacenter", null, "containers")} />
-        <StatTile tone="warning" icon={<><g stroke="currentColor" strokeWidth="1.5"><ellipse cx="10" cy="5.5" rx="6" ry="2.3" /><path d="M4 5.5v9c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3v-9M4 10c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3" /></g></>} label={t("nav.storage")} value={storagePools.length} sub={t("ov.poolsSub")} onClick={() => navigateTo("datacenter", null, "storage")} />
+      <div className="nx-card nx-ov-strip" role="group" aria-label={t("ov.inventory")}>
+        <button type="button" className="nx-ov-stat" onClick={() => navigateTo("datacenter", null, "nodes")}>
+          <span className="nx-ov-stat-label">{t("nav.nodes")}</span>
+          <span className="nx-ov-stat-value">{online} <small>/ {nodes.length}</small></span>
+          <span className="nx-ov-stat-sub">{t("ov.nodesOnline")}</span>
+        </button>
+        <button type="button" className="nx-ov-stat" onClick={() => navigateTo("datacenter", null, "vms")}>
+          <span className="nx-ov-stat-label">{t("nav.vms")}</span>
+          <span className="nx-ov-stat-value">{running} <small>/ {vms.length}</small></span>
+          <span className={`nx-ov-stat-sub${problems ? " nx-tone-warning" : ""}`}>{problems ? t("ov.vmsProblems", { n: problems }) : t("ov.vmsRunning")}</span>
+        </button>
+        <button type="button" className="nx-ov-stat" onClick={() => navigateTo("datacenter", null, "containers")}>
+          <span className="nx-ov-stat-label">{t("nav.containers")}</span>
+          <span className="nx-ov-stat-value">{containers.length}</span>
+          <span className="nx-ov-stat-sub">{t("ov.containersSub", { n: containers.filter((c) => c.etat === "actif").length })}</span>
+        </button>
+        <button type="button" className="nx-ov-stat" onClick={() => navigateTo("datacenter", null, "storage")}>
+          <span className="nx-ov-stat-label">{t("nav.storage")}</span>
+          <span className="nx-ov-stat-value">{storagePools.length}</span>
+          <span className="nx-ov-stat-sub">{t("ov.poolsSub")}</span>
+        </button>
       </div>
 
-      <div className="nx-grid nx-grid--4" role="group" aria-label={t("ns.resources")}>
-        <KpiTile label={t("ns.cpu")} ratio={cpu} sub={cpu != null ? t("ov.localHost") : ""} unavailable={cpu == null ? t("ns.collecting") : null} />
-        <KpiTile label={t("ns.memory")} ratio={mem} sub={last?.mem_total_mb ? `${formatSizeMb(last.mem_used_mb, lang)} / ${formatSizeMb(last.mem_total_mb, lang)}` : ""} tone="info" unavailable={mem == null ? t("ns.collecting") : null} />
-        <KpiTile label={t("ns.storage")} ratio={sto} sub={sto != null ? `${formatSizeGb(usedGb, lang)} / ${formatSizeGb(totalGb, lang)}` : ""} tone="success" unavailable={sto == null ? na : null} />
-        <StatTile label={t("ns.network")} unavailable={t("ns.networkNa")} />
+      <div className="nx-cols">
+        <section className="nx-card" aria-labelledby="ov-capacity">
+          <div className="nx-cardhead"><h2 id="ov-capacity">{t("ov.capacity")}</h2><span className="nx-muted nx-cardhead-note">{t("ov.capacityScope")}</span></div>
+          <div className="nx-cap" role="group" aria-label={t("ns.resources")}>
+            <CapacityRow label={t("ns.cpu")} sub={t("ov.localHost")} ratio={cpu} series={cpuSeries.length > 1 ? cpuSeries : null} trendLabel={`${t("ns.cpu")} · ${t("ov.lastHour")}`} unavailable={cpu == null ? t("ns.collecting") : null} />
+            <CapacityRow label={t("ns.memory")} sub={last?.mem_total_mb ? `${formatSizeMb(last.mem_used_mb, lang)} / ${formatSizeMb(last.mem_total_mb, lang)}` : ""} ratio={mem} series={memSeries.length > 1 ? memSeries : null} trendLabel={`${t("ns.memory")} · ${t("ov.lastHour")}`} unavailable={mem == null ? t("ns.collecting") : null} />
+            <CapacityRow label={t("ns.storage")} sub={sto != null ? `${formatSizeGb(usedGb, lang)} / ${formatSizeGb(totalGb, lang)}` : ""} ratio={sto} unavailable={sto == null ? na : null} />
+            <CapacityRow label={t("ns.network")} unavailable={t("ns.networkNa")} />
+          </div>
+        </section>
+
+        <section className="nx-card" aria-labelledby="ov-attn">
+          <h2 id="ov-attn">{t("ov.attention")}</h2>
+          {alerts.length === 0 ? <p role="status"><StatusIndicator override={{ key: "health.ok", shape: "dot", tone: "success" }} /> <span className="nx-muted">{t("ns.noIncident")}</span></p> : (
+            <ul className="nx-list">{alerts.slice(0, 6).map((a) => (
+              <li key={a.id}><StatusIndicator override={{ key: a.level === "danger" ? "state.crashed" : a.level === "warning" ? "state.degraded" : "state.offline", shape: a.level === "danger" ? "diamond" : a.level === "warning" ? "triangle" : "ring", tone: a.level }} compact /><span className="nx-mono">{a.text}</span>{a.target ? <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo(a.target.type, a.target.id, a.target.tab)}>{t("menu.open")}</button> : <span />}</li>
+            ))}</ul>
+          )}
+        </section>
       </div>
-      {(cpuSeries.length > 1 || memSeries.length > 1) && (
-        <div className="nx-cols nx-cols--even">
-          <StatTile label={`${t("ns.cpu")} · ${t("ov.lastHour")}`} series={cpuSeries} tone={levelOf(cpu ?? 0)} value={cpu != null ? `${Math.round(cpu * 100)} %` : null} sub={t("ov.localHost")} />
-          <StatTile label={`${t("ns.memory")} · ${t("ov.lastHour")}`} series={memSeries} tone={levelOf(mem ?? 0)} value={mem != null ? `${Math.round(mem * 100)} %` : null} sub={t("ov.localHost")} />
-        </div>
-      )}
 
       <div className="nx-cols">
         <section className="nx-card" aria-labelledby="ov-nodes">
@@ -92,7 +138,7 @@ export default function Overview() {
                       <td><StatusIndicator kind="node" wire={n.etat} /></td>
                       <th scope="row"><button type="button" className="nx-link" onClick={() => navigateTo("node", n.id, "summary")}>{n.nom}</button></th>
                       <td className="nx-num nx-mono">{nv.filter((v) => v.etat === "actif").length} / {nv.length}</td>
-                      <td>{r == null ? <span className="nx-muted">{na}</span> : <span className="nx-mono">{Math.round(r * 100)} % <span className="nx-progress nx-progress--inline" role="meter" aria-label={t("ns.storage")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r * 100)}><span style={{ width: `${Math.round(r * 100)}%`, background: `var(--color-${levelOf(r) === "accent" ? "accent" : levelOf(r)})` }} /></span></span>}</td>
+                      <td>{r == null ? <span className="nx-muted">{na}</span> : <span className="nx-mono">{Math.round(r * 100)} % <span className="nx-progress nx-progress--inline" role="meter" aria-label={t("ns.storage")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r * 100)}><span style={{ width: `${Math.round(r * 100)}%`, background: `var(--color-${levelOf(r)})` }} /></span></span>}</td>
                       <td className="nx-mono">{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
                     </tr>
                   );
@@ -100,35 +146,6 @@ export default function Overview() {
               </tbody>
             </table>
           </div>
-        </section>
-
-        <section className="nx-card" aria-labelledby="ov-attn">
-          <h2 id="ov-attn">{t("ov.attention")}</h2>
-          {alerts.length === 0 ? <p role="status"><StatusIndicator override={{ key: "health.ok", shape: "dot", tone: "success" }} /> <span className="nx-muted">{t("ns.noIncident")}</span></p> : (
-            <ul className="nx-list">{alerts.slice(0, 6).map((a) => (
-              <li key={a.id}><StatusIndicator override={{ key: a.level === "danger" ? "state.crashed" : a.level === "warning" ? "state.degraded" : "state.offline", shape: a.level === "danger" ? "diamond" : a.level === "warning" ? "triangle" : "ring", tone: a.level }} compact /><span className="nx-mono">{a.text}</span>{a.target ? <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo(a.target.type, a.target.id, a.target.tab)}>{t("menu.open")}</button> : <span />}</li>
-            ))}</ul>
-          )}
-        </section>
-      </div>
-
-      <div className="nx-cols nx-cols--even">
-        <section className="nx-card" aria-labelledby="ov-pools">
-          <div className="nx-cardhead"><h2 id="ov-pools">{t("inv.storage")}</h2><button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("datacenter", null, "storage")}>{t("ov.manage")}</button></div>
-          {storagePools.length === 0 ? <p className="nx-muted" role="status">{t("ov.noPools")}</p> : (
-            <ul className="nx-list nx-list--pools">
-              {storagePools.map((p) => {
-                const r = p.capacite_go ? (p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go : null;
-                return (
-                  <li key={`${p.node}:${p.nom}`}>
-                    <StatusIndicator kind="pool" wire={p.etat} compact />
-                    <span><span className="nx-mono">{p.nom}</span> <span className="nx-muted">{p.type}</span></span>
-                    <span className="nx-mono">{r == null ? na : `${Math.round(r * 100)} % · ${formatSizeGb(p.disponible_go, lang)} ${t("ov.free")}`}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
         </section>
 
         <section className="nx-card" aria-labelledby="ov-activity">
@@ -142,6 +159,24 @@ export default function Overview() {
           )}
         </section>
       </div>
+
+      <section className="nx-card" aria-labelledby="ov-pools">
+        <div className="nx-cardhead"><h2 id="ov-pools">{t("inv.storage")}</h2><button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("datacenter", null, "storage")}>{t("ov.manage")}</button></div>
+        {storagePools.length === 0 ? <p className="nx-muted" role="status">{t("ov.noPools")}</p> : (
+          <ul className="nx-list nx-list--pools">
+            {storagePools.map((p) => {
+              const r = p.capacite_go ? (p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go : null;
+              return (
+                <li key={`${p.node}:${p.nom}`}>
+                  <StatusIndicator kind="pool" wire={p.etat} compact />
+                  <span><span className="nx-mono">{p.nom}</span> <span className="nx-muted">{p.type}</span></span>
+                  <span className="nx-mono">{r == null ? na : `${Math.round(r * 100)} % · ${formatSizeGb(p.disponible_go, lang)} ${t("ov.free")}`}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
