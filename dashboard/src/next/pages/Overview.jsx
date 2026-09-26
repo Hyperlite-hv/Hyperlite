@@ -84,14 +84,13 @@ export default function Overview() {
   const cpuCard = (
       <section className="nx-card" aria-labelledby="ov-cpuchart">
         <div className="nx-cardhead"><h2 id="ov-cpuchart">{t("ov.cpuHistory")}</h2><span className="nx-muted nx-cardhead-note">{shown}</span></div>
-        {failed ? <p className="nx-muted" role="status">{na}</p> : rows.length < 2 ? <p className="nx-muted" role="status">{t("ns.collecting")}</p> : <LineChart series={cpuSeries} label={t("ov.cpuHistory")} formatTime={timeFmt} />}
+        {failed ? <p className="nx-muted" role="status">{na}</p> : rows.length < 2 ? <p className="nx-muted" role="status">{t("ns.collecting")}</p> : <LineChart series={cpuSeries} label={t("ov.cpuHistory")} formatTime={timeFmt} height={170} />}
       </section>
   );
   const memCard = (
       <section className="nx-card" aria-labelledby="ov-memchart">
         <div className="nx-cardhead"><h2 id="ov-memchart">{t("ov.memHistory")}</h2><span className="nx-muted nx-cardhead-note">{shown}</span></div>
-        {failed ? <p className="nx-muted" role="status">{na}</p> : rows.length < 2 ? <p className="nx-muted" role="status">{t("ns.collecting")}</p> : <LineChart series={memSeries} label={t("ov.memHistory")} formatTime={timeFmt} />}
-        <p className="nx-hint" style={{ marginBottom: 0 }}>{t("ov.iopsNa")}</p>
+        {failed ? <p className="nx-muted" role="status">{na}</p> : rows.length < 2 ? <p className="nx-muted" role="status">{t("ns.collecting")}</p> : <LineChart series={memSeries} label={t("ov.memHistory")} formatTime={timeFmt} height={170} />}
       </section>
   );
 
@@ -118,12 +117,12 @@ export default function Overview() {
             {sto != null ? <Kpi label={t("nav.storage")} value={formatSizeGb(usedGb, lang)} unit={` / ${formatSizeGb(totalGb, lang)}`} ratio={sto} onClick={() => navigateTo("datacenter", null, "storage")} /> : <Kpi label={t("nav.storage")} value={storagePools.length} sub={t("ov.poolsSub")} onClick={() => navigateTo("datacenter", null, "storage")} />}
           </div>
 
-          <div className="nx-cols nx-cols--wide">
+          <div className="nx-ov-row nx-ov-row--charts">
             {cpuCard}
             {memCard}
           </div>
 
-          <div className="nx-cols nx-cols--wide">
+          <div className="nx-ov-row">
             <section className="nx-card" aria-labelledby="ov-nodes">
               <div className="nx-cardhead"><h2 id="ov-nodes">{t("nav.nodes")} <span className="nx-count">{nodes.length}</span></h2>
                 <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("datacenter", null, "nodes")}>{t("ov.seeAll")}</button></div>
@@ -162,49 +161,51 @@ export default function Overview() {
               )}
             </section>
 
-            <section className="nx-card" aria-labelledby="ov-alerts">
-              <div className="nx-cardhead"><h2 id="ov-alerts">{t("nav.alerts")}</h2><span className="nx-muted nx-cardhead-note">{alerts.length ? t("ov.alertsActive", { n: alerts.length }) : ""}</span></div>
-              {alerts.length === 0 ? <p role="status"><StatusIndicator override={{ key: "health.ok", shape: "dot", tone: "success" }} /> <span className="nx-muted">{t("ns.noIncident")}</span></p> : (
-                <ul className="nx-alertlist">
-                  {alerts.slice(0, 7).map((a) => {
-                    const [key, tone] = sev(a);
-                    return (
-                      <li key={a.id}>
-                        <StatusIndicator override={{ key, shape: tone === "danger" ? "diamond" : tone === "warning" ? "triangle" : "ring", tone }} />
-                        <span className="nx-alert-text">{a.text}</span>
-                        {a.target && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo(a.target.type, a.target.id, a.target.tab)}>{t("menu.open")}</button>}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              {alerts.length > 0 && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => window.dispatchEvent(new CustomEvent("nx:dock", { detail: "alerts" }))}>{t("ns.viewAlerts")}</button>}
-            </section>
+            <div className="nx-ov-side">
+              <section className="nx-card" aria-labelledby="ov-alerts">
+                <div className="nx-cardhead"><h2 id="ov-alerts">{t("nav.alerts")}</h2><span className="nx-muted nx-cardhead-note">{alerts.length ? t("ov.alertsActive", { n: alerts.length }) : ""}</span></div>
+                {alerts.length === 0 ? <p role="status"><StatusIndicator override={{ key: "health.ok", shape: "dot", tone: "success" }} /> <span className="nx-muted">{t("ns.noIncident")}</span></p> : (
+                  <ul className="nx-alertlist">
+                    {alerts.slice(0, 7).map((a) => {
+                      const [key, tone] = sev(a);
+                      return (
+                        <li key={a.id}>
+                            <StatusIndicator override={{ key, shape: tone === "danger" ? "diamond" : tone === "warning" ? "triangle" : "ring", tone }} />
+                            <span className="nx-alert-text">{a.text}</span>
+                            {a.target && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo(a.target.type, a.target.id, a.target.tab)}>{t("menu.open")}</button>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {alerts.length > 0 && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => window.dispatchEvent(new CustomEvent("nx:dock", { detail: "alerts" }))}>{t("ns.viewAlerts")}</button>}
+              </section>
+              <section className="nx-card" aria-labelledby="ov-pools">
+                  <div className="nx-cardhead"><h2 id="ov-pools">{t("inv.storage")}</h2><button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("datacenter", null, "storage")}>{t("ov.manage")}</button></div>
+                  {storagePools.length === 0 ? <p className="nx-muted" role="status">{t("ov.noPools")}</p> : (
+                    <ul className="nx-list nx-list--pools">
+                      {storagePools.map((p) => {
+                            const r = p.capacite_go ? (p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go : null;
+                            return (
+                              <li key={`${p.node}:${p.nom}`}>
+                                <StatusIndicator kind="pool" wire={p.etat} compact />
+                                <span><span className="nx-mono">{p.nom}</span> <span className="nx-muted">{p.type}</span></span>
+                                <span className="nx-mono">{r == null ? na : `${Math.round(r * 100)} % · ${formatSizeGb(p.disponible_go, lang)} ${t("ov.free")}`}</span>
+                              </li>
+                            );
+                      })}
+                    </ul>
+                  )}
+              </section>
+            </div>
           </div>
 
-          <section className="nx-card" aria-labelledby="ov-pools">
-              <div className="nx-cardhead"><h2 id="ov-pools">{t("inv.storage")}</h2><button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("datacenter", null, "storage")}>{t("ov.manage")}</button></div>
-              {storagePools.length === 0 ? <p className="nx-muted" role="status">{t("ov.noPools")}</p> : (
-                <ul className="nx-list nx-list--pools">
-                  {storagePools.map((p) => {
-                    const r = p.capacite_go ? (p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go : null;
-                    return (
-                      <li key={`${p.node}:${p.nom}`}>
-                        <StatusIndicator kind="pool" wire={p.etat} compact />
-                        <span><span className="nx-mono">{p.nom}</span> <span className="nx-muted">{p.type}</span></span>
-                        <span className="nx-mono">{r == null ? na : `${Math.round(r * 100)} % · ${formatSizeGb(p.disponible_go, lang)} ${t("ov.free")}`}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-          </section>
         </>
       )}
 
       {view === "perf" && (
         <>
-          <div className="nx-cols nx-cols--even">{cpuCard}{memCard}</div>
+          <div className="nx-ov-row nx-ov-row--even nx-ov-row--charts">{cpuCard}{memCard}</div>
           <section className="nx-card" aria-labelledby="ov-na">
             <div className="nx-cardhead"><h2 id="ov-na">{t("ov.notProvided")}</h2></div>
             <dl className="nx-dl">

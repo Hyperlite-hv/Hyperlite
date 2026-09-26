@@ -8,7 +8,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeGb } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
-import { EmptyState, ErrorState } from "../components/States";
+import { ErrorState } from "../components/States";
 
 const EMPTY = { name: "", hostname: "", ssh_user: "root", ssh_port: 22 };
 
@@ -20,6 +20,10 @@ export default function NodesPage() {
   const lang = useLangStore((s) => s.lang);
   const caps = capabilities(useAuthStore((s) => s.role));
   const pushToast = useInfraStore((s) => s.pushToast);
+  const storeNodes = useInfraStore((s) => s.nodes);
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const local = storeNodes.find((n) => n.id === "local");
+  const localVms = useInfraStore((s) => s.vms).filter((v) => v.node === "local");
   const [nodes, setNodes] = useState(null);
   const [error, setError] = useState(null);
   const [pubkey, setPubkey] = useState(null);
@@ -68,7 +72,7 @@ export default function NodesPage() {
     <div className="nx-ns">
       <section className="nx-card" aria-labelledby="nd-list">
         <div className="nx-cardhead">
-          <h2 id="nd-list">{t("nav.nodes")} <span className="nx-count">{nodes ? list.length : "…"}</span></h2>
+          <h2 id="nd-list">{t("nav.nodes")} <span className="nx-count">{nodes ? list.length + (local ? 1 : 0) : "…"}</span></h2>
           {caps.admin && <button type="button" className="nx-btn nx-btn--primary" aria-expanded={adding} onClick={() => setAdding((a) => !a)}>{t("nd.add")}</button>}
         </div>
         <p className="nx-muted" style={{ marginTop: 0, maxWidth: "62ch" }}>{t("nd.intro")}</p>
@@ -95,20 +99,29 @@ export default function NodesPage() {
           </form>
         )}
 
-        {nodes == null ? <p className="nx-muted" role="status">{t("loading")}</p> : list.length === 0 ? (
-          <EmptyState title={t("nd.none")} help={t("nd.noneHelp")} />
-        ) : (
+        {nodes == null ? <p className="nx-muted" role="status">{t("loading")}</p> : (
           <div className="nx-tablewrap">
             <table className="nx-table">
               <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col">{t("nd.connection")}</th><th scope="col" className="nx-num">{t("nd.vmsRunning")}</th><th scope="col" className="nx-num">{t("nd.vmsStopped")}</th><th scope="col" className="nx-num">{t("stor.free")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
+                {local && (
+                  <tr key="local">
+                    <td><StatusIndicator kind="node" wire={local.etat} /></td>
+                    <th scope="row"><button type="button" className="nx-link" onClick={() => navigateTo("node", "local", "summary")}>{local.nom}</button> <span className="nx-tag">{t("nd.thisHost")}</span></th>
+                    <td className="nx-mono">{t("nd.localConn")}</td>
+                    <td className="nx-num nx-mono">{localVms.filter((v) => v.etat === "actif").length}</td>
+                    <td className="nx-num nx-mono">{localVms.filter((v) => v.etat !== "actif").length}</td>
+                    <td className="nx-num nx-mono">{local.stockage_total_go != null ? `${formatSizeGb(local.stockage_total_go - (local.stockage_utilise_go || 0), lang) ?? "?"} / ${formatSizeGb(local.stockage_total_go, lang)}` : <span className="nx-muted">{t("ns.notReported")}</span>}</td>
+                    <td />
+                  </tr>
+                )}
                 {list.map((n) => {
                   const s = summaries[n.name];
                   const na = <span className="nx-muted">{s === undefined ? "…" : t("ns.notReported")}</span>;
                   return (
                     <tr key={n.id}>
                       <td><StatusIndicator kind="node" wire={n.statut === "en_ligne" ? "online" : "erreur"} /></td>
-                      <th scope="row" className="nx-mono">{n.name}</th>
+                      <th scope="row"><button type="button" className="nx-link" onClick={() => navigateTo("node", String(n.id), "summary")}>{n.name}</button></th>
                       <td className="nx-mono">{n.ssh_user}@{n.hostname}:{n.ssh_port}</td>
                       <td className="nx-num nx-mono">{s ? s.vms_actives : na}</td>
                       <td className="nx-num nx-mono">{s ? s.vms_arretees : na}</td>

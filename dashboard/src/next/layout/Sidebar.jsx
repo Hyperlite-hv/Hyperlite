@@ -112,13 +112,14 @@ export default function Sidebar({ collapsed }) {
   const [securityOpen, setSecurityOpen] = useState(false);
   const userBtn = useRef(null);
   const [groups, setGroups] = useState(readGroups);
-  // Infrastructure and Management start open, the rest closed (the group holding the current page is always shown): the inventory keeps the height.
+  // Infrastructure and Management start open, the rest closed (the group holding the current page is always shown): the navigation stays short.
   const defaultOpen = (id) => id !== "more";
   const groupOpen = (id) => groups[id] ?? defaultOpen(id);
   const toggleGroup = (id) => setGroups((g) => { const n = { ...g, [id]: !(g[id] ?? defaultOpen(id)) }; try { localStorage.setItem(GROUPS_KEY, JSON.stringify(n)); } catch { /* preference only */ } return n; });
   const tab = useInfraStore((s) => s.activeTab);
   const onDatacenterTab = (id) => selection.type === "datacenter" && tab === id;
-  const goto = (dcTab) => navigateTo("datacenter", null, dcTab);
+  // On narrow screens the sidebar is a drawer: close it once a page is chosen.
+  const goto = (dcTab) => { navigateTo("datacenter", null, dcTab); window.dispatchEvent(new Event("nx:navigated")); };
   const activeNode = selection.type === "node" ? nodes.find((n) => n.id === selection.id) : null;
 
   const nodesOnline = nodes.filter((n) => n.etat === "online").length;
@@ -135,10 +136,10 @@ export default function Sidebar({ collapsed }) {
       </div>
 
       {!collapsed && (
-        <button type="button" className="nx-cluster" aria-haspopup="dialog" aria-label={t("inv.openPanel")} title={t("inv.openPanelHint")} onClick={() => window.dispatchEvent(new Event("nx:inventory"))}>
+        <button type="button" className="nx-cluster" aria-label={activeNode?.nom || nodes[0]?.nom || t("res.datacenter")} title={t("cluster.hint")} onClick={() => window.dispatchEvent(new Event("nx:palette"))}>
           <span className={`nx-cluster-dot${nodesOnline === nodes.length && nodes.length > 0 ? "" : " is-warn"}`} aria-hidden="true" />
           <span className="nx-cluster-name">{activeNode?.nom || nodes[0]?.nom || t("res.datacenter")}</span>
-          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
         </button>
       )}
 

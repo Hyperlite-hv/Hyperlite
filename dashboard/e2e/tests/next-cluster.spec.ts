@@ -16,7 +16,7 @@ async function open(page: Page, tab: string) {
 }
 const json = (route: import("@playwright/test").Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-test("Nodes: empty state on a single host, add form sends the SSH port, failure is reported, removal is confirmed", async ({ page }) => {
+test("Nodes: this host is listed and opens its page, add form sends the SSH port, failure is reported, removal is confirmed", async ({ page }) => {
   const remote = [{ id: 7, name: "peer", hostname: "10.0.0.9", ssh_user: "root", ssh_port: 2222, statut: "hors_ligne" }];
   let added: unknown = null; const removed: string[] = [];
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
@@ -30,7 +30,9 @@ test("Nodes: empty state on a single host, add form sends the SSH port, failure 
   });
   await open(page, "nodes");
   const main = page.getByRole("main");
-  await expect(main.getByText("No remote node registered")).toBeVisible();
+  const hostRow = main.getByRole("row", { name: /this host/ });
+  await expect(hostRow).toContainText("Local (libvirt)");
+  await expect(hostRow.getByRole("button", { name: "Remove node" })).toHaveCount(0); // the local host cannot be removed
   await main.getByRole("button", { name: "Add a remote node" }).click();
   await main.getByLabel("Name", { exact: true }).fill("peer");
   await main.getByLabel("IP address or hostname").fill("10.0.0.9");

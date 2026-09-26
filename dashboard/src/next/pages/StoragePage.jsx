@@ -12,7 +12,7 @@ import StatusIndicator from "../components/StatusIndicator";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 
 const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20" };
-const levelOf = (r) => (r >= 0.9 ? "danger" : r >= 0.8 ? "warning" : "accent");
+const levelOf = (r) => (r >= 0.9 ? "danger" : r >= 0.8 ? "warning" : "info");
 
 // Storage: pools (usage with thresholds, volumes on demand, create / remove) and the ISO library.
 // Same API calls, payloads and safeguards as the historical screen (the default pool is never removable;
@@ -153,7 +153,7 @@ export default function StoragePage() {
 
       <section className="nx-card" aria-labelledby="stor-iso">
         <div className="nx-cardhead"><h2 id="stor-iso">{t("stor.iso")} <span className="nx-count">{isos ? isos.length : "…"}</span></h2></div>
-        {caps.admin && <IsoUploadDropzone onDone={loadIsos} />}
+        {caps.admin && <IsoUploadDropzone onDone={loadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta") }} />}
         {isos && isos.length === 0 ? <p className="nx-muted" role="status" style={{ marginTop: "var(--space-3)" }}>{t("stor.noIso")}</p> : (
           <ul className="nx-list nx-list--vols" style={{ marginTop: "var(--space-4)" }}>
             {(isos || []).map((iso) => (
