@@ -56,8 +56,10 @@ export default function SecurityPage() {
         </dl>
       </section>
       <UsersCard {...ctx} />
-      <GroupsCard {...ctx} />
-      <PoolsCard {...ctx} />
+      <div className="nx-cols nx-cols--even">
+        <GroupsCard {...ctx} />
+        <PoolsCard {...ctx} />
+      </div>
       <CustomRolesCard {...ctx} />
       <AclCard {...ctx} />
     </div>
@@ -131,9 +133,9 @@ function MemberCard({ id, title, help, items, empty, name, setName, create, crea
 
 function Chips({ t, list, onRemove, label, none }) {
   return (
-    <ul className="nx-chips" aria-label={label}>
+    <ul className="nx-tags" aria-label={label}>
       {list.length === 0 && <li className="nx-muted">{none}</li>}
-      {list.map((m) => <li key={m} className="nx-chip"><span className="nx-mono">{m}</span><button type="button" aria-label={`${t("sec.remove")} ${m}`} onClick={() => onRemove(m)}>×</button></li>)}
+      {list.map((m) => <li key={m} className="nx-tag"><span className="nx-mono">{m}</span><button type="button" aria-label={`${t("sec.remove")} ${m}`} onClick={() => onRemove(m)}>×</button></li>)}
     </ul>
   );
 }

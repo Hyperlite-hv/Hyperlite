@@ -155,7 +155,7 @@ export default function AutomationPage() {
             {list.map((job) => (
               <div key={job.id} className="nx-subcard">
                 <div className="nx-cardhead">
-                  <h3>{job.name} {job.predefined_key && <span className="nx-chip">{t("au.predefined")}</span>}</h3>
+                  <h3>{job.name} {job.predefined_key && <span className="nx-tag">{t("au.predefined")}</span>}</h3>
                   <button type="button" className="nx-btn" aria-expanded={open === job.id} aria-label={`Show run history of ${job.name}`} onClick={() => toggle(job)}>{t("au.history")}</button>
                 </div>
                 {job.description && <p className="nx-muted" style={{ margin: 0 }}>{job.description}</p>}

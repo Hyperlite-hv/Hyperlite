@@ -13,7 +13,6 @@ import TopBar from "./layout/TopBar";
 import Workspace from "./layout/Workspace";
 import Dock from "./layout/Dock";
 import Palette from "./layout/Palette";
-import InventoryDrawer from "./layout/InventoryDrawer";
 import Sidebar from "./layout/Sidebar";
 
 const SIDEBAR_KEY = "hyperlite-next-sidebar";
@@ -29,7 +28,6 @@ export default function NextApp() {
   const lang = useLangStore((s) => s.lang);
   const initTheme = useThemeStore((s) => s.init);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [inventoryOpen, setInventoryOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [wizards, setWizards] = useState({});
@@ -65,7 +63,6 @@ export default function NextApp() {
       const typing = tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "i") { e.preventDefault(); setInventoryOpen((o) => !o); return; }
       if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setPaletteOpen(true); }
     };
     window.addEventListener("keydown", onKey);
@@ -73,9 +70,9 @@ export default function NextApp() {
   }, [toggleSidebar]);
 
   useEffect(() => {
-    const on = () => setInventoryOpen((o) => !o);
-    window.addEventListener("nx:inventory", on);
-    return () => window.removeEventListener("nx:inventory", on);
+    const on = () => setPaletteOpen(true);
+    window.addEventListener("nx:palette", on);
+    return () => window.removeEventListener("nx:palette", on);
   }, []);
 
   useEffect(() => {
@@ -105,7 +102,6 @@ export default function NextApp() {
       <div className="nx-root" data-sidebar={sidebarState}>
         <a className="nx-skip" href="#nx-main" onClick={(e) => { e.preventDefault(); document.getElementById("nx-main")?.focus(); }}>{t("skip")}</a>
         <Sidebar collapsed={sidebarCollapsed} />
-        <InventoryDrawer open={inventoryOpen} onClose={() => setInventoryOpen(false)} />
         {sidebarOpen && <div className="nx-scrim" style={{ zIndex: 39 }} onClick={() => setSidebarOpen(false)} />}
         <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleSidebar={toggleSidebar} wizards={wizards} setWizards={setWizards} />
         <Routes>

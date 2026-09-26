@@ -13,12 +13,7 @@ export default function VmList() {
   const caps = capabilities(role);
   return (
     <div className="nx-ns">
-      {caps.create && (
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}>{t("action.create")} · {t("action.createVm")}</button>
-        </div>
-      )}
-      <VmCollection vms={vms} showNode headingId="vmlist-h" title={t("nav.vms")} />
+      <VmCollection vms={vms} showNode headingId="vmlist-h" title={t("nav.vms")} action={caps.create ? <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}>{t("vmlist.create")}</button> : null} />
     </div>
   );
 }

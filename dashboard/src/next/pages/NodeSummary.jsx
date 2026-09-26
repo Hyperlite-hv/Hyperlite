@@ -57,9 +57,9 @@ export default function NodeSummary({ resource: node }) {
         </div>
       )}
       <div className="nx-grid nx-grid--4" role="group" aria-label={t("ns.resources")}>
-        <KpiTile label={t("ns.cpu")} ratio={cpu != null ? cpu / 100 : null} tone="accent" sub={hostCaps?.cpu?.coeurs_logiques ? t("ns.cores", { n: hostCaps.cpu.coeurs_logiques }) : ""} unavailable={isLocal ? (cpu == null ? t("ns.collecting") : null) : na} />
-        <KpiTile label={t("ns.memory")} ratio={memRatio} tone="success" sub={last?.mem_total_mb ? `${formatSizeMb(last.mem_used_mb, lang)} / ${formatSizeMb(last.mem_total_mb, lang)}` : ""} unavailable={isLocal ? (memRatio == null ? t("ns.collecting") : null) : na} />
-        <KpiTile label={t("ns.storage")} ratio={stoRatio} tone="warning" sub={stoRatio != null ? `${formatSizeGb(node.stockage_utilise_go, lang)} / ${formatSizeGb(node.stockage_total_go, lang)}` : ""} unavailable={stoRatio == null ? na : null} />
+        <KpiTile label={t("ns.cpu")} ratio={cpu != null ? cpu / 100 : null} tone="info" sub={hostCaps?.cpu?.coeurs_logiques ? t("ns.cores", { n: hostCaps.cpu.coeurs_logiques }) : ""} unavailable={isLocal ? (cpu == null ? t("ns.collecting") : null) : na} />
+        <KpiTile label={t("ns.memory")} ratio={memRatio} tone="info" sub={last?.mem_total_mb ? `${formatSizeMb(last.mem_used_mb, lang)} / ${formatSizeMb(last.mem_total_mb, lang)}` : ""} unavailable={isLocal ? (memRatio == null ? t("ns.collecting") : null) : na} />
+        <KpiTile label={t("ns.storage")} ratio={stoRatio} tone="info" sub={stoRatio != null ? `${formatSizeGb(node.stockage_utilise_go, lang)} / ${formatSizeGb(node.stockage_total_go, lang)}` : ""} unavailable={stoRatio == null ? na : null} />
         <KpiTile label={t("ns.network")} unavailable={t("ns.networkNa")} />
       </div>
 
@@ -80,7 +80,7 @@ export default function NodeSummary({ resource: node }) {
         </section>
       </div>
 
-      <div className="nx-cols nx-cols--even">
+      <div className="nx-cols">
         <section className="nx-card" aria-labelledby="ns-activity">
           <h2 id="ns-activity">{t("ns.activity")}</h2>
           {recent == null ? <p className="nx-muted">{t("loading")}</p> : recent.length === 0 ? <p className="nx-muted" role="status">{t("dock.none")}</p> : (

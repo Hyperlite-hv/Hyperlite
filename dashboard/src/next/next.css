@@ -553,10 +553,10 @@ select.nx-input { height: 2rem; }
 .nx-subcard { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); display: grid; gap: var(--space-2); background: var(--color-bg-raised); min-width: 0; }
 .nx-subcard h3 { margin: 0; font-size: var(--font-size-md); }
 .nx-inline { display: flex; gap: var(--space-2); flex-wrap: wrap; } .nx-inline .nx-input { flex: 1; min-width: 12rem; }
-.nx-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
-.nx-chip { display: inline-flex; align-items: center; gap: var(--space-1); padding: 1px var(--space-2); border: 1px solid var(--color-border-strong); border-radius: 999px; background: var(--color-bg-surface); }
-.nx-chip button { background: none; border: 0; cursor: pointer; padding: 0 var(--space-1); font-size: 1.1em; line-height: 1; color: var(--color-text-secondary); }
-.nx-chip button:hover { color: var(--color-danger); }
+.nx-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
+.nx-tag { display: inline-flex; align-items: center; gap: var(--space-1); padding: 1px var(--space-2); border: 1px solid var(--color-border-strong); border-radius: 999px; background: var(--color-bg-surface); }
+.nx-tag button { background: none; border: 0; cursor: pointer; padding: 0 var(--space-1); font-size: 1.1em; line-height: 1; color: var(--color-text-secondary); }
+.nx-tag button:hover { color: var(--color-danger); }
 .nx-checks { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); }
 .nx-form--inline { margin-bottom: var(--space-3); }
 .nx-hint--error { color: var(--color-danger); font-weight: 500; }
@@ -668,13 +668,7 @@ select.nx-input { height: 2rem; }
 .nx-progress--indeterminate > span { position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: 999px; background: var(--color-accent); animation: nx-indet 1.4s var(--ease-standard) infinite; }
 @keyframes nx-indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 @media (prefers-reduced-motion: reduce) { .nx-progress--indeterminate > span { animation: none; width: 100%; opacity: .5; } }
-/* Inventory panel */
-.nx-inv-scrim { position: fixed; inset: 0; z-index: 44; background: rgba(20, 15, 18, 0.28); }
-.nx-inv-drawer { position: fixed; z-index: 45; top: 0; bottom: 0; left: var(--sidebar-width); width: min(24rem, calc(100vw - var(--sidebar-width))); display: flex; flex-direction: column; min-height: 0; background: var(--color-bg-surface); border-right: 1px solid var(--color-border-default); box-shadow: var(--shadow-float); }
-.nx-inv-drawer-head { display: flex; align-items: center; justify-content: space-between; height: var(--topbar-height); padding: 0 var(--space-3) 0 var(--space-4); border-bottom: 1px solid var(--color-border-subtle); flex: none; }
-.nx-inv-drawer .nx-inv { flex: 1 1 auto; min-height: 0; grid-area: auto; border: 0; background: none; }
-@media (max-width: 1023px) { .nx-inv-drawer { left: 0; width: min(24rem, 100vw); } }
-.nx-inv-drawer .nx-inv .nx-inv-title { display: inline; }
+
 
 /* Overview as an operations summary */
 .nx-ov-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
@@ -705,3 +699,31 @@ select.nx-input { height: 2rem; }
 .nx-chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: var(--space-2); }
 .nx-chart-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: var(--space-2); vertical-align: middle; }
 .nx-chart-read { margin-left: auto; color: var(--color-text-primary); }
+
+/* Overview rows: two columns whose cards share the row height, so no card hangs shorter than its neighbour */
+.nx-ov-row { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 1fr); align-items: stretch; }
+.nx-ov-row--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.nx-ov-row > * { min-width: 0; }
+.nx-ov-side { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.nx-ov-side > .nx-card:last-child { flex: 1 1 auto; }
+.nx-ov-row--charts > .nx-card { display: flex; flex-direction: column; }
+.nx-ov-row--charts .nx-chart { margin-top: auto; }
+@media (max-width: 1100px) { .nx-ov-row, .nx-ov-row--even { grid-template-columns: minmax(0, 1fr); } }
+
+/* Scrollbars: thin and in the theme's colours everywhere (the navigation column resolves its own dark tokens) */
+:root[data-ui="next"], :root[data-ui="next"] * { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--color-text-muted) 45%, transparent) transparent; }
+:root[data-ui="next"] *:hover { scrollbar-color: color-mix(in oklab, var(--color-text-muted) 70%, transparent) transparent; }
+/* Tab rows scroll sideways when they must, without a visible bar (the 1px underline offset used to create a stray one) */
+.nx-tabs { overflow-y: hidden; scrollbar-width: none; }
+/* Cards on the same row share its height everywhere (they used to hang at different heights) */
+.nx-cols { align-items: stretch; }
+/* One spacing rhythm and one column ratio for every page, so card edges line up from row to row */
+.nx-ns, .nx-grid, .nx-cols, .nx-ov-row, .nx-kpi-row, .nx-ov-side { gap: var(--space-4); }
+.nx-cols { grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 1fr); }
+@media (max-width: 1100px) { .nx-cols { grid-template-columns: minmax(0, 1fr); } }
+.nx-tag { font-size: var(--font-size-xs); font-weight: 500; color: var(--color-text-secondary); vertical-align: middle; }
+/* form labels: the input sits right under its label even when a neighbour has a hint below it */
+.nx-form label { align-content: start; }
+/* two-column rows of related cards */
+.nx-cols.nx-cols--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .nx-cols.nx-cols--even { grid-template-columns: minmax(0, 1fr); } }
