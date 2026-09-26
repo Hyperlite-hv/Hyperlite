@@ -653,3 +653,55 @@ select.nx-input { height: 2rem; }
   .nx-cap-trend { display: none; }
   .nx-cap-na { grid-column: 1 / -1; }
 }
+
+/* Sidebar as in the reference: cluster button, three navigation sections, running operation, account */
+.nx-cluster { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) var(--space-3) var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); color: var(--color-text-primary); cursor: pointer; font: inherit; font-family: var(--font-mono); font-size: var(--font-size-sm); text-align: left; flex: none; }
+.nx-cluster:hover { background: var(--color-bg-hover); }
+.nx-cluster-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-cluster-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); flex: none; }
+.nx-cluster-dot.is-warn { background: var(--color-warning); }
+.nx-nav-scroll { flex: 1 1 auto; max-height: none; }
+.nx-sidebar-op { flex: none; margin: 0 var(--space-3) var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); display: grid; gap: var(--space-2); font-size: var(--font-size-xs); }
+.nx-sidebar-op-head { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.nx-sidebar-op-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-progress--indeterminate { display: block; height: 4px; border-radius: 999px; background: var(--color-bg-hover); overflow: hidden; position: relative; }
+.nx-progress--indeterminate > span { position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: 999px; background: var(--color-accent); animation: nx-indet 1.4s var(--ease-standard) infinite; }
+@keyframes nx-indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+@media (prefers-reduced-motion: reduce) { .nx-progress--indeterminate > span { animation: none; width: 100%; opacity: .5; } }
+/* Inventory panel */
+.nx-inv-scrim { position: fixed; inset: 0; z-index: 44; background: rgba(20, 15, 18, 0.28); }
+.nx-inv-drawer { position: fixed; z-index: 45; top: 0; bottom: 0; left: var(--sidebar-width); width: min(24rem, calc(100vw - var(--sidebar-width))); display: flex; flex-direction: column; min-height: 0; background: var(--color-bg-surface); border-right: 1px solid var(--color-border-default); box-shadow: var(--shadow-float); }
+.nx-inv-drawer-head { display: flex; align-items: center; justify-content: space-between; height: var(--topbar-height); padding: 0 var(--space-3) 0 var(--space-4); border-bottom: 1px solid var(--color-border-subtle); flex: none; }
+.nx-inv-drawer .nx-inv { flex: 1 1 auto; min-height: 0; grid-area: auto; border: 0; background: none; }
+@media (max-width: 1023px) { .nx-inv-drawer { left: 0; width: min(24rem, 100vw); } }
+.nx-inv-drawer .nx-inv .nx-inv-title { display: inline; }
+
+/* Overview as an operations summary */
+.nx-ov-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nx-ov-toolbar .nx-tabs { border-bottom: 0; padding: 0; margin: 0; }
+.nx-kpi-row { display: grid; gap: var(--space-3); grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1280px) { .nx-kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .nx-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.nx-kpi-card { display: grid; gap: var(--space-2); align-content: start; text-align: left; padding: var(--space-4); cursor: pointer; font: inherit; color: inherit; }
+.nx-kpi-card:hover { background: var(--color-bg-hover); }
+.nx-kpi-card-label { font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-secondary); }
+.nx-kpi-card-value { font-size: 1.625rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.nx-kpi-card-value small { font-size: var(--font-size-md); font-weight: 500; color: var(--color-text-secondary); letter-spacing: 0; }
+.nx-kpi-card-sub { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nx-kpi-card .nx-ov-meter { width: 100%; }
+.nx-ov-meter { width: 5.5rem; height: 6px; background: var(--color-bg-hover); }
+.nx-ov-load { display: inline-flex; align-items: center; gap: var(--space-2); }
+.nx-cols--wide { grid-template-columns: minmax(0, 1.7fr) minmax(16rem, 1fr); }
+@media (max-width: 1100px) { .nx-cols--wide { grid-template-columns: minmax(0, 1fr); } }
+.nx-alertlist { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: grid; }
+.nx-alertlist li { display: grid; grid-template-columns: minmax(6.5rem, max-content) 1fr auto; gap: var(--space-3); align-items: center; padding: var(--space-2) 0; border-top: 1px solid var(--color-border-subtle); }
+.nx-alertlist li:first-child { border-top: 0; }
+.nx-alert-text { min-width: 0; overflow-wrap: anywhere; }
+.nx-caps { text-transform: uppercase; letter-spacing: 0.06em; font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: var(--space-4); }
+.nx-oplist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.nx-oplist li { display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(4rem, 1fr) minmax(8rem, 14rem); gap: var(--space-3); align-items: center; font-size: var(--font-size-sm); }
+@media (max-width: 700px) { .nx-oplist li { grid-template-columns: 1fr; gap: var(--space-1); } }
+.nx-chart-tick { font-size: 10px; fill: var(--color-text-muted); font-family: var(--font-mono); }
+.nx-chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: var(--space-2); }
+.nx-chart-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: var(--space-2); vertical-align: middle; }
+.nx-chart-read { margin-left: auto; color: var(--color-text-primary); }
