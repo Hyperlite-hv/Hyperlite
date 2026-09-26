@@ -20,7 +20,7 @@ async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
   await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
-  await page.getByLabel(/Password|Mot de passe/).fill(ADMIN.password);
+  await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=sso");
@@ -30,10 +30,11 @@ test("cannot enable an incomplete configuration; saving sends the fields, keeps 
   await open(page);
   const main = page.getByRole("main");
   const save = main.getByRole("button", { name: "Save", exact: true });
-  await expect(main.getByRole("heading", { name: "Single sign-on (OIDC)" })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { level: 1, name: "Authentication (SSO)" })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { name: "OIDC provider" })).toBeVisible();
   await expect(save).toBeDisabled(); // nothing changed yet
 
-  await main.getByRole("switch").check();
+  await main.getByRole("switch", { name: "Enabled" }).click();
   await expect(save).toBeDisabled();
   await expect(main.getByText("Required to enable SSO.").first()).toBeVisible();
   await expect(main.getByText("Unsaved changes")).toBeVisible();
@@ -50,7 +51,7 @@ test("cannot enable an incomplete configuration; saving sends the fields, keeps 
   await save.click();
   await expect(page.getByRole("alertdialog")).toContainText("Every SSO user will be an observer");
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
-  await main.getByLabel("IdP groups → admin role").fill("hyperlite-admins");
+  await main.getByLabel("Identity provider groups → admin role").fill("hyperlite-admins");
   await save.click();
   await expect(main.getByText("Unsaved changes")).toHaveCount(0, { timeout: 15_000 });
 
@@ -70,6 +71,6 @@ test("cannot enable an incomplete configuration; saving sends the fields, keeps 
 test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await open(page, "fr");
-  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /Authentification unique/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByRole("heading", { level: 1, name: /Authentification/ })).toBeVisible({ timeout: 20_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
