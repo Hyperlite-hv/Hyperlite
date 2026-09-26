@@ -52,7 +52,7 @@ jobs:
         working-directory: dashboard
         run: npm ci
       - name: Cache the Debian installer image
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: installer/.iso-cache
           key: debian-netinst-${{ hashFiles('installer/build-iso.sh') }}
