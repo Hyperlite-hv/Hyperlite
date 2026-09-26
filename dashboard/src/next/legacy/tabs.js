@@ -23,7 +23,8 @@ import SnapshotsPage from "../pages/SnapshotsPage";
 import VmSummary from "../pages/VmSummary";
 import VmConsole from "../pages/VmConsole";
 import { VmSnapshotsPage, VmBackupPage } from "../pages/VmSnapshotsBackup";
-import { VmHardwarePage, VmOptionsPage } from "../pages/VmConfigure";
+import { VmHardwarePage, VmOptionsPage, VmNetworkPage } from "../pages/VmConfigure";
+import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
@@ -32,10 +33,11 @@ export const DATACENTER_TABS = {
   nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage,
 };
 export const NODE_TABS = {
-  summary: NodeSummary, system: NodeSystemPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
+  summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
 };
 export const VM_TABS = {
-  summary: VmSummary, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, backup: VmBackupPage, snapshots: VmSnapshotsPage,
+  summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage,
 };
 
 
@@ -58,17 +60,26 @@ export const OBJECT_TABS = {
     { id: "vms", label: "tab.vms", pages: [page("vms")] },
     { id: "snapshots", label: "tab.snapshots", pages: [page("snapshots")] },
   ],
+  // Flat tabs, like the VM page: every page is one click away.
   node: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
-    { id: "monitor", label: "tab.monitor", pages: [page("system", "group.monitor"), page("tasks")] },
-    { id: "configure", label: "tab.configure", pages: [page("network", "group.resources"), page("disk"), page("compat", "group.cluster"), page("shell", "group.platform")] },
+    { id: "perf", label: "tab.perf", pages: [page("perf")] },
+    { id: "system", label: "tab.system", pages: [page("system")] },
+    { id: "network", label: "tab.network", pages: [page("network")] },
+    { id: "disk", label: "tab.disk", pages: [page("disk")] },
+    { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
+    { id: "compat", label: "tab.compat", pages: [page("compat")] },
+    { id: "shell", label: "tab.shell", pages: [page("shell")] },
   ],
+  // Same order as the reference console; Hardware keeps Options (resources and live limits) as its second page.
   vm: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
-    { id: "console", label: "tab.console", pages: [page("console")] },
-    { id: "configure", label: "tab.configure", pages: [page("hardware", "group.resources"), page("options")] },
+    { id: "perf", label: "tab.perf", pages: [page("perf")] },
     { id: "snapshots", label: "tab.snapshots", pages: [page("snapshots")] },
-    { id: "backup", label: "tab.backup", pages: [page("backup")] },
+    { id: "backup", label: "tab.backups", pages: [page("backup")] },
+    { id: "hardware", label: "tab.hardware", pages: [page("hardware"), page("options")] },
+    { id: "network", label: "tab.network", pages: [page("network")] },
+    { id: "console", label: "tab.console", pages: [page("console")] },
   ],
 };
 

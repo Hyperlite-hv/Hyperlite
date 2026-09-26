@@ -10,7 +10,7 @@ import { promptText } from "../../store/usePromptStore";
 import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
-import { formatSizeMb } from "../lib/format";
+import { formatSizeMb, formatDateTime } from "../lib/format";
 import ProgressBar from "../../components/ProgressBar";
 import StatusIndicator from "../components/StatusIndicator";
 import { EmptyState, ErrorState } from "../components/States";
@@ -23,10 +23,15 @@ const nowMs = () => Date.now();
 const elapsed = (from) => { const s = Math.max(0, Math.round((nowMs() - from) / 1000)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`; };
 
 // ---- Snapshots -------------------------------------------------------------------------------------------
+// The header's "Snapshot" button opens this page and asks it to start the creation dialog once the list is loaded.
+let pendingCreate = null;
+export function requestSnapshot(vmName) { pendingCreate = vmName; }
+
 // create / restore answer 202 + a task id: the page follows the real task (bounded at 5 minutes, stopped when
 // the page is left) instead of inventing a percentage libvirt does not expose.
 export function VmSnapshotsPage({ resource: vm }) {
   const t = useT();
+  const lang = useLangStore((s) => s.lang);
   const caps = capabilities(useAuthStore((s) => s.role));
   const pushToast = useInfraStore((s) => s.pushToast);
   const [snaps, setSnaps] = useState(null);
@@ -43,6 +48,11 @@ export function VmSnapshotsPage({ resource: vm }) {
     try { const r = await fetchSnapshots(vmName); setSnaps(Array.isArray(r) ? r : []); setError(null); } catch (e) { setError(errorMessage(e)); }
   }, [vmName]);
   useEffect(() => { if (vmName) reload(); }, [vmName, reload]);
+  useEffect(() => {
+    if (snaps == null || pendingCreate !== vmName) return;
+    pendingCreate = null;
+    document.getElementById("vs-create")?.click();
+  }, [snaps, vmName]);
 
   const waitTask = useCallback(async (id) => {
     for (let i = 0; i < 300; i++) {
@@ -97,7 +107,7 @@ export function VmSnapshotsPage({ resource: vm }) {
       <section className="nx-card" aria-labelledby="vs-title">
         <div className="nx-cardhead">
           <h2 id="vs-title">{t("tab.snapshots")} <span className="nx-count">{snaps ? list.length : "…"}</span></h2>
-          {caps.admin && <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={create}>{t("vs.create")}</button>}
+          {caps.admin && <button id="vs-create" type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={create}>{t("vs.create")}</button>}
         </div>
         {list.length >= 3 && <p className="nx-notice nx-notice--warning" role="status">{t(zfs ? "vs.manyZfs" : "vs.manyQcow", { n: list.length })}</p>}
         {job && (
@@ -110,13 +120,13 @@ export function VmSnapshotsPage({ resource: vm }) {
         {snaps == null ? <p className="nx-muted" role="status">{t("loading")}</p> : list.length === 0 ? <EmptyState title={t("vs.none")} help={caps.admin ? t("vs.noneHelp") : undefined} /> : (
           <div className="nx-tablewrap">
             <table className="nx-table">
-              <thead><tr><th scope="col">{t("ct.name")}</th><th scope="col">{t("vs.kind")}</th><th scope="col">{t("act.started")}</th><th scope="col">{t("au.description")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+              <thead><tr><th scope="col">{t("ct.name")}</th><th scope="col">{t("vs.kind")}</th><th scope="col">{t("vm.created")}</th><th scope="col">{t("vm.description")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
                 {list.map((s) => (
                   <tr key={s.nom}>
                     <th scope="row" className="nx-mono" style={{ paddingLeft: `calc(var(--space-3) + ${depthOf(s) * 1.25}rem)` }}>{s.nom} {s.actuel && <span className="nx-tag">{t("vs.current")}</span>}</th>
                     <td>{kind(s)}</td>
-                    <td className="nx-mono">{s.date_creation || "—"}</td>
+                    <td className="nx-mono">{formatDateTime(s.date_creation, lang) || "—"}</td>
                     <td>{s.description || <span className="nx-muted">—</span>}</td>
                     <td className="nx-num nx-rowactions">
                       {caps.admin && <button type="button" className="nx-btn" disabled={busy} aria-label={`Restore snapshot ${s.nom}`} onClick={() => restore(s)}>{t("vs.restore")}</button>}

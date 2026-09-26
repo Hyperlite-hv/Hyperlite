@@ -365,9 +365,8 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await expect(page.getByRole("main").getByRole("note")).toContainText("Root-equivalent");
     await page.goto(`/vm/${NAME}`);
 
-    // clean Stop asks for a confirmation; cancelling changes nothing
-    await page.getByRole("button", { name: /^Actions/ }).click();
-    await page.getByRole("menuitem", { name: /^Stop/ }).click();
+    // clean Stop (a direct header action) asks for a confirmation; cancelling changes nothing
+    await page.locator(".nx-headactions").getByRole("button", { name: "Stop", exact: true }).click();
     const confirm = page.getByRole("alertdialog");
     await expect(confirm).toBeVisible();
     await confirm.getByRole("button", { name: "Cancel" }).click();

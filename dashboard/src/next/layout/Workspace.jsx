@@ -13,6 +13,19 @@ import { selectionToPath, withTab } from "../lib/urls";
 import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
 import { useFreshness } from "../lib/inventory";
+import MigrateDialog from "../components/MigrateDialog";
+import { requestSnapshot } from "../pages/VmSnapshotsBackup";
+
+// A header action: stays focusable when unavailable and says why (tooltip + screen-reader text).
+function HeadBtn({ state, label, onClick, primary, danger }) {
+  const t = useT();
+  const cls = `nx-btn${primary ? " nx-btn--primary" : ""}${danger ? " nx-btn--danger" : ""}`;
+  return (
+    <button type="button" className={cls} aria-disabled={!state.enabled || undefined} title={!state.enabled && state.reason ? t(state.reason) : undefined} onClick={() => state.enabled && onClick()}>
+      {label}{!state.enabled && state.reason && <span className="nx-sr"> — {t(state.reason)}</span>}
+    </button>
+  );
+}
 
 
 // Keeps the URL and the store selection in step, in both directions. Unlike the legacy hook it
@@ -112,6 +125,14 @@ export default function Workspace({ children }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsBtn = useRef(null);
   const copy = (text) => navigator.clipboard?.writeText(text);
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const migTargets = vm ? nodes.filter((n) => n.id !== vm.node && n.etat === "online") : [];
+  // Opens the snapshots page and starts the creation dialog there (it follows the task and shows its progress).
+  function takeSnapshot() {
+    if (tab === "snapshots") { document.getElementById("vs-create")?.click(); return; }
+    requestSnapshot(vm.nom);
+    setTab("snapshots");
+  }
   const offlineNode = selection.type === "node" && resource && resource.etat !== "online";
   const useSubnav = hasTabs && !isDc && top.pages.length > 1;
 
@@ -140,16 +161,38 @@ export default function Workspace({ children }) {
           {offlineNode && <span className="nx-tone-warning" role="status">▲ {t("res.offlineNode")}</span>}
           {resource?.etat && <StatusIndicator kind={selection.type === "node" ? "node" : "vm"} wire={resource.etat} />}
           <span className="nx-meta">{kindLabel}{vm?.node ? ` · ${nodes.find((n) => n.id === vm.node)?.nom || vm.node}` : ""}{vm?.ip ? ` · ` : ""}{vm?.ip && <span className="nx-mono">{vm.ip}</span>}</span>
-          <span style={{ marginLeft: "auto", display: "inline-flex", gap: "var(--space-2)", alignItems: "center" }}>
-            {vm && (() => { const c = act("console"); const st = act("start");
-              return vm.etat === "actif"
-                ? <button type="button" className="nx-btn nx-btn--primary" aria-disabled={!c.enabled || undefined} onClick={() => c.enabled && vmActions.openConsole(vm)}>{t("actions.primary.console")}</button>
-                : <button type="button" className="nx-btn nx-btn--primary" aria-disabled={!st.enabled || undefined} title={!st.enabled && st.reason ? t(st.reason) : undefined} onClick={() => st.enabled && vmActions.run(vm, "start")}>{t("menu.start")}{!st.enabled && st.reason && <span className="nx-sr"> — {t(st.reason)}</span>}</button>; })()}
+          <span className="nx-headactions">
+            {vm && (() => {
+              const c = act("console"); const st = act("start"); const sp = act("stop");
+              const running = vm.etat === "actif";
+              const snap = caps.admin ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
+              const mig = !caps.admin ? { enabled: false, reason: "menu.reason.admin" } : !running ? { enabled: false, reason: "menu.reason.notRunning" } : migTargets.length === 0 ? { enabled: false, reason: "mig.noTarget" } : { enabled: true };
+              return (
+                <>
+                  {running
+                    ? <HeadBtn primary state={c} label={t("actions.primary.console")} onClick={() => vmActions.openConsole(vm)} />
+                    : <HeadBtn primary state={st} label={t("menu.start")} onClick={() => vmActions.run(vm, "start")} />}
+                  <HeadBtn state={snap} label={t("head.snapshot")} onClick={takeSnapshot} />
+                  <HeadBtn state={mig} label={t("head.migrate")} onClick={() => setMigrateOpen(true)} />
+                  {(running || sp.enabled) && <HeadBtn danger state={sp} label={t("menu.stop")} onClick={() => vmActions.run(vm, "stop")} />}
+                </>
+              );
+            })()}
+            {selection.type === "node" && resource && (() => {
+              const sh = !caps.hostShell ? { enabled: false, reason: "menu.reason.admin" } : resource.id !== "local" ? { enabled: false, reason: "node.shellLocalOnly" } : { enabled: true };
+              const cr = caps.create ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
+              return (
+                <>
+                  <HeadBtn primary state={sh} label={t("tab.shell")} onClick={() => setTab("shell")} />
+                  <HeadBtn state={cr} label={t("head.newVm")} onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))} />
+                </>
+              );
+            })()}
             <span className="nx-relative">
               <button ref={actionsBtn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((o) => !o)}>{t("actions")} <span aria-hidden="true">▾</span></button>
               <Menu open={actionsOpen} onClose={() => setActionsOpen(false)} label={t("actions")} returnFocusRef={actionsBtn} style={{ top: "calc(100% + 4px)", right: 0 }}>
-                {/* the primary button above already covers "console" (running) or "start" (stopped) — not repeated here */}
-                {vm && ["start", "stop", "restart", "console", "force-stop"].filter((a) => a !== (vm.etat === "actif" ? "console" : "start")).map((a) => { const s2 = act(a); return <MenuItem key={a} danger={a === "force-stop"} disabled={!s2.enabled} reason={s2.reason ? t(s2.reason) : undefined} onSelect={() => { setActionsOpen(false); if (a === "console") vmActions.openConsole(vm); else vmActions.run(vm, a); }}>{t(a === "force-stop" ? "menu.forceStop" : `menu.${a}`)}</MenuItem>; })}
+                {/* start / console / stop are direct buttons above — the menu keeps the less frequent power actions */}
+                {vm && ["restart", "force-stop"].map((a) => { const s2 = act(a); return <MenuItem key={a} danger={a === "force-stop"} disabled={!s2.enabled} reason={s2.reason ? t(s2.reason) : undefined} onSelect={() => { setActionsOpen(false); vmActions.run(vm, a); }}>{t(a === "force-stop" ? "menu.forceStop" : `menu.${a}`)}</MenuItem>; })}
                 {vm?.ip && <MenuItem onSelect={() => { setActionsOpen(false); copy(vm.ip); }}>{t("menu.copyIp")}</MenuItem>}
                 <MenuItem onSelect={() => { setActionsOpen(false); copy(window.location.href); }}>{t("menu.copyLink")}</MenuItem>
               </Menu>
@@ -157,6 +200,8 @@ export default function Workspace({ children }) {
           </span>
         </div>
       )}
+
+      {migrateOpen && vm && <MigrateDialog vm={vm} targets={migTargets} onClose={() => setMigrateOpen(false)} />}
 
       {!missing && hasTabs && !isDc && (
         <div className="nx-tabs" role="tablist" aria-label={title} onKeyDown={onTabKeyDown}>
