@@ -1,4 +1,16 @@
-import { ADMIN, apiLogin, expect, PREFIX, test, uiLogin } from "../support/fixtures";
+import type { Page } from "@playwright/test";
+import { ADMIN, apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtures";
+
+// Users and roles › Users: the create form is a side drawer.
+async function createUser(page: Page, role?: string) {
+  await page.getByRole("main").getByRole("button", { name: "Create a user", exact: true }).click();
+  const form = page.getByRole("dialog", { name: "Create a user" });
+  await form.getByRole("textbox", { name: "Username" }).fill(OBSERVER.username);
+  await form.getByLabel("Password", { exact: true }).fill(OBSERVER.password);
+  if (role) await form.getByRole("combobox", { name: "Role of the new user" }).selectOption(role);
+  await form.getByRole("button", { name: "Create the user", exact: true }).click();
+  return form;
+}
 
 const stamp = Date.now().toString().slice(-6);
 const OBSERVER = { username: `${PREFIX}obs-${stamp}`, password: "Obs-Passw0rd!" };
@@ -13,11 +25,8 @@ test.afterAll(async ({ request }) => {
 test.describe("Users and permissions", () => {
   test("an administrator creates a read-only user from the Permissions tab", async ({ page, request, problems }) => {
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Permissions", exact: true }).click();
-    await page.getByRole("textbox", { name: "Username" }).fill(OBSERVER.username);
-    await page.getByRole("textbox", { name: /Password/ }).fill(OBSERVER.password);
-    await page.getByRole("combobox", { name: "Role of the new user" }).selectOption("observateur");
-    await page.getByRole("button", { name: "Create", exact: true }).first().click();
+    await goTo(page, "Users and roles");
+    await createUser(page, "observateur");
     await expect(page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` })).toBeVisible();
 
     // The user really exists on the backend, with the read-only role.
@@ -28,24 +37,23 @@ test.describe("Users and permissions", () => {
 
     // The list is still correct after a reload.
     await page.reload();
-    await page.getByRole("tab", { name: "Permissions", exact: true }).click();
     await expect(page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` })).toBeVisible();
     expect(problems.filter((p) => !/Failed to load resource/.test(p))).toEqual([]);
   });
 
   test("refuses a duplicate user name with a clear message", async ({ page }) => {
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Permissions", exact: true }).click();
-    await page.getByRole("textbox", { name: "Username" }).fill(OBSERVER.username);
-    await page.getByRole("textbox", { name: /Password/ }).fill(OBSERVER.password);
-    await page.getByRole("button", { name: "Create", exact: true }).first().click();
+    await goTo(page, "Users and roles");
+    const form = await createUser(page);
     await expect(page.getByText(/already exists|Creation failed/i).first()).toBeVisible();
+    await expect(form.getByRole("textbox", { name: "Username" })).toHaveValue(OBSERVER.username);
   });
 
   test("the new user signs in and does not see administrative actions", async ({ page }) => {
     await uiLogin(page, OBSERVER.username, OBSERVER.password);
-    await expect(page.getByRole("button", { name: "Create VM" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Create container" })).toHaveCount(0);
+    await expect(page.getByRole("banner").getByRole("button", { name: "Create" })).toHaveCount(0);
+    await goTo(page, "Virtual Machines");
+    await expect(page.getByRole("main").getByRole("button", { name: "New virtual machine" })).toHaveCount(0);
   });
 
   test("the backend refuses administrative calls from the read-only user (not just the UI)", async ({ request }) => {
@@ -86,11 +94,11 @@ test.describe("Users and permissions", () => {
 
   test("an administrator deletes the user after confirming", async ({ page, request }) => {
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Permissions", exact: true }).click();
+    await goTo(page, "Users and roles");
     await page.getByRole("button", { name: `Delete user ${OBSERVER.username}` }).click();
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toContainText(OBSERVER.username);
-    await dialog.getByRole("button", { name: "Confirm" }).click();
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` })).toHaveCount(0);
     const token = await apiLogin(request);
     const users = await (await request.get("/auth/users", { headers: { Authorization: `Bearer ${token}` } })).json();

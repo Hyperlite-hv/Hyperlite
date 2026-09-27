@@ -3,7 +3,7 @@ import { fetchSnapshots } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { formatDateTime } from "../lib/format";
-import { PageHeader, Empty } from "../components/ui";
+import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Camera } from "lucide-react";
 
 const MAX_VMS = 60; // one request per VM (the API has no cross-VM listing)
@@ -31,8 +31,8 @@ export default function SnapshotsPage() {
       <PageHeader title={t("tab.snapshots")} count={rows ? rows.length : null} desc={t("snap.desc")} />
       {vms.length > local.length && <p className="nx-muted" style={{ margin: 0 }}>{t("snap.localOnly")}</p>}
       <div className="nx-card2 nx-card2--flush">
-        {rows == null ? <p className="nx-muted" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : rows.length === 0 ? <Empty icon={Camera} title={t("snap.none")} text={t("snap.noneHelp")} /> : (
-          <div className="nx-tablewrap">
+        {rows == null ? <Loading style={{ padding: "var(--space-4)" }} /> : rows.length === 0 ? <Empty icon={Camera} title={t("snap.none")} text={t("snap.noneHelp")} /> : (
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">VM</th><th scope="col">{t("ns.col.name")}</th><th scope="col">{t("snap.created")}</th><th scope="col">{t("snap.description")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
@@ -47,7 +47,7 @@ export default function SnapshotsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         )}
       </div>
     </>

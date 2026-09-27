@@ -10,7 +10,7 @@ import { deriveAlerts } from "../lib/alerts";
 import { taskLabel } from "../lib/enums";
 import { formatSizeGb, formatUptimeLong, clockTime, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
-import { PageHeader, KpiStrip, Meter, Card, Spark } from "../components/ui";
+import { PageHeader, KpiStrip, Meter, Card, Spark, Loading, TableWrap } from "../components/ui";
 import { PerformanceView, useHostHistory } from "./VmPerformance";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
@@ -77,7 +77,7 @@ function Summary({ setView }) {
 
       <div className="nx-cols2">
         <Card title={t("nav.nodes")} flush>
-          <div className="nx-tablewrap">
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("nd.node")}</th><th scope="col">{t("ns.cpu")}</th><th scope="col">{t("ns.memory")}</th><th scope="col">{t("ns.storage")}</th><th scope="col" className="nx-num">VM</th><th scope="col">{t("ns.col.uptime")}</th></tr></thead>
               <tbody>
@@ -97,7 +97,7 @@ function Summary({ setView }) {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         </Card>
         <Card title={t("ov.watch")}>
           {watch.length === 0 ? <p role="status" className="nx-inline" style={{ margin: 0 }}><StatusIndicator override={{ key: "health.ok", shape: "dot", tone: "success" }} /> <span className="nx-muted">{t("ns.noIncident")}</span></p> : (
@@ -139,7 +139,7 @@ function Summary({ setView }) {
 function ActivityList({ items, max }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
-  if (items == null) return <p className="nx-muted" style={{ margin: 0 }}>{t("loading")}</p>;
+  if (items == null) return <Loading style={{ margin: 0 }} />;
   if (items.length === 0) return <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p>;
   const today = new Date().toDateString();
   return (

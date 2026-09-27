@@ -4,6 +4,7 @@ import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
 import { formatRate, formatSizeMb } from "../lib/format";
 import LineChart from "../components/LineChart";
+import { TableWrap } from "../components/ui";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
 export const RANGES = ["1h", "24h", "7j", "30j"];
@@ -150,7 +151,7 @@ export function PerformanceView({ hist, range, setRange, running, charts, remote
       {!reason && (
         <section className="nx-card" aria-labelledby="vp-stats">
           <h2 id="vp-stats">{t("vp.stats", { range: hist.shown })}</h2>
-          <div className="nx-tablewrap">
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("vp.metric")}</th><th scope="col" className="nx-num">{t("vp.min")}</th><th scope="col" className="nx-num">{t("vp.avg")}</th><th scope="col" className="nx-num">{t("vp.max")}</th><th scope="col" className="nx-num">{t("vp.last")}</th></tr></thead>
               <tbody>
@@ -166,7 +167,7 @@ export function PerformanceView({ hist, range, setRange, running, charts, remote
                 }))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         </section>
       )}
     </div>

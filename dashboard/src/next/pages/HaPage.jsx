@@ -8,7 +8,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Empty } from "../components/ui";
+import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Heart, Info, Monitor, RefreshCw } from "lucide-react";
 
 // High availability: protected VMs with the real status of their node. Recovery is always a manual,
@@ -62,10 +62,10 @@ export default function HaPage() {
         <span className="nx-bn-t">{t("ha.prereq", { nodes: online, pools: shared })}</span></div>
       {error && rows == null ? <ErrorState message={error} onRetry={reload} /> : (
         <div className="nx-card2 nx-card2--flush">
-          {rows == null ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : list.length === 0 ? (
+          {rows == null ? <Loading style={{ padding: "var(--space-4)" }} /> : list.length === 0 ? (
             <Empty icon={Heart} title={t("ha.none")} text={t("ha.noneHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "vms")}><Monitor size={15} aria-hidden="true" />{t("ha.chooseVm")}</button>} />
           ) : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">VM</th><th scope="col">{t("ha.node")}</th><th scope="col">{t("ha.sync")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
@@ -95,7 +95,7 @@ export default function HaPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
         </div>
       )}

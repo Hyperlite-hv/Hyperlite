@@ -12,7 +12,7 @@ import { formatSizeMb, formatUptimeLong, formatVersionInt } from "../lib/format"
 import { refreshInventory } from "../lib/inventory";
 import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
-import { PageHeader, Meter, Chip, SideDrawer, Field } from "../components/ui";
+import { PageHeader, Meter, Chip, SideDrawer, Field, TableWrap } from "../components/ui";
 
 const EMPTY = { name: "", hostname: "", ssh_user: "root", ssh_port: "22" };
 const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);
@@ -102,7 +102,7 @@ export default function NodesPage() {
       <PageHeader title={t("tab.nodes")} count={nodes.length} help={t("nd.intro")}
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" />{t("nd.add")}</button>} />
       <div className="nx-card2 nx-card2--flush">
-        <div className="nx-tablewrap">
+        <TableWrap>
           <table className="nx-table">
             <thead><tr>
               <th scope="col">{t("ns.col.state")}</th><th scope="col">{t("nd.node")}</th><th scope="col">{t("nd.connection")}</th>
@@ -143,7 +143,7 @@ export default function NodesPage() {
               })}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       </div>
       <AddNodeDrawer open={adding} onClose={() => setAdding(false)} onAdded={() => refreshInventory()} />
     </>
