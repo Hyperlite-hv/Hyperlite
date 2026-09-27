@@ -13,7 +13,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeGb } from "../lib/format";
 import { ErrorState } from "../components/States";
-import { Card, Chip, Field, SideDrawer } from "../components/ui";
+import { Card, Chip, Field, SideDrawer, Loading, TableWrap } from "../components/ui";
 import FirewallCard from "../components/FirewallCard";
 
 // First free SCSI letter (sda…sdz); null when none is left.
@@ -195,8 +195,8 @@ export function VmHardwarePage({ resource: vm }) {
     <>
       <ComputeCard vm={vm} admin={admin} />
       <Card title={t("vh.disks")} note={disks ? disks.length : null} flush actions={admin && <button type="button" className="nx-btn nx-btn--sm" onClick={() => setAdding(true)}><Plus size={14} aria-hidden="true" />{t("vh.addDisk")}</button>}>
-        {error && disks == null ? <ErrorState message={error} onRetry={reload} /> : disks == null ? <p className="nx-muted" role="status" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("loading")}</p> : disks.length === 0 ? <p className="nx-muted" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("vh.noDisks")}</p> : (
-          <div className="nx-tablewrap">
+        {error && disks == null ? <ErrorState message={error} onRetry={reload} /> : disks == null ? <Loading style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }} /> : disks.length === 0 ? <p className="nx-muted" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("vh.noDisks")}</p> : (
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("vh.device")}</th><th scope="col">Bus</th><th scope="col">{t("vh.source")}</th><th scope="col" className="nx-num">{t("lib.size")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
@@ -211,7 +211,7 @@ export function VmHardwarePage({ resource: vm }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         )}
       </Card>
       {admin && <DriversCard vmName={vm.nom} onChanged={reload} />}
@@ -278,8 +278,8 @@ export function VmNetworkPage({ resource: vm }) {
   return (
     <>
       <Card title={t("vh.interfaces")} note={info ? ifaces.length : null} flush actions={admin && <button type="button" className="nx-btn nx-btn--sm" onClick={() => setAdding(true)}><Plus size={14} aria-hidden="true" />{t("vh.addIf")}</button>}>
-        {error && !info ? <ErrorState message={error} onRetry={reload} /> : !info ? <p className="nx-muted" role="status" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("loading")}</p> : (
-          <div className="nx-tablewrap">
+        {error && !info ? <ErrorState message={error} onRetry={reload} /> : !info ? <Loading style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }} /> : (
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("vh.network")}</th><th scope="col">{t("vh.model")}</th><th scope="col">MAC</th><th scope="col">VLAN</th><th scope="col">{t("vh.firewallCol")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
@@ -298,7 +298,7 @@ export function VmNetworkPage({ resource: vm }) {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         )}
       </Card>
       <FirewallCard title={t("vh.firewall")} fetchConfig={fetchFw} saveConfig={saveFw} isAdmin={admin} />
@@ -326,7 +326,7 @@ export function VmOptionsPage({ resource: vm }) {
   useEffect(() => { if (name) load(); }, [name, load]);
   if (!vm) return null;
   if (error && !limits) return <ErrorState message={error} onRetry={load} />;
-  if (!limits) return <p className="nx-muted" role="status">{t("loading")}</p>;
+  if (!limits) return <Loading />;
   const bad = { shares: !intIn(shares, 2, 262144), cpu: cpu !== "" && !intIn(cpu, 1, 100), ram: ram !== "" && !intIn(ram, 64) };
   const dirty = Number(shares) !== limits.cpu_shares || (cpu === "" ? null : Number(cpu)) !== (limits.cpu_limit_pct ?? null) || (ram === "" ? null : Number(ram)) !== (limits.mem_hard_limit_mb ?? null);
   async function save() {

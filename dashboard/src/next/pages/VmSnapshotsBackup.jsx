@@ -14,7 +14,7 @@ import { errorMessage } from "../lib/errors";
 import { formatSizeMb, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Card, Empty, Field } from "../components/ui";
+import { PageHeader, Card, Empty, Field, Loading, TableWrap } from "../components/ui";
 import { Archive, Camera, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -112,7 +112,7 @@ export function VmSnapshotsPage({ resource: vm }) {
       )}
       <div className="nx-card2">
         <div className="nx-card2-b">
-          {snaps == null ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("loading")}</p> : (
+          {snaps == null ? <Loading style={{ margin: 0 }} /> : (
             <ol className="nx-tl" aria-label={t("vs.timeline")}>
               <li className="nx-tl-it is-now"><b>{t("vs.now")}</b><div className="nx-tl-m">{t("vs.nowSub")}</div></li>
               {sorted.map((s) => (
@@ -213,8 +213,8 @@ export function VmBackupPage({ resource: vm }) {
       <div className="nx-cols2">
         <Card title={t("vb.history")} flush={list.length > 0}>
           {caps.admin && !stopped && list.some((b) => b.statut === "termine") && <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("vb.stopToRestore")}</p>}
-          {backups == null ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("loading")}</p> : list.length === 0 ? <Empty icon={Archive} title={t("vb.none")} text={t("vb.noneHelp")} /> : (
-            <div className="nx-tablewrap">
+          {backups == null ? <Loading style={{ margin: 0 }} /> : list.length === 0 ? <Empty icon={Archive} title={t("vb.none")} text={t("vb.noneHelp")} /> : (
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("vm.created")}</th><th scope="col">{t("vb.mode")}</th><th scope="col" className="nx-num">{t("ct.size")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
@@ -233,7 +233,7 @@ export function VmBackupPage({ resource: vm }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
         </Card>
         <Card title={t("vb.planning")}>

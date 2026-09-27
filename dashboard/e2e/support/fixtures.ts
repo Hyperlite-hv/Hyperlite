@@ -13,13 +13,29 @@ export async function apiLogin(request: APIRequestContext, username = ADMIN.user
   return body.access_token as string;
 }
 
-export async function uiLogin(page: Page, username = ADMIN.username, password = ADMIN.password) {
-  await page.goto("/");
+/** English and the dark theme unless a test chose otherwise (kept across reloads within a test). */
+export async function seedPreferences(page: Page, { lang = "en", theme = "dark" } = {}) {
+  await page.addInitScript(([lg, th]) => {
+    if (!localStorage.getItem("hyperlite-next-lang")) localStorage.setItem("hyperlite-next-lang", lg);
+    if (!localStorage.getItem("hyperlite-next-theme")) localStorage.setItem("hyperlite-next-theme", th);
+  }, [lang, theme]);
+}
+
+/** Signs in through the sign-in screen (optionally from a deep link) and waits for the dashboard. */
+export async function uiLogin(page: Page, username = ADMIN.username, password = ADMIN.password, path = "/") {
+  await seedPreferences(page);
+  await page.goto(path);
   await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   // Password hashing is CPU bound: allow for a slow, loaded test host.
-  await expect(page.getByText("Datacenter").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
+}
+
+/** Opens a page of the sidebar by its label (an entry may end with its count, as "Nodes 2"). */
+export async function goTo(page: Page, label: string) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: new RegExp(`^${escaped}( \\d+)?$`) }).click();
 }
 
 export const test = base.extend<{ problems: BrowserProblems }>({

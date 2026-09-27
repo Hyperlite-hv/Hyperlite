@@ -34,6 +34,40 @@ export function Freshness({ at }) {
 
 // Page header: the h1 (with the object count beside it), a one-line description or an (i) help, and the
 // page's actions (at most one primary). Card titles never repeat it.
+// Wrapper of a wide table: scrolls horizontally when the table does not fit, and only then joins the keyboard
+// order, so a keyboard user can scroll it too (WCAG 2.1.1; axe "scrollable-region-focusable").
+export function TableWrap({ children, label }) {
+  const ref = useRef(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const check = () => setScrolls(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, []);
+  return <div ref={ref} className="nx-tablewrap" tabIndex={scrolls ? 0 : undefined} role={scrolls ? "region" : undefined} aria-label={scrolls ? label : undefined}>{children}</div>;
+}
+
+const SLOW_MS = 10_000;
+
+// Loading placeholder of a page or card: announced to screen readers, and after 10 s it says the wait is unusual and
+// offers a reload, instead of spinning silently (a request that never answers, a server under load).
+export function Loading({ style }) {
+  const t = useT();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { const id = setTimeout(() => setSlow(true), SLOW_MS); return () => clearTimeout(id); }, []);
+  return (
+    <div className="nx-loading" style={style}>
+      <p className="nx-muted" role="status" style={{ margin: 0 }}>{t(slow ? "loadingSlow" : "loading")}</p>
+      {slow && <button type="button" className="nx-btn nx-btn--sm" onClick={() => window.location.reload()}>{t("reloadPage")}</button>}
+    </div>
+  );
+}
+
 export function PageHeader({ title, count, desc, help, actions, fresh = false, freshAt, level = 1 }) {
   const t = useT();
   const H = `h${level}`;

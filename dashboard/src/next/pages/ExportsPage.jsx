@@ -7,7 +7,7 @@ import { usePolling } from "../lib/polling";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import { ErrorState } from "../components/States";
-import { PageHeader, Empty } from "../components/ui";
+import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Download, Share, Trash2 } from "lucide-react";
 
 // Disk exports produced from a VM ("Export the disk"): download with a one-time ticket, delete after a
@@ -40,9 +40,9 @@ export default function ExportsPage() {
       <PageHeader title={t("tab.exports")} count={rows ? rows.length : null} desc={t("ex.desc")} fresh freshAt={at} />
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
-          : rows == null ? <p className="nx-muted" style={{ padding: "var(--space-4)" }}>{t("loading")}</p>
+          : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
           : rows.length === 0 ? <Empty icon={Share} title={t("ex.none")} text={t("ex.noneHelp")} /> : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ex.file")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("ex.created")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
@@ -59,7 +59,7 @@ export default function ExportsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
       </div>
     </>

@@ -10,6 +10,7 @@ import { taskLabel } from "../lib/enums";
 import { formatDuration, relativeTime } from "../lib/format";
 import { deriveAlerts } from "../lib/alerts";
 import { capabilities } from "../lib/capabilities";
+import { Loading } from "../components/ui";
 
 const ALERT_STATE = { "node-offline": "state.offline", "vm-crashed": "state.crashed", "vm-blocked": "state.blocked", "pool-state": "state.degraded", "pool-full": "state.degraded", "pool-high": "state.degraded", "task-failed": "state.failed" };
 const nowMs = () => Date.now();
@@ -87,7 +88,7 @@ export default function Dock() {
           </div>
         )))}
         {tab === "journal" && (!admin ? <div className="nx-drawer-empty"><span className="nx-muted">{t("dock.logsHint")}</span></div>
-          : journal == null ? <p className="nx-muted" style={{ padding: "var(--space-4)" }}>{t("loading")}</p>
+          : journal == null ? <Loading style={{ padding: "var(--space-4)" }} />
           : journal.length === 0 ? <div className="nx-drawer-empty"><span className="nx-muted">{t("dock.journalNone")}</span></div>
           : journal.map((e) => (
             <div key={e.id} className="nx-trow">
