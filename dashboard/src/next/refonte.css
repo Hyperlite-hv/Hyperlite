@@ -491,12 +491,15 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 }
 @container (max-width: 32rem) {
   .nx-nodeband-stats { gap: 0.8rem; } .nx-nodeband-stats .nx-track { display: none; }
+  .nx-nodeband-count { display: none; } .nx-nodeband-count--short { display: inline; }
   /* phone: the last two columns (vCPU·memory, uptime; both in the detail panel) give way so the table fits the
      screen, with no sideways scrolling, and the headers and bands can stick */
   .nx-card2--sticky .nx-table :is(thead, tbody) tr:not(.nx-grouprow) > :nth-last-child(-n+2) { display: none; }
 }
 .nx-seg2--scroll { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .nx-seg2--scroll button { flex: none; white-space: nowrap; }
+.nx-nodeband-count--short { display: none; }
+@supports (animation-timeline: scroll()) { .nx-seg2--scroll { animation: nx-edge-fade linear both; animation-timeline: scroll(self inline); } }
 .nx-nodeband-m { display: inline-flex; align-items: center; gap: 0.5333rem; font-size: var(--fs-12); }
 .nx-chev { width: 1.6rem; height: 1.6rem; margin-left: -0.4rem; }
 .nx-chev svg { transition: transform var(--duration-fast); }

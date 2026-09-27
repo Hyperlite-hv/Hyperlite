@@ -1762,6 +1762,7 @@ export default {
   "vmlist.band.toCheck": "{n} à vérifier",
   "vmlist.band.cpu": "CPU",
   "vmlist.band.ram": "RAM",
+  "vmlist.band.runShort": "{run}/{n} en marche",
   "loading": "Chargement…",
   "session.checking": "Vérification de la session…",
 };
