@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Keyboard, Maximize, TriangleAlert, X } from "lucide-react";
+import { ExternalLink, Keyboard, Laptop, Maximize, TriangleAlert, X } from "lucide-react";
 import { createConsoleTicket, createTerminalTicket } from "../../api/client";
 import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { Empty } from "../components/ui";
+import WorkstationAccess from "../components/WorkstationAccess";
 
 const RETRY_S = 5;
 
@@ -19,6 +20,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   const caps = capabilities(useAuthStore((s) => s.role));
   const [mode, setMode] = useState(initialMode);
   const [retryIn, setRetryIn] = useState(null);
+  const [wsOpen, setWsOpen] = useState(false);
   const attempts = useRef(0);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
@@ -118,6 +120,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
           <span className="nx-sp" />
           {!terminal && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => rfb.current?.sendCtrlAltDel()}><Keyboard size={14} aria-hidden="true" />Ctrl+Alt+Suppr</button>}
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => frame.current?.requestFullscreen?.()}><Maximize size={14} aria-hidden="true" />{t("vc.fullscreen")}</button>
+          <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setWsOpen(true)}><Laptop size={14} aria-hidden="true" />{t("ws.button")}</button>
           {standalone
             ? <button type="button" className="nx-btn nx-btn--sm" onClick={() => window.close()}><X size={14} aria-hidden="true" />{t("vc.closeWindow")}</button>
             : <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!running || (terminal && !caps.admin)} onClick={openWindow}><ExternalLink size={14} aria-hidden="true" />{t("nn.openWindow")}</button>}
@@ -132,6 +135,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
         )}
         {error && <p className="nx-f-h is-error" role="alert">{error}</p>}
       </div>
+      <WorkstationAccess vm={vm} open={wsOpen} onClose={() => setWsOpen(false)} />
     </>
   );
 }

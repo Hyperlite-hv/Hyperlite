@@ -166,12 +166,20 @@ export function SideDrawer({ open, title, onClose, children, footer, busy = fals
     if (!open) return undefined;
     opener.current = document.activeElement;
     const el = ref.current;
-    requestAnimationFrame(() => el?.querySelector("input, select, textarea, button:not(.nx-sdrawer-x)")?.focus());
+    // The first field, or the panel itself when its content is still loading.
+    requestAnimationFrame(() => (el?.querySelector("input, select, textarea, a[href], button:not(.nx-sdrawer-x)") || el)?.focus());
     return () => { const o = opener.current; if (o && document.body.contains(o)) o.focus(); };
   }, [open]);
+  // Escape closes the panel wherever the focus is (the page behind is inert for the user anyway).
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape" && !busy && !e.defaultPrevented && !document.querySelector('[role="alertdialog"]')) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, busy, onClose]);
   if (!open) return null;
   const onKeyDown = (e) => {
-    if (e.key === "Escape" && !busy) { e.stopPropagation(); onClose(); return; }
+    if (e.key === "Escape") return; // handled by the window listener above
     if (e.key !== "Tab") return;
     const f = [...ref.current.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [href], [tabindex="0"]')];
     if (!f.length) return;
@@ -182,7 +190,7 @@ export function SideDrawer({ open, title, onClose, children, footer, busy = fals
   return (
     <>
       <div className="nx-scrim nx-scrim--drawer" onClick={() => !busy && onClose()} />
-      <aside ref={ref} className="nx-sdrawer" role="dialog" aria-modal="true" aria-label={title} onKeyDown={onKeyDown}>
+      <aside ref={ref} className="nx-sdrawer" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onKeyDown={onKeyDown}>
         <div className="nx-sdrawer-h"><h2>{title}</h2><button type="button" className="nx-btn nx-btn--ghost nx-btn--icon nx-sdrawer-x" aria-label={t("action.close")} onClick={onClose} disabled={busy}><X size={16} aria-hidden="true" /></button></div>
         <div className="nx-sdrawer-b">{children}</div>
         {footer && <div className="nx-sdrawer-f">{footer}</div>}

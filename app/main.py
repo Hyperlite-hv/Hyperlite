@@ -39,6 +39,7 @@ from app.routers.update import router as update_router
 from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
 from app.routers.vms import router as vms_router
+from app.routers.workstation import router as workstation_router
 
 app = FastAPI(title="Hyperlite API")
 
@@ -78,6 +79,7 @@ app.include_router(vm_disks_router)
 app.include_router(vm_export_router)
 app.include_router(ha_router)
 app.include_router(notifications_router)
+app.include_router(workstation_router)
 
 # Web interface (React/Vite, dashboard/), served at the root.
 DASHBOARD_DIST = "dashboard/dist"
