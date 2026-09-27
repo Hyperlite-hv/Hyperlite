@@ -56,6 +56,30 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=high
 
+  cli:
+    # The workstation client (cli/): vet, tests, vulnerability check, and a build for
+    # every platform the server offers for download.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Format check
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: GOOS=windows go vet ./...
+      - run: go test ./...
+      - name: Vulnerability check
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Build every platform
+        working-directory: .
+        run: bash installer/build-cli.sh
+
   shell:
     runs-on: ubuntu-24.04
     steps:
