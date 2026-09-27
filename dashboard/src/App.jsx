@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import AppShell from "./layout/AppShell";
 const NextApp = lazy(() => import("./next/NextApp"));
 const NextLogin = lazy(() => import("./next/NextLogin"));
+const NextCliLogin = lazy(() => import("./next/NextCliLogin"));
 import LoginScreen from "./auth/LoginScreen";
 import ConsoleWindow from "./console/ConsoleWindow";
 import HostShellWindow from "./console/HostShellWindow";
@@ -20,6 +21,8 @@ export default function App() {
         <Route path="/console/:name" element={<ConsoleWindow />} />
         <Route path="/host-shell" element={<HostShellWindow />} />
         <Route path="/container-terminal/:name" element={<ContainerTerminalWindow />} />
+        {/* Approval of a `hyperlite login` (workstation client): its own page and authentication gate. */}
+        <Route path="/cli-login" element={<Suspense fallback={null}><NextCliLogin /></Suspense>} />
         <Route path="/*" element={<MainApp />} />
       </Routes>
     </BrowserRouter>

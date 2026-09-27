@@ -239,7 +239,7 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
                 <div className="min-w-0 flex-1">
                   <div className="text-foreground truncate">{t.name}</div>
                   <div className="text-muted-foreground text-xs">
-                    Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
+                    {t.kind === "cli" ? "Workstation · " : ""}Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}{t.expires_at ? ` · expires on ${new Date(t.expires_at).toLocaleDateString()}` : ""}
                   </div>
                 </div>
                 <Button aria-label={`Revoke token ${t.name}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></Button>

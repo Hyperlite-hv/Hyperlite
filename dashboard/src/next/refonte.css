@@ -233,7 +233,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-sdrawer-h { display: flex; align-items: center; gap: 0.6667rem; padding: 0.9333rem 1.0667rem; border-bottom: 1px solid var(--color-border-subtle); }
 .nx-sdrawer-h h2 { margin: 0; font-size: var(--fs-15); font-weight: 600; }
 .nx-sdrawer-x { margin-left: auto; }
-.nx-sdrawer-b { flex: 1; overflow: auto; padding: 1.0667rem; display: grid; gap: 0.9333rem; align-content: start; }
+.nx-sdrawer-b { flex: 1; overflow: auto; padding: 1.0667rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.9333rem; align-content: start; }
 .nx-sdrawer-f { padding: 0.8rem 1.0667rem; border-top: 1px solid var(--color-border-subtle); display: flex; justify-content: flex-end; gap: 0.5333rem; background: var(--color-bg-surface-raised); flex-wrap: wrap; }
 
 /* ---------- Menus with groups ---------- */
@@ -438,3 +438,17 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-console-standalone .nx-screen { flex: 1; display: flex; }
 .nx-console-standalone .nx-term--screen { aspect-ratio: auto; max-height: none; flex: 1; height: auto; min-height: 20rem; }
 .nx-console-standalone .nx-term .xterm { height: 100%; }
+/* Approval of a workstation sign-in (hyperlite login) */
+.nx-cli-code { font-family: var(--font-mono); font-size: var(--fs-26); font-weight: 600; letter-spacing: 0.12em; padding: 0.6667rem 1rem; border-radius: var(--radius-md); background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); text-align: center; }
+.nx-cli-result { display: grid; justify-items: center; gap: 0.5333rem; text-align: center; }
+.nx-cli-result h1 { margin: 0; }
+.nx-login-box .nx-dl2 dd { display: flex; align-items: center; gap: 0.4rem; }
+/* Workstation access panel (VM console) */
+.nx-ws-cmd { display: flex; align-items: center; gap: 0.4rem; min-width: 0; max-width: 100%; }
+.nx-ws-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 0.4rem 0.6rem; border-radius: var(--radius-md); background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-subtle); font-family: var(--font-mono); font-size: var(--fs-125); }
+.nx-ws-steps { margin: 0; padding-left: 1.4rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.8rem; list-style: decimal; }
+.nx-ws-steps > li { min-width: 0; }
+.nx-ws-steps li::marker { color: var(--color-text-muted); font-weight: 600; }
+.nx-ws-dl { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.nx-h3 { margin: 0.8rem 0 0; font-size: var(--fs-13); font-weight: 600; color: var(--color-text-primary); }
+.nx-sdrawer:focus { outline: none; }

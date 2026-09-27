@@ -182,6 +182,19 @@ test("backup: schedule is validated and saved, a backup runs and can be deleted 
   await expect.poll(async () => (await (await request.get(`/vms/${NAME}/backup-schedule`, { headers: auth() })).text()), { timeout: 20_000 }).toMatch(/null|^$/);
 });
 
+test("console: the workstation panel gives the hyperlite links, the commands and the client", async ({ page }) => {
+  await open(page, "console");
+  await page.getByRole("button", { name: "From your workstation" }).click();
+  const panel = page.getByRole("dialog", { name: "Access from your workstation" });
+  await expect(panel.getByRole("link", { name: "Open in a terminal (SSH)" })).toHaveAttribute("href", new RegExp(`^hyperlite://ssh/${NAME}\\?server=`));
+  await expect(panel.getByLabel("SSH command", { exact: true })).toHaveText(`hyperlite ssh ${NAME}`);
+  await expect(panel.getByLabel("Sign-in command", { exact: true })).toContainText("hyperlite login http");
+  // the client binaries are built by installer/build-cli.sh: offered when present, explained otherwise
+  await expect(panel.getByRole("link", { name: /Windows \(x64\)/ }).or(panel.getByText("The client is not available on this server"))).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+});
+
 test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await open(page, "options", "fr");
