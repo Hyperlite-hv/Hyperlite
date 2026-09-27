@@ -1730,6 +1730,7 @@ export default {
   "vmlist.band.toCheck": "{n} to check",
   "vmlist.band.cpu": "CPU",
   "vmlist.band.ram": "RAM",
+  "vmlist.band.runShort": "{run}/{n} running",
   "loading": "Loading…",
   "session.checking": "Checking the session…",
 };
