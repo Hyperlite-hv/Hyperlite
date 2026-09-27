@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { apiLogin, expect, PREFIX, test, uiLogin } from "../support/fixtures";
+import type { Page } from "@playwright/test";
+import { apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtures";
 
 const stamp = Date.now().toString().slice(-6);
 const NAME = `${PREFIX}vm-${stamp}`;
@@ -27,20 +28,30 @@ const state = async (request: import("@playwright/test").APIRequestContext) => {
   return r.ok() ? ((await r.json()) as { etat: string }).etat : "missing";
 };
 
+async function openWizard(page: Page) {
+  await page.getByRole("banner").getByRole("button", { name: "Create" }).click();
+  await page.getByRole("menuitem", { name: "Virtual machine" }).click();
+  return page.getByRole("dialog");
+}
+async function openVm(page: Page, tab = "") {
+  await page.goto(`/vm/${NAME}${tab ? `?tab=${tab}` : ""}`);
+  await expect(page.getByRole("heading", { level: 1, name: NAME })).toBeVisible({ timeout: 30_000 });
+}
+const head = (page: Page) => page.locator(".nx-oh-acts");
+
 test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
-  test("the creation wizard validates its fields before allowing the next step", async ({ page }) => {
+  test("the creation wizard validates its fields before going to the next step", async ({ page }) => {
     await uiLogin(page);
-    await page.getByRole("button", { name: "Create VM" }).click();
-    const dlg = page.getByRole("dialog");
-    await dlg.getByRole("button", { name: "Next" }).click();
-    await dlg.getByRole("button", { name: "Next" }).click();
-    await expect(dlg.getByRole("button", { name: "Next" })).toBeDisabled();
+    const dlg = await openWizard(page);
+    await dlg.getByRole("button", { name: "Next" }).click(); // source -> identity
+    await dlg.getByRole("button", { name: "Next" }).click(); // nothing filled: stays on identity
+    await expect(dlg.getByRole("textbox", { name: "VM name" })).toHaveAttribute("aria-invalid", "true");
     await dlg.getByRole("textbox", { name: "VM name" }).fill(NAME);
-    await expect(dlg.getByRole("button", { name: "Next" })).toBeDisabled();
     await dlg.getByRole("textbox", { name: "User" }).fill("tester");
     await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
-    await expect(dlg.getByRole("button", { name: "Next" })).toBeEnabled();
-    await dlg.getByRole("button", { name: "Close" }).click();
+    await dlg.getByRole("button", { name: "Next" }).click();
+    await expect(dlg.getByRole("textbox", { name: "VM name" })).toHaveCount(0); // moved on
+    await page.keyboard.press("Escape");
     await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(await state(page.request)).toBe("missing");
@@ -48,27 +59,31 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
 
   test("creates a VM through the wizard, follows the task and finds it after a reload", async ({ page, request, problems }) => {
     await uiLogin(page);
-    await page.getByRole("button", { name: "Create VM" }).click();
-    const dlg = page.getByRole("dialog");
-    await dlg.getByRole("button", { name: "Next" }).click(); // node
-    await dlg.getByRole("button", { name: "Next" }).click(); // template: Debian cloud image
+    const dlg = await openWizard(page);
+    const next = () => dlg.getByRole("button", { name: "Next" }).click();
+    await next(); // source: Debian cloud image
     await dlg.getByRole("textbox", { name: "VM name" }).fill(NAME);
-    await dlg.getByRole("spinbutton", { name: "Memory in MB" }).fill("256");
-    await dlg.getByRole("spinbutton", { name: "Size of disk 1 in GB" }).fill("3");
     await dlg.getByRole("textbox", { name: "User" }).fill("tester");
     await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
-    await dlg.getByRole("button", { name: "Next" }).click();
+    await next(); // identity
+    await next(); // placement
+    await dlg.getByRole("spinbutton", { name: "Memory in MB" }).fill("256");
+    await next(); // compute
+    await dlg.getByRole("spinbutton", { name: "Size of disk 1 in GB" }).fill("3");
+    await next(); // storage
     await dlg.getByRole("radio", { name: /hyperlite-isolated/ }).check();
-    await dlg.getByRole("button", { name: "Next" }).click();
+    await next(); // network
+    await next(); // advanced
     await expect(dlg).toContainText(NAME);
     await dlg.getByRole("button", { name: "Create the VM" }).click();
 
-    await expect(page.getByRole("treeitem", { name: new RegExp(NAME) })).toBeVisible({ timeout: 90_000 });
+    await goTo(page, "Virtual Machines");
+    await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible({ timeout: 90_000 });
     await expect.poll(() => state(request), { timeout: 60_000 }).toBe("arrete");
     expect(existsSync(DISK), "disk file exists on the host").toBe(true);
 
     await page.reload();
-    await expect(page.getByRole("treeitem", { name: new RegExp(NAME) })).toBeVisible();
+    await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible();
     expect(problems.filter((p) => !/Failed to load resource/.test(p))).toEqual([]);
   });
 
@@ -86,14 +101,13 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
 
   test("starts the VM, shows it running, and does not offer to start it again", async ({ page, request }) => {
     await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("button", { name: "Start", exact: true }).click();
+    await openVm(page);
+    await head(page).getByRole("button", { name: "Start", exact: true }).click();
     await expect.poll(() => state(request), { timeout: 60_000 }).toBe("actif");
-    await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
-    await expect(page.getByText("Running").first()).toBeVisible();
+    await expect(page.getByText("Running").first()).toBeVisible({ timeout: 30_000 });
+    await expect(head(page).getByRole("button", { name: "Start", exact: true })).toHaveCount(0);
     await page.reload();
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+    await expect(head(page).getByRole("button", { name: "Start", exact: true })).toHaveCount(0);
     // A second start through the API is refused (conflicting operation).
     const again = await request.post(`/vms/${NAME}/start`, { headers: auth() });
     expect(again.ok()).toBe(false);
@@ -101,31 +115,34 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
 
   test("opens the graphical console window for the running VM", async ({ page, context }) => {
     await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("tab", { name: "Console", exact: true }).click();
-    const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Open in a new window" }).click()]);
+    await openVm(page, "console");
+    const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("main").getByRole("button", { name: "Open in a new window" }).click()]);
     await expect(popup).toHaveURL(new RegExp(`/console/${NAME}`));
-    await expect(popup.getByText(/Graphical console|Connecting|Disconnect/).first()).toBeVisible();
+    await expect(popup.getByRole("status").filter({ hasText: /Connect|Reconnecting/ }).first()).toBeVisible({ timeout: 20_000 });
     await popup.close();
   });
 
-  test("changing memory is refused while the VM runs, and the option is explained", async ({ page }) => {
+  test("changing memory is refused while the VM runs, and the reason is shown", async ({ page }) => {
     await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("tab", { name: "Options", exact: true }).click();
-    await expect(page.getByRole("spinbutton", { name: "Memory in MB" })).toBeDisabled();
-    await expect(page.getByText(/Stop the VM to change its resources/)).toBeVisible();
+    await openVm(page, "hardware");
+    const compute = page.getByRole("main").getByRole("region", { name: "Processor and memory" });
+    await expect(compute.getByRole("spinbutton", { name: "Memory in MB" })).toBeDisabled();
+    await expect(compute.getByText("Stop the VM to change its vCPU and memory.")).toBeVisible();
   });
 
   test("force-stops the VM after a confirmation", async ({ page, request }) => {
     await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("button", { name: "Force stop" }).click();
+    await openVm(page);
+    const forceStop = async () => {
+      await head(page).getByRole("button", { name: /^Actions/ }).click();
+      await page.getByRole("menuitem", { name: /Force stop/ }).click();
+    };
+    await forceStop();
     const dlg = page.getByRole("alertdialog");
     await expect(dlg).toContainText(NAME);
     await dlg.getByRole("button", { name: "Cancel" }).click();
     expect(await state(request)).toBe("actif");
-    await page.getByRole("button", { name: "Force stop" }).click();
+    await forceStop();
     await page.getByRole("alertdialog").getByRole("button", { name: "Force stop" }).click();
     await expect.poll(() => state(request), { timeout: 30_000 }).toBe("arrete");
     // Stopping an already stopped VM is refused.
@@ -135,28 +152,27 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
 
   test("edits the memory of the stopped VM and the change persists", async ({ page, request }) => {
     await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("tab", { name: "Options", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Memory in MB" }).fill("384");
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await openVm(page, "hardware");
+    const compute = page.getByRole("main").getByRole("region", { name: "Processor and memory" });
+    await expect(compute.getByRole("spinbutton", { name: "Memory in MB" })).toBeEnabled({ timeout: 20_000 });
+    await compute.getByRole("spinbutton", { name: "Memory in MB" }).fill("384");
+    await compute.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => ((await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { memoire_mo: number }).memoire_mo).toBe(384);
     await page.reload();
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("tab", { name: "Options", exact: true }).click();
-    await expect(page.getByRole("spinbutton", { name: "Memory in MB" })).toHaveValue("384");
+    await expect(page.getByRole("main").getByRole("region", { name: "Processor and memory" }).getByRole("spinbutton", { name: "Memory in MB" })).toHaveValue("384");
   });
 
   test("creates one snapshot even when the button is double-clicked, then deletes it", async ({ page, request }) => {
     const snapshots = async () => ((await (await request.get(`/vms/${NAME}/snapshots`, { headers: auth() })).json()) as Array<{ nom: string }>).map((s) => s.nom);
     await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("tab", { name: "Snapshots", exact: true }).click();
-    await page.getByRole("button", { name: "Create a snapshot" }).dblclick();
+    await openVm(page, "snapshots");
+    await page.getByRole("main").getByRole("button", { name: "Create a snapshot" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Create a snapshot" }).dblclick();
     await expect.poll(async () => (await snapshots()).length, { timeout: 30_000 }).toBeGreaterThan(0);
     await page.waitForTimeout(3000); // let any duplicate request land before counting
     const names = await snapshots();
     expect(names, "a double click must not create two snapshots").toHaveLength(1);
-    await expect(page.getByRole("button", { name: `Delete snapshot ${names[0]}` })).toBeVisible();
+    await expect(page.getByRole("button", { name: `Delete snapshot ${names[0]}` })).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: `Delete snapshot ${names[0]}` }).click();
     await expect(page.getByRole("alertdialog")).toContainText(names[0]);
     await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
@@ -165,18 +181,21 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
 
   test("deletes the VM after a confirmation and leaves no orphan disk", async ({ page, request }) => {
     await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(NAME) }).click();
-    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await openVm(page);
+    const remove = async () => {
+      await head(page).getByRole("button", { name: /^Actions/ }).click();
+      await page.getByRole("menuitem", { name: /^Delete the VM/ }).click();
+    };
+    await remove();
     const dlg = page.getByRole("alertdialog");
     await expect(dlg).toContainText(NAME);
     await dlg.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("treeitem", { name: new RegExp(NAME) })).toBeVisible();
-    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    expect(await state(request)).toBe("arrete");
+    await remove();
     await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByRole("treeitem", { name: new RegExp(NAME) })).toHaveCount(0);
     await expect.poll(() => state(request), { timeout: 30_000 }).toBe("missing");
     await expect.poll(() => existsSync(DISK), { timeout: 30_000, message: "disk file removed" }).toBe(false);
-    await page.reload();
-    await expect(page.getByRole("treeitem", { name: new RegExp(NAME) })).toHaveCount(0);
+    await goTo(page, "Virtual Machines");
+    await expect(page.getByRole("main").getByText(NAME)).toHaveCount(0);
   });
 });

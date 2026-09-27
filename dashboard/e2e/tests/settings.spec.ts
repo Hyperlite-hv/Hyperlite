@@ -2,7 +2,14 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { existsSync, rmSync } from "node:fs";
 import * as OTPAuth from "otpauth";
-import { apiLogin, expect, PREFIX, test, uiLogin } from "../support/fixtures";
+import type { Page } from "@playwright/test";
+import { apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtures";
+
+// The account menu is the user button at the bottom of the sidebar.
+async function accountMenu(page: Page, item: string) {
+  await page.locator(".nx-sidebar-user").click();
+  await page.getByRole("menuitem", { name: item }).click();
+}
 
 const stamp = Date.now().toString().slice(-6);
 let token = "";
@@ -21,11 +28,12 @@ test.describe("Storage pools (real libvirt backend)", () => {
 
   test("creates a directory pool, lists it after a reload, then removes only its definition", async ({ page, request }) => {
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Storage", exact: true }).click();
-    await page.getByRole("button", { name: "Create a pool" }).click();
-    await page.getByRole("textbox", { name: "Pool name" }).fill(POOL);
-    await page.getByRole("button", { name: "Local directory" }).click();
-    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await goTo(page, "Storage");
+    await page.getByRole("main").getByRole("button", { name: "Create a pool" }).click();
+    const form = page.getByRole("dialog", { name: "Create a pool" });
+    await form.getByRole("textbox", { name: "Pool name" }).fill(POOL);
+    await form.getByRole("button", { name: "Local directory" }).click();
+    await form.getByRole("button", { name: "Create a pool", exact: true }).click();
     await expect(page.getByRole("button", { name: `Delete pool ${POOL}` })).toBeVisible();
 
     const pools = (await (await request.get("/storage", { headers: auth() })).json()) as Array<{ nom: string; etat: string }>;
@@ -33,7 +41,6 @@ test.describe("Storage pools (real libvirt backend)", () => {
     expect(existsSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`), "pool directory exists on the host").toBe(true);
 
     await page.reload();
-    await page.getByRole("tab", { name: "Storage", exact: true }).click();
     await expect(page.getByRole("button", { name: `Delete pool ${POOL}` })).toBeVisible();
 
     await page.getByRole("button", { name: `Delete pool ${POOL}` }).click();
@@ -72,11 +79,12 @@ test.describe("Notifications with a real webhook receiver", () => {
     const name = `${PREFIX}receiver-${stamp}`;
     try {
       await uiLogin(page);
-      await page.getByRole("tab", { name: "Notifications", exact: true }).click();
-      await page.getByRole("button", { name: "Add a channel" }).click();
-      await page.getByRole("textbox", { name: "Channel name" }).fill(name);
-      await page.getByRole("textbox", { name: "Webhook URL" }).fill(`http://127.0.0.1:${port}/hook`);
-      await page.getByRole("button", { name: "Create", exact: true }).click();
+      await goTo(page, "Notifications");
+      await page.getByRole("main").getByRole("button", { name: "Add a channel" }).click();
+      const form = page.getByRole("dialog", { name: "Add a channel" });
+      await form.getByRole("textbox", { name: "Channel name" }).fill(name);
+      await form.getByRole("textbox", { name: "Webhook URL" }).fill(`http://127.0.0.1:${port}/hook`);
+      await form.getByRole("button", { name: "Add the channel", exact: true }).click();
       await expect(page.getByRole("button", { name: `Delete channel ${name}` })).toBeVisible();
 
       const channels = (await (await request.get("/notifications/channels", { headers: auth() })).json()) as Array<{ id: number; name: string }>;
@@ -110,8 +118,7 @@ test.describe("Account security", () => {
 
   test("an API token is shown once, works without a session, and stops working when revoked", async ({ page, request }) => {
     await uiLogin(page, USER.username, USER.password);
-    await page.getByRole("button", { name: new RegExp(USER.username) }).click();
-    await page.getByRole("button", { name: "Account security" }).click();
+    await accountMenu(page, "Account security");
     const dlg = page.getByRole("dialog", { name: "Account security" });
     await dlg.getByRole("textbox", { name: "Token name" }).fill("e2e-token");
     await dlg.getByRole("button", { name: "Create", exact: true }).click();
@@ -125,8 +132,7 @@ test.describe("Account security", () => {
 
     // The secret is not retrievable afterwards.
     await dlg.getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("button", { name: new RegExp(USER.username) }).click();
-    await page.getByRole("button", { name: "Account security" }).click();
+    await accountMenu(page, "Account security");
     await expect(page.getByRole("dialog", { name: "Account security" }).getByText(apiToken)).toHaveCount(0);
     const listing = await request.get("/auth/tokens", { headers: { Authorization: `Bearer ${apiToken}` } });
     expect(JSON.stringify(await listing.json())).not.toContain(apiToken);
@@ -139,8 +145,7 @@ test.describe("Account security", () => {
 
   test("two-factor authentication: enable, sign in with a code, reject a wrong code, disable", async ({ page, request }) => {
     await uiLogin(page, USER.username, USER.password);
-    await page.getByRole("button", { name: new RegExp(USER.username) }).click();
-    await page.getByRole("button", { name: "Account security" }).click();
+    await accountMenu(page, "Account security");
     const dlg = page.getByRole("dialog", { name: "Account security" });
     const setup = page.waitForResponse((r) => r.url().endsWith("/auth/2fa/setup"));
     await dlg.getByRole("button", { name: "Enable" }).click();
@@ -161,10 +166,9 @@ test.describe("Account security", () => {
     expect(step1.require_2fa).toBe(true);
     expect((await request.get("/auth/me", { headers: { Authorization: `Bearer ${step1.pre_auth_token}` } })).status()).toBe(401);
 
-    await page.getByRole("button", { name: new RegExp(USER.username) }).click();
-    await page.getByRole("button", { name: "Sign out" }).click();
+    await accountMenu(page, "Sign out");
     await page.getByLabel("Username").fill(USER.username);
-    await page.getByLabel("Password").fill(USER.password);
+    await page.getByLabel("Password", { exact: true }).fill(USER.password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByText("Two-step verification")).toBeVisible();
     await page.getByRole("textbox", { name: "6-digit verification code" }).fill("111111");
@@ -172,10 +176,9 @@ test.describe("Account security", () => {
     await expect(page.getByRole("alert")).toBeVisible();
     await page.getByRole("textbox", { name: "6-digit verification code" }).fill(totp());
     await page.getByRole("button", { name: "Verify" }).click();
-    await expect(page.getByText("Datacenter").first()).toBeVisible();
+    await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
 
-    await page.getByRole("button", { name: new RegExp(USER.username) }).click();
-    await page.getByRole("button", { name: "Account security" }).click();
+    await accountMenu(page, "Account security");
     await page.getByRole("dialog", { name: "Account security" }).getByRole("textbox", { name: /Password/ }).fill(USER.password);
     await page.getByRole("dialog", { name: "Account security" }).getByRole("button", { name: "Disable" }).click();
     await expect(page.getByRole("dialog", { name: "Account security" }).getByText(/Not enabled/i)).toBeVisible();
@@ -194,28 +197,31 @@ test.describe("Settings persist and secrets are never returned", () => {
 
   test("the SSO tab keeps the saved values after a reload without showing the secret", async ({ page }) => {
     await uiLogin(page);
-    await page.getByRole("tab", { name: "SSO", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
-    await expect(page.getByText("(already saved)")).toBeVisible();
-    await expect(page.locator("input[type=password]")).toHaveValue("");
+    await goTo(page, "Authentication (SSO)");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
+    await expect(main.getByText(/already saved/)).toBeVisible();
+    await expect(main.locator("input[type=password]")).toHaveValue("");
     await page.reload();
-    await page.getByRole("tab", { name: "SSO", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
+    await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
   });
 
   test("the deployment profile choice persists after a reload", async ({ page, request }) => {
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Compatibility", exact: true }).click();
+    await goTo(page, "Compatibility");
     const select = page.getByRole("combobox", { name: "Deployment profile" });
     await select.selectOption({ index: 1 });
     await expect(select).not.toHaveValue("auto");
     const chosen = await select.inputValue();
-    const persisted = async () => JSON.stringify(await (await request.get("/host/profile", { headers: auth() })).json());
-    await expect.poll(persisted).toContain(chosen);
+    await page.getByRole("main").getByRole("button", { name: "Save", exact: true }).click();
+    // "choix" is the saved choice ("auto" or a profile), "actif" the one in effect.
+    const persisted = async () => ((await (await request.get("/host/profile", { headers: auth() })).json()) as { choix: string }).choix;
+    await expect.poll(persisted).toBe(chosen);
     await page.reload();
-    await page.getByRole("tab", { name: "Compatibility", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Deployment profile" })).toHaveValue(chosen);
     await page.getByRole("combobox", { name: "Deployment profile" }).selectOption({ index: 0 }); // back to automatic
+    await page.getByRole("main").getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(persisted).toBe("auto");
   });
 });
 
@@ -223,11 +229,12 @@ test.describe("Journal", () => {
   test("actions appear in the journal and the result filter works", async ({ page, request }) => {
     await request.post("/auth/login", { form: { username: "admin", password: "definitely-wrong" } });
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Journal", exact: true }).click();
-    await expect(page.getByRole("region", { name: "Journal entries" })).toBeVisible();
+    await goTo(page, "Audit log");
+    const table = page.getByRole("main").getByRole("table");
+    await expect(table).toBeVisible({ timeout: 20_000 });
+    await expect(table.getByText(/^Success$/).first()).toBeVisible();
     await page.getByRole("combobox", { name: "Filter by result" }).selectOption({ label: "Failure" });
-    await expect.poll(async () => (await page.getByRole("region", { name: "Journal entries" }).innerText()).length).toBeGreaterThanOrEqual(0);
-    const successRows = page.getByRole("region", { name: "Journal entries" }).getByText(/^Success$/);
-    await expect(successRows).toHaveCount(0);
+    await expect(table.getByRole("row", { name: /login/i }).first()).toBeVisible();
+    await expect(table.getByText(/^Success$/)).toHaveCount(0);
   });
 });
