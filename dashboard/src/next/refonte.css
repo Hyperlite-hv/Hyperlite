@@ -467,15 +467,28 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
    scrolls when the table overflows: neither then creates a scroll container, so the column headers and the band
    of the node being read stay stuck at the top of the page while its VMs scroll by. Later bands paint over
    earlier ones, so the band shown is always the current node's. */
-.nx-card2--sticky { overflow: clip; }
+.nx-card2--sticky { overflow: clip; container-type: inline-size; }
 .nx-tablewrap--sticky:not([data-scrolls]) { overflow: visible; }
 .nx-card2--sticky .nx-table thead th { z-index: 2; }
 .nx-grouprow--band th { position: sticky; top: 2.2667rem; z-index: 1; padding-top: 0.5333rem; padding-bottom: 0.5333rem; }
-.nx-nodeband { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 0.6667rem; font-size: var(--fs-13); font-weight: 400; }
+/* Every band has the same height at a given card width (never content-driven wrapping): stuck bands pile up at
+   the same spot and the current one must cover the previous ones exactly. Wide card: one line. Narrow card: the
+   figures move to a second line, left-aligned under the name so they stay in view when the table scrolls. */
+.nx-nodeband { display: flex; align-items: center; flex-wrap: nowrap; gap: 0.4rem 1.3333rem; font-size: var(--fs-13); font-weight: 400; white-space: nowrap; }
+.nx-nodeband-id { display: flex; align-items: center; gap: 0.6667rem; min-width: 0; overflow: hidden; }
+.nx-nodeband-id > * { flex: none; }
+.nx-nodeband-id > .nx-nodeband-addr { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nx-nodeband .nx-lnk { font-size: var(--fs-135); }
-.nx-nodeband-stats { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 1.3333rem; }
+.nx-nodeband-stats { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 1.3333rem; }
+@container (max-width: 60rem) {
+  .nx-nodeband { flex-wrap: wrap; }
+  .nx-nodeband-stats { flex-basis: 100%; margin-left: 1.6rem; }
+}
+@container (max-width: 32rem) { .nx-nodeband-stats { gap: 0.8rem; } .nx-nodeband-stats .nx-track { display: none; } }
+.nx-seg2--scroll { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.nx-seg2--scroll button { flex: none; white-space: nowrap; }
 .nx-nodeband-m { display: inline-flex; align-items: center; gap: 0.5333rem; font-size: var(--fs-12); }
 .nx-chev { width: 1.6rem; height: 1.6rem; margin-left: -0.4rem; }
 .nx-chev svg { transition: transform var(--duration-fast); }
 .nx-chev[aria-expanded="false"] svg { transform: rotate(-90deg); }
-.nx-grouphead--cards .nx-nodeband { width: 100%; }
+.nx-grouphead--cards .nx-nodeband { width: 100%; flex-wrap: wrap; }
