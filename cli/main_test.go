@@ -1,0 +1,90 @@
+package main
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestNormalizeURL(t *testing.T) {
+	cases := map[string]string{
+		"hl.example.com":                    "https://hl.example.com",
+		"https://HL.example.com:8443/app/x": "https://hl.example.com:8443",
+		" http://10.0.0.5:8011 ":            "http://10.0.0.5:8011",
+	}
+	for in, want := range cases {
+		got, err := normalizeURL(in)
+		if err != nil || got != want {
+			t.Errorf("normalizeURL(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"ftp://x", "https://", "https:///path"} {
+		if _, err := normalizeURL(bad); err == nil {
+			t.Errorf("normalizeURL(%q) accepted", bad)
+		}
+	}
+}
+
+func TestParseFlags(t *testing.T) {
+	f, err := parseFlags([]string{"vm1", "--server", "https://a", "-L", "8080:localhost:80", "uptime"}, true)
+	if err != nil || f.server != "https://a" || strings.Join(f.rest, " ") != "vm1 -L 8080:localhost:80 uptime" {
+		t.Fatalf("got %+v, %v", f, err)
+	}
+	if _, err := parseFlags([]string{"--bogus"}, false); err == nil {
+		t.Fatal("unknown option accepted")
+	}
+	f, _ = parseFlags([]string{"vm", "22", "--listen=127.0.0.1:2222"}, false)
+	if f.listen != "127.0.0.1:2222" {
+		t.Fatalf("listen = %q", f.listen)
+	}
+}
+
+func signedIn() *config {
+	return &config{Servers: map[string]*server{"https://hl.example.com:8443": {URL: "https://hl.example.com:8443", Token: "hlt_x"}}}
+}
+
+func TestParseLinkAcceptsKnownServersOnly(t *testing.T) {
+	cfg := signedIn()
+	l, err := parseLink("hyperlite://ssh/web-01?server=https%3A%2F%2Fhl.example.com%3A8443&user=deploy", cfg)
+	if err != nil || l.action != "ssh" || l.vm != "web-01" || l.user != "deploy" {
+		t.Fatalf("got %+v, %v", l, err)
+	}
+	bad := []string{
+		"https://ssh/web-01?server=https%3A%2F%2Fhl.example.com%3A8443",               // not our scheme
+		"hyperlite://shell/web-01?server=https%3A%2F%2Fhl.example.com%3A8443",         // unknown action
+		"hyperlite://ssh/web-01?server=https%3A%2F%2Fevil.example.com",                // server not signed in
+		"hyperlite://ssh/web;calc.exe?server=https%3A%2F%2Fhl.example.com%3A8443",     // VM name injection
+		"hyperlite://ssh/web-01?server=https%3A%2F%2Fhl.example.com%3A8443&user=a'b",  // user injection
+		"hyperlite://ssh/-oProxyCommand=x?server=https%3A%2F%2Fhl.example.com%3A8443", // option injection
+	}
+	for _, raw := range bad {
+		if _, err := parseLink(raw, cfg); err == nil {
+			t.Errorf("accepted %s", raw)
+		}
+	}
+}
+
+func TestQuoting(t *testing.T) {
+	if got := psQuote(`C:\Users\O'Brien\hyperlite.exe`); got != `'C:\Users\O''Brien\hyperlite.exe'` {
+		t.Errorf("psQuote = %s", got)
+	}
+	if got := shQuote("it's"); got != `'it'\''s'` {
+		t.Errorf("shQuote = %s", got)
+	}
+}
+
+func TestProxyCommandEscapesPercent(t *testing.T) {
+	pc, err := proxyCommand(&server{URL: "https://hl.example.com"}, "vm1", 22)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(pc, " tunnel --stdio --server https://hl.example.com vm1 22") || !strings.HasPrefix(pc, `"`) {
+		t.Fatalf("proxy command %q", pc)
+	}
+}
+
+func TestWorkstationName(t *testing.T) {
+	name := workstationName()
+	if name == "" || hostnameChars.MatchString(name) || len(name) > 63 {
+		t.Fatalf("workstation name %q", name)
+	}
+}
