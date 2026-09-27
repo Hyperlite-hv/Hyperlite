@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
-import { apiLogin, expect, PREFIX, test, uiLogin } from "../support/fixtures";
+import { apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtures";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 const stamp = Date.now().toString().slice(-6);
@@ -17,8 +17,14 @@ test.describe.configure({ mode: "serial", timeout: 240_000 });
 async function exists(request: APIRequestContext, name: string) {
   return (await request.get(`/vms/${name}`, { headers: auth() })).ok();
 }
-async function selectVm(page: Page, name: string) {
-  await page.getByRole("treeitem", { name: new RegExp(name) }).click();
+async function selectVm(page: Page, name: string, tab = "") {
+  await page.goto(`/vm/${name}${tab ? `?tab=${tab}` : ""}`);
+  await expect(page.getByRole("heading", { level: 1, name })).toBeVisible({ timeout: 30_000 });
+}
+// Every VM operation outside the power buttons lives in the header Actions menu.
+async function vmAction(page: Page, item: RegExp) {
+  await page.locator(".nx-oh-acts").getByRole("button", { name: /^Actions/ }).click();
+  await page.getByRole("menuitem", { name: item }).click();
 }
 
 test.beforeAll(async ({ request }) => {
@@ -45,19 +51,20 @@ test.describe("Advanced VM operations (real backend)", () => {
   test("cloning a VM creates an independent VM after a name dialog", async ({ page, request }) => {
     await uiLogin(page);
     await selectVm(page, SRC);
-    await page.getByRole("button", { name: "Clone", exact: true }).click();
+    await vmAction(page, /^Clone/);
     const nameDialog = page.getByRole("dialog", { name: /Clone/ });
     await nameDialog.getByRole("textbox", { name: "Name of the copy" }).fill(CLONE);
     await nameDialog.getByRole("button", { name: "Clone", exact: true }).click();
     await expect.poll(() => exists(request, CLONE), { timeout: 120_000 }).toBe(true);
-    await expect(page.getByRole("treeitem", { name: new RegExp(CLONE) })).toBeVisible({ timeout: 60_000 });
+    await goTo(page, "Virtual Machines");
+    await expect(page.getByRole("main").getByText(CLONE).first()).toBeVisible({ timeout: 60_000 });
     expect(existsSync(`/var/lib/libvirt/images/${CLONE}.qcow2`)).toBe(true);
   });
 
   test("cancelling the clone dialog creates nothing", async ({ page, request }) => {
     await uiLogin(page);
     await selectVm(page, SRC);
-    await page.getByRole("button", { name: "Clone", exact: true }).click();
+    await vmAction(page, /^Clone/);
     await page.getByRole("dialog", { name: /Clone/ }).getByRole("button", { name: "Cancel" }).click();
     await page.waitForLoadState("networkidle");
     const vms = (await (await request.get("/vms", { headers: auth() })).json()) as Array<{ nom: string }>;
@@ -67,18 +74,18 @@ test.describe("Advanced VM operations (real backend)", () => {
   test("a VM converted to a template can be deployed as a new VM", async ({ page, request }) => {
     await uiLogin(page);
     await selectVm(page, CLONE);
-    await page.getByRole("button", { name: "To template" }).click();
+    await vmAction(page, /^Convert to template/);
     const tplDialog = page.getByRole("dialog", { name: /template/ });
-    await tplDialog.getByRole("textbox", { name: "Name of the template" }).fill(TEMPLATE);
+    await tplDialog.getByRole("textbox", { name: "Template name" }).fill(TEMPLATE);
     await tplDialog.getByRole("button", { name: "Convert" }).click();
     await expect.poll(async () => (await request.get("/templates", { headers: auth() })).ok() && ((await (await request.get("/templates", { headers: auth() })).json()) as Array<{ nom: string }>).some((t) => t.nom === TEMPLATE), { timeout: 60_000 }).toBe(true);
     expect(await exists(request, CLONE), "the source VM is consumed by the conversion").toBe(false);
     // The screen leaves the consumed VM on its own; reloading before that lands on /vm/<gone VM>.
     await expect(page).toHaveURL(/\/datacenter/);
 
-    await page.reload();
-    await page.getByRole("tab", { name: "Templates", exact: true }).click();
-    await expect(page.getByText(TEMPLATE)).toBeVisible();
+    await page.goto("/datacenter?tab=templates");
+    await expect(page.getByRole("main").getByRole("tab", { name: /^Templates/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("main").getByText(TEMPLATE)).toBeVisible();
     await page.getByRole("button", { name: `Deploy template ${TEMPLATE}` }).click();
     const dialog = page.getByRole("dialog", { name: `Deploy ${TEMPLATE}` });
     await dialog.getByRole("textbox", { name: "Name of the new VM" }).fill(DEPLOYED);
@@ -88,14 +95,11 @@ test.describe("Advanced VM operations (real backend)", () => {
 
   test("a cold backup can be created and then restored to a new VM (restore is verified, not assumed)", async ({ page, request }) => {
     await uiLogin(page);
-    await selectVm(page, SRC);
-    await page.getByRole("tab", { name: "Backup", exact: true }).click();
-    await page.getByRole("button", { name: /Back up now/ }).click();
+    await selectVm(page, SRC, "backup");
+    await page.getByRole("main").getByRole("button", { name: /Back up now/ }).click();
     await expect.poll(async () => ((await (await request.get(`/vms/${SRC}/backups`, { headers: auth() })).json()) as Array<{ statut: string }>).map((b) => b.statut), { timeout: 180_000 }).toContain("termine");
     await page.reload();
-    await selectVm(page, SRC);
-    await page.getByRole("tab", { name: "Backup", exact: true }).click();
-    await page.getByRole("button", { name: "New VM" }).first().click();
+    await page.getByRole("main").getByRole("button", { name: /to a new VM$/ }).first().click();
     const restoreDialog = page.getByRole("dialog", { name: /Restore backup/ });
     await restoreDialog.getByRole("textbox", { name: "Name of the new VM" }).fill(RESTORED);
     await restoreDialog.getByRole("button", { name: "Restore" }).click();
@@ -110,11 +114,10 @@ test.describe("Advanced VM operations (real backend)", () => {
     const res = await request.post(`/vms/${SRC}/export`, { headers: auth() });
     expect(res.ok()).toBe(true);
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Exports", exact: true }).click();
+    await goTo(page, "Exports");
     await expect.poll(async () => ((await (await request.get("/vm-exports", { headers: auth() })).json()) as Array<{ nom: string }>).map((e) => e.nom).some((n) => n.startsWith(SRC)), { timeout: 120_000 }).toBe(true);
     await page.reload();
-    await page.getByRole("tab", { name: "Exports", exact: true }).click();
-    await expect(page.getByText(new RegExp(SRC)).first()).toBeVisible();
+    await expect(page.getByRole("main").getByText(new RegExp(SRC)).first()).toBeVisible();
     const files = (await (await request.get("/vm-exports", { headers: auth() })).json()) as Array<{ nom: string }>;
     const file = files.find((f) => f.nom.startsWith(SRC))!.nom;
     const ticket = (await (await request.post(`/vm-exports/${encodeURIComponent(file)}/download-ticket`, { headers: auth() })).json()) as { ticket: string };
@@ -129,11 +132,12 @@ test.describe("Advanced VM operations (real backend)", () => {
 
   test("the activity list shows the operations performed above with their real status", async ({ page }) => {
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Recent activity", exact: true }).click();
-    const list = page.getByRole("region", { name: "Recent activity" });
+    await goTo(page, "Tasks");
+    const list = page.getByRole("main").getByRole("table");
     await expect(list).toContainText(/Create VM|Clone VM|Restore backup/);
-    await page.getByRole("combobox", { name: "Filter by status" }).selectOption({ label: "Failed" });
-    await expect(list.getByText(/^Completed$/)).toHaveCount(0);
+    await expect(list.getByText(/^Done$/).first()).toBeVisible();
+    await page.getByRole("group", { name: "Task filters" }).getByLabel("Status").selectOption({ label: "Failed" });
+    await expect(list.getByText(/^Done$/)).toHaveCount(0);
   });
 
   test("leftover disks of this run are removed after cleanup", async ({ request }) => {

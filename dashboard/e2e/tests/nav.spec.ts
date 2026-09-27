@@ -1,34 +1,37 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, goTo, test, uiLogin } from "../support/fixtures";
 
 const isExpectedHttpNoise = (p: string) => /Failed to load resource/.test(p);
 
 test.describe("Navigation and tab persistence", () => {
-  test("keeps the selected Datacenter tab after a reload and reflects it in the URL", async ({ page }) => {
+  test("keeps the selected Datacenter page after a reload and reflects it in the URL", async ({ page }) => {
     await uiLogin(page);
-    await page.getByRole("button", { name: "Backups", exact: true }).first().click();
+    await goTo(page, "Backups");
     await expect(page).toHaveURL(/tab=backups/);
     await page.reload();
     await expect(page).toHaveURL(/tab=backups/);
-    await expect(page.getByRole("tab", { name: "Backups" })).toHaveAttribute("aria-selected", "true");
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav.getByRole("button", { name: "Backups", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Backups" })).toBeVisible();
     await expect(page.getByText("No backups yet.")).toBeVisible();
   });
 
-  test("returns to the summary tab when another resource is selected", async ({ page, request }) => {
-    const { hostname } = await (await request.get("/health")).json();
+  test("returns to the summary tab when another resource is selected", async ({ page }) => {
     await uiLogin(page);
-    await page.getByRole("button", { name: "Storage", exact: true }).first().click();
+    await goTo(page, "Storage");
     await expect(page).toHaveURL(/tab=storage/);
-    await page.getByRole("treeitem", { name: new RegExp(hostname.split(".")[0]) }).click();
+    await goTo(page, "Nodes");
+    await page.getByRole("main").getByRole("table").getByRole("button").first().click();
     await expect(page).toHaveURL(/\/node\//);
     await expect(page).not.toHaveURL(/tab=/);
-    await page.getByRole("treeitem", { name: "Datacenter" }).click();
-    await expect(page.getByText("VM status")).toBeVisible();
+    await expect(page.getByRole("main").getByRole("tab", { name: "Summary", exact: true })).toHaveAttribute("aria-selected", "true");
+    await goTo(page, "Home");
+    await expect(page.getByRole("main").getByRole("group", { name: "Inventory" })).toBeVisible();
   });
 
   test("an unknown tab in the URL falls back to the summary", async ({ page, problems }) => {
     await uiLogin(page);
     await page.goto("/datacenter?tab=does-not-exist");
-    await expect(page.getByText("VM status")).toBeVisible();
+    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
     expect(problems.filter((p) => !isExpectedHttpNoise(p))).toEqual([]);
   });
 
@@ -36,6 +39,6 @@ test.describe("Navigation and tab persistence", () => {
     await uiLogin(page);
     await page.goto("/this/does/not/exist");
     await expect(page).toHaveURL(/\/datacenter/);
-    await expect(page.getByText("VM status")).toBeVisible();
+    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
   });
 });
