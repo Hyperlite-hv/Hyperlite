@@ -158,6 +158,24 @@ def eject_vm_cdrom(
         conn.close()
 
 
+def _stopped_metrics():
+    return {
+        "etat": "arrete",
+        "cpu_pourcent": None,
+        "memoire_allouee_mo": None,
+        "memoire_utilisee_mo": None,
+        "disques": [],
+        "reseaux": [],
+    }
+
+
+def _is_active(domain):
+    try:
+        return bool(domain.isActive())
+    except libvirt.libvirtError:
+        return False  # the domain no longer exists
+
+
 @router.get("/{name}/metrics")
 def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
     conn = open_conn()
@@ -169,14 +187,7 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if not domain.isActive():
-            return {
-                "etat": "arrete",
-                "cpu_pourcent": None,
-                "memoire_allouee_mo": None,
-                "memoire_utilisee_mo": None,
-                "disques": [],
-                "reseaux": [],
-            }
+            return _stopped_metrics()
 
         root = ET.fromstring(domain.XMLDesc(0))
         disk_devs = []
@@ -208,14 +219,21 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
                     logger.debug("Ignored exception in sample()", exc_info=True)
             return cpu_time, disk_samples, net_samples
 
-        cpu1, disk1, net1 = sample()
-        t1 = time.time()
-        time.sleep(0.4)
-        cpu2, disk2, net2 = sample()
-        t2 = time.time()
+        try:
+            cpu1, disk1, net1 = sample()
+            t1 = time.time()
+            time.sleep(0.4)
+            cpu2, disk2, net2 = sample()
+            t2 = time.time()
+            info = domain.info()
+        except libvirt.libvirtError:
+            # The VM stopped (or was deleted) during the 0.4 s sampling window: report it as stopped
+            # rather than a 500, the dashboard polls this while the user stops the VM.
+            if not _is_active(domain):
+                return _stopped_metrics()
+            raise
         elapsed = max(t2 - t1, 0.001)
 
-        info = domain.info()
         nvcpu = info[3] or 1
         cpu_pourcent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
         memoire_allouee_mo = round(info[2] / 1024, 1)

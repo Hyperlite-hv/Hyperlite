@@ -8,6 +8,7 @@ feature-*.sh
 deploy.sh
 dashboard/node_modules/
 dashboard/dist/
+cli/dist/
 data/ssh/
 data/tls/
 data/isos/

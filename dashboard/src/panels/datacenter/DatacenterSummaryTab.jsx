@@ -1,7 +1,7 @@
 import LoadingState from "../../components/LoadingState";
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Server, MonitorPlay, Square, AlertTriangle, Cpu, MemoryStick, Network, Clock, Plus } from "lucide-react";
+import { Server, MonitorPlay, Square, AlertTriangle, Cpu, MemoryStick, Network, Clock, Plus, ChevronRight } from "lucide-react";
 import StatTile from "../../components/StatTile";
 import StatusBadge from "../../components/StatusBadge";
 import UsageBar from "../../components/UsageBar";
@@ -10,6 +10,9 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { fetchHostMetricsHistory, fetchTasks } from "../../api/client";
 import { formatMo, formatUptime, formatKbps } from "../../utils/format";
 import { statusColor, chartColors } from "../../theme/colors";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 
 function sumDefined(items, key) {
   const defined = items.filter((i) => i[key] != null);
@@ -110,67 +113,74 @@ export default function DatacenterSummaryTab() {
   const stoppedVms = vmCounts.find((c) => c.etat === "arrete")?.count ?? 0;
 
   const onlineNodes = enrichedNodes.filter((n) => n.etat === "online").length;
-  const alertCount = enrichedNodes.filter((n) => {
+  const alertingNodes = enrichedNodes.filter((n) => {
     const cpuAlert = n.cpu_utilisation != null && n.cpu_utilisation >= ALERT_THRESHOLD;
     const ramAlert = n.memoire_totale_mo && n.memoire_utilisee_mo != null && n.memoire_utilisee_mo / n.memoire_totale_mo >= ALERT_THRESHOLD;
     return cpuAlert || ramAlert;
-  }).length;
+  });
+  const alertCount = alertingNodes.length;
+
+  // Everything shown on this page should lead somewhere: the first matching
+  // resource for a given tile/row, or undefined (no link) when nothing matches.
+  const firstVmByEtat = (etat) => vms.find((v) => v.etat === etat);
+  const goToVm = (v) => v && (() => navigateTo("vm", v.nom, "summary"));
+  const goToNode = (n) => n && (() => navigateTo("node", n.id, "summary"));
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile icon={Server} label="Nodes" value={enrichedNodes.length} foot={`${onlineNodes} online`} tone="blue" />
-        <StatTile icon={MonitorPlay} label="Running VMs" value={runningVms} foot={`of ${totalVms} in total`} tone="green" />
-        <StatTile icon={Square} label="Stopped VMs" value={stoppedVms} foot={`of ${totalVms} in total`} tone="gray" />
-        <StatTile icon={AlertTriangle} label="Alerts" value={alertCount} foot={alertCount ? "to watch" : "none"} tone="amber" />
+        <StatTile icon={Server} label="Nodes" value={enrichedNodes.length} foot={`${onlineNodes} online`} tone="blue" onClick={enrichedNodes.length ? () => navigateTo("datacenter", null, "nodes") : undefined} />
+        <StatTile icon={MonitorPlay} label="Running VMs" value={runningVms} foot={`of ${totalVms} in total`} tone="green" onClick={goToVm(firstVmByEtat("actif"))} />
+        <StatTile icon={Square} label="Stopped VMs" value={stoppedVms} foot={`of ${totalVms} in total`} tone="gray" onClick={goToVm(firstVmByEtat("arrete"))} />
+        <StatTile icon={AlertTriangle} label="Alerts" value={alertCount} foot={alertCount ? "to watch" : "none"} tone="amber" onClick={goToNode(alertingNodes[0])} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="card p-4">
-          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+        <Card className="p-4">
+          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-foreground">
             <Cpu size={16} className="text-accent-blue" /> CPU usage
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {avgCpu != null ? `${Math.round(avgCpu * 100)}%` : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">{cpuNodes.length} node(s) measured</span>
+            <span className="text-[11px] text-muted-foreground">{cpuNodes.length} node(s) measured</span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart data={chartData} series={[{ key: "cpu", label: "CPU", color: chartColors.cpu }]} yFormatter={(v) => `${Math.round(v * 100)}%`} height={140} />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-muted-foreground">No history yet.</div>
           )}
-        </div>
+        </Card>
 
-        <div className="card p-4">
-          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+        <Card className="p-4">
+          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-foreground">
             <MemoryStick size={16} className="text-accent-blue" /> Memory usage
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {totalRamMo != null && usedRamMo != null ? `${Math.round((usedRamMo / totalRamMo) * 100)}%` : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">
+            <span className="text-[11px] text-muted-foreground">
               {totalRamMo != null && usedRamMo != null ? `${formatMo(usedRamMo)} / ${formatMo(totalRamMo)}` : ""}
             </span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart data={chartData} series={[{ key: "ramMo", label: "RAM", color: chartColors.cpu }]} yFormatter={(v) => formatMo(v)} height={140} />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-muted-foreground">No history yet.</div>
           )}
-        </div>
+        </Card>
 
-        <div className="card p-4">
-          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+        <Card className="p-4">
+          <div className="mb-1 flex items-center gap-2 text-[13px] font-bold text-foreground">
             <Network size={16} className="text-accent-blue" /> Network (local host)
           </div>
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-mono text-[22px] font-extrabold text-accent-blue">
               {latest ? formatKbps((latest.net_rx_bps ?? 0) / 1024) : "n/a"}
             </span>
-            <span className="text-[11px] text-anthracite-400">current incoming</span>
+            <span className="text-[11px] text-muted-foreground">current incoming</span>
           </div>
           {chartData.length > 0 ? (
             <MetricChart
@@ -179,153 +189,200 @@ export default function DatacenterSummaryTab() {
               yFormatter={(v) => formatKbps(v)} height={140}
             />
           ) : (
-            <div className="flex h-[140px] items-center justify-center text-xs text-anthracite-400">No history yet.</div>
+            <div className="flex h-[140px] items-center justify-center text-xs text-muted-foreground">No history yet.</div>
           )}
-        </div>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <div className="card p-4 xl:col-span-7">
+        <Card className="p-4 xl:col-span-7">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+            <h3 className="flex items-center gap-2 text-[13px] font-bold text-foreground">
               <Server size={16} className="text-accent-blue" /> Nodes
             </h3>
-            <button className="btn-primary" onClick={() => navigateTo("datacenter", null, "nodes")}>
-              <Plus size={14} /> Add a node
-            </button>
+            <Button onClick={() => navigateTo("datacenter", null, "nodes")}>
+              <Plus /> Add a node
+            </Button>
           </div>
           <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Nodes table">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
-                  <th className="pb-2 pr-2">Name</th>
-                  <th className="pb-2 pr-2">Status</th>
-                  <th className="pb-2 pr-2">CPU</th>
-                  <th className="pb-2 pr-2">Memory</th>
-                  <th className="pb-2 pr-2">Disk</th>
-                  <th className="pb-2 pr-2 text-right">VMs</th>
-                  <th className="pb-2 text-right">Uptime</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-anthracite-600">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>CPU</TableHead>
+                  <TableHead>Memory</TableHead>
+                  <TableHead>Disk</TableHead>
+                  <TableHead className="text-right">VMs</TableHead>
+                  <TableHead className="text-right">Uptime</TableHead>
+                  <TableHead className="w-6" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {enrichedNodes.map((n) => {
                   const ramPct = n.memoire_totale_mo ? (n.memoire_utilisee_mo / n.memoire_totale_mo) * 100 : null;
                   const diskPct = n.stockage_total_go ? (n.stockage_utilise_go / n.stockage_total_go) * 100 : null;
                   const vmTotal = (n.vms_actives ?? 0) + (n.vms_arretees ?? 0);
                   return (
-                    <tr key={n.id} className="cursor-pointer hover:bg-anthracite-900" onClick={() => navigateTo("node", n.id, "summary")}>
-                      <td className="py-2.5 pr-2">
+                    <TableRow key={n.id} className="group cursor-pointer" onClick={() => navigateTo("node", n.id, "summary")}>
+                      <TableCell>
                         <div className="flex items-center gap-2.5">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-blue/10 text-accent-blue"><Server size={15} /></span>
                           <div className="min-w-0">
-                            <div className="truncate font-semibold text-anthracite-100">{n.nom}</div>
-                            <div className="truncate font-mono text-[10.5px] text-anthracite-400">{n.ip || "--"}</div>
+                            <div className="truncate font-semibold text-foreground">{n.nom}</div>
+                            <div className="truncate font-mono text-[10.5px] text-muted-foreground">{n.ip || "--"}</div>
                           </div>
                         </div>
-                      </td>
-                      <td className="py-2.5 pr-2"><StatusBadge etat={n.etat} /></td>
-                      <td className="py-2.5 pr-2"><UsageBar pct={n.cpu_utilisation != null ? n.cpu_utilisation * 100 : null} color={chartColors.cpu} /></td>
-                      <td className="py-2.5 pr-2"><UsageBar pct={ramPct} color={statusColor("actif")} /></td>
-                      <td className="py-2.5 pr-2"><UsageBar pct={diskPct} color={statusColor("avertissement")} /></td>
-                      <td className="py-2.5 pr-2 text-right font-mono text-xs text-anthracite-300">{n.vms_actives ?? 0} / {vmTotal}</td>
-                      <td className="py-2.5 text-right font-mono text-xs text-anthracite-300">{n.uptime_s ? formatUptime(n.uptime_s) : "n/a"}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell><StatusBadge etat={n.etat} /></TableCell>
+                      <TableCell><UsageBar pct={n.cpu_utilisation != null ? n.cpu_utilisation * 100 : null} color={chartColors.cpu} /></TableCell>
+                      <TableCell><UsageBar pct={ramPct} color={statusColor("actif")} /></TableCell>
+                      <TableCell><UsageBar pct={diskPct} color={statusColor("avertissement")} /></TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">{n.vms_actives ?? 0} / {vmTotal}</TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">{n.uptime_s ? formatUptime(n.uptime_s) : "n/a"}</TableCell>
+                      <TableCell>
+                        <ChevronRight size={14} className="text-accent-blue opacity-0 -translate-x-1 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-hover:translate-x-0" />
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
                 {enrichedNodes.length === 0 && (
-                  <tr><td colSpan={7} className="py-4 text-center text-sm text-anthracite-400">No nodes.</td></tr>
+                  <TableRow><TableCell colSpan={8} className="py-4 text-center text-sm text-muted-foreground">No nodes.</TableCell></TableRow>
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </div>
+        </Card>
 
-        <div className="card p-4 xl:col-span-5">
-          <h3 className="mb-3 text-[13px] font-bold text-anthracite-100">VM status</h3>
-          <div className="divide-y divide-anthracite-600">
-            {vmCounts.map(({ etat, label, count }) => (
-              <div key={etat} className="flex items-center gap-3 py-2.5 text-sm">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor(etat) }} />
-                <span className="flex-1 font-semibold text-anthracite-200">{label}</span>
-                <span className="font-mono text-[14px] font-extrabold text-anthracite-100">{count}</span>
-                <span className="w-14 text-right font-mono text-xs text-anthracite-400">
-                  {totalVms ? `${((count / totalVms) * 100).toFixed(1)}%` : "--"}
-                </span>
-              </div>
-            ))}
-            {autreCount > 0 && (
-              <div className="flex items-center gap-3 py-2.5 text-sm">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-anthracite-500" />
-                <span className="flex-1 font-semibold text-anthracite-200">Other</span>
-                <span className="font-mono text-[14px] font-extrabold text-anthracite-100">{autreCount}</span>
-                <span className="w-14 text-right font-mono text-xs text-anthracite-400">
-                  {totalVms ? `${((autreCount / totalVms) * 100).toFixed(1)}%` : "--"}
-                </span>
-              </div>
-            )}
-            {totalVms === 0 && <div className="py-2 text-sm text-anthracite-400">No VMs yet.</div>}
+        <Card className="p-4 xl:col-span-5">
+          <h3 className="mb-3 text-[13px] font-bold text-foreground">VM status</h3>
+          <div className="divide-y divide-border">
+            {vmCounts.map(({ etat, label, count }) => {
+              const onClick = count > 0 ? goToVm(firstVmByEtat(etat)) : undefined;
+              return (
+                <div
+                  key={etat}
+                  role={onClick ? "button" : undefined}
+                  tabIndex={onClick ? 0 : undefined}
+                  onClick={onClick}
+                  onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+                  className={`group flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                >
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: statusColor(etat) }} />
+                  <span className="flex-1 font-semibold text-foreground/90">{label}</span>
+                  <span className="font-mono text-[14px] font-extrabold text-foreground">{count}</span>
+                  <span className="w-14 text-right font-mono text-xs text-muted-foreground">
+                    {totalVms ? `${((count / totalVms) * 100).toFixed(1)}%` : "--"}
+                  </span>
+                  <ChevronRight size={14} className={`shrink-0 text-accent-blue transition-[opacity,transform] duration-150 ${onClick ? "opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0" : "opacity-0"}`} />
+                </div>
+              );
+            })}
+            {autreCount > 0 && (() => {
+              const knownEtats = new Set(VM_STATUS_ORDER.map((s) => s.etat));
+              const onClick = goToVm(vms.find((v) => !knownEtats.has(v.etat)));
+              return (
+                <div
+                  role={onClick ? "button" : undefined}
+                  tabIndex={onClick ? 0 : undefined}
+                  onClick={onClick}
+                  onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+                  className={`group flex items-center gap-3 py-2.5 text-sm -mx-1 px-1 rounded-md transition-colors duration-150 ${onClick ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                >
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <span className="flex-1 font-semibold text-foreground/90">Other</span>
+                  <span className="font-mono text-[14px] font-extrabold text-foreground">{autreCount}</span>
+                  <span className="w-14 text-right font-mono text-xs text-muted-foreground">
+                    {totalVms ? `${((autreCount / totalVms) * 100).toFixed(1)}%` : "--"}
+                  </span>
+                  <ChevronRight size={14} className={`shrink-0 text-accent-blue transition-[opacity,transform] duration-150 ${onClick ? "opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0" : "opacity-0"}`} />
+                </div>
+              );
+            })()}
+            {totalVms === 0 && <div className="py-2 text-sm text-muted-foreground">No VMs yet.</div>}
           </div>
           {totalVms > 0 && (
-            <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-anthracite-900">
+            <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-background">
               {vmCounts.filter((c) => c.count > 0).map(({ etat, count }) => (
                 <div key={etat} style={{ width: `${(count / totalVms) * 100}%`, backgroundColor: statusColor(etat) }} />
               ))}
-              {autreCount > 0 && <div style={{ width: `${(autreCount / totalVms) * 100}%` }} className="bg-anthracite-500" />}
+              {autreCount > 0 && <div style={{ width: `${(autreCount / totalVms) * 100}%` }} className="bg-muted-foreground/50" />}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
-      <div className="card p-4">
+      <Card className="p-4">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-[13px] font-bold text-anthracite-100">
+          <h3 className="flex items-center gap-2 text-[13px] font-bold text-foreground">
             <Clock size={16} className="text-accent-blue" /> Recent tasks
           </h3>
-          <button className="text-xs font-semibold text-accent-blue hover:underline" onClick={() => navigateTo("datacenter", null, "activity")}>
+          <Button variant="link" className="h-auto p-0 text-accent-blue" onClick={() => navigateTo("datacenter", null, "activity")}>
             View the whole journal →
-          </button>
+          </Button>
         </div>
         <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Recent tasks table">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[10.5px] font-bold uppercase tracking-wide text-anthracite-400">
-                <th className="pb-2 pr-2">Time</th>
-                <th className="pb-2 pr-2">Node</th>
-                <th className="pb-2 pr-2">User</th>
-                <th className="pb-2 pr-2">Task</th>
-                <th className="pb-2">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-anthracite-600">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>Node</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Task</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-6" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {recentTasks == null && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400"><LoadingState /></td></tr>
+                <TableRow><TableCell colSpan={6} className="py-3 text-sm text-muted-foreground"><LoadingState /></TableCell></TableRow>
               )}
               {recentTasks && recentTasks.length === 0 && (
-                <tr><td colSpan={5} className="py-3 text-sm text-anthracite-400">No recent activity.</td></tr>
+                <TableRow><TableCell colSpan={6} className="py-3 text-sm text-muted-foreground">No recent activity.</TableCell></TableRow>
               )}
-              {recentTasks && recentTasks.map((t) => (
-                <tr key={t.id}>
-                  <td className="py-2.5 pr-2 font-mono text-xs text-anthracite-300">{formatHeure(t.cree_le)}</td>
-                  <td className="py-2.5 pr-2 text-anthracite-200">{t.node || "local"}</td>
-                  <td className="py-2.5 pr-2 text-anthracite-200">{t.username || "--"}</td>
-                  <td className="py-2.5 pr-2 text-anthracite-100">
+              {recentTasks && recentTasks.map((t) => {
+                // Link each row to the most specific resource still around: the VM it
+                // targeted if it still exists (a deleted VM's tasks stay plain text,
+                // there is nothing left to open), otherwise the node it ran on.
+                const targetVm = t.cible && vms.find((v) => v.nom === t.cible);
+                const targetNode = enrichedNodes.find((n) => n.id === (t.node || "local"));
+                const rowClick = targetVm ? () => navigateTo("vm", targetVm.nom, "summary")
+                  : targetNode ? () => navigateTo("node", targetNode.id, "summary")
+                  : undefined;
+                return (
+                <TableRow key={t.id} className={`group ${rowClick ? "cursor-pointer" : "hover:bg-transparent"}`} onClick={rowClick}>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{formatHeure(t.cree_le)}</TableCell>
+                  <TableCell className="text-foreground/90">{t.node || "local"}</TableCell>
+                  <TableCell className="text-foreground/90">{t.username || "--"}</TableCell>
+                  <TableCell className="text-foreground">
                     {TASK_LABELS[t.type] || t.type}
-                    {t.cible && <span className="text-anthracite-400"> — {t.cible}</span>}
-                  </td>
-                  <td className="py-2.5">
-                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{
-                      backgroundColor: `${statusColor(STATUT_ETAT[t.statut])}1A`, color: statusColor(STATUT_ETAT[t.statut]),
+                    {t.cible && <span className="text-muted-foreground"> — {t.cible}</span>}
+                  </TableCell>
+                  <TableCell>
+                    {/* Text stays a solid neutral color rather than the status hue
+                        itself: statusColor() values are tuned for the small dot /
+                        chart lines, not for text-on-their-own-10%-tint, which falls
+                        well under 4.5:1 for every one of them (~3:1). Same
+                        colored-dot-plus-neutral-label pattern as StatusBadge.jsx. */}
+                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-foreground/90" style={{
+                      backgroundColor: `${statusColor(STATUT_ETAT[t.statut])}1A`,
                     }}>
                       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor(STATUT_ETAT[t.statut]) }} />
                       {STATUT_LABEL[t.statut] || t.statut}
                     </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </TableCell>
+                  <TableCell>
+                    {rowClick && (
+                      <ChevronRight size={14} className="text-accent-blue opacity-0 -translate-x-1 transition-[opacity,transform] duration-150 group-hover:opacity-100 group-hover:translate-x-0" />
+                    )}
+                  </TableCell>
+                </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

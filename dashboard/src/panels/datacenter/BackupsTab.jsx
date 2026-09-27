@@ -4,6 +4,7 @@ import { CalendarClock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { fetchAllBackups } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { backupModeLabel } from "../../lib/labels";
+import { Card } from "@/components/ui/card";
 
 function formatSize(bytes) {
   if (!bytes) return "--";
@@ -20,32 +21,32 @@ export default function BackupsTab() {
     fetchAllBackups().then(setRows).catch((e) => pushToast({ kind: "error", title: "Backups error", message: e.message }));
   }, [pushToast]);
 
-  if (rows == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (rows == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   if (rows.length === 0) {
     return (
-      <div className="card flex flex-col items-center gap-2 p-8 text-center">
-        <CalendarClock size={26} className="text-anthracite-400" />
-        <p className="text-sm text-anthracite-300">No backups yet.</p>
-        <p className="text-xs text-anthracite-400 max-w-sm">
+      <Card className="flex flex-col items-center gap-2 p-8 text-center">
+        <CalendarClock size={26} className="text-muted-foreground" />
+        <p className="text-sm text-foreground/80">No backups yet.</p>
+        <p className="text-xs text-muted-foreground max-w-sm">
           Start a manual backup or schedule one from the Backup tab of a VM.
         </p>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="card divide-y divide-anthracite-600 max-h-[70vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Backups">
-      <div className="grid grid-cols-[110px_1fr_80px_90px_1fr_50px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
+    <Card className="p-0 divide-y divide-border max-h-[70vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Backups">
+      <div className="grid grid-cols-[110px_1fr_80px_90px_1fr_50px] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground sticky top-0 bg-card">
         <span>Time</span><span>VM</span><span>Mode</span><span>Size</span><span>Location / cause</span><span>Status</span>
       </div>
       {rows.map((b) => (
-        <div key={b.id} className="grid grid-cols-[110px_1fr_80px_90px_1fr_50px] gap-2 px-4 py-2 text-sm items-center">
-          <span className="text-anthracite-400 text-xs font-mono">{new Date(b.cree_le).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-          <span className="text-anthracite-100 truncate">{b.vm_name}</span>
-          <span className="text-xs text-anthracite-400">{backupModeLabel(b.mode)}</span>
-          <span className="text-xs text-anthracite-400">{formatSize(b.taille_octets)}</span>
-          <span className="text-anthracite-400 text-xs truncate" title={b.erreur || b.chemin}>{b.erreur || b.chemin}</span>
+        <div key={b.id} className="grid grid-cols-[110px_1fr_80px_90px_1fr_50px] gap-2 px-4 py-2 text-sm items-center transition-colors duration-150 hover:bg-muted/40">
+          <span className="text-muted-foreground text-xs font-mono">{new Date(b.cree_le).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+          <span className="text-foreground truncate">{b.vm_name}</span>
+          <span className="text-xs text-muted-foreground">{backupModeLabel(b.mode)}</span>
+          <span className="text-xs text-muted-foreground">{formatSize(b.taille_octets)}</span>
+          <span className="text-muted-foreground text-xs truncate" title={b.erreur || b.chemin}>{b.erreur || b.chemin}</span>
           <span>
             {b.statut === "termine" ? <CheckCircle2 size={14} className="text-status-running" />
               : b.statut === "echec" ? <XCircle size={14} className="text-status-error" />
@@ -53,6 +54,6 @@ export default function BackupsTab() {
           </span>
         </div>
       ))}
-    </div>
+    </Card>
   );
 }

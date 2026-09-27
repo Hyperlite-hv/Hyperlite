@@ -3,6 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { fetchAuditLog, fetchAuditActions } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // Real: GET /audit, which reads the audit_log table fed from the start by every
 // backend endpoint (log_action() is called everywhere). Filters by status/type/
@@ -12,8 +16,8 @@ export default function JournalTab() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [entries, setEntries] = useState(null);
   const [actions, setActions] = useState([]);
-  const [resultFiltre, setResultFiltre] = useState("");
-  const [actionFiltre, setActionFiltre] = useState("");
+  const [resultFiltre, setResultFiltre] = useState("all");
+  const [actionFiltre, setActionFiltre] = useState("all");
   const [usernameFiltre, setUsernameFiltre] = useState("");
   const [ressourceFiltre, setRessourceFiltre] = useState("");
   const [depuis, setDepuis] = useState("");
@@ -21,8 +25,8 @@ export default function JournalTab() {
   const load = useCallback(() => {
     fetchAuditLog({
       limit: 300,
-      result: resultFiltre || undefined,
-      action: actionFiltre || undefined,
+      result: resultFiltre === "all" ? undefined : resultFiltre,
+      action: actionFiltre === "all" ? undefined : actionFiltre,
       username: usernameFiltre || undefined,
       resource: ressourceFiltre || undefined,
       depuis: depuis ? new Date(depuis).toISOString() : undefined,
@@ -37,65 +41,54 @@ export default function JournalTab() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <select aria-label="Filter by result"
-          value={resultFiltre}
-          onChange={(e) => setResultFiltre(e.target.value)}
-          className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
-        >
-          <option value="">All results</option>
+        <NativeSelect aria-label="Filter by result" className="w-auto" value={resultFiltre} onChange={(e) => setResultFiltre(e.target.value)}>
+          <option value="all">All results</option>
           <option value="succes">Success</option>
           <option value="echec">Failure</option>
-        </select>
-        <select aria-label="Filter by action type"
-          value={actionFiltre}
-          onChange={(e) => setActionFiltre(e.target.value)}
-          className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
-        >
-          <option value="">All action types</option>
+        </NativeSelect>
+        <NativeSelect aria-label="Filter by action type" className="w-auto" value={actionFiltre} onChange={(e) => setActionFiltre(e.target.value)}>
+          <option value="all">All action types</option>
           {actions.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <input aria-label="User..."
+        </NativeSelect>
+        <Input aria-label="User..."
           type="text"
           placeholder="User..."
           value={usernameFiltre}
           onChange={(e) => setUsernameFiltre(e.target.value)}
-          className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100 w-32"
+          className="w-32"
         />
-        <input aria-label="Target (resource)..."
+        <Input aria-label="Target (resource)..."
           type="text"
           placeholder="Target (resource)..."
           value={ressourceFiltre}
           onChange={(e) => setRessourceFiltre(e.target.value)}
-          className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100 flex-1 min-w-[140px]"
+          className="flex-1 min-w-[140px]"
         />
-        <input aria-label="Show entries from"
+        <Input aria-label="Show entries from"
           type="datetime-local"
           value={depuis}
           onChange={(e) => setDepuis(e.target.value)}
-          className="bg-anthracite-700 border border-anthracite-600 rounded-md px-2 py-1.5 text-sm text-anthracite-100"
+          className="w-auto"
         />
-        <button
-          onClick={load}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-anthracite-300 hover:text-anthracite-100 border border-anthracite-600 rounded-md"
-        >
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <Button variant="outline" onClick={load}>
+          <RefreshCw /> Refresh
+        </Button>
       </div>
 
-      {entries == null && <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>}
+      {entries == null && <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>}
 
       {entries && (
-        <div className="card divide-y divide-anthracite-600 max-h-[65vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Journal entries">
-          <div className="grid grid-cols-[110px_100px_1fr_1fr_70px] gap-2 px-4 py-2 text-xs font-medium text-anthracite-400 sticky top-0 bg-anthracite-800">
+        <Card className="p-0 divide-y divide-border max-h-[65vh] overflow-y-auto" tabIndex={0} role="region" aria-label="Journal entries">
+          <div className="grid grid-cols-[110px_100px_1fr_1fr_70px] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground sticky top-0 bg-card">
             <span>Time</span><span>User</span><span>Action</span><span>Resource / cause</span><span>Result</span>
           </div>
-          {entries.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No entries for these filters.</div>}
+          {entries.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No entries for these filters.</div>}
           {entries.map((e) => (
-            <div key={e.id} className="grid grid-cols-[110px_100px_1fr_1fr_70px] gap-2 px-4 py-2 text-sm items-center">
-              <span className="text-anthracite-400 text-xs font-mono">{new Date(e.timestamp).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit" })}</span>
-              <span className="text-anthracite-200 truncate">{e.username || "--"}</span>
-              <span className="text-anthracite-100 font-mono text-xs truncate">{e.action}</span>
-              <span className="text-anthracite-300 truncate" title={e.error_message || ""}>
+            <div key={e.id} className="grid grid-cols-[110px_100px_1fr_1fr_70px] gap-2 px-4 py-2 text-sm items-center transition-colors duration-150 hover:bg-muted/40">
+              <span className="text-muted-foreground text-xs font-mono">{new Date(e.timestamp).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit" })}</span>
+              <span className="text-foreground/90 truncate">{e.username || "--"}</span>
+              <span className="text-foreground font-mono text-xs truncate">{e.action}</span>
+              <span className="text-foreground/80 truncate" title={e.error_message || ""}>
                 {e.resource || "--"}
                 {e.error_message && <span className="text-status-error"> — {e.error_message}</span>}
               </span>
@@ -106,7 +99,7 @@ export default function JournalTab() {
               </span>
             </div>
           ))}
-        </div>
+        </Card>
       )}
     </div>
   );

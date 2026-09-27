@@ -14,7 +14,7 @@ from app.core.libvirt_utils import (
     ensure_vnc_graphics,
     open_conn,
 )
-from app.core.security import require_vm_privilege
+from app.core.security import require_role, require_vm_privilege
 from app.core.vm_builder import (
     get_automation_private_key_path,
 )
@@ -139,7 +139,7 @@ TERMINAL_TICKET_TTL = 30
 
 
 @router.post("/{name}/terminal-ticket")
-def create_terminal_ticket(name: str, user: dict = Depends(require_vm_privilege("vm.console"))):
+def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
     try:
         try:

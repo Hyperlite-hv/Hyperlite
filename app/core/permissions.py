@@ -19,6 +19,10 @@ ALL_PRIVILEGES = {
     "vm.view": "View (state, metrics, journal)",
     "vm.power": "Start / stop / restart",
     "vm.console": "Graphical console (VNC) and SSH terminal",
+    # Network reachability of the VM from the user's own workstation (the `hyperlite`
+    # client relays SSH or remote desktop): distinct from vm.console because it opens
+    # the guest's own services to the workstation, not a console inside the browser.
+    "vm.tunnel": "Tunnel from your workstation (SSH, remote desktop)",
     "vm.snapshot": "Snapshots (create / restore / delete)",
     "vm.resize": "Resize (CPU / RAM / disk)",
     "vm.hardware": "Hardware (disks, network interfaces, CD drive)",
@@ -41,8 +45,16 @@ ROLES = {
     },
     "operateur": {
         "label": "Operator",
-        "description": "Start / stop / restart, graphical console and SSH terminal, on the assigned resource.",
-        "privileges": {"vm.view", "vm.power", "vm.console", "container.view", "container.power", "container.console"},
+        "description": "Start / stop / restart, graphical console, SSH terminal and workstation tunnel, on the assigned resource.",
+        "privileges": {
+            "vm.view",
+            "vm.power",
+            "vm.console",
+            "vm.tunnel",
+            "container.view",
+            "container.power",
+            "container.console",
+        },
     },
     "gestionnaire": {
         "label": "Manager",
@@ -51,6 +63,7 @@ ROLES = {
             "vm.view",
             "vm.power",
             "vm.console",
+            "vm.tunnel",
             "vm.snapshot",
             "vm.resize",
             "vm.hardware",

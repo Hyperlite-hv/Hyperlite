@@ -16,6 +16,10 @@ The exact upstream versions of these vendored copies were not recorded when they
 
 Python packages are listed in `requirements.txt` and JavaScript packages in `dashboard/package.json` and `dashboard/package-lock.json`. Their licenses are those published by their authors on PyPI and npm (mainly MIT, BSD, Apache-2.0 and LGPL for `libvirt-python`).
 
+## Workstation client
+
+The `hyperlite` client (`cli/`) is built with the Go standard library (BSD-3-Clause, https://go.dev/LICENSE) and statically links `github.com/coder/websocket` (ISC, https://github.com/coder/websocket). The exact version is pinned in `cli/go.mod` and `cli/go.sum`.
+
 ## Fonts
 
 The dashboard loads the *Archivo* and *IBM Plex Mono* fonts from Google Fonts at runtime (SIL Open Font License 1.1). They are not redistributed in this repository.

@@ -4,6 +4,9 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { fetchVMLimits, setVMLimits } from "../../api/client";
 import { useHostLimits } from "../../hooks/useHostLimits";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 // Real: PATCH /vms/{name} (added to allow what was missing the most: changing the
 // vCPU/RAM of an existing VM without having to recreate it). Requires the VM to
@@ -35,40 +38,40 @@ export default function VMOptionsTab({ resource: vm }) {
 
   return (
     <div className="space-y-4">
-      <div className="card divide-y divide-anthracite-600">
+      <Card className="p-0 divide-y divide-border">
         <div className="flex items-center justify-between px-4 py-3">
-          <div className="text-sm text-anthracite-100">Hostname</div>
-          <div className="text-sm text-anthracite-300 font-mono">{vm.nom}</div>
+          <div className="text-sm text-foreground">Hostname</div>
+          <div className="text-sm text-foreground/80 font-mono">{vm.nom}</div>
         </div>
         <div className="flex items-center justify-between px-4 py-3">
           <div>
-            <div className="text-sm text-anthracite-100">vCPU</div>
-            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.vcpu.min} to ${hostLimits.vcpu.max}` : "Limit set by the host"} -- stopped VM required</div>
+            <div className="text-sm text-foreground">vCPU</div>
+            <div className="text-xs text-muted-foreground">{hostLimits ? `${hostLimits.vcpu.min} to ${hostLimits.vcpu.max}` : "Limit set by the host"} -- stopped VM required</div>
           </div>
-          <input aria-label="vCPU count"
-            type="number" min={hostLimits?.vcpu.min ?? 1} max={hostLimits?.vcpu.max} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
+          <Input aria-label="vCPU count"
+            type="number" min={hostLimits?.vcpu.min ?? 1} max={hostLimits?.vcpu.max} className="w-24" disabled={!isAdmin || vm.etat === "actif"}
             value={vcpu} onChange={(e) => setVcpu(Number(e.target.value))}
           />
         </div>
         <div className="flex items-center justify-between px-4 py-3">
           <div>
-            <div className="text-sm text-anthracite-100">Memory (MB)</div>
-            <div className="text-xs text-anthracite-400">{hostLimits ? `${hostLimits.memoire_mo.min} to ${hostLimits.memoire_mo.max}` : "Limit set by the host"} -- stopped VM required</div>
+            <div className="text-sm text-foreground">Memory (MB)</div>
+            <div className="text-xs text-muted-foreground">{hostLimits ? `${hostLimits.memoire_mo.min} to ${hostLimits.memoire_mo.max}` : "Limit set by the host"} -- stopped VM required</div>
           </div>
-          <input aria-label="Memory in MB"
-            type="number" min={hostLimits?.memoire_mo.min ?? 256} max={hostLimits?.memoire_mo.max} step={128} className="input w-24" disabled={!isAdmin || vm.etat === "actif"}
+          <Input aria-label="Memory in MB"
+            type="number" min={hostLimits?.memoire_mo.min ?? 256} max={hostLimits?.memoire_mo.max} step={128} className="w-24" disabled={!isAdmin || vm.etat === "actif"}
             value={memoryMb} onChange={(e) => setMemoryMb(Number(e.target.value))}
           />
         </div>
         {isAdmin && (
           <div className="flex items-center justify-end px-4 py-3">
-            {vm.etat === "actif" && <span className="mr-auto text-xs text-anthracite-400">Stop the VM to change its resources.</span>}
-            <button className="btn-primary" disabled={!dirty || busy || vm.etat === "actif"} onClick={handleSave}>
-              <Save size={13} /> Save
-            </button>
+            {vm.etat === "actif" && <span className="mr-auto text-xs text-muted-foreground">Stop the VM to change its resources.</span>}
+            <Button disabled={!dirty || busy || vm.etat === "actif"} onClick={handleSave}>
+              <Save /> Save
+            </Button>
           </div>
         )}
-      </div>
+      </Card>
 
       <VMLimitsCard vm={vm} isAdmin={isAdmin} pushToast={pushToast} />
     </div>
@@ -118,47 +121,47 @@ function VMLimitsCard({ vm, isAdmin, pushToast }) {
   }
 
   return (
-    <div className="card divide-y divide-anthracite-600">
+    <Card className="p-0 divide-y divide-border">
       <div className="flex items-center gap-2 px-4 py-3">
-        <Gauge size={14} className="text-anthracite-400" />
-        <div className="text-sm font-medium text-anthracite-100">Limits and priority (cgroups)</div>
+        <Gauge size={14} className="text-muted-foreground" />
+        <div className="text-sm font-medium text-foreground">Limits and priority (cgroups)</div>
       </div>
 
       <div className="flex items-center justify-between px-4 py-3">
         <div>
-          <div className="text-sm text-anthracite-100">CPU priority (shares)</div>
-          <div className="text-xs text-anthracite-400">Relative to the other VMs under real host contention. 1024 = normal.</div>
+          <div className="text-sm text-foreground">CPU priority (shares)</div>
+          <div className="text-xs text-muted-foreground">Relative to the other VMs under real host contention. 1024 = normal.</div>
         </div>
-        <input aria-label="CPU shares" type="number" min={2} max={262144} className="input w-28" disabled={!isAdmin}
+        <Input aria-label="CPU shares" type="number" min={2} max={262144} className="w-28" disabled={!isAdmin}
           value={shares} onChange={(e) => setShares(e.target.value)} />
       </div>
 
       <div className="flex items-center justify-between px-4 py-3">
         <div>
-          <div className="text-sm text-anthracite-100">Max CPU limit (% per vCPU)</div>
-          <div className="text-xs text-anthracite-400">Hard cap, even if the host is idle. Empty = unlimited.</div>
+          <div className="text-sm text-foreground">Max CPU limit (% per vCPU)</div>
+          <div className="text-xs text-muted-foreground">Hard cap, even if the host is idle. Empty = unlimited.</div>
         </div>
-        <input aria-label="Max CPU limit percent per vCPU" type="number" min={1} max={100} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
+        <Input aria-label="Max CPU limit percent per vCPU" type="number" min={1} max={100} placeholder="unlimited" className="w-28" disabled={!isAdmin}
           value={cpuLimitPct} onChange={(e) => setCpuLimitPct(e.target.value)} />
       </div>
 
       <div className="flex items-center justify-between px-4 py-3">
         <div>
-          <div className="text-sm text-anthracite-100">RAM limit (MB)</div>
-          <div className="text-xs text-anthracite-400">Hard cgroup cap, distinct from the RAM allocated above. Empty = unlimited.</div>
+          <div className="text-sm text-foreground">RAM limit (MB)</div>
+          <div className="text-xs text-muted-foreground">Hard cgroup cap, distinct from the RAM allocated above. Empty = unlimited.</div>
         </div>
-        <input aria-label="RAM limit in MB" type="number" min={64} placeholder="unlimited" className="input w-28" disabled={!isAdmin}
+        <Input aria-label="RAM limit in MB" type="number" min={64} placeholder="unlimited" className="w-28" disabled={!isAdmin}
           value={memHardLimitMb} onChange={(e) => setMemHardLimitMb(e.target.value)} />
       </div>
 
       {isAdmin && (
         <div className="flex items-center justify-end px-4 py-3">
-          <span className="mr-auto text-xs text-anthracite-400">See real usage in the Summary tab.</span>
-          <button className="btn-primary" disabled={!dirty || busy} onClick={handleSave}>
-            <Save size={13} /> Apply
-          </button>
+          <span className="mr-auto text-xs text-muted-foreground">See real usage in the Summary tab.</span>
+          <Button disabled={!dirty || busy} onClick={handleSave}>
+            <Save /> Apply
+          </Button>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

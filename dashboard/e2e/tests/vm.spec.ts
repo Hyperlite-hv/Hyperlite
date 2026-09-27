@@ -41,6 +41,7 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
     await expect(dlg.getByRole("button", { name: "Next" })).toBeEnabled();
     await dlg.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(await state(page.request)).toBe("missing");
   });
@@ -173,8 +174,8 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
     await expect(page.getByRole("treeitem", { name: new RegExp(NAME) })).toHaveCount(0);
-    expect(await state(request)).toBe("missing");
-    expect(existsSync(DISK), "disk file removed").toBe(false);
+    await expect.poll(() => state(request), { timeout: 30_000 }).toBe("missing");
+    await expect.poll(() => existsSync(DISK), { timeout: 30_000, message: "disk file removed" }).toBe(false);
     await page.reload();
     await expect(page.getByRole("treeitem", { name: new RegExp(NAME) })).toHaveCount(0);
   });

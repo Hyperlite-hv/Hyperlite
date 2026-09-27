@@ -1,4 +1,5 @@
 import { useInfraStore } from "../../store/useInfraStore";
+import { Card } from "@/components/ui/card";
 
 // Matches GET /storage (pools) + GET /storage/{pool}/volumes.
 export default function NodeDiskTab({ resource: node }) {
@@ -7,19 +8,19 @@ export default function NodeDiskTab({ resource: node }) {
   const pools = storagePools.filter((p) => p.node === node.id);
 
   return (
-    <div className="card divide-y divide-anthracite-600">
-      <div className="grid grid-cols-4 gap-2 px-4 py-2 text-xs font-medium text-anthracite-400">
+    <Card className="p-0 divide-y divide-border">
+      <div className="grid grid-cols-4 gap-2 px-4 py-2 text-xs font-medium text-muted-foreground">
         <span>Pool</span><span>Type</span><span>Capacity</span><span>Available</span>
       </div>
-      {pools.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No pools on this node.</div>}
+      {pools.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No pools on this node.</div>}
       {pools.map((p) => (
-        <div key={p.nom} className="grid grid-cols-4 gap-2 px-4 py-2.5 text-sm">
-          <span className="text-anthracite-100">{p.nom}</span>
-          <span className="text-anthracite-300">{p.type}</span>
-          <span className="text-anthracite-300">{p.capacite_go} GB</span>
-          <span className="text-anthracite-300">{p.disponible_go} GB</span>
+        <div key={p.nom} className="grid grid-cols-4 gap-2 px-4 py-2.5 text-sm transition-colors duration-150 hover:bg-muted/40">
+          <span className="text-foreground">{p.nom}</span>
+          <span className="text-foreground/80">{p.type}</span>
+          <span className="text-foreground/80">{p.capacite_go} GB</span>
+          <span className="text-foreground/80">{p.disponible_go} GB</span>
         </div>
       ))}
-    </div>
+    </Card>
   );
 }

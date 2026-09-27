@@ -1,5 +1,6 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { chartColors } from "../theme/colors";
+import { useInfraStore } from "../store/useInfraStore";
 
 function formatTime(t) {
   const d = new Date(t);
@@ -7,6 +8,13 @@ function formatTime(t) {
 }
 
 export default function MetricChart({ data, series, height = 180, yFormatter }) {
+  const theme = useInfraStore((s) => s.theme);
+  // Recharts renders its own SVG text and does not pick up Tailwind's dark:
+  // variants, so chartColors.axis (tuned to read on the dark card background)
+  // fails contrast against the light-mode card: ~2.5:1, under the 4.5:1 AA
+  // minimum for 11px tick labels. Swap in the light-mode muted-text color
+  // (matches --a-400 in index.css) instead of reusing the fixed hex everywhere.
+  const axisColor = theme === "dark" ? chartColors.axis : "#5B6472";
   return (
     <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -20,8 +28,8 @@ export default function MetricChart({ data, series, height = 180, yFormatter }) 
             ))}
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
-          <XAxis dataKey="t" tickFormatter={formatTime} stroke={chartColors.axis} fontSize={11} tickLine={false} axisLine={false} minTickGap={40} />
-          <YAxis stroke={chartColors.axis} fontSize={11} tickLine={false} axisLine={false} tickFormatter={yFormatter} width={40} />
+          <XAxis dataKey="t" tickFormatter={formatTime} stroke={axisColor} fontSize={11} tickLine={false} axisLine={false} minTickGap={40} />
+          <YAxis stroke={axisColor} fontSize={11} tickLine={false} axisLine={false} tickFormatter={yFormatter} width={40} />
           <Tooltip
             labelFormatter={formatTime}
             formatter={(value, name) => [yFormatter ? yFormatter(value) : value, name]}

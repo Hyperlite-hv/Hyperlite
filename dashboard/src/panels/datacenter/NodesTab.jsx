@@ -7,6 +7,9 @@ import {
 } from "../../api/client";
 import { useAuthStore, selectIsAdmin } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 // Real: GET/POST/DELETE /nodes (see app/routers/nodes.py): multi-node management
 // through qemu+ssh:// (no agent to deploy, see the architecture discussion in
@@ -69,67 +72,67 @@ export default function NodesTab() {
     }
   }
 
-  if (nodes == null) return <div className="card p-4 text-sm text-anthracite-400"><LoadingState /></div>;
+  if (nodes == null) return <Card className="p-4 text-sm text-muted-foreground"><LoadingState /></Card>;
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-anthracite-400 max-w-2xl">
+      <p className="text-xs text-muted-foreground max-w-2xl">
         Direct connection through remote libvirt (qemu+ssh://), with no agent to install on the node: libvirt/QEMU-KVM only has to be running there already and the cluster key below has to be authorized over SSH. This lays the groundwork for future clustering (no vMotion/DRS for now).
       </p>
 
       {isAdmin && (
-        <button className="btn-primary" onClick={() => setCreating((c) => !c)}>
-          <Plus size={14} /> Add a remote node
-        </button>
+        <Button onClick={() => setCreating((c) => !c)}>
+          <Plus /> Add a remote node
+        </Button>
       )}
 
       {creating && (
-        <div className="card p-4 space-y-3">
+        <Card className="p-4 space-y-3 animate-in fade-in-0 slide-in-from-top-1 duration-150">
           {pubkey && (
-            <div className="rounded-md bg-anthracite-700/60 p-3">
-              <div className="text-xs text-anthracite-300 mb-1">
+            <div className="rounded-md bg-muted/60 p-3">
+              <div className="text-xs text-foreground/80 mb-1">
                 1. Install this public key in <code>~/.ssh/authorized_keys</code> on the remote node:
               </div>
               <div className="flex items-center gap-2">
-                <code className="text-xs text-anthracite-400 truncate flex-1">{pubkey}</code>
-                <button className="btn-secondary shrink-0" onClick={handleCopyKey}><Copy size={13} /> Copy</button>
+                <code className="text-xs text-muted-foreground truncate flex-1">{pubkey}</code>
+                <Button variant="secondary" size="sm" className="shrink-0" onClick={handleCopyKey}><Copy /> Copy</Button>
               </div>
             </div>
           )}
-          <div className="text-xs text-anthracite-300">2. Enter its connection details:</div>
+          <div className="text-xs text-foreground/80">2. Enter its connection details:</div>
           <div className="grid grid-cols-4 gap-2">
-            <input aria-label="Name (e.g. node-2)" className="input" placeholder="Name (e.g. node-2)" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <input aria-label="IP address or hostname" className="input col-span-2" placeholder="IP address or hostname" value={form.hostname} onChange={(e) => setForm((f) => ({ ...f, hostname: e.target.value }))} />
-            <input aria-label="SSH user" className="input" placeholder="SSH user" value={form.ssh_user} onChange={(e) => setForm((f) => ({ ...f, ssh_user: e.target.value }))} />
+            <Input aria-label="Name (e.g. node-2)" placeholder="Name (e.g. node-2)" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <Input aria-label="IP address or hostname" className="col-span-2" placeholder="IP address or hostname" value={form.hostname} onChange={(e) => setForm((f) => ({ ...f, hostname: e.target.value }))} />
+            <Input aria-label="SSH user" placeholder="SSH user" value={form.ssh_user} onChange={(e) => setForm((f) => ({ ...f, ssh_user: e.target.value }))} />
           </div>
           <div className="flex justify-end gap-2">
-            <button className="btn-secondary" onClick={() => setCreating(false)}>Cancel</button>
-            <button className="btn-primary" disabled={busy || !form.name || !form.hostname} onClick={handleAdd}>
+            <Button variant="secondary" onClick={() => setCreating(false)}>Cancel</Button>
+            <Button disabled={busy || !form.name || !form.hostname} onClick={handleAdd}>
               {busy ? "Testing connection..." : "Test and add"}
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
       )}
 
-      <div className="card divide-y divide-anthracite-600">
-        {nodes.length === 0 && <div className="px-4 py-3 text-sm text-anthracite-400">No remote node registered: Hyperlite currently manages this host only.</div>}
+      <Card className="p-0 divide-y divide-border">
+        {nodes.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">No remote node registered: Hyperlite currently manages this host only.</div>}
         {nodes.map((n) => {
           const s = summaries[n.name];
           return (
-            <div key={n.id} className="flex items-center gap-3 px-4 py-3 text-sm">
-              <Server size={15} className="text-anthracite-400 shrink-0" />
+            <div key={n.id} className="flex items-center gap-3 px-4 py-3 text-sm transition-colors duration-150 hover:bg-muted/40">
+              <Server size={15} className="text-muted-foreground shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="text-anthracite-100">{n.name} <span className="text-xs text-anthracite-400">({n.ssh_user}@{n.hostname}:{n.ssh_port})</span></div>
-                {s && <div className="text-xs text-anthracite-400">{s.vms_actives} running VM(s), {s.vms_arretees} stopped, {s.stockage_disponible_go ?? "?"} GB free / {s.stockage_capacite_go ?? "?"} GB</div>}
+                <div className="text-foreground">{n.name} <span className="text-xs text-muted-foreground">({n.ssh_user}@{n.hostname}:{n.ssh_port})</span></div>
+                {s && <div className="text-xs text-muted-foreground">{s.vms_actives} running VM(s), {s.vms_arretees} stopped, {s.stockage_disponible_go ?? "?"} GB free / {s.stockage_capacite_go ?? "?"} GB</div>}
               </div>
               {n.statut === "en_ligne"
                 ? <span className="flex items-center gap-1 text-xs text-status-running"><Wifi size={13} /> online</span>
                 : <span className="flex items-center gap-1 text-xs text-status-error"><WifiOff size={13} /> offline</span>}
-              {isAdmin && <button aria-label={`Remove node ${n.name}`} className="btn-danger" onClick={() => handleDelete(n)}><Trash2 size={13} /></button>}
+              {isAdmin && <Button aria-label={`Remove node ${n.name}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDelete(n)}><Trash2 size={13} /></Button>}
             </div>
           );
         })}
-      </div>
+      </Card>
     </div>
   );
 }

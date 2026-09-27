@@ -1,50 +1,48 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { useInfraStore } from "../store/useInfraStore";
 import { statusColor } from "../theme/colors";
 import { formatUptime, formatMo } from "../utils/format";
 import VMActionMenu from "./VMActionMenu";
 import VMDetailPanel from "./VMDetailPanel";
+import { Button } from "@/components/ui/button";
 
 const STATE_LABELS = { actif: "Running", arrete: "Stopped", suspendu: "Suspended" };
 
-// Actionable VM card: a click anywhere on the card (or its "···") opens the
-// anchored actions menu (VMActionMenu); a double-click opens the side panel
-// (VMDetailPanel). The keyboard (⌘K) stays available as well, it is no longer the
-// only path, see SearchBar.jsx for the existing palette.
+// Actionable VM card: the "···" button opens the actions menu (VMActionMenu, a
+// real shadcn DropdownMenu); a double-click opens the side panel
+// (VMDetailPanel). The keyboard (⌘K) stays available as well, see SearchBar.jsx
+// for the existing palette.
 export default function VMCard({ vm }) {
   const runVMAction = useInfraStore((s) => s.runVMAction);
-  const [menuAnchor, setMenuAnchor] = useState(null);
   const [panelOpen, setPanelOpen] = useState(false);
-  const cardRef = useRef(null);
   const active = vm.etat === "actif";
-
-  function openMenu(e) {
-    e.stopPropagation();
-    setMenuAnchor(cardRef.current.getBoundingClientRect());
-  }
 
   return (
     <>
       <div
-        ref={cardRef}
-        onClick={openMenu}
         onDoubleClick={() => setPanelOpen(true)}
-        className={`flex cursor-pointer flex-col gap-3.5 rounded-lg border p-4 transition-colors ${
-          menuAnchor ? "border-accent-blue bg-anthracite-700" : "border-anthracite-600 bg-anthracite-800 hover:border-anthracite-500"
-        }`}
+        className="flex cursor-pointer flex-col gap-3.5 rounded-lg border border-border bg-card p-4 transition-[border-color,box-shadow,transform] duration-200 hover:border-muted-foreground/40 hover:shadow-lg hover:-translate-y-0.5"
       >
         <div className="flex items-start gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <span className="truncate text-[14.5px] font-semibold text-anthracite-100">{vm.nom}</span>
+            <span className="truncate text-[14.5px] font-semibold text-foreground">{vm.nom}</span>
             <span className="flex items-center gap-1.5 text-xs" style={{ color: active ? "#48D6C6" : vm.etat === "suspendu" ? "#F5A04B" : "#9A94C4" }}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor(vm.etat) }} />
               {STATE_LABELS[vm.etat] || vm.etat}{active && vm.uptime_s ? ` · ${formatUptime(vm.uptime_s)}` : ""}
             </span>
           </div>
-          <button aria-label="More actions" onClick={openMenu} className="ml-auto shrink-0 text-anthracite-400 hover:text-anthracite-100">
-            <MoreHorizontal size={16} />
-          </button>
+          <VMActionMenu vm={vm}>
+            <Button
+              aria-label="More actions"
+              variant="ghost"
+              size="icon"
+              className="ml-auto size-7 shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal size={16} />
+            </Button>
+          </VMActionMenu>
         </div>
 
         <div className="flex gap-4">
@@ -70,7 +68,6 @@ export default function VMCard({ vm }) {
         </div>
       </div>
 
-      {menuAnchor && <VMActionMenu vm={vm} anchorRect={menuAnchor} onClose={() => setMenuAnchor(null)} />}
       {panelOpen && <VMDetailPanel vm={vm} onClose={() => setPanelOpen(false)} />}
     </>
   );
@@ -79,17 +76,20 @@ export default function VMCard({ vm }) {
 function Stat({ label, value, mono }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="font-mono text-[10px] tracking-wider text-anthracite-400">{label}</span>
-      <span className={`truncate text-[13px] text-anthracite-100 ${mono ? "font-mono text-xs!" : ""}`}>{value}</span>
+      <span className="font-mono text-[10px] tracking-wider text-muted-foreground">{label}</span>
+      <span className={`truncate text-[13px] text-foreground ${mono ? "font-mono text-xs!" : ""}`}>{value}</span>
     </div>
   );
 }
 
 function CardButton({ children, onClick, primary, danger }) {
-  const cls = danger ? "btn-danger" : primary ? "btn-primary" : "btn-secondary";
   return (
-    <button onClick={onClick} className={`${cls} flex-1 justify-center px-0! py-1.5! text-[12.5px]`}>
+    <Button
+      onClick={onClick}
+      variant={danger ? "outline" : primary ? "default" : "secondary"}
+      className={`flex-1 justify-center px-0! py-1.5! text-[12.5px] ${danger ? "text-status-error border-status-error/30 hover:bg-status-error/10" : ""}`}
+    >
       {children}
-    </button>
+    </Button>
   );
 }

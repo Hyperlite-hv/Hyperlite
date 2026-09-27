@@ -6,6 +6,8 @@ import VMTable from "../../components/VMTable";
 import { fetchHostMetricsHistory } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { formatUptime, formatMo, formatGo } from "../../utils/format";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Real CPU/RAM through GET /host/metrics/history (continuous collection), the
 // same source as NodeSystemTab.jsx, no simulated data.
@@ -31,7 +33,7 @@ export default function NodeSummaryTab({ resource: node }) {
 
   return (
     <div className="space-y-5">
-      <div className="card grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
+      <Card className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-3">
         <GaugeRing
           label="Processeur" ratio={cpuRatio}
           valueLabel={cpuRatio != null ? `${Math.round(cpuRatio * 100)} %` : "n/a"}
@@ -47,39 +49,31 @@ export default function NodeSummaryTab({ resource: node }) {
         ) : (
           <GaugeRing label="Storage" ratio={null} />
         )}
-      </div>
+      </Card>
 
-      <div className="card p-5">
-        <h3 className="mb-3 text-sm font-semibold text-anthracite-100">Status</h3>
+      <Card className="p-5">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">Status</h3>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <div><dt className="text-anthracite-400 text-xs">Uptime</dt><dd className="text-anthracite-100">{formatUptime(node.uptime_s)}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">Available RAM</dt><dd className="text-anthracite-100">{node.memoire_disponible_mo != null ? formatMo(node.memoire_disponible_mo) : "--"}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">IP address</dt><dd className="text-anthracite-100">{node.ip || "--"}</dd></div>
-          <div><dt className="text-anthracite-400 text-xs">Version</dt><dd className="text-anthracite-100">{node.version || "--"}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">Uptime</dt><dd className="text-foreground">{formatUptime(node.uptime_s)}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">Available RAM</dt><dd className="text-foreground">{node.memoire_disponible_mo != null ? formatMo(node.memoire_disponible_mo) : "--"}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">IP address</dt><dd className="text-foreground">{node.ip || "--"}</dd></div>
+          <div><dt className="text-muted-foreground text-xs">Version</dt><dd className="text-foreground">{node.version || "--"}</dd></div>
         </dl>
-      </div>
+      </Card>
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          <span className="text-[15px] font-semibold text-anthracite-100">Virtual machines</span>
-          <span className="font-mono text-xs text-anthracite-400">{nodeVms.length}</span>
-          <div className="ml-auto flex gap-0.5 rounded-md border border-anthracite-600 bg-anthracite-900 p-0.5">
-            <button
-              onClick={() => setView("cards")}
-              className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${view === "cards" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
-            >
-              <LayoutGrid size={13} /> Cards
-            </button>
-            <button
-              onClick={() => setView("table")}
-              className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${view === "table" ? "bg-anthracite-700 text-anthracite-100" : "text-anthracite-400 hover:text-anthracite-100"}`}
-            >
-              <Table2 size={13} /> Table view
-            </button>
-          </div>
+          <span className="text-[15px] font-semibold text-foreground">Virtual machines</span>
+          <span className="font-mono text-xs text-muted-foreground">{nodeVms.length}</span>
+          <Tabs value={view} onValueChange={setView} className="ml-auto">
+            <TabsList>
+              <TabsTrigger value="cards"><LayoutGrid /> Cards</TabsTrigger>
+              <TabsTrigger value="table"><Table2 /> Table view</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
         {nodeVms.length === 0 ? (
-          <div className="card p-4 text-sm text-anthracite-400">No VMs on this node.</div>
+          <Card className="p-4 text-sm text-muted-foreground">No VMs on this node.</Card>
         ) : view === "table" ? (
           <VMTable vms={nodeVms} />
         ) : (
