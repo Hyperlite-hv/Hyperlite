@@ -15,6 +15,7 @@ Hyperlite is a self-hosted virtualization manager: a FastAPI backend that drives
 - **Operations**: metrics history (Prometheus format available), audit journal, task tracking, job engine, outgoing notifications (webhook, email).
 - **Security**: local accounts, optional TOTP two-factor authentication, API tokens, optional OpenID Connect single sign-on, fine-grained permissions (roles, groups, pools, per-resource ACL).
 - **Web console**: VNC console and SSH terminals in the browser, host shell for administrators.
+- **Workstation access**: the `hyperlite` client opens SSH or remote desktop from the user's own computer through a tunnel over the server's HTTPS port, with sign-in through the web interface (SSO and 2FA apply), per-VM permission and audit.
 
 See [docs/features.md](docs/features.md) for details.
 
@@ -62,6 +63,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 | [docs/architecture.md](docs/architecture.md) | Components, data model, security model |
 | [docs/features.md](docs/features.md) | Feature reference and known scope limits |
 | [docs/configuration.md](docs/configuration.md) | Environment variables and files |
+| [docs/workstation-access.md](docs/workstation-access.md) | SSH and remote desktop from a workstation (`hyperlite` client) |
 | [docs/deployment.md](docs/deployment.md) | Installation, updates, APT repository, ISO, publishing |
 | [docs/api.md](docs/api.md) | API conventions and the French wire format |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, checks, workflow |
