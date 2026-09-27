@@ -1,7 +1,8 @@
 import { expect, goTo, test, uiLogin } from "../support/fixtures";
 
-// The VM list shows on which machine (node) each VM runs: grouped by node when there are several, with a node
-// filter. The throwaway test host is a single node, so a second one ("peer") and its VM are simulated.
+// The VM list shows on which machine (node) each VM runs: grouped by node (a band per node with its load), with
+// node filter pills and foldable groups. The throwaway test host is a single node, so a second one ("peer") and
+// its VM are simulated.
 const json = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
 test("VMs are grouped by node, can be filtered by node, and the grouping can be turned off", async ({ page }) => {
@@ -19,14 +20,22 @@ test("VMs are grouped by node, can be filtered by node, and the grouping can be 
   // the node column is not repeated while grouped
   await expect(table.getByRole("columnheader", { name: "Node", exact: true })).toHaveCount(0);
 
+  // a node's group folds and unfolds from its band
+  await table.getByRole("button", { name: "Collapse peer" }).click();
+  await expect(table.getByRole("row", { name: /e2e-peer-vm/ })).toHaveCount(0);
+  await table.getByRole("button", { name: "Expand peer" }).click();
+  await expect(table.getByRole("row", { name: /e2e-peer-vm/ })).toBeVisible();
+
   // filter on the simulated node only
-  await main.getByRole("combobox", { name: "Filter by node" }).selectOption({ label: "peer (1)" });
+  const nodeFilter = main.getByRole("group", { name: "Filter by node" });
+  await nodeFilter.getByRole("button", { name: /peer/ }).click();
+  await expect(nodeFilter.getByRole("button", { name: /peer/ })).toHaveAttribute("aria-pressed", "true");
   await expect(table.getByRole("row", { name: /e2e-peer-vm/ })).toBeVisible();
   await expect(table.getByRole("row", { name: /peer 10\.0\.0\.9/ })).toBeVisible();
   await expect(table.getByRole("row", { name: /Local node|hl-devhub/ })).toHaveCount(0);
 
   // without grouping, the Node column names the machine and leads to it
-  await main.getByRole("combobox", { name: "Filter by node" }).selectOption({ label: "All nodes" });
+  await nodeFilter.getByRole("button", { name: /All nodes/ }).click();
   await main.getByRole("button", { name: "Group by node" }).click();
   await expect(main.getByRole("button", { name: "Group by node" })).toHaveAttribute("aria-pressed", "false");
   const row = table.getByRole("row", { name: /e2e-peer-vm/ });
