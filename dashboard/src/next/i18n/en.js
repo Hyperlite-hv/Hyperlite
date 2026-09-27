@@ -1665,6 +1665,9 @@ export default {
   "a11y.remove_assignment_x": "Remove assignment {v}",
   "sso.clientId": "Client ID",
   "sso.testSaveFirst": "Save the issuer first: the test contacts the saved configuration.",
+  "vc.retryIn": "Reconnecting in {s} s",
+  "vc.closedRetry": "connection closed — reconnecting in {s} s",
+  "vc.closeWindow": "Close the window",
   "loading": "Loading…",
   "session.checking": "Checking the session…",
 };

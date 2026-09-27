@@ -362,7 +362,13 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await page.goto(`/vm/${NAME}?tab=console`);
     const [popup] = await Promise.all([page.context().waitForEvent("page"), page.getByRole("main").getByRole("button", { name: "Open in a new window" }).click()]);
     expect(popup.url()).toContain(`/console/${NAME}?mode=vnc`);
+    // the window connects by itself: no Connect button, the state says it is connecting or connected
+    await expect(popup.getByRole("heading", { level: 1, name: NAME })).toBeVisible({ timeout: 20_000 });
+    await expect(popup.getByRole("status").filter({ hasText: /^(Connected|Connecting…|Reconnecting in \d+ s)$/ }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(popup.getByRole("button", { name: "Connect", exact: true })).toHaveCount(0);
+    await popup.screenshot({ path: "e2e-results/console-window.png" });
     await popup.close();
+    await expect(page.getByRole("main").getByRole("button", { name: "Connect", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "SSH terminal" }).click();
     await expect(page.getByRole("main").getByRole("note")).toContainText("Root-equivalent");
     await page.goto(`/vm/${NAME}`);
