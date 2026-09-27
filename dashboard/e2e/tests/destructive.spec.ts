@@ -1,4 +1,4 @@
-import { apiLogin, expect, PREFIX, test, uiLogin } from "../support/fixtures";
+import { apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtures";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 const stamp = Date.now().toString().slice(-6);
@@ -32,9 +32,12 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
   test("user group: cancel keeps it, confirm removes it (UI and backend)", async ({ page, request }) => {
     const name = `${PREFIX}group-${stamp}`;
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Permissions", exact: true }).click();
-    await page.getByRole("textbox", { name: /Group name/ }).fill(name);
-    await page.getByRole("button", { name: "Create", exact: true }).nth(1).click();
+    await goTo(page, "Users and roles");
+    await page.getByRole("main").getByRole("tab", { name: /^Groups/ }).click();
+    await page.getByRole("main").getByRole("button", { name: "Create a group", exact: true }).click();
+    const form = page.getByRole("dialog", { name: "Create a group" });
+    await form.getByRole("textbox", { name: /Group name/ }).fill(name);
+    await form.getByRole("button", { name: "Create the group", exact: true }).click();
     await expect(page.getByRole("button", { name: `Delete group ${name}` })).toBeVisible();
     expect(await listNames(request, "/groups", "name")).toContain(name);
 
@@ -51,12 +54,12 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
     const created = await request.post("/notifications/channels", { headers: auth(), data: { name, type: "webhook", config: { url: "https://example.invalid/hook" }, events: [] } });
     expect(created.ok()).toBeTruthy();
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+    await goTo(page, "Notifications");
     await expect(page.getByRole("button", { name: `Delete channel ${name}` })).toBeVisible();
     const trigger = async () => {
       await page.getByRole("button", { name: `Delete channel ${name}` }).click();
     };
-    await confirmDeletion(page, trigger, name, /Confirm/);
+    await confirmDeletion(page, trigger, name, /^Delete$/);
     await expect(page.getByRole("button", { name: `Delete channel ${name}` })).toHaveCount(0);
     expect(await listNames(request, "/notifications/channels", "name")).not.toContain(name);
   });
@@ -64,12 +67,11 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
   test("ISO image: upload, list, cancel deletion, confirm deletion", async ({ page, request }) => {
     const file = `${PREFIX}iso-${stamp}.iso`;
     await uiLogin(page);
-    await page.getByRole("tab", { name: "Storage", exact: true }).click();
+    await goTo(page, "ISO images and templates");
     await page.getByLabel("ISO image file").setInputFiles({ name: file, mimeType: "application/octet-stream", buffer: Buffer.alloc(4096, 1) });
     await expect(page.getByRole("button", { name: `Delete ISO ${file}` })).toBeVisible();
     expect(await listNames(request, "/isos", "nom")).toContain(file);
     await page.reload();
-    await page.getByRole("tab", { name: "Storage", exact: true }).click();
     await expect(page.getByRole("button", { name: `Delete ISO ${file}` })).toBeVisible();
 
     const trigger = async () => {

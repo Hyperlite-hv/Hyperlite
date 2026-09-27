@@ -1,5 +1,5 @@
 import { existsSync, unlinkSync } from "node:fs";
-import { apiLogin, expect, PREFIX, test, uiLogin } from "../support/fixtures";
+import { apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtures";
 import type { Page } from "@playwright/test";
 
 const stamp = Date.now().toString().slice(-6);
@@ -23,14 +23,20 @@ test.afterAll(async ({ request }) => {
 
 async function openAutomation(page: Page) {
   await uiLogin(page);
-  await page.getByRole("tab", { name: "Automation", exact: true }).click();
+  await goTo(page, "Automation");
+}
+
+// The job form is a side drawer opened by the page primary.
+async function fillJob(page: Page, name: string, command: string) {
+  await page.getByRole("main").getByRole("button", { name: "Create a task" }).click();
+  const form = page.getByRole("dialog", { name: "Create a task" });
+  await form.getByRole("textbox", { name: "Job name" }).fill(name);
+  await form.getByRole("textbox", { name: "shell command" }).fill(command);
+  await form.getByRole("button", { name: "Create the task", exact: true }).click();
 }
 
 async function createHostJob(page: Page, name: string, command: string) {
-  await page.getByRole("button", { name: "Create a custom job" }).click();
-  await page.getByRole("textbox", { name: "Job name" }).fill(name);
-  await page.getByRole("textbox", { name: "shell command" }).fill(command);
-  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await fillJob(page, name, command);
   await expect(page.getByRole("button", { name: `Delete job ${name}` })).toBeVisible();
 }
 
@@ -64,11 +70,10 @@ test.describe("Automation jobs (real backend)", () => {
 
   test("a job name that already exists is refused", async ({ page }) => {
     await openAutomation(page);
-    await page.getByRole("button", { name: "Create a custom job" }).click();
-    await page.getByRole("textbox", { name: "Job name" }).fill(OK_JOB);
-    await page.getByRole("textbox", { name: "shell command" }).fill("true");
-    await page.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(page.getByRole("alert").or(page.getByText(/already exists|already used/i)).first()).toBeVisible();
+    await fillJob(page, OK_JOB, "true");
+    await expect(page.getByText(/already exists|already used/i).first()).toBeVisible();
+    // the form stays open with what was typed
+    await expect(page.getByRole("dialog", { name: "Create a task" }).getByRole("textbox", { name: "Job name" })).toHaveValue(OK_JOB);
   });
 
   test("deleting a job asks for a confirmation naming it", async ({ page, request }) => {

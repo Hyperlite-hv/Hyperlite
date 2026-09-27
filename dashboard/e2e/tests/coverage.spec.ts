@@ -95,14 +95,13 @@ test.describe("Snapshot restore (real backend)", () => {
     expect(made.ok(), await made.text()).toBe(true);
     await expect.poll(async () => ((await (await request.get(`/vms/${VM}/snapshots`, { headers: auth() })).json()) as Array<{ nom: string }>).map((s) => s.nom), { timeout: 60_000 }).toContain(snap);
 
-    await uiLogin(page);
-    await page.getByRole("treeitem", { name: new RegExp(VM) }).click();
-    await page.getByRole("tab", { name: "Options", exact: true }).click();
-    await page.getByRole("spinbutton", { name: "Memory in MB" }).fill("512");
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await uiLogin(page, ADMIN.username, ADMIN.password, `/vm/${VM}?tab=hardware`);
+    const compute = page.getByRole("main").getByRole("region", { name: "Processor and memory" });
+    await compute.getByRole("spinbutton", { name: "Memory in MB" }).fill("512");
+    await compute.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => ((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memoire_mo: number }).memoire_mo).toBe(512);
 
-    await page.getByRole("tab", { name: "Snapshots", exact: true }).click();
+    await page.getByRole("main").getByRole("tab", { name: "Snapshots", exact: true }).click();
     await page.getByRole("button", { name: `Restore snapshot ${snap}` }).click();
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toContainText(snap);
@@ -136,7 +135,7 @@ test.describe("Two users at the same time", () => {
       await userPage.reload();
       await expect(userPage.getByRole("button", { name: "Sign in" })).toBeVisible();
       await adminPage.reload();
-      await expect(adminPage.getByText("Datacenter").first()).toBeVisible();
+      await expect(adminPage.locator(".nx-root")).toBeVisible();
     } finally {
       await adminCtx.close();
       await userCtx.close();
@@ -156,10 +155,10 @@ test.describe("Two users at the same time", () => {
       await uiLogin(b);
       const made = await request.post("/groups", { headers: auth(), data: { name: group } });
       expect(made.ok(), await made.text()).toBe(true);
-      await b.getByRole("tab", { name: "Permissions", exact: true }).click();
+      await b.goto(`${baseURL}/datacenter?tab=permissions`);
       await b.reload();
-      await b.getByRole("tab", { name: "Permissions", exact: true }).click();
-      await expect(b.getByText(group).first()).toBeVisible();
+      await b.getByRole("main").getByRole("tab", { name: /^Groups/ }).click();
+      await expect(b.getByRole("main").getByText(group).first()).toBeVisible();
     } finally {
       await a.context().close();
       await b.context().close();

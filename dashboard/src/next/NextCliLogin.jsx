@@ -10,6 +10,7 @@ import { useThemeStore } from "./tokens/theme";
 import { errorMessage } from "./lib/errors";
 import { formatDateTime } from "./lib/format";
 import NextLogin from "./NextLogin";
+import { Loading } from "./components/ui";
 
 // /cli-login?code=XXXX-XXXX: approval of a `hyperlite login` from this web session, so the sign-in of the
 // workstation goes through the usual screen (password and 2FA, or SSO). The code shown here must match the one
@@ -79,7 +80,7 @@ export default function NextCliLogin() {
       </div>
     );
   } else if (!req) {
-    body = <p className="nx-muted" role="status">{t("loading")}</p>;
+    body = <Loading />;
   } else {
     body = (
       <div className="nx-stack">

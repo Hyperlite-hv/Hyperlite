@@ -33,7 +33,7 @@ journalctl -u hyperlite -n 100 --no-pager                 # service logs (instal
 
 - `app/routers/`: HTTP endpoints. `app/core/`: logic (libvirt helpers, builders, ZFS, cluster, permissions, security, backups, HA, metrics, preflight).
 - `app/core/database.py`: schema created at start-up (`CREATE TABLE IF NOT EXISTS` and small migrations).
-- `dashboard/src/api/client.js`: API client; `dashboard/src/store/useInfraStore.js`: state; `dashboard/src/panels/`: screens.
+- `dashboard/src/api/client.js`: API client; `dashboard/src/store/useInfraStore.js`: state; `dashboard/src/next/`: the interface (pages, layout, components, `windows/` for the windows opened on their own, `i18n/` for the English and French text).
 - `installer/`: ISO, `.deb` and APT repository build scripts. `scripts/`: service helper scripts and the publishing hook.
 - `tests/`: pytest suite (temporary database, no real libvirt).
 
@@ -45,4 +45,4 @@ Unit and API tests must pass. For hypervisor behavior (libvirt, ZFS, NFS, migrat
 
 - SQLite: WAL mode with a 30 s timeout; nearly every request writes an audit entry (asynchronous writer thread in `app/core/audit.py`).
 - The service runs as root; treat every path and command argument that comes from a user as untrusted.
-- Frontend text lives mostly in JSX; check the rendered UI after changing labels.
+- Frontend text lives in `dashboard/src/next/i18n/en.js` and `fr.js` (same keys, a test checks the parity); check the rendered UI in both languages after changing labels.

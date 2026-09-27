@@ -13,7 +13,7 @@ import { capRow, featureRow } from "../lib/capsI18n";
 import StatusIndicator from "../components/StatusIndicator";
 import { EmptyState, ErrorState } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
-import { Card, Chip, Empty } from "../components/ui";
+import { Card, Chip, Empty, Loading, TableWrap } from "../components/ui";
 
 const isLocal = (node) => node?.id === "local";
 
@@ -97,8 +97,8 @@ export function NodeNetworkPage({ resource: node }) {
   const list = hw?.interfaces || [];
   return (
     <div className="nx-card2 nx-card2--flush">
-      {!hw ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)", margin: 0 }}>{t("loading")}</p> : list.length === 0 ? <Empty icon={Network} title={t("nn.noIfaces")} /> : (
-        <div className="nx-tablewrap">
+      {!hw ? <Loading style={{ padding: "var(--space-4)", margin: 0 }} /> : list.length === 0 ? <Empty icon={Network} title={t("nn.noIfaces")} /> : (
+        <TableWrap>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("nn.link")}</th><th scope="col">{t("nn.iface")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("nn.addresses")}</th><th scope="col">MAC</th><th scope="col">{t("nn.speed")}</th><th scope="col" className="nx-num">MTU</th></tr></thead>
             <tbody>
@@ -118,7 +118,7 @@ export function NodeNetworkPage({ resource: node }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </div>
   );
@@ -151,8 +151,8 @@ export function NodeDiskPage({ resource: node }) {
         })}
       </Card>
       <Card title={t("nn.disks")} flush>
-        {error && !hw ? <ErrorState message={error} onRetry={load} /> : !hw ? <p className="nx-muted" role="status" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("loading")}</p> : disks.length === 0 ? <p className="nx-muted" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("nn.noDisks")}</p> : (
-          <div className="nx-tablewrap">
+        {error && !hw ? <ErrorState message={error} onRetry={load} /> : !hw ? <Loading style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }} /> : disks.length === 0 ? <p className="nx-muted" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("nn.noDisks")}</p> : (
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("nn.device")}</th><th scope="col">{t("nn.model")}</th><th scope="col">{t("stor.type")}</th><th scope="col" className="nx-num">{t("lib.size")}</th><th scope="col">SMART</th><th scope="col">{t("nn.usedBy")}</th></tr></thead>
               <tbody>
@@ -168,7 +168,7 @@ export function NodeDiskPage({ resource: node }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         )}
       </Card>
     </>

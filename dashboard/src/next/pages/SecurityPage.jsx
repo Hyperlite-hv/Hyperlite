@@ -12,7 +12,7 @@ import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
-import { PageHeader, SideDrawer, Field, Chip, Empty } from "../components/ui";
+import { PageHeader, SideDrawer, Field, Chip, Empty, Loading, TableWrap } from "../components/ui";
 import { useIntent } from "../lib/intents";
 import { Layers, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
 
@@ -59,7 +59,7 @@ export default function SecurityPage() {
 
   let body = null;
   if (error && !data) body = <ErrorState message={error} onRetry={reload} />;
-  else if (!data) body = <p className="nx-muted" role="status">{t("loading")}</p>;
+  else if (!data) body = <Loading />;
   else {
     const allRoles = { ...data.roles, ...Object.fromEntries(data.customRoles.map((r) => [r.key, r])) };
     const ctx = { t, run, data, vms, allRoles, drawer, closeDrawer: () => setDrawer(null) };
@@ -108,7 +108,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
   return (
     <>
       <div className="nx-card2 nx-card2--flush">
-        <div className="nx-tablewrap">
+        <TableWrap>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("sec.user")}</th><th scope="col">{t("sec.globalRole")}</th><th scope="col">{t("sec.auth")}</th><th scope="col">2FA</th><th scope="col">{t("sec.lastLogin")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
@@ -127,7 +127,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       </div>
       <SideDrawer open={drawer === "users"} title={t("sec.createUser")} onClose={closeDrawer} footer={<>
         <button type="button" className="nx-btn nx-btn--ghost" onClick={closeDrawer}>{t("action.cancel")}</button>
@@ -245,7 +245,7 @@ function RolesTab({ t, run, data, drawer, closeDrawer }) {
   return (
     <>
       <div className="nx-card2 nx-card2--flush">
-        <div className="nx-tablewrap">
+        <TableWrap>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("sec.role")}</th><th scope="col">{t("sec.roleType")}</th><th scope="col">{t("sec.can")}</th><th scope="col" className="nx-num">{t("sec.usedBy")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
@@ -258,7 +258,7 @@ function RolesTab({ t, run, data, drawer, closeDrawer }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       </div>
       <SideDrawer open={drawer === "roles"} title={t("sec.createRoleBtn")} onClose={closeDrawer} footer={<>
         <button type="button" className="nx-btn nx-btn--ghost" onClick={closeDrawer}>{t("action.cancel")}</button>
@@ -291,7 +291,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
     <>
       <div className="nx-card2 nx-card2--flush">
         {data.acl.length === 0 ? <Empty icon={UsersIcon} title={t("sec.noAcl")} text={t("sec.aclHelp")} /> : (
-          <div className="nx-tablewrap">
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("sec.subject")}</th><th scope="col">{t("sec.role")}</th><th scope="col">{t("sec.scope")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
@@ -305,7 +305,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         )}
       </div>
       <SideDrawer open={drawer === "acl"} title={t("sec.assignRole")} onClose={closeDrawer} footer={<>

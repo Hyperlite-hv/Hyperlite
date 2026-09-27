@@ -40,8 +40,8 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 | Users and roles | Create a read-only user, duplicate name refused, delete after confirmation | Yes | `users.spec.ts` | PASS | - |
 | Authorization | Read-only user does not see admin actions and the backend refuses the calls (403); cannot read channel secrets | Yes | `users.spec.ts` | PASS | Per-VM ACL matrix not covered |
 | Navigation | Tab kept in URL and after reload, unknown tab/route fall back, selection resets tab | Yes | `nav.spec.ts` | PASS | - |
-| Page rendering | Every Datacenter tab and node tab renders without console errors, failed requests or French text | Yes | `pages.spec.ts` | PASS | Data correctness of each dashboard tile vs API not asserted |
-| Dashboard summary | Tiles, charts, tables render | Yes | `pages.spec.ts` | PARTIALLY TESTED | Rendering only; values not compared with the API |
+| Page rendering | Every Datacenter tab and node tab renders without console errors, failed requests or French text | Yes | `next-audit.spec.ts` | PASS | Data correctness of each dashboard tile vs API not asserted |
+| Dashboard summary | Tiles, charts, tables render | Yes | `next-audit.spec.ts` | PARTIALLY TESTED | Rendering only; values not compared with the API |
 | VM creation wizard | Field validation, creation with task follow-up, duplicate name (409), out-of-range resources (422) | Yes | `vm.spec.ts` | PASS | - |
 | VM lifecycle | Start, no second start offered, force stop after confirmation, edit memory when stopped, memory refused while running | Yes | `vm.spec.ts` | PASS | Graceful shutdown depends on guest ACPI; not asserted |
 | VM console | Graphical console window opens for a running VM | Yes | `vm.spec.ts` | PARTIALLY TESTED | Window opening only; no pixels/keystrokes verified |
@@ -61,12 +61,12 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 | Destructive actions | Confirmation dialog names the resource; cancel keeps it | Yes | `destructive.spec.ts`, `vm.spec.ts`, `network.spec.ts`, `users.spec.ts` | PASS | Automation jobs, HA, containers, nodes share the same dialog but are not each exercised |
 | Degraded modes | 401, 403, 409, 422, 429, 500, malformed JSON, offline and recovery, slow and never-ending loads, double-click | Mixed: statuses forced by route mocking, the UI behavior is real | `degraded.spec.ts` | PASS | 404 handled by the generic error path; not asserted separately |
 | Keyboard use | Tab order, visible focus, dialogs trap focus and close on Escape, tree and tabs operable | Yes | `keyboard-responsive.spec.ts` | PASS | - |
-| Accessibility scan | No serious or critical axe violations on the audited pages | Yes | `pages.spec.ts` | PARTIALLY TESTED | Automated scan does not replace a screen-reader review |
+| Accessibility scan | No serious or critical axe violations on the audited pages | Yes | `next-audit.spec.ts` | PARTIALLY TESTED | Automated scan does not replace a screen-reader review |
 | Responsive layout | 1920, 1366, 820, 390 and 640 px: no horizontal scroll, actions reachable, phone menu | Yes | `keyboard-responsive.spec.ts` | PASS | Chromium only |
 | Automation (jobs) | Create a host job, dry run does not execute, real run executes, failing command recorded as failed, duplicate name refused, delete after a confirmation naming the job, read-only user refused by the backend | Yes | `automation.spec.ts` | PASS | Jobs targeting VMs (SSH into a guest) not covered |
-| Containers (LXC) | Tab renders | Yes | `pages.spec.ts` | PARTIALLY TESTED | Creation needs image download and LXC driver; not covered |
-| Nodes, migration | Tab renders; single node | Loopback only | `pages.spec.ts` | BLOCKED | Adding a second node and live migration need a second hypervisor host |
-| High availability | Tab renders | Yes | `pages.spec.ts` | BLOCKED | Failure detection and recovery need at least two nodes and shared storage |
+| Containers (LXC) | Tab renders | Yes | `next-audit.spec.ts` | PARTIALLY TESTED | Creation needs image download and LXC driver; not covered |
+| Nodes, migration | Tab renders; single node | Loopback only | `next-audit.spec.ts` | BLOCKED | Adding a second node and live migration need a second hypervisor host |
+| High availability | Tab renders | Yes | `next-audit.spec.ts` | BLOCKED | Failure detection and recovery need at least two nodes and shared storage |
 | Updates | From the dashboard: check, apply a good release (service restarts on the new version), apply a broken release (the watchdog rolls back and the UI reports it) | Yes, on a VM installed from the published ISO with a temporary signed APT repository | manual run (Playwright script, not in the suite) | PASS | Not automated in CI: it needs an installed appliance and a package repository; the git installation method was not exercised |
 | Multi-user concurrency | A user deleted by an administrator is signed out on reload while the admin session keeps working; a change made in one admin session is visible in another after reload | Yes | `coverage.spec.ts` | PARTIALLY TESTED | No live push between sessions (the UI refreshes on reload or polling); simultaneous edits of the same resource not covered |
 | Browsers | Full suite on Chromium, Firefox and WebKit (one fresh backend per browser, `npm run test:e2e:all-browsers`) | Yes | all | PASS | Mobile browsers and real Safari not run |

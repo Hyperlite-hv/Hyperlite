@@ -9,7 +9,7 @@ import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Empty, SideDrawer, Field } from "../components/ui";
+import { PageHeader, Empty, SideDrawer, Field, Loading, TableWrap } from "../components/ui";
 import { Bell, Mail, Plus, Trash2, Webhook } from "lucide-react";
 
 const EMPTY_WEBHOOK = { type: "webhook", name: "", url: "" };
@@ -103,13 +103,13 @@ export default function NotificationsPage() {
         actions={<button type="button" className="nx-btn nx-btn--primary" onClick={() => openWith("webhook")}><Plus size={15} aria-hidden="true" />{t("nt.add")}</button>} />
       {error && channels == null ? <ErrorState message={error} onRetry={reload} /> : (
         <div className="nx-card2 nx-card2--flush">
-          {channels == null ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : list.length === 0 ? (
+          {channels == null ? <Loading style={{ padding: "var(--space-4)" }} /> : list.length === 0 ? (
             <Empty icon={Bell} title={t("nt.none")} text={t("nt.noneHelp")} action={<div className="nx-inline">
               <button type="button" className="nx-btn" onClick={() => openWith("webhook")}><Webhook size={15} aria-hidden="true" />Webhook</button>
               <button type="button" className="nx-btn" onClick={() => openWith("email")}><Mail size={15} aria-hidden="true" />{t("nt.email")}</button>
             </div>} />
           ) : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("nt.name")}</th><th scope="col">{t("nt.type")}</th><th scope="col">{t("nt.events")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
@@ -128,7 +128,7 @@ export default function NotificationsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
         </div>
       )}
