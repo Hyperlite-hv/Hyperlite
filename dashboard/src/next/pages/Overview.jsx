@@ -120,7 +120,7 @@ function Summary({ setView }) {
             const r = p.capacite_go ? ((p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go) * 100 : null;
             return (
               <div key={`${p.node}:${p.nom}`} className="nx-cap">
-                <div className="nx-cap-nm"><b>{p.nom}</b><small>{[nodes.find((n) => n.id === p.node)?.nom || p.node, p.type, formatSizeGb(p.capacite_go, lang)].filter(Boolean).join(" · ")}</small></div>
+                <div className="nx-cap-nm"><b>{p.nom}</b>{(() => { const sub = [nodes.find((n) => n.id === p.node)?.nom || p.node, p.type, formatSizeGb(p.capacite_go, lang)].filter(Boolean).join(" · "); return <small title={sub}>{sub}</small>; })()}</div>
                 <span className="nx-track nx-track--wide" role="meter" aria-label={`${p.nom} ${t("stor.usage")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r == null ? undefined : Math.round(r)}><span data-tone={r >= 90 ? "danger" : r >= 80 ? "warning" : "info"} style={{ width: `${Math.round(r || 0)}%` }} /></span>
                 <span className="nx-cap-pct">{r == null ? "—" : `${Math.round(r)} %`}</span>
                 <Spark data={poolHist[`${p.node}:${p.nom}`]} />

@@ -149,7 +149,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const family = installationFamily(form);
   const profile = guestProfile(form);
   const radio = (checked, on, title, sub, name, extra = null) => (
-    <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`}><input type="radio" className="nx-sr" name={name} checked={checked} onChange={on} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
+    <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
   );
   const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
 
