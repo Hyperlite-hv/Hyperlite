@@ -34,7 +34,10 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
   else if (selection.type === "vm") crumbs.push([t("nav.vms"), () => navigateTo("datacenter", null, "vms")], [selection.id]);
   else if (page !== "summary") crumbs.push([t(`tab.${page}`)]);
 
-  const openActivity = () => {
+  // The Activity button toggles the panel: a second click closes it.
+  const activityOpen = useInfraStore((s) => !s.taskLogCollapsed);
+  const toggleActivity = () => {
+    if (activityOpen) { useInfraStore.getState().toggleTaskLog(); return; }
     window.dispatchEvent(new CustomEvent("nx:dock", { detail: alerts ? "alerts" : running ? "tasks" : "alerts" }));
   };
   const create = (kind) => {
@@ -65,7 +68,7 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
         <span className="nx-kbd" aria-hidden="true">Ctrl K</span>
       </button>
       <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon nx-activity-btn" title={t("top.activity")}
-        aria-label={t("top.activityLabel", { alerts, running })} onClick={openActivity}>
+        aria-label={t("top.activityLabel", { alerts, running })} aria-expanded={activityOpen} aria-controls="nx-activity" onClick={toggleActivity}>
         <Activity size={17} aria-hidden="true" />
         {badge > 0 && <span className={`nx-badge-count${alerts ? " is-warn" : ""}`} aria-hidden="true">{badge}</span>}
       </button>

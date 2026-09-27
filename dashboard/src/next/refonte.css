@@ -297,6 +297,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-crumbs .nx-crumb-current { color: var(--color-text-primary); font-weight: 500; }
 .nx-find { margin-left: auto; flex: 0 1 22.6667rem; max-width: 22.6667rem; height: 2.1333rem; border-color: var(--color-border-default); color: var(--color-text-muted); }
 .nx-activity-btn { position: relative; }
+.nx-activity-btn[aria-expanded="true"] { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .nx-activity-btn .nx-badge-count { position: absolute; top: -3px; right: -5px; }
 .nx-badge-count.is-warn { background: var(--color-warning); color: var(--color-bg-app); }
 .nx-drawer-foot { display: flex; gap: 0.5333rem; padding: 0.6667rem 1.0667rem; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-surface-raised); }
