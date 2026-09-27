@@ -18,7 +18,7 @@ async function open(page: Page, tab: string, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
   await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
-  await page.getByLabel(/Password|Mot de passe/).fill(ADMIN.password);
+  await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto(`/datacenter?tab=${tab}`);
@@ -27,18 +27,20 @@ async function open(page: Page, tab: string, lang = "en") {
 test("automation: step validation, dry run, real run behind a confirmation that lists the commands, output and deletion", async ({ page, request }) => {
   await open(page, "automation");
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { level: 2, name: /^Automation/ })).toBeVisible({ timeout: 20_000 });
-  await main.getByRole("button", { name: "Create a custom job" }).click();
+  await expect(main.getByRole("heading", { level: 1, name: "Automation" })).toBeVisible({ timeout: 20_000 });
+  // The job form is a side drawer opened by the page primary.
+  await main.getByRole("button", { name: "Create a task" }).click();
+  const form = page.getByRole("dialog", { name: "Create a task" });
 
-  await main.getByRole("button", { name: "Create", exact: true }).click(); // invalid: nothing is sent
-  await expect(main.getByText("Required.").first()).toBeVisible();
-  await main.getByLabel("Job name").fill(JOB);
-  await main.getByLabel("shell command").fill("echo hyperlite-e2e-ok");
-  await main.getByLabel("Success condition value").fill("abc");
-  await main.getByRole("button", { name: "Create", exact: true }).click();
-  await expect(main.getByText("Enter a whole number")).toBeVisible();
-  await main.getByLabel("Success condition value").fill("0");
-  await main.getByRole("button", { name: "Create", exact: true }).click();
+  await form.getByRole("button", { name: "Create the task", exact: true }).click(); // invalid: nothing is sent
+  await expect(form.getByText("Required.").first()).toBeVisible();
+  await form.getByLabel("Job name").fill(JOB);
+  await form.getByLabel("shell command").fill("echo hyperlite-e2e-ok");
+  await form.getByLabel("Success condition value").fill("abc");
+  await form.getByRole("button", { name: "Create the task", exact: true }).click();
+  await expect(form.getByText("Enter a whole number")).toBeVisible();
+  await form.getByLabel("Success condition value").fill("0");
+  await form.getByRole("button", { name: "Create the task", exact: true }).click();
   await expect(main.getByRole("button", { name: `Run ${JOB}`, exact: true })).toBeVisible({ timeout: 15_000 });
 
   await main.getByRole("button", { name: `Dry run ${JOB}` }).click();
@@ -98,7 +100,7 @@ test("templates: deploy asks for a valid, unused name; deletion is confirmed", a
 test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await open(page, "automation", "fr");
-  await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /Automatisation/ })).toBeVisible({ timeout: 20_000 });
-  await page.getByRole("main").getByRole("button", { name: "Créer une tâche personnalisée" }).click();
+  await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Automatisation" })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("main").getByRole("button", { name: "Créer une tâche", exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

@@ -148,8 +148,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const selectable = pools.filter((p) => ["dir", "netfs", "zfs"].includes(p.type) && p.etat === "actif");
   const family = installationFamily(form);
   const profile = guestProfile(form);
-  const radio = (checked, on, title, sub, name) => (
-    <label className={`nx-choice ${checked ? "is-on" : ""}`}><input type="radio" name={name} checked={checked} onChange={on} /><span><strong>{title}</strong>{sub && <span className="nx-muted">{sub}</span>}</span></label>
+  const radio = (checked, on, title, sub, name, extra = null) => (
+    <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
   );
   const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
 
@@ -167,12 +167,13 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <DialogContent className="nx-wizard w-full max-w-3xl sm:max-w-3xl p-0 gap-0 overflow-hidden" onCloseAutoFocus={(e) => { if (triggerRef?.current) { e.preventDefault(); triggerRef.current.focus(); } }}>
+      <DialogContent className="nx-wizard nx-wizard2 w-full max-w-5xl sm:max-w-5xl p-0 gap-0 overflow-hidden" onCloseAutoFocus={(e) => { if (triggerRef?.current) { e.preventDefault(); triggerRef.current.focus(); } }}>
         <DialogHeader className="nx-wiz-head">
           <DialogTitle>{t("wz.title")}</DialogTitle>
           <DialogDescription className="nx-sr">{t("wz.desc")}</DialogDescription>
         </DialogHeader>
-        <ol className="nx-stepper" aria-label={t("wz.steps")}>
+        <div className="nx-wiz3">
+        <ol className="nx-steps2" aria-label={t("wz.steps")}>
           {STEPS.map((id, i) => (
             <li key={id} aria-current={i === step ? "step" : undefined} className={i < step ? "is-done" : i === step ? "is-current" : ""}>
               <button type="button" disabled={i > step && !STEPS.slice(0, i).every(valid)} onClick={() => goTo(i)}>
@@ -183,11 +184,13 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
         </ol>
 
         <div className="nx-wiz-body" ref={bodyRef}>
+          <h3 className="nx-wiz-title">{t(`wz.step.${stepId}`)}</h3>
+          <p className="nx-wiz-lead">{t(`wz.q.${stepId}`)}</p>
           {stepId === "source" && (
             <div className="nx-form">
-              <div className="nx-seg nx-seg--wide" role="group" aria-label={t("wz.sourceType")}>
-                <button type="button" aria-pressed={!importMode} onClick={() => patch({ importDisk: null })}>{t("wz.src.image")}</button>
-                <button type="button" aria-pressed={importMode} onClick={() => patch({ iso: "", importDisk: disks[0]?.nom || "__pending__" })}>{t("wz.src.importBtn")}</button>
+              <div className="nx-tiles" role="group" aria-label={t("wz.sourceType")}>
+                <button type="button" className="nx-tile" aria-pressed={!importMode} onClick={() => patch({ importDisk: null })}><b>{t("wz.src.image")}</b><small>{t("wz.src.imageSub")}</small></button>
+                <button type="button" className="nx-tile" aria-pressed={importMode} onClick={() => patch({ iso: "", importDisk: disks[0]?.nom || "__pending__" })}><b>{t("wz.src.importBtn")}</b><small>{t("wz.src.importSub")}</small></button>
               </div>
               <p className="nx-notice" role="note">{sourceNote}</p>
               {isWindowsInstall(form) && <p className="nx-hint">{t("wz.src.windowsNote")}</p>}
@@ -195,7 +198,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <fieldset className="nx-fieldset">
                   <legend>{t("wz.src.disk")}</legend>
                   {disks.length === 0 && <span className="nx-muted">{t("wz.src.noDisks")}</span>}
-                  {disks.map((d) => radio(form.importDisk === d.nom, () => patch({ importDisk: d.nom }), d.nom, formatSizeMb(d.taille_mo, lang), "import"))}
+                  <div className="nx-tiles">{disks.map((d) => radio(form.importDisk === d.nom, () => patch({ importDisk: d.nom }), d.nom, formatSizeMb(d.taille_mo, lang), "import"))}</div>
                   {show("source", "importDisk")}
                   <VmDiskUploadDropzone onDone={reloadDisks} labels={{ drop: t("up.dropDisk"), done: t("up.done"), eta: t("up.eta") }} />
                 </fieldset>
@@ -203,12 +206,14 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <>
                   <fieldset className="nx-fieldset">
                     <legend>{t("wz.src.iso")}</legend>
-                    {radio(!form.iso, () => patch({ iso: "" }), t("wz.none"), t("wz.src.debianSub"), "iso")}
-                    {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom }), iso.nom, formatSizeMb(iso.taille_mo, lang), "iso"))}
+                    <div className="nx-tiles">
+                      {radio(!form.iso, () => patch({ iso: "" }), t("wz.src.debian"), t("wz.src.debianSub"), "iso")}
+                      {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom }), iso.nom, `${formatSizeMb(iso.taille_mo, lang)} · ISO`, "iso"))}
+                    </div>
                   </fieldset>
                   {form.iso && (
                     <label>{t("wz.os")}
-                      <select className="nx-input" aria-label="Operating system" value={form.guestOs || "auto"} onChange={(e) => patch({ guestOs: e.target.value })}>
+                      <select className="nx-input" aria-label={t("a11y.operating_system")} value={form.guestOs || "auto"} onChange={(e) => patch({ guestOs: e.target.value })}>
                         <option value="auto">{t("wz.os.auto")}</option><option value="windows">Windows / Windows Server</option><option value="linux">Linux (VirtIO)</option><option value="other">{t("wz.os.other")}</option>
                       </select>
                       <span className="nx-hint">{t("wz.os.help")}</span>
@@ -221,11 +226,11 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
 
           {stepId === "identity" && (
             <div className="nx-form">
-              <label>{t("wz.vmName")}<input className="nx-input" aria-label="VM name" autoFocus value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="web-03" {...inv("identity", "name")} />{show("identity", "name")}</label>
+              <label>{t("wz.vmName")}<input className="nx-input" aria-label={t("a11y.vm_name")} autoFocus value={form.name} onChange={(e) => patch({ name: e.target.value })} placeholder="web-03" {...inv("identity", "name")} />{show("identity", "name")}</label>
               {needsAccount ? (
                 <div className="nx-formgrid">
-                  <label>{t("ct.user")}<input className="nx-input" aria-label="User" autoComplete="off" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="alice" {...inv("identity", "username")} />{show("identity", "username")}</label>
-                  <label>{t("ct.password")}<input className="nx-input" aria-label="Password" type="password" autoComplete="new-password" value={form.password} onChange={(e) => patch({ password: e.target.value })} {...inv("identity", "password")} />{show("identity", "password")}</label>
+                  <label>{t("ct.user")}<input className="nx-input" aria-label={t("a11y.user")} autoComplete="off" value={form.username} onChange={(e) => patch({ username: e.target.value })} placeholder="alice" {...inv("identity", "username")} />{show("identity", "username")}</label>
+                  <label>{t("ct.password")}<input className="nx-input" aria-label={t("a11y.password")} type="password" autoComplete="new-password" value={form.password} onChange={(e) => patch({ password: e.target.value })} {...inv("identity", "password")} />{show("identity", "password")}</label>
                 </div>
               ) : <p className="nx-notice" role="note">{importMode ? t("wz.acct.import") : t("wz.acct.manual")}</p>}
             </div>
@@ -235,13 +240,18 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
             <div className="nx-form">
               <fieldset className="nx-fieldset">
                 <legend>{t("ns.node")}</legend>
-                {nodes.map((n) => radio(form.node === n.id, () => patch({ node: n.id }), n.nom, `${n.vms_actives ?? 0} ${t("wz.running")}${n.memoire_disponible_mo != null ? ` · ${formatSizeMb(Math.round(n.memoire_disponible_mo), lang)} ${t("wz.ramFree")}` : ""}`, "node"))}
+                <div className="nx-tiles">{nodes.map((n) => {
+                  const ram = n.memoire_totale_mo ? (n.memoire_utilisee_mo / n.memoire_totale_mo) * 100 : null;
+                  return radio(form.node === n.id, () => patch({ node: n.id }), n.nom,
+                    [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_actives ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
+                    "node", ram != null ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null);
+                })}</div>
                 {show("placement", "node")}
                 {form.node && form.node !== "local" && <p className="nx-notice nx-notice--warning" role="note">{t("wz.nodeWarn")}</p>}
               </fieldset>
               {selectable.length > 0 && (
                 <label>{t("stor.pool")}
-                  <select className="nx-input" aria-label="Storage pool" value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
+                  <select className="nx-input" aria-label={t("a11y.storage_pool")} value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
                     <option value="">{t("wz.r.defaultPool")}</option>
                     {selectable.map((p) => <option key={p.nom} value={p.nom}>{p.nom} ({p.type === "netfs" ? "NFS" : p.type}, {p.disponible_go} GB {t("stor.free").toLowerCase()})</option>)}
                   </select>
@@ -254,8 +264,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
           {stepId === "compute" && (
             <div className="nx-form">
               <div className="nx-formgrid">
-                <label>vCPU{limits ? ` (${vMin}–${vMax})` : ""}<input className="nx-input" aria-label="vCPU" type="number" min={vMin} max={vMax} value={form.vcpu} onChange={(e) => patch({ vcpu: e.target.value })} {...inv("compute", "vcpu")} />{show("compute", "vcpu")}</label>
-                <label>{t("ct.memory")} (MB{limits ? `, ${mMin}–${mMax}` : ""})<input className="nx-input" aria-label="Memory in MB" type="number" min={mMin} max={mMax} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: e.target.value })} {...inv("compute", "memory_mb")} />{show("compute", "memory_mb")}</label>
+                <label>vCPU{limits ? ` (${vMin}–${vMax})` : ""}<input className="nx-input" aria-label={t("a11y.vcpu")} type="number" min={vMin} max={vMax} value={form.vcpu} onChange={(e) => patch({ vcpu: e.target.value })} {...inv("compute", "vcpu")} />{show("compute", "vcpu")}</label>
+                <label>{t("ct.memory")} (MB{limits ? `, ${mMin}–${mMax}` : ""})<input className="nx-input" aria-label={t("a11y.memory_in_mb")} type="number" min={mMin} max={mMax} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: e.target.value })} {...inv("compute", "memory_mb")} />{show("compute", "memory_mb")}</label>
               </div>
               <OverallocationNote limits={limits} vcpu={Number(form.vcpu) || 0} memoryMb={Number(form.memory_mb) || 0} diskGb={Math.max(0, ...form.disks.map((d) => Number(d.size_gb) || 0))} />
             </div>
@@ -269,16 +279,16 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                   <div key={i} className="nx-inline">
                     <span className="nx-mono" style={{ width: "2.5rem", alignSelf: "center" }}>sd{String.fromCharCode(97 + i)}</span>
                     {importMode && i === 0 ? <span className="nx-input nx-muted">{t("wz.importedSize")}</span> : (
-                      <input className="nx-input" aria-label={`Size of disk ${i + 1} in GB`} type="number" min={1} max={dMax} value={d.size_gb} onChange={(e) => patch({ disks: form.disks.map((x, k) => (k === i ? { size_gb: e.target.value } : x)) })} aria-invalid={attempted && errors.storage[`disk${i}`] ? true : undefined} />
+                      <input className="nx-input" aria-label={t("a11y.size_of_disk_x_in_gb", { v: i + 1 })} type="number" min={1} max={dMax} value={d.size_gb} onChange={(e) => patch({ disks: form.disks.map((x, k) => (k === i ? { size_gb: e.target.value } : x)) })} aria-invalid={attempted && errors.storage[`disk${i}`] ? true : undefined} />
                     )}
-                    <button type="button" className="nx-btn" aria-label={`Remove disk ${i + 1}`} disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => patch({ disks: form.disks.filter((_, k) => k !== i) })}>{t("sec.remove")}</button>
+                    <button type="button" className="nx-btn" aria-label={t("a11y.remove_disk_x", { v: i + 1 })} disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => patch({ disks: form.disks.filter((_, k) => k !== i) })}>{t("sec.remove")}</button>
                   </div>
                 ))}
                 {attempted && Object.values(errors.storage).length > 0 && <span className="nx-hint nx-hint--error">{t("wz.e.diskSize", { max: dMax ?? "…" })}</span>}
                 <div><button type="button" className="nx-btn" disabled={Boolean(limits) && form.disks.length >= dCount} onClick={() => patch({ disks: [...form.disks, { size_gb: 5 }] })}>{t("wz.addDisk")}</button></div>
               </fieldset>
               <label>{t("wz.controller")}
-                <select className="nx-input" aria-label="Disk controller" value={form.diskController || "auto"} onChange={(e) => patch({ diskController: e.target.value })}>
+                <select className="nx-input" aria-label={t("a11y.disk_controller")} value={form.diskController || "auto"} onChange={(e) => patch({ diskController: e.target.value })}>
                   <option value="auto">{t("wz.ctl.auto", { name: profile === "linux" ? "VirtIO SCSI" : "SATA" })}</option><option value="sata">{t("wz.ctl.sata")}</option><option value="virtio-scsi">{t("wz.ctl.virtio")}</option>
                 </select>
                 <span className="nx-hint">{diskController(form) === "sata" ? t("wz.ctl.sataHelp") : profile === "windows" ? t("wz.ctl.winHelp") : t("wz.ctl.virtioHelp")}{importMode && ` ${t("wz.ctl.importHelp")}`}</span>
@@ -289,7 +299,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
           {stepId === "network" && (
             <fieldset className="nx-fieldset">
               <legend>{t("vh.network")}</legend>
-              {networks.map((n) => radio(form.network === n.nom, () => patch({ network: n.nom }), `${n.nom} (${n.type})`, `${n.pont || "—"} · ${n.reseau ? `${n.reseau.adresse}/${n.reseau.masque}` : t("nn.noSubnet")}`, "network"))}
+              <div className="nx-tiles">{networks.map((n) => radio(form.network === n.nom, () => patch({ network: n.nom }), n.nom, `${t(`net.mode.${n.type}`)} · ${n.pont || "—"} · ${n.reseau ? n.reseau.adresse : t("nn.noSubnet")}`, "network"))}</div>
               {show("network", "network")}
             </fieldset>
           )}
@@ -299,18 +309,18 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
               {form.iso && !importMode && (
                 <fieldset className="nx-fieldset">
                   <legend>{t("wz.drivers")}</legend>
-                  <select className="nx-input" aria-label="Drivers ISO" value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
+                  <select className="nx-input" aria-label={t("a11y.drivers_iso")} value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
                     <option value="">{t("wz.none")}</option>{isos.filter((i) => i.nom !== form.iso).map((i) => <option key={i.nom} value={i.nom}>{i.nom}</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.driversHelp")} <a href="https://virtio-win.github.io/Knowledge-Base/Driver-installation.html" target="_blank" rel="noreferrer">{t("wz.driversLink")}</a></span>
-                  <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta") }} />
+                  <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} />
                 </fieldset>
               )}
               <fieldset className="nx-fieldset">
                 <legend>{t("wz.cleanup")}</legend>
                 <label className="nx-check"><input type="checkbox" checked={form.autoCleanupEnabled} onChange={(e) => patch({ autoCleanupEnabled: e.target.checked })} /> {t("wz.cleanupLabel")}</label>
                 {form.autoCleanupEnabled && (
-                  <label>{t("wz.cleanupAfter")}<input className="nx-input nx-input--auto" aria-label="Inactivity threshold in days" type="number" min={1} max={365} value={form.autoCleanupDays} onChange={(e) => patch({ autoCleanupDays: e.target.value })} {...inv("advanced", "days")} />{show("advanced", "days")}<span className="nx-hint">{t("wz.cleanupHelp")}</span></label>
+                  <label>{t("wz.cleanupAfter")}<input className="nx-input nx-input--auto" aria-label={t("a11y.inactivity_threshold_in_days")} type="number" min={1} max={365} value={form.autoCleanupDays} onChange={(e) => patch({ autoCleanupDays: e.target.value })} {...inv("advanced", "days")} />{show("advanced", "days")}<span className="nx-hint">{t("wz.cleanupHelp")}</span></label>
                 )}
               </fieldset>
               {!(form.iso && !importMode) && !form.autoCleanupEnabled && <p className="nx-muted">{t("wz.advancedNone")}</p>}
@@ -330,9 +340,24 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
           )}
         </div>
 
+        <aside className="nx-wiz-recap" aria-label={t("wz.recap")}>
+          <h4>{t("wz.recap")}</h4>
+          <dl className="nx-dl2">
+            <dt>{t("wz.r.source")}</dt><dd>{importMode ? form.importDisk && form.importDisk !== "__pending__" ? form.importDisk : "—" : form.iso || t("wz.src.debian")}</dd>
+            <dt>{t("ct.name")}</dt><dd className="nx-mono">{form.name || "—"}</dd>
+            <dt>{t("ns.node")}</dt><dd className="nx-mono">{step > 1 ? nodeName : "—"}</dd>
+            <dt>{t("wz.r.cpuRam")}</dt><dd className="nx-mono">{step > 2 ? `${form.vcpu} · ${formatSizeMb(Number(form.memory_mb), lang)}` : "—"}</dd>
+            <dt>{t("vh.disks")}</dt><dd className="nx-mono">{step > 3 ? form.disks.map((d, i) => (importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} Go`)).join(" + ") : "—"}</dd>
+            <dt>{t("vh.network")}</dt><dd className="nx-mono">{step > 4 ? form.network : "—"}</dd>
+          </dl>
+        </aside>
+        </div>
+
         {error && <div role="alert" className="nx-error nx-wiz-error"><strong>{t("wz.failed")}</strong> <span className="nx-mono" style={{ overflowWrap: "anywhere" }}>{error}</span></div>}
         <DialogFooter className="nx-wiz-foot">
-          <button type="button" className="nx-btn" disabled={step === 0 || busy} onClick={() => { setAttempted(false); setStep((s) => s - 1); }}>{t("wz.prev")}</button>
+          {step > 0 && <button type="button" className="nx-btn nx-btn--ghost" disabled={busy} onClick={() => { setAttempted(false); setStep((s) => s - 1); }}>{t("wz.prev")}</button>}
+          <span className="nx-sp nx-muted" style={{ fontSize: "var(--fs-12)" }}>{t("wz.stepOf", { n: step + 1, total: STEPS.length })}</span>
+          <button type="button" className="nx-btn nx-btn--ghost" disabled={busy} onClick={requestClose}>{t("action.cancel")}</button>
           {stepId === "review" ? (
             <button type="button" className="nx-btn nx-btn--primary" onClick={create} disabled={busy}>{busy ? t("stor.creating") : t("wz.create")}</button>
           ) : (
