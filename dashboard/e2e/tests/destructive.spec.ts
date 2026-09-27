@@ -92,9 +92,10 @@ test.afterAll(async ({ request }) => {
     const res = await request.get(path, { headers: auth() });
     if (!res.ok()) continue;
     for (const item of (await res.json()) as Array<Record<string, string>>) {
-      if (String(item[key]).startsWith(PREFIX)) await request.delete(`${del}${path === "/groups" ? item.id : item[key]}${path === "/isos" ? "?confirm=true" : ""}`, { headers: auth() });
+      // only what this run created (its time stamp): other files run at the same time
+      if (String(item[key]).startsWith(PREFIX) && String(item[key]).includes(stamp)) await request.delete(`${del}${path === "/groups" ? item.id : item[key]}${path === "/isos" ? "?confirm=true" : ""}`, { headers: auth() });
     }
   }
   const ch = await request.get("/notifications/channels", { headers: auth() });
-  if (ch.ok()) for (const c of (await ch.json()) as Array<{ id: number; name: string }>) if (c.name.startsWith(PREFIX)) await request.delete(`/notifications/channels/${c.id}`, { headers: auth() });
+  if (ch.ok()) for (const c of (await ch.json()) as Array<{ id: number; name: string }>) if (c.name.startsWith(PREFIX) && c.name.includes(stamp)) await request.delete(`/notifications/channels/${c.id}`, { headers: auth() });
 });

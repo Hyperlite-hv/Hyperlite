@@ -1752,6 +1752,11 @@ export default {
   "ws.otherSystems": "Autres systèmes",
   "loadingSlow": "Cela prend plus de temps que prévu : le serveur est peut-être occupé ou injoignable.",
   "reloadPage": "Recharger la page",
+  "vmlist.filterNode": "Filtrer par nœud",
+  "vmlist.allNodes": "Tous les nœuds",
+  "vmlist.groupByNode": "Grouper par nœud",
+  "vmlist.groupCount": "{run} en marche / {n} VM",
+  "vmlist.unknownNode": "Nœud inconnu",
   "loading": "Chargement…",
   "session.checking": "Vérification de la session…",
 };
