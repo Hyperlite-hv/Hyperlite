@@ -187,10 +187,13 @@ test("console: the workstation panel gives the hyperlite links, the commands and
   await page.getByRole("button", { name: "From your workstation" }).click();
   const panel = page.getByRole("dialog", { name: "Access from your workstation" });
   await expect(panel.getByRole("link", { name: "Open in a terminal (SSH)" })).toHaveAttribute("href", new RegExp(`^hyperlite://ssh/${NAME}\\?server=`));
+  // first time on a computer: one download (a double-click installs it), offered when the server has the builds
+  await expect(panel.getByRole("link", { name: /^Download hyperlite/ }).or(panel.getByText("The client is not available on this server"))).toBeVisible();
+  // the commands stay available, folded under the advanced options
+  await expect(panel.getByLabel("SSH command", { exact: true })).toBeHidden();
+  await panel.getByText("Advanced options").click();
   await expect(panel.getByLabel("SSH command", { exact: true })).toHaveText(`hyperlite ssh ${NAME}`);
   await expect(panel.getByLabel("Sign-in command", { exact: true })).toContainText("hyperlite login http");
-  // the client binaries are built by installer/build-cli.sh: offered when present, explained otherwise
-  await expect(panel.getByRole("link", { name: /Windows \(x64\)/ }).or(panel.getByText("The client is not available on this server"))).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();
 });

@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import logging
 import time
+import xml.etree.ElementTree as ET
 
 import libvirt
 from fastapi import Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -20,6 +21,7 @@ from app.core import workstation
 from app.core.audit import log_action, request_ip
 from app.core.libvirt_utils import open_conn
 from app.core.security import require_vm_privilege
+from app.core.vm_meta import get_vm_ssh_user
 from app.routers.vms._shared import _get_ip, router
 
 logger = logging.getLogger(__name__)
@@ -166,3 +168,52 @@ async def _relay(websocket, entry, username, target):
         "succes",
         f"{duration} s, {sent[0]} bytes sent, {sent[1]} bytes received" + (", closed after inactivity" if idle else ""),
     )
+
+
+# Libvirt network forward modes that put the guest on a network of the site (its
+# address is then reachable from the workstations, like any machine of that LAN or VLAN).
+_DIRECT_FORWARD_MODES = {"bridge"}
+
+
+def _directly_reachable(conn, root):
+    for iface in root.findall("./devices/interface"):
+        kind = iface.get("type")
+        if kind in ("bridge", "direct"):  # host bridge or macvtap: on the physical network
+            return True
+        if kind == "network":
+            source = iface.find("source")
+            net_name = source.get("network") if source is not None else None
+            if not net_name:
+                continue
+            try:
+                net = ET.fromstring(conn.networkLookupByName(net_name).XMLDesc(0))
+            except libvirt.libvirtError:
+                continue
+            forward = net.find("forward")
+            if forward is not None and forward.get("mode") in _DIRECT_FORWARD_MODES:
+                return True
+    return False
+
+
+@router.get("/{name}/access")
+def vm_access(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
+    """How a workstation can reach this VM: directly (a bridged network of the site,
+    like any machine of the LAN) or through a tunnel of the hyperlite client."""
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found on this node") from None
+        root = ET.fromstring(domain.XMLDesc(0))
+        active = domain.isActive()
+        ip = _guest_ip(domain) if active else None
+        direct = _directly_reachable(conn, root)
+    finally:
+        conn.close()
+    return {
+        "ip": ip,
+        "direct": bool(direct and ip),
+        "ssh_user": get_vm_ssh_user(name),
+        "tunnel_ports": workstation.tunnel_ports(),
+    }

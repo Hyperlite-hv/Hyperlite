@@ -38,11 +38,7 @@ func cmdSSH(flag, target string, extra []string) error {
 	if user != "" && !sshUserRe.MatchString(user) {
 		return fmt.Errorf("invalid user name %q", user)
 	}
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	s, err := cfg.pick(flag)
+	s, err := serverFor(flag)
 	if err != nil {
 		return err
 	}
@@ -95,11 +91,7 @@ func cmdRDP(flag, vm string) error {
 	if err := checkVM(vm); err != nil {
 		return err
 	}
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	s, err := cfg.pick(flag)
+	s, err := serverFor(flag)
 	if err != nil {
 		return err
 	}
