@@ -19,8 +19,11 @@ log "version $VERSION"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/root/hyperlite"
 
-log "building the frontend (npm run build)"
-( cd "$REPO_DIR/dashboard" && npm install --silent && npm run build --silent )
+# The rebuilt interface is the default of released packages; the historical one
+# stays one click away (?ui=legacy). Set here and not in dashboard/.env.production
+# so that CI builds keep the historical default its end-to-end specs expect.
+log "building the frontend (npm run build, rebuilt interface by default)"
+( cd "$REPO_DIR/dashboard" && npm install --silent && VITE_DEFAULT_UI="${HYPERLITE_DEFAULT_UI:-next}" npm run build --silent )
 
 log "building the workstation client (installer/build-cli.sh)"
 bash "$REPO_DIR/installer/build-cli.sh"
