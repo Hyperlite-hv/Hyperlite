@@ -25,7 +25,7 @@ async function login(page: Page, { theme, lang }: { theme: string; lang: string 
   }, [theme, lang]);
   await page.goto("/");
   await page.getByLabel(lang === "fr" ? /Nom d.utilisateur|Username/ : "Username").fill(ADMIN.username);
-  await page.getByLabel(/Password|Mot de passe/).fill(ADMIN.password);
+  await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
 }
@@ -343,8 +343,10 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length;
     const start = await disks();
     for (let i = 1; i <= 2; i++) {
-      await page.getByRole("button", { name: "Attach" }).click();
+      await page.getByRole("main").getByRole("button", { name: "Add a disk" }).click();
+      await page.getByRole("dialog", { name: "Add a disk" }).getByRole("button", { name: "Add the disk" }).click();
       await expect.poll(disks, { timeout: 30_000 }).toBe(start + i);
+      await expect(page.getByRole("dialog", { name: "Add a disk" })).toHaveCount(0);
     }
 
     // open it from the list; start from the header
@@ -366,7 +368,7 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await page.goto(`/vm/${NAME}`);
 
     // clean Stop (a direct header action) asks for a confirmation; cancelling changes nothing
-    await page.locator(".nx-headactions").getByRole("button", { name: "Stop", exact: true }).click();
+    await page.locator(".nx-oh-acts").getByRole("button", { name: "Stop", exact: true }).click();
     const confirm = page.getByRole("alertdialog");
     await expect(confirm).toBeVisible();
     await confirm.getByRole("button", { name: "Cancel" }).click();
@@ -385,10 +387,10 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await expect(page.getByRole("main").getByRole("table")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("main").getByRole("table").getByRole("button", { name: "Create VM" }).first()).toBeVisible();
 
-    // delete through the operations kept from the historical screen
+    // delete from the Actions menu (the "All operations" block is gone, R7)
     await page.goto(`/vm/${NAME}`);
-    await page.getByText("All operations").click();
-    await page.getByRole("button", { name: "Delete" }).first().click();
+    await page.getByRole("button", { name: /^Actions/ }).click();
+    await page.getByRole("menuitem", { name: /^Delete the VM/ }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: /Delete/ }).click();
     await expect.poll(() => state(request), { timeout: 60_000 }).toBe("missing");
     await page.goto("/datacenter?tab=vms");
