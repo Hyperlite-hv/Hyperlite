@@ -477,7 +477,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-nodeband { display: flex; align-items: center; flex-wrap: nowrap; gap: 0.4rem 1.3333rem; font-size: var(--fs-13); font-weight: 400; white-space: nowrap; }
 /* In the table the band takes the table's width instead of imposing its own (width 0, min-width 100%): a long band
    must never make the table overflow, or its wrapper becomes a scroll container and nothing sticks any more. */
-.nx-grouprow--band .nx-nodeband { width: 0; min-width: 100%; }
+.nx-grouprow--band .nx-nodeband { width: 0; min-width: 100%; overflow: clip; }
 .nx-nodeband-id, .nx-nodeband-stats { height: 1.6rem; }
 .nx-nodeband-id { display: flex; align-items: center; gap: 0.6667rem; min-width: 0; overflow: hidden; }
 .nx-nodeband-id > * { flex: none; }
@@ -486,7 +486,8 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-nodeband-stats { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 1.3333rem; }
 @container (max-width: 60rem) {
   .nx-nodeband { flex-wrap: wrap; }
-  .nx-nodeband-stats { flex-basis: 100%; margin-left: 1.6rem; }
+  .nx-nodeband-stats { flex-basis: 100%; margin-left: 1.6rem; gap: 1rem; }
+  .nx-nodeband-stats .nx-track { width: 3.2rem; }
 }
 @container (max-width: 32rem) { .nx-nodeband-stats { gap: 0.8rem; } .nx-nodeband-stats .nx-track { display: none; } }
 .nx-seg2--scroll { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
