@@ -103,11 +103,13 @@ function NodeBand({ node, list, collapsed, onToggle }) {
         aria-label={t(collapsed ? "vmlist.expandNode" : "vmlist.collapseNode", { name: node.nom })} onClick={onToggle}>
         <ChevronDown size={15} aria-hidden="true" />
       </button>
-      {online && <StatusIndicator kind="node" wire={node.etat} compact />}
-      {known ? <button type="button" className="nx-lnk" onClick={() => navigateTo("node", node.id, "summary")}>{node.nom}</button> : <span>{node.nom}</span>}
-      {addr && <span className="nx-mono nx-muted">{addr}</span>}
-      {known && node.etat && !online && <StatePill kind="node" wire={node.etat} />}
-      {toCheck > 0 && <Chip tone="warning">{t("vmlist.band.toCheck", { n: toCheck })}</Chip>}
+      <span className="nx-nodeband-id">
+        {online && <StatusIndicator kind="node" wire={node.etat} compact />}
+        {known ? <button type="button" className="nx-lnk" onClick={() => navigateTo("node", node.id, "summary")}>{node.nom}</button> : <span>{node.nom}</span>}
+        {addr && <span className="nx-mono nx-muted nx-nodeband-addr">{addr}</span>}
+        {known && node.etat && !online && <StatePill kind="node" wire={node.etat} />}
+        {toCheck > 0 && <Chip tone="warning">{t("vmlist.band.toCheck", { n: toCheck })}</Chip>}
+      </span>
       <span className="nx-nodeband-stats">
         {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.cpu")}</span><Meter value={node.cpu_utilisation} label={`${t("ns.cpu")} ${node.nom}`} /></span>}
         {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.ram")}</span><Meter value={pct(node.memoire_utilisee_mo, node.memoire_totale_mo)} label={`${t("ns.memory")} ${node.nom}`} /></span>}
@@ -229,7 +231,7 @@ export default function VmList() {
           ))}
         </div>
         {nodes.length > 1 && nodes.length <= NODE_PILLS_MAX && (
-          <div className="nx-seg2" role="group" aria-label={t("vmlist.filterNode")}>
+          <div className="nx-seg2 nx-seg2--scroll" role="group" aria-label={t("vmlist.filterNode")}>
             <button type="button" aria-pressed={!nodeFilter} onClick={() => setNodeFilter("")}>{t("vmlist.allNodes")} <span className="nx-n">{vms.length}</span></button>
             {nodes.map((n) => (
               <button key={n.id} type="button" aria-pressed={nodeFilter === n.id} onClick={() => setNodeFilter(n.id)}>
