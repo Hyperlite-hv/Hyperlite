@@ -10,7 +10,7 @@ import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Empty } from "../components/ui";
+import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Archive, Info, Trash2 } from "lucide-react";
 
 const STATUS = { termine: "termine", echec: "echec" };
@@ -55,9 +55,9 @@ export default function BackupsPage() {
       )}
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
-          : rows == null ? <p className="nx-muted" style={{ padding: "var(--space-4)" }}>{t("loading")}</p>
+          : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
           : rows.length === 0 ? <Empty icon={Archive} title={t("bk.none")} text={t("bk.noneHelp")} /> : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("jr.time")}</th><th scope="col">VM</th><th scope="col">{t("bk.mode")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("bk.location")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
@@ -74,7 +74,7 @@ export default function BackupsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
       </div>
     </>

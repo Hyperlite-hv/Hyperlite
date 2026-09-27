@@ -165,7 +165,6 @@ export default function Sidebar({ collapsed }) {
           <hr />
           {caps.admin && <MenuItem onSelect={() => { setUserMenuOpen(false); setUpdateOpen(true); }}>{t("top.updates")}</MenuItem>}
           <MenuItem onSelect={() => { setUserMenuOpen(false); setSecurityOpen(true); }}>{t("top.security")}</MenuItem>
-          {import.meta.env.VITE_DEFAULT_UI !== "next" && <MenuItem onSelect={() => { localStorage.setItem("hyperlite-ui", "legacy"); window.location.reload(); }}>{t("top.legacy")}</MenuItem>}
           <hr />
           <MenuItem danger onSelect={logout}>{t("top.signout")}</MenuItem>
         </Menu>

@@ -11,7 +11,7 @@ import { formatSizeGb } from "../lib/format";
 import { errorMessage } from "../lib/errors";
 import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
-import { PageHeader, Meter, Chip, SideDrawer, Field, Empty } from "../components/ui";
+import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "../components/ui";
 
 const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20" };
 
@@ -95,7 +95,7 @@ export default function StoragePage() {
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setCreating(true)}><Plus size={15} aria-hidden="true" />{t("stor.createPool")}</button>} />
       <div className="nx-card2 nx-card2--flush">
         {pools.length === 0 ? <Empty icon={Layers} title={t("ov.noPools")} text={t("stor.noneHelp")} /> : (
-          <div className="nx-tablewrap">
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("stor.pool")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("stor.usage")}</th><th scope="col" className="nx-num">{t("stor.capacity")}</th><th scope="col" className="nx-num">{t("stor.free")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
@@ -130,7 +130,7 @@ export default function StoragePage() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         )}
       </div>
       <CreatePoolDrawer open={creating} onClose={() => setCreating(false)} />

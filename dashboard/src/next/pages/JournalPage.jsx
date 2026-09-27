@@ -5,7 +5,7 @@ import { usePolling } from "../lib/polling";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Empty } from "../components/ui";
+import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Download, ScrollText } from "lucide-react";
 
 function csv(rows) {
@@ -67,9 +67,9 @@ export default function JournalPage() {
       </div>
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
-          : rows == null ? <p className="nx-muted" style={{ padding: "var(--space-4)" }}>{t("loading")}</p>
+          : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
           : rows.length === 0 ? <Empty icon={ScrollText} title={t("jr.none")} text={dirty ? t("act.noneFiltered") : null} /> : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("jr.time")}</th><th scope="col">{t("jr.result")}</th><th scope="col">{t("task.user")}</th><th scope="col">{t("jr.action")}</th><th scope="col">{t("jr.resource")}</th><th scope="col">{t("jr.ip")}</th></tr></thead>
                 <tbody>
@@ -86,7 +86,7 @@ export default function JournalPage() {
                 </tbody>
                 <tfoot><tr><td colSpan={6}>{t("jr.footer", { total: total ?? rows.length, shown: rows.length })}</td></tr></tfoot>
               </table>
-            </div>
+            </TableWrap>
           )}
       </div>
     </>

@@ -1718,6 +1718,8 @@ export default {
   "ws.download": "Download hyperlite for {os} · {size}",
   "ws.advanced": "Advanced options",
   "ws.otherSystems": "Other systems",
+  "loadingSlow": "This is taking longer than expected: the server may be busy or unreachable.",
+  "reloadPage": "Reload the page",
   "loading": "Loading…",
   "session.checking": "Checking the session…",
 };

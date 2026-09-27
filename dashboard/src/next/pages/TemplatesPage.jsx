@@ -9,7 +9,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import { ErrorState } from "../components/States";
-import { Empty } from "../components/ui";
+import { Empty, Loading, TableWrap } from "../components/ui";
 import { LayoutTemplate, Trash2 } from "lucide-react";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -57,8 +57,8 @@ export default function TemplatesPanel() {
   const list = items || [];
   return (
     <div className="nx-card2 nx-card2--flush">
-      {items == null ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : list.length === 0 ? <Empty icon={LayoutTemplate} title={t("tp.none")} text={t("tp.noneHelp")} /> : (
-        <div className="nx-tablewrap">
+      {items == null ? <Loading style={{ padding: "var(--space-4)" }} /> : list.length === 0 ? <Empty icon={LayoutTemplate} title={t("tp.none")} text={t("tp.noneHelp")} /> : (
+        <TableWrap>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("ct.name")}</th><th scope="col">{t("tp.source")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">{t("tp.created")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
@@ -77,7 +77,7 @@ export default function TemplatesPanel() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </div>
   );

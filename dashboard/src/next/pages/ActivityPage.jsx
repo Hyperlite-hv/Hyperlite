@@ -7,7 +7,7 @@ import { taskLabel, TASK_LABEL_KEYS } from "../lib/enums";
 import { normalizeDetail } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Empty } from "../components/ui";
+import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Download, ListChecks, Search } from "lucide-react";
 
 const SINCE = { all: null, "1h": 3600, "24h": 86400, "7d": 604800 };
@@ -71,9 +71,9 @@ export default function ActivityPage({ selection }) {
   const dirty = JSON.stringify(f) !== JSON.stringify(EMPTY_F);
   const nodeName = (id) => nodes.find((n) => n.id === id || n.nom === id)?.nom || id;
   const table = error ? <ErrorState message={error} onRetry={load} />
-    : rows == null ? <p className="nx-muted" style={{ padding: "var(--space-4)" }}>{t("loading")}</p>
+    : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
     : rows.length === 0 ? <Empty icon={ListChecks} title={t("act.none")} text={dirty ? t("act.noneFiltered") : t("act.noneHelp")} /> : (
-      <div className="nx-tablewrap">
+      <TableWrap>
         <table className="nx-table">
           <thead><tr><th scope="col">{t("task.status")}</th><th scope="col">{t("act.started")}</th><th scope="col">{t("act.task")}</th><th scope="col">{t("act.object")}</th><th scope="col">{t("task.user")}</th><th scope="col" className="nx-num">{t("act.duration")}</th></tr></thead>
           <tbody>
@@ -102,7 +102,7 @@ export default function ActivityPage({ selection }) {
             })}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
     );
 
   return (

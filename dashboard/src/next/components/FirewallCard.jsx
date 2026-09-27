@@ -3,7 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
-import { Card } from "./ui";
+import { Card, Loading, TableWrap } from "./ui";
 
 const PROTOCOLS = ["tcp", "udp", "icmp", "all"];
 
@@ -21,7 +21,7 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
   }, [fetchConfig, pushToast, t]);
   useEffect(() => { reload(); }, [reload]);
 
-  if (!config) return <Card title={title}><p className="nx-muted" style={{ margin: 0 }}>{t("loading")}</p></Card>;
+  if (!config) return <Card title={title}><Loading style={{ margin: 0 }} /></Card>;
   const dirty = JSON.stringify(config) !== saved;
   const update = (i, patch) => setConfig((c) => ({ ...c, rules: c.rules.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
   async function apply() {
@@ -38,7 +38,7 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
       </select>
     </>}>
       {config.rules.length === 0 ? <p className="nx-muted" style={{ margin: 0, padding: "0 var(--space-4) var(--space-4)" }}>{t("fw.none")}</p> : (
-        <div className="nx-tablewrap">
+        <TableWrap>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("fw.direction")}</th><th scope="col">{t("fw.protocol")}</th><th scope="col">{t("fw.port")}</th><th scope="col">{t("fw.action")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
@@ -53,7 +53,7 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
       {isAdmin && (
         <div className="nx-card2-foot">

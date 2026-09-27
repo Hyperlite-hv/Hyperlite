@@ -5,7 +5,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
-import { SideDrawer } from "./ui";
+import { SideDrawer, Loading } from "./ui";
 
 // Platform of this browser, to offer the matching client first.
 function localPlatform() {
@@ -75,7 +75,7 @@ export default function WorkstationAccess({ vm, open, onClose }) {
   return (
     <SideDrawer open={open} title={t("ws.title")} onClose={onClose}>
       {error && <p className="nx-f-h is-error" role="alert">{error}</p>}
-      {!ready && !error && <p className="nx-muted" role="status">{t("loading")}</p>}
+      {!ready && !error && <Loading />}
       {ready && vm.etat !== "actif" && <div className="nx-bn" data-tone="info" role="status"><span className="nx-bn-t">{t("vc.mustRun")}</span></div>}
 
       {ready && direct && (

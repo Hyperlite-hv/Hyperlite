@@ -14,7 +14,7 @@ import { formatSizeMb } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
 import { NAME_RE } from "../lib/containerImages";
-import { PageHeader, Card, Empty } from "../components/ui";
+import { PageHeader, Card, Empty, Loading, TableWrap } from "../components/ui";
 import { Box, Plus, Trash2 } from "lucide-react";
 
 const backupWire = (s) => (s === "termine" ? "termine" : s === "echec" ? "echec" : "en_cours");
@@ -93,10 +93,10 @@ export default function ContainersPage() {
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={openWizard}><Plus size={15} aria-hidden="true" />{t("ct.create")}</button>} />
       {error && containers == null ? <ErrorState message={error} onRetry={reload} /> : (
         <div className="nx-card2 nx-card2--flush">
-          {containers == null ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : list.length === 0 ? (
+          {containers == null ? <Loading style={{ padding: "var(--space-4)" }} /> : list.length === 0 ? (
             <Empty icon={Box} title={t("ct.none")} text={caps.admin ? t("ct.noneHelp") : t("ct.noneObserver")} action={caps.admin && <button type="button" className="nx-btn" onClick={openWizard}><Plus size={15} aria-hidden="true" />{t("ct.create")}</button>} />
           ) : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">IP</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
@@ -122,7 +122,7 @@ export default function ContainersPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
         </div>
       )}
@@ -130,7 +130,7 @@ export default function ContainersPage() {
       {caps.admin && (
         <Card title={t("ct.backups")} note={backups?.length || null} flush={Boolean(backups && backups.length)}>
           {!backups || backups.length === 0 ? <p className="nx-muted" style={{ margin: 0, fontSize: "var(--fs-13)" }}>{t("ct.backupsNone")}</p> : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.container")}</th><th scope="col">{t("ct.date")}</th><th scope="col" className="nx-num">{t("ct.size")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
@@ -148,7 +148,7 @@ export default function ContainersPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
         </Card>
       )}
