@@ -491,7 +491,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 }
 @container (max-width: 32rem) {
   .nx-nodeband-stats { gap: 0.8rem; } .nx-nodeband-stats .nx-track { display: none; }
-  .nx-nodeband-count { display: none; } .nx-nodeband-count--short { display: inline; }
+  .nx-nodeband .nx-nodeband-count { display: none; } .nx-nodeband .nx-nodeband-count--short { display: inline; }
   /* phone: the last two columns (vCPU·memory, uptime; both in the detail panel) give way so the table fits the
      screen, with no sideways scrolling, and the headers and bands can stick */
   .nx-card2--sticky .nx-table :is(thead, tbody) tr:not(.nx-grouprow) > :nth-last-child(-n+2) { display: none; }
