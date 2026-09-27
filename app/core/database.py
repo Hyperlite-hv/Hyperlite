@@ -361,6 +361,14 @@ def init_db():
                 last_used_at TEXT
             )
         """)
+        # Workstation tokens (`hyperlite login`) expire; tokens created by hand keep no
+        # expiry unless one is set. kind tells them apart in the token list.
+        for ddl in (
+            "ALTER TABLE api_tokens ADD COLUMN expires_at TEXT",
+            "ALTER TABLE api_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'api'",
+        ):
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+                conn.execute(ddl)
         # Network/datacenter firewall: unlike the per-VM firewall (nwfilter, stored and
         # reapplied by libvirt itself), these iptables rules do NOT survive a host
         # reboot. This table is the only persistent source of truth, reapplied when the

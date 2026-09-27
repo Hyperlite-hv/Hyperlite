@@ -22,6 +22,9 @@ mkdir -p "$STAGE/DEBIAN" "$STAGE/root/hyperlite"
 log "building the frontend (npm run build)"
 ( cd "$REPO_DIR/dashboard" && npm install --silent && npm run build --silent )
 
+log "building the workstation client (installer/build-cli.sh)"
+bash "$REPO_DIR/installer/build-cli.sh"
+
 log "copying the files tracked by Git"
 ( cd "$REPO_DIR" && git ls-files -z ) | while IFS= read -r -d '' f; do
     # Development-only files are not shipped.
@@ -34,6 +37,9 @@ done
 
 log "adding the built frontend (dashboard/dist, not tracked by Git)"
 cp -r "$REPO_DIR/dashboard/dist" "$STAGE/root/hyperlite/dashboard/dist"
+
+log "adding the workstation client (cli/dist, not tracked by Git)"
+cp -r "$REPO_DIR/cli/dist" "$STAGE/root/hyperlite/cli/dist"
 
 # VERSION is copied explicitly (not only through `git ls-files`): the file may
 # not be tracked yet, in which case it would be missing from the package

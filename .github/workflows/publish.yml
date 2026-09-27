@@ -43,6 +43,13 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          # The latest stable Go, not the minimum of go.mod: the shipped binaries embed
+          # the standard library, so they get its latest security fixes.
+          go-version: stable
+          check-latest: true
+          cache-dependency-path: cli/go.sum
       - name: Install build tools
         run: |
           sudo apt-get update
