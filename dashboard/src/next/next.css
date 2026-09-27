@@ -397,6 +397,18 @@
 .nx-link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--color-accent); font-weight: 600; font-size: var(--font-size-md); text-align: left; overflow-wrap: anywhere; }
 .nx-link:hover { text-decoration: underline; }
 .nx-tablewrap { overflow-x: auto; }
+/* When a table is wider than its card (narrow screens), fade the edge(s) that hide columns so it reads as
+   "scroll for more" instead of a clipped column. Driven by the wrapper's own scroll position; when nothing
+   overflows the scroll timeline is inactive and no mask applies. Browsers without scroll timelines keep the
+   plain scrollable table. */
+@supports (animation-timeline: scroll()) {
+  .nx-tablewrap { animation: nx-edge-fade linear both; animation-timeline: scroll(self inline); }
+  @keyframes nx-edge-fade {
+    0% { mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent); }
+    4%, 96% { mask-image: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent); }
+    100% { mask-image: linear-gradient(to right, transparent, #000 3rem); }
+  }
+}
 .nx-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
 .nx-table th, .nx-table td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border-subtle); white-space: nowrap; }
 .nx-table thead th { position: sticky; top: 0; color: var(--color-text-muted); font-weight: 500; font-size: var(--font-size-xs); background: var(--color-bg-surface); }
