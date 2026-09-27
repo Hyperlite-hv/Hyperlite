@@ -16,8 +16,11 @@
    src/__tests__/next-tokens.test.js. */
 :root[data-ui="next"] {
   color-scheme: dark;
-  font-size: 15px; /* the whole app is rem-based off this root, not the browser's 16px default — a
-                       deliberately denser scale than a typical page, closer to an ops console */
+  /* The whole app is rem-based off this root. 15px (a dense ops-console scale) up to 1920px wide, then it
+     grows with the viewport so a 2K/4K screen is not a tiny island of text: 17px at 2560px, capped at 18px.
+     Written in rem (= the browser's default size, 16px unless the user changed it) so the user's own
+     font-size preference still scales everything. */
+  font-size: clamp(0.9375rem, calc(0.5625rem + 0.3125vw), 1.125rem);
   /* Surfaces */
   --color-bg-app: #19161A;
   --color-bg-sidebar: #141215;
@@ -394,6 +397,18 @@
 .nx-link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--color-accent); font-weight: 600; font-size: var(--font-size-md); text-align: left; overflow-wrap: anywhere; }
 .nx-link:hover { text-decoration: underline; }
 .nx-tablewrap { overflow-x: auto; }
+/* When a table is wider than its card (narrow screens), fade the edge(s) that hide columns so it reads as
+   "scroll for more" instead of a clipped column. Driven by the wrapper's own scroll position; when nothing
+   overflows the scroll timeline is inactive and no mask applies. Browsers without scroll timelines keep the
+   plain scrollable table. */
+@supports (animation-timeline: scroll()) {
+  .nx-tablewrap { animation: nx-edge-fade linear both; animation-timeline: scroll(self inline); }
+  @keyframes nx-edge-fade {
+    0% { mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent); }
+    4%, 96% { mask-image: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent); }
+    100% { mask-image: linear-gradient(to right, transparent, #000 3rem); }
+  }
+}
 .nx-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
 .nx-table th, .nx-table td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border-subtle); white-space: nowrap; }
 .nx-table thead th { position: sticky; top: 0; color: var(--color-text-muted); font-weight: 500; font-size: var(--font-size-xs); background: var(--color-bg-surface); }
@@ -696,7 +711,7 @@ select.nx-input { height: 2rem; }
 .nx-oplist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .nx-oplist li { display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(4rem, 1fr) minmax(8rem, 14rem); gap: var(--space-3); align-items: center; font-size: var(--font-size-sm); }
 @media (max-width: 700px) { .nx-oplist li { grid-template-columns: 1fr; gap: var(--space-1); } }
-.nx-chart-tick { font-size: 10px; fill: var(--color-text-muted); font-family: var(--font-mono); }
+.nx-chart-tick { font-size: 0.6667rem; fill: var(--color-text-muted); font-family: var(--font-mono); }
 .nx-chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: var(--space-2); }
 .nx-chart-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: var(--space-2); vertical-align: middle; }
 .nx-chart-read { margin-left: auto; color: var(--color-text-primary); }
