@@ -36,7 +36,7 @@ NOT IMPLEMENTED (the product has no such feature) · NOT TESTED · PARTIALLY TES
 | Brute-force protection | Repeated failures lock the account; UI reports rate limit (429) | Yes | `auth.spec.ts`, `degraded.spec.ts` | PASS | Per-IP limit not exercised in the UI |
 | Two-factor authentication | Enable with a computed TOTP code, sign in with a code, reject a wrong code, disable | Yes | `settings.spec.ts` | PASS | - |
 | API tokens | Created, shown once, usable without a session, refused after revocation | Yes | `settings.spec.ts` | PASS | - |
-| SSO (OIDC) settings | Values persist; client secret is never returned by the API | Yes | `settings.spec.ts` | PARTIALLY TESTED | The redirect/callback flow needs an identity provider and is not exercised here |
+| SSO (OIDC) settings | Values persist; client secret is never returned by the API | Yes | `next-sso.spec.ts` | PARTIALLY TESTED | The redirect/callback flow needs an identity provider and is not exercised here |
 | Users and roles | Create a read-only user, duplicate name refused, delete after confirmation | Yes | `users.spec.ts` | PASS | - |
 | Authorization | Read-only user does not see admin actions and the backend refuses the calls (403); cannot read channel secrets | Yes | `users.spec.ts` | PASS | Per-VM ACL matrix not covered |
 | Navigation | Tab kept in URL and after reload, unknown tab/route fall back, selection resets tab | Yes | `nav.spec.ts` | PASS | - |
