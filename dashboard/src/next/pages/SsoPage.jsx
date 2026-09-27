@@ -52,7 +52,7 @@ export default function SsoPage() {
 
   async function runTest() {
     setTest({ running: true });
-    try { setTest(await testSso(form.issuer)); } catch (err) { setTest({ ok: false, detail: errorMessage(err) }); }
+    try { setTest(await testSso()); } catch (err) { setTest({ ok: false, detail: errorMessage(err) }); }
   }
 
   async function save(e) {
@@ -90,7 +90,7 @@ export default function SsoPage() {
               <button type="button" className="nx-sw" role="switch" aria-checked={form.enabled} aria-label={t("sso.enabled")} onClick={() => setForm((f) => ({ ...f, enabled: !f.enabled }))} />
               <span>{form.enabled ? t("sso.enabled") : t("sso.disabled")}</span>
               <span className="nx-sp" />
-              <button type="button" className="nx-btn nx-btn--sm" disabled={!form.issuer || (!!problems.issuer && problems.issuer !== "sso.httpsAdvice") || test?.running} onClick={runTest}>{test?.running ? t("sso.testing") : t("sso.test")}</button>
+              <button type="button" className="nx-btn nx-btn--sm" disabled={!saved?.issuer || form.issuer !== saved.issuer || test?.running} title={saved?.issuer && form.issuer !== saved.issuer ? t("sso.testSaveFirst") : undefined} onClick={runTest}>{test?.running ? t("sso.testing") : t("sso.test")}</button>
             </div>
             {test && !test.running && (
               <div className="nx-bn" data-tone={test.ok ? "success" : "danger"} role="status" style={{ marginBottom: "var(--space-4)" }}>

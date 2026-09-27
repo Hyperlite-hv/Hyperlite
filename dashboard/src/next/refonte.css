@@ -122,7 +122,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-cap:first-child { border-top: 0; }
 .nx-cap-nm { min-width: 0; }
 .nx-cap-nm b { display: block; font-weight: 500; font-size: var(--fs-13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-cap-nm small { font-size: var(--fs-12); color: var(--color-text-muted); }
+.nx-cap-nm small { display: block; font-size: var(--fs-12); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nx-cap-pct { text-align: right; font-family: var(--font-mono); font-size: var(--fs-13); font-weight: 500; }
 .nx-cap .nx-spark { width: 100%; height: 1.6rem; }
 @media (max-width: 700px) { .nx-cap { grid-template-columns: minmax(0, 1fr) 3.5rem; } .nx-cap .nx-track, .nx-cap .nx-spark { display: none; } }
@@ -389,6 +389,8 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-wiz-recap .nx-dl2 { grid-template-columns: 5.3333rem minmax(0, 1fr); gap: 0.4rem 0.6667rem; font-size: var(--fs-125); }
 .nx-wizard2 .nx-wiz-foot { display: flex; align-items: center; gap: 0.5333rem; padding: 0.8rem 1.3333rem; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-surface-raised); flex-direction: row; justify-content: flex-start; }
 .nx-tile--radio { position: relative; }
+/* the radio covers its whole tile: a real, clickable control, invisible (the tile draws the state) */
+.nx-tile-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .nx-tile--radio.is-on { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent) inset; background: var(--color-accent-subtle); }
 .nx-tile--radio:focus-within { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .nx-wizard2 .nx-fieldset + .nx-fieldset, .nx-wizard2 .nx-tiles + * { margin-top: 0.8rem; }

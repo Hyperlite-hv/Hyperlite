@@ -501,8 +501,9 @@ export async function fetchSsoConfig() {
 export async function updateSsoConfig(payload) {
   return realFetch("/auth/sso/config", { method: "PUT", ...jsonBody(payload) });
 }
-export async function testSso(issuer) {
-  return realFetch("/auth/sso/test", { method: "POST", ...jsonBody({ issuer }) });
+// Tests the saved issuer: the server only contacts the stored configuration, never a URL sent by the page.
+export async function testSso() {
+  return realFetch("/auth/sso/test", { method: "POST" });
 }
 
 export async function createVM(payload) {

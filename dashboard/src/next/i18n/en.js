@@ -1664,6 +1664,7 @@ export default {
   "a11y.delete_role_x": "Delete role {v}",
   "a11y.remove_assignment_x": "Remove assignment {v}",
   "sso.clientId": "Client ID",
+  "sso.testSaveFirst": "Save the issuer first: the test contacts the saved configuration.",
   "loading": "Loading…",
   "session.checking": "Checking the session…",
 };
