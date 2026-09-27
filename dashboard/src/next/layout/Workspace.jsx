@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -42,11 +42,17 @@ function useUrlSync() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, search]);
 
-  // store -> URL (selection or requested tab changed from the tree, a legacy panel, the rail...)
+  // store -> URL (selection or requested tab changed from the sidebar, a link, the palette...). Clearing the
+  // requested tab re-runs this effect before the location has caught up with the navigation just made: that run
+  // must not act, otherwise it sends a page reached from a VM (say ?tab=vms) back to the summary.
+  const handled = useRef(null);
   useEffect(() => {
     const sel = useInfraStore.getState().selection;
     const base = selectionToPath(sel);
     if (!base) return;
+    const key = `${sel.type}:${sel.id ?? ""}`;
+    if (!pendingTab && handled.current === key) return;
+    handled.current = key;
     const params = new URLSearchParams(search);
     const currentTab = params.get("tab") || "summary";
     const wantedTab = pendingTab || (base === pathname ? currentTab : "summary");

@@ -5,7 +5,7 @@ import { confirmAction } from "../../store/useConfirmStore";
 import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
-import { PageHeader, Card, Field } from "../components/ui";
+import { PageHeader, Card, Field, Loading } from "../components/ui";
 import { Copy } from "lucide-react";
 
 const EMPTY = { enabled: false, issuer: "", client_id: "", client_secret: "", redirect_uri: "", scope: "openid profile email groups", group_claim: "groups", admin_groups: "" };
@@ -71,7 +71,7 @@ export default function SsoPage() {
 
   const header = <PageHeader title={t("tab.sso")} desc={t("sso.desc")} />;
   if (error && !saved) return <>{header}<ErrorState message={error} onRetry={load} /></>;
-  if (!saved) return <>{header}<p className="nx-muted" role="status">{t("loading")}</p></>;
+  if (!saved) return <>{header}<Loading /></>;
 
   const field = (k, label, props = {}) => (
     <Field label={label} error={problems[k] && problems[k] !== "sso.httpsAdvice" ? t(problems[k]) : null} hint={problems[k] === "sso.httpsAdvice" ? t(problems[k]) : props.help}>

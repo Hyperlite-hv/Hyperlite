@@ -8,7 +8,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
-import { PageHeader, Chip, Empty, SideDrawer, Field } from "../components/ui";
+import { PageHeader, Chip, Empty, SideDrawer, Field, Loading, TableWrap } from "../components/ui";
 import { Network, Plus, Trash2 } from "lucide-react";
 import FirewallCard from "../components/FirewallCard";
 
@@ -97,8 +97,8 @@ export default function NetworkPage() {
       <PageHeader title={t("tab.reseau")} count={nets ? nets.length : null} desc={t("net.desc")}
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setFormOpen(true)}><Plus size={15} aria-hidden="true" />{t("net.create")}</button>} />
       <div className="nx-card2 nx-card2--flush">
-        {nets == null ? <p className="nx-muted" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : nets.length === 0 ? <Empty icon={Network} title={t("net.none")} text={t("net.noneHelp")} /> : (
-          <div className="nx-tablewrap">
+        {nets == null ? <Loading style={{ padding: "var(--space-4)" }} /> : nets.length === 0 ? <Empty icon={Network} title={t("net.none")} text={t("net.noneHelp")} /> : (
+          <TableWrap>
             <table className="nx-table">
               <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("net.network")}</th><th scope="col">{t("net.mode")}</th><th scope="col">{t("net.bridge")}</th><th scope="col">{t("net.subnet")}</th><th scope="col">DHCP</th><th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
@@ -135,7 +135,7 @@ export default function NetworkPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         )}
       </div>
       <SideDrawer open={formOpen} title={t("net.create")} onClose={close} busy={busy} footer={<>
