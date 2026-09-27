@@ -16,8 +16,9 @@
    src/__tests__/next-tokens.test.js. */
 :root[data-ui="next"] {
   color-scheme: dark;
-  font-size: 15px; /* the whole app is rem-based off this root, not the browser's 16px default — a
-                       deliberately denser scale than a typical page, closer to an ops console */
+  /* The whole app is rem-based off this root. 15px (a dense ops-console scale) up to 1920px wide, then it
+     grows with the viewport so a 2K/4K screen is not a tiny island of text: 17px at 2560px, capped at 18px. */
+  font-size: clamp(15px, calc(9px + 0.3125vw), 18px);
   /* Surfaces */
   --color-bg-app: #19161A;
   --color-bg-sidebar: #141215;
