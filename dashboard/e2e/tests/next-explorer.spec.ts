@@ -254,7 +254,15 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(panel.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
-    await page.getByRole("banner").getByRole("button", { name: /^Activity/ }).click();
+    // a second click on the same button closes the panel
+    const activity = page.getByRole("banner").getByRole("button", { name: /^Activity/ });
+    await activity.click();
+    await expect(panel).toBeVisible();
+    await expect(activity).toHaveAttribute("aria-expanded", "true");
+    await activity.click();
+    await expect(panel).toBeHidden();
+    await expect(activity).toHaveAttribute("aria-expanded", "false");
+    await activity.click();
     await panel.getByRole("tab", { name: /^Running tasks/ }).click();
     await expect(panel.getByText("No task running.")).toBeVisible();
     await panel.getByRole("button", { name: "Close activity panel" }).click();

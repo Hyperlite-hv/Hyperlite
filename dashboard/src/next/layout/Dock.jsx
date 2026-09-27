@@ -51,7 +51,7 @@ export default function Dock() {
   const go = (dcTab) => { navigateTo("datacenter", null, dcTab); toggle(); };
 
   return (
-    <aside className="nx-drawer" data-open={open} aria-label={t("dock.title")} inert={!open}>
+    <aside id="nx-activity" className="nx-drawer" data-open={open} aria-label={t("dock.title")} inert={!open}>
       <header className="nx-drawer-head">
         <h2>{t("dock.title")}</h2>
         <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" style={{ marginLeft: "auto" }} aria-label={t("dock.close")} onClick={toggle}><X size={16} aria-hidden="true" /></button>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Keyboard, Maximize, Plug, TriangleAlert, Unplug } from "lucide-react";
+import { ExternalLink, Keyboard, Maximize, TriangleAlert, X } from "lucide-react";
 import { createConsoleTicket, createTerminalTicket } from "../../api/client";
 import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -8,13 +8,18 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { Empty } from "../components/ui";
 
-// Console embedded in the VM page: the graphical console (VNC through noVNC, opened automatically for a running
-// VM) or the SSH terminal (xterm, administrators only, like the backend), with the same ticket + WebSocket relay
-// as the separate window, which stays one click away.
-export default function VmConsole({ resource: vm }) {
+const RETRY_S = 5;
+
+// Console of a VM: the graphical console (VNC through noVNC) or the SSH terminal (xterm, administrators only, like
+// the backend), over the ticket + WebSocket relay. There is no Connect button: it connects by itself as soon as
+// the VM runs, and reconnects every few seconds after an error or a dropped connection (a VM whose IP address is
+// not known yet, a reboot...). Used in the VM page and, with `standalone`, as the separate console window.
+export default function VmConsole({ resource: vm, standalone = false, initialMode = "vnc" }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
-  const [mode, setMode] = useState("vnc");
+  const [mode, setMode] = useState(initialMode);
+  const [retryIn, setRetryIn] = useState(null);
+  const attempts = useRef(0);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
   const screen = useRef(null);
@@ -48,7 +53,7 @@ export default function VmConsole({ resource: vm }) {
       const r = new mod.default(screen.current, url);
       r.scaleViewport = true;
       rfb.current = r;
-      r.addEventListener("connect", () => { setStatus("connected"); r.scaleViewport = true; });
+      r.addEventListener("connect", () => { attempts.current = 0; setStatus("connected"); r.scaleViewport = true; });
       r.addEventListener("disconnect", () => setStatus("idle"));
       r.addEventListener("credentialsrequired", () => { setError(t("vc.credentials")); setStatus("error"); });
     } catch (e) { setError(errorMessage(e)); setStatus("error"); }
@@ -68,9 +73,9 @@ export default function VmConsole({ resource: vm }) {
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;
       const sock = new WebSocket(wsUrl(`/vms/${encodeURIComponent(name)}/terminal?ticket=${encodeURIComponent(ticket.ticket)}`));
       ws.current = sock;
-      sock.onopen = () => { setStatus("connected"); fit.fit(); sock.send("\x00" + JSON.stringify({ cols: tm.cols, rows: tm.rows })); };
+      sock.onopen = () => { attempts.current = 0; setStatus("connected"); fit.fit(); sock.send("\x00" + JSON.stringify({ cols: tm.cols, rows: tm.rows })); };
       sock.onmessage = (ev) => tm.write(ev.data);
-      sock.onclose = () => { tm.write("\r\n\x1b[33m[connection closed]\x1b[0m\r\n"); setStatus("idle"); };
+      sock.onclose = () => { tm.write(`\r\n\x1b[33m[${t("vc.closedRetry", { s: RETRY_S })}]\x1b[0m\r\n`); setStatus("idle"); };
       sock.onerror = () => setError(t("vc.termError"));
       tm.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(d); });
       tm.onResize(({ cols, rows }) => { if (sock.readyState === WebSocket.OPEN) sock.send("\x00" + JSON.stringify({ cols, rows })); });
@@ -80,38 +85,49 @@ export default function VmConsole({ resource: vm }) {
   }
 
   useEffect(() => cleanup, [cleanup, name, mode]);
-  // The graphical console opens by itself for a running VM, as in the separate window.
-  useEffect(() => { if (running && mode === "vnc") connectVnc(); }, [running, mode, name]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Automatic connection: right away the first time, then every RETRY_S seconds while it fails or after a drop,
+  // as long as the VM runs and this console is allowed (the terminal is for administrators).
+  const allowed = running && !(terminal && !caps.admin);
+  useEffect(() => {
+    if (!allowed || (status !== "idle" && status !== "error")) { setRetryIn(null); return undefined; }
+    const delay = attempts.current === 0 ? 0 : RETRY_S;
+    attempts.current += 1;
+    setRetryIn(delay || null);
+    let left = delay;
+    const tick = delay ? setInterval(() => { left -= 1; setRetryIn(left > 0 ? left : null); }, 1000) : null;
+    const go = setTimeout(() => { if (tick) clearInterval(tick); setRetryIn(null); if (terminal) connectTerminal(); else connectVnc(); }, delay * 1000);
+    return () => { clearTimeout(go); if (tick) clearInterval(tick); };
+  }, [allowed, status, mode, name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!vm) return null;
   const openWindow = () => window.open(`/console/${encodeURIComponent(vm.nom)}?mode=${mode}`, `hyperlite-console-${vm.nom}-${mode}`, "width=1100,height=750,noopener");
   const connected = status === "connected";
-  const switchMode = (m) => { if (m !== mode) { cleanup(); setMode(m); } };
+  const switchMode = (m) => { if (m !== mode) { cleanup(); attempts.current = 0; setError(null); setMode(m); } };
+  const stateLabel = connected ? t("nn.connected") : status === "connecting" ? t("nn.connecting") : retryIn ? t("vc.retryIn", { s: retryIn }) : t("nn.notConnected");
 
   return (
     <>
       {terminal && caps.admin && <div className="nx-bn" data-tone="warning" role="note"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vc.sshWarn")}</span></div>}
-      <div>
+      <div className={standalone ? "nx-console-standalone" : undefined}>
         <div className="nx-termbar">
           <div className="nx-seg2" role="group" aria-label={t("vc.mode")}>
             <button type="button" aria-pressed={!terminal} onClick={() => switchMode("vnc")}>{t("vc.vnc")}</button>
             <button type="button" aria-pressed={terminal} onClick={() => switchMode("terminal")}>{t("vc.ssh")}</button>
           </div>
-          <span className="nx-st" data-tone={connected ? undefined : "offline"} style={{ fontSize: "var(--fs-125)" }}><span className="nx-dot" data-tone={connected ? "success" : "offline"} aria-hidden="true" />{t(connected ? "nn.connected" : status === "connecting" ? "nn.connecting" : "nn.notConnected")}</span>
+          <span className="nx-st" data-tone={connected ? undefined : "offline"} style={{ fontSize: "var(--fs-125)" }}><span className="nx-dot" data-tone={connected ? "success" : error ? "warning" : "offline"} aria-hidden="true" /><span role="status">{stateLabel}</span></span>
           <span className="nx-sp" />
-          {!(terminal && !caps.admin) && (connected
-            ? <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={cleanup}><Unplug size={14} aria-hidden="true" />{t("nn.disconnect")}</button>
-            : <button type="button" className="nx-btn nx-btn--sm" disabled={!running || status === "connecting"} onClick={() => (terminal ? connectTerminal() : connectVnc())}><Plug size={14} aria-hidden="true" />{t("vc.connect")}</button>)}
           {!terminal && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => rfb.current?.sendCtrlAltDel()}><Keyboard size={14} aria-hidden="true" />Ctrl+Alt+Suppr</button>}
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => frame.current?.requestFullscreen?.()}><Maximize size={14} aria-hidden="true" />{t("vc.fullscreen")}</button>
-          <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!running || (terminal && !caps.admin)} onClick={openWindow}><ExternalLink size={14} aria-hidden="true" />{t("nn.openWindow")}</button>
+          {standalone
+            ? <button type="button" className="nx-btn nx-btn--sm" onClick={() => window.close()}><X size={14} aria-hidden="true" />{t("vc.closeWindow")}</button>
+            : <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!running || (terminal && !caps.admin)} onClick={openWindow}><ExternalLink size={14} aria-hidden="true" />{t("nn.openWindow")}</button>}
         </div>
         {terminal && !caps.admin ? (
           <div className="nx-card2" style={{ borderRadius: "0 0 10px 10px" }}><Empty title={t("vc.adminOnlyTitle")} text={t("vc.adminOnlyHelp")} /></div>
         ) : (
           <div className="nx-termwrap nx-screen" ref={frame}>
             <div className="nx-term nx-term--screen" ref={screen} role="region" aria-label={terminal ? t("vc.ssh") : t("vc.vnc")} />
-            {!connected && status !== "connecting" && <p className="nx-term-hint">{running ? t(terminal ? "vc.sshHelp" : "vc.vncHelp") : t("vc.mustRun")}</p>}
+            {!connected && status !== "connecting" && !retryIn && !error && <p className="nx-term-hint">{running ? t("nn.connecting") : t("vc.mustRun")}</p>}
           </div>
         )}
         {error && <p className="nx-f-h is-error" role="alert">{error}</p>}

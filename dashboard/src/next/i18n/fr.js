@@ -1697,6 +1697,9 @@ export default {
   "a11y.remove_assignment_x": "Retirer l'attribution {v}",
   "sso.clientId": "Identifiant client (client ID)",
   "sso.testSaveFirst": "Enregistrez d’abord l’issuer : le test contacte la configuration enregistrée.",
+  "vc.retryIn": "Reconnexion dans {s} s",
+  "vc.closedRetry": "connexion fermée — reconnexion dans {s} s",
+  "vc.closeWindow": "Fermer la fenêtre",
   "loading": "Chargement…",
   "session.checking": "Vérification de la session…",
 };
