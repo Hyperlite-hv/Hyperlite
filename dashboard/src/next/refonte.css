@@ -463,3 +463,19 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-grouphead { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5333rem; font-size: var(--fs-13); }
 .nx-grouphead--cards { margin: 0 0 0.6667rem; font-size: var(--fs-135); }
 .nx-grouphead .nx-muted { font-weight: 400; }
+/* Node band (VM list grouped by node). The card clips instead of hiding overflow and the table wrapper only
+   scrolls when the table overflows: neither then creates a scroll container, so the column headers and the band
+   of the node being read stay stuck at the top of the page while its VMs scroll by. Later bands paint over
+   earlier ones, so the band shown is always the current node's. */
+.nx-card2--sticky { overflow: clip; }
+.nx-tablewrap--sticky:not([data-scrolls]) { overflow: visible; }
+.nx-card2--sticky .nx-table thead th { z-index: 2; }
+.nx-grouprow--band th { position: sticky; top: 2.2667rem; z-index: 1; padding-top: 0.5333rem; padding-bottom: 0.5333rem; }
+.nx-nodeband { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 0.6667rem; font-size: var(--fs-13); font-weight: 400; }
+.nx-nodeband .nx-lnk { font-size: var(--fs-135); }
+.nx-nodeband-stats { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 1.3333rem; }
+.nx-nodeband-m { display: inline-flex; align-items: center; gap: 0.5333rem; font-size: var(--fs-12); }
+.nx-chev { width: 1.6rem; height: 1.6rem; margin-left: -0.4rem; }
+.nx-chev svg { transition: transform var(--duration-fast); }
+.nx-chev[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.nx-grouphead--cards .nx-nodeband { width: 100%; }
