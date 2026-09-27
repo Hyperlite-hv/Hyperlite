@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Server } from "lucide-react";
 import ConsolePanel from "../components/ConsolePanel";
@@ -6,6 +6,14 @@ import LoginScreen from "../auth/LoginScreen";
 import { useAuthStore } from "../store/useAuthStore";
 import { fetchVM } from "../api/client";
 import { Button } from "@/components/ui/button";
+
+const NextConsoleWindow = lazy(() => import("../next/NextConsoleWindow"));
+
+// The rebuilt interface has its own console window (translated, same console as the VM page).
+function prefersNextUi() {
+  if (import.meta.env.VITE_DEFAULT_UI === "next") return true;
+  try { return localStorage.getItem("hyperlite-ui") === "next"; } catch { return false; }
+}
 
 // Standalone page (no AppShell, no sidebar/header) opened in a separate
 // window/tab through window.open(), see VMConsoleTab.jsx. Same origin as the rest
@@ -15,6 +23,12 @@ export default function ConsoleWindow() {
   const { name } = useParams();
   const [searchParams] = useSearchParams();
   const initialMode = searchParams.get("mode") === "terminal" ? "terminal" : "vnc";
+  const [nextUi] = useState(prefersNextUi);
+  if (nextUi) return <Suspense fallback={null}><NextConsoleWindow name={name} initialMode={initialMode} /></Suspense>;
+  return <LegacyConsoleWindow name={name} initialMode={initialMode} />;
+}
+
+function LegacyConsoleWindow({ name, initialMode }) {
 
   const status = useAuthStore((s) => s.status);
   const restoreSession = useAuthStore((s) => s.restoreSession);
