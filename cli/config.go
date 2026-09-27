@@ -130,7 +130,7 @@ func (c *config) pick(flag string) (*server, error) {
 		if s, ok := c.Servers[u]; ok {
 			return s, nil
 		}
-		return nil, fmt.Errorf("not signed in to %s: run hyperlite login %s", u, u)
+		return nil, &notSignedInError{url: u}
 	}
 	if s, ok := c.Servers[c.Default]; ok {
 		return s, nil
@@ -153,6 +153,14 @@ func (c *config) sortedURLs() []string {
 	}
 	sort.Strings(urls)
 	return urls
+}
+
+// notSignedInError: the server is known by its address but this workstation has no
+// session there yet; interactive commands offer to sign in (see serverFor).
+type notSignedInError struct{ url string }
+
+func (e *notSignedInError) Error() string {
+	return fmt.Sprintf("not signed in to %s: run hyperlite login %s", e.url, e.url)
 }
 
 func (s *server) expired() bool {

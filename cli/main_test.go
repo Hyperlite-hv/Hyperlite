@@ -42,7 +42,7 @@ func signedIn() *config {
 	return &config{Servers: map[string]*server{"https://hl.example.com:8443": {URL: "https://hl.example.com:8443", Token: "hlt_x"}}}
 }
 
-func TestParseLinkAcceptsKnownServersOnly(t *testing.T) {
+func TestParseLinkValidatesEveryPart(t *testing.T) {
 	cfg := signedIn()
 	l, err := parseLink("hyperlite://ssh/web-01?server=https%3A%2F%2Fhl.example.com%3A8443&user=deploy", cfg)
 	if err != nil || l.action != "ssh" || l.vm != "web-01" || l.user != "deploy" {
@@ -51,10 +51,17 @@ func TestParseLinkAcceptsKnownServersOnly(t *testing.T) {
 	bad := []string{
 		"https://ssh/web-01?server=https%3A%2F%2Fhl.example.com%3A8443",               // not our scheme
 		"hyperlite://shell/web-01?server=https%3A%2F%2Fhl.example.com%3A8443",         // unknown action
-		"hyperlite://ssh/web-01?server=https%3A%2F%2Fevil.example.com",                // server not signed in
+		"hyperlite://ssh/web-01?server=ftp%3A%2F%2Fhl.example.com",                    // not an https server
+		"hyperlite://user@ssh/web-01?server=https%3A%2F%2Fhl.example.com%3A8443",      // malformed
 		"hyperlite://ssh/web;calc.exe?server=https%3A%2F%2Fhl.example.com%3A8443",     // VM name injection
 		"hyperlite://ssh/web-01?server=https%3A%2F%2Fhl.example.com%3A8443&user=a'b",  // user injection
 		"hyperlite://ssh/-oProxyCommand=x?server=https%3A%2F%2Fhl.example.com%3A8443", // option injection
+	}
+	// A server this workstation is not signed in to is kept without a token: the
+	// terminal then asks before signing in (serverFor), nothing is sent to it before.
+	l, err = parseLink("hyperlite://ssh/web-01?server=https%3A%2F%2Fother.example.com", cfg)
+	if err != nil || l.server.URL != "https://other.example.com" || l.server.Token != "" {
+		t.Fatalf("unknown server: %+v, %v", l, err)
 	}
 	for _, raw := range bad {
 		if _, err := parseLink(raw, cfg); err == nil {

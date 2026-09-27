@@ -99,7 +99,10 @@ func parseFlags(args []string, passthrough bool) (flags, error) {
 }
 
 func run(args []string) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 {
+		return cmdFirstRun()
+	}
+	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		fmt.Print(usage)
 		return nil
 	}

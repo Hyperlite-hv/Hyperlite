@@ -18,21 +18,20 @@ This is the same model as the identity-aware tunnels of the public clouds (Googl
 
 ## For users
 
-1. **Download the client.** In a VM's **Console** tab, open **From your workstation** and download the client for your system. It is a single executable with no installer. The server also offers it at `/downloads/hyperlite/<os>-<arch>`, for example `windows-amd64`.
-2. **Sign in, once per workstation:**
+In a VM's **Console** tab, open **From your workstation**.
 
-   ```
-   hyperlite login https://hyperlite.example.com
-   ```
+**If the VM is on a bridged network of the site**, it is reachable like any machine of your network. The panel gives the `ssh user@address` command to copy and, for a Windows VM, a remote desktop file (`.rdp`) that Windows opens by itself. Nothing to install: this is what the clouds' "Connect" button offers when the company network is linked to the VMs.
 
-   A page of the web interface opens. Sign in the usual way (password and 2FA, or SSO), check that the code matches the one shown in the terminal, then click **Approve**. The workstation gets its own token, valid for 30 days by default. It appears in **Account security › API tokens**, where it can be revoked.
-3. **Optionally, enable the buttons of the web interface:**
+**Otherwise (or from anywhere), through Hyperlite:**
 
-   ```
-   hyperlite setup
-   ```
+1. **Once per computer:** download `hyperlite` from the panel and open it (a double-click). It registers the `hyperlite://` links for your account only (Windows: `HKCU`; Linux: `xdg-mime`), nothing else.
+2. **Click Open in a terminal (SSH)** or **Remote desktop**. The browser asks to open hyperlite.
+   - The first time, the terminal offers to sign this computer in: press Enter.
+   - A page of the web interface opens. Check that its code is the one shown in the terminal, then click **Approve**. The sign-in is the usual one (password and 2FA, or SSO).
+   - The SSH session then starts, in PowerShell on Windows, or the remote desktop opens.
+3. **The next times, the click connects directly.** The computer stays signed in for 30 days by default and appears in **Account security › API tokens**, where it can be revoked. When the session expires, the next click asks for the approval again.
 
-   This registers `hyperlite://` links for your account only (Windows: `HKCU`; Linux: `xdg-mime`). **Open in a terminal (SSH)** then opens PowerShell (or your terminal) already connected. **Remote desktop** opens `mstsc`.
+The same works from a terminal, with the commands below. `hyperlite login <server>` signs in explicitly (for example before a script).
 
 ### Commands
 
@@ -43,6 +42,7 @@ This is the same model as the identity-aware tunnels of the public clouds (Googl
 | `hyperlite tunnel <vm> <port> [--listen 127.0.0.1:2222]` | Forward a VM port to a local port, for any other tool. |
 | `hyperlite tunnel <vm> 22 --stdio` | For `ProxyCommand` in `~/.ssh/config`. |
 | `hyperlite vms`, `status`, `logout` | List the VMs, the servers signed in to, sign out and revoke the token. |
+| `hyperlite setup` | Register the `hyperlite://` links again (what a double-click on the program does). |
 
 To use plain `ssh web-01`, add this to `~/.ssh/config`:
 
@@ -95,7 +95,7 @@ Each entry includes the client address.
 - **Tickets:** single use, bound to one VM and one port, valid for 30 seconds, and only issued after the permission check.
 - **Workstation approval:** only a web session can approve a workstation; an API token cannot. The page asks the user to compare the code with the one shown in the terminal, so a link sent by someone else cannot sign their workstation in.
 - **`hyperlite://` links:**
-  - they are honoured only for servers the workstation already signed in to;
+  - a link to a server the computer is not signed in to only goes further after the person confirms that server in the terminal and approves the sign-in in that server's web interface;
   - VM and user names must match strict patterns before anything is started;
   - the terminal is started without a shell interpreting the link.
 

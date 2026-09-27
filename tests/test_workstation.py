@@ -190,3 +190,49 @@ def test_client_download_is_public_and_listed(client, auth_headers, tmp_path, mo
     assert client.get("/downloads/hyperlite/windows-amd64..").status_code == 404  # only listed platforms
     listed = client.get("/workstation/config", headers=auth_headers("alice")).json()["downloads"]
     assert [d["platform"] for d in listed] == ["windows-amd64"] and len(listed[0]["sha256"]) == 64
+
+
+class _Net:
+    def __init__(self, mode):
+        self.mode = mode
+
+    def XMLDesc(self, flags):
+        forward = f"<forward mode='{self.mode}'/>" if self.mode else ""
+        return f"<network><name>n</name>{forward}</network>"
+
+
+class _AccessDomain(_Domain):
+    def __init__(self, iface_xml):
+        super().__init__()
+        self.iface_xml = iface_xml
+
+    def XMLDesc(self, flags):
+        return f"<domain><devices>{self.iface_xml}</devices></domain>"
+
+
+class _AccessConn(_Conn):
+    def __init__(self, domain, mode):
+        super().__init__(domain)
+        self.mode = mode
+
+    def networkLookupByName(self, name):
+        return _Net(self.mode)
+
+
+@pytest.mark.parametrize(
+    ("iface", "mode", "direct"),
+    [
+        ("<interface type='network'><source network='lan'/></interface>", "bridge", True),
+        ("<interface type='network'><source network='default'/></interface>", "nat", False),
+        ("<interface type='network'><source network='lab'/></interface>", None, False),
+        ("<interface type='bridge'><source bridge='br0'/></interface>", None, True),
+    ],
+)
+def test_access_says_whether_the_vm_is_directly_reachable(client, auth_headers, monkeypatch, iface, mode, direct):
+    from app.routers.vms import tunnel
+
+    headers = auth_headers("alice")
+    monkeypatch.setattr(tunnel, "open_conn", lambda: _AccessConn(_AccessDomain(iface), mode))
+    monkeypatch.setattr(tunnel, "get_vm_ssh_user", lambda name: "debian")
+    info = client.get("/vms/vm1/access", headers=headers).json()
+    assert info == {"ip": "192.168.122.50", "direct": direct, "ssh_user": "debian", "tunnel_ports": [22, 3389]}

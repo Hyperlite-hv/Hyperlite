@@ -36,6 +36,54 @@ func confirm(question string) bool {
 	return line == "y" || line == "yes" || line == "o" || line == "oui"
 }
 
+// interactive tells whether a person can answer on the terminal (not the case in
+// ProxyCommand mode, where stdin is the SSH stream).
+func interactive() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+// serverFor returns the server to use and, from a terminal, signs this workstation
+// in first when needed (first use, or an expired session): one approval in the web
+// interface instead of a separate login step.
+func serverFor(flag string) (*server, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	s, err := cfg.pick(flag)
+	var notIn *notSignedInError
+	switch {
+	case err == nil && !s.expired():
+		return s, nil
+	case err == nil && s.Token != "" && os.Getenv("HYPERLITE_TOKEN") == "":
+		notIn = &notSignedInError{url: s.URL}
+		fmt.Fprintln(os.Stderr, "The session of this workstation has expired.")
+	case errors.As(err, &notIn):
+		fmt.Fprintf(os.Stderr, "This workstation is not signed in to %s yet.\n", notIn.url)
+	default:
+		if err == nil {
+			return s, nil
+		}
+		return nil, err
+	}
+	if !interactive() {
+		return nil, notIn
+	}
+	fmt.Fprintf(os.Stderr, "Sign in to %s now? Press Enter to continue, Ctrl+C to cancel. ", notIn.url)
+	if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+		return nil, notIn
+	}
+	if err := cmdLogin(notIn.url, false); err != nil {
+		return nil, err
+	}
+	cfg, err = loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	return cfg.pick(notIn.url)
+}
+
 func cmdLogin(rawURL string, yes bool) error {
 	u, err := normalizeURL(rawURL)
 	if err != nil {
@@ -188,11 +236,7 @@ type vmInfo struct {
 var stateLabel = map[string]string{"actif": "running", "arrete": "stopped", "suspendu": "paused", "plante": "crashed"}
 
 func cmdVMs(flag string) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	s, err := cfg.pick(flag)
+	s, err := serverFor(flag)
 	if err != nil {
 		return err
 	}

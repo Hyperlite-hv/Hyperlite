@@ -758,6 +758,9 @@ export async function disable2FA(password) {
 export async function fetchWorkstationConfig() {
   return realFetch("/workstation/config");
 }
+export async function fetchVmAccess(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/access`);
+}
 export async function fetchCliRequest(code) {
   return realFetch(`/auth/cli/requests/${encodeURIComponent(code)}`);
 }

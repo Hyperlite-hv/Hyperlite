@@ -17,8 +17,9 @@ import (
 //	hyperlite://rdp/<vm>?server=<server-url>
 //
 // A link comes from a web page, so nothing in it is trusted: the VM and user names
-// must match strict patterns, and the server must be one this workstation already
-// signed in to (a link can never point the client at another server).
+// must match strict patterns, and a server this workstation is not signed in to is
+// only used after the person confirms it in the terminal and approves the sign-in in
+// that server's web interface (see serverFor).
 type link struct {
 	action, vm, user string
 	server           *server
@@ -30,6 +31,9 @@ func parseLink(raw string, cfg *config) (*link, error) {
 		return nil, errors.New("not a hyperlite:// link")
 	}
 	l := &link{action: u.Host, vm: strings.Trim(u.Path, "/"), user: u.Query().Get("user")}
+	if u.User != nil || u.Port() != "" || u.Fragment != "" {
+		return nil, errors.New("malformed hyperlite:// link")
+	}
 	if l.action != "ssh" && l.action != "rdp" {
 		return nil, fmt.Errorf("unsupported link action %q", l.action)
 	}
@@ -43,11 +47,10 @@ func parseLink(raw string, cfg *config) (*link, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, ok := cfg.Servers[srv]
-	if !ok {
-		return nil, fmt.Errorf("this workstation is not signed in to %s: run hyperlite login %s", srv, srv)
+	l.server = &server{URL: srv}
+	if s, ok := cfg.Servers[srv]; ok {
+		l.server = s
 	}
-	l.server = s
 	return l, nil
 }
 
