@@ -36,7 +36,7 @@ All additive, covered by `tests/test_live_inventory_api.py` (and the SSO test).
 | `GET /vms/{name}/metrics/history?node=` | History of a VM on a remote node (the collector now samples remote VMs). |
 | `GET /storage/history?range&node` | Pool usage history (`storage_samples`), for the home page sparklines. |
 | `GET /nodes/{name}/hardware` | Network interfaces (speed, MAC, addresses), physical disks (`lsblk`, SMART health when `smartctl` is present), CPU (`lscpu`). |
-| `POST /nodes/test` | Tests the SSH connection before adding a node. |
+| `POST /nodes/test` | Tests the SSH connection before adding a node; failures are fixed reasons, the raw error goes to the audit log. |
 | `GET /vms/{name}/disks`, `/interfaces` | Disk size, allocation and pool; interface model, VLAN and firewall state; `?node=`. |
 | `GET /networks` | DHCP range and attached VM count. |
 | `GET /storage/pools` | Path and node. `GET /isos`: added date and location. |
@@ -44,7 +44,7 @@ All additive, covered by `tests/test_live_inventory_api.py` (and the SSO test).
 | Audit log | The client IP is recorded (`audit_log.ip`) and `GET /audit/count` returns the total for the footer. |
 | `GET /backup-schedules` | Every schedule at once (the VM list and home page no longer loop per VM). |
 | `PUT /vms/{name}/settings` (`os_label`) | The OS type is editable with vCPU and memory. |
-| `POST /auth/sso/test` | Tests the OIDC discovery document from the SSO page. |
+| `POST /auth/sso/test` | Tests the OIDC discovery document of the saved issuer (the endpoint takes no URL); failures are fixed messages, the details go to the audit log. |
 
 ## Page by page
 
