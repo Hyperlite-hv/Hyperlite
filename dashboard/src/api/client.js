@@ -754,6 +754,17 @@ export async function confirm2FA(code) {
 export async function disable2FA(password) {
   return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password }) });
 }
+// Workstation client (hyperlite): settings, and approval of a sign-in code from the web session.
+export async function fetchWorkstationConfig() {
+  return realFetch("/workstation/config");
+}
+export async function fetchCliRequest(code) {
+  return realFetch(`/auth/cli/requests/${encodeURIComponent(code)}`);
+}
+export async function decideCliRequest(code, approve) {
+  return realFetch(`/auth/cli/requests/${encodeURIComponent(code)}/${approve ? "approve" : "deny"}`, { method: "POST" });
+}
+
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
 }
