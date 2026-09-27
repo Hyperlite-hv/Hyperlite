@@ -5,6 +5,8 @@ redirect to the login screen with a clear message rather than a raw 500 that
 nobody would see (these are BROWSER redirects, not API calls consumed by the JS
 frontend)."""
 
+import json
+import urllib.error
 from datetime import UTC, datetime
 from urllib.parse import urlencode
 
@@ -70,20 +72,33 @@ def put_sso_config(payload: SSOConfigIn, user: dict = Depends(require_role("admi
     return {"message": "SSO configuration updated"}
 
 
-class SSOTestIn(BaseModel):
-    issuer: str
+def _discovery_failure(exc):
+    """Fixed, user-facing reason for a failed discovery: the exception text itself only
+    goes to the audit log, never to the browser."""
+    if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError):
+        return "The issuer is not a valid http(s) URL."
+    if isinstance(exc, json.JSONDecodeError):
+        return "The provider did not answer with an OIDC discovery document."
+    if isinstance(exc, urllib.error.HTTPError):
+        return "The provider answered with an HTTP error: check the issuer URL."
+    if isinstance(exc, TimeoutError):
+        return "The provider did not answer in time."
+    return "The provider could not be reached from this server."
 
 
 @router.post("/test")
-def test_sso(payload: SSOTestIn, user: dict = Depends(require_role("admin"))):
-    """Reads the provider's OIDC discovery document without saving anything, so the
-    admin can check the issuer before enabling SSO (a wrong issuer would otherwise
-    only show up as a failed sign-in)."""
+def test_sso(user: dict = Depends(require_role("admin"))):
+    """Reads the OIDC discovery document of the saved issuer, so the admin can check
+    the provider before enabling SSO (a wrong issuer would otherwise only show up as a
+    failed sign-in). Only the stored issuer is contacted: the endpoint takes no URL."""
+    issuer = (sso.get_config() or {}).get("issuer") or ""
+    if not issuer:
+        return {"ok": False, "detail": "No issuer saved yet: save the configuration first."}
     try:
-        doc = sso.discover(payload.issuer.strip())
+        doc = sso.discover(issuer)
     except Exception as e:
         log_action(user["username"], "test_sso", "sso", "echec", describe_exception(e))
-        return {"ok": False, "detail": describe_exception(e)}
+        return {"ok": False, "detail": _discovery_failure(e)}
     missing = [k for k in ("authorization_endpoint", "token_endpoint", "jwks_uri") if not doc.get(k)]
     ok = not missing
     log_action(user["username"], "test_sso", "sso", "succes" if ok else "echec")

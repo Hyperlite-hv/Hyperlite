@@ -284,7 +284,7 @@ def test_networks_report_dhcp_and_how_many_vms_use_them():
     assert network._vm_count_by_network(_C()) == {"lan": 1, "other": 1}
 
 
-def test_sso_test_reads_the_discovery_document_without_saving(client, make_user, monkeypatch):
+def test_sso_test_reads_the_saved_issuer_discovery_document(client, make_user, monkeypatch):
     from app.core import sso
 
     make_user("alice")
@@ -294,13 +294,36 @@ def test_sso_test_reads_the_discovery_document_without_saving(client, make_user,
         "discover",
         lambda issuer: {"issuer": issuer, "authorization_endpoint": "a", "token_endpoint": "t", "jwks_uri": "j"},
     )
-    ok = client.post("/auth/sso/test", json={"issuer": "https://idp.example.com"}, headers=headers).json()
+    # nothing saved yet: nothing is contacted
+    none = client.post("/auth/sso/test", headers=headers).json()
+    assert none["ok"] is False and "save" in none["detail"]
+    monkeypatch.setattr(sso, "get_config", lambda: {"issuer": "https://idp.example.com"})
+    ok = client.post("/auth/sso/test", headers=headers).json()
     assert ok["ok"] is True and ok["issuer"] == "https://idp.example.com"
 
     def boom(issuer):
         raise OSError("unreachable")
 
     monkeypatch.setattr(sso, "discover", boom)
-    ko = client.post("/auth/sso/test", json={"issuer": "https://idp.example.com"}, headers=headers).json()
-    assert ko["ok"] is False and ko["detail"]
-    assert client.get("/auth/sso/config", headers=headers).json().get("issuer") in (None, "")
+    ko = client.post("/auth/sso/test", headers=headers).json()
+    assert ko["ok"] is False and ko["detail"] == "The provider could not be reached from this server."
+    assert "unreachable" not in ko["detail"]  # the exception text is not sent to the browser
+
+
+def test_node_connection_test_returns_a_fixed_reason(client, make_user, monkeypatch):
+    from app.routers import nodes
+
+    make_user("alice")
+    headers = {"Authorization": f"Bearer {_login(client, 'alice')['access_token']}"}
+    monkeypatch.setattr(
+        nodes, "test_node_connection", lambda h, u, p: (False, "Cannot recv data: Permission denied (publickey).")
+    )
+    ko = client.post(
+        "/nodes/test", json={"hostname": "10.0.0.9", "ssh_user": "root", "ssh_port": 22}, headers=headers
+    ).json()
+    assert ko == {"ok": False, "detail": "SSH authentication refused: authorize the cluster key for this user."}
+    monkeypatch.setattr(nodes, "test_node_connection", lambda h, u, p: (True, "peer.example"))
+    ok = client.post(
+        "/nodes/test", json={"hostname": "10.0.0.9", "ssh_user": "root", "ssh_port": 22}, headers=headers
+    ).json()
+    assert ok == {"ok": True, "detail": "10.0.0.9"}
