@@ -475,6 +475,10 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
    the same spot and the current one must cover the previous ones exactly. Wide card: one line. Narrow card: the
    figures move to a second line, left-aligned under the name so they stay in view when the table scrolls. */
 .nx-nodeband { display: flex; align-items: center; flex-wrap: nowrap; gap: 0.4rem 1.3333rem; font-size: var(--fs-13); font-weight: 400; white-space: nowrap; }
+/* In the table the band takes the table's width instead of imposing its own (width 0, min-width 100%): a long band
+   must never make the table overflow, or its wrapper becomes a scroll container and nothing sticks any more. */
+.nx-grouprow--band .nx-nodeband { width: 0; min-width: 100%; }
+.nx-nodeband-id, .nx-nodeband-stats { height: 1.6rem; }
 .nx-nodeband-id { display: flex; align-items: center; gap: 0.6667rem; min-width: 0; overflow: hidden; }
 .nx-nodeband-id > * { flex: none; }
 .nx-nodeband-id > .nx-nodeband-addr { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
