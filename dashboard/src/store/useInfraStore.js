@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import {
   fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks,
   startVM, stopVM, restartVM, deleteVM, updateVM, fetchVM, makeTaskId,
@@ -39,16 +40,11 @@ export const useInfraStore = create((set, get) => ({
                         // the logic already handled by CentralPanel (pendingTab/clearPendingTab,
                         // unchanged). CentralPanel remains the only writer (setActiveTab).
   activeTab: "summary",
-  // Mobile sidebar: a real bug found when testing at phone width (~400px): the side
-  // column (a fixed 268px) took the whole screen and the central content became
-  // unusable. Below the `md` breakpoint (see Sidebar.jsx/Header.jsx), the sidebar
-  // becomes an overlaid drawer controlled by this state instead of always being
-  // visible.
-  mobileSidebarOpen: false,
+  // Mobile sidebar open/collapse state lives in shadcn's <SidebarProvider> (see
+  // AppShell.jsx / useSidebar()), not here.
 
   // ---- Tasks (real actions of this session) & notifications ----
   tasks: [],
-  toasts: [],
   taskLogCollapsed: false,
 
   // ---- Theme ----
@@ -107,14 +103,6 @@ export const useInfraStore = create((set, get) => ({
     set({ activeTab: tab });
   },
 
-  toggleMobileSidebar() {
-    set((s) => ({ mobileSidebarOpen: !s.mobileSidebarOpen }));
-  },
-
-  closeMobileSidebar() {
-    set({ mobileSidebarOpen: false });
-  },
-
   setSearchQuery(q) {
     set({ searchQuery: q });
   },
@@ -135,21 +123,20 @@ export const useInfraStore = create((set, get) => ({
   },
 
   // ---- Toasts ----
-  pushToast(toast) {
+  // Rendered by sonner's <Toaster/> (AppShell.jsx), not a hand-rolled list
+  // anymore. Errors stay displayed until closed manually (duration: Infinity):
+  // a technical failure message (e.g. a libvirt error) takes more than 5 s to
+  // read, and having it vanish by itself gave the impression that no error had
+  // been reported when it had (just too quickly to be seen).
+  pushToast({ kind, title, message, duration }) {
     toastCounter += 1;
     const id = `toast-${toastCounter}`;
-    set((s) => ({ toasts: [...s.toasts, { id, ...toast }] }));
-    // Errors stay displayed until they are closed manually: a technical failure
-    // message (e.g. a libvirt error) takes more than 5 s to read, and having it vanish
-    // by itself gave the impression that no error had been reported when it had (just
-    // too quickly to be seen).
-    if (toast.kind !== "error") {
-      setTimeout(() => get().dismissToast(id), toast.duration ?? 5000);
-    }
+    toast[kind === "error" ? "error" : "success"](title, {
+      id,
+      description: message || undefined,
+      duration: kind === "error" ? Infinity : (duration ?? 5000),
+    });
     return id;
-  },
-  dismissToast(id) {
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 
   // ---- Tasks: reflections of real actions taken in this session (no persisted

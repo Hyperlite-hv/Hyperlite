@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { Card } from "@/components/ui/card";
 
 const PHASE_LABELS = {
   demarrage: "Starting the VM...",
@@ -25,24 +26,24 @@ export default function ProvisioningBar({ status }) {
   if (!status || !status.provisioning) return null;
 
   return (
-    <div className="card p-5">
+    <Card className="p-5">
       <div className="flex items-center gap-2.5">
         <Loader2 size={16} className="animate-spin text-accent-blue shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-anthracite-100">
+          <div className="text-sm font-medium text-foreground">
             Unattended installation {status.os_family ? `(${FAMILY_LABELS[status.os_family] || status.os_family})` : ""} in progress
           </div>
-          <div className="text-xs text-anthracite-400 mt-0.5">
+          <div className="text-xs text-muted-foreground mt-0.5">
             {PHASE_LABELS[status.phase] || "In progress..."} {status.elapsed_s != null && `(${formatElapsed(status.elapsed_s)})`}
           </div>
         </div>
       </div>
-      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-anthracite-600">
+      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div className="h-full w-1/3 rounded-full bg-accent-blue provisioning-indeterminate" />
       </div>
-      <p className="mt-2 text-[11px] text-anthracite-400">
+      <p className="mt-2 text-[11px] text-muted-foreground">
         The web SSH terminal will be available automatically as soon as the installation ends.
       </p>
-    </div>
+    </Card>
   );
 }

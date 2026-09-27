@@ -18,5 +18,6 @@ from app.routers.vms import clone  # noqa: F401
 from app.routers.vms import migration  # noqa: F401
 from app.routers.vms import runtime  # noqa: F401
 from app.routers.vms import console  # noqa: F401
+from app.routers.vms import tunnel  # noqa: F401
 
 __all__ = ["router"]

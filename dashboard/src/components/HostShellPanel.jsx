@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plug, Unplug, ShieldAlert } from "lucide-react";
 import { createHostTerminalTicket } from "../api/client";
 import { ensureXtermLoaded, wsUrl } from "../utils/loadXterm";
+import { Button } from "@/components/ui/button";
 
 // Interactive shell on the physical host: the same ticket + WebSocket + xterm.js
 // relay as ConsolePanel (per-VM SSH terminal), but a different backend entry
@@ -70,24 +71,24 @@ export default function HostShellPanel({ hostname }) {
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-start gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2">
         <ShieldAlert size={16} className="text-status-error shrink-0 mt-0.5" />
-        <p className="text-xs text-anthracite-200">
+        <p className="text-xs text-foreground/90">
           Full root access to <strong>{hostname}</strong>, the physical machine hosting all the VMs. Every session open/close is logged (Tasks + Journal tabs) with the responsible user.
         </p>
       </div>
 
       <div className="flex items-center gap-2">
         {status === "connected" ? (
-          <button className="btn-secondary ml-auto" onClick={cleanup}><Unplug size={13} /> Disconnect</button>
+          <Button variant="secondary" className="ml-auto" onClick={cleanup}><Unplug /> Disconnect</Button>
         ) : (
-          <button className="btn-primary ml-auto" disabled={status === "connecting"} onClick={connect}>
-            <Plug size={13} /> {status === "connecting" ? "Connecting..." : "Open the shell"}
-          </button>
+          <Button className="ml-auto" disabled={status === "connecting"} onClick={connect}>
+            <Plug /> {status === "connecting" ? "Connecting..." : "Open the shell"}
+          </Button>
         )}
       </div>
 
       {error && <p className="text-xs text-status-error">{error}</p>}
 
-      <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-anthracite-600">
+      <div className="flex-1 min-h-[420px] rounded-lg overflow-hidden bg-black border border-border">
         <div ref={screenRef} className="h-full w-full" />
       </div>
     </div>
