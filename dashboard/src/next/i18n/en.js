@@ -1725,6 +1725,12 @@ export default {
   "vmlist.groupByNode": "Group by node",
   "vmlist.groupCount": "{run} running / {n} VM(s)",
   "vmlist.unknownNode": "Unknown node",
+  "vmlist.collapseNode": "Collapse {name}",
+  "vmlist.expandNode": "Expand {name}",
+  "vmlist.band.toCheck": "{n} to check",
+  "vmlist.band.cpu": "CPU",
+  "vmlist.band.ram": "RAM",
+  "vmlist.band.runShort": "{run}/{n} running",
   "loading": "Loading…",
   "session.checking": "Checking the session…",
 };

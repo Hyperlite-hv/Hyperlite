@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronRight, Copy, Monitor, Play, Plus, Search, Square, SquareTerminal, TriangleAlert, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Monitor, Play, Plus, Search, Square, SquareTerminal, TriangleAlert, X } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
@@ -8,15 +8,20 @@ import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
 import { formatSizeMb, formatUptimeLong } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
-import { PageHeader, Spark, Empty, StatePill, TableWrap } from "../components/ui";
+import { PageHeader, Spark, Empty, StatePill, TableWrap, Meter, Chip } from "../components/ui";
 import { useVmHistory } from "./VmPerformance";
 
 const VIEW_KEY = "hyperlite-next-vmview";
 const GROUP_KEY = "hyperlite-next-vmgroup";
+const COLLAPSED_KEY = "hyperlite-next-vmcollapsed";
+const NODE_PILLS_MAX = 6; // beyond this many nodes the filter becomes a select, pills would wrap into a wall
 const PROBLEM = new Set(["plante", "bloque", "inconnu"]);
 function readView() { try { return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "table"; } catch { return "table"; } }
-// Grouping by node: the user's choice when there is one, otherwise on as soon as there are several nodes.
+// Grouping by node: the user's choice when there is one, otherwise on (even with one node, the band tells which
+// machine runs the VMs and how loaded it is).
 function readGroup() { try { const v = localStorage.getItem(GROUP_KEY); return v == null ? null : v === "1"; } catch { return null; } }
+function readCollapsed() { try { const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); } }
+const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);
 const nodeAddress = (n) => n?.ip || n?.hostname || n?.live?.address || null;
 
 // Detail panel of the selected VM: state, the contextual primary plus Stop, the last hour of CPU and memory
@@ -81,6 +86,40 @@ function DetailPanel({ vm, onClose }) {
   );
 }
 
+// Head of a node's group: which machine runs these VMs and whether it is healthy (state, CPU and memory of the
+// host, VMs to check), with a toggle to fold the group. In the table it stays stuck under the column headers
+// while its VMs scroll by.
+function NodeBand({ node, list, collapsed, onToggle }) {
+  const t = useT();
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const known = node.id !== "?";
+  const online = node.etat === "online";
+  const run = list.filter((v) => v.etat === "actif").length;
+  const toCheck = list.filter((v) => PROBLEM.has(v.etat)).length;
+  const addr = nodeAddress(node);
+  return (
+    <span className="nx-nodeband">
+      <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon nx-chev" aria-expanded={!collapsed}
+        aria-label={t(collapsed ? "vmlist.expandNode" : "vmlist.collapseNode", { name: node.nom })} onClick={onToggle}>
+        <ChevronDown size={15} aria-hidden="true" />
+      </button>
+      <span className="nx-nodeband-id">
+        {online && <StatusIndicator kind="node" wire={node.etat} compact />}
+        {known ? <button type="button" className="nx-lnk" onClick={() => navigateTo("node", node.id, "summary")}>{node.nom}</button> : <span>{node.nom}</span>}
+        {addr && <span className="nx-mono nx-muted nx-nodeband-addr">{addr}</span>}
+        {known && node.etat && !online && <StatePill kind="node" wire={node.etat} />}
+        {toCheck > 0 && <Chip tone="warning">{t("vmlist.band.toCheck", { n: toCheck })}</Chip>}
+      </span>
+      <span className="nx-nodeband-stats">
+        {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.cpu")}</span><Meter value={node.cpu_utilisation} label={`${t("ns.cpu")} ${node.nom}`} /></span>}
+        {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.ram")}</span><Meter value={pct(node.memoire_utilisee_mo, node.memoire_totale_mo)} label={`${t("ns.memory")} ${node.nom}`} /></span>}
+        <span className="nx-mono nx-muted nx-nodeband-count">{t("vmlist.groupCount", { run, n: list.length })}</span>
+        <span className="nx-mono nx-muted nx-nodeband-count--short" aria-hidden="true">{t("vmlist.band.runShort", { run, n: list.length })}</span>
+      </span>
+    </span>
+  );
+}
+
 // "Virtual machines": every VM of every node, problems first, with a detail panel for the selected row.
 export default function VmList() {
   const t = useT();
@@ -95,7 +134,14 @@ export default function VmList() {
   const [detail, setDetail] = useState(true);
   const [nodeFilter, setNodeFilter] = useState("");
   const [groupPref, setGroupPref] = useState(readGroup);
-  const group = groupPref ?? nodes.length > 1;
+  const group = groupPref ?? true;
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggleNode = (id) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next])); } catch { /* preference only */ }
+    return next;
+  });
   const setGroup = (v) => { setGroupPref(v); try { localStorage.setItem(GROUP_KEY, v ? "1" : "0"); } catch { /* preference only */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* preference only */ } };
   const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
@@ -185,8 +231,18 @@ export default function VmList() {
             <button key={id} type="button" aria-pressed={chip === id} onClick={() => setChip(id)}>{label} <span className={`nx-n${id === "problems" && counts.problems ? " is-warn" : ""}`}>{counts[id]}</span></button>
           ))}
         </div>
+        {nodes.length > 1 && nodes.length <= NODE_PILLS_MAX && (
+          <div className="nx-seg2 nx-seg2--scroll" role="group" aria-label={t("vmlist.filterNode")}>
+            <button type="button" aria-pressed={!nodeFilter} onClick={() => setNodeFilter("")}>{t("vmlist.allNodes")} <span className="nx-n">{vms.length}</span></button>
+            {nodes.map((n) => (
+              <button key={n.id} type="button" aria-pressed={nodeFilter === n.id} onClick={() => setNodeFilter(n.id)}>
+                <StatusIndicator kind="node" wire={n.etat} compact />{n.nom} <span className="nx-n">{vms.filter((v) => v.node === n.id).length}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <span className="nx-sp" />
-        {nodes.length > 1 && (
+        {nodes.length > NODE_PILLS_MAX && (
           <select className="nx-sel" aria-label={t("vmlist.filterNode")} value={nodeFilter} onChange={(e) => setNodeFilter(e.target.value)}>
             <option value="">{t("vmlist.allNodes")}</option>
             {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom} ({vms.filter((v) => v.node === n.id).length})</option>)}
@@ -208,13 +264,8 @@ export default function VmList() {
             <div className="nx-stack">
               {groups.map(({ node, vms: list }) => (
                 <section key={node.id} aria-label={node.nom}>
-                  <h2 className="nx-grouphead nx-grouphead--cards">
-                    {node.etat && <StatusIndicator kind="node" wire={node.etat} compact />}
-                    {node.id === "?" ? <span>{node.nom}</span> : <button type="button" className="nx-lnk" onClick={() => navigateTo("node", node.id, "summary")}>{node.nom}</button>}
-                    {nodeAddress(node) && <span className="nx-mono nx-muted">{nodeAddress(node)}</span>}
-                    <span className="nx-muted">· {t("vmlist.groupCount", { run: list.filter((v) => v.etat === "actif").length, n: list.length })}</span>
-                  </h2>
-                  {list.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("ns.noVms")}</p> : <div className="nx-cards2">{list.map((vm) => renderCard(vm))}</div>}
+                  <h2 className="nx-grouphead nx-grouphead--cards"><NodeBand node={node} list={list} collapsed={collapsed.has(node.id)} onToggle={() => toggleNode(node.id)} /></h2>
+                  {collapsed.has(node.id) ? null : list.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("ns.noVms")}</p> : <div className="nx-cards2">{list.map((vm) => renderCard(vm))}</div>}
                 </section>
               ))}
             </div>
@@ -222,27 +273,19 @@ export default function VmList() {
         )
       ) : (
         <div className={`nx-vmgrid${showDetail ? " has-detail" : ""}`}>
-          <div className="nx-card2 nx-card2--flush">
+          <div className="nx-card2 nx-card2--flush nx-card2--sticky">
             {shown.length === 0 ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)", margin: 0 }}>{t("act.noneFiltered")}</p> : (
-              <TableWrap>
+              <TableWrap sticky>
                 <table className="nx-table">
                   <thead><tr>{th("state", <span className="nx-sr">{t("ns.col.state")}</span>)}{th("name", t("ns.col.name"))}{!group && th("node", t("ns.node"))}<th scope="col">{t("vmlist.ip")}</th>{th("res", t("vmlist.cpuMem"), "nx-num")}{th("uptime", t("ns.col.uptime"))}</tr></thead>
                   {group ? groups.map(({ node, vms: list }) => {
-                    const run = list.filter((v) => v.etat === "actif").length;
-                    const addr = nodeAddress(node);
+                    const folded = collapsed.has(node.id);
                     return (
                       <tbody key={node.id} className="nx-group">
-                        <tr className="nx-grouprow">
-                          <th scope="colgroup" colSpan={5}>
-                            <span className="nx-grouphead">
-                              {node.etat && <StatusIndicator kind="node" wire={node.etat} compact />}
-                              {node.id === "?" ? <span>{node.nom}</span> : <button type="button" className="nx-lnk" onClick={() => navigateTo("node", node.id, "summary")}>{node.nom}</button>}
-                              {addr && <span className="nx-mono nx-muted">{addr}</span>}
-                              <span className="nx-muted">· {t("vmlist.groupCount", { run, n: list.length })}</span>
-                            </span>
-                          </th>
+                        <tr className="nx-grouprow nx-grouprow--band">
+                          <th scope="colgroup" colSpan={5}><NodeBand node={node} list={list} collapsed={folded} onToggle={() => toggleNode(node.id)} /></th>
                         </tr>
-                        {list.length === 0 ? <tr><td colSpan={5} className="nx-muted" style={{ paddingLeft: "2.6667rem" }}>{t("ns.noVms")}</td></tr> : list.map((vm) => renderRow(vm, false))}
+                        {folded ? null : list.length === 0 ? <tr><td colSpan={5} className="nx-muted" style={{ paddingLeft: "2.6667rem" }}>{t("ns.noVms")}</td></tr> : list.map((vm) => renderRow(vm, false))}
                       </tbody>
                     );
                   }) : <tbody>{shown.map((vm) => renderRow(vm, true))}</tbody>}
