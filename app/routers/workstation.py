@@ -30,8 +30,10 @@ VERSION_RE = re.compile(r"^[A-Za-z0-9._+-]{1,40}$")
 _sha_cache = {}  # path -> (mtime, sha256)
 
 
-def _binary(platform):
-    return CLI_DIST / platform / PLATFORMS[platform]
+def _binaries():
+    """Platform -> path, built from the fixed table only: the platform named in a
+    request is used as a lookup key, never to build a path."""
+    return {platform: CLI_DIST / platform / filename for platform, filename in PLATFORMS.items()}
 
 
 def _sha256(path):
@@ -46,8 +48,8 @@ def _sha256(path):
 
 def _downloads():
     out = []
-    for platform, filename in PLATFORMS.items():
-        path = _binary(platform)
+    for platform, path in _binaries().items():
+        filename = PLATFORMS[platform]
         if path.is_file():
             out.append(
                 {"platform": platform, "filename": filename, "size": path.stat().st_size, "sha256": _sha256(path)}
@@ -69,9 +71,10 @@ def workstation_config(user: dict = Depends(get_current_user)):
 def download_client(platform: str):
     """Public on purpose, like any installer: the binary holds no secret, and a
     workstation without a session must be able to fetch it (or a deployment tool)."""
-    if platform not in PLATFORMS or not _binary(platform).is_file():
+    path = _binaries().get(platform)
+    if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Client not available for this platform on this server")
-    return FileResponse(_binary(platform), media_type="application/octet-stream", filename=PLATFORMS[platform])
+    return FileResponse(path, media_type="application/octet-stream", filename=path.name)
 
 
 # ---- Device authorization ----
