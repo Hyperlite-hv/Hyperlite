@@ -1750,6 +1750,8 @@ export default {
   "ws.download": "Télécharger hyperlite pour {os} · {size}",
   "ws.advanced": "Options avancées",
   "ws.otherSystems": "Autres systèmes",
+  "loadingSlow": "Cela prend plus de temps que prévu : le serveur est peut-être occupé ou injoignable.",
+  "reloadPage": "Recharger la page",
   "loading": "Chargement…",
   "session.checking": "Vérification de la session…",
 };

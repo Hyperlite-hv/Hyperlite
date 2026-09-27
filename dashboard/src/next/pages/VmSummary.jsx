@@ -9,7 +9,7 @@ import { usePolling } from "../lib/polling";
 import { taskLabel } from "../lib/enums";
 import { formatSizeMb, formatRate, clockTime, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
-import { KpiStrip, Card } from "../components/ui";
+import { KpiStrip, Card, Loading } from "../components/ui";
 import { useVmHistory } from "./VmPerformance";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
@@ -134,7 +134,7 @@ export default function VmSummary({ resource: vm }) {
       </div>
 
       <Card title={t("ns.activity")}>
-        {recent == null ? <p className="nx-muted" style={{ margin: 0 }}>{t("loading")}</p> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
+        {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
           <ul className="nx-list2">
             {recent.map((r) => {
               const at = r.debut_le || r.cree_le;

@@ -8,7 +8,7 @@ import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { formatSizeMb, formatDateTime } from "../lib/format";
 import { errorMessage } from "../lib/errors";
-import { PageHeader, Empty } from "../components/ui";
+import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 import TemplatesPanel from "./TemplatesPage";
 
@@ -54,8 +54,8 @@ export default function LibraryPage() {
           <>
             {caps.admin && <div ref={drop}><IsoUploadDropzone onDone={loadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} /></div>}
             <div className="nx-card2 nx-card2--flush">
-              {isos == null ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)" }}>{t("loading")}</p> : isos.length === 0 ? <Empty icon={Disc3} title={t("stor.noIso")} text={t("lib.isoNoneHelp")} /> : (
-                <div className="nx-tablewrap">
+              {isos == null ? <Loading style={{ padding: "var(--space-4)" }} /> : isos.length === 0 ? <Empty icon={Disc3} title={t("stor.noIso")} text={t("lib.isoNoneHelp")} /> : (
+                <TableWrap>
                   <table className="nx-table">
                     <thead><tr><th scope="col">{t("lib.image")}</th><th scope="col" className="nx-num">{t("lib.size")}</th><th scope="col">{t("lib.location")}</th><th scope="col">{t("lib.added")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                     <tbody>
@@ -70,7 +70,7 @@ export default function LibraryPage() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TableWrap>
               )}
             </div>
           </>

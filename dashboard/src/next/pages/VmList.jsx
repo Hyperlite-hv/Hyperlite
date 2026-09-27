@@ -8,7 +8,7 @@ import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
 import { formatSizeMb, formatUptimeLong } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
-import { PageHeader, Spark, Empty, StatePill } from "../components/ui";
+import { PageHeader, Spark, Empty, StatePill, TableWrap } from "../components/ui";
 import { useVmHistory } from "./VmPerformance";
 
 const VIEW_KEY = "hyperlite-next-vmview";
@@ -168,7 +168,7 @@ export default function VmList() {
         <div className={`nx-vmgrid${showDetail ? " has-detail" : ""}`}>
           <div className="nx-card2 nx-card2--flush">
             {shown.length === 0 ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)", margin: 0 }}>{t("act.noneFiltered")}</p> : (
-              <div className="nx-tablewrap">
+              <TableWrap>
                 <table className="nx-table">
                   <thead><tr>{th("state", <span className="nx-sr">{t("ns.col.state")}</span>)}{th("name", t("ns.col.name"))}{th("node", t("ns.node"))}<th scope="col">{t("vmlist.ip")}</th>{th("res", t("vmlist.cpuMem"), "nx-num")}{th("uptime", t("ns.col.uptime"))}</tr></thead>
                   <tbody>
@@ -189,7 +189,7 @@ export default function VmList() {
                   </tbody>
                   <tfoot><tr><td colSpan={6}>{t("vmlist.footer", { shown: shown.length, total: vms.length, vcpu, mem: formatSizeMb(mem, lang) })}</td></tr></tfoot>
                 </table>
-              </div>
+              </TableWrap>
             )}
           </div>
           {showDetail && <DetailPanel vm={selected} onClose={() => { setDetail(false); setSelName(null); }} />}

@@ -7,7 +7,7 @@ import { compareNodes, NA } from "../../lib/capabilitiesView";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
-import { PageHeader, Card, Empty, Field } from "../components/ui";
+import { PageHeader, Card, Empty, Field, Loading } from "../components/ui";
 import { capRow } from "../lib/capsI18n";
 
 // Deployment profile and VM allocation policy (GET/PUT /host/profile, /host/allocation): the labels come from
@@ -22,7 +22,7 @@ function AllocationCard() {
   const [busy, setBusy] = useState(false);
   useEffect(() => { fetchHostProfile().then((d) => { setData(d); setProfile(d.choix in d.profils ? d.choix : "auto"); setPolicy(d.allocation.actif); }).catch(() => setData(false)); }, []);
   if (data === false) return null;
-  if (!data) return <Card title={t("cp.alloc")}><p className="nx-muted" style={{ margin: 0 }}>{t("loading")}</p></Card>;
+  if (!data) return <Card title={t("cp.alloc")}><Loading style={{ margin: 0 }} /></Card>;
   const tr = (prefix, id, field, fallback) => { const k = `${prefix}.${id}.${field}`; const v = t(k); return v === k ? fallback : v; };
   const alloc = data.allocation;
   const pForced = data.source === "configuration";

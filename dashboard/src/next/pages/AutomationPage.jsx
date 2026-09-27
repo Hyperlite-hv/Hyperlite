@@ -8,7 +8,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Card, Empty, SideDrawer, Field, Chip } from "../components/ui";
+import { PageHeader, Card, Empty, SideDrawer, Field, Chip, Loading } from "../components/ui";
 import { Clock, Play, Plus, Trash2, Zap } from "lucide-react";
 
 const newStep = () => ({ cible_type: "host", cible: "", commande: "", condition_type: "exit_code", condition_valeur: "0" });
@@ -124,7 +124,7 @@ export default function AutomationPage() {
       {error && jobs == null ? <ErrorState message={error} onRetry={reload} /> : (
         <div className="nx-cols2">
           <Card title={t("au.available")}>
-            {jobs == null ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("loading")}</p> : list.length === 0 ? <Empty icon={Zap} title={t("au.none")} /> : (
+            {jobs == null ? <Loading style={{ margin: 0 }} /> : list.length === 0 ? <Empty icon={Zap} title={t("au.none")} /> : (
               <div className="nx-stack">
                 {list.map((job) => (
                   <div key={job.id} className={`nx-tile nx-tile--static${open === job.id ? " is-sel" : ""}`}>
@@ -151,7 +151,7 @@ export default function AutomationPage() {
                 {detail[selected.id]?.steps?.length > 0 && (
                   <ol className="nx-steps" aria-label={t("au.steps")}>{detail[selected.id].steps.map((st) => <li key={st.id ?? st.ordre}><span className="nx-muted">[{targetLabel(st, t)}]</span> <code className="nx-mono">{st.commande}</code></li>)}</ol>
                 )}
-                {!runs[selected.id] ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("loading")}</p> : runs[selected.id].length === 0 ? <Empty icon={Clock} title={t("au.noRuns")} text={t("au.noRunsHelp")} /> : (
+                {!runs[selected.id] ? <Loading style={{ margin: 0 }} /> : runs[selected.id].length === 0 ? <Empty icon={Clock} title={t("au.noRuns")} text={t("au.noRunsHelp")} /> : (
                   <ul className="nx-list2">
                     {runs[selected.id].map((r) => (
                       <li key={r.id} style={{ flexWrap: "wrap" }}>

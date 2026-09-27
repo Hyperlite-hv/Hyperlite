@@ -9,7 +9,7 @@ import { deriveAlerts } from "../lib/alerts";
 import { taskLabel } from "../lib/enums";
 import { formatSizeMb, formatSizeGb, formatUptimeLong, formatVersionInt, clockTime, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
-import { KpiStrip, Card } from "../components/ui";
+import { KpiStrip, Card, Loading, TableWrap } from "../components/ui";
 import { useHostHistory } from "./VmPerformance";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
@@ -55,7 +55,7 @@ export default function NodeSummary({ resource: node }) {
       <div className="nx-cols2">
         <Card title={t("ns.vmsOnNode")} flush actions={<button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("datacenter", null, "vms")}>{t("ns.allVms")}<ChevronRight size={14} aria-hidden="true" /></button>}>
           {nodeVms.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0, padding: "0 var(--space-4) var(--space-4)" }}>{t("ns.noVms")}</p> : (
-            <div className="nx-tablewrap">
+            <TableWrap>
               <table className="nx-table">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ns.col.name")}</th><th scope="col" className="nx-num">{t("ns.vcpuRam")}</th><th scope="col">{t("vmlist.ip")}</th><th scope="col">{t("ns.col.uptime")}</th></tr></thead>
                 <tbody>
@@ -70,7 +70,7 @@ export default function NodeSummary({ resource: node }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )}
         </Card>
         <Card title={t("vm.config")}>
@@ -87,7 +87,7 @@ export default function NodeSummary({ resource: node }) {
       </div>
 
       <Card title={t("ns.activity")} actions={<button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("node", nodeId, "tasks")}>{t("ns.nodeTasks")}<ChevronRight size={14} aria-hidden="true" /></button>}>
-        {recent == null ? <p className="nx-muted" style={{ margin: 0 }}>{t("loading")}</p> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
+        {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
           <ul className="nx-list2">
             {recent.map((r) => {
               const at = r.debut_le || r.cree_le;
