@@ -67,7 +67,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: cli/go.mod
+          # The latest stable Go, not the minimum of go.mod: the shipped binaries embed
+          # the standard library, so they get its latest security fixes.
+          go-version: stable
+          check-latest: true
           cache-dependency-path: cli/go.sum
       - name: Format check
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
