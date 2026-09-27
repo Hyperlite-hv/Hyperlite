@@ -1720,6 +1720,11 @@ export default {
   "ws.otherSystems": "Other systems",
   "loadingSlow": "This is taking longer than expected: the server may be busy or unreachable.",
   "reloadPage": "Reload the page",
+  "vmlist.filterNode": "Filter by node",
+  "vmlist.allNodes": "All nodes",
+  "vmlist.groupByNode": "Group by node",
+  "vmlist.groupCount": "{run} running / {n} VM(s)",
+  "vmlist.unknownNode": "Unknown node",
   "loading": "Loading…",
   "session.checking": "Checking the session…",
 };
