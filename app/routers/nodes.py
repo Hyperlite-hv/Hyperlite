@@ -51,7 +51,34 @@ def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=422, detail="Invalid address or SSH user")
     ok, detail = test_node_connection(payload.hostname, payload.ssh_user, payload.ssh_port)
     log_action(user["username"], "test_node", payload.hostname, "succes" if ok else "echec", None if ok else detail)
-    return {"ok": ok, "detail": detail}
+    # The raw libvirt/SSH error stays in the audit log; the browser gets a fixed reason.
+    if ok:
+        return {"ok": True, "detail": payload.hostname}
+    return {"ok": False, "detail": _connection_failure(detail)}
+
+
+def _connection_failure(raw):
+    text = (raw or "").lower()
+    if "permission denied" in text or "publickey" in text or "authentication" in text:
+        return "SSH authentication refused: authorize the cluster key for this user."
+    if "host key verification" in text:
+        return "SSH host key verification failed."
+    if "timed out" in text or "timeout" in text:
+        return "The connection timed out."
+    if (
+        "no route" in text
+        or "unreachable" in text
+        or "name or service not known" in text
+        or "could not resolve" in text
+    ):
+        return "The host cannot be reached from this server."
+    if "connection refused" in text:
+        return "The SSH port refused the connection."
+    if "hypervisor" in text and "qemu/kvm expected" in text:
+        return "This host does not run a QEMU/KVM hypervisor."
+    if "libvirt" in text or "socket" in text:
+        return "libvirt does not answer on this host: is libvirtd running?"
+    return "The connection failed: the details are in the audit log."
 
 
 @router.get("/cluster-pubkey")
