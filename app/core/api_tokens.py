@@ -21,14 +21,15 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_token(username: str, name: str):
+def create_token(username: str, name: str, expires_at: str | None = None, kind: str = "api"):
     """Return (id, plain_token). The plain token cannot be recovered once this
-    function has returned."""
+    function has returned. kind: "api" (created by hand, no expiry by default) or
+    "cli" (a workstation signed in with `hyperlite login`, always expiring)."""
     token = generate_token()
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO api_tokens (username, name, token_hash, created_at) VALUES (?, ?, ?, ?)",
-            (username, name, _hash(token), datetime.now(UTC).isoformat()),
+            "INSERT INTO api_tokens (username, name, token_hash, created_at, expires_at, kind) VALUES (?, ?, ?, ?, ?, ?)",
+            (username, name, _hash(token), datetime.now(UTC).isoformat(), expires_at, kind),
         )
         conn.commit()
         token_id = cur.lastrowid
@@ -38,7 +39,7 @@ def create_token(username: str, name: str):
 def list_tokens(username: str):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, name, created_at, last_used_at FROM api_tokens WHERE username = ? ORDER BY created_at DESC",
+            "SELECT id, name, created_at, last_used_at, expires_at, kind FROM api_tokens WHERE username = ? ORDER BY created_at DESC",
             (username,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -61,8 +62,10 @@ def verify_token(token: str):
         return None
     token_hash = _hash(token)
     with get_conn() as conn:
-        row = conn.execute("SELECT username FROM api_tokens WHERE token_hash = ?", (token_hash,)).fetchone()
+        row = conn.execute("SELECT username, expires_at FROM api_tokens WHERE token_hash = ?", (token_hash,)).fetchone()
         if not row:
+            return None
+        if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= datetime.now(UTC):
             return None
         conn.execute(
             "UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?",
