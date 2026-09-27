@@ -17,7 +17,8 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   const jobs = (await (await request.get("/jobs", { headers: auth() })).json()) as Array<{ id: number; name: string }>;
-  for (const j of jobs) if (j.name.startsWith(PREFIX)) await request.delete(`/jobs/${j.id}`, { headers: auth() });
+  // only this file's jobs (its time stamp): other files run at the same time
+  for (const j of jobs) if (j.name.startsWith(PREFIX) && j.name.includes(stamp)) await request.delete(`/jobs/${j.id}`, { headers: auth() });
   if (existsSync(MARKER)) unlinkSync(MARKER);
 });
 

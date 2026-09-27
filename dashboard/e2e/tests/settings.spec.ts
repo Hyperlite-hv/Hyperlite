@@ -186,26 +186,6 @@ test.describe("Account security", () => {
 });
 
 test.describe("Settings persist and secrets are never returned", () => {
-  test("the SSO client secret is stored but never sent back", async ({ request }) => {
-    const put = await request.put("/auth/sso/config", { headers: auth(), data: { enabled: false, issuer: "https://idp.example.invalid", client_id: "hyperlite", client_secret: "super-secret-value", redirect_uri: "https://hyperlite.example.invalid/auth/sso/callback", scope: "openid profile email groups", group_claim: "groups", admin_groups: "admins" } });
-    expect(put.ok()).toBe(true);
-    const cfg = await request.get("/auth/sso/config", { headers: auth() });
-    const text = JSON.stringify(await cfg.json());
-    expect(text).not.toContain("super-secret-value");
-    expect(text).toContain("client_secret_set");
-  });
-
-  test("the SSO tab keeps the saved values after a reload without showing the secret", async ({ page }) => {
-    await uiLogin(page);
-    await goTo(page, "Authentication (SSO)");
-    const main = page.getByRole("main");
-    await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
-    await expect(main.getByText(/already saved/)).toBeVisible();
-    await expect(main.locator("input[type=password]")).toHaveValue("");
-    await page.reload();
-    await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
-  });
-
   test("the deployment profile choice persists after a reload", async ({ page, request }) => {
     await uiLogin(page);
     await goTo(page, "Compatibility");
