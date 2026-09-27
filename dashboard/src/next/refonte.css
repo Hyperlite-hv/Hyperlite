@@ -297,6 +297,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-crumbs .nx-crumb-current { color: var(--color-text-primary); font-weight: 500; }
 .nx-find { margin-left: auto; flex: 0 1 22.6667rem; max-width: 22.6667rem; height: 2.1333rem; border-color: var(--color-border-default); color: var(--color-text-muted); }
 .nx-activity-btn { position: relative; }
+.nx-activity-btn[aria-expanded="true"] { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .nx-activity-btn .nx-badge-count { position: absolute; top: -3px; right: -5px; }
 .nx-badge-count.is-warn { background: var(--color-warning); color: var(--color-bg-app); }
 .nx-drawer-foot { display: flex; gap: 0.5333rem; padding: 0.6667rem 1.0667rem; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-surface-raised); }
@@ -429,3 +430,11 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-login-or span { flex: 1; height: 1px; background: var(--color-border-subtle); }
 @media (max-width: 900px) { .nx-login { grid-template-columns: minmax(0, 1fr); } .nx-login-l { display: none; } }
 .nx-wizard2 .nx-wiz-body .nx-form { border: 0; padding: 0; margin: 0; background: none; }
+/* Separate console window: header, then the console filling the rest of the window */
+.nx-console-window { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; gap: 0.6667rem; padding: 0.8rem; background: var(--color-bg-workspace); color: var(--color-text-primary); font-family: var(--font-ui); }
+.nx-console-head { display: flex; align-items: center; gap: 0.6667rem; color: var(--color-text-secondary); }
+.nx-console-head h1 { margin: 0; font-size: var(--fs-16); font-weight: 600; color: var(--color-text-primary); }
+.nx-console-standalone { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.nx-console-standalone .nx-screen { flex: 1; display: flex; }
+.nx-console-standalone .nx-term--screen { aspect-ratio: auto; max-height: none; flex: 1; height: auto; min-height: 20rem; }
+.nx-console-standalone .nx-term .xterm { height: 100%; }
