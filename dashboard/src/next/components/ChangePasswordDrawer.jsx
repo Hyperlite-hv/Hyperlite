@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ShieldCheck } from "lucide-react";
 import { changeMyPassword } from "../../api/client";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -21,6 +22,8 @@ function reason(t, message) {
 
 // "Change my password", for every signed-in user: current password (+ 2FA code when enabled), new one twice.
 // The other sessions of the account are signed out by the server; this one continues with the fresh token.
+// Opened from the sidebar, it is portalled into the app root: inside the sidebar it would take the sidebar's
+// own (always dark) colours instead of the page theme.
 export default function ChangePasswordDrawer({ open, onClose }) {
   const t = useT();
   const { username, totpEnabled, replaceToken } = useAuthStore();
@@ -46,7 +49,8 @@ export default function ChangePasswordDrawer({ open, onClose }) {
     } finally { setBusy(false); }
   }
 
-  return (
+  if (!open) return null;
+  return createPortal(
     <SideDrawer open={open} title={t("pw.changeTitle")} onClose={close} busy={busy} footer={<>
       <button type="button" className="nx-btn nx-btn--ghost" onClick={close} disabled={busy}>{t("action.cancel")}</button>
       <button type="submit" form="nx-change-pw" className="nx-btn nx-btn--primary" disabled={!valid || busy}>{busy ? t("pw.saving") : t("pw.changeBtn")}</button>
@@ -63,6 +67,7 @@ export default function ChangePasswordDrawer({ open, onClose }) {
           </Field>
         )}
       </form>
-    </SideDrawer>
+    </SideDrawer>,
+    document.querySelector(".nx-root") || document.body,
   );
 }
