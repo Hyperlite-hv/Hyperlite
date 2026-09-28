@@ -313,6 +313,7 @@ def lease_check(node_name):
     try:
         qemu = _run_ssh(node, ["cat", str(QEMU_CONF)], timeout=10)
         lockd = _run_ssh(node, ["cat", str(LOCKD_CONF)], timeout=10)
-    except (OSError, subprocess.SubprocessError) as e:
-        return {"actif": False, "detail": f"Cannot read the node's libvirt configuration: {e}"}
+    except (OSError, subprocess.SubprocessError):
+        logger.warning("Cannot read the libvirt configuration of %s", node_name, exc_info=True)
+        return {"actif": False, "detail": "Cannot read the node's libvirt configuration over SSH (see the service log)"}
     return _lockd_state(qemu.stdout, lockd.stdout)
