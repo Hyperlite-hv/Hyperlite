@@ -10,6 +10,8 @@ import { deriveAlerts } from "../lib/alerts";
 import { taskLabel } from "../lib/enums";
 import { formatSizeGb, formatUptimeLong, clockTime, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
+import { useContextTarget } from "../components/ContextMenu";
+import { NodeContextMenu } from "../components/ObjectActions";
 import { PageHeader, KpiStrip, Meter, Card, Spark, Loading, TableWrap } from "../components/ui";
 import { PerformanceView, useHostHistory } from "./VmPerformance";
 
@@ -21,6 +23,7 @@ const fmtPct = (v, lang) => new Intl.NumberFormat(lang, { maximumFractionDigits:
 // Datacenter home: what needs attention first (banner, watch list), the headline figures, the nodes with their
 // load, the pools and the latest activity. The full charts live only in the Performance tab.
 function Summary({ setView }) {
+  const ctx = useContextTarget(); // right click on a node: its actions
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const { nodes, vms, storagePools, tasks, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, storagePools: s.storagePools, tasks: s.tasks, navigateTo: s.navigateTo })));
@@ -84,7 +87,7 @@ function Summary({ setView }) {
                 {nodes.map((n) => {
                   const nv = vms.filter((v) => v.node === n.id);
                   return (
-                    <tr key={n.id}>
+                    <tr key={n.id} className={ctx.is("node", n.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("node", n, n.id)}>
                       <td><StatusIndicator kind="node" wire={n.etat} /></td>
                       <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.nom}</button><small>{n.id === "local" ? t("node.roleLocal") : t("node.roleMember")}</small></th>
                       <td><Meter value={n.cpu_utilisation} label={`${n.nom} ${t("ns.cpu")}`} /></td>
@@ -97,6 +100,7 @@ function Summary({ setView }) {
                 })}
               </tbody>
             </table>
+            {ctx.target && <NodeContextMenu key={ctx.target.obj.id} node={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
           </TableWrap>
         </Card>
         <Card title={t("ov.watch")}>

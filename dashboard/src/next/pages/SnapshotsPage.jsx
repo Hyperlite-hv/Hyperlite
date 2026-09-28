@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchSnapshots } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { formatDateTime } from "../lib/format";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Camera } from "lucide-react";
@@ -15,6 +16,7 @@ export default function SnapshotsPage() {
   const vms = useInfraStore((s) => s.vms);
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const [rows, setRows] = useState(null);
+  const ctx = useContextTarget(); // right click on a snapshot: where to manage it
   const local = vms.filter((v) => v.node === "local").slice(0, MAX_VMS);
   const key = local.map((v) => v.nom).join("|");
 
@@ -37,7 +39,7 @@ export default function SnapshotsPage() {
               <thead><tr><th scope="col">VM</th><th scope="col">{t("ns.col.name")}</th><th scope="col">{t("snap.created")}</th><th scope="col">{t("snap.description")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
                 {rows.map((s) => (
-                  <tr key={`${s.vm}:${s.nom}`}>
+                  <tr key={`${s.vm}:${s.nom}`} className={ctx.is("snap", `${s.vm}:${s.nom}`) ? "is-ctx" : undefined} onContextMenu={ctx.open("snap", s, `${s.vm}:${s.nom}`)}>
                     <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", s.vm, "summary")}>{s.vm}</button></th>
                     <td className="nx-mono">{s.nom}{s.actuel ? ` · ${t("snap.current")}` : ""}</td>
                     <td className="nx-mono">{formatDateTime(s.date_creation, lang) || "—"}</td>
@@ -50,6 +52,10 @@ export default function SnapshotsPage() {
           </TableWrap>
         )}
       </div>
+      <ActionsContextMenu ctx={ctx} label={(s) => t("ctx.menuOf", { name: `${s.vm} · ${s.nom}` })} entries={(s) => [
+        { key: "manage", icon: "open", label: t("ctx.manageSnapshots"), run: () => navigateTo("vm", s.vm, "snapshots") },
+        { key: "vm", icon: "open", label: t("ctx.openVm"), run: () => navigateTo("vm", s.vm, "summary") },
+      ]} />
     </>
   );
 }

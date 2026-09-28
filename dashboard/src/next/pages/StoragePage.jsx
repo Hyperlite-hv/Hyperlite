@@ -11,6 +11,7 @@ import { formatSizeGb } from "../lib/format";
 import { errorMessage } from "../lib/errors";
 import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "../components/ui";
 
 const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
@@ -100,6 +101,7 @@ export default function StoragePage() {
   const [open, setOpen] = useState(null);
   const [volumes, setVolumes] = useState({});
   useIntent("pool", () => caps.admin && setCreating(true));
+  const ctx = useContextTarget(); // right click on a pool: its actions
 
   async function toggleVolumes(p) {
     const key = `${p.node}:${p.nom}`;
@@ -135,7 +137,7 @@ export default function StoragePage() {
                   const vols = volumes[key];
                   return (
                     <Fragment key={key}>
-                      <tr>
+                      <tr className={ctx.is("pool", key) ? "is-ctx" : undefined} onContextMenu={ctx.open("pool", p, key)}>
                         <td><StatusIndicator kind="pool" wire={p.etat} /></td>
                         <th scope="row" className="nx-nm">{p.nom}{p.chemin && <small className="nx-mono">{p.chemin}</small>}</th>
                         <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.nom || p.node}</td>
@@ -164,6 +166,13 @@ export default function StoragePage() {
         )}
       </div>
       <CreatePoolDrawer open={creating} onClose={() => setCreating(false)} />
+      <ActionsContextMenu ctx={ctx} label={(p) => t("ctx.menuOf", { name: p.nom })} entries={(p) => [
+        { key: "volumes", icon: "volumes", label: t("stor.volumes"), run: () => toggleVolumes(p) },
+        p.chemin && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.chemin) },
+        "-",
+        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => removePool(p),
+          disabled: !caps.admin || p.nom === "default", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.defaultPool") },
+      ]} />
     </>
   );
 }

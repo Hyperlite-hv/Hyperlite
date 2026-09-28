@@ -46,3 +46,37 @@ test("right click on a node opens its actions; Open goes to its page", async ({ 
   await expect(menu).toHaveCount(0);
   await expect(page).toHaveURL(/\/node\//);
 });
+
+test("the other lists have their right-click menu too, with the same rules as their buttons", async ({ page }) => {
+  await uiLogin(page);
+  const main = page.getByRole("main");
+  const menuOf = (name: string | RegExp) => page.getByRole("menu", { name: typeof name === "string" ? `Actions of ${name}` : name });
+
+  // Storage: the default pool cannot be removed, and says so
+  await goTo(page, "Storage");
+  await main.getByRole("row", { name: /default/ }).first().click({ button: "right" });
+  await expect(menuOf("default").getByRole("menuitem", { name: "Volumes" })).toBeVisible();
+  await expect(menuOf("default").getByRole("menuitem", { name: /^Delete/ })).toHaveAttribute("aria-disabled", "true");
+  await expect(menuOf("default")).toContainText("The default pool cannot be removed");
+  await page.keyboard.press("Escape");
+
+  // Network: the protected network cannot be deleted
+  await goTo(page, "Network");
+  await main.getByRole("row", { name: /hyperlite-isolated/ }).first().click({ button: "right" });
+  await expect(menuOf("hyperlite-isolated").getByRole("menuitem", { name: /^Delete/ })).toHaveAttribute("aria-disabled", "true");
+  await menuOf("hyperlite-isolated").getByRole("menuitem", { name: "Details" }).click();
+  await expect(menuOf("hyperlite-isolated")).toHaveCount(0);
+
+  // Users: you cannot delete yourself or change your own role
+  await page.goto("/datacenter?tab=permissions");
+  await main.getByRole("row", { name: /admin/ }).first().click({ button: "right" });
+  const me = menuOf("admin");
+  await expect(me.getByRole("menuitem", { name: /^Delete/ })).toHaveAttribute("aria-disabled", "true");
+  await expect(me.getByRole("menuitem", { name: "Make observer" })).toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Escape");
+
+  // Home: the node table has the node menu
+  await page.goto("/datacenter");
+  await main.getByRole("row").filter({ has: page.getByRole("button") }).nth(0).click({ button: "right" });
+  await expect(page.getByRole("menu", { name: /^Actions of / }).getByRole("menuitem", { name: "Create a VM on this node" })).toBeVisible();
+});
