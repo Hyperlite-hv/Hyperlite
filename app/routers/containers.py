@@ -152,11 +152,16 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
     maintenance.refuse_if_in_maintenance("local", "Container creation")
     _limits = compute_limits()
     _errs = []
+
+    def _origin(lim):
+        return f"variable {lim['variable']}" if lim["source"] == "configuration" else "technical ceiling"
+
     if payload.vcpu > _limits["vcpu"]["max"]:
-        _errs.append(f"vCPU: {payload.vcpu} is above the limit ({_limits['vcpu']['max']}, allocation policy)")
+        _errs.append(f"vCPU: {payload.vcpu} is above the limit ({_limits['vcpu']['max']}, {_origin(_limits['vcpu'])})")
     if payload.memory_mb > _limits["memoire_mo"]["max"]:
         _errs.append(
-            f"Memory: {payload.memory_mb} MB is above the limit ({_limits['memoire_mo']['max']} MB, allocation policy)"
+            f"Memory: {payload.memory_mb} MB is above the limit "
+            f"({_limits['memoire_mo']['max']} MB, {_origin(_limits['memoire_mo'])})"
         )
     if _errs:
         raise HTTPException(status_code=422, detail=" ; ".join(_errs))

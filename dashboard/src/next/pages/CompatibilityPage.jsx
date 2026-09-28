@@ -1,78 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, X } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
-import { useAuthStore } from "../../store/useAuthStore";
-import { fetchNodeCapabilitiesById, fetchHostProfile, setHostProfile, setHostAllocation } from "../../api/client";
+import { fetchNodeCapabilitiesById } from "../../api/client";
 import { compareNodes, NA } from "../../lib/capabilitiesView";
 import { useT } from "../i18n";
-import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
-import { PageHeader, Card, Empty, Field, Loading } from "../components/ui";
+import { PageHeader, Card, Empty } from "../components/ui";
 import { capRow } from "../lib/capsI18n";
-
-// Deployment profile and VM allocation policy (GET/PUT /host/profile, /host/allocation): the labels come from
-// the API in English, so known ids are translated here and unknown ones fall back to the API text.
-function AllocationCard() {
-  const t = useT();
-  const admin = capabilities(useAuthStore((s) => s.role)).admin;
-  const pushToast = useInfraStore((s) => s.pushToast);
-  const [data, setData] = useState(null);
-  const [profile, setProfile] = useState("auto");
-  const [policy, setPolicy] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { fetchHostProfile().then((d) => { setData(d); setProfile(d.choix in d.profils ? d.choix : "auto"); setPolicy(d.allocation.actif); }).catch(() => setData(false)); }, []);
-  if (data === false) return null;
-  if (!data) return <Card title={t("cp.alloc")}><Loading style={{ margin: 0 }} /></Card>;
-  const tr = (prefix, id, field, fallback) => { const k = `${prefix}.${id}.${field}`; const v = t(k); return v === k ? fallback : v; };
-  const alloc = data.allocation;
-  const pForced = data.source === "configuration";
-  const aForced = alloc.source === "configuration";
-  const initialProfile = data.choix in data.profils ? data.choix : "auto";
-  const dirty = profile !== initialProfile || policy !== alloc.actif;
-  const settings = data.reglages;
-
-  async function save() {
-    setBusy(true);
-    try {
-      let d = data;
-      if (profile !== initialProfile) d = await setHostProfile(profile);
-      if (policy !== alloc.actif) d = await setHostAllocation(policy);
-      setData(d); setProfile(d.choix in d.profils ? d.choix : "auto"); setPolicy(d.allocation.actif);
-      pushToast({ kind: "success", title: t("cp.saved") });
-    } catch (e) { pushToast({ kind: "error", title: t("cp.saveFailed"), message: errorMessage(e) }); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <Card title={t("cp.alloc")}>
-      <div className="nx-fg nx-fg--1">
-        <Field label={t("cp.profile")} hint={t("cp.profileHint", { ram: Math.round(settings.memory_host_share * 100), disk: Math.round(settings.disk_free_share * 100), s: settings.metrics_interval_s })}>
-          {(p) => (
-            <select {...p} className="nx-inp" aria-label={t("a11y.deployment_profile")} value={profile} disabled={!admin || busy || pForced} onChange={(e) => setProfile(e.target.value)}>
-              <option value="auto">{t("cp.auto", { name: tr("prof", data.recommande, "label", data.profils[data.recommande].libelle) })}</option>
-              {Object.entries(data.profils).map(([k, v]) => <option key={k} value={k}>{tr("prof", k, "label", v.libelle)}</option>)}
-            </select>
-          )}
-        </Field>
-        <p className="nx-muted" style={{ margin: 0, fontSize: "var(--fs-125)" }}>{tr("prof", data.actif, "desc", settings.description)}</p>
-        {pForced && <p className="nx-tone-warning" style={{ margin: 0 }}>{t("cp.profileForced")}</p>}
-        <Field label={t("cp.policy")}>
-          {(p) => (
-            <select {...p} className="nx-inp" aria-label={t("a11y.resource_allocation_policy")} value={policy} disabled={!admin || busy || aForced} onChange={(e) => setPolicy(e.target.value)}>
-              {Object.entries(alloc.politiques).map(([k, v]) => <option key={k} value={k}>{tr("alloc", k, "label", v.libelle)}</option>)}
-            </select>
-          )}
-        </Field>
-        <p className="nx-muted" style={{ margin: 0, fontSize: "var(--fs-125)" }}>{tr("alloc", policy, "desc", alloc.politiques[policy]?.description)}</p>
-        {aForced && <p className="nx-tone-warning" style={{ margin: 0 }}>{t("cp.policyForced")}</p>}
-      </div>
-      <div className="nx-fa">
-        <span className="nx-fa-l">{t("cp.defaults", { vcpu: data.vm_defaults_effectifs.vcpu, mem: data.vm_defaults_effectifs.memory_mb, disk: data.vm_defaults_effectifs.disk_gb })}</span>
-        {admin && <button type="button" className="nx-btn" disabled={!dirty || busy} onClick={save}>{t("sso.save")}</button>}
-      </div>
-    </Card>
-  );
-}
 
 const yes = (v) => v === true || ["oui", "yes", "present", "available", "importable"].includes(String(v).toLowerCase());
 const no = (v) => v === false || ["non", "no", "absent", "unavailable"].includes(String(v).toLowerCase());
@@ -136,7 +70,6 @@ export default function CompatibilityPage() {
             </div>
           )}
         </Card>
-        <AllocationCard />
       </div>
     </>
   );

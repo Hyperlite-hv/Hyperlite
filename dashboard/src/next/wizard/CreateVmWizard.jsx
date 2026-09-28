@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createVM, fetchClusterIsos, fetchHostProfile, fetchVmDisks, fetchVolumes } from "../../api/client";
+import { createVM, fetchClusterIsos, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { installationFamily, isWindowsInstall, guestProfile, diskController } from "../../utils/osFamily";
@@ -16,10 +16,13 @@ const STEPS = ["source", "identity", "placement", "compute", "storage", "network
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 const int = (v, min, max) => v !== "" && v != null && Number.isInteger(Number(v)) && Number(v) >= min && (max == null || Number(v) <= max);
 
-function initialForm(nodes, networks, d) {
+// The sizes the form starts from (a Windows installation raises them, see patch()).
+const DEFAULTS = { vcpu: 2, memory_mb: 2048, disk_gb: 20 };
+
+function initialForm(nodes, networks, d = DEFAULTS) {
   return {
     node: nodes[0]?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", importDisk: null,
-    name: "", vcpu: d?.vcpu ?? 1, memory_mb: d?.memory_mb ?? 1024, disks: [{ size_gb: d?.disk_gb ?? 10 }],
+    name: "", vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }],
     username: "", password: "", network: networks[0]?.nom || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
 }
@@ -43,7 +46,6 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
 
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(() => initialForm(nodes, networks));
-  const [defaults, setDefaults] = useState(null);
   const [isos, setIsos] = useState([]);
   const [disks, setDisks] = useState([]);
   const [luns, setLuns] = useState(null); // LUNs of the chosen iSCSI pool, null while unknown
@@ -67,15 +69,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     : t("wz.src.remoteIso", { size: formatSizeMb(iso.taille_mo, lang), node: isoNodeName(iso.node) }));
   const reloadDisks = () => fetchVmDisks().then((r) => setDisks(Array.isArray(r) ? r : [])).catch(() => {});
   useEffect(() => {
-    if (!open) return undefined;
-    let alive = true;
-    reloadIsos(); reloadDisks();
-    fetchHostProfile().then((p) => {
-      if (!alive) return;
-      const d = p.vm_defaults_effectifs; setDefaults(d);
-      setForm((f) => (f.vcpu === 1 && f.memory_mb === 1024 && f.disks.length === 1 && f.disks[0].size_gb === 10 ? { ...f, vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }] } : f));
-    }).catch(() => {});
-    return () => { alive = false; };
+    if (open) { reloadIsos(); reloadDisks(); }
   }, [open]);
   useEffect(() => { bodyRef.current?.scrollTo?.(0, 0); }, [step]);
 
@@ -141,11 +135,11 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const stepId = STEPS[step];
   const valid = (id) => Object.keys(errors[id]).length === 0;
   const allValid = STEPS.every(valid);
-  const show = (id, k) => attempted && errors[id][k] && <span className="nx-hint nx-hint--error" id={`wz-${k}-err`}>{t(errors[id][k], { min: k === "vcpu" ? vMin : mMin, max: k === "vcpu" ? vMax ?? "…" : k === "memory_mb" ? mMax ?? "…" : dMax ?? "…" })}</span>;
+  const show = (id, k) => attempted && errors[id][k] && <span className="nx-hint nx-hint--error" id={`wz-${k}-err`}>{t(errors[id][k], { min: k === "vcpu" ? vMin : mMin, max: k === "vcpu" ? vMax ?? "∞" : k === "memory_mb" ? mMax ?? "∞" : dMax ?? "∞" })}</span>;
   const inv = (id, k) => ({ "aria-invalid": attempted && errors[id][k] ? true : undefined, "aria-describedby": attempted && errors[id][k] ? `wz-${k}-err` : undefined });
 
   const dirty = Boolean(form.name || form.username || form.password || form.iso || (form.importDisk && form.importDisk !== "__pending__"));
-  function reset() { setStep(0); setForm(initialForm(nodes, networks, defaults)); setAttempted(false); setError(null); }
+  function reset() { setStep(0); setForm(initialForm(nodes, networks)); setAttempted(false); setError(null); }
   async function requestClose() {
     if (busy) return;
     if (dirty && !(await confirmAction({ title: t("wz.discardTitle"), message: t("wz.discardMsg"), confirmLabel: t("wz.discard") }))) return;
@@ -307,8 +301,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
           {stepId === "compute" && (
             <div className="nx-form">
               <div className="nx-formgrid">
-                <label>vCPU{limits ? ` (${vMin}–${vMax})` : ""}<input className="nx-input" aria-label={t("a11y.vcpu")} type="number" min={vMin} max={vMax} value={form.vcpu} onChange={(e) => patch({ vcpu: e.target.value })} {...inv("compute", "vcpu")} />{show("compute", "vcpu")}</label>
-                <label>{t("ct.memory")} (MB{limits ? `, ${mMin}–${mMax}` : ""})<input className="nx-input" aria-label={t("a11y.memory_in_mb")} type="number" min={mMin} max={mMax} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: e.target.value })} {...inv("compute", "memory_mb")} />{show("compute", "memory_mb")}</label>
+                <label>vCPU{limits ? ` (${vMin}–${vMax ?? "∞"})` : ""}<input className="nx-input" aria-label={t("a11y.vcpu")} type="number" min={vMin} max={vMax} value={form.vcpu} onChange={(e) => patch({ vcpu: e.target.value })} {...inv("compute", "vcpu")} />{show("compute", "vcpu")}</label>
+                <label>{t("ct.memory")} (MB{limits ? `, ${mMin}–${mMax ?? "∞"}` : ""})<input className="nx-input" aria-label={t("a11y.memory_in_mb")} type="number" min={mMin} max={mMax} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: e.target.value })} {...inv("compute", "memory_mb")} />{show("compute", "memory_mb")}</label>
               </div>
               <OverallocationNote limits={limits} vcpu={Number(form.vcpu) || 0} memoryMb={Number(form.memory_mb) || 0} diskGb={Math.max(0, ...form.disks.map((d) => Number(d.size_gb) || 0))} />
             </div>
@@ -353,8 +347,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                     <button type="button" className="nx-btn" aria-label={t("a11y.remove_disk_x", { v: i + 1 })} disabled={form.disks.length <= 1 || (importMode && i === 0)} onClick={() => patch({ disks: form.disks.filter((_, k) => k !== i) })}>{t("sec.remove")}</button>
                   </div>
                 ))}
-                {attempted && Object.values(errors.storage).length > 0 && <span className="nx-hint nx-hint--error">{t("wz.e.diskSize", { max: dMax ?? "…" })}</span>}
-                <div><button type="button" className="nx-btn" disabled={Boolean(limits) && form.disks.length >= dCount} onClick={() => patch({ disks: [...form.disks, { size_gb: 5 }] })}>{t("wz.addDisk")}</button></div>
+                {attempted && Object.values(errors.storage).length > 0 && <span className="nx-hint nx-hint--error">{t("wz.e.diskSize", { max: dMax ?? "∞" })}</span>}
+                <div><button type="button" className="nx-btn" disabled={dCount != null && form.disks.length >= dCount} onClick={() => patch({ disks: [...form.disks, { size_gb: 5 }] })}>{t("wz.addDisk")}</button></div>
               </fieldset>
               <label>{t("wz.controller")}
                 <select className="nx-input" aria-label={t("a11y.disk_controller")} value={form.diskController || "auto"} onChange={(e) => patch({ diskController: e.target.value })}>

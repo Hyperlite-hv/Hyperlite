@@ -439,22 +439,6 @@ def init_db():
                 admin_groups TEXT NOT NULL DEFAULT ''
             )
         """)
-        # Deployment profile chosen by the admin: 'auto' = the profile recommended by
-        # hardware detection.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS deployment_profile (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                profil TEXT NOT NULL DEFAULT 'auto'
-            )
-        """)
-        # VM resource allocation policy chosen by the admin (limits / overcommit /
-        # free), see app/core/vm_limits.py.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS allocation_policy (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                politique TEXT NOT NULL DEFAULT 'limites'
-            )
-        """)
         # CSRF/nonce states of the OIDC Authorization Code flow: SINGLE USE (deleted as
         # soon as consumed, see sso.py::consume_state) and short-lived (STATE_TTL_S,
         # purged along the way rather than by a dedicated scheduler for such an ephemeral

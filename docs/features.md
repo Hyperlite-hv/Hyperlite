@@ -10,7 +10,7 @@ This is a reference of what Hyperlite does today and where its scope stops.
 - Snapshots (libvirt internal snapshots; native ZFS snapshots for VMs on ZFS pools, disk only), cloning, conversion to template and deployment from a template.
 - Resource limits and priorities through cgroups; live disk and network interface hot-plug.
 - Optional automatic deletion of VMs that stay stopped for a configurable number of days (never applies to a running or HA-protected VM, with a warning about 24 hours before).
-- Resource limits offered by the interface are derived from the host (cores, RAM, free disk) and an allocation policy (limits, overcommit, free), not from fixed constants.
+- No ceiling of Hyperlite's own on a VM's vCPU, memory or disks (as in Proxmox or vSphere): only technical bounds, optional administrator caps (`HYPERLITE_VM_MAX_*`), and a non-blocking warning when a value exceeds the hardware.
 
 ## Containers
 
@@ -45,7 +45,7 @@ Local users, optional TOTP two-factor authentication, personal API tokens, optio
 
 ## Portability
 
-At start-up and on demand Hyperlite detects the capabilities of the host (CPU, RAM, storage, network, QEMU/libvirt versions, Secure Boot, optional components) and reports them in a *Compatibility* view. A preflight check runs before installation. Deployment profiles (homelab, standard, advanced) only change default values.
+At start-up and on demand Hyperlite detects the capabilities of the host (CPU, RAM, storage, network, QEMU/libvirt versions, Secure Boot, optional components) and reports them in a *Compatibility* view. A preflight check runs before installation.
 
 ## Known scope limits
 
