@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Disc3, Trash2, Upload } from "lucide-react";
-import { fetchIsoTemplates, deleteIso, fetchTemplates } from "../../api/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Disc3, Trash2, Upload } from "lucide-react";
+import { fetchClusterIsos, deleteIso, fetchTemplates } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -11,9 +11,11 @@ import { errorMessage } from "../lib/errors";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 import TemplatesPanel from "./TemplatesPage";
+import CopyIsoDialog from "../components/CopyIsoDialog";
 
 // Library: the ISO images (moved from Storage) and the templates, in two tabs. The historical ?tab=templates
-// link opens the Templates tab.
+// link opens the Templates tab. The ISO list covers every node of the cluster: a VM boots only from an image on
+// its own host, so an image is shared by copying it to other nodes' libraries.
 export default function LibraryPage() {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
@@ -22,22 +24,43 @@ export default function LibraryPage() {
   const activeTab = useInfraStore((s) => s.activeTab);
   const [tab, setTab] = useState(activeTab === "templates" ? "tpl" : "iso");
   const [isos, setIsos] = useState(null);
+  const [unreachable, setUnreachable] = useState([]);
+  const [copying, setCopying] = useState(null);
   const [tplCount, setTplCount] = useState(null);
+  const nodes = useInfraStore((s) => s.nodes);
+  const tasks = useInfraStore((s) => s.tasks);
   const drop = useRef(null);
 
   const loadIsos = useCallback(async () => {
-    try { const r = await fetchIsoTemplates(); setIsos(Array.isArray(r) ? r : []); }
-    catch (e) { pushToast({ kind: "error", title: t("stor.isoError"), message: errorMessage(e) }); setIsos([]); }
+    try {
+      const r = await fetchClusterIsos();
+      setIsos(Array.isArray(r?.isos) ? r.isos : []);
+      setUnreachable(Array.isArray(r?.injoignables) ? r.injoignables : []);
+    } catch (e) { pushToast({ kind: "error", title: t("stor.isoError"), message: errorMessage(e) }); setIsos([]); }
   }, [pushToast, t]);
   useEffect(() => { loadIsos(); }, [loadIsos]);
   useEffect(() => { fetchTemplates().then((r) => setTplCount(Array.isArray(r) ? r.length : 0)).catch(() => setTplCount(null)); }, [tab]);
+  // A finished copy adds an image somewhere: reload when the number of running copies goes down.
+  const runningCopies = tasks.filter((x) => x.type === "copy_iso" && x.statut === "en_cours").length;
+  const prevRunning = useRef(runningCopies);
+  useEffect(() => { if (runningCopies < prevRunning.current) loadIsos(); prevRunning.current = runningCopies; }, [runningCopies, loadIsos]);
 
-  async function removeIso(nom) {
-    if (!(await confirmAction({ title: t("lib.isoDeleteTitle", { name: nom }), message: t("stor.isoConfirm"), confirmLabel: t("vx.delete"), danger: true }))) return;
-    try { await deleteIso(nom); pushToast({ kind: "success", title: t("stor.isoDeleted"), message: nom }); loadIsos(); }
+  const nodeName = useCallback((id) => nodes.find((n) => n.id === id)?.nom || id, [nodes]);
+  const holders = useMemo(() => {
+    const m = new Map();
+    for (const iso of isos || []) { if (!m.has(iso.nom)) m.set(iso.nom, new Set()); m.get(iso.nom).add(iso.node); }
+    return m;
+  }, [isos]);
+  const rows = useMemo(() => [...(isos || [])].sort((a, b) => a.nom.localeCompare(b.nom) || (a.node === "local" ? -1 : b.node === "local" ? 1 : nodeName(a.node).localeCompare(nodeName(b.node)))), [isos, nodeName]);
+  const multiNode = nodes.length > 1;
+
+  async function removeIso(iso) {
+    const where = nodeName(iso.node);
+    if (!(await confirmAction({ title: t("lib.isoDeleteTitle", { name: iso.nom }), message: multiNode ? t("iso.deleteOnNode", { node: where }) : t("stor.isoConfirm"), confirmLabel: t("vx.delete"), danger: true }))) return;
+    try { await deleteIso(iso.nom, iso.node); pushToast({ kind: "success", title: t("stor.isoDeleted"), message: multiNode ? `${iso.nom} · ${where}` : iso.nom }); loadIsos(); }
     catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
-  const tabs = [["iso", t("lib.iso"), isos?.length], ["tpl", t("lib.templates"), tplCount]];
+  const tabs = [["iso", t("lib.iso"), holders.size || (isos ? 0 : null)], ["tpl", t("lib.templates"), tplCount]];
   const upload = () => drop.current?.querySelector("input[type=file]")?.click();
 
   return (
@@ -53,19 +76,26 @@ export default function LibraryPage() {
         {tab === "iso" ? (
           <>
             {caps.admin && <div ref={drop}><IsoUploadDropzone onDone={loadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} /></div>}
+            {unreachable.length > 0 && (
+              <div className="nx-bn" data-tone="warning" role="status"><span className="nx-bn-t">{t("iso.unreachable", { nodes: unreachable.map((u) => `${nodeName(u.node)} (${u.erreur})`).join(", ") })}</span></div>
+            )}
             <div className="nx-card2 nx-card2--flush">
               {isos == null ? <Loading style={{ padding: "var(--space-4)" }} /> : isos.length === 0 ? <Empty icon={Disc3} title={t("stor.noIso")} text={t("lib.isoNoneHelp")} /> : (
                 <TableWrap>
                   <table className="nx-table">
-                    <thead><tr><th scope="col">{t("lib.image")}</th><th scope="col" className="nx-num">{t("lib.size")}</th><th scope="col">{t("lib.location")}</th><th scope="col">{t("lib.added")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+                    <thead><tr><th scope="col">{t("lib.image")}</th>{multiNode && <th scope="col">{t("iso.node")}</th>}<th scope="col" className="nx-num">{t("lib.size")}</th>{!multiNode && <th scope="col">{t("lib.location")}</th>}<th scope="col">{t("lib.added")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                     <tbody>
-                      {isos.map((iso) => (
-                        <tr key={iso.nom}>
+                      {rows.map((iso) => (
+                        <tr key={`${iso.node}/${iso.nom}`}>
                           <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{iso.nom}</th>
+                          {multiNode && <td title={iso.emplacement || undefined}>{nodeName(iso.node)}</td>}
                           <td className="nx-num nx-mono">{formatSizeMb(iso.taille_mo, lang)}</td>
-                          <td className="nx-mono nx-muted">{iso.emplacement || "—"}</td>
+                          {!multiNode && <td className="nx-mono nx-muted">{iso.emplacement || "—"}</td>}
                           <td className="nx-mono nx-muted">{iso.ajoutee_le ? formatDateTime(iso.ajoutee_le, lang) : "—"}</td>
-                          <td><div className="nx-ra">{caps.admin && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_iso_x", { v: iso.nom })} title={t("vx.delete")} onClick={() => removeIso(iso.nom)}><Trash2 size={15} aria-hidden="true" /></button>}</div></td>
+                          <td><div className="nx-ra">{caps.admin && (<>
+                            {multiNode && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("iso.copyX", { v: iso.nom, node: nodeName(iso.node) })} onClick={() => setCopying(iso)}><Copy size={15} aria-hidden="true" /><span className="nx-hide-narrow">{t("iso.copy")}</span></button>}
+                            <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_iso_x", { v: multiNode ? `${iso.nom} (${nodeName(iso.node)})` : iso.nom })} title={t("vx.delete")} onClick={() => removeIso(iso)}><Trash2 size={15} aria-hidden="true" /></button>
+                          </>)}</div></td>
                         </tr>
                       ))}
                     </tbody>
@@ -73,6 +103,7 @@ export default function LibraryPage() {
                 </TableWrap>
               )}
             </div>
+            {copying && <CopyIsoDialog iso={copying} nodes={nodes} holders={holders.get(copying.nom) || new Set()} onClose={() => setCopying(null)} />}
           </>
         ) : <TemplatesPanel />}
       </div>

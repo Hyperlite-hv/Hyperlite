@@ -286,8 +286,15 @@ export async function deleteBackupSchedule(name) {
 export async function fetchIsoTemplates() {
   return realFetch("/isos");
 }
-export async function deleteIso(filename) {
-  return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true`, { method: "DELETE" });
+export async function deleteIso(filename, node = "local") {
+  return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true&node=${encodeURIComponent(node)}`, { method: "DELETE" });
+}
+// Every node's ISO library ({ isos, injoignables }), and copying one image to other nodes.
+export async function fetchClusterIsos() {
+  return realFetch("/isos/cluster");
+}
+export async function copyIso(nom, source, cibles) {
+  return realFetch("/isos/copy", { method: "POST", ...jsonBody({ nom, source, cibles }) });
 }
 
 // ---- Importable disks (importing a VM from a disk file) ----
