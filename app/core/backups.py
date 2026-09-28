@@ -33,7 +33,6 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import iscsi
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
@@ -85,6 +84,48 @@ def domain_disk_paths(domain):
         if source is not None and source.get("file") and target is not None:
             paths.append((target.get("dev"), source.get("file")))
     return paths
+
+
+def block_disks(domain):
+    """Target names (sda, vdb...) of a domain's disks that are block devices: ZFS zvols and iSCSI LUNs."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(domain.XMLDesc(0))
+    return [
+        (d.find("target").get("dev") if d.find("target") is not None else "?")
+        for d in root.findall(".//devices/disk")
+        if d.get("device") == "disk" and d.get("type") == "block"
+    ]
+
+
+def block_disk_error(domain, action):
+    """Why a backup or an export cannot run, or None. Both copy disk FILES only: a VM whose disks are all block
+    devices failed with an unclear "No disk found", and one mixing a block disk with a file disk was saved without
+    the block disk, silently."""
+    devs = block_disks(domain)
+    if not devs:
+        return None
+    return (
+        f"{action} is not available yet for a VM with ZFS or iSCSI disks ({', '.join(devs)}): "
+        "only disk files can be copied for now"
+    )
+
+
+def refuse_vm_with_block_disks(name, action):
+    """block_disk_error by VM name, as a 422 answered at once (the backup or export itself runs in the background)."""
+    from fastapi import HTTPException
+
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            return  # the background job reports a missing VM itself
+        error = block_disk_error(domain, action)
+        if error:
+            raise HTTPException(status_code=422, detail=error)
+    finally:
+        conn.close()
 
 
 def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
@@ -256,8 +297,9 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             domain = conn.lookupByName(vm_name)
         except libvirt.libvirtError:
             raise RuntimeError(f"VM '{vm_name}' not found") from None
-        if iscsi.iscsi_disks_of_domain(domain):
-            raise RuntimeError("Backups are not available yet for a VM whose disks are iSCSI LUNs")
+        error = block_disk_error(domain, "A backup")
+        if error:
+            raise RuntimeError(error)
 
         mode = "chaud" if domain.isActive() else "froid"
         stamp = _now().strftime("%Y%m%dT%H%M%SZ")
