@@ -5,6 +5,7 @@ This is a reference of what Hyperlite does today and where its scope stops.
 ## Virtual machines
 
 - Lifecycle: create, start, stop (graceful or forced), restart, delete.
+- Hyperlite Tools (the standard QEMU guest agent, `qemu-guest-agent`): when it runs in a VM, shutdowns and reboots go through it, the VM's IP address comes from the guest (also with a static IP or on a bridge), and hot backups freeze the guest file systems for a consistent copy. Cloud-image VMs install it at first boot; without it everything works as before (ACPI, DHCP lease, crash-consistent snapshot).
 - Creation from a preinstalled cloud image (Debian 12, configured through cloud-init) or from an ISO. Unattended installation is supported for Debian-family (preseed), Ubuntu (autoinstall) and RHEL-family (kickstart) media; other ISOs boot for a manual installation through the VNC console.
 - Import an existing disk (qcow2, raw, vmdk, vdi, vhd) and export a VM disk.
 - Snapshots (libvirt internal snapshots; native ZFS snapshots for VMs on ZFS pools, disk only), cloning, conversion to template and deployment from a template.

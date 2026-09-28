@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import APIRouter
 
-from app.core import iscsi
+from app.core import guest_agent, iscsi
 from app.core.libvirt_utils import (
     get_vm_uptime_s,
 )
@@ -33,6 +33,11 @@ STATE_NAMES = {
 
 
 def _get_ip(domain):
+    # The guest's own answer first (Hyperlite Tools): it also knows a static IP or a bridged address that libvirt's
+    # DHCP leases never see.
+    agent_ip = guest_agent.ipv4(domain)
+    if agent_ip:
+        return agent_ip
     try:
         ifaces = domain.interfaceAddresses(libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE)
         for iface in ifaces.values():
@@ -65,6 +70,8 @@ def _domain_summary(domain):
         # included automatically") was wrongly shown while it was being created.
         "stockage_zfs": bool(_zvol_disks_of_domain(domain)),
         "stockage_iscsi": bool(iscsi.iscsi_disks_of_domain(domain)),
+        # Hyperlite Tools (qemu-guest-agent): "actif", "inactif", "non_configure", or None when the VM is stopped.
+        "agent_invite": guest_agent.state(domain) if active else None,
     }
 
 
