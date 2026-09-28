@@ -128,6 +128,15 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, cree_le)")
+        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verifie' or 'corrompu'
+        # with the date and what was wrong.
+        for ddl in (
+            "ALTER TABLE backups ADD COLUMN verification TEXT",
+            "ALTER TABLE backups ADD COLUMN verifie_le TEXT",
+            "ALTER TABLE backups ADD COLUMN verification_detail TEXT",
+        ):
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+                conn.execute(ddl)
 
         # ---- Automation: job engine ----
         conn.execute("""
