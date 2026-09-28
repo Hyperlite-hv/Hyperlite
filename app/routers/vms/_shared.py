@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import APIRouter
 
+from app.core import iscsi
 from app.core.libvirt_utils import (
     get_vm_uptime_s,
 )
@@ -63,6 +64,7 @@ def _domain_summary(domain):
         # of a VM (an empty list, nothing to deduce), so the qcow2 wording ("memory
         # included automatically") was wrongly shown while it was being created.
         "stockage_zfs": bool(_zvol_disks_of_domain(domain)),
+        "stockage_iscsi": bool(iscsi.iscsi_disks_of_domain(domain)),
     }
 
 

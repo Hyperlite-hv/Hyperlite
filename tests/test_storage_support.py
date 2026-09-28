@@ -62,7 +62,8 @@ def test_support_endpoint_and_creation_errors(client, auth_headers, zfs_host, mo
     real_which = {"mount.nfs": None}
     monkeypatch.setattr("shutil.which", lambda name: real_which.get(name, f"/usr/sbin/{name}"))
     headers = auth_headers("root", "admin")
-    assert client.get("/storage/support", headers=headers).json() == {"nfs": "no_client", "zfs": "secure_boot"}
+    support = client.get("/storage/support", headers=headers).json()
+    assert support["nfs"] == "no_client" and support["zfs"] == "secure_boot" and support["iscsi"] == "ok"
 
     zfs = client.post("/storage", headers=headers, json={"name": "tank", "type": "zfs", "size_gb": 5})
     assert zfs.status_code == 422 and "mokutil --import" in zfs.json()["detail"]

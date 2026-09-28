@@ -13,7 +13,9 @@ import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
 import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "../components/ui";
 
-const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20" };
+const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
+const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
+const typeLabel = (type) => ({ netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI" }[type] || type);
 
 function CreatePoolDrawer({ open, onClose }) {
   const t = useT();
@@ -28,15 +30,18 @@ function CreatePoolDrawer({ open, onClose }) {
   const blocker = !local || !support ? null
     : form.type === "netfs" && support.nfs !== "ok" ? t("stor.nfsNoClient")
     : form.type === "zfs" && support.zfs !== "ok" ? t(`stor.zfs.${support.zfs}`)
+    : form.type === "iscsi" && support.iscsi !== "ok" ? t("stor.iscsiNoInitiator")
     : null;
-  const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["zfs", "ZFS"]];
-  const valid = form.name && (form.type !== "netfs" || (form.nfs_host && form.nfs_export_path)) && (form.type !== "zfs" || Number(form.size_gb) >= 1);
+  const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["zfs", "ZFS"], ["iscsi", "iSCSI"]];
+  const iscsiValid = form.iscsi_host && IQN_RE.test(form.iscsi_target) && Number(form.iscsi_port) >= 1 && (!form.chap_user || form.chap_password);
+  const valid = form.name && (form.type !== "netfs" || (form.nfs_host && form.nfs_export_path)) && (form.type !== "zfs" || Number(form.size_gb) >= 1) && (form.type !== "iscsi" || iscsiValid);
 
   async function create() {
     setBusy(true);
     try {
       const payload = form.type === "dir" ? { name: form.name, type: "dir", path: form.path || null }
         : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path }
+        : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host, iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user || null, chap_password: form.chap_user ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
       await createStoragePool(payload, form.node === "local" ? undefined : form.node);
@@ -63,6 +68,21 @@ function CreatePoolDrawer({ open, onClose }) {
       {form.type === "netfs" && <>
         <Field label={t("stor.nfsHost")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.nfs_server_host")} value={form.nfs_host} onChange={set("nfs_host")} placeholder="192.168.1.10" />}</Field>
         <Field label={t("stor.nfsPath")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.exported_path")} value={form.nfs_export_path} onChange={set("nfs_export_path")} placeholder="/srv/share" />}</Field>
+      </>}
+      {form.type === "iscsi" && <>
+        {local && support?.iscsi_initiator && (
+          <div className="nx-bn" data-tone="info" role="note"><span className="nx-bn-t">{t("stor.iscsiInitiator")}<br /><code className="nx-mono" style={{ userSelect: "all" }}>{support.iscsi_initiator}</code></span></div>
+        )}
+        <div className="nx-formgrid">
+          <Field label={t("stor.iscsiHost")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.iscsi_host} onChange={set("iscsi_host")} placeholder="192.168.1.20" />}</Field>
+          <Field label={t("stor.iscsiPort")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min="1" max="65535" value={form.iscsi_port} onChange={set("iscsi_port")} />}</Field>
+        </div>
+        <Field label={t("stor.iscsiTarget")} hint={t("stor.iscsiTargetHelp")} error={form.iscsi_target && !IQN_RE.test(form.iscsi_target.trim()) ? t("stor.iscsiTargetBad") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.iscsi_target} onChange={set("iscsi_target")} placeholder="iqn.2005-10.org.freenas.ctl:vms" />}</Field>
+        <div className="nx-formgrid">
+          <Field label={t("stor.chapUser")}>{(p) => <input {...p} className="nx-inp nx-mono" autoComplete="off" value={form.chap_user} onChange={set("chap_user")} />}</Field>
+          <Field label={t("stor.chapPassword")}>{(p) => <input {...p} className="nx-inp" type="password" autoComplete="new-password" disabled={!form.chap_user} value={form.chap_password} onChange={set("chap_password")} />}</Field>
+        </div>
+        <p className="nx-hint">{t("stor.iscsiHelp")}</p>
       </>}
       {form.type === "zfs" && <Field label={t("stor.zfsSize")} hint={t("stor.zfsHelp")} unit="Go">{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.size_gb_loopback_file")} type="number" min="1" max="4096" value={form.size_gb} onChange={set("size_gb")} />}</Field>}
     </SideDrawer>
@@ -92,7 +112,8 @@ export default function StoragePage() {
   async function removePool(p) {
     if (p.nom === "default") return;
     const fsBacked = p.type === "dir" || p.type === "netfs";
-    const ok = await confirmAction({ title: t("stor.confirmTitle", { name: p.nom }), message: fsBacked ? t("stor.confirmFs", { name: p.nom }) : t("stor.confirmEmpty", { name: p.nom }), confirmLabel: t("action.confirm"), danger: true });
+    const message = p.type === "iscsi" ? t("stor.confirmIscsi") : fsBacked ? t("stor.confirmFs", { name: p.nom }) : t("stor.confirmEmpty", { name: p.nom });
+    const ok = await confirmAction({ title: t("stor.confirmTitle", { name: p.nom }), message, confirmLabel: t("action.confirm"), danger: true });
     if (!ok) return;
     try { await deleteStoragePool(p.nom, p.node === "local" ? undefined : p.node, fsBacked); pushToast({ kind: "success", title: t("stor.removed"), message: p.nom }); refreshAll(); }
     catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
@@ -118,7 +139,7 @@ export default function StoragePage() {
                         <td><StatusIndicator kind="pool" wire={p.etat} /></td>
                         <th scope="row" className="nx-nm">{p.nom}{p.chemin && <small className="nx-mono">{p.chemin}</small>}</th>
                         <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.nom || p.node}</td>
-                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{p.type === "netfs" ? "NFS" : p.type === "zfs" ? "ZFS" : p.type}</Chip></td>
+                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type)}</Chip></td>
                         <td><Meter value={r} label={`${p.nom} ${t("stor.usage")}`} /></td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.capacite_go, lang) ?? "—"}</td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.disponible_go, lang) ?? "—"}</td>
