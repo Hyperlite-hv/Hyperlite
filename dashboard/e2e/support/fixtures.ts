@@ -1,6 +1,6 @@
 import { expect, test as base, type APIRequestContext, type Page } from "@playwright/test";
 
-export const ADMIN = { username: "admin", password: process.env.E2E_ADMIN_PASSWORD ?? "E2e-Admin-2026" };
+export const ADMIN = { username: "admin", password: process.env.E2E_ADMIN_PASSWORD ?? "E2e-Quartz-Harbor-2026" };
 export const PREFIX = "e2e-";
 
 /** Console messages of level error and uncaught exceptions collected during a test. */
