@@ -54,6 +54,15 @@ def revoke_token(username: str, token_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def revoke_all_tokens(username: str) -> int:
+    """Every token of the account, API and workstation ("cli") alike: used when an administrator resets the
+    password, i.e. when the account may be in the wrong hands. Returns how many were revoked."""
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM api_tokens WHERE username = ?", (username,))
+        conn.commit()
+    return cur.rowcount
+
+
 def verify_token(token: str):
     """Used by security.py::get_current_user as a fallback when the presented
     token is not a valid JWT. Returns the full user row (same shape as

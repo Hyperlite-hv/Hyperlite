@@ -175,6 +175,17 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-f > label { font-size: var(--fs-13); font-weight: 500; color: var(--color-text-primary); }
 .nx-f-h { font-size: var(--fs-12); color: var(--color-text-muted); }
 .nx-f-h.is-error { color: var(--color-danger); }
+/* New password: rules as a live checklist, generator, note */
+.nx-inp--pw { padding-right: 2.6rem; }
+.nx-pwgen { display: flex; gap: 0.5333rem; flex-wrap: wrap; margin-top: -0.4rem; }
+.nx-pwchecks { list-style: none; margin: -0.2667rem 0 0; padding: 0; display: grid; gap: 0.2667rem; font-size: var(--fs-12); color: var(--color-text-muted); }
+.nx-pwchecks li { display: flex; align-items: center; gap: 0.4rem; }
+.nx-pwchecks li[data-ok="true"] { color: var(--color-success); }
+.nx-pwchecks li[data-ok="false"] { color: var(--color-warning); }
+.nx-pwdot { width: 13px; display: inline-grid; place-items: center; }
+.nx-pwdot::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.nx-pwnote { display: flex; gap: 0.5333rem; align-items: flex-start; margin: 0; font-size: var(--fs-13); color: var(--color-text-secondary); }
+.nx-pwnote svg { flex: none; margin-top: 0.1333rem; color: var(--color-success); }
 .nx-inp { height: 2.2667rem; border-radius: var(--radius-md); border: 1px solid var(--color-border-default); background: var(--color-bg-workspace); padding: 0 0.6667rem; font-size: var(--fs-13); width: 100%; min-width: 0; }
 .nx-inp:focus { outline: 2px solid var(--color-border-focus); outline-offset: 0; border-color: transparent; }
 .nx-inp[aria-invalid="true"] { border-color: var(--color-danger); }
