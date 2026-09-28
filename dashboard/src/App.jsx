@@ -4,6 +4,7 @@ import { useAuthStore } from "./store/useAuthStore";
 
 const NextApp = lazy(() => import("./next/NextApp"));
 const NextLogin = lazy(() => import("./next/NextLogin"));
+const NextPasswordRequired = lazy(() => import("./next/NextPasswordRequired"));
 const NextCliLogin = lazy(() => import("./next/NextCliLogin"));
 const ConsoleWindow = lazy(() => import("./next/windows/ConsoleWindow"));
 const HostShellWindow = lazy(() => import("./next/windows/HostShellWindow"));
@@ -29,8 +30,10 @@ export default function App() {
 
 function MainApp() {
   const status = useAuthStore((s) => s.status);
+  const mustChangePassword = useAuthStore((s) => s.mustChangePassword);
   const restoreSession = useAuthStore((s) => s.restoreSession);
   useEffect(() => { restoreSession(); }, [restoreSession]);
   if (status === "checking") return null;
-  return status === "anonymous" ? <NextLogin /> : <NextApp />;
+  if (status === "anonymous") return <NextLogin />;
+  return mustChangePassword ? <NextPasswordRequired /> : <NextApp />;
 }

@@ -108,7 +108,7 @@ test.describe("Degraded backend behavior", () => {
     await seedPreferences(page);
     await page.goto("/");
     await page.getByLabel("Username").fill("admin");
-    await page.getByLabel("Password", { exact: true }).fill("E2e-Admin-2026");
+    await page.getByLabel("Password", { exact: true }).fill("E2e-Quartz-Harbor-2026");
     await page.getByRole("button", { name: "Sign in" }).dblclick();
     await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
     expect(logins).toBe(1);
