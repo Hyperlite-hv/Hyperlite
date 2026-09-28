@@ -102,6 +102,13 @@ def serve_favicon():
     return JSONResponse(status_code=404, content={"detail": "favicon not found"})
 
 
+def _environment_label():
+    """Label of a non-production installation (HYPERLITE_ENV_LABEL, e.g. "DEV"), shown by the dashboard so it is
+    never mistaken for production; None when unset."""
+    label = (os.environ.get("HYPERLITE_ENV_LABEL") or "").strip()
+    return label[:24] or None
+
+
 def _running_version():
     """Version of the code this process runs: read when it started, not the VERSION file as it is now (an
     update installs the new file before restarting, see app/core/version.py). The update watchdog relies on it
@@ -128,6 +135,7 @@ def health():
         return {
             "status": "ok",
             "hyperlite_version": _running_version(),
+            "environment": _environment_label(),
             "hypervisor": conn.getType(),
             "hostname": conn.getHostname(),
             "libvirt_version": conn.getLibVersion(),
