@@ -27,6 +27,15 @@ drivers** section. It is optional for SATA storage. Changing a running installat
 disk controller requires preparing the appropriate boot driver first; installing
 guest tools alone does not change the VM's hardware.
 
+## Hyperlite Tools
+
+Hyperlite Tools is the QEMU guest agent. On Windows it comes with the
+[virtio-win guest tools](https://virtio-win.github.io/Knowledge-Base/Driver-installation.html):
+mount the virtio-win ISO (**Hardware → Windows drivers CD**) and run
+`virtio-win-guest-tools.exe`, or install `guest-agent\qemu-ga-x86_64.msi` alone.
+The VM summary then shows **Hyperlite Tools: Running**, shutdowns and reboots go
+through the agent, and the IP address is reported by Windows itself.
+
 ## Existing VM with VirtIO SCSI disks
 
 If an older Windows VM has no visible disk in Setup, obtain compatible signed
