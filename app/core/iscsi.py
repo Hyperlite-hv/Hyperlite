@@ -82,20 +82,3 @@ def refuse_if_iscsi(domain, action):
             status_code=422,
             detail=f"{action} is not available yet for a VM whose disks are iSCSI LUNs",
         )
-
-
-def refuse_vm_if_iscsi(name, action):
-    """refuse_if_iscsi by VM name: answers at once, before an action starts in the background."""
-    import libvirt
-
-    from app.core.libvirt_utils import open_conn  # late import: libvirt_utils is heavier than this module
-
-    conn = open_conn()
-    try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            return  # the background job reports a missing VM itself
-        refuse_if_iscsi(domain, action)
-    finally:
-        conn.close()
