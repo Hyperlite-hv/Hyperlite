@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Syntax check shell scripts
         run: |
-          for f in installer/*.sh installer/deb/postinst scripts/*.sh scripts/git-hooks/post-merge; do
+          for f in installer/*.sh installer/deb/postinst scripts/*.sh; do
             bash -n "$f"
           done
 

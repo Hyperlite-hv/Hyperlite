@@ -3,9 +3,9 @@
 #
 # Usage: publish-gh-pages.sh <apt-repo-dir> <remote-url> <version> <source-commit>
 #
-# Runs from the post-merge hook, which inherits Git environment variables (GIT_DIR,
-# GIT_INDEX_FILE...) from the `git pull` that triggered it. Those variables make every git
-# command run in another directory look at the main repository instead, so the mirror commit
+# Called by scripts/ci-publish.sh. It used to run from a git hook, which inherited Git environment
+# variables (GIT_DIR, GIT_INDEX_FILE...) from the `git pull` that triggered it. Those variables make
+# every git command run in another directory look at the main repository instead, so the mirror commit
 # silently missed files (the signed Release, InRelease and Release.gpg stayed stale while
 # Packages changed, and apt then reported "File has unexpected size"). This script clears them,
 # works in a fresh clone, compares file contents, and verifies the result before returning.
@@ -36,7 +36,7 @@ if [ -z "$(git config user.email || true)" ]; then
 fi
 if [ -n "$(git status --porcelain)" ]; then
     git add -A
-    git commit -q -m "Automatic publication ${VERSION} (post-merge, commit ${SOURCE_COMMIT})"
+    git commit -q -m "Automatic publication ${VERSION} (commit ${SOURCE_COMMIT})"
     git push -q origin gh-pages
 fi
 
