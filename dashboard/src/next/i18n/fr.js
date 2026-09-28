@@ -289,6 +289,8 @@ export default {
   "inv.offlineSince": "Hors ligne",
   "inv.hint": "↑↓ naviguer · → ouvrir · ← fermer · Entrée sélectionner · / rechercher",
   "menu.open": "Ouvrir",
+  "ctx.open": "Ouvrir",
+  "ctx.menuOf": "Actions de {name}",
   "menu.copyLink": "Copier le lien",
   "menu.copyIp": "Copier l’IP",
   "menu.start": "Démarrer",

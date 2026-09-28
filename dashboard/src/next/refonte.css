@@ -558,3 +558,9 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
   .nx-ph-acts { margin-left: 0; width: 100%; }
   .nx-ph-acts > .nx-btn:only-child { flex: 1; justify-content: center; }
 }
+
+/* Right-click menus: the row or card the open menu belongs to stays marked, so it is clear what the actions apply
+   to. */
+.nx-table tr.is-ctx > th, .nx-table tr.is-ctx > td { background: var(--color-bg-hover); }
+.nx-table tr.is-ctx > :first-child { box-shadow: inset 2px 0 0 var(--color-accent); }
+.nx-vmcard2.is-ctx { outline: 2px solid var(--color-accent); outline-offset: -1px; }

@@ -12,6 +12,8 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
+import ContextMenu, { useContextTarget } from "../components/ContextMenu";
+import { MenuItem } from "../components/Menu";
 import { ErrorState } from "../components/States";
 import { NAME_RE } from "../lib/containerImages";
 import { PageHeader, Card, Empty, Loading, TableWrap } from "../components/ui";
@@ -44,6 +46,7 @@ export default function ContainersPage() {
   // The creation dialog (Create ▸ Container, or the button below) announces a new container.
   useEffect(() => { window.addEventListener("nx:containers-changed", reload); return () => window.removeEventListener("nx:containers-changed", reload); }, [reload]);
 
+  const ctx = useContextTarget(); // right click on a container: the same actions as its row buttons
   const fail = (title) => (e) => pushToast({ kind: "error", title, message: errorMessage(e) });
   const nameCheck = (v) => (NAME_RE.test(v) ? "" : t("ct.nameRule"));
 
@@ -103,7 +106,7 @@ export default function ContainersPage() {
                   {list.map((ct) => {
                     const on = ct.etat === "actif";
                     return (
-                      <tr key={ct.nom}>
+                      <tr key={ct.nom} className={ctx.is("ct", ct.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
                         <td><StatusIndicator kind="vm" wire={on ? "actif" : "arrete"} /></td>
                         <th scope="row" className="nx-mono">{ct.nom}</th>
                         <td className="nx-num nx-mono">{ct.vcpu}</td>
@@ -152,6 +155,24 @@ export default function ContainersPage() {
           )}
         </Card>
       )}
+      {ctx.target && (() => {
+        const ct = ctx.target.obj;
+        const on = ct.etat === "actif";
+        const entry = (key, label, run, { disabled = !caps.admin, danger = false } = {}) => (
+          <MenuItem key={key} danger={danger} disabled={disabled} reason={disabled ? t("menu.reason.admin") : undefined} onSelect={() => { ctx.close(); run(); }}>{label}</MenuItem>
+        );
+        return (
+          <ContextMenu at={ctx.target.at} label={t("ctx.menuOf", { name: ct.nom })} returnFocus={ctx.target.el} onClose={ctx.close}>
+            {on ? entry("terminal", t("ct.terminal"), () => openTerminal(ct)) : entry("start", t("ct.start"), () => act(startContainer, ct, t("ct.started")))}
+            {on && entry("stop", t("ct.stop"), () => stop(ct))}
+            <hr />
+            {entry("clone", t("ct.clone"), () => clone(ct), { disabled: !caps.admin || on })}
+            {entry("backup", t("ct.backup"), () => backup(ct), { disabled: !caps.admin || on })}
+            <hr />
+            {entry("delete", del, () => remove(ct), { danger: true })}
+          </ContextMenu>
+        );
+      })()}
     </>
   );
 }
