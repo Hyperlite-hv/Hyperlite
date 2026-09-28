@@ -19,8 +19,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from app.core import iscsi
 from app.core.audit import log_action
+from app.core.backups import refuse_vm_with_block_disks
 from app.core.safe_paths import safe_child
 from app.core.security import require_role, require_vm_privilege
 from app.core.vm_export import EXPORTS_DIR, list_exports, run_export
@@ -40,7 +40,7 @@ def list_vm_exports(user: dict = Depends(require_role("admin"))):
 
 @router.post("/vms/{name}/export", status_code=202)
 def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    iscsi.refuse_vm_if_iscsi(name, "An export")
+    refuse_vm_with_block_disks(name, "An export")
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit as
     # backups, see backups.py) rather than a new dedicated privilege.

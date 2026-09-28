@@ -8,11 +8,11 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import iscsi
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
     _next_run,
+    refuse_vm_with_block_disks,
     restore_backup,
     run_backup,
 )
@@ -52,7 +52,7 @@ class BackupRequest(BaseModel):
 
 @router.post("/vms/{name}/backups", status_code=202)
 def create_backup(name: str, payload: BackupRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    iscsi.refuse_vm_if_iscsi(name, "A backup")
+    refuse_vm_with_block_disks(name, "A backup")
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit)
     # rather than introducing yet another dedicated privilege.
