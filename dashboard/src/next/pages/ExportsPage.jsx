@@ -3,6 +3,7 @@ import { fetchVmExports, downloadVmExport, deleteVmExport } from "../../api/clie
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { usePolling } from "../lib/polling";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
@@ -17,6 +18,7 @@ export default function ExportsPage() {
   const lang = useLangStore((s) => s.lang);
   const pushToast = useInfraStore((s) => s.pushToast);
   const [rows, setRows] = useState(null);
+  const ctx = useContextTarget(); // right click on an export: its actions
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
@@ -46,7 +48,7 @@ export default function ExportsPage() {
                 <thead><tr><th scope="col">{t("ex.file")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("ex.created")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.nom}>
+                    <tr key={r.nom} className={ctx.is("ex", r.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("ex", r)}>
                       <th scope="row" className="nx-mono nx-wrapcell" style={{ fontWeight: 500 }}>{r.nom}</th>
                       <td className="nx-num nx-mono">{r.taille_octets ? formatSizeMb(r.taille_octets / 1048576, lang) : "—"}</td>
                       <td className="nx-mono">{fmt(r.modifie_le)}</td>
@@ -61,6 +63,12 @@ export default function ExportsPage() {
             </TableWrap>
           )}
       </div>
+      <ActionsContextMenu ctx={ctx} label={(r) => t("ctx.menuOf", { name: r.nom })} entries={(r) => [
+        { key: "download", icon: "download", label: t("ex.download"), run: () => download(r.nom) },
+        { key: "name", icon: "copy", label: t("ctx.copyName"), run: () => navigator.clipboard?.writeText(r.nom) },
+        "-",
+        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(r.nom) },
+      ]} />
     </>
   );
 }

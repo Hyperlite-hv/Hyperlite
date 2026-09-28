@@ -9,6 +9,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Archive, Info, Trash2 } from "lucide-react";
@@ -24,6 +25,7 @@ export default function BackupsPage() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const caps = capabilities(useAuthStore((s) => s.role));
   const [rows, setRows] = useState(null);
+  const ctx = useContextTarget(); // right click on a backup: its actions
   const [error, setError] = useState(null);
   const [scheduled, setScheduled] = useState(null);
   const vms = useInfraStore((s) => s.vms);
@@ -61,7 +63,7 @@ export default function BackupsPage() {
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("jr.time")}</th><th scope="col">VM</th><th scope="col">{t("bk.mode")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("bk.location")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {rows.map((b) => (
-                    <tr key={b.id}>
+                    <tr key={b.id} className={ctx.is("bk", b.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("bk", b, b.id)}>
                       <td><StatusIndicator kind="task" wire={b.statut === "termine" ? "termine" : b.statut === "echec" ? "echec" : "en_cours"} /></td>
                       <td className="nx-mono">{fmt(b.cree_le)}</td>
                       <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", b.vm_name, "backup")}>{b.vm_name}</button></th>
@@ -76,6 +78,13 @@ export default function BackupsPage() {
             </TableWrap>
           )}
       </div>
+      <ActionsContextMenu ctx={ctx} label={(b) => t("ctx.menuOf", { name: `${b.vm_name} #${b.id}` })} entries={(b) => [
+        { key: "vm", icon: "open", label: t("ctx.vmBackups"), run: () => navigateTo("vm", b.vm_name, "backup") },
+        b.chemin && b.statut === "termine" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.chemin) },
+        "-",
+        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(b),
+          disabled: !caps.admin || b.statut !== "echec", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.onlyFailed") },
+      ]} />
     </>
   );
 }
