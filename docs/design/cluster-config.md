@@ -130,3 +130,13 @@ agent on nodes" model, which is one of Hyperlite's simplifications.
    (b)?
 3. Should the UI move with the controller (a floating address, Tailscale name), or is a different URL per node
    acceptable?
+
+## 8. Decisions (maintainer)
+
+- **Option (a) first**: a periodic, encrypted copy of the configuration to the other nodes (and right after a
+  configuration change), plus a manual `hyperlite promote`. (b) and (c) are not started.
+- Losing a few minutes of audit and tasks after a promotion is acceptable; configuration changes are copied at
+  once, so they are not lost.
+- Not decided yet: which node is the preferred standby (every registered node receives the copy, so any can be
+  promoted), and whether the UI address moves with the controller (for now each node keeps its own URL; the
+  promote command prints it).
