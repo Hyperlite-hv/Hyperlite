@@ -116,6 +116,24 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     return node
 
 
+@router.get("/config-copy")
+def config_copy_status(user: dict = Depends(require_role("admin"))):
+    """When the configuration was last copied to each node (see app/core/config_copy.py)."""
+    from app.core import config_copy
+
+    return config_copy.status()
+
+
+@router.post("/config-copy")
+def config_copy_now(user: dict = Depends(require_role("admin"))):
+    """Copy the configuration to every online node now, whatever changed."""
+    from app.core import config_copy
+
+    results = config_copy.copy_now(force=True, username=user["username"])
+    log_action(user["username"], "config_copy", "cluster", "succes", f"{len(results)} node(s)")
+    return {"resultats": results, "copies": config_copy.status()}
+
+
 @router.get("/{name}/summary")
 def get_node_summary(name: str, user: dict = Depends(get_current_user)):
     with get_conn() as conn:
