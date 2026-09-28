@@ -7,6 +7,7 @@ import { fetchSsoStatus } from "../api/client";
 import EnclaveMark from "../components/EnclaveMark";
 import { useT, useLangStore } from "./i18n";
 import { useThemeStore } from "./tokens/theme";
+import { useEnvironmentLabel } from "./lib/environment";
 
 // Sign-in screen of the rebuilt interface: a graphite brand pane and the form card. Same store actions as the
 // historical screen (password, then the TOTP step when 2FA is on, SSO when the server enables it); "Stay signed
@@ -28,6 +29,7 @@ export default function NextLogin() {
   const [health, setHealth] = useState(null);
   const [preAuthToken, setPreAuthToken] = useState(null);
   const [code, setCode] = useState("");
+  const env = useEnvironmentLabel();
 
   useEffect(() => {
     const root = document.documentElement;
@@ -65,6 +67,7 @@ export default function NextLogin() {
         <EnclaveMark size={44} rails="var(--color-text-primary)" core="var(--color-accent)" />
         <b>{t("app.name")}</b>
         <p>{t("login.tagline")}</p>
+        {env && <span className="nx-envbadge" title={t("env.title", { label: env })}>{env}</span>}
         {health && <span className="nx-login-v">{[health.hyperlite_version, health.hostname].filter(Boolean).join(" · ")}</span>}
       </div>
       <div className="nx-login-r">
