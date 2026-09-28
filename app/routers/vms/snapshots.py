@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import iscsi, zfs_storage
+from app.core import firmware, iscsi, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -148,6 +148,13 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
                 daemon=True,
             ).start()
             return {"task_id": task_id, "nom": payload.name, "statut": "en_cours"}
+
+        # QEMU cannot save a running VM's state while its firmware is in pflash (every UEFI VM): libvirt would fail
+        # the task after the fact with "internal snapshots of a VM with pflash based firmware are not supported".
+        if domain.isActive() and firmware.is_pflash(ET.fromstring(domain.XMLDesc(0))):
+            msg = "This VM uses UEFI firmware: its snapshots are taken while it is stopped. Shut it down, then take the snapshot"
+            log_action(user["username"], "create_snapshot", payload.name, "echec", msg)
+            raise HTTPException(status_code=409, detail=msg)
 
         try:
             domain.snapshotLookupByName(payload.name)

@@ -11,6 +11,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core import firmware
 from app.core.audit import log_action
 from app.core.libvirt_utils import (
     open_conn,
@@ -35,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 class CdromRequest(BaseModel):
     iso: str
+    # A drive slot: the IDE name it has on a BIOS VM. A UEFI VM (q35, no IDE bus) has the same slots as SATA drives
+    # (see firmware.cdrom_target()), so callers never need to know which one the VM is.
     target_dev: Literal["hda", "hdb", "hdc", "hdd"] | None = None
 
 
@@ -56,12 +59,14 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
             raise HTTPException(status_code=404, detail=f"ISO '{iso_filename}' not found")
 
         root = ET.fromstring(domain.XMLDesc(0))
+        vm_firmware = firmware.of_domain(root)
+        slot_dev, slot_bus = firmware.cdrom_target(payload.target_dev or "hdc", vm_firmware)
         devices_el = root.find(".//devices")
         cdrom = None
         if devices_el is not None:
             for disk in devices_el.findall("disk"):
                 target = disk.find("target")
-                if payload.target_dev and target is not None and target.get("dev") == payload.target_dev:
+                if payload.target_dev and target is not None and target.get("dev") == slot_dev:
                     if disk.get("device") != "cdrom":
                         raise HTTPException(status_code=409, detail="This target is already used by a disk")
                     cdrom = disk
@@ -83,18 +88,17 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
                 new_xml = ET.tostring(cdrom, encoding="unicode")
                 domain.updateDeviceFlags(new_xml, flags)
             else:
-                # IDE drives cannot be hot-plugged. Existing drives can still
+                # IDE and SATA drives cannot be hot-plugged. Existing drives can still
                 # change media live, including while Windows Setup is running.
                 if domain.isActive():
                     raise HTTPException(status_code=409, detail="Shut down the VM before adding a CD drive")
-                target_dev = payload.target_dev or "hdc"
-                if any(target.get("dev") == target_dev for target in root.findall("./devices/disk/target")):
+                if any(target.get("dev") == slot_dev for target in root.findall("./devices/disk/target")):
                     raise HTTPException(status_code=409, detail="This target is already used by a disk")
                 new_cdrom_xml = (
                     '<disk type="file" device="cdrom">'
                     '<driver name="qemu" type="raw"/>'
                     f'<source file="{escape(str(iso_path))}"/>'
-                    f'<target dev="{target_dev}" bus="ide"/>'
+                    f'<target dev="{slot_dev}" bus="{slot_bus}"/>'
                     "<readonly/>"
                     "</disk>"
                 )
@@ -124,13 +128,14 @@ def eject_vm_cdrom(
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(0))
+        slot_dev = firmware.cdrom_target(target_dev, firmware.of_domain(root))[0] if target_dev else None
         devices_el = root.find(".//devices")
         cdrom = None
         if devices_el is not None:
             for disk in devices_el.findall("disk"):
                 target = disk.find("target")
                 if disk.get("device") == "cdrom" and (
-                    target_dev is None or (target is not None and target.get("dev") == target_dev)
+                    slot_dev is None or (target is not None and target.get("dev") == slot_dev)
                 ):
                     cdrom = disk
                     break

@@ -1,4 +1,4 @@
-# Installing Windows Server guests
+# Installing Windows guests
 
 ## New VM
 
@@ -27,6 +27,44 @@ drivers** section. It is optional for SATA storage. Changing a running installat
 disk controller requires preparing the appropriate boot driver first; installing
 guest tools alone does not change the VM's hardware.
 
+## UEFI, Secure Boot and TPM 2.0 (Windows 11)
+
+Windows 11 requires UEFI firmware with Secure Boot and a TPM 2.0. In **Create VM →
+Advanced**, **Firmware** offers:
+
+| Choice | What the VM gets |
+| --- | --- |
+| BIOS (legacy) | The historical `pc` machine with SeaBIOS; every VM created before this option |
+| UEFI | The `q35` machine with OVMF, Secure Boot off |
+| UEFI + Secure Boot + TPM 2.0 | `q35`, OVMF with the Microsoft keys enrolled, SMM, and a software TPM 2.0 (`swtpm`) |
+
+**Automatic** picks UEFI + Secure Boot + TPM 2.0 for a Windows installation when the
+host can build it, and BIOS otherwise. The host needs the `ovmf`, `swtpm` and
+`swtpm-tools` packages (recommended by the Hyperlite package); when one is missing
+the choice is disabled and the wizard names the package. `GET /host/firmware`
+returns the same answer.
+
+At the first start, open the console quickly: the Windows DVD asks to *press any key
+to boot from CD or DVD* for a few seconds only. If it was missed, reset the VM.
+
+What differs for a UEFI VM:
+
+- **Drives**: `q35` has no IDE bus, so the CD drives are SATA (`sdw` for the
+  installation DVD, `sdz` for the drivers CD). The API and the Hardware page keep
+  addressing them by their slot (`hda`, `hdd`).
+- **Snapshots** are taken while the VM is stopped: QEMU cannot save the state of a
+  running VM whose firmware runs from flash. The Snapshots page says so and the API
+  answers 409 instead of failing later.
+- **Deletion** also deletes the VM's NVRAM (UEFI variables) and TPM state.
+- **Clone and template deployment** give the new VM a fresh NVRAM and TPM. It boots
+  through the UEFI fallback path, which Windows installs; anything sealed in the
+  source's TPM (BitLocker keys, Windows Hello) is not carried over.
+- **Backups** copy the disks only, not the NVRAM or the TPM state. A VM restored as
+  a new VM keeps its firmware kind with a fresh NVRAM and TPM: with BitLocker on,
+  keep the recovery key outside the VM.
+- **Live migration**: QEMU carries the NVRAM and TPM state in the migration stream;
+  it still has to be validated on real hosts before it is relied on.
+
 ## Hyperlite Tools
 
 Hyperlite Tools is the QEMU guest agent. On Windows it comes with the
@@ -49,8 +87,9 @@ affects only `hdd`.
 ## Scope
 
 This simplifies virtual hardware selection; Windows Setup remains interactive.
-Hyperlite does not supply Windows licenses or installation media. The profile does
-not configure UEFI, Secure Boot or a TPM, and is not a complete Windows 11 profile.
+Hyperlite does not supply Windows licenses or installation media. UEFI, Secure Boot
+and TPM 2.0 are available (see above); Windows 11 also checks the CPU model, which
+the host decides.
 Guest installation and networking must be validated with the selected Windows media
 on a suitable KVM host; XML/unit tests alone do not establish guest compatibility.
 

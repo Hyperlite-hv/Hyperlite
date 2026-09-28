@@ -8,6 +8,7 @@ from pathlib import Path
 
 import libvirt
 
+from app.core import firmware as fw
 from app.core.safe_paths import safe_child
 
 IMAGES_DIR = Path("/var/lib/libvirt/images")
@@ -374,8 +375,9 @@ def build_domain_xml(
     drivers_iso_path=None,
     disk_bus="scsi",
     interface_model="virtio",
+    firmware=fw.BIOS,
 ):
-    if disk_bus not in {"scsi", "sata"} or interface_model not in {"virtio", "e1000e"}:
+    if disk_bus not in {"scsi", "sata"} or interface_model not in {"virtio", "e1000e"} or firmware not in fw.CHOICES:
         raise ValueError("Unsupported VM hardware profile")
     # Boot order PER DEVICE (<boot order='N'/> on each <disk>) rather than the
     # global <os><boot dev=.../></os> list: SeaBIOS does not reliably fall back
@@ -424,11 +426,12 @@ def build_domain_xml(
     # up". The real installation medium must therefore always occupy the first slot.
     iso_xml = ""
     if iso_path:
+        dev, bus = fw.cdrom_target("hda", firmware)
         iso_xml = f"""
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{iso_path}'/>
-      <target dev='hda' bus='ide'/>
+      <target dev='{dev}' bus='{bus}'/>
       <readonly/>
       <boot order='2'/>
     </disk>"""
@@ -440,11 +443,12 @@ def build_domain_xml(
     # tried as a boot device, only read by the OS once started.
     cloudinit_xml = ""
     if cloudinit_path:
+        dev, bus = fw.cdrom_target("hdc", firmware)
         cloudinit_xml = f"""
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{cloudinit_path}'/>
-      <target dev='hdc' bus='ide'/>
+      <target dev='{dev}' bus='{bus}'/>
       <readonly/>
     </disk>"""
 
@@ -465,11 +469,12 @@ def build_domain_xml(
     # iso_path.
     seed_xml = ""
     if seed_iso_path:
+        dev, bus = fw.cdrom_target("hdb", firmware)
         seed_xml = f"""
     <disk type='file' device='disk'>
       <driver name='qemu' type='raw'/>
       <source file='{seed_iso_path}'/>
-      <target dev='hdb' bus='ide'/>
+      <target dev='{dev}' bus='{bus}'/>
     </disk>"""
 
     # Windows Setup needs the VirtIO SCSI driver before it can see the system disk.
@@ -480,7 +485,8 @@ def build_domain_xml(
         driver_cd = ET.Element("disk", {"type": "file", "device": "cdrom"})
         ET.SubElement(driver_cd, "driver", {"name": "qemu", "type": "raw"})
         ET.SubElement(driver_cd, "source", {"file": str(drivers_iso_path)})
-        ET.SubElement(driver_cd, "target", {"dev": "hdd", "bus": "ide"})
+        dev, bus = fw.cdrom_target("hdd", firmware)
+        ET.SubElement(driver_cd, "target", {"dev": dev, "bus": bus})
         ET.SubElement(driver_cd, "readonly")
         drivers_xml = ET.tostring(driver_cd, encoding="unicode")
 
@@ -521,13 +527,8 @@ def build_domain_xml(
   <memory unit='MiB'>{memory_mb}</memory>
   <currentMemory unit='MiB'>{memory_mb}</currentMemory>
   <vcpu placement='static'>{vcpu}</vcpu>
-  <os>
-    <type arch='x86_64' machine='pc'>hvm</type>{os_extra_xml}
-  </os>
-  <features>
-    <acpi/>
-    <apic/>
-  </features>
+  {fw.os_xml(firmware, os_extra_xml)}
+  {fw.features_xml(firmware)}
   {cpu_xml}
   <clock offset='utc'/>
   <on_poweroff>destroy</on_poweroff>
@@ -544,7 +545,7 @@ def build_domain_xml(
     <channel type='unix'>
       <target type='virtio' name='org.qemu.guest_agent.0'/>
     </channel>
-    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>{fw.tpm_xml(firmware)}
   </devices>
 </domain>
 """

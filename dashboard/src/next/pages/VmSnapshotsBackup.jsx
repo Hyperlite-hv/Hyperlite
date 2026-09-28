@@ -15,7 +15,7 @@ import { formatSizeMb, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
 import { PageHeader, Card, Empty, Field, Loading, TableWrap } from "../components/ui";
-import { Archive, Camera, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
+import { Archive, Camera, Info, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 const SNAP_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
@@ -64,6 +64,8 @@ export function VmSnapshotsPage({ resource: vm }) {
   if (error && snaps == null) return <ErrorState message={error} onRetry={reload} />;
   const zfs = Boolean(vm.stockage_zfs);
   const busy = job != null;
+  // QEMU cannot snapshot a running VM whose UEFI firmware is in pflash; the server refuses it too.
+  const uefiRunning = !zfs && vm.etat === "actif" && Boolean(vm.firmware) && vm.firmware !== "bios";
   const list = snaps || [];
 
   async function run(label, start, okTitle, failTitle) {
@@ -102,7 +104,8 @@ export function VmSnapshotsPage({ resource: vm }) {
   return (
     <>
       <PageHeader level={2} title={t("tab.snapshots")} count={snaps ? list.length : null} desc={t("vs.desc")}
-        actions={caps.admin && <button id="vs-create" type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={create}><Camera size={15} aria-hidden="true" />{t("vs.create")}</button>} />
+        actions={caps.admin && <button id="vs-create" type="button" className="nx-btn nx-btn--primary" disabled={busy || uefiRunning} onClick={create}><Camera size={15} aria-hidden="true" />{t("vs.create")}</button>} />
+      {uefiRunning && <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vs.uefiStop")}</span></div>}
       {list.length >= 3 && <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t(zfs ? "vs.manyZfs" : "vs.manyQcow", { n: list.length })}</span></div>}
       {job && (
         <div className="nx-bn" data-tone="info" role="status" aria-live="polite">
