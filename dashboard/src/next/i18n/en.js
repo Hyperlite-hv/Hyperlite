@@ -1089,6 +1089,7 @@ export default {
   "nav.auditLog": "Audit log",
   "nav.sso": "Authentication (SSO)",
   "nav.notifications": "Notifications",
+  "env.title": "{label} installation: this is not production",
   "crumb.label": "Breadcrumb",
   "top.activity": "Activity and alerts",
   "top.activityLabel": "Activity: {alerts} alerts, {running} running tasks",
