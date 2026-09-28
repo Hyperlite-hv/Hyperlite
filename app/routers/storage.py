@@ -1,5 +1,6 @@
 import contextlib
 import re
+import shutil
 import socket
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
@@ -173,6 +174,16 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
     return pool_xml
 
 
+@router.get("/support")
+def storage_support(user: dict = Depends(get_current_user)):
+    """Which pool types the local host can create now, and why not: read by the pool creation form to warn
+    before the attempt. nfs: 'ok' or 'no_client'; zfs: see zfs_storage.status(). Nothing is loaded or run."""
+    return {
+        "nfs": "ok" if shutil.which("mount.nfs") else "no_client",
+        "zfs": zfs_storage.status(),
+    }
+
+
 @router.post("", status_code=201)
 def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depends(require_role("admin"))):
     name_error = validate_name(payload.name)
@@ -191,10 +202,10 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
         size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
         if size_errors:
             raise HTTPException(status_code=422, detail=size_errors)
-        if not zfs_storage.is_available():
-            raise HTTPException(
-                status_code=422, detail="ZFS is not installed on this host (zfsutils-linux/zfs-dkms packages)"
-            )
+        if not zfs_storage.load_module():
+            reason = zfs_storage.STATUS_MESSAGES[zfs_storage.status()]
+            log_action(user["username"], "create_storage_pool", payload.name, "echec", reason)
+            raise HTTPException(status_code=422, detail=reason)
         try:
             pool = zfs_storage.create_pool(payload.name, payload.size_gb)
         except zfs_storage.ZfsError as e:
@@ -217,6 +228,12 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
             raise HTTPException(status_code=422, detail="Invalid NFS host")
         if not POOL_PATH_RE.match(payload.nfs_export_path):
             raise HTTPException(status_code=422, detail="Invalid NFS export path (must be an absolute path)")
+        # libvirt mounts the export with mount.nfs: without the NFS client its error ("mount: unknown filesystem
+        # type") hides the real cause. Checked on the local host only (a remote node reports its own error).
+        if not node and shutil.which("mount.nfs") is None:
+            raise HTTPException(
+                status_code=422, detail="The NFS client is not installed on this host (nfs-common package)"
+            )
         # LOCAL mount point on the node (the NFS client side): distinct from the path
         # exported on the server side, and never supplied by the caller, to avoid any
         # collision with an existing system directory.
