@@ -173,6 +173,7 @@ function mapVm(v, nodeId) {
     // (stockage_zfs, see app/routers/vms.py::_domain_summary) is silently dropped
     // here unless it is listed: VMSnapshotsTab.jsx would always receive `undefined`.
     stockage_zfs: v.stockage_zfs,
+    stockage_iscsi: v.stockage_iscsi,
   };
 }
 
