@@ -8,6 +8,8 @@ import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
 import { formatSizeMb, formatUptimeLong } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
+import { useContextTarget } from "../components/ContextMenu";
+import { VmContextMenu, NodeContextMenu } from "../components/ObjectActions";
 import { PageHeader, Spark, Empty, StatePill, TableWrap, Meter, Chip } from "../components/ui";
 import { useVmHistory } from "./VmPerformance";
 
@@ -145,6 +147,7 @@ export default function VmList() {
   const setGroup = (v) => { setGroupPref(v); try { localStorage.setItem(GROUP_KEY, v ? "1" : "0"); } catch { /* preference only */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* preference only */ } };
   const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const ctx = useContextTarget(); // right click on a VM or a node band: its actions
 
   const counts = useMemo(() => ({
     all: vms.length,
@@ -191,7 +194,7 @@ export default function VmList() {
     return n ? <button type="button" className="nx-lnk nx-mono" title={nodeAddress(n) || undefined} onClick={(e) => { e.stopPropagation(); navigateTo("node", n.id, "summary"); }}>{n.nom}</button> : <span className="nx-mono">{id}</span>;
   };
   const renderCard = (vm) => (
-              <article key={`${vm.node}:${vm.nom}`} className="nx-card2 nx-vmcard2" aria-label={vm.nom}>
+              <article key={`${vm.node}:${vm.nom}`} className={`nx-card2 nx-vmcard2${ctx.is("vm", vm.nom) ? " is-ctx" : ""}`} aria-label={vm.nom} onContextMenu={ctx.open("vm", vm)}>
                 <div className="nx-inline"><StatusIndicator kind="vm" wire={vm.etat} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vm.nom, "summary")}>{vm.nom}</button></div>
                 <div className="nx-muted" style={{ fontSize: "var(--fs-12)" }}>{PROBLEM.has(vm.etat) ? <span className="nx-tone-warning">{t(`vmlist.reason.${vm.etat}`)}</span> : vm.os || "—"}</div>
                 <dl className="nx-dl2" style={{ gridTemplateColumns: "5.3333rem minmax(0,1fr)", marginTop: "var(--space-2)" }}>
@@ -204,8 +207,8 @@ export default function VmList() {
   const renderRow = (vm, withNode) => {
                       const sel = showDetail && selected?.nom === vm.nom;
                       return (
-                        <tr key={`${vm.node}:${vm.nom}`} className={`nx-rowlink${sel ? " is-sel" : PROBLEM.has(vm.etat) ? " is-warn" : ""}`} aria-selected={sel || undefined} tabIndex={0}
-                          onClick={() => select(vm)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(vm); } }}>
+                        <tr key={`${vm.node}:${vm.nom}`} className={`nx-rowlink${sel ? " is-sel" : PROBLEM.has(vm.etat) ? " is-warn" : ""}${ctx.is("vm", vm.nom) ? " is-ctx" : ""}`} aria-selected={sel || undefined} tabIndex={0}
+                          onClick={() => select(vm)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(vm); } }} onContextMenu={ctx.open("vm", vm)}>
                           <td style={{ width: "2rem" }}><StatusIndicator kind="vm" wire={vm.etat} compact /></td>
                           <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vm.nom, "summary"); }}>{vm.nom}</button>{sub(vm)}</th>
                           {withNode && <td>{nodeCell(vm.node)}</td>}
@@ -282,7 +285,7 @@ export default function VmList() {
                     const folded = collapsed.has(node.id);
                     return (
                       <tbody key={node.id} className="nx-group">
-                        <tr className="nx-grouprow nx-grouprow--band">
+                        <tr className={`nx-grouprow nx-grouprow--band${ctx.is("node", node.id) ? " is-ctx" : ""}`} onContextMenu={node.id !== "?" ? ctx.open("node", node) : undefined}>
                           <th scope="colgroup" colSpan={5}><NodeBand node={node} list={list} collapsed={folded} onToggle={() => toggleNode(node.id)} /></th>
                         </tr>
                         {folded ? null : list.length === 0 ? <tr><td colSpan={5} className="nx-muted" style={{ paddingLeft: "2.6667rem" }}>{t("ns.noVms")}</td></tr> : list.map((vm) => renderRow(vm, false))}
@@ -297,6 +300,8 @@ export default function VmList() {
           {showDetail && <DetailPanel vm={selected} onClose={() => { setDetail(false); setSelName(null); }} />}
         </div>
       )}
+      {ctx.target?.kind === "vm" && <VmContextMenu key={`vm:${ctx.target.obj.nom}`} vm={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
+      {ctx.target?.kind === "node" && <NodeContextMenu key={`node:${ctx.target.obj.id}`} node={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
     </>
   );
 }

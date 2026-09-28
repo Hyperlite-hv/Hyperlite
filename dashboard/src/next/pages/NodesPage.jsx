@@ -12,6 +12,8 @@ import { formatSizeMb, formatUptimeLong, formatVersionInt } from "../lib/format"
 import { refreshInventory } from "../lib/inventory";
 import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
+import { useContextTarget } from "../components/ContextMenu";
+import { NodeContextMenu } from "../components/ObjectActions";
 import { PageHeader, Meter, Chip, SideDrawer, Field, TableWrap } from "../components/ui";
 
 const EMPTY = { name: "", hostname: "", ssh_user: "root", ssh_port: "22" };
@@ -88,6 +90,7 @@ export default function NodesPage() {
   const lang = useLangStore((s) => s.lang);
   const caps = capabilities(useAuthStore((s) => s.role));
   const { nodes, vms, pushToast, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, pushToast: s.pushToast, navigateTo: s.navigateTo })));
+  const ctx = useContextTarget(); // right click on a node: its actions
   const [adding, setAdding] = useState(false);
   useIntent("node", () => caps.admin && setAdding(true));
 
@@ -118,7 +121,7 @@ export default function NodesPage() {
                 const total = nodeVms.length || (n.vms_actives ?? 0) + (n.vms_arretees ?? 0);
                 const lib = formatVersionInt(n.version_libvirt);
                 return (
-                  <tr key={n.id}>
+                  <tr key={n.id} className={ctx.is("node", n.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("node", n)}>
                     <td><StatusIndicator kind="node" wire={n.etat} /></td>
                     <th scope="row" className="nx-nm">
                       <button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.nom}</button>
@@ -145,6 +148,7 @@ export default function NodesPage() {
           </table>
         </TableWrap>
       </div>
+      {ctx.target && <NodeContextMenu key={ctx.target.obj.id} node={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
       <AddNodeDrawer open={adding} onClose={() => setAdding(false)} onAdded={() => refreshInventory()} />
     </>
   );
