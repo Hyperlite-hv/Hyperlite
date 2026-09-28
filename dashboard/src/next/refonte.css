@@ -517,7 +517,8 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 
 /* Two columns that follow the room actually left by the sidebar, not the viewport: the side column drops under
    the main one as soon as the main one could no longer show its table without scrolling sideways. */
-.nx-cols2.nx-cols2--fit { display: flex; flex-wrap: wrap; }
+/* inline-size containment: the 52rem basis below must not become the page's own minimum width. */
+.nx-cols2.nx-cols2--fit { display: flex; flex-wrap: wrap; contain: inline-size; }
 .nx-cols2--fit > * { flex: 2 1 52rem; min-width: 0; }
 .nx-cols2--fit > * + * { flex: 1 1 22rem; }
 /* A KPI value too long for its tile (say 110,5 Go / 1 355,1 Go) puts its total on a second line instead of
