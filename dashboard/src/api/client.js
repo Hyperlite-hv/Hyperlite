@@ -78,6 +78,11 @@ export function ejectVMDriversIso(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cdrom?target_dev=hdd`, { method: "DELETE" });
 }
 
+// Which VM firmwares this host can build: { uefi, uefi_secure, raison }.
+export function fetchHostFirmware() {
+  return realFetch("/host/firmware");
+}
+
 // Per-VM resource limits derived from the real host (GET /host/limits), which
 // replace the 1-2 vCPU / 256-2048 MB bounds that were hard-coded in the forms.
 export async function fetchHostLimits() {
@@ -179,6 +184,7 @@ function mapVm(v, nodeId) {
     stockage_zfs: v.stockage_zfs,
     stockage_iscsi: v.stockage_iscsi,
     agent_invite: v.agent_invite,
+    firmware: v.firmware,
   };
 }
 

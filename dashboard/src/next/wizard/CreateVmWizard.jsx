@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createVM, fetchClusterIsos, fetchVmDisks, fetchVolumes } from "../../api/client";
+import { createVM, fetchClusterIsos, fetchHostFirmware, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
-import { installationFamily, isWindowsInstall, guestProfile, diskController } from "../../utils/osFamily";
+import { installationFamily, isWindowsInstall, guestProfile, diskController, vmFirmware } from "../../utils/osFamily";
 import { useHostLimits } from "../../hooks/useHostLimits";
 import OverallocationNote from "../../components/OverallocationNote";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
@@ -21,7 +21,7 @@ const DEFAULTS = { vcpu: 2, memory_mb: 2048, disk_gb: 20 };
 
 function initialForm(nodes, networks, d = DEFAULTS) {
   return {
-    node: (nodes.find((n) => !n.maintenance) || nodes[0])?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", importDisk: null,
+    node: (nodes.find((n) => !n.maintenance) || nodes[0])?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", firmware: "auto", importDisk: null,
     name: "", vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }],
     username: "", password: "", network: networks[0]?.nom || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
@@ -49,6 +49,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const [isos, setIsos] = useState([]);
   const [disks, setDisks] = useState([]);
   const [luns, setLuns] = useState(null); // LUNs of the chosen iSCSI pool, null while unknown
+  const [fwSupport, setFwSupport] = useState(null); // what this host offers beyond BIOS, null while unknown
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -69,7 +70,10 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     : t("wz.src.remoteIso", { size: formatSizeMb(iso.taille_mo, lang), node: isoNodeName(iso.node) }));
   const reloadDisks = () => fetchVmDisks().then((r) => setDisks(Array.isArray(r) ? r : [])).catch(() => {});
   useEffect(() => {
-    if (open) { reloadIsos(); reloadDisks(); }
+    if (open) {
+      reloadIsos(); reloadDisks();
+      fetchHostFirmware().then(setFwSupport).catch(() => setFwSupport({ uefi: false, uefi_secure: false, raison: null }));
+    }
   }, [open]);
   useEffect(() => { bodyRef.current?.scrollTo?.(0, 0); }, [step]);
 
@@ -162,7 +166,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
       name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), disks: form.disks.map((d) => (iscsiPool ? { size_gb: lunGb(d.lun), lun: d.lun } : { size_gb: Number(d.size_gb) })), network: form.network,
       username: form.username, password: form.password, iso: form.iso || null,
       drivers_iso: form.iso && !importMode ? form.driversIso || null : null,
-      iso_node: form.iso ? form.isoNode : null, drivers_iso_node: form.iso && !importMode && form.driversIso ? form.driversIsoNode : null, guest_os: form.guestOs, disk_controller: form.diskController,
+      iso_node: form.iso ? form.isoNode : null, drivers_iso_node: form.iso && !importMode && form.driversIso ? form.driversIsoNode : null, guest_os: form.guestOs, disk_controller: form.diskController, firmware: vmFirmware(form, fwSupport),
       import_disk: importMode && form.importDisk !== "__pending__" ? form.importDisk : null, storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? Number(form.autoCleanupDays) : null,
       erase_luns: Boolean(iscsiPool && form.eraseLuns),
@@ -201,7 +205,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     [3, t("wz.step.compute"), [["vCPU", form.vcpu], [t("ct.memory"), formatSizeMb(Number(form.memory_mb), lang)]]],
     [4, t("wz.step.storage"), [[t("vh.disks"), form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} GB`)).join(" + ")], [t("wz.controller"), diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"]]],
     [5, t("wz.step.network"), [[t("vh.network"), form.network], [t("wz.adapter"), profile === "linux" ? "VirtIO" : "Intel E1000e"]]],
-    [6, t("wz.step.advanced"), [[t("wz.drivers"), form.driversIso || t("wz.none")], [t("wz.cleanup"), form.autoCleanupEnabled ? t("wz.r.cleanupDays", { n: form.autoCleanupDays }) : t("wz.off")]]],
+    [6, t("wz.step.advanced"), [[t("wz.firmware"), t(`fw.${vmFirmware(form, fwSupport)}`)], [t("wz.drivers"), form.driversIso || t("wz.none")], [t("wz.cleanup"), form.autoCleanupEnabled ? t("wz.r.cleanupDays", { n: form.autoCleanupDays }) : t("wz.off")]]],
   ];
 
   return (
@@ -381,6 +385,16 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                   <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} />
                 </fieldset>
               )}
+              <label>{t("wz.firmware")}
+                <select className="nx-input" aria-label={t("wz.firmware")} value={form.firmware || "auto"} onChange={(e) => patch({ firmware: e.target.value })}>
+                  <option value="auto">{t("wz.fw.auto", { name: t(`fw.${vmFirmware({ ...form, firmware: "auto" }, fwSupport)}`) })}</option>
+                  <option value="bios">{t("fw.bios")}</option>
+                  <option value="uefi" disabled={!fwSupport?.uefi}>{t("fw.uefi")}</option>
+                  <option value="uefi_secure" disabled={!fwSupport?.uefi_secure}>{t("fw.uefi_secure")}</option>
+                </select>
+                <span className="nx-hint">{t(`wz.fw.${vmFirmware(form, fwSupport)}Help`)}{vmFirmware(form, fwSupport) !== "bios" && form.iso && !importMode && ` ${t("wz.fw.keyHelp")}`}</span>
+                {fwSupport && !fwSupport.uefi_secure && fwSupport.raison && <span className="nx-hint">{t("wz.fw.missing", { reason: fwSupport.raison })}</span>}
+              </label>
               <fieldset className="nx-fieldset">
                 <legend>{t("wz.cleanup")}</legend>
                 <label className="nx-check"><input type="checkbox" checked={form.autoCleanupEnabled} onChange={(e) => patch({ autoCleanupEnabled: e.target.checked })} /> {t("wz.cleanupLabel")}</label>
@@ -388,7 +402,6 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                   <label>{t("wz.cleanupAfter")}<input className="nx-input nx-input--auto" aria-label={t("a11y.inactivity_threshold_in_days")} type="number" min={1} max={365} value={form.autoCleanupDays} onChange={(e) => patch({ autoCleanupDays: e.target.value })} {...inv("advanced", "days")} />{show("advanced", "days")}<span className="nx-hint">{t("wz.cleanupHelp")}</span></label>
                 )}
               </fieldset>
-              {!(form.iso && !importMode) && !form.autoCleanupEnabled && <p className="nx-muted">{t("wz.advancedNone")}</p>}
             </div>
           )}
 

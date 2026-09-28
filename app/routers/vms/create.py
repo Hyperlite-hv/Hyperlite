@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core import maintenance, zfs_storage
+from app.core import firmware, maintenance, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
@@ -78,6 +78,9 @@ class VMCreate(BaseModel):
     drivers_iso_node: str | None = None
     guest_os: Literal["auto", "windows", "linux", "other"] = "auto"
     disk_controller: Literal["auto", "sata", "virtio-scsi"] = "auto"
+    # "bios" (the historical default), "uefi", or "uefi_secure" (UEFI + Secure Boot + TPM 2.0, what Windows 11
+    # requires). See app/core/firmware.py.
+    firmware: Literal["bios", "uefi", "uefi_secure"] = "bios"
     # Name of a file already uploaded through POST /vm-disks (see
     # app/routers/vm_disks.py): the VM boots directly from this disk (an OS is already
     # installed on it) instead of the preinstalled Debian 12 image or an installation
@@ -319,6 +322,10 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
         except libvirt.libvirtError:
             errors.append(f"Network '{payload.network}' not found")
 
+        firmware_error = firmware.check_choice(conn, payload.firmware)
+        if firmware_error:
+            errors.append(firmware_error)
+
         # Resolution of the chosen storage pool: None/absent = the 'default' pool,
         # already guaranteed present and active by ensure_default_pool() at service
         # start-up, so no need to look it up again here. Restricted to the 'dir'/'netfs'
@@ -502,6 +509,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
             kernel_cmdline=kernel_cmdline,
             disk_bus=disk_bus,
             interface_model="e1000e" if compatible_devices else "virtio",
+            firmware=payload.firmware,
         )
         domain = conn.defineXML(xml)
         if needs_account:

@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import APIRouter
 
-from app.core import guest_agent, iscsi
+from app.core import firmware, guest_agent, iscsi
 from app.core.libvirt_utils import (
     get_vm_uptime_s,
 )
@@ -72,7 +72,18 @@ def _domain_summary(domain):
         "stockage_iscsi": bool(iscsi.iscsi_disks_of_domain(domain)),
         # Hyperlite Tools (qemu-guest-agent): "actif", "inactif", "non_configure", or None when the VM is stopped.
         "agent_invite": guest_agent.state(domain) if active else None,
+        # "bios", "uefi" or "uefi_secure" (see app/core/firmware.py): the UI explains why a running UEFI VM's
+        # snapshot is refused.
+        "firmware": _firmware_of(domain),
     }
+
+
+def _firmware_of(domain):
+    try:
+        return firmware.of_domain(ET.fromstring(domain.XMLDesc(0)))
+    except (libvirt.libvirtError, ET.ParseError):
+        logger.debug("Cannot read the firmware of %s", domain.name(), exc_info=True)
+        return None
 
 
 def _zvol_disks_of_domain(domain):
