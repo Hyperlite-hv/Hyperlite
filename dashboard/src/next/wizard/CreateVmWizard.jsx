@@ -21,7 +21,7 @@ const DEFAULTS = { vcpu: 2, memory_mb: 2048, disk_gb: 20 };
 
 function initialForm(nodes, networks, d = DEFAULTS) {
   return {
-    node: nodes[0]?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", importDisk: null,
+    node: (nodes.find((n) => !n.maintenance) || nodes[0])?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", importDisk: null,
     name: "", vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }],
     username: "", password: "", network: networks[0]?.nom || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
@@ -125,7 +125,9 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
       ...(needsAccount && !/^[a-zA-Z_][a-zA-Z0-9_-]{0,31}$/.test(form.username) ? { username: "wz.e.user" } : {}),
       ...(needsAccount && form.password.length < 4 ? { password: "wz.e.password" } : {}),
     },
-    placement: form.node ? {} : { node: "wz.e.node" },
+    // Creation always runs on this host for now (see wz.nodeWarn), so this host in maintenance refuses it whatever
+    // tile is picked: say so here rather than after the eight steps.
+    placement: !form.node ? { node: "wz.e.node" } : nodes.find((n) => n.id === form.node)?.maintenance || nodes.find((n) => n.id === "local")?.maintenance ? { node: "wz.e.nodeMaint" } : {},
     compute: { ...(!int(form.vcpu, vMin, vMax) ? { vcpu: "wz.e.vcpu" } : {}), ...(!int(form.memory_mb, mMin, mMax) ? { memory_mb: "wz.e.memory" } : {}) },
     storage: iscsiErrors || Object.fromEntries(form.disks.map((d, i) => [`disk${i}`, importMode && i === 0 ? "" : int(d.size_gb, 1, dMax) ? "" : "wz.e.diskSize"]).filter(([, v]) => v)),
     network: networks.some((n) => n.nom === form.network) ? {} : { network: "wz.e.network" },
@@ -185,8 +187,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const selectable = pools.filter((p) => ["dir", "netfs", "zfs", "iscsi"].includes(p.type) && p.etat === "actif");
   const family = installationFamily(form);
   const profile = guestProfile(form);
-  const radio = (checked, on, title, sub, name, extra = null) => (
-    <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
+  const radio = (checked, on, title, sub, name, extra = null, disabled = false) => (
+    <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`} aria-disabled={disabled || undefined} style={disabled ? { opacity: 0.55 } : undefined}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} disabled={disabled} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
   );
   const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
 
@@ -280,8 +282,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <div className="nx-tiles">{nodes.map((n) => {
                   const ram = n.memoire_totale_mo ? (n.memoire_utilisee_mo / n.memoire_totale_mo) * 100 : null;
                   return radio(form.node === n.id, () => patch({ node: n.id }), n.nom,
-                    [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_actives ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
-                    "node", ram != null ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null);
+                    n.maintenance ? t("wz.inMaintenance") : [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_actives ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
+                    "node", ram != null && !n.maintenance ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null, Boolean(n.maintenance));
                 })}</div>
                 {show("placement", "node")}
                 {form.node && form.node !== "local" && <p className="nx-notice nx-notice--warning" role="note">{t("wz.nodeWarn")}</p>}
