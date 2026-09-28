@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Info, Plus, Trash2, Zap } from "lucide-react";
 import {
   fetchVMDisks, attachDisk, detachDisk, resizeDisk, moveDisk, createVolume, fetchVolumes, fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
-  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
+  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchVMCpuPinning, setVMCpuPinning, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -433,6 +433,7 @@ export function VmOptionsPage({ resource: vm }) {
     } catch (er) { pushToast({ kind: "error", title: t("vo.applyFailed"), message: errorMessage(er) }); } finally { setBusy(false); }
   }
   return (
+    <>
     <Card title={t("vo.limits")}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-4)", fontSize: "var(--fs-13)" }}>{t("vo.limitsHelp")}</p>
       <div className="nx-fg nx-fg--3">
@@ -441,6 +442,108 @@ export function VmOptionsPage({ resource: vm }) {
         <Field label={t("vo.ramCap")} unit={lang() === "fr" ? "Mo" : "MB"} error={bad.ram ? t("vo.ramCapRule") : null} hint={t("vo.ramCapHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.ram_limit_in_mb")} type="number" min={64} placeholder={t("vo.unlimited")} disabled={!admin} value={ram} onChange={(e) => setRam(e.target.value)} />}</Field>
       </div>
       {admin && <div className="nx-fa"><button type="button" className="nx-btn" aria-label={t("a11y.apply_live")} disabled={!dirty || busy || bad.shares || bad.cpu || bad.ram} onClick={save}><Zap size={14} aria-hidden="true" />{t("vo.applyLive")}</button></div>}
+    </Card>
+    <CpuPinningCard vm={vm} admin={admin} />
+    </>
+  );
+}
+
+// ---- CPU pinning (affinity) and NUMA placement ----------------------------------------------------------
+// Client mirror of app/core/cpu_pinning.parse_cpuset, only to validate as the user types; the server decides.
+function parseCpuset(text) {
+  const s = (text || "").replace(/\s/g, "");
+  if (!/^\d{1,4}(-\d{1,4})?(,\d{1,4}(-\d{1,4})?)*$/.test(s)) return null;
+  const out = new Set();
+  for (const part of s.split(",")) {
+    const [a, b] = part.split("-").map(Number);
+    const hi = b ?? a;
+    if (a > hi) return null;
+    for (let i = a; i <= hi; i += 1) out.add(i);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+function formatCpuset(cpus) {
+  const s = [...new Set(cpus)].sort((x, y) => x - y), parts = [];
+  for (let i = 0; i < s.length;) {
+    let j = i;
+    while (j + 1 < s.length && s[j + 1] === s[j] + 1) j += 1;
+    parts.push(i === j ? `${s[i]}` : `${s[i]}-${s[j]}`);
+    i = j + 1;
+  }
+  return parts.join(",");
+}
+
+function CpuPinningCard({ vm, admin }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [pin, setPin] = useState(null);
+  const [error, setError] = useState(null);
+  const [mode, setMode] = useState("none");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const name = vm.nom;
+  const load = useCallback(async () => {
+    try {
+      const p = await fetchVMCpuPinning(name);
+      setPin(p); setMode(p.cpuset ? (p.strict ? "strict" : "set") : "none"); setText(p.cpuset || ""); setError(null);
+    } catch (e) { setError(errorMessage(e)); }
+  }, [name]);
+  useEffect(() => { load(); }, [load]);
+  if (error && !pin) return <Card title={t("pin.title")}><ErrorState message={error} onRetry={load} /></Card>;
+  if (!pin) return <Card title={t("pin.title")}><Loading /></Card>;
+
+  const topo = pin.topologie;
+  const known = new Set(topo.cpus.map((c) => c.id));
+  const chosen = mode === "none" ? [] : parseCpuset(text);
+  const problem = mode === "none" ? null
+    : chosen == null || chosen.length === 0 ? t("pin.e.format")
+    : chosen.some((c) => !known.has(c)) ? t("pin.e.missing", { cpus: formatCpuset(chosen.filter((c) => !known.has(c))) })
+    : mode === "strict" && chosen.length < vm.vcpu ? t("pin.e.strict", { n: vm.vcpu, m: chosen.length })
+    : null;
+  const wanted = { cpuset: mode === "none" ? null : formatCpuset(chosen || []), strict: mode === "strict" };
+  const dirty = wanted.cpuset !== (pin.cpuset ?? null) || wanted.strict !== pin.strict;
+  const toggle = (id) => {
+    const cur = new Set(parseCpuset(text) || []);
+    if (cur.has(id)) cur.delete(id); else cur.add(id);
+    setText(formatCpuset([...cur]));
+  };
+  async function save() {
+    if (problem) return;
+    setBusy(true);
+    try {
+      const r = await setVMCpuPinning(name, wanted);
+      setPin(r); setText(r.cpuset || "");
+      pushToast({ kind: "success", title: t("pin.saved"), message: r.redemarrage_requis ? t("pin.restart") : name });
+    } catch (e) { pushToast({ kind: "error", title: t("pin.failed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  const modes = [["none", t("pin.m.none"), t("pin.m.noneHelp")], ["set", t("pin.m.set"), t("pin.m.setHelp")], ["strict", t("pin.m.strict"), t("pin.m.strictHelp", { n: vm.vcpu })]];
+  return (
+    <Card title={t("pin.title")}>
+      <p className="nx-muted" style={{ margin: "0 0 var(--space-4)", fontSize: "var(--fs-13)" }}>{t("pin.help")}</p>
+      <fieldset className="nx-fieldset" disabled={!admin}>
+        <legend className="nx-sr">{t("pin.title")}</legend>
+        <div className="nx-tiles">{modes.map(([id, title, sub]) => (
+          <label key={id} className={`nx-tile nx-tile--radio${mode === id ? " is-on" : ""}`}><input type="radio" className="nx-tile-input" name="cpu-pin-mode" checked={mode === id} onChange={() => setMode(id)} /><b>{title}</b><small>{sub}</small></label>
+        ))}</div>
+      </fieldset>
+      {mode !== "none" && (
+        <div style={{ marginTop: "var(--space-4)" }}>
+          <Field label={t("pin.cpus")} error={problem} hint={t("pin.cpusHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("pin.cpus")} placeholder="2-5" disabled={!admin} value={text} onChange={(e) => setText(e.target.value)} />}</Field>
+          {topo.cellules.map((cell) => (
+            <div key={cell.id} role="group" aria-label={t("pin.cell", { id: cell.id })} style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center", marginTop: "var(--space-2)" }}>
+              {topo.cellules.length > 1 && <span className="nx-muted" style={{ minWidth: "6rem" }}>{t("pin.cell", { id: cell.id })}</span>}
+              {topo.cpus.filter((c) => c.cellule === cell.id).map((c) => (
+                <button key={c.id} type="button" className="nx-btn nx-btn--sm nx-mono" aria-pressed={(chosen || []).includes(c.id)} disabled={!admin}
+                  title={t("pin.cpuTitle", { socket: c.socket, core: c.coeur, siblings: formatCpuset(c.freres) })} onClick={() => toggle(c.id)}
+                  style={(chosen || []).includes(c.id) ? { background: "var(--accent)", color: "var(--accent-fg, #fff)" } : undefined}>{c.id}</button>
+              ))}
+            </div>
+          ))}
+          {pin.numa_cellule != null && <p className="nx-hint" role="note">{t("pin.numa", { id: pin.numa_cellule })}</p>}
+        </div>
+      )}
+      {admin && <div className="nx-fa"><button type="button" className="nx-btn" disabled={!dirty || busy || Boolean(problem)} onClick={save}>{t("pin.apply")}</button></div>}
     </Card>
   );
 }

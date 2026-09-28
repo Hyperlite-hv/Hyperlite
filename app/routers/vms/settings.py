@@ -1,9 +1,11 @@
 import logging
+import xml.etree.ElementTree as ET
 
 import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import cpu_pinning
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -186,5 +188,76 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
 
         log_action(user["username"], "set_vm_limits", name, "succes")
         return _limits_summary(domain)
+    finally:
+        conn.close()
+
+
+# --- CPU pinning and NUMA placement (see app/core/cpu_pinning.py).
+
+
+class CpuPinning(BaseModel):
+    # Host CPUs, "4-7" or "0,2,4"; null removes the pinning.
+    cpuset: str | None = Field(None, max_length=200)
+    strict: bool = False
+
+
+def _pinning_summary(conn, domain):
+    summary = cpu_pinning.read(domain)
+    summary["topologie"] = cpu_pinning.host_topology(conn)
+    return summary
+
+
+@router.get("/{name}/cpu-pinning")
+def get_vm_cpu_pinning(name: str, user: dict = Depends(require_vm_privilege("vm.resize"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        return _pinning_summary(conn, domain)
+    finally:
+        conn.close()
+
+
+@router.put("/{name}/cpu-pinning")
+def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(require_vm_privilege("vm.resize"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "set_vm_cpu_pinning", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+
+        root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+        nvcpu = int((root.findtext("vcpu") or "1").strip())
+        before = cpu_pinning.read(domain)
+        try:
+            how = cpu_pinning.plan(cpu_pinning.host_topology(conn), nvcpu, payload.cpuset, payload.strict)
+        except cpu_pinning.PinningError as e:
+            log_action(user["username"], "set_vm_cpu_pinning", name, "echec", e.message)
+            raise HTTPException(status_code=e.status, detail=e.message) from e
+
+        cpu_pinning.apply_to_xml(root, nvcpu, how)
+        try:
+            conn.defineXML(ET.tostring(root, encoding="unicode"))
+            if domain.isActive():
+                cpu_pinning.apply_live(domain, conn, domain.info()[3] or nvcpu, how)
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "set_vm_cpu_pinning", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"CPU pinning error: {msg}") from e
+
+        detail = (
+            f"CPUs {cpu_pinning.format_cpuset(how['cpus'])}{' strict' if how['strict'] else ''}"
+            if how["cpus"]
+            else "unpinned"
+        )
+        log_action(user["username"], "set_vm_cpu_pinning", name, "succes", detail)
+        result = _pinning_summary(conn, domain)
+        # The CPUs move at once; a new NUMA memory placement only applies when the guest's RAM is allocated again.
+        result["redemarrage_requis"] = bool(domain.isActive()) and before["numa_cellule"] != how["numa_cellule"]
+        return result
     finally:
         conn.close()
