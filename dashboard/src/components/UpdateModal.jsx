@@ -119,7 +119,7 @@ export default function UpdateModal({ open, onClose, triggerRef }) {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-muted-foreground">Local version</span><span className="font-mono text-foreground/90">{shortVersion(info.commit_local)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Remote version</span><span className="font-mono text-foreground/90">{shortVersion(info.commit_distant) ?? "--"}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className={info.a_jour ? "text-status-running" : "text-status-warning"}>{info.a_jour ? "Up to date" : "New version available"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className={info.a_jour ? "text-status-running" : "text-status-warning"}>{info.a_jour ? "Up to date" : info.rolled_back ? "Last update rolled back" : "New version available"}</span></div>
 
                 {info.changelog?.length > 0 && (
                   <div className="mt-2 rounded-md bg-muted/60 p-2 max-h-32 overflow-y-auto font-mono text-xs text-foreground/80">
