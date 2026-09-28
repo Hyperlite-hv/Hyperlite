@@ -10,6 +10,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
 import { PageHeader, SideDrawer, Field, Chip, Empty, Loading, TableWrap } from "../components/ui";
@@ -98,6 +99,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
   const [resetFor, setResetFor] = useState(null);
   const [resetPw, setResetPw] = useState("");
   const closeReset = () => { setResetFor(null); setResetPw(""); };
+  const ctx = useContextTarget(); // right click on a user: their actions
   async function reset() {
     const name = resetFor.username;
     let revoked = 0;
@@ -126,7 +128,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
               {data.users.map((u) => {
                 const self = u.username === me;
                 return (
-                  <tr key={u.username}>
+                  <tr key={u.username} className={ctx.is("user", u.username) ? "is-ctx" : undefined} onContextMenu={ctx.open("user", u, u.username)}>
                     <th scope="row"><span className="nx-userrow"><span className="nx-avatar nx-avatar--sm" aria-hidden="true">{u.username.slice(0, 2).toUpperCase()}</span>{u.username}{self && <span className="nx-muted" style={{ fontWeight: 400 }}> ({t("sec.you")})</span>}</span></th>
                     <td><select className="nx-sel" aria-label={t("a11y.role_of_x", { v: u.username })} value={u.role} disabled={self} title={self ? t("sec.selfRole") : undefined} onChange={(e) => changeRole(u, e.target.value)}><option value="observateur">{t("sec.observer")}</option><option value="admin">{t("sec.admin")}</option></select></td>
                     <td><Chip>{u.auth_source === "sso" ? "SSO" : t("sec.local")}</Chip></td>
@@ -142,6 +144,17 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
               })}
             </tbody>
           </table>
+          <ActionsContextMenu ctx={ctx} label={(u) => t("ctx.menuOf", { name: u.username })} entries={(u) => {
+            const self = u.username === me;
+            return [
+              { key: "reset", icon: "key", label: t("pw.reset"), run: () => setResetFor(u), disabled: self || u.auth_source === "sso", reason: self ? t("pw.resetSelf") : t("pw.resetSso") },
+              u.role === "admin"
+                ? { key: "role", icon: "user", label: t("ctx.makeObserver"), run: () => changeRole(u, "observateur"), disabled: self, reason: t("sec.selfRole") }
+                : { key: "role", icon: "admin", label: t("ctx.makeAdmin"), run: () => changeRole(u, "admin"), disabled: self, reason: t("sec.selfRole") },
+              "-",
+              { key: "delete", icon: "delete", label: del(t), danger: true, run: () => remove(u), disabled: self, reason: t("sec.selfDelete") },
+            ];
+          }} />
         </TableWrap>
       </div>
       <SideDrawer open={drawer === "users"} title={t("sec.createUser")} onClose={closeDrawer} footer={<>
