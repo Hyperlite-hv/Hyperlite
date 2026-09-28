@@ -65,7 +65,6 @@ test.describe("Users and permissions", () => {
       ["delete user", () => request.delete(`/auth/users/${ADMIN.username}`, { headers: h })],
       ["create network", () => request.post("/networks", { headers: h, data: { name: `${PREFIX}n`, mode: "isole" } })],
       ["create storage pool", () => request.post("/storage", { headers: h, data: { name: `${PREFIX}p`, type: "dir" } })],
-      ["update profile", () => request.put("/host/profile", { headers: h, data: { profil: "standard" } })],
       ["SSO config", () => request.get("/auth/sso/config", { headers: h })],
       ["host shell ticket", () => request.post("/host/terminal-ticket", { headers: h })],
     ];

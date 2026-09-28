@@ -190,22 +190,13 @@ test.describe("Account security", () => {
 });
 
 test.describe("Settings persist and secrets are never returned", () => {
-  test("the deployment profile choice persists after a reload", async ({ page, request }) => {
+  test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM", async ({ page, request }) => {
+    const limits = (await (await request.get("/host/limits", { headers: auth() })).json()) as Record<string, { source?: string; max?: number }>;
+    for (const key of ["vcpu", "memoire_mo", "disque_go", "disques"]) expect(limits[key].source, key).toBe("technique");
     await uiLogin(page);
     await goTo(page, "Compatibility");
-    const select = page.getByRole("combobox", { name: "Deployment profile" });
-    await select.selectOption({ index: 1 });
-    await expect(select).not.toHaveValue("auto");
-    const chosen = await select.inputValue();
-    await page.getByRole("main").getByRole("button", { name: "Save", exact: true }).click();
-    // "choix" is the saved choice ("auto" or a profile), "actif" the one in effect.
-    const persisted = async () => ((await (await request.get("/host/profile", { headers: auth() })).json()) as { choix: string }).choix;
-    await expect.poll(persisted).toBe(chosen);
-    await page.reload();
-    await expect(page.getByRole("combobox", { name: "Deployment profile" })).toHaveValue(chosen);
-    await page.getByRole("combobox", { name: "Deployment profile" }).selectOption({ index: 0 }); // back to automatic
-    await page.getByRole("main").getByRole("button", { name: "Save", exact: true }).click();
-    await expect.poll(persisted).toBe("auto");
+    await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Deployment profile" })).toHaveCount(0);
   });
 });
 

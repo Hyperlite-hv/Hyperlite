@@ -7,9 +7,7 @@ Hyperlite is configured through environment variables, normally set in `/root/hy
 | `HYPERLITE_SECRET_KEY` | Secret used to sign session tokens. Must be long and random. | random per process (sessions are lost on restart) |
 | `HYPERLITE_INITIAL_ADMIN_PASSWORD` | Password of the `admin` account created on first start. Ignored if an admin already exists. | none |
 | `HYPERLITE_ENCRYPTION_KEY` | Fernet key used to encrypt secrets stored in the database. Generated automatically into `.env` when missing. | generated |
-| `HYPERLITE_PROFILE` | Force the deployment profile (`homelab`, `standard`, `avance`). | detected |
-| `HYPERLITE_ALLOCATION` | Force the resource allocation policy (`limites`, `surallocation`, `libre`). | profile default |
-| `HYPERLITE_VM_MAX_VCPU`, `HYPERLITE_VM_MAX_MEMORY_MB`, `HYPERLITE_VM_MAX_DISK_GB`, `HYPERLITE_VM_MAX_DISKS` | Override the per-VM limits derived from the host. | derived from the host |
+| `HYPERLITE_VM_MAX_VCPU`, `HYPERLITE_VM_MAX_MEMORY_MB`, `HYPERLITE_VM_MAX_DISK_GB`, `HYPERLITE_VM_MAX_DISKS` | Optional caps on a VM's vCPU, memory (MB), disk size (GB) and disk count, for example on a small test machine. Hyperlite sets no ceiling of its own otherwise, like Proxmox or vSphere. | none (technical ceilings only) |
 | `HYPERLITE_APP_DIR` | Application directory assumed by the preflight check. | `/root/hyperlite` |
 | `HYPERLITE_ENV_LABEL` | Label of a non-production installation (for example `DEV` or `STAGING`, 24 characters at most), shown in the dashboard's top bar, on the sign-in page and in the tab title. Leave unset in production. | none |
 | `HYPERLITE_TUNNEL_PORTS` | Guest ports reachable through workstation tunnels (see [workstation-access.md](workstation-access.md)); empty disables tunnels. | `22,3389` |
