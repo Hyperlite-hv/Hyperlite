@@ -120,7 +120,7 @@ test("hardware: a disk is grown from a drawer, a shrink is refused, the French l
   // The current size is not a growth: the button stays disabled until the size is larger.
   await drawer.getByLabel("New size in GB").fill(String(target - 1));
   await expect(grow).toBeDisabled();
-  await expect(drawer.getByText(/^Whole number from \d+ to \d+ \(larger than the current size\)/)).toBeVisible();
+  await expect(drawer.getByText(/^Whole number from \d+ to (\d+|∞) \(larger than the current size\)/)).toBeVisible();
   await drawer.getByLabel("New size in GB").fill(String(target));
   await grow.click();
   await expect(page.getByText("Disk grown").first()).toBeVisible({ timeout: 30_000 });
