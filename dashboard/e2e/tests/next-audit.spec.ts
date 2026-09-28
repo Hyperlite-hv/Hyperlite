@@ -44,6 +44,14 @@ async function vmName(request: APIRequestContext) {
   return (list as { nom: string }[]).find((v) => !v.nom.startsWith(PREFIX))?.nom ?? (list as { nom: string }[])[0]?.nom;
 }
 
+// Privilege identifiers (vm.view, vm.power...) are data, not translation keys: the audit journal rightly shows
+// them, e.g. "create_custom_role  operator (vm.view,vm.power)", once another test has created a role.
+async function privilegeIds(request: APIRequestContext) {
+  const token = await apiLogin(request);
+  const all = await (await request.get("/acl/privileges", { headers: { Authorization: `Bearer ${token}` } })).json();
+  return new Set(Object.keys(all as Record<string, string>));
+}
+
 const urlFor = (kind: string, id: string, tab: string, vm?: string) =>
   kind === "dc" ? (tab === "summary" ? "/datacenter" : `/datacenter?tab=${tab}`)
   : kind === "node" ? (tab === "summary" ? "/node/local" : `/node/local?tab=${tab}`)
@@ -62,6 +70,7 @@ for (const [theme, lang] of [["dark", "en"], ["light", "fr"]] as const) {
       ...(vm ? VM_PAGES.map((t) => ["vm", vm, t] as [string, string, string]) : []),
     ];
     const seenKeys = new Set(Object.keys(en));
+    const privileges = await privilegeIds(request);
     for (const [kind, id, tab] of targets) {
       const label = `${kind}:${tab}`;
       const before = found.length;
@@ -70,7 +79,7 @@ for (const [theme, lang] of [["dark", "en"], ["light", "fr"]] as const) {
       await page.waitForTimeout(1800);
       const text = await page.locator("body").innerText();
       // raw translation keys
-      for (const k of new Set(text.match(KEY_TOKEN) || [])) expect.soft(seenKeys.has(k) ? "" : k, `${label}: unknown translation key rendered "${k}"`).toBe("");
+      for (const k of new Set(text.match(KEY_TOKEN) || [])) expect.soft(seenKeys.has(k) || privileges.has(k) ? "" : k, `${label}: unknown translation key rendered "${k}"`).toBe("");
       for (const k of new Set(text.match(KEY_TOKEN) || [])) if (seenKeys.has(k)) expect.soft(k, `${label}: raw translation key shown "${k}"`).toBe("");
       // wrong-language text in the rebuilt chrome (sidebar + top bar + page heading)
       if (lang === "en") {
