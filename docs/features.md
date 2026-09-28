@@ -40,6 +40,8 @@ Virtual networks in NAT, isolated or bridge mode, DHCP ranges, VLAN tags on VM i
 
 Hot (transient external snapshot) and cold backups of VMs, schedules (daily, weekly, monthly), retention by count, restore in place or to a new VM.
 
+Every backup has a manifest (`manifest.json`: each file with its role, size and SHA-256). **Verify** recomputes every checksum and runs `qemu-img check` on the images; every backup is also verified automatically within a week (one at a time, never during a backup). A corrupted backup is shown as such, with what is wrong, audited and notified (`verify_backup` event). UEFI VMs keep their firmware state: the NVRAM (boot entries, Secure Boot keys) and the TPM state (BitLocker keys) are saved with the disks and put back on restore, in place or as a new VM. See the [design](design/backups-pro.md) for the next steps (block disks, incremental backups, GFS retention).
+
 ## Observability and automation
 
 Continuous host and VM metrics with history (Prometheus text format available), an audit journal with filters, persisted tasks with progress, a small job engine to run commands on hosts or VMs, and outgoing notifications (webhook, SMTP email) for significant events.

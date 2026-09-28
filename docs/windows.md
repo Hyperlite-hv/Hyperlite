@@ -59,9 +59,9 @@ What differs for a UEFI VM:
 - **Clone and template deployment** give the new VM a fresh NVRAM and TPM. It boots
   through the UEFI fallback path, which Windows installs; anything sealed in the
   source's TPM (BitLocker keys, Windows Hello) is not carried over.
-- **Backups** copy the disks only, not the NVRAM or the TPM state. A VM restored as
-  a new VM keeps its firmware kind with a fresh NVRAM and TPM: with BitLocker on,
-  keep the recovery key outside the VM.
+- **Backups** copy the NVRAM and the TPM state with the disks, and a restore puts them
+  back (in place, or under the new VM's name and UUID), so BitLocker and the boot
+  entries survive. Keep the BitLocker recovery key outside the VM anyway.
 - **Live migration**: QEMU carries the NVRAM and TPM state in the migration stream;
   it still has to be validated on real hosts before it is relied on.
 
