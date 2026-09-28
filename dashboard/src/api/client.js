@@ -592,6 +592,10 @@ export async function attachDisk(name, volumeName, targetDev, pool = "default") 
 export async function detachDisk(name, targetDev) {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}`, { method: "DELETE" });
 }
+// The new TOTAL size in GB (grow only; the backend refuses a shrink).
+export async function resizeDisk(name, targetDev, sizeGb) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}/resize`, { method: "POST", ...jsonBody({ size_gb: sizeGb }) });
+}
 export async function fetchVMNetwork(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/network${nodeQs(node)}`);
 }
