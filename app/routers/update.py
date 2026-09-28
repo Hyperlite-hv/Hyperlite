@@ -182,6 +182,58 @@ def _explain_apt_error(stderr):
     return text[:400]
 
 
+APT_SOURCE_CONF = REPO_DIR / "installer" / "apt-source.conf"
+APT_LIST = "/etc/apt/sources.list.d/hyperlite.list"
+
+
+def _official_apt_url():
+    """HYPERLITE_APT_URL from installer/apt-source.conf (the single source of truth), None if unreadable."""
+    with contextlib.suppress(OSError):
+        for line in APT_SOURCE_CONF.read_text().splitlines():
+            if line.startswith("HYPERLITE_APT_URL="):
+                return line.split("=", 1)[1].strip().strip('"').rstrip("/")
+    return None
+
+
+def _hyperlite_repositories(policy_stdout):
+    """Repository URLs apt knows the hyperlite package from, read from the version table of
+    `apt-cache policy hyperlite` ("500 https://host stable/main amd64 Packages"). The installed version
+    also shows up as "100 /var/lib/dpkg/status", which is not a repository and is ignored."""
+    urls, in_table = [], False
+    for raw in policy_stdout.splitlines():
+        line = raw.strip()
+        if line.startswith("Version table:"):
+            in_table = True
+            continue
+        parts = line.split()
+        if in_table and len(parts) >= 2 and parts[0].isdigit() and "://" in parts[1]:
+            url = parts[1].rstrip("/")
+            if url not in urls:
+                urls.append(url)
+    return urls
+
+
+def _source_problem(policy_stdout):
+    """Why the update check cannot be trusted on this machine, or None. Without the Hyperlite repository
+    among the APT sources, the only candidate apt knows is the installed version itself, so the check used
+    to answer "up to date" on a machine stuck on an old release (a real case: a source line commented out).
+    Same when the repository comes from an address that no longer receives the publications."""
+    official = _official_apt_url()
+    urls = _hyperlite_repositories(policy_stdout)
+    line = f"deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] {official or '<repository-url>'} stable main"
+    if not urls:
+        return (
+            "The Hyperlite repository is not among this machine's APT sources, so new versions cannot be seen "
+            f"(the installed version would always look up to date). Restore this line in {APT_LIST}: {line}"
+        )
+    if official and official not in urls:
+        return (
+            f"This machine gets Hyperlite from {', '.join(urls)}, which is no longer the official address and no "
+            f"longer receives new versions. Replace the line in {APT_LIST} with: {line}"
+        )
+    return None
+
+
 def _check_update_apt():
     installed = _dpkg_installed_version()
     # For /update/check (an interactive call, the user is waiting in front of the
@@ -197,6 +249,9 @@ def _check_update_apt():
         }
 
     policy = _run_c(["apt-cache", "policy", "hyperlite"])
+    problem = _source_problem(policy.stdout)
+    if problem:
+        return {"verifiable": False, "erreur": problem, "commit_local": installed, "source_problem": True}
     candidate = None
     for line in policy.stdout.splitlines():
         line = line.strip()

@@ -36,7 +36,8 @@ export function Freshness({ at }) {
 // page's actions (at most one primary). Card titles never repeat it.
 // Wrapper of a wide table: scrolls horizontally when the table does not fit, and only then joins the keyboard
 // order, so a keyboard user can scroll it too (WCAG 2.1.1; axe "scrollable-region-focusable").
-export function TableWrap({ children, label }) {
+// sticky: keep the wrapper out of the scrolling chain while the table fits, so sticky headers stick to the page.
+export function TableWrap({ children, label, sticky = false }) {
   const ref = useRef(null);
   const [scrolls, setScrolls] = useState(false);
   useEffect(() => {
@@ -49,7 +50,7 @@ export function TableWrap({ children, label }) {
     if (el.firstElementChild) ro.observe(el.firstElementChild);
     return () => ro.disconnect();
   }, []);
-  return <div ref={ref} className="nx-tablewrap" tabIndex={scrolls ? 0 : undefined} role={scrolls ? "region" : undefined} aria-label={scrolls ? label : undefined}>{children}</div>;
+  return <div ref={ref} className={`nx-tablewrap${sticky ? " nx-tablewrap--sticky" : ""}`} data-scrolls={scrolls || undefined} tabIndex={scrolls ? 0 : undefined} role={scrolls ? "region" : undefined} aria-label={scrolls ? label : undefined}>{children}</div>;
 }
 
 const SLOW_MS = 10_000;

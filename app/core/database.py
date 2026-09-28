@@ -502,6 +502,9 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_storage_samples ON storage_samples(node, pool, tier, ts)")
         for ddl in (
             "ALTER TABLE users ADD COLUMN last_login_at TEXT",
+            # Epoch second of the last password change or reset (NULL: never): session tokens issued
+            # before it are refused (app/core/security.py::set_password, _session_user).
+            "ALTER TABLE users ADD COLUMN password_changed_at INTEGER",
             # Source address of the request that produced the audit entry (NULL for
             # background jobs, which have no request).
             "ALTER TABLE audit_log ADD COLUMN ip TEXT",
