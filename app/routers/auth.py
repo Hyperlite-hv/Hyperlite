@@ -24,7 +24,9 @@ from app.core.security import (
     get_session_user,
     get_user,
     hash_password,
+    oauth2_scheme,
     require_role,
+    session_remembered,
     set_password,
     verify_password,
 )
@@ -295,11 +297,17 @@ def delete_api_token(token_id: int, user: dict = Depends(get_current_user)):
 
 
 @router.post("/me/password")
-def change_my_password(request: Request, payload: PasswordChange, user: dict = Depends(get_session_user)):
+def change_my_password(
+    request: Request,
+    payload: PasswordChange,
+    user: dict = Depends(get_session_user),
+    token: str = Depends(oauth2_scheme),
+):
     """Any signed-in user changes their own password. It takes the current password (and the 2FA code when
     2FA is on), so a session left open is not enough to take the account over; wrong attempts count towards
     the same lock as the sign-in form. Every other session of the account is signed out; the one making the
-    change gets a fresh token. Never with an API token (get_session_user)."""
+    change gets a fresh token, with the same lifetime ("Stay signed in" is kept). Never with an API token
+    (get_session_user)."""
     username = user["username"]
     ip = _client_ip(request)
     if _login_ip_locked_out(ip) or _login_locked_out(username):
@@ -331,8 +339,8 @@ def change_my_password(request: Request, payload: PasswordChange, user: dict = D
         conn.commit()
     _login_failures.pop(username, None)
     log_action(username, "change_password", username, "succes", "Other sessions signed out")
-    token = create_access_token({"sub": username, "role": user["role"]})
-    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+    fresh = create_access_token({"sub": username, "role": user["role"]}, remember=session_remembered(token))
+    return {"access_token": fresh, "token_type": "bearer", "role": user["role"]}
 
 
 @router.get("/users")

@@ -40,6 +40,14 @@ def create_access_token(data: dict, remember: bool = False):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def session_remembered(token: str) -> bool:
+    """True when this session token was issued with "Stay signed in" (it lives longer than a normal one), so a
+    token that replaces it (after a password change) keeps the same lifetime."""
+    payload = _decode_session(token) or {}
+    exp, iat = payload.get("exp"), payload.get("iat")
+    return bool(exp and iat) and exp - iat > ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+
 def set_password(conn, username: str, plain: str):
     """Store a new password for the account and sign out its existing sessions: every session token issued
     before this second is refused from now on. The caller commits."""
