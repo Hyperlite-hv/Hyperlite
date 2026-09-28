@@ -96,6 +96,63 @@ test("options: CPU affinity is validated, applied to the VM definition, made str
   await expect.poll(pinning).toEqual(expect.objectContaining({ cpuset: null, strict: false }));
 });
 
+test("hardware: host devices — the real inventory protects the host, a USB key is given live, a PCI card needs a confirmation", async ({ page, request }) => {
+  // Real backend: the inventory answers and never offers a PCI bridge or the host's own disks and network card.
+  const inv = (await (await request.get("/host/devices", { headers: auth() })).json()) as { iommu: { actif: boolean }; pci: { classe: string; hote: string | null }[] };
+  expect(typeof inv.iommu.actif).toBe("boolean");
+  for (const d of inv.pci) if (d.classe.startsWith("0x06")) expect(d.hote).toMatch(/PCI bridge/);
+
+  // The CI runner has no USB key and no spare PCI card: the inventory and the VM's devices are stand-ins from here.
+  const given: { id: string; type: string; adresse: string; fabricant: string; produit: string; present: boolean }[] = [];
+  const posted: unknown[] = [];
+  const usb = { id: "usb_1_4", type: "usb", adresse: "001:004", ids: "781:5591", fabricant: "SanDisk", produit: "Ultra Flair", vm: null, hote: null };
+  const gpu = { id: "pci_0000_01_00_0", type: "pci", adresse: "0000:01:00.0", ids: "10de:1b80", classe: "0x030000", fabricant: "NVIDIA", produit: "GeForce GTX 1080", groupe: ["pci_0000_01_00_0", "pci_0000_01_00_1"], vm: null, hote: null };
+  const audio = { ...gpu, id: "pci_0000_01_00_1", adresse: "0000:01:00.1", classe: "0x040300", produit: "GP104 HD Audio" };
+  const nic = { ...gpu, id: "pci_0000_03_00_0", adresse: "0000:03:00.0", classe: "0x020000", produit: "I210", groupe: [], hote: "Network card eno1 is in use by the host (it has an address or is in a bridge)" };
+  await page.route(/\/host\/devices$/, (route) => route.fulfill({ json: { iommu: { actif: true, raison: null }, pci: [gpu, audio, nic], usb: [usb] } }));
+  await page.route(new RegExp(`/vms/${NAME}/hostdevs(/.*)?$`), async (route) => {
+    const req = route.request();
+    if (req.resourceType() === "document") return route.fallback();
+    if (req.method() === "GET") return route.fulfill({ json: given });
+    if (req.method() === "POST") {
+      const body = req.postDataJSON() as { device: string };
+      posted.push(body);
+      const dev = [usb, gpu].find((d) => d.id === body.device)!;
+      given.push({ id: dev.id, type: dev.type, adresse: dev.adresse, fabricant: dev.fabricant, produit: dev.produit, present: true });
+      return route.fulfill({ status: 201, json: { vm: NAME, ajoutes: [dev.id], hostdevs: given } });
+    }
+    given.splice(0, given.length, ...given.filter((d) => !req.url().endsWith(d.id)));
+    return route.fulfill({ json: { vm: NAME, retire: "x" } });
+  });
+
+  await open(page, "hardware");
+  const main = page.getByRole("main");
+  const card = main.getByRole("region", { name: "Host devices" });
+  await expect(card.getByText("No host device given to this VM.")).toBeVisible({ timeout: 20_000 });
+  await card.getByRole("button", { name: "Give a host device" }).click();
+  const drawer = page.getByRole("dialog", { name: "Give a host device" });
+  await expect(drawer.getByRole("radio", { name: /I210/ })).toBeDisabled();
+  await expect(drawer.getByText(/^Used by the host: Network card eno1/)).toBeVisible();
+  await drawer.getByRole("radio", { name: /Ultra Flair/ }).check();
+  await drawer.getByRole("button", { name: "Give to the VM" }).click();
+  await expect(card.getByRole("rowheader", { name: /Ultra Flair/ })).toBeVisible();
+  expect(posted[0]).toEqual({ device: "usb_1_4", confirm: false });
+
+  await card.getByRole("button", { name: "Give a host device" }).click();
+  await drawer.getByRole("radio", { name: /GeForce GTX 1080/ }).check();
+  await expect(drawer.getByText(/^Given together with the rest of its IOMMU group: 0000:01:00.1 GP104 HD Audio/)).toBeVisible();
+  await drawer.getByRole("button", { name: "Give to the VM" }).click();
+  const confirm = page.getByRole("alertdialog");
+  await expect(confirm).toContainText("the server can no longer use this card");
+  await confirm.getByRole("button", { name: "Give to the VM" }).click();
+  await expect(card.getByRole("rowheader", { name: /GeForce GTX 1080/ })).toBeVisible();
+  expect(posted[1]).toEqual({ device: "pci_0000_01_00_0", confirm: true });
+
+  await card.getByRole("button", { name: "Take back Ultra Flair" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Take back" }).click();
+  await expect(card.getByRole("rowheader", { name: /Ultra Flair/ })).toHaveCount(0);
+});
+
 test("hardware and network: attach and detach a disk with confirmation, VLAN is validated, interface list is shown", async ({ page, request }) => {
   await open(page, "hardware");
   const main = page.getByRole("main");

@@ -29,7 +29,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.core import firmware
+from app.core import firmware, passthrough
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_local_capabilities
@@ -55,6 +55,17 @@ def host_firmware(user: dict = Depends(get_current_user)):
     conn = open_conn()
     try:
         return firmware.host_support(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/devices")
+def host_devices(user: dict = Depends(require_role("admin"))):
+    """PCI and USB devices of this host that could be given to a VM, with the IOMMU state, which VM has each one,
+    and why the host needs the ones it cannot give (see app/core/passthrough.py)."""
+    conn = open_conn()
+    try:
+        return passthrough.list_devices(conn)
     finally:
         conn.close()
 
