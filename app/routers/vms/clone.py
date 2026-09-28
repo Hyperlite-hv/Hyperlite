@@ -7,6 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core import iscsi
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -66,6 +67,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
         except libvirt.libvirtError:
             log_action(user["username"], "clone_vm", name, "echec", "Source VM not found", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        iscsi.refuse_if_iscsi(domain, "Cloning")
 
         try:
             validate_name(payload.new_name)

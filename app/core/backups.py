@@ -33,6 +33,7 @@ from pathlib import Path
 
 import libvirt
 
+from app.core import iscsi
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
@@ -255,6 +256,8 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             domain = conn.lookupByName(vm_name)
         except libvirt.libvirtError:
             raise RuntimeError(f"VM '{vm_name}' not found") from None
+        if iscsi.iscsi_disks_of_domain(domain):
+            raise RuntimeError("Backups are not available yet for a VM whose disks are iSCSI LUNs")
 
         mode = "chaud" if domain.isActive() else "froid"
         stamp = _now().strftime("%Y%m%dT%H%M%SZ")

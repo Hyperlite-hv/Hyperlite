@@ -1,3 +1,4 @@
+import json
 import logging
 import subprocess
 import threading
@@ -14,6 +15,7 @@ from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
 from app.core.libvirt_utils import (
+    get_disk_paths_in_use,
     open_conn,
     pool_type_and_target_path,
 )
@@ -23,12 +25,14 @@ from app.core.security import require_role
 from app.core.tasks import create_task, finish_task
 from app.core.unattended_install import build_seed_iso, detect_os_family, extract_casper_kernel
 from app.core.vm_builder import (
+    BASE_IMAGE,
     build_domain_xml,
     create_cloudinit_iso,
     create_cloudinit_reseed_iso,
     create_disk,
     create_disk_from_import,
     create_zvol_disk,
+    ensure_base_image,
     get_or_create_automation_pubkey,
     validate_name,
     validate_username,
@@ -50,6 +54,9 @@ logger = logging.getLogger(__name__)
 
 class DiskSpec(BaseModel):
     size_gb: int = Field(ge=1)
+    # iSCSI pool only: the LUN (volume name in the pool, e.g. "unit:0:0:1") this disk takes whole; size_gb is then
+    # only its size, for the resource checks.
+    lun: str | None = Field(None, max_length=200)
 
 
 class VMCreate(BaseModel):
@@ -82,11 +89,69 @@ class VMCreate(BaseModel):
     # shared storage without moving its disk by hand afterwards: without a way to
     # choose the pool at creation, nobody could realistically use HA protection.
     storage_pool: str | None = None
+    # iSCSI pool: the chosen LUNs are overwritten (system image, or their start wiped for an ISO installation, so
+    # the VM never boots what they held). Required as an explicit confirmation.
+    erase_luns: bool = False
     # Automatic deletion of inactive VMs: opt-in, None/absent = never enabled
     # (unchanged behaviour by default). The counter only runs while the VM is
     # STOPPED (see touch_vm_activity, called on every start): a VM that runs
     # continuously is never considered "inactive", whatever the threshold.
     auto_cleanup_days: int | None = Field(None, ge=1, le=365)
+
+
+def _resolve_luns(conn, pool, disks, erase_luns):
+    """([(device path, capacity in bytes)], errors) for a VM on an iSCSI pool: each disk names a free LUN of the
+    pool, used whole (see app/core/iscsi.py)."""
+    errors = []
+    if not erase_luns:
+        errors.append("Creating a VM on iSCSI LUNs overwrites them: confirm with erase_luns")
+    try:
+        pool.refresh(0)
+    except libvirt.libvirtError:
+        logger.debug("iSCSI pool refresh failed", exc_info=True)
+    in_use = get_disk_paths_in_use(conn)
+    luns = []
+    for i, disk in enumerate(disks, start=1):
+        if not disk.lun:
+            errors.append(f"Disk {i}: choose a LUN of the iSCSI pool")
+            continue
+        try:
+            vol = pool.storageVolLookupByName(disk.lun)
+        except libvirt.libvirtError:
+            errors.append(f"Disk {i}: LUN '{disk.lun}' not found in the pool")
+            continue
+        path = vol.path()
+        if path in in_use:
+            errors.append(f"Disk {i}: LUN '{disk.lun}' is already used by a VM")
+        elif any(path == p for p, _ in luns):
+            errors.append(f"Disk {i}: LUN '{disk.lun}' is chosen twice")
+        else:
+            luns.append((path, vol.info()[1]))
+    return luns, errors
+
+
+def _prepare_lun(device, capacity, source=None):
+    """Write the system image (Debian cloud image or an imported disk) to a LUN, or wipe its first 16 MB (partition
+    tables, boot sector) for an ISO installation or a data disk, so the VM never boots what the LUN held before."""
+    if source is None:
+        subprocess.run(
+            ["dd", "if=/dev/zero", f"of={device}", "bs=1M", "count=16", "conv=fsync"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return
+    info = subprocess.run(
+        ["qemu-img", "info", "--output=json", str(source)], check=True, capture_output=True, text=True
+    )
+    needed = json.loads(info.stdout)["virtual-size"]
+    if capacity and needed > capacity:
+        raise ValueError(
+            f"The LUN is too small for this system image: {needed / 1024**3:.1f} GB needed, {capacity / 1024**3:.1f} GB available"
+        )
+    subprocess.run(
+        ["qemu-img", "convert", "-O", "raw", str(source), device], check=True, capture_output=True, text=True
+    )
 
 
 def _pending_remote_isos(payload):
@@ -266,6 +331,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
         # that only exists on the ZFS side. Single-node for now: only the LOCAL host (the
         # same limit as list_pools/delete_pool in app/routers/storage.py).
         zfs_pool_name = None
+        iscsi_pool = None
         if payload.storage_pool and payload.storage_pool != "default" and zfs_storage.pool_exists(payload.storage_pool):
             zfs_pool_name = payload.storage_pool
         elif payload.storage_pool and payload.storage_pool != "default":
@@ -279,14 +345,21 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                     errors.append(f"Pool de stockage '{payload.storage_pool}' inactif")
                 else:
                     pool_type, pool_path = pool_type_and_target_path(pool)
-                    if pool_type not in ("dir", "netfs"):
+                    if pool_type == "iscsi":
+                        iscsi_pool = pool
+                    elif pool_type not in ("dir", "netfs"):
                         errors.append(
-                            f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs only)"
+                            f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi only)"
                         )
                     elif not pool_path:
                         errors.append(f"Pool de stockage '{payload.storage_pool}' : chemin illisible")
                     else:
                         target_dir = Path(pool_path)
+
+        luns = []
+        if iscsi_pool is not None:
+            luns, lun_errors = _resolve_luns(conn, iscsi_pool, payload.disks, payload.erase_luns)
+            errors.extend(lun_errors)
 
         if errors:
             if not check_only:
@@ -307,7 +380,20 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
             logger.debug("Ignored exception in create_vm()", exc_info=True)
 
         try:
-            if zfs_pool_name:
+            if luns:
+                # iSCSI: each disk is a whole LUN, attached as a raw block device like a zvol. Disk 0 receives the
+                # system image unless an ISO installs one; the others are blank data disks.
+                if import_mode:
+                    system_source = import_disk_path
+                elif install_mode:
+                    system_source = None
+                else:
+                    ensure_base_image()
+                    system_source = BASE_IMAGE
+                for i, (device, capacity) in enumerate(luns):
+                    _prepare_lun(device, capacity, system_source if i == 0 else None)
+                disk_paths = [(device, "block") for device, _ in luns]
+            elif zfs_pool_name:
                 # Raw zvols: each path is a /dev/zvol/... device marked 'block' for
                 # build_domain_xml (see create_zvol_disk in vm_builder.py), never a qcow2 file
                 # path.

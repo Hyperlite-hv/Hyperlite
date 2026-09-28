@@ -8,7 +8,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import cluster_compat
+from app.core import cluster_compat, iscsi
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -464,6 +464,7 @@ def migrate_vm(
             domain = src_conn.lookupByName(name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        iscsi.refuse_if_iscsi(domain, "Live migration")
         if not domain.isActive():
             raise HTTPException(
                 status_code=409,
