@@ -177,6 +177,7 @@ function mapVm(v, nodeId) {
     // here unless it is listed: VMSnapshotsTab.jsx would always receive `undefined`.
     stockage_zfs: v.stockage_zfs,
     stockage_iscsi: v.stockage_iscsi,
+    agent_invite: v.agent_invite,
   };
 }
 

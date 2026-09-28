@@ -23,6 +23,7 @@ update_task_progress().
 import contextlib
 import hashlib
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -33,6 +34,7 @@ from pathlib import Path
 
 import libvirt
 
+from app.core import guest_agent
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
@@ -40,6 +42,8 @@ from app.core.libvirt_utils import open_conn
 from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BACKUP_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "backups"
 SCHEDULER_INTERVAL_S = 300  # checks due jobs every 5 minutes: enough, the granularity is the hour (HH:MM)
@@ -218,7 +222,9 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
     snap_name = f"hyperlite-backup-{int(time.time())}"
     snap_xml = f"<domainsnapshot><name>{snap_name}</name><disks>{''.join(disk_xml_parts)}</disks></domainsnapshot>"
 
-    snap = domain.snapshotCreateXML(snap_xml, libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
+    # With Hyperlite Tools the guest file systems are frozen while the snapshot is taken (consistent copy).
+    snap, quiesced = guest_agent.quiesced_snapshot(domain, snap_xml, libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
+    logger.info("Hot backup of %s: snapshot %s", vm_name, "quiesced by the guest agent" if quiesced else "not quiesced")
     update_task_progress(task_id, 10)
 
     try:

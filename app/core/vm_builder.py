@@ -209,6 +209,12 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_di
             "chpasswd:",
             "  expire: false",
             "ssh_pwauth: true",
+            # Hyperlite Tools (see app/core/guest_agent.py). Without network access the install fails and
+            # cloud-init goes on: the VM then simply works without the agent.
+            "packages:",
+            "  - qemu-guest-agent",
+            "runcmd:",
+            "  - [systemctl, enable, --now, qemu-guest-agent]",
         ]
         user_data.write_text("\n".join(ud) + "\n")
         meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
