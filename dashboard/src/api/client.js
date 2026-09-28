@@ -286,8 +286,15 @@ export async function deleteBackupSchedule(name) {
 export async function fetchIsoTemplates() {
   return realFetch("/isos");
 }
-export async function deleteIso(filename) {
-  return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true`, { method: "DELETE" });
+export async function deleteIso(filename, node = "local") {
+  return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true&node=${encodeURIComponent(node)}`, { method: "DELETE" });
+}
+// Every node's ISO library ({ isos, injoignables }), and copying one image to other nodes.
+export async function fetchClusterIsos() {
+  return realFetch("/isos/cluster");
+}
+export async function copyIso(nom, source, cibles) {
+  return realFetch("/isos/copy", { method: "POST", ...jsonBody({ nom, source, cibles }) });
 }
 
 // ---- Importable disks (importing a VM from a disk file) ----
@@ -765,8 +772,8 @@ export async function setup2FA() {
 export async function confirm2FA(code) {
   return realFetch("/auth/2fa/confirm", { method: "POST", ...jsonBody({ code }) });
 }
-export async function disable2FA(password) {
-  return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password }) });
+export async function disable2FA(password, code) {
+  return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password, code }) });
 }
 // Workstation client (hyperlite): settings, and approval of a sign-in code from the web session.
 export async function fetchWorkstationConfig() {

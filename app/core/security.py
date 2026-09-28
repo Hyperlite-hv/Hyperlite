@@ -40,13 +40,29 @@ def create_access_token(data: dict, remember: bool = False):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def session_remembered(token: str) -> bool:
+    """True when this session token was issued with "Stay signed in" (it lives longer than a normal one), so a
+    token that replaces it (after a password change) keeps the same lifetime."""
+    payload = _decode_session(token) or {}
+    exp, iat = payload.get("exp"), payload.get("iat")
+    return bool(exp and iat) and exp - iat > ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+
 def set_password(conn, username: str, plain: str):
     """Store a new password for the account and sign out its existing sessions: every session token issued
     before this second is refused from now on. The caller commits."""
     conn.execute(
-        "UPDATE users SET hashed_password = ?, password_changed_at = ? WHERE username = ?",
+        "UPDATE users SET hashed_password = ?, password_changed_at = ?, must_change_password = 0 WHERE username = ?",
         (hash_password(plain), int(time.time()), username),
     )
+
+
+def flag_weak_password(username: str):
+    """The password just typed at sign-in no longer meets the policy: until it is changed, the account's sessions
+    can only read who they are and change the password (see _session_user)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET must_change_password = 1 WHERE username = ?", (username,))
+        conn.commit()
 
 
 def create_preauth_token(username: str, remember: bool = False):
@@ -90,7 +106,12 @@ def _decode_session(token: str):
         return None
 
 
-def _session_user(payload: dict):
+def _password_change_required():
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password change required")
+
+
+def _session_user(payload: dict, pending_ok: bool = False):
+    """pending_ok: the endpoint stays open while the account must change its password (who am I, change it)."""
     username = payload.get("sub")
     # 2fa_pending: intermediate token (see create_preauth_token). It proves the
     # password but not the second factor, and must never be accepted as a normal
@@ -105,13 +126,15 @@ def _session_user(payload: dict):
     changed = user.get("password_changed_at")
     if changed and int(payload.get("iat") or 0) < changed:
         raise _credentials_exception()
+    if user.get("must_change_password") and not pending_ok:
+        raise _password_change_required()
     return user
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+def _current_user(token: str, pending_ok: bool):
     payload = _decode_session(token)
     if payload is not None:
-        return _session_user(payload)
+        return _session_user(payload, pending_ok)
 
     # Not a valid JWT: it may be an API token instead of a session token. Same
     # Authorization: Bearer header, different format ("hlt_" prefix), so no new
@@ -126,7 +149,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     return user
 
 
-async def get_session_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    return _current_user(token, pending_ok=False)
+
+
+async def get_current_user_pending_ok(token: str = Depends(oauth2_scheme)):
+    """get_current_user that also lets through a session whose password must be changed: only for /auth/me."""
+    return _current_user(token, pending_ok=True)
+
+
+def _session_only(token: str, pending_ok: bool):
     """Like get_current_user, but only for a signed-in person (a session token), never an API token: an API
     token that leaked from a script must not be able to take the account over (e.g. by changing its
     password)."""
@@ -140,7 +172,16 @@ async def get_session_user(token: str = Depends(oauth2_scheme)):
                 detail="Not allowed with an API token: sign in to the dashboard",
             )
         raise _credentials_exception()
-    return _session_user(payload)
+    return _session_user(payload, pending_ok)
+
+
+async def get_session_user(token: str = Depends(oauth2_scheme)):
+    return _session_only(token, pending_ok=False)
+
+
+async def get_session_user_pending_ok(token: str = Depends(oauth2_scheme)):
+    """get_session_user that also lets through a session whose password must be changed: only for the change."""
+    return _session_only(token, pending_ok=True)
 
 
 def require_role(*roles):

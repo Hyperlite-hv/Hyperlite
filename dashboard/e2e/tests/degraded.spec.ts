@@ -14,7 +14,7 @@ test.describe("Degraded backend behavior", () => {
 
   test("a server error is reported with the backend message and the page stays usable", async ({ page }) => {
     await uiLogin(page);
-    await page.route("**/isos", (r) => r.fulfill(json(500, { detail: "Internal failure" })));
+    await page.route("**/isos/cluster", (r) => r.fulfill(json(500, { detail: "Internal failure" })));
     await goTo(page, "ISO images and templates");
     await expect(page.getByText("Internal failure").first()).toBeVisible();
     await goTo(page, "Network");
@@ -108,7 +108,7 @@ test.describe("Degraded backend behavior", () => {
     await seedPreferences(page);
     await page.goto("/");
     await page.getByLabel("Username").fill("admin");
-    await page.getByLabel("Password", { exact: true }).fill("E2e-Admin-2026");
+    await page.getByLabel("Password", { exact: true }).fill("E2e-Quartz-Harbor-2026");
     await page.getByRole("button", { name: "Sign in" }).dblclick();
     await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
     expect(logins).toBe(1);

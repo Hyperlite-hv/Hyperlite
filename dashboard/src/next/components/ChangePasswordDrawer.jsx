@@ -12,7 +12,7 @@ import { passwordAccepted } from "../lib/passwordPolicy";
 const EMPTY = { current: "", next: "", confirm: "", code: "" };
 
 // Server answers mapped to a sentence in the user's language (the server speaks English).
-function reason(t, message) {
+export function reason(t, message) {
   if (/Incorrect current password/i.test(message)) return { field: "current", text: t("pw.err.current") };
   if (/2FA/i.test(message)) return { field: "code", text: t("pw.err.code") };
   if (/Too many failed attempts/i.test(message)) return { field: "form", text: t("pw.err.locked") };

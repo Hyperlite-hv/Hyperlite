@@ -19,7 +19,16 @@ const isSequence = (low) => SEQUENCES.some((seq) => {
   const wrapped = seq.repeat(3);
   return wrapped.includes(low) || [...wrapped].reverse().join("").includes(low);
 });
-const baseWord = (low) => low.replace(/^[\W\d_]+|[\W\d_]+$/g, "").replace(/[@4013!$57]/g, (c) => LOOKALIKE[c]);
+// Trims everything but letters from both ends with a plain scan, like the server (a trailing-run regular
+// expression backtracks quadratically, and JavaScript's \W would also strip accented letters).
+const isLetter = (c) => /\p{L}/u.test(c);
+const baseWord = (low) => {
+  let start = 0;
+  let end = low.length;
+  while (start < end && !isLetter(low[start])) start += 1;
+  while (end > start && !isLetter(low[end - 1])) end -= 1;
+  return low.slice(start, end).replace(/[@4013!$57]/g, (c) => LOOKALIKE[c]);
+};
 
 // The rules shown as a checklist under the field; `ok` is false while a rule is not met.
 export function passwordChecks(password, username) {

@@ -394,6 +394,16 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
+        # Brute-force lock (app/core/login_guard.py): one row per failed password or 2FA code, per account
+        # (kind 'user') and per client address (kind 'ip'). Kept here so a restart does not reset the lock.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS login_failures (
+                kind TEXT NOT NULL,
+                key TEXT NOT NULL,
+                at REAL NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_login_failures ON login_failures (kind, key, at)")
         # Automatic periodic update check (app/core/update_check.py): a SINGLE row
         # (id=1) that remembers the last remote version already notified, so that only
         # ONE notification is sent per available version instead of one per hourly cycle
@@ -505,6 +515,9 @@ def init_db():
             # Epoch second of the last password change or reset (NULL: never): session tokens issued
             # before it are refused (app/core/security.py::set_password, _session_user).
             "ALTER TABLE users ADD COLUMN password_changed_at INTEGER",
+            # 1 when the password no longer meets the policy (seen at sign-in, the only moment the plain password
+            # is known): the account can do nothing but change it (app/core/security.py::_session_user).
+            "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
             # Source address of the request that produced the audit entry (NULL for
             # background jobs, which have no request).
             "ALTER TABLE audit_log ADD COLUMN ip TEXT",

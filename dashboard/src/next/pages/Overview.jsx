@@ -75,7 +75,7 @@ function Summary({ setView }) {
         { id: "sto", label: t("nav.storage"), value: totalGb ? formatSizeGb(usedGb, lang) : "—", unit: totalGb ? `/ ${formatSizeGb(totalGb, lang)}` : null, sub: totalGb ? t("ov.usedPct", { p: Math.round((usedGb / totalGb) * 100) }) : t("ov.poolsSub"), onClick: () => navigateTo("datacenter", null, "storage") },
       ]} />
 
-      <div className="nx-cols2">
+      <div className="nx-cols2 nx-cols2--fit">
         <Card title={t("nav.nodes")} flush>
           <TableWrap>
             <table className="nx-table">
@@ -114,7 +114,7 @@ function Summary({ setView }) {
         </Card>
       </div>
 
-      <div className="nx-cols2">
+      <div className="nx-cols2 nx-cols2--fit">
         <Card title={t("ov.pools")} actions={<button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("datacenter", null, "storage")}>{t("ov.seeAll")}<ChevronRight size={14} aria-hidden="true" /></button>}>
           {storagePools.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("ov.noPools")}</p> : storagePools.map((p) => {
             const r = p.capacite_go ? ((p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go) * 100 : null;
@@ -199,7 +199,7 @@ export default function Overview() {
   const VIEWS = ["summary", "perf", "events"];
   return (
     <>
-      <PageHeader title={t("nav.overview")} desc={t("ov.desc", { nodes: nodes.length, vms: vms.length })} fresh />
+      <PageHeader title={t("nav.overview")} desc={t("ov.desc", { nodes: nodes.length, vms: vms.length })} />
       <div className="nx-tabs nx-tabs--page" role="tablist" aria-label={t("ov.views")}>
         {VIEWS.map((v) => <button key={v} id={`ov-tab-${v}`} type="button" role="tab" aria-selected={view === v} aria-controls="ov-panel" onClick={() => setView(v)}>{t(`ov.view.${v}`)}</button>)}
       </div>
