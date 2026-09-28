@@ -51,10 +51,7 @@ def client(database):
 
     from app.core import vm_limits
     from app.main import app
-    from app.routers import auth
 
-    auth._login_failures.clear()
-    auth._login_failures_by_ip.clear()
     vm_limits._cache.update(at=0.0, value=None)
     return TestClient(app)
 

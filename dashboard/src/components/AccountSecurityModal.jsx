@@ -24,6 +24,7 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   const [setupData, setSetupData] = useState(null); // { secret, qr_code_svg }
   const [confirmCode, setConfirmCode] = useState("");
   const [disablePassword, setDisablePassword] = useState("");
+  const [disableCode, setDisableCode] = useState("");
   const [busy2fa, setBusy2fa] = useState(false);
 
   async function handleStartSetup() {
@@ -57,9 +58,10 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
     e.preventDefault();
     setBusy2fa(true);
     try {
-      await disable2FA(disablePassword);
+      await disable2FA(disablePassword, disableCode);
       pushToast({ kind: "success", title: "2FA disabled", message: "" });
       setDisablePassword("");
+      setDisableCode("");
       await refreshMe();
     } catch (e) {
       pushToast({ kind: "error", title: "Failed", message: e.message });
@@ -86,7 +88,7 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   useEffect(() => {
     if (!open) {
       setFreshToken(null); setCopied(false); setNewTokenName("");
-      setSetupData(null); setConfirmCode(""); setDisablePassword("");
+      setSetupData(null); setConfirmCode(""); setDisablePassword(""); setDisableCode("");
     }
   }, [open]);
 
@@ -156,7 +158,11 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
                   <Label className="text-xs font-medium text-foreground/80">Password (to disable)</Label>
                   <Input aria-label="Password (to disable)" type="password" className="mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
                 </div>
-                <Button type="submit" disabled={busy2fa} variant="outline" className="text-status-error border-status-error/30 hover:bg-status-error/10">
+                <div className="w-32">
+                  <Label className="text-xs font-medium text-foreground/80">Current code</Label>
+                  <Input aria-label="Current 2FA code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="mt-1" required value={disableCode} onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ""))} />
+                </div>
+                <Button type="submit" disabled={busy2fa || disableCode.length !== 6} variant="outline" className="text-status-error border-status-error/30 hover:bg-status-error/10">
                   <ShieldOff /> Disable
                 </Button>
               </form>
