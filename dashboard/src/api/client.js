@@ -60,7 +60,8 @@ async function realFetch(path, opts = {}) {
   }
   if (!res.ok) {
     const msg = (data && data.detail) ? (formatDetail(data.detail) || "Unknown error") : "Unknown error";
-    throw new Error(msg);
+    // The status lets a caller tell "this object does not exist (any more)" from a real failure.
+    throw Object.assign(new Error(msg), { status: res.status });
   }
   return data;
 }

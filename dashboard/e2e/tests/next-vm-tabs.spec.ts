@@ -172,6 +172,22 @@ test("hardware: a disk is moved to another pool from a drawer, then back", async
   // A move to the pool the disk is already in is refused before anything starts.
   const same = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home } });
   expect(same.status()).toBe(422);
+test("network: a firewall that cannot be read is shown in its card with a retry, not as a notification", async ({ page }) => {
+  // What a VM deleted (or recreated under the same name) behind an open page gets: the server no longer knows it.
+  let missing = true;
+  await page.route(new RegExp(`/vms/${NAME}/firewall$`), (route) => (missing && route.request().method() === "GET"
+    ? route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `VM '${NAME}' not found` }) })
+    : route.fallback()));
+  await open(page, "network");
+  const main = page.getByRole("main");
+  const alert = main.getByRole("alert").filter({ hasText: "Firewall error" });
+  await expect(alert).toBeVisible({ timeout: 20_000 });
+  await expect(alert).toContainText(`VM '${NAME}' not found`);
+  await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Firewall error" })).toHaveCount(0);
+  missing = false;
+  await alert.getByRole("button", { name: "Retry" }).click();
+  await expect(main.getByRole("alert").filter({ hasText: "Firewall error" })).toHaveCount(0);
+  await expect(main.getByRole("combobox", { name: /default firewall policy/i })).toBeVisible();
 });
 
 test("snapshots: name is validated, create, restore and delete are confirmed and really happen", async ({ page, request }) => {
