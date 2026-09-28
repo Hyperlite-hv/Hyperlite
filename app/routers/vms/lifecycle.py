@@ -6,7 +6,7 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import zfs_storage
+from app.core import guest_agent, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -71,15 +71,16 @@ def stop_vm(
             log_action(user["username"], "stop_vm", name, "echec", "VM already stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already stopped")
         try:
+            method = None
             if force:
                 domain.destroy()
             else:
-                domain.shutdown()
+                method = guest_agent.shutdown(domain)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], action_name, name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to stop the VM: {msg}") from e
-        log_action(user["username"], action_name, name, "succes", task_id=task_id)
+        log_action(user["username"], action_name, name, "succes", f"via {method}" if method else None, task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -101,16 +102,17 @@ def restart_vm(
             log_action(user["username"], "restart_vm", name, "echec", "VM stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is stopped, start it first")
         try:
+            method = None
             if force:
                 domain.destroy()
                 domain.create()
             else:
-                domain.reboot()
+                method = guest_agent.reboot(domain)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "restart_vm", name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to restart the VM: {msg}") from e
-        log_action(user["username"], "restart_vm", name, "succes", task_id=task_id)
+        log_action(user["username"], "restart_vm", name, "succes", f"via {method}" if method else None, task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()

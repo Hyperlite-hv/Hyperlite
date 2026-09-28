@@ -113,6 +113,7 @@ export default function VmSummary({ resource: vm }) {
             )}</dd>
             <dt>{t("vmlist.ip")}</dt><dd className="nx-mono">{vm.ip || <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
             <dt>{t("vm.ssh")}</dt><dd className="nx-mono">{vm.utilisateur_ssh ? `${vm.utilisateur_ssh}${vm.ip ? `@${vm.ip}` : ""}` : na}</dd>
+            <dt>{t("vm.tools")}</dt><dd>{vm.agent_invite ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.agent_invite}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
             <dt>{t("vm.storageType")}</dt><dd>{vm.stockage_iscsi ? "iSCSI" : vm.stockage_zfs ? "ZFS" : "qcow2"}</dd>
             <dt>UUID</dt><dd className="nx-mono nx-muted nx-break">{vm.uuid || na}</dd>
           </dl>

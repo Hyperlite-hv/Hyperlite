@@ -133,6 +133,16 @@ test("hardware: a disk is grown from a drawer, a shrink is refused, the French l
   await expect(page.getByRole("dialog", { name: `Agrandir le disque ${disk.cible}` }).getByRole("button", { name: "Agrandir le disque", exact: true })).toBeVisible();
 });
 
+test("summary: Hyperlite Tools state is shown, and a stopped VM reports none", async ({ page, request }) => {
+  const vm = (await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { etat: string; agent_invite: string | null };
+  expect(vm.etat).not.toBe("actif");
+  expect(vm.agent_invite).toBeNull();
+  await open(page, "summary");
+  const main = page.getByRole("main");
+  await expect(main.getByText("Hyperlite Tools", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByText("— (VM stopped)", { exact: true })).toBeVisible();
+});
+
 test("snapshots: name is validated, create, restore and delete are confirmed and really happen", async ({ page, request }) => {
   await open(page, "snapshots");
   const main = page.getByRole("main");
