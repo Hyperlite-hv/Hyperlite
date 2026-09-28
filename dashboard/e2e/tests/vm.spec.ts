@@ -70,6 +70,9 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await dlg.getByRole("spinbutton", { name: "Memory in MB" }).fill("256");
     await next(); // compute
     await dlg.getByRole("spinbutton", { name: "Size of disk 1 in GB" }).fill("3");
+    // Disks are named as the guest sees them, not by their libvirt device name alone.
+    await expect(dlg.getByText("Disk 1 (system)")).toBeVisible();
+    await expect(dlg.getByRole("complementary").getByText("3 GB", { exact: true })).toBeVisible();
     await next(); // storage
     await dlg.getByRole("radio", { name: /hyperlite-isolated/ }).check();
     await next(); // network
