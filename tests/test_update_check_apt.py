@@ -21,6 +21,7 @@ def apt(monkeypatch, tmp_path):
     conf.write_text(f'# comment\nHYPERLITE_APT_URL="{OFFICIAL}"\n')
     monkeypatch.setattr(update, "APT_SOURCE_CONF", conf)
     monkeypatch.setattr(update, "_dpkg_installed_version", lambda: "2026.09.20.1249")
+    monkeypatch.setattr(update.version, "STARTUP_VERSION", "2026.09.20.1249")
     monkeypatch.setattr(update, "_apt_update_with_retry", lambda **_: subprocess.CompletedProcess([], 0, "", ""))
 
     def set_policy(text):
@@ -75,8 +76,22 @@ def test_official_repository_up_to_date(apt, monkeypatch):
         )
     )
     monkeypatch.setattr(update, "_dpkg_installed_version", lambda: "2026.09.27.1838")
+    monkeypatch.setattr(update.version, "STARTUP_VERSION", "2026.09.27.1838")
     result = update._check_update_apt()
     assert result["verifiable"] is True and result["a_jour"] is True
+    assert result["rolled_back"] is False
+
+
+def test_a_rolled_back_update_is_not_up_to_date(apt, monkeypatch):
+    # The real case: 2026.09.28.1013 was installed, did not answer in time and was rolled back; dpkg still says
+    # 1013, the service runs 0743. The check used to answer "up to date" and the update could not be re-applied.
+    apt(_policy("2026.09.28.1013", "2026.09.28.1013", (500, f"{OFFICIAL} stable/main amd64 Packages")))
+    monkeypatch.setattr(update, "_dpkg_installed_version", lambda: "2026.09.28.1013")
+    monkeypatch.setattr(update.version, "STARTUP_VERSION", "2026.09.28.0743")
+    result = update._check_update_apt()
+    assert result["verifiable"] is True and result["a_jour"] is False and result["rolled_back"] is True
+    assert result["commit_local"] == "2026.09.28.0743" and result["commit_distant"] == "2026.09.28.1013"
+    assert "rolled back" in result["changelog"][0]
 
 
 def test_hourly_check_alerts_once_when_the_source_is_missing(apt, database, monkeypatch):

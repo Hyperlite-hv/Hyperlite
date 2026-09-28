@@ -18,7 +18,10 @@ Environment=TMPDIR=/root/hyperlite/data/tmp
 ExecStartPre=/bin/mkdir -p /root/hyperlite/data/tmp
 ExecStartPre=/root/hyperlite/scripts/ensure-tls-cert.sh
 ExecStartPre=/root/hyperlite/scripts/write-motd.sh
-ExecStart=/root/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /root/hyperlite/data/tls/hyperlite.key --ssl-certfile /root/hyperlite/data/tls/hyperlite.crt
+ExecStart=/root/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /root/hyperlite/data/tls/hyperlite.key --ssl-certfile /root/hyperlite/data/tls/hyperlite.crt --timeout-graceful-shutdown 5
+# A dashboard keeps connections open (terminals, polling): without a bound on the graceful shutdown a restart
+# waited up to 30 s for them, longer than the update watchdog allowed, and a good update was rolled back.
+TimeoutStopSec=20
 Restart=on-failure
 RestartSec=3
 
