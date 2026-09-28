@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Info, Plus, Trash2, Zap } from "lucide-react";
 import {
-  fetchVMDisks, attachDisk, detachDisk, resizeDisk, createVolume, fetchVolumes, fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
+  fetchVMDisks, attachDisk, detachDisk, resizeDisk, moveDisk, createVolume, fetchVolumes, fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
   fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -180,6 +180,49 @@ function ResizeDiskDrawer({ disk, onClose, vm, onDone }) {
   );
 }
 
+// Move one disk to another directory or NFS pool. The server checks everything again and runs the copy as a
+// task; the source file is kept unless the admin asks to delete it.
+function MoveDiskDrawer({ disk, onClose, vm, onDone }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const storagePools = useInfraStore((s) => s.storagePools);
+  const targets = storagePools.filter((p) => p.node === "local" && ["dir", "netfs"].includes(p.type) && p.etat === "actif" && p.nom !== disk?.pool);
+  const [pool, setPool] = useState("");
+  const [deleteSource, setDeleteSource] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (disk) { setPool(""); setDeleteSource(false); } }, [disk]);
+  async function submit() {
+    setBusy(true);
+    try {
+      await moveDisk(vm.nom, disk.cible, pool, deleteSource);
+      pushToast({ kind: "success", title: t("vh.moveStarted"), message: `${disk.cible} → ${pool}` });
+      onClose();
+      setTimeout(onDone, 3000);
+    } catch (e) { pushToast({ kind: "error", title: t("vh.moveFailed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  return (
+    <SideDrawer open={!!disk} title={disk ? t("vh.moveTitle", { dev: disk.cible }) : ""} onClose={onClose} busy={busy} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !pool} onClick={submit}>{t("vh.moveBtn")}</button>
+    </>}>
+      {disk && <>
+        <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.moveFrom", { pool: disk.pool || "—" })}</p>
+        {targets.length === 0 ? <p className="nx-notice nx-notice--warning" role="status" style={{ margin: 0 }}>{t("vh.moveNoTarget")}</p> : (
+          <Field label={t("vh.moveTo")}>
+            {(p) => <select {...p} className="nx-inp" aria-label={t("a11y.move_destination_pool")} value={pool} onChange={(e) => setPool(e.target.value)}>
+              <option value="">{t("vh.moveChoose")}</option>
+              {targets.map((x) => <option key={x.nom} value={x.nom}>{x.nom} ({x.type === "netfs" ? "NFS" : t("vh.moveDir")}{x.disponible_go != null ? ` · ${formatSizeGb(x.disponible_go, lang())} ${t("stor.free").toLowerCase()}` : ""})</option>)}
+            </select>}
+          </Field>
+        )}
+        <label className="nx-check"><input type="checkbox" checked={deleteSource} onChange={(e) => setDeleteSource(e.target.checked)} /> {t("vh.moveDelete")}</label>
+        <p className="nx-f-h" style={{ margin: 0 }}>{t(vm.etat === "actif" ? "vh.moveLive" : "vh.moveCold")}</p>
+      </>}
+    </SideDrawer>
+  );
+}
+
 function DriversCard({ vmName, onChanged }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -220,6 +263,7 @@ export function VmHardwarePage({ resource: vm }) {
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState(false);
   const [resizing, setResizing] = useState(null);
+  const [moving, setMoving] = useState(null);
   const [busy, setBusy] = useState(false);
   const name = vm?.nom;
   const node = vm?.node;
@@ -252,7 +296,7 @@ export function VmHardwarePage({ resource: vm }) {
                     <td><Chip>{[d.bus ? d.bus.toUpperCase() : null, d.type === "cdrom" ? "CD" : null].filter(Boolean).join(" · ") || "—"}</Chip></td>
                     <td className="nx-mono nx-wrapcell">{d.source || <span className="nx-muted">{t("vh.emptyDrive")}</span>}{d.pool && <span className="nx-muted"> ({d.pool})</span>}</td>
                     <td className="nx-num nx-mono">{size(d)}</td>
-                    <td><div className="nx-ra">{admin && d.type !== "cdrom" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy || !!d.non_agrandissable} title={d.non_agrandissable ? t(d.non_agrandissable === "iscsi" ? "vh.resizeIscsi" : "vh.resizeUnsupported") : undefined} aria-label={t("a11y.resize_disk_x", { v: d.cible })} onClick={() => setResizing(d)}>{t("vh.resize")}</button>}{admin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("a11y.detach_disk_x", { v: d.cible })} onClick={() => detach(d)}>{t("vh.detach")}</button>}</div></td>
+                    <td><div className="nx-ra">{admin && d.type !== "cdrom" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy || !!d.non_agrandissable} title={d.non_agrandissable ? t(d.non_agrandissable === "iscsi" ? "vh.resizeIscsi" : "vh.resizeUnsupported") : undefined} aria-label={t("a11y.resize_disk_x", { v: d.cible })} onClick={() => setResizing(d)}>{t("vh.resize")}</button>}{admin && d.type !== "cdrom" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy || !d.pool || (d.source || "").startsWith("/dev/")} title={!d.pool || (d.source || "").startsWith("/dev/") ? t("vh.moveUnsupported") : undefined} aria-label={t("a11y.move_disk_x", { v: d.cible })} onClick={() => setMoving(d)}>{t("vh.move")}</button>}{admin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("a11y.detach_disk_x", { v: d.cible })} onClick={() => detach(d)}>{t("vh.detach")}</button>}</div></td>
                   </tr>
                 ))}
               </tbody>
@@ -263,6 +307,7 @@ export function VmHardwarePage({ resource: vm }) {
       {admin && <DriversCard vmName={vm.nom} onChanged={reload} />}
       <AddDiskDrawer open={adding} onClose={() => setAdding(false)} vmName={vm.nom} disks={disks} onDone={reload} />
       <ResizeDiskDrawer disk={resizing} onClose={() => setResizing(null)} vm={vm} onDone={reload} />
+      <MoveDiskDrawer disk={moving} onClose={() => setMoving(null)} vm={vm} onDone={reload} />
     </>
   );
 }

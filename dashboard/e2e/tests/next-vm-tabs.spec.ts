@@ -143,6 +143,37 @@ test("summary: Hyperlite Tools state is shown, and a stopped VM reports none", a
   await expect(main.getByText("— (VM stopped)", { exact: true })).toBeVisible();
 });
 
+test("hardware: a disk is moved to another pool from a drawer, then back", async ({ page, request }) => {
+  type Disk = { cible: string; type: string; pool: string | null; source: string | null };
+  const pool = `${PREFIX}mv-${stamp}`;
+  const created = await request.post("/storage", { headers: auth(), data: { name: pool, type: "dir" } });
+  expect(created.ok(), await created.text()).toBe(true);
+  const firstDisk = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as Disk[]).find((d) => d.type === "disk")!;
+  const disk = await firstDisk();
+  const home = disk.pool!;
+  try {
+    await open(page, "hardware");
+    const main = page.getByRole("main");
+    await main.getByRole("button", { name: `Move disk ${disk.cible}` }).click();
+    const drawer = page.getByRole("dialog", { name: `Move disk ${disk.cible}` });
+    const go = drawer.getByRole("button", { name: "Move the disk", exact: true });
+    await expect(go).toBeDisabled(); // no pool chosen yet
+    await drawer.getByLabel("Destination pool").selectOption(pool);
+    await drawer.getByLabel("Delete the original file after the copy").check();
+    await go.click();
+    await expect(page.getByText("Move started (see Tasks)").first()).toBeVisible({ timeout: 20_000 });
+    await expect.poll(async () => (await firstDisk()).pool, { timeout: 90_000 }).toBe(pool);
+  } finally {
+    // Back home, so the VM's later tests and its deletion find the disk where it was.
+    const back = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
+    if (back.ok()) await expect.poll(async () => (await firstDisk()).pool, { timeout: 90_000 }).toBe(home);
+    await request.delete(`/storage/${pool}?confirm=true`, { headers: auth() });
+  }
+  // A move to the pool the disk is already in is refused before anything starts.
+  const same = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home } });
+  expect(same.status()).toBe(422);
+});
+
 test("network: a firewall that cannot be read is shown in its card with a retry, not as a notification", async ({ page }) => {
   // What a VM deleted (or recreated under the same name) behind an open page gets: the server no longer knows it.
   let missing = true;
