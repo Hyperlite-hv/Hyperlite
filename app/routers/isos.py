@@ -1,10 +1,10 @@
 import shutil
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
 from pathlib import Path
 
 import libvirt
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
@@ -37,18 +37,39 @@ def _iso_in_use(conn, iso_path: str) -> bool:
 
 @router.get("")
 def list_isos(user: dict = Depends(get_current_user)):
-    result = []
-    for p in sorted(ISOS_DIR.glob("*.iso")):
-        st = p.stat()
-        result.append(
-            {
-                "nom": p.name,
-                "taille_mo": round(st.st_size / (1024 * 1024), 1),
-                "ajoutee_le": datetime.fromtimestamp(st.st_mtime, UTC).isoformat(),
-                "emplacement": str(ISOS_DIR),
-            }
-        )
-    return result
+    from app.core.iso_share import local_isos
+
+    return local_isos()
+
+
+@router.get("/cluster")
+def list_cluster_isos(user: dict = Depends(get_current_user)):
+    """Every node's library, with the nodes that could not be read."""
+    from app.core.iso_share import cluster_isos
+
+    return cluster_isos()
+
+
+class IsoCopy(BaseModel):
+    nom: str
+    source: str = "local"
+    cibles: list[str]
+
+
+@router.post("/copy", status_code=202)
+def copy_iso(payload: IsoCopy, user: dict = Depends(require_role("admin"))):
+    """Copy an image from one node's library to others, one background task per target node."""
+    from app.core.iso_share import start_copy
+
+    try:
+        tasks = start_copy(payload.nom, payload.source, payload.cibles, user["username"])
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"nom": payload.nom, "taches": tasks}
 
 
 @router.post("", status_code=201)
@@ -86,23 +107,40 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
 
 
 @router.delete("/{filename}")
-def delete_iso(filename: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: dict = Depends(require_role("admin"))):
+    from app.core.iso_share import delete_remote, iso_size, resolve_node, valid_iso_name
+
     filename = Path(filename).name
     if not filename.lower().endswith(".iso"):
         raise HTTPException(status_code=422, detail="Invalid file name")
+    try:
+        remote = resolve_node(node)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    if remote is not None and not valid_iso_name(filename):
+        raise HTTPException(status_code=422, detail="Invalid file name")
     path = safe_child(ISOS_DIR, filename)
-    if not path.exists():
+    exists = iso_size(remote, filename) is not None if remote is not None else path.exists()
+    if not exists:
         raise HTTPException(status_code=404, detail=f"ISO '{filename}' not found")
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
 
-    conn = open_conn()
+    # Every node keeps its library at the same path, so the in-use check reads that node's own VMs.
+    conn = open_conn(None if remote is None else node)
     try:
         if _iso_in_use(conn, str(path)):
             raise HTTPException(status_code=409, detail="ISO in use by a VM, eject it first")
     finally:
         conn.close()
 
-    path.unlink()
-    log_action(user["username"], "delete_iso", filename, "succes")
-    return {"nom": filename, "supprime": True}
+    if remote is None:
+        path.unlink()
+    else:
+        try:
+            delete_remote(remote, filename)
+        except (RuntimeError, OSError) as e:
+            raise HTTPException(status_code=502, detail=f"Deletion on {node} failed: {e}") from e
+    target = filename if remote is None else f"{filename} ({node})"
+    log_action(user["username"], "delete_iso", target, "succes")
+    return {"nom": filename, "node": node, "supprime": True}

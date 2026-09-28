@@ -14,7 +14,7 @@ test.describe("Degraded backend behavior", () => {
 
   test("a server error is reported with the backend message and the page stays usable", async ({ page }) => {
     await uiLogin(page);
-    await page.route("**/isos", (r) => r.fulfill(json(500, { detail: "Internal failure" })));
+    await page.route("**/isos/cluster", (r) => r.fulfill(json(500, { detail: "Internal failure" })));
     await goTo(page, "ISO images and templates");
     await expect(page.getByText("Internal failure").first()).toBeVisible();
     await goTo(page, "Network");
