@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import zfs_storage
+from app.core import iscsi, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -133,6 +133,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
         if name_error:
             log_action(user["username"], "create_snapshot", payload.name, "echec", name_error)
             raise HTTPException(status_code=422, detail=name_error)
+        iscsi.refuse_if_iscsi(domain, "A snapshot")
 
         zvol_specs = _zvol_disks_of_domain(domain)
         if zvol_specs:
