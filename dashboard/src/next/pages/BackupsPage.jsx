@@ -25,12 +25,11 @@ export default function BackupsPage() {
   const caps = capabilities(useAuthStore((s) => s.role));
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
-  const [at, setAt] = useState(null);
   const [scheduled, setScheduled] = useState(null);
   const vms = useInfraStore((s) => s.vms);
 
   const load = useCallback(async () => {
-    try { const r = await fetchAllBackups(); setRows(Array.isArray(r) ? r : []); setError(null); setAt(Date.now()); }
+    try { const r = await fetchAllBackups(); setRows(Array.isArray(r) ? r : []); setError(null); }
     catch (e) { setError(errorMessage(e)); }
     fetchBackupSchedules().then((r) => setScheduled(new Set((Array.isArray(r) ? r : []).map((x) => x.vm_name)))).catch(() => setScheduled(null));
   }, []);
@@ -48,7 +47,7 @@ export default function BackupsPage() {
 
   return (
     <>
-      <PageHeader title={t("tab.backups")} count={rows ? rows.length : null} desc={t("bk.desc")} fresh freshAt={at} />
+      <PageHeader title={t("tab.backups")} count={rows ? rows.length : null} desc={t("bk.desc")} />
       {unprotected > 0 && (
         <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("bk.unscheduled", { n: unprotected })}</span>
           <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("datacenter", null, "vms")}>{t("bk.seeVms")}</button></div>

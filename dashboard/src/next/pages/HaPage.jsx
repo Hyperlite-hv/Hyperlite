@@ -20,7 +20,6 @@ export default function HaPage() {
   const nodes = useInfraStore((s) => s.nodes);
   const pools = useInfraStore((s) => s.storagePools);
   const navigateTo = useInfraStore((s) => s.navigateTo);
-  const [at, setAt] = useState(null);
   const pushToast = useInfraStore((s) => s.pushToast);
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
@@ -28,7 +27,7 @@ export default function HaPage() {
   const [busy, setBusy] = useState(null);
 
   const reload = useCallback(async () => {
-    try { const r = await fetchHaProtected(); setRows(Array.isArray(r) ? r : []); setError(null); setAt(Date.now()); }
+    try { const r = await fetchHaProtected(); setRows(Array.isArray(r) ? r : []); setError(null); }
     catch (e) { setError(errorMessage(e)); }
   }, []);
   useEffect(() => { reload(); const id = setInterval(reload, 15000); return () => clearInterval(id); }, [reload]);
@@ -56,7 +55,7 @@ export default function HaPage() {
 
   return (
     <>
-      <PageHeader title={t("tab.ha")} count={rows ? list.length : null} desc={t("ha.desc")} fresh freshAt={at}
+      <PageHeader title={t("tab.ha")} count={rows ? list.length : null} desc={t("ha.desc")}
         actions={<button type="button" className="nx-btn" onClick={reload}><RefreshCw size={15} aria-hidden="true" />{t("action.refresh")}</button>} />
       <div className="nx-bn" data-tone={online >= 2 && shared > 0 ? "success" : "info"} role="status"><Info size={16} aria-hidden="true" />
         <span className="nx-bn-t">{t("ha.prereq", { nodes: online, pools: shared })}</span></div>
