@@ -20,6 +20,7 @@ nodes keep running, but the users, permissions, nodes, HA settings, backup sched
 import argparse
 import hashlib
 import json
+import logging
 import os
 import shutil
 import socket
@@ -35,6 +36,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core import database
+
+logger = logging.getLogger(__name__)
 
 REMOTE_DIR = "/var/lib/hyperlite/config-copy"
 COPY_CHECK_S = 60
@@ -70,6 +73,14 @@ CONFIG_TABLES = (
 )
 KEY_NAMES = ("HYPERLITE_SECRET_KEY", "HYPERLITE_ENCRYPTION_KEY")
 SERVICE = "hyperlite"
+
+
+class CopyError(Exception):
+    """A copy that did not reach a node, with a message written for the administrator."""
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
 
 
 def _now():
@@ -164,17 +175,17 @@ def push(node, bundle):
     run = lambda args, timeout: subprocess.run(args, capture_output=True, text=True, timeout=timeout)  # noqa: E731
     r = run(["ssh", *opts, "-p", port, target, f"mkdir -p -m 700 {REMOTE_DIR} && chmod 700 {REMOTE_DIR}"], 20)
     if r.returncode != 0:
-        raise RuntimeError(f"Cannot prepare {REMOTE_DIR}: {r.stderr.strip()[:200]}")
+        raise CopyError(f"Cannot prepare {REMOTE_DIR}: {r.stderr.strip()[:200]}")
     r = run(["scp", *opts, "-P", port, str(bundle), f"{target}:{REMOTE_DIR}/incoming.tar.gz"], 300)
     if r.returncode != 0:
-        raise RuntimeError(f"Copy failed: {r.stderr.strip()[:200]}")
+        raise CopyError(f"Copy failed: {r.stderr.strip()[:200]}")
     swap = (
         f"cd {REMOTE_DIR} && chmod 600 incoming.tar.gz && "
         "{ [ ! -f latest.tar.gz ] || mv -f latest.tar.gz previous.tar.gz; } && mv -f incoming.tar.gz latest.tar.gz"
     )
     r = run(["ssh", *opts, "-p", port, target, swap], 20)
     if r.returncode != 0:
-        raise RuntimeError(f"Cannot install the copy: {r.stderr.strip()[:200]}")
+        raise CopyError(f"Cannot install the copy: {r.stderr.strip()[:200]}")
 
 
 def _record(node, statut, taille=None, empreinte=None, erreur=None):
@@ -226,10 +237,16 @@ def copy_now(force=False, username="system"):
                 push(node, bundle)
                 _record(node["name"], "ok", bundle.stat().st_size, meta["empreinte"])
                 results.append({"node": node["name"], "statut": "ok"})
-            except (RuntimeError, OSError, subprocess.SubprocessError) as e:
-                _record(node["name"], "echec", erreur=str(e)[:300])
-                log_action(username, "config_copy", node["name"], "echec", str(e)[:300])
-                results.append({"node": node["name"], "statut": "echec", "erreur": str(e)[:300]})
+                continue
+            except CopyError as e:
+                error = e.message[:300]
+            except (OSError, subprocess.SubprocessError):
+                # The OS error text stays in the service log; the API gets a sentence.
+                logger.warning("Configuration copy to %s failed", node["name"], exc_info=True)
+                error = "ssh or scp could not run or timed out (see the service log)"
+            _record(node["name"], "echec", erreur=error)
+            log_action(username, "config_copy", node["name"], "echec", error)
+            results.append({"node": node["name"], "statut": "echec", "erreur": error})
     finally:
         bundle.unlink(missing_ok=True)
     return results

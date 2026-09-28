@@ -159,3 +159,12 @@ def test_the_promote_command_needs_the_typed_confirmation(controller, monkeypatc
     assert config_copy.promote_cli(["--copy", str(bundle)]) == 4 and installed == []
     assert config_copy.promote_cli(["--copy", str(controller / "missing.tar.gz"), "--yes"]) == 2
     assert json.loads(json.dumps(meta))["version"] == 1
+
+
+def test_a_copy_that_cannot_even_start_ssh_reports_a_sentence_not_the_os_error(controller, remote, monkeypatch):
+    def boom(args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory: 'ssh'")
+
+    monkeypatch.setattr(config_copy.subprocess, "run", boom)
+    result = config_copy.copy_now()[0]
+    assert result["statut"] == "echec" and "No such file" not in result["erreur"] and "service log" in result["erreur"]
