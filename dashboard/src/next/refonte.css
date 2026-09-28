@@ -429,6 +429,8 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-login-v { margin-top: auto; font-family: var(--font-mono); font-size: var(--fs-12); color: var(--color-text-muted); }
 .nx-login-r { display: grid; place-items: center; padding: 1.6rem; }
 .nx-login-box { width: min(26.6667rem, 100%); background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: 14px; padding: 2.1333rem; display: grid; gap: 0.9333rem; }
+/* The password change screen carries the rules checklist: a little more room than the sign-in form. */
+.nx-login-box--wide { width: min(30rem, 100%); }
 .nx-login-box h1 { margin: 0; font-size: var(--fs-20); font-weight: 600; display: flex; align-items: center; gap: 0.5333rem; }
 .nx-login-btn { height: 2.6667rem; justify-content: center; text-decoration: none; }
 .nx-login-eye { all: unset; position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--color-text-muted); display: grid; place-items: center; width: 1.8667rem; height: 1.8667rem; border-radius: var(--radius-sm); }
