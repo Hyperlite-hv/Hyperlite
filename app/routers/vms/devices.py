@@ -6,12 +6,14 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import disk_resize
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.security import get_current_user, require_vm_privilege
+from app.core.vm_limits import validate_vm_resources
 from app.routers.vms._shared import TARGET_DEV_RE, _get_ip, router
 
 logger = logging.getLogger(__name__)
@@ -122,6 +124,53 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
         conn.close()
 
 
+class DiskResize(BaseModel):
+    # The new TOTAL size in GB, not an increment: repeating the request cannot grow the disk twice.
+    size_gb: int = Field(ge=1)
+
+
+@router.post("/{name}/disks/{target_dev}/resize")
+def resize_disk(
+    name: str, target_dev: str, payload: DiskResize, user: dict = Depends(require_vm_privilege("vm.resize"))
+):
+    if not TARGET_DEV_RE.match(target_dev):
+        log_action(user["username"], "resize_disk", name, "echec", "Invalid target_dev")
+        raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
+    size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
+    if size_errors:
+        log_action(user["username"], "resize_disk", name, "echec", "; ".join(size_errors))
+        raise HTTPException(status_code=422, detail=size_errors)
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "resize_disk", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        try:
+            old_bytes, new_bytes, live = disk_resize.grow(conn, domain, target_dev, payload.size_gb)
+        except disk_resize.ResizeError as e:
+            log_action(user["username"], "resize_disk", name, "echec", f"{target_dev}: {e.message}")
+            raise HTTPException(status_code=e.status, detail=e.message) from e
+        old_gb, new_gb = round(old_bytes / disk_resize.GIB, 2), round(new_bytes / disk_resize.GIB, 2)
+        log_action(
+            user["username"],
+            "resize_disk",
+            name,
+            "succes",
+            f"{target_dev}: {old_gb} GB -> {new_gb} GB ({'live' if live else 'stopped'})",
+        )
+        return {
+            "cible": target_dev,
+            "ancienne_taille_go": old_gb,
+            "taille_go": new_gb,
+            "a_chaud": live,
+            "message": f"Disk '{target_dev}' of '{name}' grown to {new_gb} GB",
+        }
+    finally:
+        conn.close()
+
+
 def _get_interfaces(domain):
     xml_desc = domain.XMLDesc(0)
     root = ET.fromstring(xml_desc)
@@ -190,6 +239,8 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
                     "bus": target.get("bus") if target is not None else None,
                     "type": disk.get("device"),
                     "source": path,
+                    # null when the disk can be grown, else why not ("iscsi", "non_gere"); see disk_resize.
+                    "non_agrandissable": disk_resize.not_growable_code(disk),
                     **(
                         _disk_size(domain, conn, dev, path)
                         if path

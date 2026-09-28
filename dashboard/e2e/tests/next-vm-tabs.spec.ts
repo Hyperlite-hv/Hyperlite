@@ -100,6 +100,39 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN is 
   await expect(main.getByRole("heading", { level: 2, name: /^Network interfaces/ })).toBeVisible();
 });
 
+test("hardware: a disk is grown from a drawer, a shrink is refused, the French labels are shown", async ({ page, request }) => {
+  type Disk = { cible: string; type: string; taille_go: number | null; non_agrandissable: string | null };
+  const firstDisk = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as Disk[]).find((d) => d.type === "disk")!;
+  const disk = await firstDisk();
+  expect(disk.non_agrandissable).toBeNull();
+  const target = Math.floor(disk.taille_go ?? 3) + 1;
+
+  // The API refuses a shrink and changes nothing.
+  const shrink = await request.post(`/vms/${NAME}/disks/${disk.cible}/resize`, { headers: auth(), data: { size_gb: 1 } });
+  expect(shrink.status()).toBe(422);
+  expect(await shrink.text()).toContain("Shrinking");
+
+  await open(page, "hardware");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: `Grow disk ${disk.cible}` }).click();
+  const drawer = page.getByRole("dialog", { name: `Grow disk ${disk.cible}` });
+  const grow = drawer.getByRole("button", { name: "Grow the disk", exact: true });
+  // The current size is not a growth: the button stays disabled until the size is larger.
+  await drawer.getByLabel("New size in GB").fill(String(target - 1));
+  await expect(grow).toBeDisabled();
+  await expect(drawer.getByText(/^Whole number above the current size/)).toBeVisible();
+  await drawer.getByLabel("New size in GB").fill(String(target));
+  await grow.click();
+  await expect(page.getByText("Disk grown").first()).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await firstDisk()).taille_go, { timeout: 30_000 }).toBe(target);
+
+  // Same page in French (the language is stored next to the session, a reload applies it).
+  await page.evaluate(() => localStorage.setItem("hyperlite-next-lang", "fr"));
+  await page.reload();
+  await main.getByRole("button", { name: `Agrandir le disque ${disk.cible}` }).click();
+  await expect(page.getByRole("dialog", { name: `Agrandir le disque ${disk.cible}` }).getByRole("button", { name: "Agrandir le disque", exact: true })).toBeVisible();
+});
+
 test("snapshots: name is validated, create, restore and delete are confirmed and really happen", async ({ page, request }) => {
   await open(page, "snapshots");
   const main = page.getByRole("main");
