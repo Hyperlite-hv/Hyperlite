@@ -89,3 +89,21 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
   await page.getByRole("main").getByRole("button", { name: "Actions", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: /^Mettre en maintenance/ })).toBeVisible();
 });
+
+test("the creation wizard says at the Placement step that this host is in maintenance", async ({ page }) => {
+  // Stand-in: this host in maintenance (the real one never is, the other spec files create VMs in parallel).
+  await page.route(/\/nodes\/maintenance$/, (route) => json(route, [{ node: "local", started_by: "admin", started_at: new Date().toISOString() }]));
+  await open(page);
+  await page.getByRole("button", { name: "Create" }).click();
+  await page.getByRole("menuitem", { name: "Virtual machine" }).click();
+  const dlg = page.getByRole("dialog");
+  await dlg.getByRole("button", { name: "Next" }).click(); // source -> identity
+  await dlg.getByRole("textbox", { name: "VM name" }).fill("e2e-maint-wizard");
+  await dlg.getByRole("textbox", { name: "User" }).fill("tester");
+  await dlg.getByRole("textbox", { name: "Password" }).fill("Testpass1");
+  await dlg.getByRole("button", { name: "Next" }).click(); // identity -> placement
+  await expect(dlg.getByText("In maintenance", { exact: true })).toBeVisible();
+  await dlg.getByRole("button", { name: "Next" }).click(); // refused here, not after eight steps
+  await expect(dlg.getByText(/^This host is in maintenance: no VM can be created/)).toBeVisible();
+  await expect(dlg.getByRole("button", { name: "Create the VM" })).toHaveCount(0);
+});
