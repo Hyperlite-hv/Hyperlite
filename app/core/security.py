@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -32,9 +33,20 @@ def create_access_token(data: dict, remember: bool = False):
     lifetime = (
         timedelta(days=REMEMBER_TOKEN_EXPIRE_DAYS) if remember else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    expire = datetime.now(UTC) + lifetime
-    to_encode.update({"exp": expire})
+    now = datetime.now(UTC)
+    # iat (issued at, whole seconds): lets a password change sign out every session opened before it
+    # (see _session_user and set_password).
+    to_encode.update({"exp": now + lifetime, "iat": int(now.timestamp())})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def set_password(conn, username: str, plain: str):
+    """Store a new password for the account and sign out its existing sessions: every session token issued
+    before this second is refused from now on. The caller commits."""
+    conn.execute(
+        "UPDATE users SET hashed_password = ?, password_changed_at = ? WHERE username = ?",
+        (hash_password(plain), int(time.time()), username),
+    )
 
 
 def create_preauth_token(username: str, remember: bool = False):
@@ -63,28 +75,43 @@ def authenticate_user(username: str, password: str):
     return user
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
+def _credentials_exception():
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except PyJWTError:
-        payload = None
 
+
+def _decode_session(token: str):
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except PyJWTError:
+        return None
+
+
+def _session_user(payload: dict):
+    username = payload.get("sub")
+    # 2fa_pending: intermediate token (see create_preauth_token). It proves the
+    # password but not the second factor, and must never be accepted as a normal
+    # session token.
+    if username is None or payload.get("2fa_pending"):
+        raise _credentials_exception()
+    user = get_user(username)
+    if user is None:
+        raise _credentials_exception()
+    # A password change or reset signs out every session opened before it (set_password). A token without
+    # iat predates that mechanism and is refused as soon as the password has been changed once.
+    changed = user.get("password_changed_at")
+    if changed and int(payload.get("iat") or 0) < changed:
+        raise _credentials_exception()
+    return user
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    payload = _decode_session(token)
     if payload is not None:
-        username = payload.get("sub")
-        # 2fa_pending: intermediate token (see create_preauth_token). It proves the
-        # password but not the second factor, and must never be accepted as a normal
-        # session token.
-        if username is None or payload.get("2fa_pending"):
-            raise credentials_exception
-        user = get_user(username)
-        if user is None:
-            raise credentials_exception
-        return user
+        return _session_user(payload)
 
     # Not a valid JWT: it may be an API token instead of a session token. Same
     # Authorization: Bearer header, different format ("hlt_" prefix), so no new
@@ -95,8 +122,25 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
     user = verify_token(token)
     if user is None:
-        raise credentials_exception
+        raise _credentials_exception()
     return user
+
+
+async def get_session_user(token: str = Depends(oauth2_scheme)):
+    """Like get_current_user, but only for a signed-in person (a session token), never an API token: an API
+    token that leaked from a script must not be able to take the account over (e.g. by changing its
+    password)."""
+    payload = _decode_session(token)
+    if payload is None:
+        from app.core.api_tokens import verify_token  # late import: see get_current_user
+
+        if verify_token(token) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not allowed with an API token: sign in to the dashboard",
+            )
+        raise _credentials_exception()
+    return _session_user(payload)
 
 
 def require_role(*roles):

@@ -9,9 +9,10 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jwt import PyJWTError
 from pydantic import BaseModel
 
-from app.core.api_tokens import create_token, list_tokens, revoke_token
+from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.database import get_conn
+from app.core.password_policy import password_problem
 from app.core.permissions import get_user_groups, remove_group_member
 from app.core.security import (
     ALGORITHM,
@@ -20,9 +21,11 @@ from app.core.security import (
     create_access_token,
     create_preauth_token,
     get_current_user,
+    get_session_user,
     get_user,
     hash_password,
     require_role,
+    set_password,
     verify_password,
 )
 from app.core.twofa import generate_secret, provisioning_uri, qr_code_svg, verify_code
@@ -104,6 +107,12 @@ class TwoFADisable(BaseModel):
 
 class TokenCreate(BaseModel):
     name: str
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+    code: str | None = None  # TOTP code, required when the account has 2FA
 
 
 def _record_login(username):
@@ -285,6 +294,47 @@ def delete_api_token(token_id: int, user: dict = Depends(get_current_user)):
     return {"message": "Token revoked"}
 
 
+@router.post("/me/password")
+def change_my_password(request: Request, payload: PasswordChange, user: dict = Depends(get_session_user)):
+    """Any signed-in user changes their own password. It takes the current password (and the 2FA code when
+    2FA is on), so a session left open is not enough to take the account over; wrong attempts count towards
+    the same lock as the sign-in form. Every other session of the account is signed out; the one making the
+    change gets a fresh token. Never with an API token (get_session_user)."""
+    username = user["username"]
+    ip = _client_ip(request)
+    if _login_ip_locked_out(ip) or _login_locked_out(username):
+        log_action(username, "change_password", username, "echec", "Locked out after repeated failures")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed attempts, try again in {LOGIN_WINDOW_S // 60} minutes",
+        )
+    if user.get("auth_source") == "sso":
+        raise HTTPException(status_code=400, detail="SSO account: the password is managed by the identity provider")
+    # 400, not 401, for a wrong password or code: the session itself is valid (a 401 signs the dashboard out).
+    if not verify_password(payload.current_password, user["hashed_password"]):
+        _login_record_failure(username)
+        _login_ip_record_failure(ip)
+        log_action(username, "change_password", username, "echec", "Incorrect current password")
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+    if user["totp_enabled"] and not verify_code(user["totp_secret"], payload.code or ""):
+        _login_record_failure(username)
+        _login_ip_record_failure(ip)
+        log_action(username, "change_password", username, "echec", "Invalid 2FA code")
+        raise HTTPException(status_code=400, detail="Invalid 2FA code")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=422, detail="The new password must be different from the current one")
+    problem = password_problem(payload.new_password, username)
+    if problem:
+        raise HTTPException(status_code=422, detail=problem)
+    with get_conn() as conn:
+        set_password(conn, username, payload.new_password)
+        conn.commit()
+    _login_failures.pop(username, None)
+    log_action(username, "change_password", username, "succes", "Other sessions signed out")
+    token = create_access_token({"sub": username, "role": user["role"]})
+    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+
+
 @router.get("/users")
 def list_users(user: dict = Depends(require_role("admin"))):
     with get_conn() as conn:
@@ -298,8 +348,9 @@ def list_users(user: dict = Depends(require_role("admin"))):
 def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))):
     if not USERNAME_RE.match(payload.username):
         raise HTTPException(status_code=422, detail="Invalid username (2-32 characters: letters, digits, . _ -)")
-    if len(payload.password) < 4:
-        raise HTTPException(status_code=422, detail="The password must contain at least 4 characters")
+    problem = password_problem(payload.password, payload.username)
+    if problem:
+        raise HTTPException(status_code=422, detail=problem)
     if payload.role not in ("admin", "observateur"):
         raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
     try:
@@ -330,6 +381,14 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
         # by hand (useful as a fallback when the IdP is down).
         if payload.password is not None and existing["auth_source"] == "sso":
             raise HTTPException(status_code=400, detail="SSO account: the password cannot be changed locally")
+        if payload.password is not None:
+            # An administrator changes their own password through /auth/me/password, which asks for the
+            # current one (and the 2FA code): a stolen admin session must not be enough to lock the owner out.
+            if username == user["username"]:
+                raise HTTPException(status_code=400, detail="Use 'Change my password' to change your own password")
+            problem = password_problem(payload.password, username)
+            if problem:
+                raise HTTPException(status_code=422, detail=problem)
         if payload.role is not None:
             if payload.role not in ("admin", "observateur"):
                 raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
@@ -337,14 +396,20 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
                 raise HTTPException(status_code=400, detail="You cannot remove your own admin rights")
             conn.execute("UPDATE users SET role = ? WHERE username = ?", (payload.role, username))
         if payload.password is not None:
-            if len(payload.password) < 4:
-                raise HTTPException(status_code=422, detail="The password must contain at least 4 characters")
-            conn.execute(
-                "UPDATE users SET hashed_password = ? WHERE username = ?", (hash_password(payload.password), username)
-            )
+            set_password(conn, username, payload.password)
         conn.commit()
-    log_action(user["username"], "update_user", username, "succes")
-    return {"message": "User updated"}
+    result = {"message": "User updated"}
+    if payload.password is not None:
+        # A reset means the account may be in the wrong hands: its sessions are already signed out
+        # (set_password), its API and workstation tokens go too.
+        revoked = revoke_all_tokens(username)
+        log_action(
+            user["username"], "reset_password", username, "succes", f"Sessions signed out, {revoked} token(s) revoked"
+        )
+        result["revoked_tokens"] = revoked
+    if payload.role is not None:
+        log_action(user["username"], "update_user", username, "succes")
+    return result
 
 
 @router.delete("/users/{username}")

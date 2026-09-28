@@ -41,6 +41,7 @@ function formatDetail(d) {
 
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
+  const sent = token;
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
   try {
@@ -51,7 +52,9 @@ async function realFetch(path, opts = {}) {
   let data = null;
   let parsed = true;
   try { data = await res.json(); } catch { parsed = false; }
-  if (res.status === 401 && token && !path.startsWith("/auth/login")) unauthorizedHandler?.();
+  // Only when the rejected token is still the current one: a request that left with a token replaced since
+  // (right after a password change, which revokes the previous one) must not sign the user out.
+  if (res.status === 401 && token && token === sent && !path.startsWith("/auth/login")) unauthorizedHandler?.();
   if (res.ok && !parsed && (res.headers.get("content-type") || "").includes("application/json")) {
     throw new Error("The server returned an unreadable response.");
   }
@@ -395,6 +398,17 @@ export async function fetchUsers() {
 export async function createUser(username, password, role) {
   return realFetch("/auth/users", { method: "POST", ...jsonBody({ username, password, role }) });
 }
+// The signed-in user changes their own password (current one + 2FA code when enabled); returns a fresh
+// session token, every other session of the account being signed out by the server.
+export async function changeMyPassword(currentPassword, newPassword, code) {
+  return realFetch("/auth/me/password", { method: "POST", ...jsonBody({ current_password: currentPassword, new_password: newPassword, code: code || null }) });
+}
+
+// An administrator sets a new password for another account; its sessions and tokens are revoked.
+export async function resetUserPassword(username, password) {
+  return updateUser(username, { password });
+}
+
 export async function updateUser(username, payload) {
   return realFetch(`/auth/users/${encodeURIComponent(username)}`, { method: "PATCH", ...jsonBody(payload) });
 }
