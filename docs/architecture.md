@@ -18,6 +18,8 @@ FastAPI service (uvicorn, runs as root)         SQLite (WAL) hyperlite.db
 
 There is no agent on the managed nodes: remote hosts are driven through libvirt over SSH.
 
+ISO images are per node: a VM boots only from an image in its own host's library (`data/isos`, at the same path on every node). The Library lists every node's images and shares one by copying it through the local host with the cluster SSH key (`app/core/iso_share.py`); a copy lands under a hidden temporary name and is renamed once complete.
+
 ## Backend (`app/`)
 
 - `app/main.py` creates the FastAPI application, registers the routers, serves the built dashboard (`dashboard/dist`) and starts the background loops (metrics collection, node poller, scheduled backups, inactive-VM cleanup, update check).
