@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Info, Plus, Trash2, Zap } from "lucide-react";
 import {
   fetchVMDisks, attachDisk, detachDisk, resizeDisk, moveDisk, createVolume, fetchVolumes, fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
-  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
+  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchHostDevices, fetchVMHostDevices, attachVMHostDevice, detachVMHostDevice, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -254,6 +254,116 @@ function DriversCard({ vmName, onChanged }) {
   );
 }
 
+// ---- Host devices: PCI and USB passthrough (administrators only) ----------------------------------------
+function HostDevicesCard({ vm }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [list, setList] = useState(null);
+  const [error, setError] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const running = vm.etat === "actif";
+  const reload = useCallback(async () => {
+    try { setList(await fetchVMHostDevices(vm.nom)); setError(null); } catch (e) { setError(errorMessage(e)); }
+  }, [vm.nom]);
+  useEffect(() => { reload(); }, [reload]);
+  async function remove(d) {
+    if (!(await confirmAction({ title: t("hd.removeTitle", { name: d.produit || d.id }), message: t("hd.removeMsg"), confirmLabel: t("hd.remove"), danger: true }))) return;
+    setBusy(true);
+    try { await detachVMHostDevice(vm.nom, d.id); pushToast({ kind: "success", title: t("hd.removed"), message: d.produit || d.id }); await reload(); }
+    catch (e) { pushToast({ kind: "error", title: t("hd.removeFailed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Card title={t("hd.title")} note={list ? list.length : null} flush actions={<button type="button" className="nx-btn nx-btn--sm" onClick={() => setAdding(true)}><Plus size={14} aria-hidden="true" />{t("hd.add")}</button>}>
+      {error && list == null ? <ErrorState message={error} onRetry={reload} /> : list == null ? <Loading style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }} /> : list.length === 0 ? <p className="nx-muted" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("hd.none")}</p> : (
+        <TableWrap>
+          <table className="nx-table">
+            <thead><tr><th scope="col">{t("hd.device")}</th><th scope="col">{t("hd.type")}</th><th scope="col">{t("hd.address")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+            <tbody>
+              {list.map((d) => (
+                <tr key={d.id}>
+                  <th scope="row" style={{ fontWeight: 500 }}>{d.produit || d.id}{d.fabricant && <span className="nx-muted"> · {d.fabricant}</span>}{!d.present && <> <Chip tone="warning">{t("hd.absent")}</Chip></>}</th>
+                  <td><Chip>{d.type.toUpperCase()}</Chip></td>
+                  <td className="nx-mono">{d.adresse || "—"}</td>
+                  <td><div className="nx-ra"><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy || (d.type === "pci" && running)} title={d.type === "pci" && running ? t("hd.stopFirst") : undefined} aria-label={t("hd.removeAria", { name: d.produit || d.id })} onClick={() => remove(d)}>{t("hd.remove")}</button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
+      )}
+      <p className="nx-f-h" style={{ margin: "var(--space-2) var(--space-4) var(--space-4)" }}>{t("hd.help")}</p>
+      <AddHostDeviceDrawer open={adding} onClose={() => setAdding(false)} vm={vm} onDone={reload} />
+    </Card>
+  );
+}
+
+function AddHostDeviceDrawer({ open, onClose, vm, onDone }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [inv, setInv] = useState(null);
+  const [error, setError] = useState(null);
+  const [pick, setPick] = useState("");
+  const [busy, setBusy] = useState(false);
+  const running = vm.etat === "actif";
+  useEffect(() => {
+    if (!open) return;
+    setPick(""); setInv(null);
+    fetchHostDevices().then((r) => { setInv(r); setError(null); }).catch((e) => setError(errorMessage(e)));
+  }, [open]);
+  const all = inv ? [...inv.pci, ...inv.usb] : [];
+  const byId = Object.fromEntries(all.map((d) => [d.id, d]));
+  // Why a device cannot be chosen, or null.
+  const blocked = (d) => (d.hote ? t("hd.hostUses", { reason: d.hote })
+    : d.vm ? (d.vm === vm.nom ? t("hd.alreadyHere") : t("hd.givenTo", { vm: d.vm }))
+    : d.type === "pci" && !inv.iommu.actif ? t("hd.noIommu")
+    : d.type === "pci" && running ? t("hd.stopFirst") : null);
+  const chosen = byId[pick];
+  const group = chosen?.type === "pci" ? (chosen.groupe || []).map((id) => byId[id]).filter((m) => m && m.id !== chosen.id && !(m.classe || "").startsWith("0x06")) : [];
+  async function add() {
+    if (!chosen) return;
+    const pci = chosen.type === "pci";
+    if (pci && !(await confirmAction({ title: t("hd.confirmTitle", { name: chosen.produit }), message: t("hd.confirmMsg"), confirmLabel: t("hd.give"), danger: true }))) return;
+    setBusy(true);
+    try {
+      await attachVMHostDevice(vm.nom, chosen.id, pci);
+      pushToast({ kind: "success", title: t("hd.added"), message: chosen.produit });
+      onDone(); onClose();
+    } catch (e) { pushToast({ kind: "error", title: t("hd.addFailed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  const tile = (d) => {
+    const why = blocked(d);
+    return (
+      <label key={d.id} className={`nx-tile nx-tile--radio${pick === d.id ? " is-on" : ""}`} aria-disabled={why ? true : undefined} style={why ? { opacity: 0.6 } : undefined}>
+        <input type="radio" className="nx-tile-input" name="hostdev" checked={pick === d.id} disabled={Boolean(why)} onChange={() => setPick(d.id)} />
+        <b>{d.produit}</b><small className="nx-mono">{[d.adresse, d.ids, d.pilote].filter(Boolean).join(" · ")}</small>
+        <small>{d.fabricant}</small>{why && <small>{why}</small>}
+      </label>
+    );
+  };
+  return (
+    <SideDrawer open={open} title={t("hd.add")} onClose={onClose} busy={busy} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !chosen} onClick={add}>{t("hd.give")}</button>
+    </>}>
+      {error ? <ErrorState message={error} /> : !inv ? <Loading /> : (
+        <>
+          {!inv.iommu.actif && <p className="nx-notice nx-notice--warning" role="note">{t("hd.iommuOff")} {inv.iommu.raison}</p>}
+          <fieldset className="nx-fieldset"><legend>USB</legend>
+            {inv.usb.length === 0 ? <p className="nx-muted">{t("hd.noUsb")}</p> : <div className="nx-tiles">{inv.usb.map(tile)}</div>}
+          </fieldset>
+          <fieldset className="nx-fieldset"><legend>PCI</legend>
+            {inv.pci.length === 0 ? <p className="nx-muted">{t("hd.noPci")}</p> : <div className="nx-tiles">{inv.pci.map(tile)}</div>}
+          </fieldset>
+          {group.length > 0 && <p className="nx-hint" role="note">{t("hd.group", { list: group.map((m) => `${m.adresse} ${m.produit}`).join(", ") })}</p>}
+        </>
+      )}
+    </SideDrawer>
+  );
+}
+
 // Hardware: the editable processor and memory, the disks (table, add from a drawer), the Windows drivers drive.
 export function VmHardwarePage({ resource: vm }) {
   const t = useT();
@@ -305,6 +415,7 @@ export function VmHardwarePage({ resource: vm }) {
         )}
       </Card>
       {admin && <DriversCard vmName={vm.nom} onChanged={reload} />}
+      {admin && <HostDevicesCard vm={vm} />}
       <AddDiskDrawer open={adding} onClose={() => setAdding(false)} vmName={vm.nom} disks={disks} onDone={reload} />
       <ResizeDiskDrawer disk={resizing} onClose={() => setResizing(null)} vm={vm} onDone={reload} />
       <MoveDiskDrawer disk={moving} onClose={() => setMoving(null)} vm={vm} onDone={reload} />
