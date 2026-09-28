@@ -107,3 +107,18 @@ test("the creation wizard says at the Placement step that this host is in mainte
   await expect(dlg.getByText(/^This host is in maintenance: no VM can be created/)).toBeVisible();
   await expect(dlg.getByRole("button", { name: "Create the VM" })).toHaveCount(0);
 });
+
+test("an error notification can be closed, and it would not stay forever", async ({ page }) => {
+  // A refused maintenance gives an error notification (stand-in: the real host is shared by the other spec files).
+  await page.route(/\/nodes\/local\/maintenance$/, (route) => (route.request().method() === "POST" ? json(route, { detail: "Refused for this test" }, 409) : route.fallback()));
+  await open(page);
+  await page.goto("/node/local?tab=summary");
+  await page.getByRole("main").getByRole("button", { name: "Actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Enter maintenance/ }).click();
+  await page.getByRole("dialog", { name: /in maintenance$/ }).getByRole("button", { name: "Enter maintenance", exact: true }).click();
+  const toast = page.locator("[data-sonner-toast]").filter({ hasText: "Refused for this test" });
+  await expect(toast).toBeVisible({ timeout: 20_000 });
+  await toast.hover();
+  await toast.getByRole("button", { name: "Close toast" }).click();
+  await expect(toast).toHaveCount(0);
+});
