@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createVM, fetchHostProfile, fetchIsoTemplates, fetchVmDisks } from "../../api/client";
+import { createVM, fetchClusterIsos, fetchHostProfile, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { installationFamily, isWindowsInstall, guestProfile, diskController } from "../../utils/osFamily";
@@ -10,7 +10,7 @@ import VmDiskUploadDropzone from "../../components/VmDiskUploadDropzone";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useT, useLangStore } from "../i18n";
 import { errorMessage } from "../lib/errors";
-import { formatSizeMb } from "../lib/format";
+import { formatSizeGb, formatSizeMb } from "../lib/format";
 
 const STEPS = ["source", "identity", "placement", "compute", "storage", "network", "advanced", "review"];
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -18,9 +18,9 @@ const int = (v, min, max) => v !== "" && v != null && Number.isInteger(Number(v)
 
 function initialForm(nodes, networks, d) {
   return {
-    node: nodes[0]?.id || "", iso: "", driversIso: "", guestOs: "auto", diskController: "auto", importDisk: null,
+    node: nodes[0]?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", importDisk: null,
     name: "", vcpu: d?.vcpu ?? 1, memory_mb: d?.memory_mb ?? 1024, disks: [{ size_gb: d?.disk_gb ?? 10 }],
-    username: "", password: "", network: networks[0]?.nom || "default", storagePool: "", autoCleanupEnabled: false, autoCleanupDays: 7,
+    username: "", password: "", network: networks[0]?.nom || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
 }
 
@@ -38,6 +38,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const addTask = useInfraStore((s) => s.addTask);
   const completeTask = useInfraStore((s) => s.completeTask);
   const loadAll = useInfraStore((s) => s.loadAll);
+  const pushToast = useInfraStore((s) => s.pushToast);
   const limits = useHostLimits();
 
   const [step, setStep] = useState(0);
@@ -45,12 +46,25 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const [defaults, setDefaults] = useState(null);
   const [isos, setIsos] = useState([]);
   const [disks, setDisks] = useState([]);
+  const [luns, setLuns] = useState(null); // LUNs of the chosen iSCSI pool, null while unknown
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const bodyRef = useRef(null);
 
-  const reloadIsos = () => fetchIsoTemplates().then((r) => setIsos(Array.isArray(r) ? r : [])).catch(() => {});
+  // Images of every node: this host's first, then those only another node has (copied here before creation, since
+  // a VM boots only from an image on its own host). One entry per name.
+  const reloadIsos = () => fetchClusterIsos().then((r) => {
+    const all = Array.isArray(r?.isos) ? r.isos : [];
+    const local = all.filter((i) => i.node === "local");
+    const here = new Set(local.map((i) => i.nom));
+    const remote = [];
+    for (const i of all) if (i.node !== "local" && !here.has(i.nom) && !remote.some((x) => x.nom === i.nom)) remote.push(i);
+    setIsos([...local, ...remote.sort((a, b) => a.nom.localeCompare(b.nom))]);
+  }).catch(() => {});
+  const isoNodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const isoSub = (iso) => (iso.node === "local" ? `${formatSizeMb(iso.taille_mo, lang)} · ISO`
+    : t("wz.src.remoteIso", { size: formatSizeMb(iso.taille_mo, lang), node: isoNodeName(iso.node) }));
   const reloadDisks = () => fetchVmDisks().then((r) => setDisks(Array.isArray(r) ? r : [])).catch(() => {});
   useEffect(() => {
     if (!open) return undefined;
@@ -93,7 +107,23 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const taken = useMemo(() => new Set(vms.map((v) => v.nom)), [vms]);
   const vMin = limits?.vcpu.min ?? 1, vMax = limits?.vcpu.max, mMin = limits?.memoire_mo.min ?? 256, mMax = limits?.memoire_mo.max, dMax = limits?.disque_go.max, dCount = limits?.disques.max;
 
+  // iSCSI pool: each disk takes a whole free LUN (created on the storage side), and the chosen LUNs are erased.
+  const iscsiPool = pools.find((p) => p.nom === form.storagePool && p.type === "iscsi") || null;
+  useEffect(() => {
+    if (!iscsiPool) { setLuns(null); return undefined; }
+    let alive = true;
+    setLuns(null);
+    fetchVolumes(iscsiPool.nom).then((v) => { if (alive) setLuns(Array.isArray(v) ? v : []); }).catch(() => { if (alive) setLuns([]); });
+    return () => { alive = false; };
+  }, [iscsiPool?.nom]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lunGb = (nom) => Math.max(1, Math.ceil(luns?.find((l) => l.nom === nom)?.capacite_go || 1));
+  const freeLuns = (luns || []).filter((l) => !l.utilise);
+
   // Every rule returns an i18n key (or "") so the messages follow the language.
+  const iscsiErrors = iscsiPool ? {
+    ...Object.fromEntries(form.disks.map((d, i) => [`disk${i}`, d.lun ? "" : "wz.e.lun"]).filter(([, v]) => v)),
+    ...(form.eraseLuns ? {} : { erase: "wz.e.erase" }),
+  } : null;
   const errors = {
     source: importMode && (!form.importDisk || form.importDisk === "__pending__") ? { importDisk: "wz.e.disk" } : {},
     identity: {
@@ -103,7 +133,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     },
     placement: form.node ? {} : { node: "wz.e.node" },
     compute: { ...(!int(form.vcpu, vMin, vMax) ? { vcpu: "wz.e.vcpu" } : {}), ...(!int(form.memory_mb, mMin, mMax) ? { memory_mb: "wz.e.memory" } : {}) },
-    storage: Object.fromEntries(form.disks.map((d, i) => [`disk${i}`, importMode && i === 0 ? "" : int(d.size_gb, 1, dMax) ? "" : "wz.e.diskSize"]).filter(([, v]) => v)),
+    storage: iscsiErrors || Object.fromEntries(form.disks.map((d, i) => [`disk${i}`, importMode && i === 0 ? "" : int(d.size_gb, 1, dMax) ? "" : "wz.e.diskSize"]).filter(([, v]) => v)),
     network: networks.some((n) => n.nom === form.network) ? {} : { network: "wz.e.network" },
     advanced: form.autoCleanupEnabled && !int(form.autoCleanupDays, 1, 365) ? { days: "wz.e.days" } : {},
     review: {},
@@ -133,19 +163,32 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     if (firstBad !== -1) { setAttempted(true); setStep(firstBad); return; }
     setBusy(true); setError(null);
     const payload = {
-      name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), disks: form.disks.map((d) => ({ size_gb: Number(d.size_gb) })), network: form.network,
+      name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), disks: form.disks.map((d) => (iscsiPool ? { size_gb: lunGb(d.lun), lun: d.lun } : { size_gb: Number(d.size_gb) })), network: form.network,
       username: form.username, password: form.password, iso: form.iso || null,
-      drivers_iso: form.iso && !importMode ? form.driversIso || null : null, guest_os: form.guestOs, disk_controller: form.diskController,
+      drivers_iso: form.iso && !importMode ? form.driversIso || null : null,
+      iso_node: form.iso ? form.isoNode : null, drivers_iso_node: form.iso && !importMode && form.driversIso ? form.driversIsoNode : null, guest_os: form.guestOs, disk_controller: form.diskController,
       import_disk: importMode && form.importDisk !== "__pending__" ? form.importDisk : null, storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? Number(form.autoCleanupDays) : null,
+      erase_luns: Boolean(iscsiPool && form.eraseLuns),
     };
+    const copied = [payload.iso_node, payload.drivers_iso_node].some((n) => n && n !== "local");
+    if (copied) {
+      // The server copies the image(s) here, then creates the VM: both run as its own tasks, even if this page closes.
+      try {
+        await createVM(payload);
+        pushToast({ kind: "success", title: t("wz.copyThenCreate"), message: t("wz.copyThenCreateMsg", { name: form.name }) });
+        await loadAll(); onClose(); reset();
+      } catch (e) { setError(errorMessage(e)); }
+      finally { setBusy(false); }
+      return;
+    }
     const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
     try { await createVM(payload); completeTask(taskId, "termine"); await loadAll(); onClose(); reset(); }
     catch (e) { completeTask(taskId, "echec", errorMessage(e)); setError(errorMessage(e)); }
     finally { setBusy(false); }
   }
 
-  const selectable = pools.filter((p) => ["dir", "netfs", "zfs"].includes(p.type) && p.etat === "actif");
+  const selectable = pools.filter((p) => ["dir", "netfs", "zfs", "iscsi"].includes(p.type) && p.etat === "actif");
   const family = installationFamily(form);
   const profile = guestProfile(form);
   const radio = (checked, on, title, sub, name, extra = null) => (
@@ -160,7 +203,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     [1, t("wz.step.identity"), [[t("ct.name"), form.name || "—"], [t("sec.username"), needsAccount ? form.username : importMode ? t("wz.r.onDisk") : t("wz.r.duringInstall")]]],
     [2, t("wz.step.placement"), [[t("ns.node"), nodeName], [t("stor.pool"), form.storagePool || t("wz.r.defaultPool")]]],
     [3, t("wz.step.compute"), [["vCPU", form.vcpu], [t("ct.memory"), formatSizeMb(Number(form.memory_mb), lang)]]],
-    [4, t("wz.step.storage"), [[t("vh.disks"), form.disks.map((d, i) => (importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} GB`)).join(" + ")], [t("wz.controller"), diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"]]],
+    [4, t("wz.step.storage"), [[t("vh.disks"), form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} GB`)).join(" + ")], [t("wz.controller"), diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"]]],
     [5, t("wz.step.network"), [[t("vh.network"), form.network], [t("wz.adapter"), profile === "linux" ? "VirtIO" : "Intel E1000e"]]],
     [6, t("wz.step.advanced"), [[t("wz.drivers"), form.driversIso || t("wz.none")], [t("wz.cleanup"), form.autoCleanupEnabled ? t("wz.r.cleanupDays", { n: form.autoCleanupDays }) : t("wz.off")]]],
   ];
@@ -208,7 +251,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                     <legend>{t("wz.src.iso")}</legend>
                     <div className="nx-tiles">
                       {radio(!form.iso, () => patch({ iso: "" }), t("wz.src.debian"), t("wz.src.debianSub"), "iso")}
-                      {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom }), iso.nom, `${formatSizeMb(iso.taille_mo, lang)} · ISO`, "iso"))}
+                      {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom, isoNode: iso.node }), iso.nom, isoSub(iso), "iso"))}
                     </div>
                   </fieldset>
                   {form.iso && (
@@ -253,7 +296,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <label>{t("stor.pool")}
                   <select className="nx-input" aria-label={t("a11y.storage_pool")} value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
                     <option value="">{t("wz.r.defaultPool")}</option>
-                    {selectable.map((p) => <option key={p.nom} value={p.nom}>{p.nom} ({p.type === "netfs" ? "NFS" : p.type}, {p.disponible_go} GB {t("stor.free").toLowerCase()})</option>)}
+                    {selectable.map((p) => <option key={p.nom} value={p.nom}>{p.nom} ({p.type === "netfs" ? "NFS" : p.type === "iscsi" ? "iSCSI" : p.type}{p.type === "iscsi" ? "" : `, ${p.disponible_go} GB ${t("stor.free").toLowerCase()}`})</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.poolHelp")}</span>
                 </label>
@@ -271,7 +314,33 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
             </div>
           )}
 
-          {stepId === "storage" && (
+          {stepId === "storage" && iscsiPool && (
+            <div className="nx-form">
+              <fieldset className="nx-fieldset">
+                <legend>{t("vh.disks")} · iSCSI {iscsiPool.nom}</legend>
+                {luns == null ? <span className="nx-muted">{t("loading")}</span> : freeLuns.length === 0 ? <p className="nx-notice nx-notice--warning" role="note">{t("wz.noFreeLun")}</p> : null}
+                {luns != null && form.disks.map((d, i) => (
+                  <div key={i} className="nx-inline">
+                    <span className="nx-mono" style={{ width: "2.5rem", alignSelf: "center" }}>sd{String.fromCharCode(97 + i)}</span>
+                    <select className="nx-input" aria-label={t("wz.lunOf", { v: i + 1 })} value={d.lun || ""} onChange={(e) => patch({ disks: form.disks.map((x, k) => (k === i ? { ...x, lun: e.target.value } : x)) })} aria-invalid={attempted && errors.storage[`disk${i}`] ? true : undefined}>
+                      <option value="">{t("wz.lunPick")}</option>
+                      {freeLuns.filter((l) => l.nom === d.lun || !form.disks.some((x) => x.lun === l.nom)).map((l) => <option key={l.nom} value={l.nom}>{l.nom} · {formatSizeGb(l.capacite_go, lang)}</option>)}
+                    </select>
+                    <button type="button" className="nx-btn" aria-label={t("a11y.remove_disk_x", { v: i + 1 })} disabled={form.disks.length <= 1} onClick={() => patch({ disks: form.disks.filter((_, k) => k !== i) })}>{t("sec.remove")}</button>
+                  </div>
+                ))}
+                {attempted && Object.keys(errors.storage).some((k) => k.startsWith("disk")) && <span className="nx-hint nx-hint--error">{t("wz.e.lun")}</span>}
+                <div><button type="button" className="nx-btn" disabled={form.disks.length >= freeLuns.length} onClick={() => patch({ disks: [...form.disks, { size_gb: 1, lun: "" }] })}>{t("wz.addDisk")}</button></div>
+              </fieldset>
+              <label className="nx-check" style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem" }}>
+                <input type="checkbox" style={{ marginTop: "0.2rem" }} checked={form.eraseLuns} onChange={(e) => patch({ eraseLuns: e.target.checked })} aria-invalid={attempted && errors.storage.erase ? true : undefined} />
+                <span><b>{t("wz.erase")}</b><br /><span className="nx-hint">{t("wz.eraseHelp")}</span></span>
+              </label>
+              {attempted && errors.storage.erase && <span className="nx-hint nx-hint--error">{t("wz.e.erase")}</span>}
+            </div>
+          )}
+
+          {stepId === "storage" && !iscsiPool && (
             <div className="nx-form">
               <fieldset className="nx-fieldset">
                 <legend>{t("vh.disks")} (GB)</legend>
@@ -309,8 +378,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
               {form.iso && !importMode && (
                 <fieldset className="nx-fieldset">
                   <legend>{t("wz.drivers")}</legend>
-                  <select className="nx-input" aria-label={t("a11y.drivers_iso")} value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
-                    <option value="">{t("wz.none")}</option>{isos.filter((i) => i.nom !== form.iso).map((i) => <option key={i.nom} value={i.nom}>{i.nom}</option>)}
+                  <select className="nx-input" aria-label={t("a11y.drivers_iso")} value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value, driversIsoNode: isos.find((i) => i.nom === e.target.value)?.node || "local" })}>
+                    <option value="">{t("wz.none")}</option>{isos.filter((i) => i.nom !== form.iso).map((i) => <option key={i.nom} value={i.nom}>{i.node === "local" ? i.nom : `${i.nom} — ${t("wz.src.onNode", { node: isoNodeName(i.node) })}`}</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.driversHelp")} <a href="https://virtio-win.github.io/Knowledge-Base/Driver-installation.html" target="_blank" rel="noreferrer">{t("wz.driversLink")}</a></span>
                   <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} />
@@ -343,11 +412,11 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
         <aside className="nx-wiz-recap" aria-label={t("wz.recap")}>
           <h4>{t("wz.recap")}</h4>
           <dl className="nx-dl2">
-            <dt>{t("wz.r.source")}</dt><dd>{importMode ? form.importDisk && form.importDisk !== "__pending__" ? form.importDisk : "—" : form.iso || t("wz.src.debian")}</dd>
+            <dt>{t("wz.r.source")}</dt><dd>{importMode ? form.importDisk && form.importDisk !== "__pending__" ? form.importDisk : "—" : form.iso ? (form.isoNode !== "local" ? `${form.iso} — ${t("wz.src.copiedFrom", { node: isoNodeName(form.isoNode) })}` : form.iso) : t("wz.src.debian")}</dd>
             <dt>{t("ct.name")}</dt><dd className="nx-mono">{form.name || "—"}</dd>
             <dt>{t("ns.node")}</dt><dd className="nx-mono">{step > 1 ? nodeName : "—"}</dd>
             <dt>{t("wz.r.cpuRam")}</dt><dd className="nx-mono">{step > 2 ? `${form.vcpu} · ${formatSizeMb(Number(form.memory_mb), lang)}` : "—"}</dd>
-            <dt>{t("vh.disks")}</dt><dd className="nx-mono">{step > 3 ? form.disks.map((d, i) => (importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} Go`)).join(" + ") : "—"}</dd>
+            <dt>{t("vh.disks")}</dt><dd className="nx-mono">{step > 3 ? form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} Go`)).join(" + ") : "—"}</dd>
             <dt>{t("vh.network")}</dt><dd className="nx-mono">{step > 4 ? form.network : "—"}</dd>
           </dl>
         </aside>

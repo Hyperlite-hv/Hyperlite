@@ -22,7 +22,7 @@ from pathlib import Path
 import libvirt
 
 from app.core.audit import log_action
-from app.core.backups import backup_cold, backup_hot, domain_disk_paths
+from app.core.backups import backup_cold, backup_hot, block_disk_error, domain_disk_paths
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn
 from app.core.safe_paths import safe_child
@@ -56,6 +56,9 @@ def run_export(vm_name, username="system"):
         except libvirt.libvirtError:
             raise RuntimeError(f"VM '{vm_name}' not found") from None
 
+        error = block_disk_error(domain, "An export")
+        if error:
+            raise RuntimeError(error)
         all_disks = domain_disk_paths(domain)
         if not all_disks:
             raise RuntimeError("No disk found on this VM")

@@ -1,10 +1,13 @@
+import json
 import logging
 import subprocess
+import threading
 from pathlib import Path
 from typing import Literal
 
 import libvirt
 from fastapi import Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core import zfs_storage
@@ -12,6 +15,7 @@ from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
 from app.core.libvirt_utils import (
+    get_disk_paths_in_use,
     open_conn,
     pool_type_and_target_path,
 )
@@ -21,12 +25,14 @@ from app.core.security import require_role
 from app.core.tasks import create_task, finish_task
 from app.core.unattended_install import build_seed_iso, detect_os_family, extract_casper_kernel
 from app.core.vm_builder import (
+    BASE_IMAGE,
     build_domain_xml,
     create_cloudinit_iso,
     create_cloudinit_reseed_iso,
     create_disk,
     create_disk_from_import,
     create_zvol_disk,
+    ensure_base_image,
     get_or_create_automation_pubkey,
     validate_name,
     validate_username,
@@ -48,6 +54,9 @@ logger = logging.getLogger(__name__)
 
 class DiskSpec(BaseModel):
     size_gb: int = Field(ge=1)
+    # iSCSI pool only: the LUN (volume name in the pool, e.g. "unit:0:0:1") this disk takes whole; size_gb is then
+    # only its size, for the resource checks.
+    lun: str | None = Field(None, max_length=200)
 
 
 class VMCreate(BaseModel):
@@ -63,6 +72,10 @@ class VMCreate(BaseModel):
     password: str | None = None
     iso: str | None = None
     drivers_iso: str | None = None
+    # Node whose library holds `iso` / `drivers_iso`, when it is not this host's. A VM boots only from an image
+    # on its own host, so such an image is first copied here (a copy_iso task), then the VM is created.
+    iso_node: str | None = None
+    drivers_iso_node: str | None = None
     guest_os: Literal["auto", "windows", "linux", "other"] = "auto"
     disk_controller: Literal["auto", "sata", "virtio-scsi"] = "auto"
     # Name of a file already uploaded through POST /vm-disks (see
@@ -76,6 +89,9 @@ class VMCreate(BaseModel):
     # shared storage without moving its disk by hand afterwards: without a way to
     # choose the pool at creation, nobody could realistically use HA protection.
     storage_pool: str | None = None
+    # iSCSI pool: the chosen LUNs are overwritten (system image, or their start wiped for an ISO installation, so
+    # the VM never boots what they held). Required as an explicit confirmation.
+    erase_luns: bool = False
     # Automatic deletion of inactive VMs: opt-in, None/absent = never enabled
     # (unchanged behaviour by default). The counter only runs while the VM is
     # STOPPED (see touch_vm_activity, called on every start): a VM that runs
@@ -83,8 +99,137 @@ class VMCreate(BaseModel):
     auto_cleanup_days: int | None = Field(None, ge=1, le=365)
 
 
+def _resolve_luns(conn, pool, disks, erase_luns):
+    """([(device path, capacity in bytes)], errors) for a VM on an iSCSI pool: each disk names a free LUN of the
+    pool, used whole (see app/core/iscsi.py)."""
+    errors = []
+    if not erase_luns:
+        errors.append("Creating a VM on iSCSI LUNs overwrites them: confirm with erase_luns")
+    try:
+        pool.refresh(0)
+    except libvirt.libvirtError:
+        logger.debug("iSCSI pool refresh failed", exc_info=True)
+    in_use = get_disk_paths_in_use(conn)
+    luns = []
+    for i, disk in enumerate(disks, start=1):
+        if not disk.lun:
+            errors.append(f"Disk {i}: choose a LUN of the iSCSI pool")
+            continue
+        try:
+            vol = pool.storageVolLookupByName(disk.lun)
+        except libvirt.libvirtError:
+            errors.append(f"Disk {i}: LUN '{disk.lun}' not found in the pool")
+            continue
+        path = vol.path()
+        if path in in_use:
+            errors.append(f"Disk {i}: LUN '{disk.lun}' is already used by a VM")
+        elif any(path == p for p, _ in luns):
+            errors.append(f"Disk {i}: LUN '{disk.lun}' is chosen twice")
+        else:
+            luns.append((path, vol.info()[1]))
+    return luns, errors
+
+
+def _prepare_lun(device, capacity, source=None):
+    """Write the system image (Debian cloud image or an imported disk) to a LUN, or wipe its first 16 MB (partition
+    tables, boot sector) for an ISO installation or a data disk, so the VM never boots what the LUN held before."""
+    if source is None:
+        subprocess.run(
+            ["dd", "if=/dev/zero", f"of={device}", "bs=1M", "count=16", "conv=fsync"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return
+    info = subprocess.run(
+        ["qemu-img", "info", "--output=json", str(source)], check=True, capture_output=True, text=True
+    )
+    needed = json.loads(info.stdout)["virtual-size"]
+    if capacity and needed > capacity:
+        raise ValueError(
+            f"The LUN is too small for this system image: {needed / 1024**3:.1f} GB needed, {capacity / 1024**3:.1f} GB available"
+        )
+    subprocess.run(
+        ["qemu-img", "convert", "-O", "raw", str(source), device], check=True, capture_output=True, text=True
+    )
+
+
+def _pending_remote_isos(payload):
+    """(name, node) of the images the VM needs that are not in this host's library yet."""
+    from app.core.iso_share import isos_dir
+
+    pending = []
+    for name, node in ((payload.iso, payload.iso_node), (payload.drivers_iso, payload.drivers_iso_node)):
+        if name and node and node != "local" and not safe_child(isos_dir(), Path(name).name).is_file():
+            pending.append((name, node))
+    return pending
+
+
 @router.post("", status_code=201)
 def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
+    pending = _pending_remote_isos(payload)
+    if not pending:
+        return _create_vm(payload, user)
+    return _create_vm_after_copy(payload, user, pending)
+
+
+def _create_vm_after_copy(payload, user, pending):
+    """Copy the images the VM needs from other nodes, then create it, in the background (202).
+
+    Everything that can be checked without the images is checked first, so a multi-gigabyte copy never ends in
+    a refusal the form could have shown. The copies are ordinary copy_iso tasks, and the creation its usual
+    create_vm task: both show in Tasks, and both carry on if the browser is closed."""
+    from app.core.iso_share import LOCAL, iso_size, resolve_node, start_copy, valid_iso_name
+
+    _create_vm(payload, user, pending={name for name, _ in pending}, check_only=True)
+    for name, node in pending:
+        if not valid_iso_name(name):
+            raise HTTPException(status_code=422, detail=f"Invalid ISO name '{name}'")
+        try:
+            source = resolve_node(node)
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        if iso_size(source, name) is None:
+            raise HTTPException(status_code=422, detail=f"ISO '{name}' not found on {node}")
+
+    remaining = {name for name, _ in pending}
+    lock = threading.Lock()
+    failed = []
+
+    def after(name, ok):
+        with lock:
+            remaining.discard(name)
+            if not ok:
+                failed.append(name)
+            last = not remaining
+        if not last:
+            return
+        if failed:
+            log_action(user["username"], "create_vm", payload.name, "echec", f"ISO copy failed: {', '.join(failed)}")
+            return
+        try:
+            _create_vm(payload, user)
+        except HTTPException as e:  # already recorded on the create_vm task by _create_vm
+            logger.warning("VM '%s' not created after the ISO copy: %s", payload.name, e.detail)
+        except Exception:
+            logger.exception("VM '%s' not created after the ISO copy", payload.name)
+
+    tasks = []
+    for name, node in pending:
+        try:
+            tasks += start_copy(name, node, [LOCAL], user["username"], after=lambda ok, name=name: after(name, ok))
+        except FileExistsError as e:
+            after(name, False)  # a copy already started for another image must not wait for this one forever
+            raise HTTPException(status_code=409, detail=f"{e}. Wait for it to finish, then create the VM again.") from e
+        except (LookupError, ValueError) as e:
+            after(name, False)
+            raise HTTPException(status_code=422, detail=str(e)) from e
+    return JSONResponse(status_code=202, content={"name": payload.name, "copie_iso": tasks})
+
+
+def _create_vm(payload, user, pending=frozenset(), check_only=False):
+    """pending: image names that are not here yet but are being brought (they pass the existence check).
+    check_only: run every check, create nothing (no task either), return None."""
     errors = []
     name_error = validate_name(payload.name)
     if name_error:
@@ -94,7 +239,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     iso_path = None
     if payload.iso:
         candidate = safe_child(ISOS_DIR, payload.iso)
-        if not candidate.exists():
+        if not candidate.exists() and payload.iso not in pending:
             errors.append(f"ISO '{payload.iso}' not found")
         else:
             iso_path = candidate
@@ -110,7 +255,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         ):
             raise HTTPException(status_code=422, detail="Invalid driver ISO name")
         candidate = safe_child(ISOS_DIR, payload.drivers_iso)
-        if not candidate.is_file():
+        if not candidate.is_file() and payload.drivers_iso not in pending:
             raise HTTPException(status_code=422, detail=f"Driver ISO '{payload.drivers_iso}' not found")
         drivers_iso_path = candidate
 
@@ -156,7 +301,11 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             errors.append("The password must contain at least 4 characters")
 
     conn = open_conn()
-    task_id = create_task("create_vm", payload.name, node=conn.getHostname(), username=user["username"])
+    task_id = (
+        None
+        if check_only
+        else create_task("create_vm", payload.name, node=conn.getHostname(), username=user["username"])
+    )
     try:
         try:
             conn.lookupByName(payload.name)
@@ -182,6 +331,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         # that only exists on the ZFS side. Single-node for now: only the LOCAL host (the
         # same limit as list_pools/delete_pool in app/routers/storage.py).
         zfs_pool_name = None
+        iscsi_pool = None
         if payload.storage_pool and payload.storage_pool != "default" and zfs_storage.pool_exists(payload.storage_pool):
             zfs_pool_name = payload.storage_pool
         elif payload.storage_pool and payload.storage_pool != "default":
@@ -195,18 +345,28 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
                     errors.append(f"Pool de stockage '{payload.storage_pool}' inactif")
                 else:
                     pool_type, pool_path = pool_type_and_target_path(pool)
-                    if pool_type not in ("dir", "netfs"):
+                    if pool_type == "iscsi":
+                        iscsi_pool = pool
+                    elif pool_type not in ("dir", "netfs"):
                         errors.append(
-                            f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs only)"
+                            f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi only)"
                         )
                     elif not pool_path:
                         errors.append(f"Pool de stockage '{payload.storage_pool}' : chemin illisible")
                     else:
                         target_dir = Path(pool_path)
 
+        luns = []
+        if iscsi_pool is not None:
+            luns, lun_errors = _resolve_luns(conn, iscsi_pool, payload.disks, payload.erase_luns)
+            errors.extend(lun_errors)
+
         if errors:
-            log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
+            if not check_only:
+                log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
+        if check_only:
+            return None
 
         # Fixed IP per VM (see app/core/network_alloc.py): a DHCP reservation on the
         # libvirt network for a MAC known in advance, with no change to the
@@ -220,7 +380,20 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             logger.debug("Ignored exception in create_vm()", exc_info=True)
 
         try:
-            if zfs_pool_name:
+            if luns:
+                # iSCSI: each disk is a whole LUN, attached as a raw block device like a zvol. Disk 0 receives the
+                # system image unless an ISO installs one; the others are blank data disks.
+                if import_mode:
+                    system_source = import_disk_path
+                elif install_mode:
+                    system_source = None
+                else:
+                    ensure_base_image()
+                    system_source = BASE_IMAGE
+                for i, (device, capacity) in enumerate(luns):
+                    _prepare_lun(device, capacity, system_source if i == 0 else None)
+                disk_paths = [(device, "block") for device, _ in luns]
+            elif zfs_pool_name:
                 # Raw zvols: each path is a /dev/zvol/... device marked 'block' for
                 # build_domain_xml (see create_zvol_disk in vm_builder.py), never a qcow2 file
                 # path.
