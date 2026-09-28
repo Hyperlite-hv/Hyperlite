@@ -1121,6 +1121,7 @@ export default {
   "nav.auditLog": "Journal d’audit",
   "nav.sso": "Authentification (SSO)",
   "nav.notifications": "Notifications",
+  "env.title": "Installation {label} : ce n’est pas la production",
   "crumb.label": "Fil d’Ariane",
   "top.activity": "Activité et alertes",
   "top.activityLabel": "Activité : {alerts} alertes, {running} tâches en cours",

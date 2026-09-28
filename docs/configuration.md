@@ -11,6 +11,7 @@ Hyperlite is configured through environment variables, normally set in `/root/hy
 | `HYPERLITE_ALLOCATION` | Force the resource allocation policy (`limites`, `surallocation`, `libre`). | profile default |
 | `HYPERLITE_VM_MAX_VCPU`, `HYPERLITE_VM_MAX_MEMORY_MB`, `HYPERLITE_VM_MAX_DISK_GB`, `HYPERLITE_VM_MAX_DISKS` | Override the per-VM limits derived from the host. | derived from the host |
 | `HYPERLITE_APP_DIR` | Application directory assumed by the preflight check. | `/root/hyperlite` |
+| `HYPERLITE_ENV_LABEL` | Label of a non-production installation (for example `DEV` or `STAGING`, 24 characters at most), shown in the dashboard's top bar, on the sign-in page and in the tab title. Leave unset in production. | none |
 | `HYPERLITE_TUNNEL_PORTS` | Guest ports reachable through workstation tunnels (see [workstation-access.md](workstation-access.md)); empty disables tunnels. | `22,3389` |
 | `HYPERLITE_TUNNEL_IDLE_TIMEOUT_S` | A tunnel without traffic is closed after this many seconds. | `3600` |
 | `HYPERLITE_TUNNEL_MAX_PER_USER` | Open tunnels per user. | `20` |
