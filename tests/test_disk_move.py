@@ -79,10 +79,8 @@ class FakeConn:
     def storageVolLookupByPath(self, path):
         return FakeVol()
 
-    def storagePoolLookupByName(self, name):
-        if name not in POOLS:
-            raise libvirt.libvirtError("no pool")
-        return FakePool(name)
+    def listAllStoragePools(self, flags):
+        return [FakePool(name) for name in POOLS]
 
     def close(self):
         pass
