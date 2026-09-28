@@ -495,6 +495,13 @@ export async function fetchMigrationCheck(name, targetNode, sourceNode) {
 export async function fetchNodeCompatibility(nodeName) {
   return realFetch(`/nodes/${encodeURIComponent(nodeName)}/compatibility`);
 }
+// Copy of the cluster configuration to the nodes (app/core/config_copy.py).
+export function fetchConfigCopies() {
+  return realFetch("/nodes/config-copy");
+}
+export function copyConfigNow() {
+  return realFetch("/nodes/config-copy", { method: "POST" });
+}
 // HA: see app/core/ha.py. Recovery is always triggered by an admin; the watcher (ha_watch.py) runs in dry-run mode
 // and only records what automatic HA would have done. Fencing settings are tested with a status query only.
 export function fetchHaStatus() {

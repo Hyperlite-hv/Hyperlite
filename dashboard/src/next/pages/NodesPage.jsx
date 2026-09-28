@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
-import { fetchClusterPubkey, addRemoteNode, deleteRemoteNode, testNodeConnection } from "../../api/client";
+import { ChevronRight, Copy, CopyCheck, Plus, Trash2 } from "lucide-react";
+import { fetchClusterPubkey, addRemoteNode, deleteRemoteNode, testNodeConnection, fetchConfigCopies, copyConfigNow } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
-import { formatSizeMb, formatUptimeLong, formatVersionInt } from "../lib/format";
+import { formatDateTime, formatSizeMb, formatUptimeLong, formatVersionInt } from "../lib/format";
 import { refreshInventory } from "../lib/inventory";
 import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
 import { useContextTarget } from "../components/ContextMenu";
 import { NodeContextMenu } from "../components/ObjectActions";
-import { PageHeader, Meter, Chip, SideDrawer, Field, TableWrap } from "../components/ui";
+import { PageHeader, Meter, Chip, SideDrawer, Field, TableWrap, Card } from "../components/ui";
 
 const EMPTY = { name: "", hostname: "", ssh_user: "root", ssh_port: "22" };
 const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);
@@ -83,6 +83,53 @@ function AddNodeDrawer({ open, onClose, onAdded }) {
   );
 }
 
+// The configuration (users, permissions, nodes, HA, schedules, keys) copied to each node, so another node can take
+// over with `hyperlite-promote` if this controller is lost (docs/cluster-failover.md).
+function ConfigCopyCard({ nodes }) {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [copies, setCopies] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const reload = () => fetchConfigCopies().then(setCopies).catch(() => setCopies([]));
+  useEffect(() => { reload(); const id = setInterval(reload, 60000); return () => clearInterval(id); }, []);
+  const remote = nodes.filter((n) => n.id !== "local");
+  if (remote.length === 0) return null;
+  const byNode = Object.fromEntries((copies || []).map((c) => [c.node, c]));
+  async function now() {
+    setBusy(true);
+    try {
+      const r = await copyConfigNow(); setCopies(r.copies);
+      const failed = r.resultats.filter((x) => x.statut !== "ok");
+      if (failed.length) pushToast({ kind: "error", title: t("cfc.failed"), message: failed.map((x) => `${x.node}: ${x.erreur}`).join(" · ") });
+      else pushToast({ kind: "success", title: t("cfc.done"), message: t("cfc.doneMsg", { n: r.resultats.length }) });
+    } catch (e) { pushToast({ kind: "error", title: t("cfc.failed"), message: errorMessage(e) }); } finally { setBusy(false); }
+  }
+  return (
+    <Card title={t("cfc.title")} flush actions={<button type="button" className="nx-btn nx-btn--sm" disabled={busy} onClick={now}><CopyCheck size={14} aria-hidden="true" />{t("cfc.now")}</button>}>
+      <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("cfc.help")} <code className="nx-mono">/root/hyperlite/scripts/hyperlite-promote</code></p>
+      <TableWrap>
+        <table className="nx-table">
+          <thead><tr><th scope="col">{t("nd.node")}</th><th scope="col">{t("cfc.last")}</th></tr></thead>
+          <tbody>
+            {remote.map((n) => {
+              const c = byNode[n.id];
+              return (
+                <tr key={n.id}>
+                  <th scope="row" className="nx-mono">{n.nom}</th>
+                  <td>{!c ? <span className="nx-muted">{t("cfc.never")}</span> : c.statut === "ok"
+                    ? <><Chip tone="success">{t("cfc.ok")}</Chip> <span className="nx-mono nx-muted">{formatDateTime(c.copie_le, lang)}</span></>
+                    : <><Chip tone="danger">{t("cfc.ko")}</Chip> <span className="nx-f-h is-error">{c.erreur}</span></>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </TableWrap>
+    </Card>
+  );
+}
+
 // Nodes: this host plus the registered remote nodes (libvirt over SSH, no agent), with their live load
 // recorded by the backend collector.
 export default function NodesPage() {
@@ -148,6 +195,7 @@ export default function NodesPage() {
           </table>
         </TableWrap>
       </div>
+      {caps.admin && <ConfigCopyCard nodes={nodes} />}
       {ctx.target && <NodeContextMenu key={ctx.target.obj.id} node={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
       <AddNodeDrawer open={adding} onClose={() => setAdding(false)} onAdded={() => refreshInventory()} />
     </>

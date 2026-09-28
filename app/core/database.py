@@ -125,6 +125,18 @@ def init_db():
             )
         """)
 
+        # Last copy of the configuration to each node (app/core/config_copy.py).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS config_copies (
+                node TEXT PRIMARY KEY,
+                copie_le TEXT NOT NULL,
+                statut TEXT NOT NULL CHECK(statut IN ('ok', 'echec')),
+                taille INTEGER,
+                empreinte TEXT,
+                erreur TEXT
+            )
+        """)
+
         # ---- Native backups ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS backup_jobs (
