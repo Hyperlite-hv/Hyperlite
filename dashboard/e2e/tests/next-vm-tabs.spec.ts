@@ -352,6 +352,13 @@ test("backup: schedule is validated and saved, a backup runs and can be deleted 
   await main.getByRole("button", { name: "Back up now" }).click();
   await expect(main.getByRole("row", { name: /Cold/ })).toBeVisible({ timeout: 90_000 });
   await expect(main.getByRole("row", { name: /Cold/ }).getByText("Done")).toBeVisible({ timeout: 120_000 });
+  // Integrity: not verified yet, then Verify recomputes the checksums and checks the image for real.
+  const row = main.getByRole("row", { name: /Cold/ });
+  await expect(row.getByText("Not verified yet")).toBeVisible();
+  await row.getByRole("button", { name: /^Verify backup #/ }).click();
+  await expect(row.getByText("Verified", { exact: true })).toBeVisible({ timeout: 60_000 });
+  const verified = (await (await request.get(`/vms/${NAME}/backups`, { headers: auth() })).json()) as { verification: string; verifie_le: string }[];
+  expect(verified[0].verification).toBe("verifie");
   await main.getByRole("button", { name: /^Delete backup #/ }).first().click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await main.getByRole("button", { name: /^Delete backup #/ }).first().click();

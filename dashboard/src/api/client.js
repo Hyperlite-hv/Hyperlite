@@ -285,6 +285,10 @@ export async function deleteBackup(id) {
 export async function restoreBackup(id, mode, newName = null) {
   return realFetch(`/backups/${id}/restore`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
 }
+// Recompute every checksum of a backup and check its images (a task).
+export async function verifyBackup(id) {
+  return realFetch(`/backups/${id}/verify`, { method: "POST" });
+}
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
 }
