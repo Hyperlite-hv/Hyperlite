@@ -46,7 +46,9 @@ Continuous host and VM metrics with history (Prometheus text format available), 
 
 ## Accounts and access control
 
-Local users, optional TOTP two-factor authentication, personal API tokens, optional OIDC single sign-on (roles mapped from IdP groups), custom roles, groups and pools, per-VM and per-container ACL, brute-force protection.
+Local users, optional two-factor authentication (a TOTP code, or security keys and passkeys through WebAuthn: YubiKey, Windows Hello, Touch ID, a phone), personal API tokens, optional OIDC single sign-on (roles mapped from IdP groups), custom roles, groups and pools, per-VM and per-container ACL, brute-force protection.
+
+Security keys are added from **Account security** and asked for after the password (either a key or the code works when both are set up). A key is bound to the host name the dashboard was opened with when it was added: browsers only offer WebAuthn over HTTPS through a host name (or on `localhost`), never on an IP address. Removing a key takes the password.
 
 ## Portability
 

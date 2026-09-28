@@ -834,6 +834,19 @@ export async function confirm2FA(code) {
 export async function disable2FA(password, code) {
   return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password, code }) });
 }
+// Security keys (WebAuthn), self-service: list, registration challenge, registration, removal (password).
+export function fetchSecurityKeys() {
+  return realFetch("/auth/webauthn/keys");
+}
+export function securityKeyOptions() {
+  return realFetch("/auth/webauthn/keys/options", { method: "POST" });
+}
+export function registerSecurityKey(credential, name) {
+  return realFetch("/auth/webauthn/keys", { method: "POST", ...jsonBody({ credential, name }) });
+}
+export function deleteSecurityKey(id, password) {
+  return realFetch(`/auth/webauthn/keys/${id}`, { method: "DELETE", ...jsonBody({ password }) });
+}
 // Workstation client (hyperlite): settings, and approval of a sign-in code from the web session.
 export async function fetchWorkstationConfig() {
   return realFetch("/workstation/config");
