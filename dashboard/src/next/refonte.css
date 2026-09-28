@@ -64,8 +64,6 @@
 .nx-help-btn:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .nx-help-tip { position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%); z-index: 45; width: max-content; max-width: 22rem; padding: 0.5333rem 0.6667rem; border-radius: var(--radius-md); background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); box-shadow: var(--shadow-float); font-size: var(--fs-125); font-weight: 400; color: var(--color-text-secondary); line-height: 1.45; visibility: hidden; opacity: 0; transition: opacity var(--duration-fast); pointer-events: none; }
 .nx-help:hover .nx-help-tip, .nx-help-btn:focus-visible + .nx-help-tip { visibility: visible; opacity: 1; }
-.nx-fresh-ind { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--fs-12); color: var(--color-text-muted); white-space: nowrap; }
-.nx-fresh-ind.is-stale { color: var(--color-warning); }
 
 /* ---------- Cards ---------- */
 .nx-card2 { background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); min-width: 0; }
@@ -516,3 +514,45 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-chev svg { transition: transform var(--duration-fast); }
 .nx-chev[aria-expanded="false"] svg { transform: rotate(-90deg); }
 .nx-grouphead--cards .nx-nodeband { width: 100%; flex-wrap: wrap; }
+
+/* Two columns that follow the room actually left by the sidebar, not the viewport: the side column drops under
+   the main one as soon as the main one could no longer show its table without scrolling sideways. */
+/* inline-size containment: the 52rem basis below must not become the page's own minimum width. */
+.nx-cols2.nx-cols2--fit { display: flex; flex-wrap: wrap; contain: inline-size; }
+.nx-cols2--fit > * { flex: 2 1 52rem; min-width: 0; }
+.nx-cols2--fit > * + * { flex: 1 1 22rem; }
+/* A KPI value too long for its tile (say 110,5 Go / 1 355,1 Go) puts its total on a second line instead of
+   being cut off. */
+.nx-kpi-v { flex-wrap: wrap; row-gap: 0; }
+.nx-kpi-v small { white-space: nowrap; }
+
+/* ---------- Phones and tablets ---------- */
+/* Two-column KPI strip: an odd last tile spans the row instead of leaving an empty cell with a stray border. */
+@media (max-width: 900px) {
+  .nx-strip > .nx-kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (max-width: 767px) {
+  /* The search box keeps its words (an empty field reads as broken); only the shortcut hint goes. */
+  .nx-top .nx-find span.nx-find-label { display: inline; }
+  .nx-top .nx-find { padding: 0 var(--space-3); }
+  /* Object header: name and metadata take the full width (the decorative icon goes), actions below; wrapped
+     metadata never starts or ends a line with a dot. */
+  .nx-oh > .nx-otile { display: none; }
+  .nx-oh-main { flex: 1 1 100%; }
+  .nx-oh-acts { margin-left: 0; }
+  .nx-ometa { column-gap: 0.8rem; row-gap: 0.2rem; }
+  .nx-ometa .nx-sep { display: none; }
+  /* Tabs scroll sideways: hide the scrollbar and fade the right edge so the cut-off tab reads as "more". */
+  .nx-tabs { scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent); }
+  .nx-tabs::-webkit-scrollbar { display: none; }
+  .nx-tabs > [role="tab"]:last-child { margin-right: 1.5rem; }
+  /* Filter bars: full-width search, then the selects two by two, instead of a ragged pile. */
+  .nx-bar .nx-search2 { flex: 1 1 100%; width: auto; }
+  .nx-bar > .nx-sel { flex: 1 1 40%; width: 0; min-width: 0; }
+  /* A sparkline squeezed into half a phone screen hides the tile's sub-line; the number says enough. */
+  .nx-kpi .nx-spark { display: none; }
+  .nx-kpi:has(.nx-spark) .nx-kpi-s { padding-right: 0; }
+  /* The page's actions sit under the title at full width rather than floating in a corner. */
+  .nx-ph-acts { margin-left: 0; width: 100%; }
+  .nx-ph-acts > .nx-btn:only-child { flex: 1; justify-content: center; }
+}

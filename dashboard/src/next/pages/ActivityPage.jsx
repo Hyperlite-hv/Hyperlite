@@ -107,7 +107,7 @@ export default function ActivityPage({ selection }) {
 
   return (
     <>
-      {!nodeId && <PageHeader title={t("tab.activity")} count={rows ? rows.length : null} fresh freshAt={now} />}
+      {!nodeId && <PageHeader title={t("tab.activity")} count={rows ? rows.length : null} />}
       <div className="nx-bar" role="group" aria-label={t("act.filters")}>
         <label className="nx-search2"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t("act.target")} value={f.cible} onChange={upd("cible")} placeholder={t("act.searchPh")} /></label>
         <select className="nx-sel" aria-label={t("task.status")} value={f.statut} onChange={upd("statut")}><option value="">{t("act.allStatus")}</option><option value="en_cours">{t("state.inprogress")}</option><option value="termine">{t("state.done")}</option><option value="echec">{t("state.failed")}</option></select>
