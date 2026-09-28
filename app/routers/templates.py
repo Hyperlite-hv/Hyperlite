@@ -6,7 +6,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import maintenance, templates_store
+from app.core import firmware, maintenance, templates_store
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
 from app.core.safe_paths import safe_child
@@ -67,7 +67,8 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
         target_disk = templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"])
 
         try:
-            domain.undefine()
+            # A UEFI VM's NVRAM and TPM state go with it: each deployment gets fresh ones (see deploy below).
+            domain.undefineFlags(firmware.undefine_flags(root))
         except libvirt.libvirtError as exc:
             templates_store.delete_template(tpl_name)
             log_action(user["username"], "convert_to_template", name, "echec", str(exc))
@@ -135,6 +136,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
         uuid_el = root.find("uuid")
         if uuid_el is not None:
             root.remove(uuid_el)
+        firmware.drop_nvram(root)
 
         for disk in root.findall(".//devices/disk"):
             if disk.get("device") == "disk":

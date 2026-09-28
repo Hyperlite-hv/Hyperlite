@@ -29,9 +29,11 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
+from app.core import firmware
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_local_capabilities
+from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
 from app.core.vm_limits import compute_limits
@@ -44,6 +46,17 @@ def host_vm_limits(user: dict = Depends(get_current_user)):
     """Per-VM resource bounds (see app/core/vm_limits.py): technical ones, or caps an administrator set in the
     environment. Used by the UI to bound form fields and by the backend validation."""
     return compute_limits()
+
+
+@router.get("/firmware")
+def host_firmware(user: dict = Depends(get_current_user)):
+    """Which VM firmwares this host can build: {"uefi", "uefi_secure", "raison"} (see app/core/firmware.py). BIOS
+    is always possible. The creation form disables what is missing and shows the reason."""
+    conn = open_conn()
+    try:
+        return firmware.host_support(conn)
+    finally:
+        conn.close()
 
 
 @router.get("/capabilities")

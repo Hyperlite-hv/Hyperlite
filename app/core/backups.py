@@ -34,7 +34,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import guest_agent
+from app.core import firmware, guest_agent
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
@@ -271,13 +271,16 @@ def _write_vm_config(domain, dest_dir):
         "vcpu": int(root.findtext("vcpu") or 1),
         "memory_mb": max(memory_kib // 1024, 1),
         "network": interface.get("network") if interface is not None and interface.get("network") else "default",
+        # A UEFI system disk does not boot with a BIOS: a VM restored to a new location keeps its firmware kind
+        # (with a fresh NVRAM and TPM, which the backup does not hold).
+        "firmware": firmware.of_domain(root),
     }
     (dest_dir / "vm-config.json").write_text(json.dumps(config))
 
 
 def _read_vm_config(src_dir):
     """Settings recorded at backup time; older backups fall back to the historical defaults."""
-    config = {"vcpu": 1, "memory_mb": 1024, "network": "default"}
+    config = {"vcpu": 1, "memory_mb": 1024, "network": "default", "firmware": "bios"}
     with contextlib.suppress(OSError, ValueError):
         config.update(json.loads((Path(src_dir) / "vm-config.json").read_text()))
     return config
@@ -428,7 +431,13 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
 
             config = _read_vm_config(src_dir)
             xml = build_domain_xml(
-                new_name, config["vcpu"], config["memory_mb"], new_disk_paths, None, config["network"]
+                new_name,
+                config["vcpu"],
+                config["memory_mb"],
+                new_disk_paths,
+                None,
+                config["network"],
+                firmware=config["firmware"],
             )
             conn.defineXML(xml)
             finish_task(task_id, "termine")
