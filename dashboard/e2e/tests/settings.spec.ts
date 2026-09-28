@@ -179,8 +179,12 @@ test.describe("Account security", () => {
     await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
 
     await accountMenu(page, "Account security");
-    await page.getByRole("dialog", { name: "Account security" }).getByRole("textbox", { name: /Password/ }).fill(USER.password);
-    await page.getByRole("dialog", { name: "Account security" }).getByRole("button", { name: "Disable" }).click();
+    const security = page.getByRole("dialog", { name: "Account security" });
+    await security.getByRole("textbox", { name: /Password/ }).fill(USER.password);
+    // Removing 2FA takes a current code too: the password alone is refused.
+    await expect(security.getByRole("button", { name: "Disable" })).toBeDisabled();
+    await security.getByRole("textbox", { name: "Current 2FA code" }).fill(totp());
+    await security.getByRole("button", { name: "Disable" }).click();
     await expect(page.getByRole("dialog", { name: "Account security" }).getByText(/Not enabled/i)).toBeVisible();
   });
 });

@@ -765,8 +765,8 @@ export async function setup2FA() {
 export async function confirm2FA(code) {
   return realFetch("/auth/2fa/confirm", { method: "POST", ...jsonBody({ code }) });
 }
-export async function disable2FA(password) {
-  return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password }) });
+export async function disable2FA(password, code) {
+  return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password, code }) });
 }
 // Workstation client (hyperlite): settings, and approval of a sign-in code from the web session.
 export async function fetchWorkstationConfig() {
