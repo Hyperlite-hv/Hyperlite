@@ -179,6 +179,15 @@ def sync_protected_vms():
             conn.close()
 
 
+def follow_migration(vm_name, target_node):
+    """Move a protected VM's record to the node it was live-migrated to. Without it, the next sync looks for the VM
+    on its old node, does not find it, and disables the protection."""
+    with get_conn() as db:
+        cur = db.execute("UPDATE ha_protected_vms SET node = ? WHERE vm_name = ?", (target_node or "local", vm_name))
+        db.commit()
+    return cur.rowcount > 0
+
+
 def alert_for_down_node(node_name):
     """Called by cluster.py::_poll_nodes as soon as a node TRANSITIONS to the
     'hors_ligne' state. It reports each protected VM that was on it, WITHOUT

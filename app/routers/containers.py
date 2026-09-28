@@ -20,6 +20,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from app.core import maintenance
 from app.core.audit import log_action
 from app.core.container_builder import (
     backup_container_rootfs,
@@ -148,6 +149,7 @@ def get_container(name: str, user: dict = Depends(require_container_privilege("c
 
 @router.post("", status_code=201)
 def create_container(payload: ContainerCreate, user: dict = Depends(require_role("admin"))):
+    maintenance.refuse_if_in_maintenance("local", "Container creation")
     _limits = compute_limits()
     _errs = []
     if payload.vcpu > _limits["vcpu"]["max"]:
@@ -292,6 +294,7 @@ class CloneContainerRequest(BaseModel):
 
 @router.post("/{name}/clone", status_code=201)
 def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depends(require_role("admin"))):
+    maintenance.refuse_if_in_maintenance("local", "Cloning")
     conn = open_lxc_conn()
     task_id = create_task("clone_container", name, node=conn.getHostname(), username=user["username"])
     try:
@@ -449,6 +452,7 @@ class RestoreContainerRequest(BaseModel):
 def restore_container_backup(
     backup_id: int, payload: RestoreContainerRequest, user: dict = Depends(require_role("admin"))
 ):
+    maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
     with get_conn() as db:
         row = db.execute("SELECT * FROM container_backups WHERE id = ?", (backup_id,)).fetchone()
     if not row or row["statut"] != "termine":

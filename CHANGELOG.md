@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Node maintenance mode (`POST`/`DELETE /nodes/{name}/maintenance`, `GET /nodes/{name}/drain-plan`, `GET /nodes/maintenance`): the node's running VMs are live-migrated to a chosen node one after another, the VMs that stay are listed with the reason, and the node receives no new VM and is never a migration or HA recovery target. From the node's Actions and right-click menus.
 - Grow a VM disk from the Hardware tab (`POST /vms/{name}/disks/{target_dev}/resize`, privilege `vm.resize`): live or stopped for qcow2/raw files, `volsize` for ZFS zvols. Shrinking and iSCSI LUNs (sized on the storage server) are refused with a clear message.
 - Right-click menus on every list with actions (VMs, nodes, containers, storage pools, networks, ISO images, templates, snapshots, backups, exports, users, high availability), with the same entries and rules as the Actions menus and row buttons.
 - iSCSI storage pools: a target on a NAS or storage array (portal, IQN, optional CHAP kept in a private libvirt secret); VMs take whole LUNs, which are overwritten only after an explicit confirmation and never deleted with the VM.
@@ -55,6 +56,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Live-migrating an HA-protected VM no longer disables its protection: the HA record now follows the VM to its new node.
 - A good update could be rolled back when the previous process took long to close its connections; the dashboard then reported a success and the update check said "up to date". `/health` now reports the version the process started with, the watchdog waits for it, the service stops within 5 s, and a rolled-back update is detected and can be applied again.
 - The update check no longer says "up to date" when the Hyperlite APT source is missing or points to the old address.
 - Backups and exports refuse a VM with ZFS or iSCSI disks with a clear message, instead of failing with "No disk found" or silently leaving the block disk out.
