@@ -28,6 +28,7 @@ export const useAuthStore = create((set, get) => ({
   username: null,
   role: null,
   totpEnabled: false,
+  authSource: "local", // "local" or "sso" (an SSO account's password is managed by the identity provider)
   status: "checking", // "checking" | "authenticated" | "anonymous"
   error: null,
 
@@ -48,6 +49,7 @@ export const useAuthStore = create((set, get) => ({
         if (!res.ok) throw new Error("invalid SSO token");
         const me = await res.json();
         applySession(set, ssoToken, me.username, me.role, !!me.totp_enabled);
+        set({ authSource: me.auth_source || "local" });
         return;
       } catch {
         setAuthToken(null);
@@ -66,7 +68,7 @@ export const useAuthStore = create((set, get) => ({
       const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("session expired");
       const me = await res.json();
-      set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, status: "authenticated" });
+      set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local", status: "authenticated" });
     } catch {
       clearStoredSession();
       setAuthToken(null);
@@ -81,7 +83,15 @@ export const useAuthStore = create((set, get) => ({
     const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${get().token}` } });
     if (!res.ok) return;
     const me = await res.json();
-    set({ totpEnabled: !!me.totp_enabled });
+    set({ totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local" });
+  },
+
+  // After "change my password": the server signed out every other session and returned a fresh token for
+  // this one, which replaces the previous (now revoked) token everywhere.
+  replaceToken(token) {
+    localStorage.setItem(KEY_TOKEN, token);
+    setAuthToken(token);
+    set({ token });
   },
 
   // remember: "Stay signed in" asks the server for a longer session (see app/core/security.py).
@@ -131,7 +141,7 @@ export const useAuthStore = create((set, get) => ({
   logout() {
     clearStoredSession();
     setAuthToken(null);
-    set({ token: null, username: null, role: null, totpEnabled: false, status: "anonymous" });
+    set({ token: null, username: null, role: null, totpEnabled: false, authSource: "local", status: "anonymous" });
   },
 }));
 

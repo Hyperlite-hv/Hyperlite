@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  fetchUsers, createUser, updateUser, deleteUser,
+  fetchUsers, createUser, updateUser, deleteUser, resetUserPassword,
   fetchGroups, createGroup, deleteGroup, addGroupMember, removeGroupMember,
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, createAcl, deleteAcl,
@@ -14,11 +14,12 @@ import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
 import { PageHeader, SideDrawer, Field, Chip, Empty, Loading, TableWrap } from "../components/ui";
 import { useIntent } from "../lib/intents";
-import { Layers, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
+import { KeyRound, Layers, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
+import { NewPasswordFields } from "../components/PasswordFields";
+import { passwordAccepted } from "../lib/passwordPolicy";
 
 // Global roles stay `admin` / `observateur` (wire values); ACLs, groups, pools and custom roles only ADD
 // scoped rights on top of them (app/core/permissions.py). Same endpoints and payloads as the historical tab.
-const MIN_PASSWORD = 4;
 
 const TABS = ["users", "groups", "roles", "pools", "acl"];
 
@@ -92,7 +93,17 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
   const lang = useLangStore((s) => s.lang);
   const EMPTY = { username: "", password: "", role: "observateur" };
   const [f, setF] = useState(EMPTY);
-  const valid = f.username.trim() && f.password.length >= MIN_PASSWORD;
+  const valid = f.username.trim() && passwordAccepted(f.password, f.username.trim());
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [resetFor, setResetFor] = useState(null);
+  const [resetPw, setResetPw] = useState("");
+  const closeReset = () => { setResetFor(null); setResetPw(""); };
+  async function reset() {
+    const name = resetFor.username;
+    let revoked = 0;
+    const done = await run(async () => { revoked = (await resetUserPassword(name, resetPw))?.revoked_tokens ?? 0; }, { fail: t("pw.resetFailed") });
+    if (done) { pushToast({ kind: "success", title: t("pw.resetDone"), message: t("pw.resetDoneMsg", { name, n: revoked }) }); closeReset(); }
+  }
   async function create() {
     if (await run(() => createUser(f.username.trim(), f.password, f.role), { ok: { title: t("sec.userCreated"), message: f.username.trim() }, fail: t("sec.createFailed") })) { setF(EMPTY); closeDrawer(); }
   }
@@ -121,7 +132,11 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
                     <td><Chip>{u.auth_source === "sso" ? "SSO" : t("sec.local")}</Chip></td>
                     <td>{u.totp_enabled ? <span className="nx-tone-success">{t("sec.on2fa")}</span> : <span className="nx-muted">{t("sec.off2fa")}</span>}</td>
                     <td className="nx-mono nx-muted">{when(u.last_login_at) || t("sec.never")}</td>
-                    <td><div className="nx-ra"><IconBtn label={self ? t("sec.selfDelete") : t("a11y.delete_user_x", { v: u.username })} title={self ? t("sec.selfDelete") : del(t)} disabled={self} onClick={() => remove(u)} /></div></td>
+                    <td><div className="nx-ra">
+                      <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={self ? t("pw.resetSelf") : u.auth_source === "sso" ? t("pw.resetSso") : t("pw.resetFor", { name: u.username })}
+                        title={self ? t("pw.resetSelf") : u.auth_source === "sso" ? t("pw.resetSso") : t("pw.reset")} disabled={self || u.auth_source === "sso"} onClick={() => setResetFor(u)}><KeyRound size={15} aria-hidden="true" /></button>
+                      <IconBtn label={self ? t("sec.selfDelete") : t("a11y.delete_user_x", { v: u.username })} title={self ? t("sec.selfDelete") : del(t)} disabled={self} onClick={() => remove(u)} />
+                    </div></td>
                   </tr>
                 );
               })}
@@ -134,8 +149,15 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
         <button type="button" className="nx-btn nx-btn--primary" disabled={!valid} onClick={create}>{t("sec.createUserBtn")}</button>
       </>}>
         <Field label={t("sec.username")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.username")} value={f.username} autoComplete="off" placeholder="jdupont" onChange={(e) => setF({ ...f, username: e.target.value })} />}</Field>
-        <Field label={t("ct.password")} hint={t("sec.passwordHelp", { n: MIN_PASSWORD })}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.password")} type="password" value={f.password} autoComplete="new-password" onChange={(e) => setF({ ...f, password: e.target.value })} />}</Field>
+        <NewPasswordFields label={t("ct.password")} username={f.username.trim()} value={f.password} onChange={(v) => setF((s) => ({ ...s, password: v }))} generate />
         <Field label={t("sec.globalRole")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.role_of_the_new_user")} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="observateur">{t("sec.observer")}</option><option value="admin">{t("sec.admin")}</option></select>}</Field>
+      </SideDrawer>
+      <SideDrawer open={!!resetFor} title={resetFor ? t("pw.resetTitle", { name: resetFor.username }) : ""} onClose={closeReset} footer={<>
+        <button type="button" className="nx-btn nx-btn--ghost" onClick={closeReset}>{t("action.cancel")}</button>
+        <button type="button" className="nx-btn nx-btn--primary" disabled={!resetFor || !passwordAccepted(resetPw, resetFor.username)} onClick={reset}>{t("pw.resetBtn")}</button>
+      </>}>
+        <div className="nx-bn" data-tone="warning"><KeyRound size={16} aria-hidden="true" /><span className="nx-bn-t">{t("pw.resetWarn")}</span></div>
+        {resetFor && <NewPasswordFields label={t("pw.new")} username={resetFor.username} value={resetPw} onChange={setResetPw} generate />}
       </SideDrawer>
     </>
   );
