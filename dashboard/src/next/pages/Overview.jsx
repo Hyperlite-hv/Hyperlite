@@ -199,7 +199,7 @@ export default function Overview() {
   const VIEWS = ["summary", "perf", "events"];
   return (
     <>
-      <PageHeader title={t("nav.overview")} desc={t("ov.desc", { nodes: nodes.length, vms: vms.length })} fresh />
+      <PageHeader title={t("nav.overview")} desc={t("ov.desc", { nodes: nodes.length, vms: vms.length })} />
       <div className="nx-tabs nx-tabs--page" role="tablist" aria-label={t("ov.views")}>
         {VIEWS.map((v) => <button key={v} id={`ov-tab-${v}`} type="button" role="tab" aria-selected={view === v} aria-controls="ov-panel" onClick={() => setView(v)}>{t(`ov.view.${v}`)}</button>)}
       </div>
