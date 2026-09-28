@@ -112,3 +112,15 @@ Hyperlite has no cluster-wide quorum yet (see the configuration design). Until i
 2. Is there a third machine or the NAS to act as the witness?
 3. What detection delay is acceptable before a restart (about 60 s by default)?
 4. Do we start with step 3 (dry run) on the dev setup before enabling any automatic action?
+
+## 8. Decisions (maintainer)
+
+- **Fencing hardware: unknown yet.** Step 1 therefore supports IPMI/Redfish and AMT *and* `lease_only`, and the
+  "Test fencing" button (status query only) is how the maintainer will find out what each node offers. A
+  documentation page explains how to check (`ipmitool mc info`, the MEBx menu on vPro PCs).
+- **No witness** for now (two nodes, no NAS or third machine in the role). As designed, automatic restart stays
+  unavailable on a two-node cluster without a witness, with the reason shown in the UI.
+- **Dry run first**: steps 1 to 3 are implemented (fencing settings and status test, lease preflight,
+  heartbeat, isolation check, per-VM HA state and "what I would have done" alerts). **No automatic restart**
+  until the maintainer has watched the dry run on real nodes and asks for step 4. Detection delay: the proposed
+  defaults (suspect after about 30 s, failed after about 60 s), configurable.
