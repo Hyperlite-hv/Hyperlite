@@ -1,11 +1,13 @@
 import json
 import logging
 import subprocess
+import threading
 from pathlib import Path
 from typing import Literal
 
 import libvirt
 from fastapi import Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core import zfs_storage
@@ -70,6 +72,10 @@ class VMCreate(BaseModel):
     password: str | None = None
     iso: str | None = None
     drivers_iso: str | None = None
+    # Node whose library holds `iso` / `drivers_iso`, when it is not this host's. A VM boots only from an image
+    # on its own host, so such an image is first copied here (a copy_iso task), then the VM is created.
+    iso_node: str | None = None
+    drivers_iso_node: str | None = None
     guest_os: Literal["auto", "windows", "linux", "other"] = "auto"
     disk_controller: Literal["auto", "sata", "virtio-scsi"] = "auto"
     # Name of a file already uploaded through POST /vm-disks (see
@@ -148,8 +154,82 @@ def _prepare_lun(device, capacity, source=None):
     )
 
 
+def _pending_remote_isos(payload):
+    """(name, node) of the images the VM needs that are not in this host's library yet."""
+    from app.core.iso_share import isos_dir
+
+    pending = []
+    for name, node in ((payload.iso, payload.iso_node), (payload.drivers_iso, payload.drivers_iso_node)):
+        if name and node and node != "local" and not safe_child(isos_dir(), Path(name).name).is_file():
+            pending.append((name, node))
+    return pending
+
+
 @router.post("", status_code=201)
 def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
+    pending = _pending_remote_isos(payload)
+    if not pending:
+        return _create_vm(payload, user)
+    return _create_vm_after_copy(payload, user, pending)
+
+
+def _create_vm_after_copy(payload, user, pending):
+    """Copy the images the VM needs from other nodes, then create it, in the background (202).
+
+    Everything that can be checked without the images is checked first, so a multi-gigabyte copy never ends in
+    a refusal the form could have shown. The copies are ordinary copy_iso tasks, and the creation its usual
+    create_vm task: both show in Tasks, and both carry on if the browser is closed."""
+    from app.core.iso_share import LOCAL, iso_size, resolve_node, start_copy, valid_iso_name
+
+    _create_vm(payload, user, pending={name for name, _ in pending}, check_only=True)
+    for name, node in pending:
+        if not valid_iso_name(name):
+            raise HTTPException(status_code=422, detail=f"Invalid ISO name '{name}'")
+        try:
+            source = resolve_node(node)
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        if iso_size(source, name) is None:
+            raise HTTPException(status_code=422, detail=f"ISO '{name}' not found on {node}")
+
+    remaining = {name for name, _ in pending}
+    lock = threading.Lock()
+    failed = []
+
+    def after(name, ok):
+        with lock:
+            remaining.discard(name)
+            if not ok:
+                failed.append(name)
+            last = not remaining
+        if not last:
+            return
+        if failed:
+            log_action(user["username"], "create_vm", payload.name, "echec", f"ISO copy failed: {', '.join(failed)}")
+            return
+        try:
+            _create_vm(payload, user)
+        except HTTPException as e:  # already recorded on the create_vm task by _create_vm
+            logger.warning("VM '%s' not created after the ISO copy: %s", payload.name, e.detail)
+        except Exception:
+            logger.exception("VM '%s' not created after the ISO copy", payload.name)
+
+    tasks = []
+    for name, node in pending:
+        try:
+            tasks += start_copy(name, node, [LOCAL], user["username"], after=lambda ok, name=name: after(name, ok))
+        except FileExistsError as e:
+            after(name, False)  # a copy already started for another image must not wait for this one forever
+            raise HTTPException(status_code=409, detail=f"{e}. Wait for it to finish, then create the VM again.") from e
+        except (LookupError, ValueError) as e:
+            after(name, False)
+            raise HTTPException(status_code=422, detail=str(e)) from e
+    return JSONResponse(status_code=202, content={"name": payload.name, "copie_iso": tasks})
+
+
+def _create_vm(payload, user, pending=frozenset(), check_only=False):
+    """pending: image names that are not here yet but are being brought (they pass the existence check).
+    check_only: run every check, create nothing (no task either), return None."""
     errors = []
     name_error = validate_name(payload.name)
     if name_error:
@@ -159,7 +239,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
     iso_path = None
     if payload.iso:
         candidate = safe_child(ISOS_DIR, payload.iso)
-        if not candidate.exists():
+        if not candidate.exists() and payload.iso not in pending:
             errors.append(f"ISO '{payload.iso}' not found")
         else:
             iso_path = candidate
@@ -175,7 +255,7 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
         ):
             raise HTTPException(status_code=422, detail="Invalid driver ISO name")
         candidate = safe_child(ISOS_DIR, payload.drivers_iso)
-        if not candidate.is_file():
+        if not candidate.is_file() and payload.drivers_iso not in pending:
             raise HTTPException(status_code=422, detail=f"Driver ISO '{payload.drivers_iso}' not found")
         drivers_iso_path = candidate
 
@@ -221,7 +301,11 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             errors.append("The password must contain at least 4 characters")
 
     conn = open_conn()
-    task_id = create_task("create_vm", payload.name, node=conn.getHostname(), username=user["username"])
+    task_id = (
+        None
+        if check_only
+        else create_task("create_vm", payload.name, node=conn.getHostname(), username=user["username"])
+    )
     try:
         try:
             conn.lookupByName(payload.name)
@@ -278,8 +362,11 @@ def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
             errors.extend(lun_errors)
 
         if errors:
-            log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
+            if not check_only:
+                log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
+        if check_only:
+            return None
 
         # Fixed IP per VM (see app/core/network_alloc.py): a DHCP reservation on the
         # libvirt network for a MAC known in advance, with no change to the

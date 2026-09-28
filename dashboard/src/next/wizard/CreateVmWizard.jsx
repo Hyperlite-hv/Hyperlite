@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createVM, fetchHostProfile, fetchIsoTemplates, fetchVmDisks, fetchVolumes } from "../../api/client";
+import { createVM, fetchClusterIsos, fetchHostProfile, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { installationFamily, isWindowsInstall, guestProfile, diskController } from "../../utils/osFamily";
@@ -18,7 +18,7 @@ const int = (v, min, max) => v !== "" && v != null && Number.isInteger(Number(v)
 
 function initialForm(nodes, networks, d) {
   return {
-    node: nodes[0]?.id || "", iso: "", driversIso: "", guestOs: "auto", diskController: "auto", importDisk: null,
+    node: nodes[0]?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", importDisk: null,
     name: "", vcpu: d?.vcpu ?? 1, memory_mb: d?.memory_mb ?? 1024, disks: [{ size_gb: d?.disk_gb ?? 10 }],
     username: "", password: "", network: networks[0]?.nom || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
@@ -38,6 +38,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const addTask = useInfraStore((s) => s.addTask);
   const completeTask = useInfraStore((s) => s.completeTask);
   const loadAll = useInfraStore((s) => s.loadAll);
+  const pushToast = useInfraStore((s) => s.pushToast);
   const limits = useHostLimits();
 
   const [step, setStep] = useState(0);
@@ -51,7 +52,19 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const [error, setError] = useState(null);
   const bodyRef = useRef(null);
 
-  const reloadIsos = () => fetchIsoTemplates().then((r) => setIsos(Array.isArray(r) ? r : [])).catch(() => {});
+  // Images of every node: this host's first, then those only another node has (copied here before creation, since
+  // a VM boots only from an image on its own host). One entry per name.
+  const reloadIsos = () => fetchClusterIsos().then((r) => {
+    const all = Array.isArray(r?.isos) ? r.isos : [];
+    const local = all.filter((i) => i.node === "local");
+    const here = new Set(local.map((i) => i.nom));
+    const remote = [];
+    for (const i of all) if (i.node !== "local" && !here.has(i.nom) && !remote.some((x) => x.nom === i.nom)) remote.push(i);
+    setIsos([...local, ...remote.sort((a, b) => a.nom.localeCompare(b.nom))]);
+  }).catch(() => {});
+  const isoNodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const isoSub = (iso) => (iso.node === "local" ? `${formatSizeMb(iso.taille_mo, lang)} · ISO`
+    : t("wz.src.remoteIso", { size: formatSizeMb(iso.taille_mo, lang), node: isoNodeName(iso.node) }));
   const reloadDisks = () => fetchVmDisks().then((r) => setDisks(Array.isArray(r) ? r : [])).catch(() => {});
   useEffect(() => {
     if (!open) return undefined;
@@ -152,11 +165,23 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     const payload = {
       name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), disks: form.disks.map((d) => (iscsiPool ? { size_gb: lunGb(d.lun), lun: d.lun } : { size_gb: Number(d.size_gb) })), network: form.network,
       username: form.username, password: form.password, iso: form.iso || null,
-      drivers_iso: form.iso && !importMode ? form.driversIso || null : null, guest_os: form.guestOs, disk_controller: form.diskController,
+      drivers_iso: form.iso && !importMode ? form.driversIso || null : null,
+      iso_node: form.iso ? form.isoNode : null, drivers_iso_node: form.iso && !importMode && form.driversIso ? form.driversIsoNode : null, guest_os: form.guestOs, disk_controller: form.diskController,
       import_disk: importMode && form.importDisk !== "__pending__" ? form.importDisk : null, storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? Number(form.autoCleanupDays) : null,
       erase_luns: Boolean(iscsiPool && form.eraseLuns),
     };
+    const copied = [payload.iso_node, payload.drivers_iso_node].some((n) => n && n !== "local");
+    if (copied) {
+      // The server copies the image(s) here, then creates the VM: both run as its own tasks, even if this page closes.
+      try {
+        await createVM(payload);
+        pushToast({ kind: "success", title: t("wz.copyThenCreate"), message: t("wz.copyThenCreateMsg", { name: form.name }) });
+        await loadAll(); onClose(); reset();
+      } catch (e) { setError(errorMessage(e)); }
+      finally { setBusy(false); }
+      return;
+    }
     const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
     try { await createVM(payload); completeTask(taskId, "termine"); await loadAll(); onClose(); reset(); }
     catch (e) { completeTask(taskId, "echec", errorMessage(e)); setError(errorMessage(e)); }
@@ -226,7 +251,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                     <legend>{t("wz.src.iso")}</legend>
                     <div className="nx-tiles">
                       {radio(!form.iso, () => patch({ iso: "" }), t("wz.src.debian"), t("wz.src.debianSub"), "iso")}
-                      {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom }), iso.nom, `${formatSizeMb(iso.taille_mo, lang)} · ISO`, "iso"))}
+                      {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom, isoNode: iso.node }), iso.nom, isoSub(iso), "iso"))}
                     </div>
                   </fieldset>
                   {form.iso && (
@@ -353,8 +378,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
               {form.iso && !importMode && (
                 <fieldset className="nx-fieldset">
                   <legend>{t("wz.drivers")}</legend>
-                  <select className="nx-input" aria-label={t("a11y.drivers_iso")} value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value })}>
-                    <option value="">{t("wz.none")}</option>{isos.filter((i) => i.nom !== form.iso).map((i) => <option key={i.nom} value={i.nom}>{i.nom}</option>)}
+                  <select className="nx-input" aria-label={t("a11y.drivers_iso")} value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value, driversIsoNode: isos.find((i) => i.nom === e.target.value)?.node || "local" })}>
+                    <option value="">{t("wz.none")}</option>{isos.filter((i) => i.nom !== form.iso).map((i) => <option key={i.nom} value={i.nom}>{i.node === "local" ? i.nom : `${i.nom} — ${t("wz.src.onNode", { node: isoNodeName(i.node) })}`}</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.driversHelp")} <a href="https://virtio-win.github.io/Knowledge-Base/Driver-installation.html" target="_blank" rel="noreferrer">{t("wz.driversLink")}</a></span>
                   <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} />
@@ -387,7 +412,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
         <aside className="nx-wiz-recap" aria-label={t("wz.recap")}>
           <h4>{t("wz.recap")}</h4>
           <dl className="nx-dl2">
-            <dt>{t("wz.r.source")}</dt><dd>{importMode ? form.importDisk && form.importDisk !== "__pending__" ? form.importDisk : "—" : form.iso || t("wz.src.debian")}</dd>
+            <dt>{t("wz.r.source")}</dt><dd>{importMode ? form.importDisk && form.importDisk !== "__pending__" ? form.importDisk : "—" : form.iso ? (form.isoNode !== "local" ? `${form.iso} — ${t("wz.src.copiedFrom", { node: isoNodeName(form.isoNode) })}` : form.iso) : t("wz.src.debian")}</dd>
             <dt>{t("ct.name")}</dt><dd className="nx-mono">{form.name || "—"}</dd>
             <dt>{t("ns.node")}</dt><dd className="nx-mono">{step > 1 ? nodeName : "—"}</dd>
             <dt>{t("wz.r.cpuRam")}</dt><dd className="nx-mono">{step > 2 ? `${form.vcpu} · ${formatSizeMb(Number(form.memory_mb), lang)}` : "—"}</dd>
