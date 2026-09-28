@@ -9,6 +9,7 @@ from app.core import version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.cluster import start_node_poller
+from app.core.config_copy import start_config_copy
 from app.core.jobs import ensure_lb_job_exists
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import start_metrics_collector
@@ -197,6 +198,7 @@ def on_startup():
     start_backup_scheduler()
     ensure_lb_job_exists()
     start_node_poller()
+    start_config_copy()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
 

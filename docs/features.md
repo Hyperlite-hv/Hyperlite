@@ -34,6 +34,7 @@ Virtual networks in NAT, isolated or bridge mode, DHCP ranges, VLAN tags on VM i
 - Register remote hosts by SSH; view and manage their VMs from one dashboard.
 - Live migration between hosts, with a compatibility diagnostic (CPU, QEMU/libvirt versions, machine types, storage, networks) before migrating.
 - Node maintenance mode: draining live-migrates the running VMs to a chosen node, one migration task each, and lists the VMs that stay with the reason (stopped, iSCSI disks, compatibility blockers, name taken). A node in maintenance receives no new VM or container and is never a migration or HA recovery target.
+- Configuration copy: the controller copies its configuration (database without telemetry, and its keys) to every node every 15 minutes and right after a change; if the controller is lost, `hyperlite-promote` on a node takes over, refusing while the old controller still answers. See [Taking over when the controller is lost](cluster-failover.md).
 - Basic HA: protected VMs (disks on shared storage) are monitored; when a node goes down an alert is raised and an administrator can recover the VM on another node. Recovery is never automatic, and an SSH-based best-effort fence is attempted first. There is no STONITH.
 
 ## Backups
