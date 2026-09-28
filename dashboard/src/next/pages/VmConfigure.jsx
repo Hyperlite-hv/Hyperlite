@@ -146,7 +146,10 @@ function ResizeDiskDrawer({ disk, onClose, vm, onDone }) {
   const minGb = disk?.taille_go != null ? Math.floor(disk.taille_go) + 1 : 1;
   useEffect(() => { if (disk) setSize(String(minGb)); }, [disk, minGb]);
   const maxGb = limits?.disque_go?.max;
-  const sizeBad = !intIn(size, minGb, maxGb);
+  // Already at the per-disk limit: no size is valid, so say why instead of showing an impossible range.
+  const atLimit = maxGb != null && minGb > maxGb;
+  const limitOrigin = limits?.disque_go?.source === "configuration" ? limits.disque_go.variable : limits?.disque_go?.detail;
+  const sizeBad = atLimit || !intIn(size, minGb, maxGb);
   async function submit() {
     if (sizeBad) return;
     setBusy(true);
@@ -165,9 +168,11 @@ function ResizeDiskDrawer({ disk, onClose, vm, onDone }) {
     </>}>
       {disk && <>
         <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeCurrent", { n: disk.taille_go != null ? formatSizeGb(disk.taille_go, lang()) : "—" })}</p>
-        <Field label={t("vh.resizeNew")} unit={unit} error={sizeBad ? t("vh.resizeRule", { max: maxGb ?? "…" }) : null}>
-          {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.new_size_in_gb")} type="number" min={minGb} max={maxGb} value={size} onChange={(e) => setSize(e.target.value)} />}
-        </Field>
+        {atLimit ? <p className="nx-notice nx-notice--warning" role="status" style={{ margin: 0 }}>{t("vh.resizeAtLimit", { max: formatSizeGb(maxGb, lang()), origin: limitOrigin || "—" })}</p> : (
+          <Field label={t("vh.resizeNew")} unit={unit} error={sizeBad ? t("vh.resizeRule", { min: minGb, max: maxGb ?? "…" }) : null}>
+            {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.new_size_in_gb")} type="number" min={minGb} max={maxGb} value={size} onChange={(e) => setSize(e.target.value)} />}
+          </Field>
+        )}
         {vm.etat === "actif" && <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeLive")}</p>}
         <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeGuest")}</p>
       </>}
