@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import iscsi
+from app.core import iscsi, maintenance
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -37,6 +37,7 @@ class CloneRequest(BaseModel):
 
 @router.post("/{name}/clone", status_code=201)
 def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone"))):
+    maintenance.refuse_if_in_maintenance("local", "Cloning")
     # Real bugs fixed in the cloning logic after an audit:
     # 1. SECURITY: there was no permission check (just get_current_user), so any
     #    account, even an "observateur" (read-only everywhere else), could clone and

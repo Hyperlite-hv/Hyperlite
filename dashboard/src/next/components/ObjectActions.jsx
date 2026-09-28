@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Heart, LayoutTemplate, Link, MoveHorizontal, Play, Plus, Power, RefreshCw,
-  RotateCw, Share, Square, SquareTerminal, Trash2,
+  RotateCw, Share, Square, SquareTerminal, Trash2, Wrench,
 } from "lucide-react";
 import {
   cloneVM, createTemplateFromVM, createBackup, exportVM, fetchHaProtected, enableHa, disableHa,
@@ -21,6 +21,7 @@ import Menu, { MenuItem } from "./Menu";
 import ContextMenu from "./ContextMenu";
 import { selectionToPath } from "../lib/urls";
 import MigrateDialog from "./MigrateDialog";
+import { leaveMaintenance } from "./MaintenanceDialog";
 import { SideDrawer, Field } from "./ui";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -84,7 +85,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   const act = (a) => vmActionState(a, vm, caps);
   const admin = (state = { enabled: true }) => (caps.admin ? state : { enabled: false, reason: "menu.reason.admin" });
   const stopped = running ? { enabled: false, reason: "menu.reason.mustStop" } : { enabled: true };
-  const targets = nodes.filter((n) => n.id !== vm.node && n.etat === "online");
+  const targets = nodes.filter((n) => n.id !== vm.node && n.etat === "online" && !n.maintenance);
   const mig = !caps.admin ? { enabled: false, reason: "menu.reason.admin" } : !running ? { enabled: false, reason: "menu.reason.notRunning" } : targets.length === 0 ? { enabled: false, reason: "mig.noTarget" } : { enabled: true };
 
   useEffect(() => {
@@ -248,6 +249,9 @@ function useNodeMenu(node, { close, openTab, withOpen = false }) {
   const local = node.id === "local";
   const create = !caps.create ? { enabled: false, reason: "menu.reason.admin" } : !local ? { enabled: false, reason: "node.createLocalOnly" } : { enabled: true };
   const shell = !caps.hostShell ? { enabled: false, reason: "menu.reason.admin" } : !local ? { enabled: false, reason: "node.shellLocalOnly" } : { enabled: true };
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const refreshAll = useInfraStore((s) => s.refreshAll);
+  const admin = caps.admin ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
   const item = (key, Icon, label, state, run) => (
     <MenuItem key={key} disabled={!state.enabled} reason={state.reason ? t(state.reason) : undefined} onSelect={() => { close(); run(); }}>
       <Icon size={16} aria-hidden="true" />{label}{!state.enabled && state.reason ? <span className="nx-menu-k" aria-hidden="true">{t(state.reason)}</span> : null}
@@ -258,6 +262,9 @@ function useNodeMenu(node, { close, openTab, withOpen = false }) {
       {withOpen && <>{item("open", ArrowUpRight, t("ctx.open"), { enabled: true }, () => openTab("summary"))}<hr /></>}
       {item("vm", Plus, t("node.createVm"), create, () => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" })))}
       {item("shell", SquareTerminal, t("node.openShell"), shell, () => openTab("shell"))}
+      {node.maintenance
+        ? item("maint", Wrench, t("mt.leave"), admin, () => leaveMaintenance(node, t, pushToast, refreshAll))
+        : item("maint", Wrench, t("mt.enter"), admin, () => window.dispatchEvent(new CustomEvent("nx:node-maintenance", { detail: node.id })))}
       <hr />
       {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(objectLink("node", node.id)))}
       {!withOpen && item("caps", RefreshCw, t("node.refreshCaps"), { enabled: true }, () => window.dispatchEvent(new CustomEvent("nx:node-refresh", { detail: node.id })))}
