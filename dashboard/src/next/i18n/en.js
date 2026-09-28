@@ -290,6 +290,8 @@ export default {
   "inv.offlineSince": "Offline",
   "inv.hint": "↑↓ move · → open · ← close · Enter select · / search",
   "menu.open": "Open",
+  "ctx.open": "Open",
+  "ctx.menuOf": "Actions of {name}",
   "menu.copyLink": "Copy link",
   "menu.copyIp": "Copy IP",
   "menu.start": "Start",
