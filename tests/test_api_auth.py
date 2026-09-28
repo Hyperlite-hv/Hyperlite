@@ -149,12 +149,18 @@ def test_two_factor_login_flow(client, auth_headers):
     assert right.status_code == 200 and right.json()["access_token"]
 
 
-def test_two_factor_can_only_be_disabled_with_the_password(client, auth_headers):
+def test_two_factor_can_only_be_disabled_with_the_password_and_a_code(client, auth_headers):
     session = auth_headers("alice")
     secret = client.post("/auth/2fa/setup", headers=session).json()["secret"]
     client.post("/auth/2fa/confirm", headers=session, json={"code": pyotp.TOTP(secret).now()})
-    assert client.post("/auth/2fa/disable", headers=session, json={"password": "wrong"}).status_code == 400
-    assert client.post("/auth/2fa/disable", headers=session, json={"password": PASSWORD}).status_code == 200
+    code = pyotp.TOTP(secret).now()
+    assert (
+        client.post("/auth/2fa/disable", headers=session, json={"password": "wrong", "code": code}).status_code == 400
+    )
+    assert client.post("/auth/2fa/disable", headers=session, json={"password": PASSWORD}).status_code == 400
+    assert (
+        client.post("/auth/2fa/disable", headers=session, json={"password": PASSWORD, "code": code}).status_code == 200
+    )
     assert "require_2fa" not in login(client, "alice").json()
 
 
