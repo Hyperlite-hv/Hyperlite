@@ -15,8 +15,10 @@ export default function PromptDialog({ cancelLabel = "Cancel" }) {
 
   useEffect(() => { setValue(request?.defaultValue ?? ""); setTouched(false); }, [request]);
 
-  const trimmed = value.trim();
-  const invalid = trimmed === "" ? "This value is required." : request?.validate?.(trimmed) || "";
+  // A password is taken as typed (spaces included) and masked.
+  const secret = request?.type === "password";
+  const trimmed = secret ? value : value.trim();
+  const invalid = (secret ? value === "" : trimmed === "") ? "This value is required." : request?.validate?.(trimmed) || "";
   const submit = () => { setTouched(true); if (!invalid) answer(trimmed); };
 
   return (
@@ -28,7 +30,7 @@ export default function PromptDialog({ cancelLabel = "Cancel" }) {
         </DialogHeader>
         <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-2">
           <Label htmlFor="prompt-value" className="text-xs font-medium">{request?.label}</Label>
-          <Input id="prompt-value" aria-label={request?.label} autoFocus value={value} onChange={(e) => setValue(e.target.value)} aria-invalid={touched && !!invalid} aria-describedby={touched && invalid ? "prompt-error" : undefined} />
+          <Input id="prompt-value" aria-label={request?.label} type={secret ? "password" : "text"} autoComplete={secret ? "current-password" : undefined} autoFocus value={value} onChange={(e) => setValue(e.target.value)} aria-invalid={touched && !!invalid} aria-describedby={touched && invalid ? "prompt-error" : undefined} />
           {touched && invalid && <p id="prompt-error" role="alert" className="text-xs text-status-error">{invalid}</p>}
           <DialogFooter className="pt-2">
             <Button type="button" variant="secondary" onClick={() => answer(null)}>{cancelLabel}</Button>
