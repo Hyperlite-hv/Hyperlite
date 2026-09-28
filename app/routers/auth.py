@@ -20,8 +20,11 @@ from app.core.security import (
     authenticate_user,
     create_access_token,
     create_preauth_token,
+    flag_weak_password,
     get_current_user,
+    get_current_user_pending_ok,
     get_session_user,
+    get_session_user_pending_ok,
     get_user,
     hash_password,
     oauth2_scheme,
@@ -110,6 +113,16 @@ class PasswordChange(BaseModel):
     code: str | None = None  # TOTP code, required when the account has 2FA
 
 
+def _session_response(token, user):
+    """password_change_required: the dashboard shows the password change screen and nothing else."""
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user["role"],
+        "password_change_required": bool(user.get("must_change_password")),
+    }
+
+
 def _record_login(username):
     with get_conn() as conn:
         conn.execute("UPDATE users SET last_login_at = ? WHERE username = ?", (datetime.now(UTC).isoformat(), username))
@@ -143,6 +156,13 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
         _login_ip_record_failure(ip)
         log_action(form_data.username, "login", "auth", "echec", "Invalid credentials")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    # The only moment the plain password is known: one that no longer meets the policy (set before the policy
+    # existed) must be changed before anything else. Checked before the 2FA step so abandoning it changes nothing.
+    if user.get("auth_source", "local") == "local" and password_problem(form_data.password, user["username"]):
+        if not user.get("must_change_password"):
+            flag_weak_password(user["username"])
+            log_action(user["username"], "login", "auth", "succes", "Weak password: a change is required")
+        user["must_change_password"] = 1
 
     # Correct password but 2FA enabled: no full session token yet, only a 5-minute
     # intermediate token (see create_preauth_token) that the frontend exchanges for
@@ -158,7 +178,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=remember)
     _record_login(user["username"])
     log_action(user["username"], "login", "auth", "succes")
-    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+    return _session_response(token, user)
 
 
 @router.post("/login/2fa")
@@ -204,16 +224,17 @@ def login_2fa(request: Request, payload: Login2FA):
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=bool(claims.get("remember")))
     _record_login(username)
     log_action(username, "login", "auth", "succes", "2FA validated")
-    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+    return _session_response(token, user)
 
 
 @router.get("/me")
-def me(user: dict = Depends(get_current_user)):
+def me(user: dict = Depends(get_current_user_pending_ok)):
     return {
         "username": user["username"],
         "role": user["role"],
         "totp_enabled": bool(user["totp_enabled"]),
         "auth_source": user.get("auth_source", "local"),
+        "password_change_required": bool(user.get("must_change_password")),
     }
 
 
@@ -316,7 +337,7 @@ def delete_api_token(token_id: int, user: dict = Depends(get_current_user)):
 def change_my_password(
     request: Request,
     payload: PasswordChange,
-    user: dict = Depends(get_session_user),
+    user: dict = Depends(get_session_user_pending_ok),
     token: str = Depends(oauth2_scheme),
 ):
     """Any signed-in user changes their own password. It takes the current password (and the 2FA code when

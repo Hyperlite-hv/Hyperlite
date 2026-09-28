@@ -515,6 +515,9 @@ def init_db():
             # Epoch second of the last password change or reset (NULL: never): session tokens issued
             # before it are refused (app/core/security.py::set_password, _session_user).
             "ALTER TABLE users ADD COLUMN password_changed_at INTEGER",
+            # 1 when the password no longer meets the policy (seen at sign-in, the only moment the plain password
+            # is known): the account can do nothing but change it (app/core/security.py::_session_user).
+            "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
             # Source address of the request that produced the audit entry (NULL for
             # background jobs, which have no request).
             "ALTER TABLE audit_log ADD COLUMN ip TEXT",

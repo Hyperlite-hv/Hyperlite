@@ -15,12 +15,12 @@ function clearStoredSession() {
 // store method, because a zustand store is often destructured
 // (`const { login } = useAuthStore()`), so a `this.xxx()` inside an action would
 // lose its binding.
-function applySession(set, token, username, role, totpEnabled) {
+function applySession(set, token, username, role, totpEnabled, mustChangePassword = false) {
   localStorage.setItem(KEY_TOKEN, token);
   localStorage.setItem(KEY_USERNAME, username);
   localStorage.setItem(KEY_ROLE, role);
   setAuthToken(token);
-  set({ token, username, role, totpEnabled, status: "authenticated", error: null });
+  set({ token, username, role, totpEnabled, mustChangePassword, status: "authenticated", error: null });
 }
 
 export const useAuthStore = create((set, get) => ({
@@ -29,6 +29,8 @@ export const useAuthStore = create((set, get) => ({
   role: null,
   totpEnabled: false,
   authSource: "local", // "local" or "sso" (an SSO account's password is managed by the identity provider)
+  // The password no longer meets the policy: the server refuses everything but changing it (App shows that screen).
+  mustChangePassword: false,
   status: "checking", // "checking" | "authenticated" | "anonymous"
   error: null,
 
@@ -48,7 +50,7 @@ export const useAuthStore = create((set, get) => ({
         const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${ssoToken}` } });
         if (!res.ok) throw new Error("invalid SSO token");
         const me = await res.json();
-        applySession(set, ssoToken, me.username, me.role, !!me.totp_enabled);
+        applySession(set, ssoToken, me.username, me.role, !!me.totp_enabled, !!me.password_change_required);
         set({ authSource: me.auth_source || "local" });
         return;
       } catch {
@@ -68,7 +70,7 @@ export const useAuthStore = create((set, get) => ({
       const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("session expired");
       const me = await res.json();
-      set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local", status: "authenticated" });
+      set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local", mustChangePassword: !!me.password_change_required, status: "authenticated" });
     } catch {
       clearStoredSession();
       setAuthToken(null);
@@ -91,7 +93,7 @@ export const useAuthStore = create((set, get) => ({
   replaceToken(token) {
     localStorage.setItem(KEY_TOKEN, token);
     setAuthToken(token);
-    set({ token });
+    set({ token, mustChangePassword: false });
   },
 
   // remember: "Stay signed in" asks the server for a longer session (see app/core/security.py).
@@ -117,7 +119,7 @@ export const useAuthStore = create((set, get) => ({
     if (data.require_2fa) {
       return { require2FA: true, preAuthToken: data.pre_auth_token };
     }
-    applySession(set, data.access_token, username, data.role, false);
+    applySession(set, data.access_token, username, data.role, false, !!data.password_change_required);
     return { require2FA: false };
   },
 
@@ -135,13 +137,13 @@ export const useAuthStore = create((set, get) => ({
       set({ error: msg });
       throw new Error(msg);
     }
-    applySession(set, data.access_token, username, data.role, true);
+    applySession(set, data.access_token, username, data.role, true, !!data.password_change_required);
   },
 
   logout() {
     clearStoredSession();
     setAuthToken(null);
-    set({ token: null, username: null, role: null, totpEnabled: false, authSource: "local", status: "anonymous" });
+    set({ token: null, username: null, role: null, totpEnabled: false, authSource: "local", mustChangePassword: false, status: "anonymous" });
   },
 }));
 
