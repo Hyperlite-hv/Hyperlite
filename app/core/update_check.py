@@ -30,6 +30,9 @@ CHECK_INTERVAL_S = (
 )
 
 
+SOURCE_PROBLEM_MARKER = "apt-source-problem"
+
+
 def _get_last_notified():
     with get_conn() as db:
         row = db.execute("SELECT last_notified_version FROM update_check_state WHERE id = 1").fetchone()
@@ -70,6 +73,14 @@ def check_once():
 
     result = check_update(user={"role": "admin"})
     _touch_checked_at()
+
+    # The APT source is missing or outdated: no new version can ever be seen, which is exactly how a node
+    # stays behind silently. Alert once (the marker is replaced by the next real version notification).
+    if result.get("source_problem"):
+        if _get_last_notified() != SOURCE_PROBLEM_MARKER:
+            log_action("system", "update_check_blocked", "hyperlite", "echec", result.get("erreur"))
+            _mark_notified(SOURCE_PROBLEM_MARKER)
+        return
 
     if not result.get("verifiable") or result.get("a_jour"):
         return
