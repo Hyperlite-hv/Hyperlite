@@ -343,6 +343,7 @@ export function VmNetworkPage({ resource: vm }) {
   const t = useT();
   const admin = capabilities(useAuthStore((s) => s.role)).admin;
   const pushToast = useInfraStore((s) => s.pushToast);
+  const refreshAll = useInfraStore((s) => s.refreshAll);
   const [info, setInfo] = useState(null);
   const [nets, setNets] = useState([]);
   const [error, setError] = useState(null);
@@ -355,7 +356,9 @@ export function VmNetworkPage({ resource: vm }) {
     catch (e) { setError(errorMessage(e)); }
   }, [name, node]);
   useEffect(() => { if (name) reload(); }, [name, reload]);
-  const fetchFw = useCallback(() => fetchVMFirewall(name), [name]);
+  // The VM list in the browser can still hold a VM that was just deleted (it is refreshed every few seconds):
+  // on "not found", refresh it now so the page shows the VM as missing instead of a stale one.
+  const fetchFw = useCallback(() => fetchVMFirewall(name).catch((e) => { if (e.status === 404) refreshAll?.(); throw e; }), [name, refreshAll]);
   const saveFw = useCallback((c) => setVMFirewall(name, c), [name]);
   if (!vm) return null;
   const ifaces = info?.interfaces || [];
