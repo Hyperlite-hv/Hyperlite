@@ -572,6 +572,13 @@ export async function fetchVMLimits(name) {
 export async function setVMLimits(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/limits`, { method: "PUT", ...jsonBody(payload) });
 }
+// CPU pinning and NUMA placement (GET/PUT /vms/{name}/cpu-pinning), with the host topology.
+export async function fetchVMCpuPinning(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cpu-pinning`);
+}
+export async function setVMCpuPinning(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cpu-pinning`, { method: "PUT", ...jsonBody(payload) });
+}
 export async function fetchVMMetrics(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
 }
