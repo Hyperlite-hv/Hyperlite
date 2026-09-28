@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core import zfs_storage
+from app.core import maintenance, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
@@ -167,6 +167,7 @@ def _pending_remote_isos(payload):
 
 @router.post("", status_code=201)
 def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
+    maintenance.refuse_if_in_maintenance("local", "VM creation")
     pending = _pending_remote_isos(payload)
     if not pending:
         return _create_vm(payload, user)

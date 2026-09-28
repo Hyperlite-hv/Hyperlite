@@ -3,11 +3,13 @@ app/core/cluster.py."""
 
 import logging
 import re
+import threading
 
+import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cluster_compat
+from app.core import cluster_compat, maintenance
 from app.core.audit import log_action
 from app.core.cluster import get_cluster_pubkey, node_summary, register_node, remove_node, test_node_connection
 from app.core.database import get_conn
@@ -16,6 +18,8 @@ from app.core.host_capabilities import get_remote_capabilities
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import get_node_live
 from app.core.security import get_current_user, require_role
+from app.core.tasks import create_task, finish_task, task_status, update_task_progress
+from app.routers.vms.migration import _migrate_vm_job
 
 logger = logging.getLogger(__name__)
 
@@ -190,4 +194,148 @@ def delete_node(name: str, user: dict = Depends(require_role("admin"))):
     if not node:
         raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
     remove_node(name, user["username"])
+    maintenance.leave(name)
     return {"message": f"Node '{name}' removed"}
+
+
+# --- Maintenance mode (see app/core/maintenance.py). {name} is "local" for the host running Hyperlite.
+
+# Nodes being drained right now: a second drain of the same node would migrate the same VMs twice.
+_draining = set()
+_draining_lock = threading.Lock()
+
+
+class MaintenanceRequest(BaseModel):
+    # Where the running VMs go; None = only mark the node, every VM stays where it is.
+    target_node: str | None = None
+
+
+def _checked_pair(name, target_node):
+    source = maintenance.label(name)
+    maintenance.check_node_exists(source)
+    target = None
+    if target_node is not None:
+        target = maintenance.label(target_node)
+        maintenance.check_node_exists(target)
+        if target == source:
+            raise HTTPException(status_code=422, detail="The target node must be different from the node to drain")
+        maintenance.refuse_if_in_maintenance(target, "Draining to this node")
+    return source, target
+
+
+def _plan(source, target):
+    """The drain plan, or a 502 when a node cannot be reached."""
+    try:
+        src_conn = open_conn(maintenance.conn_key(source))
+    except libvirt.libvirtError as e:
+        raise HTTPException(status_code=502, detail=f"Node '{source}' unreachable: {describe_exception(e)}") from e
+    dst_conn = None
+    try:
+        if target is not None:
+            try:
+                dst_conn = open_conn(maintenance.conn_key(target))
+            except libvirt.libvirtError as e:
+                raise HTTPException(
+                    status_code=502, detail=f"Node '{target}' unreachable: {describe_exception(e)}"
+                ) from e
+        return maintenance.plan(src_conn, dst_conn, target)
+    finally:
+        src_conn.close()
+        if dst_conn:
+            dst_conn.close()
+
+
+@router.get("/maintenance")
+def list_maintenance(user: dict = Depends(get_current_user)):
+    return maintenance.list_all()
+
+
+@router.get("/{name}/drain-plan")
+def get_drain_plan(name: str, target_node: str | None = None, user: dict = Depends(require_role("admin"))):
+    """What draining would do, without doing it: shown to the admin before confirming."""
+    source, target = _checked_pair(name, target_node)
+    return _plan(source, target)
+
+
+def _run_in_background(target, *args):
+    threading.Thread(target=target, args=args, daemon=True).start()
+
+
+def _drain_job(parent_id, username, source, target, names):
+    failed, not_started = [], []
+    try:
+        for i, vm_name in enumerate(names):
+            if not maintenance.get(source):
+                # The admin ended the maintenance: stop moving VMs away.
+                not_started = names[i:]
+                break
+            task_id = create_task("migrate_vm", vm_name, node=source, username=username)
+            _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
+            if task_status(task_id) != "termine":
+                failed.append(vm_name)
+            update_task_progress(parent_id, int((i + 1) * 100 / len(names)))
+    except Exception as e:
+        logger.exception("Drain of %s stopped", source)
+        failed.append(f"internal error: {e}")
+    finally:
+        with _draining_lock:
+            _draining.discard(source)
+    moved = len(names) - len(failed) - len(not_started)
+    summary = f"{moved}/{len(names)} VM(s) migrated to {target}"
+    if failed:
+        summary += f"; failed: {', '.join(failed)}"
+    if not_started:
+        summary += f"; not started (maintenance ended): {', '.join(not_started)}"
+    ok = not failed and not not_started
+    finish_task(parent_id, "termine" if ok else "echec", None if ok else summary)
+    log_action(username, "drain_node", source, "succes" if ok else "echec", summary)
+
+
+@router.post("/{name}/maintenance", status_code=202)
+def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depends(require_role("admin"))):
+    """Put a node in maintenance, then live-migrate its running VMs to `target_node`, one after another."""
+    source, target = _checked_pair(name, payload.target_node)
+    # Reserved under the lock, planned outside it: the plan talks to both nodes and can take seconds.
+    with _draining_lock:
+        if source in _draining:
+            raise HTTPException(status_code=409, detail=f"Node '{source}' is already being drained")
+        _draining.add(source)
+    task_id = None
+    try:
+        # Marked before the plan: from now on no VM can be created on it or sent to it.
+        maintenance.enter(source, user["username"])
+        try:
+            result = _plan(source, target)
+        except HTTPException as e:
+            # A node that is down is still worth marking: it must not become a migration or HA target.
+            log_action(user["username"], "enter_maintenance", source, "succes", "node unreachable, nothing migrated")
+            raise HTTPException(
+                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, but no VM was migrated"
+            ) from e
+        if result["migrables"]:
+            task_id = create_task("drain_node", source, node=source, username=user["username"])
+    finally:
+        if task_id is None:
+            # Nothing to drain (or it failed before starting): release the reservation; the drain job does it
+            # otherwise.
+            with _draining_lock:
+                _draining.discard(source)
+    log_action(
+        user["username"],
+        "enter_maintenance",
+        source,
+        "succes",
+        f"target {target or 'none'}; to migrate: {len(result['migrables'])}; staying: {len(result['non_migrables'])}",
+    )
+    if task_id:
+        _run_in_background(_drain_job, task_id, user["username"], source, target, result["migrables"])
+    return {"node": source, "en_maintenance": True, "task_id": task_id, **result}
+
+
+@router.delete("/{name}/maintenance")
+def leave_maintenance(name: str, user: dict = Depends(require_role("admin"))):
+    source = maintenance.label(name)
+    if not maintenance.leave(source):
+        raise HTTPException(status_code=404, detail=f"Node '{source}' is not in maintenance")
+    log_action(user["username"], "leave_maintenance", source, "succes")
+    return {"node": source, "en_maintenance": False}

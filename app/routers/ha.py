@@ -5,7 +5,7 @@ triggered by an admin and never automatic)."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import ha
+from app.core import ha, maintenance
 from app.core.database import get_conn
 from app.core.security import get_current_user, require_role
 
@@ -52,6 +52,7 @@ class RecoverRequest(BaseModel):
 
 @router.post("/{vm_name}/recover", status_code=202)
 def recover(vm_name: str, payload: RecoverRequest, user: dict = Depends(require_role("admin"))):
+    maintenance.refuse_if_in_maintenance(payload.target_node, "HA recovery")
     try:
         ha.recover(vm_name, payload.target_node, user["username"])
     except RuntimeError as e:
