@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SecurityKeysSection from "../next/components/SecurityKeysSection";
 
 // Self-service panel opened from the user menu (Header.jsx), not a Datacenter
 // tab: these are settings of the signed-in ACCOUNT, not of the managed
@@ -202,6 +203,8 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
             </form>
           )}
         </section>
+
+        <SecurityKeysSection open={open} />
 
         {/* --- Jetons API --- */}
         <section className="space-y-3 border-t border-border pt-4">

@@ -98,6 +98,33 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(cible, tier, ts)")
 
+        # ---- Security keys and passkeys (WebAuthn, see app/core/webauthn_keys.py) ----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS webauthn_credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                nom TEXT NOT NULL,
+                credential_id TEXT NOT NULL UNIQUE,
+                public_key TEXT NOT NULL,
+                sign_count INTEGER NOT NULL DEFAULT 0,
+                rp_id TEXT NOT NULL,
+                cree_le TEXT NOT NULL,
+                utilise_le TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials(username, rp_id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS webauthn_challenges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                but TEXT NOT NULL,
+                challenge TEXT NOT NULL,
+                rp_id TEXT NOT NULL,
+                origin TEXT NOT NULL,
+                expire_le TEXT NOT NULL
+            )
+        """)
+
         # ---- Native backups ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS backup_jobs (

@@ -117,7 +117,7 @@ export const useAuthStore = create((set, get) => ({
     // opened right away, the intermediate token is returned to the caller
     // (LoginScreen), which shows the code entry step and then calls loginWith2FA.
     if (data.require_2fa) {
-      return { require2FA: true, preAuthToken: data.pre_auth_token };
+      return { require2FA: true, preAuthToken: data.pre_auth_token, methods: data.methods || ["totp"] };
     }
     applySession(set, data.access_token, username, data.role, false, !!data.password_change_required);
     return { require2FA: false };
@@ -138,6 +138,27 @@ export const useAuthStore = create((set, get) => ({
       throw new Error(msg);
     }
     applySession(set, data.access_token, username, data.role, true, !!data.password_change_required);
+  },
+
+  // Second step with a security key: the challenge for this sign-in, the browser's WebAuthn prompt, then the answer.
+  async loginWithSecurityKey(preAuthToken, username, getAssertion) {
+    set({ error: null });
+    const post = async (url, payload) => {
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      let data = null;
+      try { data = await res.json(); } catch { /* no body */ }
+      if (!res.ok) throw new Error((data && data.detail) || "Security key refused");
+      return data;
+    };
+    try {
+      const options = await post("/auth/login/webauthn/options", { pre_auth_token: preAuthToken });
+      const credential = await getAssertion(options);
+      const data = await post("/auth/login/webauthn", { pre_auth_token: preAuthToken, credential });
+      applySession(set, data.access_token, username, data.role, true, !!data.password_change_required);
+    } catch (err) {
+      set({ error: err.message });
+      throw err;
+    }
   },
 
   logout() {
