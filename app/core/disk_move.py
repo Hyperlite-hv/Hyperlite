@@ -42,10 +42,11 @@ class MoveError(Exception):
 
 
 def _file_pool(conn, pool_name):
-    try:
-        pool = conn.storagePoolLookupByName(pool_name)
-    except libvirt.libvirtError:
-        raise MoveError(f"Storage pool '{pool_name}' not found", 404) from None
+    # Picked from the pools libvirt lists, the requested name only compared: nothing the user typed is handed to
+    # libvirt, and the pool XML parsed below always comes from a pool that already exists.
+    pool = next((p for p in conn.listAllStoragePools(0) if p.name() == pool_name), None)
+    if pool is None:
+        raise MoveError(f"Storage pool '{pool_name}' not found", 404)
     kind, target = pool_type_and_target_path(pool)
     if kind not in FILE_POOL_TYPES or not target:
         raise MoveError(
