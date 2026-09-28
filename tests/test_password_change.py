@@ -115,6 +115,20 @@ def test_change_my_password_signs_out_other_sessions_and_keeps_this_one(client, 
     assert _login(client, "frank", GOOD).status_code == 200
 
 
+@pytest.mark.parametrize(("remember", "days"), [(True, 7), (False, 0)])
+def test_change_my_password_keeps_stay_signed_in(client, make_user, remember, days):
+    import jwt
+
+    make_user(f"kim{days}", "observateur", OLD)
+    data = {"username": f"kim{days}", "password": OLD}
+    if remember:
+        data["remember"] = "true"
+    session = _bearer(client.post("/auth/login", data=data).json()["access_token"])
+    changed = client.post("/auth/me/password", headers=session, json={"current_password": OLD, "new_password": GOOD})
+    claims = jwt.decode(changed.json()["access_token"], options={"verify_signature": False})
+    assert (claims["exp"] - claims["iat"]) // 86400 == days
+
+
 def test_change_my_password_checks_the_current_one_and_locks_out(client, make_user):
     make_user("gina", "observateur", OLD)
     session = _bearer(_login(client, "gina", OLD).json()["access_token"])

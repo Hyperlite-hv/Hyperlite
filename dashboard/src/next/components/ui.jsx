@@ -1,36 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { Info, X } from "lucide-react";
-import { useT, useLangStore } from "../i18n";
-import { useFreshness } from "../lib/inventory";
+import { useT } from "../i18n";
 import { stateInfo } from "../lib/enums";
 
 // Shared building blocks of the redesigned screens: page header, KPI strip, meter, pill, sparkline, empty
 // state, side drawer. Every colour comes from the tokens; status is always a shape plus a word.
 
 export const toneOf = (pct) => (pct == null ? "info" : pct >= 90 ? "danger" : pct >= 80 ? "warning" : "info");
-
-const nowMs = () => Date.now();
-
-// "Up to date · 4 s ago" for pages that poll, instead of a Refresh button.
-export function Freshness({ at }) {
-  const t = useT();
-  const lang = useLangStore((s) => s.lang);
-  const { updatedAt, failing } = useFreshness(useShallow((s) => ({ updatedAt: s.updatedAt, failing: s.failing })));
-  const [now, setNow] = useState(nowMs);
-  useEffect(() => { const id = setInterval(() => setNow(nowMs()), 1000); return () => clearInterval(id); }, []);
-  const stamp = at ?? updatedAt;
-  if (!stamp) return null;
-  const s = Math.max(0, Math.round((now - stamp) / 1000));
-  const stale = at ? false : failing;
-  const ago = s < 60 ? t("fresh.s", { n: s }) : t("fresh.min", { n: new Intl.NumberFormat(lang).format(Math.floor(s / 60)) });
-  return (
-    <span className={`nx-fresh-ind${stale ? " is-stale" : ""}`}>
-      <span className="nx-dot" data-tone={stale ? "warning" : "success"} aria-hidden="true" />
-      {stale ? t("fresh.stale", { ago }) : t("fresh.ok", { ago })}
-    </span>
-  );
-}
 
 // Page header: the h1 (with the object count beside it), a one-line description or an (i) help, and the
 // page's actions (at most one primary). Card titles never repeat it.
@@ -69,7 +45,7 @@ export function Loading({ style }) {
   );
 }
 
-export function PageHeader({ title, count, desc, help, actions, fresh = false, freshAt, level = 1 }) {
+export function PageHeader({ title, count, desc, help, actions, level = 1 }) {
   const t = useT();
   const H = `h${level}`;
   return (
@@ -82,7 +58,7 @@ export function PageHeader({ title, count, desc, help, actions, fresh = false, f
         </div>
         {desc && <p className="nx-ph-desc">{desc}</p>}
       </div>
-      {(actions || fresh) && <div className="nx-ph-acts">{fresh && <Freshness at={freshAt} />}{actions}</div>}
+      {actions && <div className="nx-ph-acts">{actions}</div>}
     </div>
   );
 }

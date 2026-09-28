@@ -1,6 +1,5 @@
 import re
 import sqlite3
-import time
 from datetime import UTC, datetime
 
 import jwt
@@ -9,6 +8,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jwt import PyJWTError
 from pydantic import BaseModel
 
+from app.core import login_guard
 from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.database import get_conn
@@ -20,11 +20,16 @@ from app.core.security import (
     authenticate_user,
     create_access_token,
     create_preauth_token,
+    flag_weak_password,
     get_current_user,
+    get_current_user_pending_ok,
     get_session_user,
+    get_session_user_pending_ok,
     get_user,
     hash_password,
+    oauth2_scheme,
     require_role,
+    session_remembered,
     set_password,
     verify_password,
 )
@@ -34,36 +39,31 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
-# --- Brute-force protection on /auth/login. The endpoint used to have NO attempt
-# limit, so a password could be guessed with unlimited tries. Kept in memory (not
-# in the database): enough to slow down a brute-force attack in practice, but it
-# resets at every service restart, a known limitation documented rather than
-# hidden. A persistent version (a SQLite table) would be the next step if this
-# proves insufficient in real use.
+# --- Brute-force protection on every check of a password or a 2FA code (sign-in, 2FA step, password
+# change, 2FA removal). Failures are stored in the database (app/core/login_guard.py), so a service
+# restart does not reset the lock.
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_WINDOW_S = 300  # sliding window over which failures count
-_login_failures = {}  # username -> [timestamps of recent failures]
 
 # Rate limiting PER IP. The per-ACCOUNT lock above does not protect against an
 # attacker who tries many different USERNAMES from the same source (the account
 # lock never triggers if each account is tried only once or twice). A wider
 # per-IP lock (more attempts tolerated, since one IP can legitimately carry
-# several users behind a NAT or proxy) covers that distinct case. Same in-memory
-# mechanism, same known limitation (reset at restart).
+# several users behind a NAT or proxy) covers that distinct case. Same storage.
 LOGIN_IP_MAX_ATTEMPTS = 20
 LOGIN_IP_WINDOW_S = 300
-_login_failures_by_ip = {}  # ip -> [timestamps of recent failures]
 
 
 def _login_locked_out(username):
-    now = time.time()
-    recent = [t for t in _login_failures.get(username, []) if now - t < LOGIN_WINDOW_S]
-    _login_failures[username] = recent
-    return len(recent) >= LOGIN_MAX_ATTEMPTS
+    return login_guard.recent_failures("user", username, LOGIN_WINDOW_S) >= LOGIN_MAX_ATTEMPTS
 
 
 def _login_record_failure(username):
-    _login_failures.setdefault(username, []).append(time.time())
+    login_guard.record_failure("user", username)
+
+
+def _login_clear_failures(username):
+    login_guard.clear_failures("user", username)
 
 
 def _client_ip(request: Request):
@@ -71,14 +71,11 @@ def _client_ip(request: Request):
 
 
 def _login_ip_locked_out(ip):
-    now = time.time()
-    recent = [t for t in _login_failures_by_ip.get(ip, []) if now - t < LOGIN_IP_WINDOW_S]
-    _login_failures_by_ip[ip] = recent
-    return len(recent) >= LOGIN_IP_MAX_ATTEMPTS
+    return login_guard.recent_failures("ip", ip, LOGIN_IP_WINDOW_S) >= LOGIN_IP_MAX_ATTEMPTS
 
 
 def _login_ip_record_failure(ip):
-    _login_failures_by_ip.setdefault(ip, []).append(time.time())
+    login_guard.record_failure("ip", ip)
 
 
 class UserCreate(BaseModel):
@@ -103,6 +100,7 @@ class TwoFAConfirm(BaseModel):
 
 class TwoFADisable(BaseModel):
     password: str
+    code: str | None = None  # current TOTP code, required when 2FA is on
 
 
 class TokenCreate(BaseModel):
@@ -113,6 +111,16 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str
     code: str | None = None  # TOTP code, required when the account has 2FA
+
+
+def _session_response(token, user):
+    """password_change_required: the dashboard shows the password change screen and nothing else."""
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user["role"],
+        "password_change_required": bool(user.get("must_change_password")),
+    }
 
 
 def _record_login(username):
@@ -148,20 +156,29 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
         _login_ip_record_failure(ip)
         log_action(form_data.username, "login", "auth", "echec", "Invalid credentials")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    _login_failures.pop(form_data.username, None)
+    # The only moment the plain password is known: one that no longer meets the policy (set before the policy
+    # existed) must be changed before anything else. Checked before the 2FA step so abandoning it changes nothing.
+    if user.get("auth_source", "local") == "local" and password_problem(form_data.password, user["username"]):
+        if not user.get("must_change_password"):
+            flag_weak_password(user["username"])
+            log_action(user["username"], "login", "auth", "succes", "Weak password: a change is required")
+        user["must_change_password"] = 1
 
     # Correct password but 2FA enabled: no full session token yet, only a 5-minute
     # intermediate token (see create_preauth_token) that the frontend exchanges for
-    # the real token through /auth/login/2fa after the TOTP code.
+    # the real token through /auth/login/2fa after the TOTP code. The account's
+    # failures are cleared only once the code is right too: clearing them here would
+    # let whoever knows the password guess the code without limit.
     if user["totp_enabled"]:
         pre_auth = create_preauth_token(user["username"], remember)
         log_action(user["username"], "login", "auth", "succes", "Password validated, 2FA code required")
         return {"require_2fa": True, "pre_auth_token": pre_auth}
 
+    _login_clear_failures(user["username"])
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=remember)
     _record_login(user["username"])
     log_action(user["username"], "login", "auth", "succes")
-    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+    return _session_response(token, user)
 
 
 @router.post("/login/2fa")
@@ -203,20 +220,21 @@ def login_2fa(request: Request, payload: Login2FA):
         log_action(username, "login", "auth", "echec", "Invalid 2FA code")
         raise HTTPException(status_code=401, detail="Invalid code")
 
-    _login_failures.pop(username, None)
+    _login_clear_failures(username)
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=bool(claims.get("remember")))
     _record_login(username)
     log_action(username, "login", "auth", "succes", "2FA validated")
-    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+    return _session_response(token, user)
 
 
 @router.get("/me")
-def me(user: dict = Depends(get_current_user)):
+def me(user: dict = Depends(get_current_user_pending_ok)):
     return {
         "username": user["username"],
         "role": user["role"],
         "totp_enabled": bool(user["totp_enabled"]),
         "auth_source": user.get("auth_source", "local"),
+        "password_change_required": bool(user.get("must_change_password")),
     }
 
 
@@ -227,7 +245,7 @@ def me(user: dict = Depends(get_current_user)):
 # confirmed (e.g. the user closes the tab while scanning the QR code) blocks no
 # one at the next login.
 @router.post("/2fa/setup")
-def setup_2fa(user: dict = Depends(get_current_user)):
+def setup_2fa(user: dict = Depends(get_session_user)):
     if user["totp_enabled"]:
         raise HTTPException(status_code=400, detail="2FA is already enabled: disable it before generating a new one")
     secret = generate_secret()
@@ -239,7 +257,7 @@ def setup_2fa(user: dict = Depends(get_current_user)):
 
 
 @router.post("/2fa/confirm")
-def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_current_user)):
+def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_session_user)):
     fresh = get_user(user["username"])
     if not fresh["totp_secret"]:
         raise HTTPException(status_code=400, detail="No pending 2FA setup: run /auth/2fa/setup first")
@@ -255,9 +273,30 @@ def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_current_user)):
 
 
 @router.post("/2fa/disable")
-def disable_2fa(payload: TwoFADisable, user: dict = Depends(get_current_user)):
+def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(get_session_user)):
+    """Removing 2FA takes the password AND a current code, from a signed-in session (never an API token):
+    a session left open, or a leaked password, is not enough to strip the second factor. Wrong attempts
+    count towards the same lock as the sign-in form."""
+    username = user["username"]
+    ip = _client_ip(request)
+    if _login_ip_locked_out(ip) or _login_locked_out(username):
+        log_action(username, "disable_2fa", username, "echec", "Locked out after repeated failures")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed attempts, try again in {LOGIN_WINDOW_S // 60} minutes",
+        )
+    # 400, not 401, for a wrong password or code: the session itself is valid (a 401 signs the dashboard out).
     if not verify_password(payload.password, user["hashed_password"]):
+        _login_record_failure(username)
+        _login_ip_record_failure(ip)
+        log_action(username, "disable_2fa", username, "echec", "Incorrect password")
         raise HTTPException(status_code=400, detail="Incorrect password")
+    if user["totp_enabled"] and not verify_code(user["totp_secret"], payload.code or ""):
+        _login_record_failure(username)
+        _login_ip_record_failure(ip)
+        log_action(username, "disable_2fa", username, "echec", "Invalid 2FA code")
+        raise HTTPException(status_code=400, detail="Invalid 2FA code")
+    _login_clear_failures(username)
     with get_conn() as conn:
         conn.execute("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE username = ?", (user["username"],))
         conn.commit()
@@ -295,11 +334,17 @@ def delete_api_token(token_id: int, user: dict = Depends(get_current_user)):
 
 
 @router.post("/me/password")
-def change_my_password(request: Request, payload: PasswordChange, user: dict = Depends(get_session_user)):
+def change_my_password(
+    request: Request,
+    payload: PasswordChange,
+    user: dict = Depends(get_session_user_pending_ok),
+    token: str = Depends(oauth2_scheme),
+):
     """Any signed-in user changes their own password. It takes the current password (and the 2FA code when
     2FA is on), so a session left open is not enough to take the account over; wrong attempts count towards
     the same lock as the sign-in form. Every other session of the account is signed out; the one making the
-    change gets a fresh token. Never with an API token (get_session_user)."""
+    change gets a fresh token, with the same lifetime ("Stay signed in" is kept). Never with an API token
+    (get_session_user)."""
     username = user["username"]
     ip = _client_ip(request)
     if _login_ip_locked_out(ip) or _login_locked_out(username):
@@ -329,10 +374,10 @@ def change_my_password(request: Request, payload: PasswordChange, user: dict = D
     with get_conn() as conn:
         set_password(conn, username, payload.new_password)
         conn.commit()
-    _login_failures.pop(username, None)
+    _login_clear_failures(username)
     log_action(username, "change_password", username, "succes", "Other sessions signed out")
-    token = create_access_token({"sub": username, "role": user["role"]})
-    return {"access_token": token, "token_type": "bearer", "role": user["role"]}
+    fresh = create_access_token({"sub": username, "role": user["role"]}, remember=session_remembered(token))
+    return {"access_token": fresh, "token_type": "bearer", "role": user["role"]}
 
 
 @router.get("/users")

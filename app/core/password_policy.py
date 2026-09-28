@@ -11,8 +11,6 @@ letters around them. bcrypt ignores everything past 72 bytes, so a longer passwo
 silently cut (app/core/passwords.py).
 """
 
-import re
-
 MIN_LENGTH = 12
 MAX_BYTES = 72
 MIN_DISTINCT = 5
@@ -87,8 +85,14 @@ def _is_sequence(low: str) -> bool:
 def _base_word(low: str) -> str:
     """The word left once the digits and symbols around it are removed and look-alike letters undone:
     "P@ssw0rd2024!" -> "password", "Azerty123!" -> "azerty"."""
-    core = re.sub(r"^[\W\d_]+|[\W\d_]+$", "", low)
-    return core.translate(_LOOKALIKE)
+    # A plain scan rather than a regular expression: a trailing-run pattern such as [\W\d_]+$ backtracks
+    # quadratically on long runs of digits (CodeQL py/polynomial-redos).
+    start, end = 0, len(low)
+    while start < end and not low[start].isalpha():
+        start += 1
+    while end > start and not low[end - 1].isalpha():
+        end -= 1
+    return low[start:end].translate(_LOOKALIKE)
 
 
 def password_problem(password: str, username: str | None = None) -> str | None:

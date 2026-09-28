@@ -18,10 +18,9 @@ export default function ExportsPage() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
-  const [at, setAt] = useState(null);
 
   const load = useCallback(async () => {
-    try { const r = await fetchVmExports(); setRows(Array.isArray(r) ? r : []); setError(null); setAt(Date.now()); }
+    try { const r = await fetchVmExports(); setRows(Array.isArray(r) ? r : []); setError(null); }
     catch (e) { setError(errorMessage(e)); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -37,7 +36,7 @@ export default function ExportsPage() {
 
   return (
     <>
-      <PageHeader title={t("tab.exports")} count={rows ? rows.length : null} desc={t("ex.desc")} fresh freshAt={at} />
+      <PageHeader title={t("tab.exports")} count={rows ? rows.length : null} desc={t("ex.desc")} />
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
           : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
