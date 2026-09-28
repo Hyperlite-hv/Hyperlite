@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import zfs_storage
+from app.core import iscsi, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, open_conn
@@ -58,6 +58,15 @@ def _pool_path(pool):
 
 def _pool_summary(pool):
     state, capacity, allocation, available = pool.info()
+    if _pool_type(pool) == "iscsi":
+        # libvirt counts every LUN as fully allocated, so an iSCSI pool always looked 100 % full. What matters is
+        # how much of it VMs already use: a LUN is taken whole or not at all.
+        try:
+            in_use = get_disk_paths_in_use(pool.connect())
+            allocation = sum(v.info()[1] for v in pool.listAllVolumes() if v.path() in in_use)
+            available = capacity - allocation
+        except libvirt.libvirtError:
+            pass
     return {
         "chemin": _pool_path(pool),
         "nom": pool.name(),
@@ -108,11 +117,18 @@ class PoolCreate(BaseModel):
     # "zfs": a ZFS pool managed outside libvirt (see app/core/zfs_storage.py), backed
     # for now by a loopback file (`size_gb`) rather than a dedicated disk, so the
     # mechanism can be validated without touching a node's existing LVM.
-    type: str = Field(pattern="^(dir|netfs|zfs)$")
+    # "iscsi": a target on a NAS or storage array (see app/core/iscsi.py); its LUNs, created on the storage side,
+    # become VM disks.
+    type: str = Field(pattern="^(dir|netfs|zfs|iscsi)$")
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
     nfs_host: str | None = None  # "netfs" pool: NFS server host
     nfs_export_path: str | None = None  # pool "netfs" : chemin exporte cote serveur
     size_gb: int | None = Field(None, ge=1)  # "zfs" pool: size of the loopback file
+    iscsi_host: str | None = None  # "iscsi" pool: portal address of the storage server
+    iscsi_port: int = Field(iscsi.DEFAULT_PORT, ge=1, le=65535)
+    iscsi_target: str | None = None  # "iscsi" pool: target name (IQN)
+    chap_user: str | None = None  # "iscsi" pool: CHAP credentials, when the target requires them
+    chap_password: str | None = Field(None, max_length=255)
 
 
 def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
@@ -122,6 +138,16 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
     not be repeated here."""
     pool_el = ET.Element("pool", type=payload.type)
     ET.SubElement(pool_el, "name").text = payload.name
+    if payload.type == "iscsi":
+        source_el = ET.SubElement(pool_el, "source")
+        ET.SubElement(source_el, "host", name=payload.iscsi_host, port=str(payload.iscsi_port))
+        ET.SubElement(source_el, "device", path=payload.iscsi_target)
+        if payload.chap_user:
+            auth_el = ET.SubElement(source_el, "auth", type="chap", username=payload.chap_user)
+            ET.SubElement(auth_el, "secret", usage=iscsi.secret_usage(payload.name))
+        target_el = ET.SubElement(pool_el, "target")
+        ET.SubElement(target_el, "path").text = iscsi.BY_PATH
+        return ET.tostring(pool_el, encoding="unicode")
     if payload.type == "netfs":
         source_el = ET.SubElement(pool_el, "source")
         ET.SubElement(source_el, "host", name=payload.nfs_host)
@@ -181,6 +207,9 @@ def storage_support(user: dict = Depends(get_current_user)):
     return {
         "nfs": "ok" if shutil.which("mount.nfs") else "no_client",
         "zfs": zfs_storage.status(),
+        "iscsi": "ok" if iscsi.initiator_available() else "no_initiator",
+        # The storage side must allow this name (ACL) before it shows any LUN.
+        "iscsi_initiator": iscsi.initiator_name(),
     }
 
 
@@ -221,6 +250,24 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
                 status_code=422,
                 detail="Invalid pool path (must be an absolute path, without spaces or special characters)",
             )
+    elif payload.type == "iscsi":
+        if not payload.iscsi_host or not payload.iscsi_target:
+            raise HTTPException(status_code=422, detail="iscsi_host and iscsi_target are required for an iSCSI pool")
+        if not NFS_HOST_RE.match(payload.iscsi_host):
+            raise HTTPException(status_code=422, detail="Invalid iSCSI portal address")
+        if not iscsi.IQN_RE.match(payload.iscsi_target):
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid iSCSI target name (expected an IQN such as iqn.2005-10.org.freenas.ctl:vms)",
+            )
+        if payload.chap_user and (not iscsi.CHAP_USER_RE.match(payload.chap_user) or not payload.chap_password):
+            raise HTTPException(status_code=422, detail="CHAP needs a valid user name and a password")
+        # libvirt drives open-iscsi: without it the error ("iscsiadm: not found") hides the real cause.
+        if not node and not iscsi.initiator_available():
+            raise HTTPException(
+                status_code=422, detail="The iSCSI initiator is not installed on this host (open-iscsi package)"
+            )
+        target_path = iscsi.BY_PATH
     else:
         if not payload.nfs_host or not payload.nfs_export_path:
             raise HTTPException(status_code=422, detail="nfs_host and nfs_export_path are required for an NFS pool")
@@ -250,11 +297,18 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
 
         pool_xml = _build_pool_xml(payload, target_path)
         try:
+            if payload.type == "iscsi" and payload.chap_user:
+                # The CHAP password lives in a libvirt secret (private: never read back through the API), not in
+                # the pool XML nor in Hyperlite's database.
+                secret = conn.secretDefineXML(iscsi.secret_xml(payload.name))
+                secret.setValue(payload.chap_password.encode())
             pool = conn.storagePoolDefineXML(pool_xml)
             # build() creates the local directory ("dir") or the mount point ("netfs"),
             # needed before create() on a brand new pool. flags=0: no destructive reformatting
-            # of an existing medium.
-            pool.build(0)
+            # of an existing medium. An iSCSI pool has nothing to build (the LUNs exist on the
+            # storage side).
+            if payload.type != "iscsi":
+                pool.build(0)
             pool.create(0)
             pool.setAutostart(True)
         except libvirt.libvirtError as e:
@@ -265,12 +319,41 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
             # and would block a new attempt with the same name.
             with contextlib.suppress(libvirt.libvirtError):
                 conn.storagePoolLookupByName(payload.name).undefine()
+            if payload.type == "iscsi":
+                _delete_chap_secret(conn, payload.name)
+                # libvirt only relays iscsiadm's command line: say what to check first.
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Could not log in to the iSCSI target: check the portal address and port, the target name, "
+                        "that this host's initiator name is allowed on the storage side, and the CHAP credentials. "
+                        f"Detail: {msg}"
+                    ),
+                ) from e
             raise HTTPException(status_code=500, detail=f"Pool creation error: {msg}") from e
 
         log_action(user["username"], "create_storage_pool", payload.name, "succes")
         return _pool_summary(pool)
     finally:
         conn.close()
+
+
+def _delete_chap_secret(conn, pool_name):
+    with contextlib.suppress(libvirt.libvirtError):
+        conn.secretLookupByUsage(libvirt.VIR_SECRET_USAGE_TYPE_ISCSI, iscsi.secret_usage(pool_name)).undefine()
+
+
+def _vms_using_paths(conn, paths):
+    """Names of the VMs that have one of these exact device paths as a disk (the LUNs of an iSCSI pool)."""
+    names = []
+    for dom in conn.listAllDomains():
+        try:
+            xml = ET.fromstring(dom.XMLDesc(0))
+        except libvirt.libvirtError:
+            continue
+        if any((src.get("dev") or src.get("file")) in paths for src in xml.findall("devices/disk/source")):
+            names.append(dom.name())
+    return names
 
 
 def _vms_using_path(conn, target):
@@ -326,6 +409,18 @@ def delete_pool(
 
         pool.refresh(0)
         volumes = pool.listAllVolumes()
+        pool_root = ET.fromstring(pool.XMLDesc(0))
+        if pool_root.get("type") == "iscsi":
+            # Removing an iSCSI pool only logs out of the target: the LUNs and their data stay on the storage
+            # side. Refused while a VM still uses one of them.
+            in_use = _vms_using_paths(conn, {v.path() for v in volumes})
+            if in_use:
+                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "LUNs used by VMs")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"VMs use LUNs of this pool ({', '.join(in_use)}): delete them first",
+                )
+            volumes = []
         if volumes:
             # `detacher` only removes the libvirt pool DEFINITION (destroy + undefine), NEVER
             # the files: for a dir/netfs pool that is not destructive. A real case: a dir pool
@@ -351,9 +446,11 @@ def delete_pool(
         try:
             if pool.isActive():
                 # netfs: unmounts the export. dir: does not touch the content of the directory
-                # (already checked empty above).
+                # (already checked empty above). iscsi: logs out of the target.
                 pool.destroy()
             pool.undefine()
+            if pool_root.get("type") == "iscsi":
+                _delete_chap_secret(conn, pool_name)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_storage_pool", pool_name, "echec", msg)
@@ -431,6 +528,10 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         except libvirt.libvirtError:
             log_action(user["username"], "create_volume", payload.name, "echec", "Pool not found")
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
+        if _pool_type(pool) == "iscsi":
+            raise HTTPException(
+                status_code=422, detail="An iSCSI pool's LUNs are created and resized on the storage server, not here"
+            )
 
         base_name = payload.name[: -len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
         name_error = validate_name(base_name)
@@ -505,6 +606,10 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
             pool = conn.storagePoolLookupByName(pool_name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
+        if _pool_type(pool) == "iscsi":
+            raise HTTPException(
+                status_code=422, detail="An iSCSI pool's LUNs are deleted on the storage server, not here"
+            )
         try:
             vol = pool.storageVolLookupByName(volume_name)
         except libvirt.libvirtError:

@@ -4,93 +4,10 @@ Remote nodes are simulated: ssh and scp are replaced by fakes backed by one dire
 the orchestration (validation, temporary name then rename, tasks, errors) without any real host.
 """
 
-import shutil
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
-
-@pytest.fixture()
-def cluster(database, tmp_path, monkeypatch):
-    from app.core import iso_share
-    from app.routers import isos
-
-    local = tmp_path / "local"
-    local.mkdir()
-    monkeypatch.setattr(isos, "ISOS_DIR", local)
-    roots = {}
-
-    def add_node(name, hostname, reachable=True, library=True):
-        root = tmp_path / name
-        root.mkdir()
-        if library:
-            (root / "isos").mkdir()
-        roots[hostname] = {"root": root, "reachable": reachable, "library": library}
-        with database.get_conn() as conn:
-            conn.execute(
-                "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, added_at) VALUES (?, ?, 'root', 22, 'en_ligne', ?)",
-                (name, hostname, datetime.now(UTC).isoformat()),
-            )
-            conn.commit()
-        return root / "isos"
-
-    def remote_path(host, path):
-        # Every node keeps its library at the same absolute path as the local one.
-        return roots[host]["root"] / "isos" / Path(path).name
-
-    class Result:
-        def __init__(self, code=0, out="", err=""):
-            self.returncode, self.stdout, self.stderr = code, out, err
-
-    def fake_ssh(node, command, timeout):
-        host = roots[node["hostname"]]
-        if not host["reachable"]:
-            return Result(255, err="ssh: connect to host: Connection timed out")
-        verb = command[0]
-        if verb == "find":
-            if not host["library"]:
-                return Result(1, err=f"find: '{command[1]}': No such file or directory")
-            lines = [
-                f"{p.name}\t{p.stat().st_size}\t{p.stat().st_mtime}"
-                for p in sorted((host["root"] / "isos").glob("*.iso"))
-            ]
-            return Result(0, "\n".join(lines) + ("\n" if lines else ""))
-        if verb == "stat":
-            p = remote_path(node["hostname"], command[-1])
-            return Result(0, f"{p.stat().st_size}\n") if p.exists() else Result(1, err="No such file")
-        if verb == "mkdir":
-            (host["root"] / "isos").mkdir(exist_ok=True)
-            return Result()
-        if verb == "mv":
-            remote_path(node["hostname"], command[-2]).replace(remote_path(node["hostname"], command[-1]))
-            return Result()
-        if verb == "rm":
-            remote_path(node["hostname"], command[-1]).unlink(missing_ok=True)
-            return Result()
-        raise AssertionError(f"unexpected remote command {command}")
-
-    scp_calls = []
-
-    def fake_scp(args, timeout=None):
-        src, dst = args[-2], args[-1]
-        scp_calls.append((src, dst))
-
-        def resolve(spec):
-            if "@" in spec and ":" in spec:
-                host, path = spec.split("@", 1)[1].split(":", 1)
-                if not roots[host]["reachable"]:
-                    raise RuntimeError("Connection timed out")
-                return remote_path(host, path)
-            return Path(spec)
-
-        shutil.copyfile(resolve(src), resolve(dst))
-
-    monkeypatch.setattr(iso_share, "_ssh", fake_ssh)
-    monkeypatch.setattr(iso_share, "_scp", fake_scp)
-    monkeypatch.setattr(iso_share, "PROGRESS_EVERY_S", 0.01)
-    return {"local": local, "add_node": add_node, "scp_calls": scp_calls}
 
 
 def _wait_tasks(database, task_ids, timeout=5):
