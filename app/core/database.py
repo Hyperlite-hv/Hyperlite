@@ -336,6 +336,31 @@ def init_db():
                 last_synced_at TEXT
             )
         """)
+        # HA dry run (app/core/ha_watch.py): the watcher's view of each protected VM, and what automatic HA would
+        # have done when its node failed.
+        for ddl in (
+            "ALTER TABLE ha_protected_vms ADD COLUMN etat_ha TEXT",
+            "ALTER TABLE ha_protected_vms ADD COLUMN derniere_action TEXT",
+            "ALTER TABLE ha_protected_vms ADD COLUMN derniere_action_le TEXT",
+        ):
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+                conn.execute(ddl)
+        # Fencing settings per node ("local" or a registered node name), see app/core/ha_fencing.py. The password
+        # is Fernet-encrypted and never returned by the API.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS node_fencing (
+                node TEXT PRIMARY KEY,
+                methode TEXT NOT NULL CHECK(methode IN ('ipmi', 'redfish', 'amt', 'lease_only')),
+                adresse TEXT,
+                port INTEGER,
+                utilisateur TEXT,
+                secret TEXT,
+                tls_non_verifie INTEGER NOT NULL DEFAULT 0,
+                modifie_par TEXT,
+                modifie_le TEXT
+            )
+        """)
+        conn.execute("CREATE TABLE IF NOT EXISTS ha_settings (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)")
         # Nodes in maintenance: "local" (the host running Hyperlite, not a row of `nodes`) or a registered node
         # name. No new VM lands on them and they are never a migration or HA recovery target.
         conn.execute("""
