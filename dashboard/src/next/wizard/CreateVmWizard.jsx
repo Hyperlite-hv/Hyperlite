@@ -195,6 +195,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`} aria-disabled={disabled || undefined} style={disabled ? { opacity: 0.55 } : undefined}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} disabled={disabled} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
   );
   const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
+  // What the guest will see as its first, second... disk; the libvirt name (sda) follows in grey for administrators.
+  const diskLabel = (i) => (i === 0 ? t("wz.diskSystem") : t("wz.diskN", { n: i + 1 }));
 
   const sourceNote = importMode ? t("wz.src.import") : !form.iso ? t("wz.src.cloud") : isWindowsInstall(form) ? t("wz.src.windows") : family === "kickstart" ? t("wz.src.kickstart") : family === "autoinstall" ? t("wz.src.autoinstall") : t("wz.src.manual");
 
@@ -203,7 +205,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     [1, t("wz.step.identity"), [[t("ct.name"), form.name || "—"], [t("sec.username"), needsAccount ? form.username : importMode ? t("wz.r.onDisk") : t("wz.r.duringInstall")]]],
     [2, t("wz.step.placement"), [[t("ns.node"), nodeName], [t("stor.pool"), form.storagePool || t("wz.r.defaultPool")]]],
     [3, t("wz.step.compute"), [["vCPU", form.vcpu], [t("ct.memory"), formatSizeMb(Number(form.memory_mb), lang)]]],
-    [4, t("wz.step.storage"), [[t("vh.disks"), form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} GB`)).join(" + ")], [t("wz.controller"), diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"]]],
+    [4, t("wz.step.storage"), [[t("vh.disks"), form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : formatSizeGb(Number(d.size_gb), lang))).join(" + ")], [t("wz.controller"), diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"]]],
     [5, t("wz.step.network"), [[t("vh.network"), form.network], [t("wz.adapter"), profile === "linux" ? "VirtIO" : "Intel E1000e"]]],
     [6, t("wz.step.advanced"), [[t("wz.firmware"), t(`fw.${vmFirmware(form, fwSupport)}`)], [t("wz.drivers"), form.driversIso || t("wz.none")], [t("wz.cleanup"), form.autoCleanupEnabled ? t("wz.r.cleanupDays", { n: form.autoCleanupDays }) : t("wz.off")]]],
   ];
@@ -321,7 +323,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 {luns == null ? <span className="nx-muted">{t("loading")}</span> : freeLuns.length === 0 ? <p className="nx-notice nx-notice--warning" role="note">{t("wz.noFreeLun")}</p> : null}
                 {luns != null && form.disks.map((d, i) => (
                   <div key={i} className="nx-inline">
-                    <span className="nx-mono" style={{ width: "2.5rem", alignSelf: "center" }}>sd{String.fromCharCode(97 + i)}</span>
+                    <span style={{ minWidth: "9rem", alignSelf: "center" }}>{diskLabel(i)} <span className="nx-mono nx-muted" title={t("wz.diskDev")}>sd{String.fromCharCode(97 + i)}</span></span>
                     <select className="nx-input" aria-label={t("wz.lunOf", { v: i + 1 })} value={d.lun || ""} onChange={(e) => patch({ disks: form.disks.map((x, k) => (k === i ? { ...x, lun: e.target.value } : x)) })} aria-invalid={attempted && errors.storage[`disk${i}`] ? true : undefined}>
                       <option value="">{t("wz.lunPick")}</option>
                       {freeLuns.filter((l) => l.nom === d.lun || !form.disks.some((x) => x.lun === l.nom)).map((l) => <option key={l.nom} value={l.nom}>{l.nom} · {formatSizeGb(l.capacite_go, lang)}</option>)}
@@ -346,7 +348,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <legend>{t("vh.disks")} (GB)</legend>
                 {form.disks.map((d, i) => (
                   <div key={i} className="nx-inline">
-                    <span className="nx-mono" style={{ width: "2.5rem", alignSelf: "center" }}>sd{String.fromCharCode(97 + i)}</span>
+                    <span style={{ minWidth: "9rem", alignSelf: "center" }}>{diskLabel(i)} <span className="nx-mono nx-muted" title={t("wz.diskDev")}>sd{String.fromCharCode(97 + i)}</span></span>
                     {importMode && i === 0 ? <span className="nx-input nx-muted">{t("wz.importedSize")}</span> : (
                       <input className="nx-input" aria-label={t("a11y.size_of_disk_x_in_gb", { v: i + 1 })} type="number" min={1} max={dMax} value={d.size_gb} onChange={(e) => patch({ disks: form.disks.map((x, k) => (k === i ? { size_gb: e.target.value } : x)) })} aria-invalid={attempted && errors.storage[`disk${i}`] ? true : undefined} />
                     )}
@@ -425,7 +427,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
             <dt>{t("ct.name")}</dt><dd className="nx-mono">{form.name || "—"}</dd>
             <dt>{t("ns.node")}</dt><dd className="nx-mono">{step > 1 ? nodeName : "—"}</dd>
             <dt>{t("wz.r.cpuRam")}</dt><dd className="nx-mono">{step > 2 ? `${form.vcpu} · ${formatSizeMb(Number(form.memory_mb), lang)}` : "—"}</dd>
-            <dt>{t("vh.disks")}</dt><dd className="nx-mono">{step > 3 ? form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : `${d.size_gb} Go`)).join(" + ") : "—"}</dd>
+            <dt>{t("vh.disks")}</dt><dd className="nx-mono">{step > 3 ? form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : formatSizeGb(Number(d.size_gb), lang))).join(" + ") : "—"}</dd>
             <dt>{t("vh.network")}</dt><dd className="nx-mono">{step > 4 ? form.network : "—"}</dd>
           </dl>
         </aside>
