@@ -28,9 +28,7 @@ import termios
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
 
-from app.core import deployment_profile
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_local_capabilities
@@ -43,83 +41,9 @@ router = APIRouter(prefix="/host", tags=["host"])
 
 @router.get("/limits")
 def host_vm_limits(user: dict = Depends(get_current_user)):
-    """Per-VM resource limits derived from the real host. Used by the UI to bound
-    form fields and by the backend validation. Each limit reports its source
-    (detected/configuration/fallback)."""
+    """Per-VM resource bounds (see app/core/vm_limits.py): technical ones, or caps an administrator set in the
+    environment. Used by the UI to bound form fields and by the backend validation."""
     return compute_limits()
-
-
-class ProfileChoice(BaseModel):
-    profil: str  # "auto" or a profile name
-
-
-def _profile_payload():
-    active = deployment_profile.get_active()
-    limits = compute_limits(force=True)
-    d = dict(active["reglages"]["vm_defaults"])
-    # Default values of the creation wizard: never beyond the limits actually
-    # computed for this host.
-    d["vcpu"] = max(limits["vcpu"]["min"], min(d["vcpu"], limits["vcpu"]["max"]))
-    d["memory_mb"] = max(limits["memoire_mo"]["min"], min(d["memory_mb"], limits["memoire_mo"]["max"]))
-    d["disk_gb"] = max(limits["disque_go"]["min"], min(d["disk_gb"], limits["disque_go"]["max"]))
-    from app.core import vm_limits
-
-    return {
-        **active,
-        "vm_defaults_effectifs": d,
-        "profils": deployment_profile.PROFILES,
-        "allocation": {**vm_limits.get_policy(), "politiques": vm_limits.POLICIES},
-    }
-
-
-@router.get("/profile")
-def host_profile(user: dict = Depends(get_current_user)):
-    """Active deployment profile: homelab/standard/advanced, recommended from the
-    detected hardware or chosen by an admin. See app/core/deployment_profile.py."""
-    return _profile_payload()
-
-
-@router.put("/profile")
-def set_host_profile(payload: ProfileChoice, user: dict = Depends(require_role("admin"))):
-    choice = payload.profil.strip().lower()
-    if choice != "auto" and choice not in deployment_profile.PROFILES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown profile: {payload.profil} (auto, {', '.join(deployment_profile.PROFILES)})",
-        )
-    if deployment_profile.env_override():
-        raise HTTPException(
-            status_code=409,
-            detail="The profile is forced by the HYPERLITE_PROFILE environment variable, which takes precedence over this choice.",
-        )
-    deployment_profile.set_choice(choice)
-    log_action(user["username"], "set_host_profile", "local", "succes", f"profil={choice}")
-    return _profile_payload()
-
-
-class AllocationChoice(BaseModel):
-    politique: str
-
-
-@router.put("/allocation")
-def set_host_allocation(payload: AllocationChoice, user: dict = Depends(require_role("admin"))):
-    """VM resource allocation policy (limits/overcommit/free). See
-    app/core/vm_limits.py."""
-    from app.core import vm_limits
-
-    choice = payload.politique.strip().lower()
-    if choice not in vm_limits.POLICIES:
-        raise HTTPException(
-            status_code=400, detail=f"Politique inconnue : {payload.politique} ({', '.join(vm_limits.POLICIES)})"
-        )
-    if vm_limits.env_policy():
-        raise HTTPException(
-            status_code=409,
-            detail="The policy is forced by the HYPERLITE_ALLOCATION environment variable, which takes precedence over this choice.",
-        )
-    vm_limits.set_policy(choice)
-    log_action(user["username"], "set_host_allocation", "local", "succes", f"politique={choice}")
-    return _profile_payload()
 
 
 @router.get("/capabilities")

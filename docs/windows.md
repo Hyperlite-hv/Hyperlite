@@ -6,8 +6,8 @@
 2. Select it in **Create VM**. Hyperlite detects common Windows ISO filenames.
    For a renamed ISO, select **Windows / Windows Server** under **Operating system**.
 3. Set the name and review resources. Selecting Windows raises the suggested
-   minimums to 2 vCPUs, 4 GiB RAM and a 64 GB system disk. Host allocation limits
-   still apply; adjust resources for your workload and Windows edition.
+   minimums to 2 vCPUs, 4 GiB RAM and a 64 GB system disk; adjust resources for
+   your workload and Windows edition.
 4. Create and start the VM. Open the console, press a key to boot the DVD if
    requested, and follow Windows Setup normally.
 

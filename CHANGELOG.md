@@ -28,6 +28,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- Hyperlite no longer caps a VM's vCPU, memory or disks from the host's size, like Proxmox and vSphere: the deployment profiles (homelab, standard, advanced), the allocation policies and their settings (`GET`/`PUT /host/profile`, `PUT /host/allocation`, `HYPERLITE_PROFILE`, `HYPERLITE_ALLOCATION`) are removed. Only technical floors and typo ceilings remain, plus the optional `HYPERLITE_VM_MAX_*` caps an administrator sets on purpose. The creation form still warns, without blocking, when a value exceeds the hardware.
 - Accounts whose password predates the policy must choose a new one at the next sign-in before doing anything else.
 - The package depends on `nfs-common`, so NFS pools work on an APT install.
 - The dashboard scales with large screens (2K, 4K) instead of staying a small island of text.
