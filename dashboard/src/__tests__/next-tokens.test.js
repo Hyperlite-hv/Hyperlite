@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
-// Parses the design tokens from next.css and checks WCAG contrast (docs/frontend-rebuild/03 §2.4).
+// Parses the design tokens from next.css and checks WCAG AA contrast for text, controls and focus.
 const css = readFileSync(new URL("../next/next.css", import.meta.url), "utf8");
 
 function block(selector) {
