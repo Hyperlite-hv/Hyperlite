@@ -29,6 +29,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core import version
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.security import require_role
@@ -257,17 +258,28 @@ def _check_update_apt():
         line = line.strip()
         if line.startswith("Candidate:"):
             candidate = line.split(":", 1)[1].strip()
-    a_jour = bool(candidate) and installed == candidate
-    changelog = [f"New version available: {candidate}"] if not a_jour and candidate else []
+    # The package can say one version while the service runs another: an update whose new code did not answer
+    # in time is rolled back from the backup, but dpkg still records the new package. Comparing only dpkg with
+    # the candidate then answered "up to date" and the update could never be applied again.
+    running = version.STARTUP_VERSION
+    rolled_back = bool(running and installed and running != installed)
+    a_jour = bool(candidate) and installed == candidate and not rolled_back
+    if rolled_back:
+        changelog = [
+            f"The update to {installed} was rolled back: {running} is still running. Applying the update installs it again."
+        ]
+    else:
+        changelog = [f"New version available: {candidate}"] if not a_jour and candidate else []
 
     return {
         "verifiable": True,
         "branche": "apt",
-        "commit_local": installed,
+        "commit_local": running or installed,
         "commit_distant": candidate,
         "a_jour": a_jour,
         "arbre_propre": True,  # not applicable in apt mode (no Git working tree)
         "changelog": changelog,
+        "rolled_back": rolled_back,
     }
 
 
@@ -458,8 +470,12 @@ def _run_update_job_apt(task_id, username):
         # tells the postinst NOT to restart, and this thread does it right afterwards, in
         # the same detached way as the Git path (Popen + sleep 2).
         env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
+        # After a rollback the package is already "installed" at the version that did not start: reinstall it
+        # (apt-get still upgrades when a newer one is available).
+        rolled_back = bool(version.STARTUP_VERSION and old_version and old_version != version.STARTUP_VERSION)
+        mode = "--reinstall" if rolled_back else "--only-upgrade"
         install = subprocess.run(
-            ["apt-get", "install", "--only-upgrade", "-y", "hyperlite"],
+            ["apt-get", "install", mode, "-y", "hyperlite"],
             cwd=str(REPO_DIR),
             capture_output=True,
             text=True,
