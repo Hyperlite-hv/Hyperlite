@@ -214,8 +214,11 @@ def _copy(name, source, target, task_id, total):
             relay.unlink(missing_ok=True)
 
 
-def start_copy(name, source_id, target_ids, username):
+def start_copy(name, source_id, target_ids, username, after=None):
     """Validate, then start one background copy per target node. Returns the created task ids.
+
+    after: called in the copy's thread once it ends, with True if it succeeded (see VM creation from an image
+    stored on another node).
 
     Raises LookupError (unknown node or image), ValueError (bad request) or FileExistsError (the image is already
     on a target, or a copy of it to that target is already running)."""
@@ -248,10 +251,12 @@ def start_copy(name, source_id, target_ids, username):
         tasks.append({"node": key, "task_id": task_id})
 
         def job(key=key, node=node, task_id=task_id):
+            ok = False
             try:
                 _copy(name, source, node, task_id, total)
                 finish_task(task_id, "termine")
                 log_action(username, "copy_iso", f"{name} {source_key} -> {key}", "succes", task_id=task_id)
+                ok = True
             except Exception as e:
                 msg = describe_exception(e)
                 finish_task(task_id, "echec", msg)
@@ -259,6 +264,8 @@ def start_copy(name, source_id, target_ids, username):
             finally:
                 with _active_lock:
                     _active.discard((name, key))
+            if after is not None:
+                after(ok)
 
         threading.Thread(target=job, daemon=True).start()
     return tasks
