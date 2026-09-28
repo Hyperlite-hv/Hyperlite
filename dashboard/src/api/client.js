@@ -834,12 +834,3 @@ export async function fetchNodeCapabilitiesById(nodeId) {
 export async function fetchHostPreflight() {
   return realFetch("/host/preflight");
 }
-export async function fetchHostProfile() {
-  return realFetch("/host/profile");
-}
-export async function setHostProfile(profil) {
-  return realFetch("/host/profile", { method: "PUT", ...jsonBody({ profil }) });
-}
-export async function setHostAllocation(politique) {
-  return realFetch("/host/allocation", { method: "PUT", ...jsonBody({ politique }) });
-}

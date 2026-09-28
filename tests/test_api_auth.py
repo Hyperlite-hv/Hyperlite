@@ -48,7 +48,6 @@ def test_ip_lockout_cannot_be_bypassed_with_a_forged_forwarded_header(client):
     "path",
     [
         "/auth/me",
-        "/host/profile",
         "/host/limits",
         "/host/capabilities",
         "/nodes",
@@ -67,8 +66,6 @@ def test_invalid_bearer_token_is_rejected(client):
 
 
 ADMIN_ONLY = [
-    ("PUT", "/host/profile", {"profil": "standard"}),
-    ("PUT", "/host/allocation", {"politique": "libre"}),
     ("GET", "/host/preflight", None),
     ("GET", "/audit", None),
     ("POST", "/auth/users", {"username": "eve", "password": "long enough password", "role": "admin"}),
@@ -86,29 +83,7 @@ def test_observer_cannot_use_administrator_endpoints(client, auth_headers, metho
 def test_observer_can_read_shared_information(client, auth_headers):
     headers = auth_headers("watcher", "observateur")
     assert client.get("/auth/me", headers=headers).json()["role"] == "observateur"
-    assert client.get("/host/profile", headers=headers).status_code == 200
-
-
-def test_observer_cannot_change_the_allocation_policy_it_can_only_read(client, auth_headers):
-    admin = auth_headers("root", "admin")
-    observer = auth_headers("watcher", "observateur")
-    client.put("/host/allocation", headers=admin, json={"politique": "libre"})
-    assert client.get("/host/limits", headers=observer).json()["politique"]["actif"] == "libre"
-    assert client.put("/host/allocation", headers=observer, json={"politique": "limites"}).status_code == 403
-    assert client.get("/host/limits", headers=observer).json()["politique"]["actif"] == "libre"
-
-
-def test_administrator_can_change_and_reset_the_allocation_policy(client, auth_headers):
-    admin = auth_headers("root", "admin")
-    assert client.put("/host/allocation", headers=admin, json={"politique": "surallocation"}).status_code == 200
-    assert client.get("/host/limits", headers=admin).json()["politique"]["actif"] == "surallocation"
-    assert client.put("/host/allocation", headers=admin, json={"politique": "nonsense"}).status_code == 400
-
-
-def test_forced_environment_policy_cannot_be_overridden_from_the_api(client, auth_headers, monkeypatch):
-    admin = auth_headers("root", "admin")
-    monkeypatch.setenv("HYPERLITE_ALLOCATION", "libre")
-    assert client.put("/host/allocation", headers=admin, json={"politique": "limites"}).status_code == 409
+    assert client.get("/host/limits", headers=headers).status_code == 200
 
 
 def test_api_token_authenticates_until_it_is_revoked(client, auth_headers):

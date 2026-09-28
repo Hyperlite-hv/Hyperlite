@@ -61,10 +61,10 @@ function ComputeCard({ vm, admin }) {
     <Card title={t("vh.compute")}>
       {running && <p className="nx-f-h" style={{ margin: "0 0 var(--space-3)" }}>{t("vo.stopFirst")}</p>}
       <div className="nx-fg nx-fg--3">
-        <Field label="vCPU" unit="vCPU" error={vBad ? t("vo.range", { min: vMin, max: vMax ?? "…" }) : null} hint={t("vo.range", { min: vMin, max: vMax ?? "…" })}>
+        <Field label="vCPU" unit="vCPU" error={vBad ? t("vo.range", { min: vMin, max: vMax ?? "∞" }) : null} hint={t("vo.range", { min: vMin, max: vMax ?? "∞" })}>
           {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vcpu_count")} type="number" min={vMin} max={vMax} disabled={!admin || running} value={vcpu} onChange={(e) => setVcpu(e.target.value)} />}
         </Field>
-        <Field label={t("ct.memory")} unit={lang() === "fr" ? "Mo" : "MB"} error={mBad ? t("vo.range", { min: mMin, max: mMax ?? "…" }) : null} hint={t("vo.range", { min: mMin, max: mMax ?? "…" })}>
+        <Field label={t("ct.memory")} unit={lang() === "fr" ? "Mo" : "MB"} error={mBad ? t("vo.range", { min: mMin, max: mMax ?? "∞" }) : null} hint={t("vo.range", { min: mMin, max: mMax ?? "∞" })}>
           {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.memory_in_mb")} type="number" min={mMin} max={mMax} step={128} disabled={!admin || running} value={mem} onChange={(e) => setMem(e.target.value)} />}
         </Field>
         <Field label={t("vh.osLabel")} hint={t("vh.osHint")}>
@@ -127,7 +127,7 @@ function AddDiskDrawer({ open, onClose, vmName, disks, onDone }) {
       <Field label={t("vh.disk")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.disk_to_attach")} value={source} onChange={(e) => setSource(e.target.value)}><option value="__new__">{t("vh.newDisk")}</option>{volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</option>)}</select>}</Field>
       {source === "__new__" && <>
         <Field label={t("vh.volName")} error={nameBad ? t("vh.volRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.volume_name")} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
-        <Field label={t("vh.size")} unit={lang() === "fr" ? "Go" : "GB"} error={sizeBad ? t("vh.sizeRule", { max: maxGb ?? "…" }) : null} hint={pick?.disponible_go != null ? t("vh.poolFree", { n: formatSizeGb(pick.disponible_go, lang()) }) : null}>
+        <Field label={t("vh.size")} unit={lang() === "fr" ? "Go" : "GB"} error={sizeBad ? t("vh.sizeRule", { max: maxGb ?? "∞" }) : null} hint={pick?.disponible_go != null ? t("vh.poolFree", { n: formatSizeGb(pick.disponible_go, lang()) }) : null}>
           {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.new_disk_size_in_gb")} type="number" min={1} max={maxGb} value={size} onChange={(e) => setSize(e.target.value)} />}
         </Field>
       </>}
@@ -165,7 +165,7 @@ function ResizeDiskDrawer({ disk, onClose, vm, onDone }) {
     </>}>
       {disk && <>
         <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeCurrent", { n: disk.taille_go != null ? formatSizeGb(disk.taille_go, lang()) : "—" })}</p>
-        <Field label={t("vh.resizeNew")} unit={unit} error={sizeBad ? t("vh.resizeRule", { max: maxGb ?? "…" }) : null}>
+        <Field label={t("vh.resizeNew")} unit={unit} error={sizeBad ? t("vh.resizeRule", { max: maxGb ?? "∞" }) : null}>
           {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.new_size_in_gb")} type="number" min={minGb} max={maxGb} value={size} onChange={(e) => setSize(e.target.value)} />}
         </Field>
         {vm.etat === "actif" && <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeLive")}</p>}
