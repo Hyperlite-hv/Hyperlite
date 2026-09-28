@@ -35,13 +35,24 @@ export function passwordChecks(password, username) {
 
 export const passwordAccepted = (password, username) => passwordChecks(password, username).every((c) => c.ok);
 
-// A random password that meets the rules: 4 groups of 5 characters from an alphabet without look-alike
-// characters (no 0/O, 1/l/I), drawn with the browser's cryptographic generator.
-export function generatePassword(username) {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+// Largest multiple of the alphabet size under 2^32: values at or above it are drawn again, so every
+// character is exactly as likely as the others (a plain modulo would slightly favour the first ones).
+const UNBIASED_LIMIT = Math.floor(2 ** 32 / ALPHABET.length) * ALPHABET.length;
+
+function randomChar() {
+  const one = new Uint32Array(1);
   for (;;) {
-    const values = crypto.getRandomValues(new Uint32Array(20));
-    const chars = [...values].map((v) => alphabet[v % alphabet.length]).join("");
+    crypto.getRandomValues(one);
+    if (one[0] < UNBIASED_LIMIT) return ALPHABET[one[0] % ALPHABET.length];
+  }
+}
+
+// A random password that meets the rules: 4 groups of 5 characters from an alphabet without look-alike
+// characters (no 0/O, 1/l/I), drawn uniformly with the browser's cryptographic generator (~115 bits).
+export function generatePassword(username) {
+  for (;;) {
+    const chars = Array.from({ length: 20 }, randomChar).join("");
     const pw = chars.match(/.{5}/g).join("-");
     if (passwordAccepted(pw, username)) return pw;
   }
