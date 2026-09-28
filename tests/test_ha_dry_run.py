@@ -249,3 +249,26 @@ def test_fencing_endpoints_are_admin_only_and_hide_the_password(client, auth_hea
     assert client.get("/ha/fencing", headers=watcher).status_code == 403
     assert client.post("/ha/fencing/node2/test", headers=watcher).status_code == 403
     assert client.get("/ha/status", headers=watcher).status_code == 200
+
+
+def test_an_agent_that_cannot_run_gives_a_fixed_message_not_the_os_error(database, monkeypatch):
+    monkeypatch.setattr(ha_fencing.shutil, "which", lambda name: "/usr/sbin/fence_ipmilan")
+
+    def boom(*a, **k):
+        raise PermissionError(13, "Permission denied: '/usr/sbin/fence_ipmilan'")
+
+    monkeypatch.setattr(ha_fencing.subprocess, "run", boom)
+    ha_fencing.save("node2", "ipmi", "10.0.0.20", None, "ADMIN", "pw")
+    detail = ha_fencing.test("node2")["detail"]
+    assert detail == "fence_ipmilan could not run on this host (see the service log)" and "Permission" not in detail
+
+
+def test_a_node_whose_configuration_cannot_be_read_gives_a_fixed_message(database, monkeypatch):
+    add_node(database, "node2")
+
+    def boom(*a, **k):
+        raise OSError("ssh: connect to host node2.example.lan port 22: No route to host")
+
+    monkeypatch.setattr("app.core.cluster._run_ssh", boom)
+    detail = ha_watch.lease_check("node2")["detail"]
+    assert detail.startswith("Cannot read the node's libvirt configuration over SSH") and "No route" not in detail

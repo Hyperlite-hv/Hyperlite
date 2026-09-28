@@ -158,8 +158,14 @@ def test(node):
             "alimentation": None,
             "detail": f"No answer from {row['adresse']} within {TEST_TIMEOUT_S} s",
         }
-    except OSError as e:
-        return {"ok": False, "alimentation": None, "detail": f"{agent} could not run: {e}"}
+    except OSError:
+        # The details stay in the service log: an OS error text is not for the API.
+        logger.warning("Fence agent %s could not run for %s", agent, node, exc_info=True)
+        return {
+            "ok": False,
+            "alimentation": None,
+            "detail": f"{agent} could not run on this host (see the service log)",
+        }
     out = (proc.stdout or "") + (proc.stderr or "")
     state = re.search(r"Status:\s*(ON|OFF)", out, re.IGNORECASE)
     if state:
