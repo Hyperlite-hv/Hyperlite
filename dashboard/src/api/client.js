@@ -502,8 +502,29 @@ export function fetchConfigCopies() {
 export function copyConfigNow() {
   return realFetch("/nodes/config-copy", { method: "POST" });
 }
-// HA: see app/core/ha.py. There is no fencing, and recovery is always triggered by
-// an admin, never automatic.
+// HA: see app/core/ha.py. Recovery is always triggered by an admin; the watcher (ha_watch.py) runs in dry-run mode
+// and only records what automatic HA would have done. Fencing settings are tested with a status query only.
+export function fetchHaStatus() {
+  return realFetch("/ha/status");
+}
+export function saveHaSettings(payload) {
+  return realFetch("/ha/settings", { method: "PUT", ...jsonBody(payload) });
+}
+export function fetchFencing() {
+  return realFetch("/ha/fencing");
+}
+export function saveFencing(node, payload) {
+  return realFetch(`/ha/fencing/${encodeURIComponent(node)}`, { method: "PUT", ...jsonBody(payload) });
+}
+export function deleteFencing(node) {
+  return realFetch(`/ha/fencing/${encodeURIComponent(node)}`, { method: "DELETE" });
+}
+export function testFencing(node) {
+  return realFetch(`/ha/fencing/${encodeURIComponent(node)}/test`, { method: "POST" });
+}
+export function checkLeases(node) {
+  return realFetch(`/ha/leases/${encodeURIComponent(node)}`);
+}
 export async function fetchHaProtected() {
   return realFetch("/ha");
 }
