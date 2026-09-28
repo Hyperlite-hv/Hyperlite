@@ -991,6 +991,8 @@ export default {
   "wz.e.taken": "A VM with this name already exists.",
   "wz.e.user": "Letters, digits, dash or underscore, starting with a letter or underscore.",
   "wz.e.password": "At least 4 characters.",
+  "wz.inMaintenance": "In maintenance",
+  "wz.e.nodeMaint": "This host is in maintenance: no VM can be created until the maintenance ends (node page, End maintenance).",
   "wz.e.node": "Choose a node.",
   "wz.e.vcpu": "Whole number from {min} to {max}.",
   "wz.e.memory": "Whole number from {min} to {max} MB.",

@@ -1023,6 +1023,8 @@ export default {
   "wz.e.taken": "Une VM porte déjà ce nom.",
   "wz.e.user": "Lettres, chiffres, tiret ou tiret bas, en commençant par une lettre ou un tiret bas.",
   "wz.e.password": "Au moins 4 caractères.",
+  "wz.inMaintenance": "En maintenance",
+  "wz.e.nodeMaint": "Cet hôte est en maintenance : aucune VM ne peut être créée avant la fin de la maintenance (page du nœud, Terminer la maintenance).",
   "wz.e.node": "Choisissez un nœud.",
   "wz.e.vcpu": "Entier de {min} à {max}.",
   "wz.e.memory": "Entier de {min} à {max} Mo.",
