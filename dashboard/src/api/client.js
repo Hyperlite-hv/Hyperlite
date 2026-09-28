@@ -612,6 +612,10 @@ export async function detachDisk(name, targetDev) {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}`, { method: "DELETE" });
 }
 // The new TOTAL size in GB (grow only; the backend refuses a shrink).
+// Move a disk to another directory/NFS pool (a background task; the source is kept unless deleteSource).
+export async function moveDisk(name, targetDev, pool, deleteSource = false) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}/move`, { method: "POST", ...jsonBody({ pool, delete_source: deleteSource }) });
+}
 export async function resizeDisk(name, targetDev, sizeGb) {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}/resize`, { method: "POST", ...jsonBody({ size_gb: sizeGb }) });
 }
