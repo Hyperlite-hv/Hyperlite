@@ -7,6 +7,7 @@ import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Heart, Info, Monitor, RefreshCw } from "lucide-react";
@@ -25,6 +26,7 @@ export default function HaPage() {
   const [error, setError] = useState(null);
   const [target, setTarget] = useState({});
   const [busy, setBusy] = useState(null);
+  const ctx = useContextTarget(); // right click on a protected VM: its actions
 
   const reload = useCallback(async () => {
     try { const r = await fetchHaProtected(); setRows(Array.isArray(r) ? r : []); setError(null); }
@@ -72,7 +74,7 @@ export default function HaPage() {
                     const down = r.statut_noeud === "hors_ligne";
                     const targets = nodes.filter((n) => n.id !== r.node && n.etat === "online");
                     return (
-                      <tr key={r.vm_name}>
+                      <tr key={r.vm_name} className={ctx.is("ha", r.vm_name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ha", r, r.vm_name)}>
                         <td><StatusIndicator kind="node" wire={down ? "erreur" : "online"} /></td>
                         <th scope="row"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("vm", r.vm_name, "summary")}>{r.vm_name}</button></th>
                         <td className="nx-mono">{nodes.find((n) => n.id === r.node)?.nom || r.node}</td>
@@ -98,6 +100,11 @@ export default function HaPage() {
           )}
         </div>
       )}
+      <ActionsContextMenu ctx={ctx} label={(r) => t("ctx.menuOf", { name: r.vm_name })} entries={(r) => [
+        { key: "vm", icon: "open", label: t("ctx.openVm"), run: () => navigateTo("vm", r.vm_name, "summary") },
+        "-",
+        { key: "disable", icon: "unprotect", label: t("ctx.haDisable"), run: () => disable(r.vm_name), disabled: !caps.admin, reason: t("menu.reason.admin") },
+      ]} />
     </>
   );
 }

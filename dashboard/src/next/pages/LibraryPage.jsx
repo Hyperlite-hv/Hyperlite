@@ -12,6 +12,7 @@ import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
 import TemplatesPanel from "./TemplatesPage";
 import CopyIsoDialog from "../components/CopyIsoDialog";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 
 // Library: the ISO images (moved from Storage) and the templates, in two tabs. The historical ?tab=templates
 // link opens the Templates tab. The ISO list covers every node of the cluster: a VM boots only from an image on
@@ -30,6 +31,7 @@ export default function LibraryPage() {
   const nodes = useInfraStore((s) => s.nodes);
   const tasks = useInfraStore((s) => s.tasks);
   const drop = useRef(null);
+  const ctx = useContextTarget(); // right click on an image: its actions
 
   const loadIsos = useCallback(async () => {
     try {
@@ -86,7 +88,7 @@ export default function LibraryPage() {
                     <thead><tr><th scope="col">{t("lib.image")}</th>{multiNode && <th scope="col">{t("iso.node")}</th>}<th scope="col" className="nx-num">{t("lib.size")}</th>{!multiNode && <th scope="col">{t("lib.location")}</th>}<th scope="col">{t("lib.added")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                     <tbody>
                       {rows.map((iso) => (
-                        <tr key={`${iso.node}/${iso.nom}`}>
+                        <tr key={`${iso.node}/${iso.nom}`} className={ctx.is("iso", `${iso.node}/${iso.nom}`) ? "is-ctx" : undefined} onContextMenu={ctx.open("iso", iso, `${iso.node}/${iso.nom}`)}>
                           <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{iso.nom}</th>
                           {multiNode && <td title={iso.emplacement || undefined}>{nodeName(iso.node)}</td>}
                           <td className="nx-num nx-mono">{formatSizeMb(iso.taille_mo, lang)}</td>
@@ -103,6 +105,12 @@ export default function LibraryPage() {
                 </TableWrap>
               )}
             </div>
+            <ActionsContextMenu ctx={ctx} label={(iso) => t("ctx.menuOf", { name: iso.nom })} entries={(iso) => [
+              multiNode && { key: "copy", icon: "clone", label: t("iso.copy"), run: () => setCopying(iso), disabled: !caps.admin, reason: t("menu.reason.admin") },
+              { key: "name", icon: "copy", label: t("ctx.copyName"), run: () => navigator.clipboard?.writeText(iso.nom) },
+              "-",
+              { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => removeIso(iso), disabled: !caps.admin, reason: t("menu.reason.admin") },
+            ]} />
             {copying && <CopyIsoDialog iso={copying} nodes={nodes} holders={holders.get(copying.nom) || new Set()} onClose={() => setCopying(null)} />}
           </>
         ) : <TemplatesPanel />}

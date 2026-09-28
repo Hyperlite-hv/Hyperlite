@@ -8,6 +8,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { PageHeader, Chip, Empty, SideDrawer, Field, Loading, TableWrap } from "../components/ui";
 import { Network, Plus, Trash2 } from "lucide-react";
 import FirewallCard from "../components/FirewallCard";
@@ -79,6 +80,7 @@ export default function NetworkPage() {
   }
 
   useIntent("network", () => caps.admin && setFormOpen(true));
+  const ctx = useContextTarget(); // right click on a network: its actions
 
   async function remove(name) {
     if (!(await confirmAction({ title: t("net.deleteTitle", { name }), message: t("net.deleteHelp"), confirmLabel: t("vx.delete"), danger: true }))) return;
@@ -104,7 +106,7 @@ export default function NetworkPage() {
               <tbody>
                 {nets.map((n) => (
                   <Fragment key={n.nom}>
-                    <tr>
+                    <tr className={ctx.is("net", n.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("net", n)}>
                       <td><StatusIndicator override={{ key: n.actif ? "state.active" : "state.inactive", shape: n.actif ? "dot" : "square", tone: n.actif ? "success" : "offline" }} /></td>
                       <th scope="row" className="nx-nm">{n.nom}<small>{n.autostart ? t("net.autostart") : t("net.manualStart")}</small></th>
                       <td><Chip>{t(`net.mode.${n.type}`)}</Chip></td>
@@ -158,6 +160,12 @@ export default function NetworkPage() {
           </div>
         </>)}
       </SideDrawer>
+      <ActionsContextMenu ctx={ctx} label={(n) => t("ctx.menuOf", { name: n.nom })} entries={(n) => [
+        { key: "details", icon: "details", label: t("net.details"), run: () => toggle(n.nom) },
+        "-",
+        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(n.nom),
+          disabled: !caps.admin || PROTECTED.includes(n.nom), reason: !caps.admin ? t("menu.reason.admin") : t("ctx.protectedNet") },
+      ]} />
     </>
   );
 }
