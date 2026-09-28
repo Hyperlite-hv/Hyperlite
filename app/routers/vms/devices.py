@@ -1,18 +1,20 @@
 import logging
 import re
+import threading
 import xml.etree.ElementTree as ET
 
 import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import disk_resize
+from app.core import disk_move, disk_resize
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
-from app.core.security import get_current_user, require_vm_privilege
+from app.core.security import get_current_user, require_role, require_vm_privilege
+from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_limits import validate_vm_resources
 from app.routers.vms._shared import TARGET_DEV_RE, _get_ip, router
 
@@ -169,6 +171,69 @@ def resize_disk(
         }
     finally:
         conn.close()
+
+
+class DiskMove(BaseModel):
+    pool: str = Field(min_length=1, max_length=64)
+    # Off by default: the original file stays in its pool until the admin deletes it, a cheap safety net.
+    delete_source: bool = False
+
+
+def _run_in_background(target, *args):
+    threading.Thread(target=target, args=args, daemon=True).start()
+
+
+def _move_disk_job(task_id, username, name, target_dev, dest_pool, delete_source):
+    conn = open_conn()
+    try:
+        domain = conn.lookupByName(name)
+        # Checked again here: the VM may have changed (started, stopped, snapshotted) since the request.
+        how = disk_move.plan(conn, domain, target_dev, dest_pool)
+        result = disk_move.move(
+            domain, target_dev, how, delete_source, progress=lambda pct: update_task_progress(task_id, pct)
+        )
+        finish_task(task_id, "termine")
+        log_action(
+            username,
+            "move_disk",
+            name,
+            "succes",
+            f"{target_dev}: {result['source']} -> {result['destination']} "
+            f"({'live' if how['live'] else 'stopped'}; source {'deleted' if result['source_supprimee'] else 'kept'})",
+        )
+    except disk_move.MoveError as e:
+        finish_task(task_id, "echec", e.message)
+        log_action(username, "move_disk", name, "echec", f"{target_dev}: {e.message}")
+    except Exception as e:
+        logger.exception("Moving %s of %s failed", target_dev, name)
+        finish_task(task_id, "echec", f"Internal error: {e}")
+        log_action(username, "move_disk", name, "echec", f"{target_dev}: internal error: {e}")
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/disks/{target_dev}/move", status_code=202)
+def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depends(require_role("admin"))):
+    """Move a disk to another directory or NFS pool, live or stopped (see app/core/disk_move.py). Admin only, like
+    a migration: it changes where the cluster's data lives."""
+    if not TARGET_DEV_RE.match(target_dev):
+        raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        try:
+            how = disk_move.plan(conn, domain, target_dev, payload.pool)
+        except disk_move.MoveError as e:
+            log_action(user["username"], "move_disk", name, "echec", f"{target_dev}: {e.message}")
+            raise HTTPException(status_code=e.status, detail=e.message) from e
+    finally:
+        conn.close()
+    task_id = create_task("move_disk", name, node="local", username=user["username"])
+    _run_in_background(_move_disk_job, task_id, user["username"], name, target_dev, payload.pool, payload.delete_source)
+    return {"task_id": task_id, "statut": "en_cours", "destination": how["dest"], "a_chaud": how["live"]}
 
 
 def _get_interfaces(domain):
