@@ -77,3 +77,16 @@ def test_official_repository_up_to_date(apt, monkeypatch):
     monkeypatch.setattr(update, "_dpkg_installed_version", lambda: "2026.09.27.1838")
     result = update._check_update_apt()
     assert result["verifiable"] is True and result["a_jour"] is True
+
+
+def test_hourly_check_alerts_once_when_the_source_is_missing(apt, database, monkeypatch):
+    from app.core import audit, update_check
+
+    apt(_policy("2026.09.20.1249", "2026.09.20.1249", (100, "/var/lib/dpkg/status")))
+    monkeypatch.setattr(update, "_install_method", lambda: "apt")
+    update_check.check_once()
+    update_check.check_once()
+    audit._AUDIT_QUEUE.join()
+    with database.get_conn() as conn:
+        rows = conn.execute("SELECT * FROM audit_log WHERE action = 'update_check_blocked'").fetchall()
+    assert len(rows) == 1

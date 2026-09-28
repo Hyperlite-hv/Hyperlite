@@ -251,7 +251,7 @@ def _check_update_apt():
     policy = _run_c(["apt-cache", "policy", "hyperlite"])
     problem = _source_problem(policy.stdout)
     if problem:
-        return {"verifiable": False, "erreur": problem, "commit_local": installed}
+        return {"verifiable": False, "erreur": problem, "commit_local": installed, "source_problem": True}
     candidate = None
     for line in policy.stdout.splitlines():
         line = line.strip()
