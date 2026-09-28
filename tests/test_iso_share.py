@@ -98,8 +98,7 @@ def _wait_tasks(database, task_ids, timeout=5):
     while time.time() < deadline:
         with database.get_conn() as conn:
             rows = [
-                conn.execute("SELECT id, statut, erreur FROM tasks WHERE id = ?", (tid,)).fetchone()
-                for tid in task_ids
+                conn.execute("SELECT id, statut, erreur FROM tasks WHERE id = ?", (tid,)).fetchone() for tid in task_ids
             ]
         if all(r is not None and r["statut"] != "en_cours" for r in rows):
             return {r["id"]: dict(r) for r in rows}
