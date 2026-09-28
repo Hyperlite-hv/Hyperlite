@@ -28,6 +28,7 @@ real block device (`/dev/sdX`) when moving to a real disk changes nothing else.
 
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -35,6 +36,20 @@ from pathlib import Path
 from app.core.safe_paths import safe_child
 
 LOOPBACK_DIR = Path("/var/lib/hyperlite-zfs")
+ZFS_MODULE = Path("/sys/module/zfs")
+# UEFI variable SecureBoot: 4 bytes of attributes, then the value (1 = enabled).
+SECURE_BOOT_VAR = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+
+# Why ZFS cannot be used on this host (see status()). The dashboard shows its own translated text for each code.
+STATUS_MESSAGES = {
+    "not_installed": "ZFS is not installed on this host (zfsutils-linux and zfs-dkms packages)",
+    "secure_boot": (
+        "The ZFS kernel module is refused by Secure Boot: it is signed with a key this machine does not trust yet. "
+        "Enroll the key with 'mokutil --import /var/lib/dkms/mok.pub', reboot, then choose 'Enroll MOK' on the "
+        "machine's screen"
+    ),
+    "module_not_loaded": "The ZFS kernel module could not be loaded (modprobe zfs)",
+}
 
 # ZFS names: the same constraints as VM/pool names elsewhere in this project
 # (letters/digits/dashes), and never raw user text injected as is into a
@@ -60,7 +75,49 @@ def validate_zfs_name(name):
     return None
 
 
+def module_loaded():
+    return ZFS_MODULE.exists()
+
+
+def secure_boot_enabled():
+    try:
+        data = SECURE_BOOT_VAR.read_bytes()
+    except OSError:
+        return False
+    return len(data) >= 5 and data[4] == 1
+
+
+def status():
+    """'ok', or why ZFS cannot be used: 'not_installed', 'secure_boot' (the module is refused by Secure Boot, the
+    case of a zfs-dkms module signed with a key not enrolled yet) or 'module_not_loaded'."""
+    if not is_available():
+        return "not_installed"
+    if module_loaded():
+        return "ok"
+    return "secure_boot" if secure_boot_enabled() else "module_not_loaded"
+
+
+def load_module():
+    """Try to load the kernel module, once, on an explicit admin action (creating a pool), never on a poll: each
+    attempt refused by Secure Boot writes a kernel error. True when the module is loaded afterwards."""
+    if module_loaded():
+        return True
+    try:
+        subprocess.run(["modprobe", "zfs"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return module_loaded()
+
+
 def _run(*args, check=True):
+    # Without the kernel module, every zpool/zfs call makes libzfs try to load it again, and with Secure Boot each
+    # refused attempt logs "Loading of module with unavailable key is rejected" (seen every few seconds on a host,
+    # from the Storage page refreshing). Answer "unavailable" without calling them; load_module() is the only
+    # place that tries.
+    if args and args[0] in ("zpool", "zfs") and shutil.which(args[0]) and not module_loaded():
+        if check:
+            raise ZfsError(STATUS_MESSAGES[status()])
+        return subprocess.CompletedProcess(args, 127, "", "ZFS kernel module not loaded")
     # Guard against the zpool/zfs binaries being absent: without it, a raw
     # FileNotFoundError propagated all the way up to GET /storage, BREAKING THE WHOLE
     # ENDPOINT (not just the ZFS part) with a 500 on a machine that simply does not
@@ -81,9 +138,7 @@ def is_available():
     """True if the zfs/zpool binaries are installed on this host. Checked before
     exposing anything on the API side, rather than letting a raw
     FileNotFoundError propagate (the same principle as the missing `git` check)."""
-    from shutil import which
-
-    return which("zpool") is not None and which("zfs") is not None
+    return shutil.which("zpool") is not None and shutil.which("zfs") is not None
 
 
 def _backing_file_of(pool_name):

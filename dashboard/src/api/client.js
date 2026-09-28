@@ -609,6 +609,10 @@ export async function fetchVolumes(pool) {
 // Shared storage: node is optional, the same convention as the rest (fetchVMs,
 // fetchStoragePools...): it creates/deletes a pool on a registered remote node
 // instead of the local host.
+// What the local host can create now (NFS client, ZFS module): the pool form warns before trying.
+export async function fetchStorageSupport() {
+  return realFetch("/storage/support");
+}
 export async function createStoragePool(payload, node) {
   const qs = node ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/storage${qs}`, { method: "POST", ...jsonBody(payload) });

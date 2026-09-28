@@ -1,7 +1,7 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Layers, Plus, Trash2 } from "lucide-react";
-import { createStoragePool, deleteStoragePool, fetchVolumes } from "../../api/client";
+import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -20,7 +20,15 @@ function CreatePoolDrawer({ open, onClose }) {
   const { nodes, refreshAll, pushToast } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, refreshAll: s.refreshAll, pushToast: s.pushToast })));
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [support, setSupport] = useState(null);
+  useEffect(() => { if (open) fetchStorageSupport().then(setSupport).catch(() => setSupport(null)); }, [open]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  // The local host only: a remote node reports its own error when the pool is created.
+  const local = form.node === "local";
+  const blocker = !local || !support ? null
+    : form.type === "netfs" && support.nfs !== "ok" ? t("stor.nfsNoClient")
+    : form.type === "zfs" && support.zfs !== "ok" ? t(`stor.zfs.${support.zfs}`)
+    : null;
   const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["zfs", "ZFS"]];
   const valid = form.name && (form.type !== "netfs" || (form.nfs_host && form.nfs_export_path)) && (form.type !== "zfs" || Number(form.size_gb) >= 1);
 
@@ -40,7 +48,7 @@ function CreatePoolDrawer({ open, onClose }) {
   return (
     <SideDrawer open={open} title={t("stor.createPool")} onClose={onClose} busy={busy} footer={<>
       <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
-      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !valid} onClick={create}>{busy ? t("stor.creating") : t("stor.createPool")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !valid || !!blocker} onClick={create}>{busy ? t("stor.creating") : t("stor.createPool")}</button>
     </>}>
       <Field label={t("stor.poolName")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.pool_name")} value={form.name} onChange={set("name")} placeholder="nfs-shared" />}</Field>
       <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select>}</Field>
@@ -50,6 +58,7 @@ function CreatePoolDrawer({ open, onClose }) {
           {TYPES.map(([v, label]) => <button key={v} type="button" aria-pressed={form.type === v} onClick={() => setForm((f) => ({ ...f, type: v }))}>{label}</button>)}
         </div>
       </div>
+      {blocker && <div className="nx-bn" data-tone="warning" role="status"><span className="nx-bn-t">{blocker}</span></div>}
       {form.type === "dir" && <Field label={t("stor.path")} hint={t("stor.pathHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.local_path_optional")} value={form.path} onChange={set("path")} placeholder="/var/lib/libvirt/hyperlite-pools/…" />}</Field>}
       {form.type === "netfs" && <>
         <Field label={t("stor.nfsHost")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.nfs_server_host")} value={form.nfs_host} onChange={set("nfs_host")} placeholder="192.168.1.10" />}</Field>

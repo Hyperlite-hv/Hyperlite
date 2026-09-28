@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.core import version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.cluster import start_node_poller
@@ -102,11 +103,10 @@ def serve_favicon():
 
 
 def _running_version():
-    """Version of the code that is actually running (the VERSION file shipped with it)."""
-    try:
-        return (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip() or None
-    except OSError:
-        return None
+    """Version of the code this process runs: read when it started, not the VERSION file as it is now (an
+    update installs the new file before restarting, see app/core/version.py). The update watchdog relies on it
+    to tell the new process from the old one still shutting down."""
+    return version.STARTUP_VERSION
 
 
 @app.get("/health")
