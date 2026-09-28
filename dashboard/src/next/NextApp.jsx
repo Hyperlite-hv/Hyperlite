@@ -5,6 +5,7 @@ import "./refonte.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import ConfirmHost from "../components/ConfirmHost";
+import MaintenanceHost from "./components/MaintenanceDialog";
 import { useT, useLangStore } from "./i18n";
 import { useThemeStore } from "./tokens/theme";
 import { useInfraStore } from "../store/useInfraStore";
@@ -114,6 +115,7 @@ export default function NextApp() {
         </Routes>
         <Dock />
         <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} setWizards={setWizards} />
+        <MaintenanceHost />
       </div>
       <Toaster position="bottom-right" />
       <ConfirmHost confirmLabel={t("action.confirm")} cancelLabel={t("action.cancel")} />

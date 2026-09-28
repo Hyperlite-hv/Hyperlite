@@ -8,6 +8,7 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import maintenance
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -93,6 +94,7 @@ class RestoreRequest(BaseModel):
 
 @router.post("/backups/{backup_id}/restore", status_code=202)
 def restore_backup_endpoint(backup_id: int, payload: RestoreRequest, user: dict = Depends(require_role("admin"))):
+    maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
     with get_conn() as conn:
         row = conn.execute("SELECT vm_name FROM backups WHERE id = ?", (backup_id,)).fetchone()
     if not row:

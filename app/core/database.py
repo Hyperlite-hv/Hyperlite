@@ -327,6 +327,15 @@ def init_db():
                 last_synced_at TEXT
             )
         """)
+        # Nodes in maintenance: "local" (the host running Hyperlite, not a row of `nodes`) or a registered node
+        # name. No new VM lands on them and they are never a migration or HA recovery target.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS node_maintenance (
+                node TEXT PRIMARY KEY,
+                started_by TEXT NOT NULL,
+                started_at TEXT NOT NULL
+            )
+        """)
         # Outbound notifications: the JSON config is stored in clear text (including
         # the SMTP password when type='email'), except that the SMTP password is
         # encrypted at rest (see app/core/secrets_crypto.py). Admin-only. `events` is a

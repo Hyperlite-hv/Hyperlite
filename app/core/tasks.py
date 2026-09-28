@@ -34,6 +34,12 @@ def create_task(type_, cible=None, node=None, username=None):
     return task_id
 
 
+def task_status(task_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT statut FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return row["statut"] if row else None
+
+
 def update_task_progress(task_id, progres):
     with get_conn() as conn:
         conn.execute("UPDATE tasks SET progres = ? WHERE id = ?", (progres, task_id))

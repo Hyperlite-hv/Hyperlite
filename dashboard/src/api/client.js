@@ -156,7 +156,10 @@ export async function fetchNodes() {
     }));
   } catch { /* GET /nodes unavailable: stay on the local node alone, as before this fix */ }
 
-  return [localNode, ...remoteNodes];
+  // Maintenance state of every node ("local" for this host); a failure only hides the badge.
+  let inMaintenance = {};
+  try { inMaintenance = Object.fromEntries((await fetchNodeMaintenance()).map((m) => [m.node, m])); } catch { /* keep the nodes without it */ }
+  return [localNode, ...remoteNodes].map((n) => ({ ...n, maintenance: inMaintenance[n.id] || null }));
 }
 
 // GET /vms does not return every statistic displayed by this dashboard yet
@@ -455,6 +458,21 @@ export async function cloneVM(name, newName) {
 export async function migrateVM(name, targetNode, sourceNode, ignorerVerifications = false) {
   const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, ignorer_verifications: ignorerVerifications }) });
+}
+// ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode;
+// targetNode null only marks the node.
+export async function fetchNodeMaintenance() {
+  return realFetch("/nodes/maintenance");
+}
+export async function fetchDrainPlan(node, targetNode) {
+  const qs = targetNode ? `?target_node=${encodeURIComponent(targetNode)}` : "";
+  return realFetch(`/nodes/${encodeURIComponent(node)}/drain-plan${qs}`);
+}
+export async function enterNodeMaintenance(node, targetNode) {
+  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "POST", ...jsonBody({ target_node: targetNode || null }) });
+}
+export async function leaveNodeMaintenance(node) {
+  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "DELETE" });
 }
 // Cluster compatibility diagnostic
 export async function fetchMigrationCheck(name, targetNode, sourceNode) {
