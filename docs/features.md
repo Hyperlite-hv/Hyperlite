@@ -10,6 +10,8 @@ This is a reference of what Hyperlite does today and where its scope stops.
 - Import an existing disk (qcow2, raw, vmdk, vdi, vhd) and export a VM disk.
 - Snapshots (libvirt internal snapshots; native ZFS snapshots for VMs on ZFS pools, disk only), cloning, conversion to template and deployment from a template.
 - Resource limits and priorities through cgroups; live disk and network interface hot-plug.
+- Firmware: legacy BIOS, UEFI, or UEFI with Secure Boot and a TPM 2.0 (Windows 11); see [Windows guests](windows.md).
+- CPU affinity (**Hardware → Options and limits**): run a VM only on chosen host CPUs, or one host CPU per vCPU for stable latency. Applied at once, also to a running VM. On a host with several NUMA cells, a VM whose CPUs are all in one cell also takes its memory from that cell (at the next start). Pinning names this host's CPUs: unpin a VM before migrating it to a host that lacks them.
 - Host devices (**Hardware → Host devices**, administrators): give a VM a USB device (also while it runs) or a PCI card such as a GPU or a network card (VM stopped, IOMMU required; the whole IOMMU group goes together). Hyperlite never offers what the host itself needs: the card showing the host console, a network card with an address or in a bridge, a disk controller with a mounted file system, swap or ZFS pool, PCI bridges. See [Host device passthrough](passthrough.md).
 - Grow a disk (live or stopped) and move a disk to another directory or NFS pool (live, with a block copy and a pivot, or stopped).
 - Optional automatic deletion of VMs that stay stopped for a configurable number of days (never applies to a running or HA-protected VM, with a warning about 24 hours before).

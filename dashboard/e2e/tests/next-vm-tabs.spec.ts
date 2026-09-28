@@ -64,6 +64,38 @@ test("hardware and options: values are validated, resources saved on a stopped V
   await expect.poll(async () => ((await (await request.get(`/vms/${NAME}/limits`, { headers: auth() })).json()) as { cpu_shares: number }).cpu_shares, { timeout: 20_000 }).toBe(2048);
 });
 
+test("options: CPU affinity is validated, applied to the VM definition, made strict, then removed", async ({ page, request }) => {
+  const pinning = async () => (await (await request.get(`/vms/${NAME}/cpu-pinning`, { headers: auth() })).json()) as { cpuset: string | null; strict: boolean };
+  await open(page, "options");
+  const main = page.getByRole("main");
+  const card = main.getByRole("region", { name: "CPU affinity" });
+  await expect(card.getByRole("radio", { name: /^No pinning/ })).toBeChecked({ timeout: 20_000 });
+  const apply = card.getByRole("button", { name: "Apply", exact: true });
+  await expect(apply).toBeDisabled();
+
+  await card.getByRole("radio", { name: /^Only these host CPUs/ }).check();
+  await card.getByRole("textbox", { name: "Host CPUs" }).fill("0-9999");
+  await expect(card.getByText(/^This host has no CPU/)).toBeVisible();
+  await expect(apply).toBeDisabled();
+  await card.getByRole("textbox", { name: "Host CPUs" }).fill("");
+  await card.getByRole("button", { name: "0", exact: true }).click(); // the CPU chips fill the list
+  await expect(card.getByRole("textbox", { name: "Host CPUs" })).toHaveValue("0");
+  await apply.click();
+  await expect(page.getByText("CPU affinity applied").first()).toBeVisible({ timeout: 20_000 });
+  await expect.poll(pinning).toEqual(expect.objectContaining({ cpuset: "0", strict: false }));
+
+  // Strict needs one host CPU per vCPU: the VM has two since the first test.
+  await card.getByRole("radio", { name: /^One host CPU per vCPU/ }).check();
+  await expect(card.getByText(/choose at least 2 CPUs/)).toBeVisible();
+  await card.getByRole("button", { name: "1", exact: true }).click();
+  await apply.click();
+  await expect.poll(pinning).toEqual(expect.objectContaining({ cpuset: "0-1", strict: true }));
+
+  await card.getByRole("radio", { name: /^No pinning/ }).check();
+  await apply.click();
+  await expect.poll(pinning).toEqual(expect.objectContaining({ cpuset: null, strict: false }));
+});
+
 test("hardware: host devices — the real inventory protects the host, a USB key is given live, a PCI card needs a confirmation", async ({ page, request }) => {
   // Real backend: the inventory answers and never offers a PCI bridge or the host's own disks and network card.
   const inv = (await (await request.get("/host/devices", { headers: auth() })).json()) as { iommu: { actif: boolean }; pci: { classe: string; hote: string | null }[] };
