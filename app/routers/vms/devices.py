@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import disk_move, disk_resize
+from app.core import disk_move, disk_resize, passthrough
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -504,3 +504,127 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
 # mechanism for this, applied automatically by the QEMU driver at every VM
 # (re)start with no external script to maintain. One filter per VM
 # ("hyperlite-vm-<name>"), referenced by a <filterref> on each interface of the VM.
+
+
+# --- Host devices given to a VM: PCI (VFIO) and USB passthrough (see app/core/passthrough.py). Administrators only:
+# a PCI device is taken away from the host while the VM runs.
+
+
+class HostDeviceAttach(BaseModel):
+    device: str = Field(max_length=80)
+    # A PCI device leaves the host's control while the VM runs: asked explicitly.
+    confirm: bool = False
+
+
+def _hostdev_entries(conn, domain):
+    """The VM's host devices, described from the host inventory, each with its <hostdev> XML (for a detach)."""
+    inventory = passthrough.list_devices(conn)
+    by_key = {}
+    for dev in inventory["pci"] + inventory["usb"]:
+        for key in passthrough.device_keys(dev):
+            by_key[key] = dev
+    out = []
+    for item in passthrough.attached(domain):
+        dev = next((by_key[k] for k in item["cles"] if k in by_key), None)
+        out.append(
+            {
+                "id": dev["id"] if dev else item["cles"][0],
+                "type": item["type"],
+                "adresse": dev["adresse"] if dev else None,
+                "fabricant": dev["fabricant"] if dev else None,
+                "produit": dev["produit"] if dev else None,
+                # A USB device can be unplugged; a PCI one can vanish after a hardware change.
+                "present": dev is not None,
+                "xml": item["xml"],
+            }
+        )
+    return out
+
+
+def _hostdev_listing(conn, domain):
+    return [{k: v for k, v in e.items() if k != "xml"} for e in _hostdev_entries(conn, domain)]
+
+
+@router.get("/{name}/hostdevs")
+def get_vm_hostdevs(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        return _hostdev_listing(conn, domain)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/hostdevs", status_code=201)
+def attach_vm_hostdev(name: str, payload: HostDeviceAttach, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "attach_hostdev", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        running = bool(domain.isActive())
+        try:
+            plan = passthrough.plan_attach(conn, name, payload.device, running)
+        except passthrough.PassthroughError as e:
+            log_action(user["username"], "attach_hostdev", name, "echec", e.message)
+            raise HTTPException(status_code=e.status, detail=e.message) from e
+        if plan[0][0]["type"] == "pci" and not payload.confirm:
+            raise HTTPException(
+                status_code=422,
+                detail="Giving a PCI device to a VM takes it away from the host while the VM runs: confirm with confirm",
+            )
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG | (libvirt.VIR_DOMAIN_AFFECT_LIVE if running else 0)
+        done = []
+        try:
+            for _dev, xml in plan:
+                domain.attachDeviceFlags(xml, flags)
+                done.append(xml)
+        except libvirt.libvirtError as e:
+            # A group is given whole or not at all.
+            for xml in done:
+                try:
+                    domain.detachDeviceFlags(xml, flags)
+                except libvirt.libvirtError:
+                    logger.warning("Could not roll back %s on %s", xml, name, exc_info=True)
+            msg = describe_exception(e)
+            log_action(user["username"], "attach_hostdev", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Device attach error: {msg}") from e
+        log_action(user["username"], "attach_hostdev", name, "succes", ", ".join(d["adresse"] for d, _ in plan))
+        return {"vm": name, "ajoutes": [d["id"] for d, _ in plan], "hostdevs": _hostdev_listing(conn, domain)}
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}/hostdevs/{device_id}")
+def detach_vm_hostdev(name: str, device_id: str, user: dict = Depends(require_role("admin"))):
+    if not passthrough.DEVICE_ID_RE.match(device_id):
+        raise HTTPException(status_code=422, detail="Invalid device identifier")
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "detach_hostdev", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        item = next((e for e in _hostdev_entries(conn, domain) if e["id"] == device_id), None)
+        if item is None:
+            raise HTTPException(status_code=404, detail="This device is not given to this VM")
+        running = bool(domain.isActive())
+        if item["type"] == "pci" and running:
+            raise HTTPException(status_code=409, detail="Shut down the VM before taking a PCI device back")
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG | (libvirt.VIR_DOMAIN_AFFECT_LIVE if running else 0)
+        try:
+            domain.detachDeviceFlags(item["xml"], flags)
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "detach_hostdev", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Device detach error: {msg}") from e
+        log_action(user["username"], "detach_hostdev", name, "succes", device_id)
+        return {"vm": name, "retire": device_id}
+    finally:
+        conn.close()

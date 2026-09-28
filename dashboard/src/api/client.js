@@ -579,6 +579,19 @@ export async function fetchVMCpuPinning(name) {
 export async function setVMCpuPinning(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cpu-pinning`, { method: "PUT", ...jsonBody(payload) });
 }
+// Host devices (PCI and USB passthrough): the host inventory and a VM's devices.
+export function fetchHostDevices() {
+  return realFetch("/host/devices");
+}
+export function fetchVMHostDevices(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs`);
+}
+export function attachVMHostDevice(name, device, confirm = false) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs`, { method: "POST", ...jsonBody({ device, confirm }) });
+}
+export function detachVMHostDevice(name, device) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
+}
 export async function fetchVMMetrics(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
 }
