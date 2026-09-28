@@ -114,3 +114,15 @@ Each step keeps the old backups restorable; nothing is migrated in place.
    daily incrementals)?
 3. Is restic acceptable as an additional package, or should off-site copies stay out of Hyperlite for now?
 4. Step 1 (manifest and verify) can start right away without any risk. Shall I?
+
+## 7. Decisions (maintainer)
+
+- **Target**: left to the design. The local directory stays the default; the documentation recommends an NFS
+  share on a NAS as the main target, so a backup survives the loss of the host.
+- **restic**: acceptable as an optional package, later (step 6), after verification, block disks and
+  incrementals.
+- **Scale**: plan for large setups (more than 50 VMs, or VMs of several TB). Incremental backups (steps 3 and 4)
+  come right after step 2, and the GFS retention must never break a chain.
+- **Step 1 accepted**, extended with the **NVRAM and TPM state of UEFI VMs**: they are copied with the disks,
+  listed in the manifest with their checksums, and put back on restore (in place and as a new VM), so a
+  Windows 11 or Windows Server VM keeps its boot entries and what it sealed in its TPM.
