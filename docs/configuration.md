@@ -12,6 +12,7 @@ Hyperlite is configured through environment variables, normally set in `/root/hy
 | `HYPERLITE_ENV_LABEL` | Label of a non-production installation (for example `DEV` or `STAGING`, 24 characters at most), shown in the dashboard's top bar, on the sign-in page and in the tab title. Leave unset in production. | none |
 | `HYPERLITE_API_DOCS` | `1` serves the interactive API documentation (`/docs`, `/redoc`, `/openapi.json`). They answer without authentication, so leave it off outside development. | off |
 | `HYPERLITE_HSTS_MAX_AGE` | When set (seconds), HTTPS responses carry `Strict-Transport-Security`. Only with a certificate browsers trust: with a self-signed one, browsers would then refuse to let users past the certificate warning. | off |
+| `HYPERLITE_AUDIT_RETENTION_DAYS` | Audit log entries older than this many days are deleted (checked once a day); `0` keeps everything. Successful reads (the lists the dashboard polls) are not audited; failed ones are. | `365` |
 | `HYPERLITE_TRUSTED_PROXIES` | Comma-separated addresses of reverse proxies in front of Hyperlite. Their `X-Forwarded-For` header is then used for the client address of the sign-in locks and the audit log; from any other peer the header is ignored. | none |
 | `HYPERLITE_TUNNEL_PORTS` | Guest ports reachable through workstation tunnels (see [workstation-access.md](workstation-access.md)); empty disables tunnels. | `22,3389` |
 | `HYPERLITE_TUNNEL_IDLE_TIMEOUT_S` | A tunnel without traffic is closed after this many seconds. | `3600` |
