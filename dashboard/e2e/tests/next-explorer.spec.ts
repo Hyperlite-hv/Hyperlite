@@ -17,7 +17,7 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
   await page.getByLabel("Password", { exact: true }).fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("navigation", { name: "Main navigation" }).locator(".nx-cluster")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
 }
 
 // Datacenter-level pages (historical ?tab= ids) and the title of their page.
@@ -44,12 +44,12 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await request.delete(`/vms/${VM}?confirm=true`, { headers: h }).catch(() => {});
   });
 
-  test("shows the main landmarks and the sidebar without an inventory tree; the cluster button opens the search", async ({ page, problems }) => {
+  test("shows the main landmarks and the sidebar without an inventory tree; Ctrl+K opens the search", async ({ page, problems }) => {
     await nextLogin(page);
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("tree")).toHaveCount(0);
-    await page.locator(".nx-cluster").click();
+    await page.keyboard.press("Control+k");
     const palette = page.getByRole("dialog", { name: "Find a node or VM" });
     await expect(palette).toBeVisible();
     await palette.getByRole("combobox").fill("Datacenter");
@@ -221,7 +221,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     // R7 / R8: no "All operations" block and no chart on the summary.
     await expect(main.getByText("All operations")).toHaveCount(0);
     await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toHaveCount(0);
-    for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
+    for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console", "Tasks"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
     // R6: Snapshot and Migrate left the header for the grouped Actions menu, with every historical operation.
     const head = page.locator(".nx-oh-acts");
     for (const action of ["Snapshot", "Migrate…"]) await expect(head.getByRole("button", { name: new RegExp(`^${action}`) })).toHaveCount(0);

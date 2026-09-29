@@ -48,7 +48,7 @@ import libvirt
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, raise_if_cancelled, register_cancel, task_log, update_task_progress
 from app.core.vm_meta import get_vm_ssh_user
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,28 @@ def _resolve_vm_ssh(vm_name):
         conn.close()
 
 
+# The task of the run executing in this thread: a running command registers how to stop it (see _run).
+_current = threading.local()
+
+
+def _run(args):
+    """A step's process, stoppable by cancelling the run's task."""
+    task_id = getattr(_current, "task_id", None)
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if task_id:
+        register_cancel(task_id, proc.terminate)
+    try:
+        out, err = proc.communicate(timeout=STEP_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        return "", f"Timed out after {STEP_TIMEOUT_S}s", 124
+    finally:
+        if task_id:
+            register_cancel(task_id)
+    return out, err, proc.returncode
+
+
 def _run_command(cible_type, cible, commande, dry_run):
     """Run a shell command on the local host, or over SSH on a VM. Returns
     (stdout, stderr, exit_code). In dry-run mode nothing is executed: it just
@@ -96,37 +118,26 @@ def _run_command(cible_type, cible, commande, dry_run):
         return f"[dry-run] command not executed: {commande}", "", 0
 
     if cible_type == "host":
-        try:
-            r = subprocess.run(["bash", "-c", commande], capture_output=True, text=True, timeout=STEP_TIMEOUT_S)
-            return r.stdout, r.stderr, r.returncode
-        except subprocess.TimeoutExpired:
-            return "", f"Timed out after {STEP_TIMEOUT_S}s", 124
+        return _run(["bash", "-c", commande])
 
     ip, username, key_path = _resolve_vm_ssh(cible)
-    try:
-        r = subprocess.run(
-            [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
-                "-i",
-                str(key_path),
-                f"{username}@{ip}",
-                commande,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=STEP_TIMEOUT_S,
-        )
-        return r.stdout, r.stderr, r.returncode
-    except subprocess.TimeoutExpired:
-        return "", f"Timed out after {STEP_TIMEOUT_S}s", 124
+    return _run(
+        [
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-i",
+            str(key_path),
+            f"{username}@{ip}",
+            commande,
+        ]
+    )
 
 
 def _step_succeeded(condition_type, condition_valeur, stdout, exit_code):
@@ -255,8 +266,13 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
 def _run_steps(run_id, task_id, steps, dry_run):
     """Run the steps in order and log each one. Returns True when all succeeded."""
     total = max(len(steps), 1)
+    _current.task_id = task_id
+    register_cancel(task_id)
     for i, step in enumerate(steps):
+        # Cancelling stops the command in progress (see _run) and the steps after it.
+        raise_if_cancelled(task_id)
         cible = "the host" if step["cible_type"] == "host" else step["cible"]
+        task_log(task_id, f"Step {i + 1}/{total} on {cible}: {step['commande'][:200]}")
         try:
             stdout, stderr, exit_code = _run_command(step["cible_type"], step["cible"], step["commande"], dry_run)
             reussi = _step_succeeded(step["condition_type"], step["condition_valeur"], stdout, exit_code)

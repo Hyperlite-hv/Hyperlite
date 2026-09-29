@@ -21,7 +21,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from app.core import container_console, maintenance
+from app.core import container_config, container_console, maintenance, object_meta
 from app.core.audit import log_action
 from app.core.container_builder import (
     app_spec,
@@ -59,7 +59,7 @@ from app.core.vm_builder import (
     validate_name,
     validate_username,
 )
-from app.core.vm_limits import compute_limits
+from app.core.vm_limits import compute_limits, validate_vm_resources
 
 logger = logging.getLogger(__name__)
 
@@ -169,9 +169,65 @@ def get_container(name: str, user: dict = Depends(require_container_privilege("c
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-        summary = _summary(domain)
-        summary["utilisateur_ssh"] = get_container_ssh_user(name)
-        return summary
+        return _detail(domain)
+    finally:
+        conn.close()
+
+
+def _detail(domain):
+    """The summary plus what the container's own page shows: interfaces, DNS servers, start at boot."""
+    name = domain.name()
+    summary = _summary(domain)
+    summary["utilisateur_ssh"] = get_container_ssh_user(name)
+    summary["interfaces"] = container_config.interfaces(domain)
+    summary["dns"] = container_config.read_dns(name)
+    summary["demarrage_auto"] = bool(domain.autostart())
+    return summary
+
+
+class ContainerUpdate(BaseModel):
+    vcpu: int | None = Field(default=None, ge=1)
+    memory_mb: int | None = Field(default=None, ge=128)
+    # Started with the host (libvirt's autostart: containers start in no particular order, and quickly).
+    demarrage_auto: bool | None = None
+    dns: list[str] | None = Field(default=None, max_length=8)
+
+
+@router.patch("/{name}")
+def update_container(name: str, payload: ContainerUpdate, user: dict = Depends(require_role("admin"))):
+    if payload.vcpu is not None or payload.memory_mb is not None:
+        errors = validate_vm_resources(payload.vcpu, payload.memory_mb)
+        if errors:
+            raise HTTPException(status_code=422, detail=errors)
+    conn = open_lxc_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
+        changes, restart = [], False
+        try:
+            if payload.dns is not None:
+                servers = container_config.write_dns(name, payload.dns)
+                changes.append(f"DNS {', '.join(servers)}")
+            if payload.vcpu is not None or payload.memory_mb is not None:
+                restart = container_config.set_resources(conn, domain, payload.vcpu, payload.memory_mb)["a_redemarrer"]
+                domain = conn.lookupByName(name)  # the definition was replaced
+                changes.append(f"{payload.vcpu or '-'} vCPU, {payload.memory_mb or '-'} MB")
+            if payload.demarrage_auto is not None:
+                domain.setAutostart(1 if payload.demarrage_auto else 0)
+                changes.append(f"start at boot {'on' if payload.demarrage_auto else 'off'}")
+        except container_config.ConfigError as e:
+            log_action(user["username"], "update_container", name, "echec", str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "update_container", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=msg) from e
+        if not changes:
+            raise HTTPException(status_code=422, detail="No change requested")
+        log_action(user["username"], "update_container", name, "succes", "; ".join(changes))
+        return {**_detail(domain), "a_redemarrer": restart}
     finally:
         conn.close()
 
@@ -446,6 +502,7 @@ def delete_container(name: str, user: dict = Depends(require_role("admin"))):
 
         delete_container_rootfs(name)
         delete_container_ssh_user(name)
+        object_meta.delete("container", name)
         if get_container_app(name):
             if mac:
                 release_static_ip(conn, network, mac)

@@ -653,6 +653,51 @@ def init_db():
                 created_at REAL NOT NULL
             )
         """)
+        # Start at boot (app/core/vm_boot.py): per node and VM, and the last boot of each node that was handled.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_boot (
+                node TEXT NOT NULL DEFAULT 'local',
+                vm_name TEXT NOT NULL,
+                autostart INTEGER NOT NULL DEFAULT 0,
+                boot_order INTEGER,
+                delay_s INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (node, vm_name)
+            )
+        """)
+        conn.execute("CREATE TABLE IF NOT EXISTS vm_boot_state (node TEXT PRIMARY KEY, boot_id TEXT NOT NULL)")
+        # Task log lines (app/core/tasks.py) and who cancelled a task.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                at TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_task_logs_task ON task_logs(task_id)")
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+            conn.execute("ALTER TABLE tasks ADD COLUMN annule_par TEXT")
+        # Cloud-init edited after creation (app/core/cloudinit_edit.py): the account and keys last written, never a
+        # password.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_cloudinit (
+                vm_name TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                ssh_keys TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        # Notes and tags (app/core/object_meta.py). node is '' for a node itself, the VM's node otherwise.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS object_meta (
+                kind TEXT NOT NULL,
+                node TEXT NOT NULL,
+                name TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                tags TEXT NOT NULL DEFAULT '[]',
+                PRIMARY KEY (kind, node, name)
+            )
+        """)
         # The local host used to be stored under a machine-specific label; it is now always "local".
         for table in ("ha_protected_vms", "tasks"):
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608

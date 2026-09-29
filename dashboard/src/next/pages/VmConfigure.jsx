@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Info, Plus, Trash2, Zap } from "lucide-react";
 import {
   fetchVMDisks, attachDisk, detachDisk, resizeDisk, moveDisk, createVolume, fetchVolumes, fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
-  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchVMCpuPinning, setVMCpuPinning, fetchHostDevices, fetchVMHostDevices, attachVMHostDevice, detachVMHostDevice, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
+  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchVMBoot, setVMBoot, fetchVMCpuPinning, setVMCpuPinning, fetchHostDevices, fetchVMHostDevices, attachVMHostDevice, detachVMHostDevice, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -15,6 +15,7 @@ import { formatSizeGb } from "../lib/format";
 import { ErrorState, InlineError } from "../components/States";
 import { Card, Chip, Field, SideDrawer, Loading, TableWrap } from "../components/ui";
 import FirewallCard from "../components/FirewallCard";
+import { isRemoteVm } from "../lib/vmId";
 
 // First free SCSI letter (sda…sdz); null when none is left.
 function nextScsiDev(disks) {
@@ -529,8 +530,65 @@ export function VmNetworkPage({ resource: vm }) {
   );
 }
 
+// ---- Start at boot: when the VM's node boots, in which order and with which pause before the next VM ---------
+function BootCard({ vm }) {
+  const t = useT();
+  const admin = capabilities(useAuthStore((s) => s.role)).admin;
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [boot, setBoot] = useState(null);
+  const [error, setError] = useState(null);
+  const [on, setOn] = useState(false);
+  const [order, setOrder] = useState("");
+  const [delay, setDelay] = useState("0");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      const b = await fetchVMBoot(vm.nom, vm.node);
+      setBoot(b); setOn(b.demarrage_auto); setOrder(b.ordre ?? ""); setDelay(String(b.delai_s)); setError(null);
+    } catch (e) { setError(errorMessage(e)); }
+  }, [vm.nom, vm.node]);
+  useEffect(() => { load(); }, [load]);
+  if (error && !boot) return <Card title={t("vb.title")}><InlineError message={error} onRetry={load} /></Card>;
+  if (!boot) return <Card title={t("vb.title")}><Loading /></Card>;
+  const bad = { order: order !== "" && !intIn(order, 0, 9999), delay: !intIn(delay, 0, 3600) };
+  const dirty = on !== boot.demarrage_auto || (order === "" ? null : Number(order)) !== (boot.ordre ?? null) || Number(delay) !== boot.delai_s;
+  async function save() {
+    if (bad.order || bad.delay) return;
+    setBusy(true);
+    try {
+      const b = await setVMBoot(vm.nom, { demarrage_auto: on, ordre: order === "" ? null : Number(order), delai_s: Number(delay) }, vm.node);
+      setBoot(b); pushToast({ kind: "success", title: t("vb.saved"), message: vm.nom });
+    } catch (er) { pushToast({ kind: "error", title: t("vb.saveFailed"), message: errorMessage(er) }); } finally { setBusy(false); }
+  }
+  return (
+    <Card title={t("vb.title")}>
+      <p className="nx-muted" style={{ margin: "0 0 var(--space-4)", fontSize: "var(--fs-13)" }}>{t("vb.help")}</p>
+      <label className="nx-check"><input type="checkbox" checked={on} disabled={!admin} onChange={(e) => setOn(e.target.checked)} /> {t("vb.enable")}</label>
+      <div className="nx-fg nx-fg--3" style={{ marginTop: "var(--space-3)" }}>
+        <Field label={t("vb.order")} error={bad.order ? t("vb.orderRule") : null} hint={t("vb.orderHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={0} max={9999} placeholder={t("vb.orderNone")} disabled={!admin || !on} value={order} onChange={(e) => setOrder(e.target.value)} />}</Field>
+        <Field label={t("vb.delay")} unit="s" error={bad.delay ? t("vb.delayRule") : null} hint={t("vb.delayHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={0} max={3600} disabled={!admin || !on} value={delay} onChange={(e) => setDelay(e.target.value)} />}</Field>
+      </div>
+      {boot.autostart_libvirt && !boot.demarrage_auto && <p className="nx-notice nx-notice--warning" role="status">{t("vb.libvirtFlag")}</p>}
+      {admin && <div className="nx-fa"><button type="button" className="nx-btn" disabled={!dirty || busy || bad.order || bad.delay} onClick={save}>{t("vb.save")}</button></div>}
+    </Card>
+  );
+}
+
 // ---- Options and limits: cgroup limits applied live -------------------------------------------------------
 export function VmOptionsPage({ resource: vm }) {
+  if (!vm) return null;
+  // Resource limits and CPU pinning are applied on this host only; start at boot works on every node.
+  if (isRemoteVm(vm)) return <><BootCard vm={vm} /><RemoteOptionsNote vm={vm} /></>;
+  return <LocalOptions vm={vm} />;
+}
+
+function RemoteOptionsNote({ vm }) {
+  const t = useT();
+  const nodes = useInfraStore((s) => s.nodes);
+  return <p className="nx-muted" role="note">{t("vb.remoteLimits", { node: nodes.find((n) => n.id === vm.node)?.nom || vm.node })}</p>;
+}
+
+function LocalOptions({ vm }) {
   const t = useT();
   const admin = capabilities(useAuthStore((s) => s.role)).admin;
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -546,7 +604,6 @@ export function VmOptionsPage({ resource: vm }) {
     catch (e) { setError(errorMessage(e)); }
   }, [name]);
   useEffect(() => { if (name) load(); }, [name, load]);
-  if (!vm) return null;
   if (error && !limits) return <ErrorState message={error} onRetry={load} />;
   if (!limits) return <Loading />;
   const bad = { shares: !intIn(shares, 2, 262144), cpu: cpu !== "" && !intIn(cpu, 1, 100), ram: ram !== "" && !intIn(ram, 64) };
@@ -561,6 +618,7 @@ export function VmOptionsPage({ resource: vm }) {
   }
   return (
     <>
+    <BootCard vm={vm} />
     <Card title={t("vo.limits")}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-4)", fontSize: "var(--fs-13)" }}>{t("vo.limitsHelp")}</p>
       <div className="nx-fg nx-fg--3">
