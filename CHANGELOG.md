@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format is based on 
 - An Updates tab on the local node: upgradable packages with the security ones marked, a reboot-required notice, and the upgrade run as a task with apt's output in its log (Hyperlite's own package is left to its update page). DNS servers, time zone and NTP, and remote syslog forwarding on the node's System page.
 - Storage replication between nodes: decided not to build it for now, with the reasons, what covers the need today and what would reopen it (docs/design/replication.md).
 - Reboot or shut down the local node from its Actions menu: its name typed back to confirm, running VMs and containers named, and shut down cleanly first when asked (the node stays up if one of them does not stop).
+- My preferences (account menu), kept in the browser: the terminals' font and size, and the storage pools the Home page follows.
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).

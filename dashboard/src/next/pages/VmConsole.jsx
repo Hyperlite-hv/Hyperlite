@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { termOptions } from "../lib/prefs";
 import { ExternalLink, Keyboard, Laptop, Maximize, TriangleAlert, X } from "lucide-react";
 import { createConsoleTicket, createTerminalTicket } from "../../api/client";
 import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
@@ -80,7 +81,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       screen.current.innerHTML = "";
       // xterm is a UMD global; its theme is the graphite of the navigation column.
       // eslint-disable-next-line no-undef
-      const tm = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "IBM Plex Mono, ui-monospace, monospace", theme: { background: "#141215", foreground: "#F1ECEE", cursor: "#CE9DB2" } });
+      const tm = new Terminal(termOptions());
       // eslint-disable-next-line no-undef
       const fit = new FitAddon.FitAddon();
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;
