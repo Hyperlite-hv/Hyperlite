@@ -9,6 +9,7 @@ use, the previous pair is kept next to it, and the service restarts outside its 
 request that asked for it gets out first. A pair that would not load never reaches the service.
 """
 
+import contextlib
 import datetime
 import os
 import re
@@ -182,14 +183,12 @@ def self_signed():
     (TLS_DIR / SOURCE_FILE).write_text("auto\n")
 
 
-def acme_command(domain, email, staging=False):
+def acme_command(domain, email, staging=False, config_path=None):
     """certbot command for a Let's Encrypt certificate by HTTP-01 on port 80 (certbot answers the challenge
     itself); its deploy hook installs the pair and restarts the service, now and at each renewal of certbot's
-    timer."""
-    if not DOMAIN_RE.match(domain or ""):
-        raise CertError("Invalid domain name (a public DNS name such as hv1.example.org is expected)")
-    if not EMAIL_RE.match(email or ""):
-        raise CertError("Invalid e-mail address")
+    timer. The domain and the e-mail address go in certbot's configuration file (`acme_config`), not on the command
+    line: every argument of the command is a constant or a path chosen here."""
+    acme_config(domain, email)
     certbot = shutil.which("certbot")
     if certbot is None:
         raise CertError("certbot is not installed on this node: apt install certbot")
@@ -202,15 +201,37 @@ def acme_command(domain, email, staging=False):
         "--keep-until-expiring",
         "--preferred-challenges",
         "http",
-        # The attached "--opt=value" form: a value can never be read as another option, whatever it starts with.
-        f"--domains={domain}",
-        f"--email={email}",
         "--deploy-hook",
         str(ACME_HOOK),
     ]
+    if config_path is not None:
+        cmd += ["--config", str(config_path)]
     if staging:
         cmd.append("--test-cert")
     return cmd
+
+
+def acme_config(domain, email):
+    """certbot's configuration file (its long option names) for this request, after checking both values."""
+    if not DOMAIN_RE.match(domain or ""):
+        raise CertError("Invalid domain name (a public DNS name such as hv1.example.org is expected)")
+    if not EMAIL_RE.match(email or ""):
+        raise CertError("Invalid e-mail address")
+    return f"domains = {domain}\nemail = {email}\n"
+
+
+def run_acme(domain, email, staging, timeout):
+    """Run certbot for this request; the configuration file lives only for the run, readable by root alone."""
+    config = acme_config(domain, email)
+    fd, path = tempfile.mkstemp(prefix="hyperlite-acme-", suffix=".ini")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(config)
+        cmd = acme_command(domain, email, staging, config_path=path)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
 
 
 def _install_files(cert_path, key_path, source):

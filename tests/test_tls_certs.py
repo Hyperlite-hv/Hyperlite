@@ -1,6 +1,7 @@
 """The web interface's HTTPS certificate: import (checked like uvicorn loads it), go back, Let's Encrypt command."""
 
 import datetime
+import os
 
 import pytest
 from cryptography import x509
@@ -113,7 +114,11 @@ def test_acme_command_is_validated_and_uses_the_deploy_hook(monkeypatch):
     monkeypatch.setattr(tls_certs.shutil, "which", lambda name: f"/usr/bin/{name}")
     cmd = tls_certs.acme_command("hv1.example.org", "ops@example.org", staging=True)
     assert cmd[:3] == ["/usr/bin/certbot", "certonly", "--standalone"]
-    assert "--domains=hv1.example.org" in cmd and cmd[-1] == "--test-cert"
+    assert cmd[-1] == "--test-cert" and not any("example.org" in a for a in cmd)  # values only in the config file
+    assert (
+        tls_certs.acme_config("hv1.example.org", "ops@example.org")
+        == "domains = hv1.example.org\nemail = ops@example.org\n"
+    )
     assert cmd[cmd.index("--deploy-hook") + 1].endswith("scripts/acme-deploy-hook.sh")
     for domain, email in [
         ("hv1", "a@b.org"),
@@ -131,19 +136,24 @@ def test_acme_command_is_validated_and_uses_the_deploy_hook(monkeypatch):
 def test_acme_failure_returns_certbot_last_lines(client, auth_headers, monkeypatch, tls_dir):
     import subprocess
 
-    from app.routers import certificate
-
     monkeypatch.setattr(tls_certs.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(
-        certificate.subprocess,
-        "run",
-        lambda cmd, **kw: subprocess.CompletedProcess(
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        config = cmd[cmd.index("--config") + 1]
+        with open(config) as f:
+            seen["config"] = f.read()
+        seen["path"] = config
+        return subprocess.CompletedProcess(
             cmd, 1, "", "Challenge failed\nTimeout during connect (likely firewall problem)"
-        ),
-    )
+        )
+
+    monkeypatch.setattr(tls_certs.subprocess, "run", fake_run)
     r = client.post(
         "/host/certificate/acme",
         json={"domaine": "hv1.example.org", "email": "ops@example.org"},
         headers=auth_headers("root", "admin"),
     )
     assert r.status_code == 502 and "likely firewall problem" in r.json()["detail"]
+    assert seen["config"] == "domains = hv1.example.org\nemail = ops@example.org\n"
+    assert not os.path.exists(seen["path"])  # the configuration file lives only for the run
