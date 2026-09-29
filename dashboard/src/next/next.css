@@ -856,3 +856,10 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 /* Console side panels: text to type into the VM, the VM's clipboard. */
 .nx-typebar { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-subtle); border-top: 0; background: var(--color-bg-surface); }
 .nx-clip { display: block; max-height: 5rem; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: var(--fs-12); }
+/* Folders and files of a backup being browsed. */
+.nx-crumbs2 { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: var(--fs-13); }
+.nx-crumbs2 > span { display: inline-flex; align-items: center; gap: 2px; }
+.nx-crumbs2 > .nx-btn { margin-left: auto; }
+.nx-files { list-style: none; margin: 0; padding: 0; display: grid; }
+.nx-files li { display: grid; grid-template-columns: minmax(0, 1fr) 5rem 7.5rem 2rem; gap: var(--space-2); align-items: center; min-height: 2rem; border-bottom: 1px solid var(--color-border-subtle); font-size: var(--fs-13); }
+.nx-files li > button.nx-lnk, .nx-files li > span:first-child { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

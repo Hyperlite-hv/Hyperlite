@@ -463,6 +463,19 @@ async function downloadCsv(path, filters, fallbackName) {
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
+// File-level restore: a browsing session on a backup's disks, its folders, and a file (or a folder as .tar.gz).
+export async function openBackupFiles(backupId) {
+  return realFetch(`/backups/${backupId}/files`, { method: "POST" });
+}
+export async function listBackupDir(session, device, path) {
+  return realFetch(`/file-restore/${encodeURIComponent(session)}/ls?${new URLSearchParams({ device, path })}`);
+}
+export function downloadBackupFile(session, device, path) {
+  return downloadCsv(`/file-restore/${encodeURIComponent(session)}/download`, { device, path }, "restored-file");
+}
+export async function closeBackupFiles(session) {
+  return realFetch(`/file-restore/${encodeURIComponent(session)}`, { method: "DELETE" });
+}
 export function downloadAuditCsv(filters = {}) {
   return downloadCsv("/audit/export.csv", filters, "hyperlite-audit.csv");
 }
