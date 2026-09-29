@@ -23,14 +23,16 @@ test("backup jobs: a tag's VMs on one schedule with GFS retention", async ({ pag
   await drawer.getByLabel("Tag").selectOption("e2e-prod");
   await drawer.getByRole("checkbox", { name: "e2e-bg-db" }).check();
   await drawer.getByLabel("Time", { exact: true }).fill("03:15");
-  await drawer.getByLabel("Weekly").fill("0");
+  await drawer.getByLabel("Weekly", { exact: true }).fill("0");
   await expect(drawer.getByText("1 to 260, or empty")).toBeVisible();
   await expect(drawer.getByRole("button", { name: "Save" })).toBeDisabled();
-  await drawer.getByLabel("Weekly").fill("4");
-  await drawer.getByLabel("Monthly").fill("6");
+  await drawer.getByLabel("Weekly", { exact: true }).fill("4");
+  await drawer.getByLabel("Monthly", { exact: true }).fill("6");
   await drawer.getByLabel("Backup directory").fill("/etc/backups");
   await drawer.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Backups cannot be written in /etc/backups")).toBeVisible();
+  // The error toast sits over the drawer's footer until it goes.
+  await expect(page.getByText("Backups cannot be written in /etc/backups")).toBeHidden({ timeout: 20_000 });
   await drawer.getByLabel("Backup directory").fill("");
   await drawer.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Backup job saved")).toBeVisible();

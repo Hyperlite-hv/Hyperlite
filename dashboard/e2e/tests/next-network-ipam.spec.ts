@@ -49,7 +49,7 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
   await settings.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Applied.")).toBeVisible();
 
-  await settings.getByLabel("Netmask").fill("255.255.0.0");
+  await settings.getByLabel("Netmask", { exact: true }).fill("255.255.0.0");
   await settings.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Applies at the network's next restart.")).toBeVisible();
   await expect(settings.getByText("Saved changes wait for a restart of the network.")).toBeVisible();
@@ -61,7 +61,7 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
   const addresses = page.getByRole("region", { name: "Addresses" });
   await addresses.getByRole("button", { name: "Reserve 10.9.0.150" }).click();
   const add = addresses.getByRole("group", { name: "Add a reservation" });
-  await expect(add.getByLabel("MAC address")).toHaveValue("52:54:00:00:00:09");
+  await expect(add.getByLabel("MAC address", { exact: true })).toHaveValue("52:54:00:00:00:09");
   await expect(add.getByLabel("Name (optional)")).toHaveValue("db");
   await add.getByRole("button", { name: "Add a reservation" }).click();
   await expect(addresses.getByRole("button", { name: "Reserve 10.9.0.150" })).toHaveCount(0);

@@ -67,7 +67,7 @@ export default function CertificateCard() {
           <p className="nx-muted" style={{ margin: 0, fontSize: "var(--fs-13)" }}>{t("cert.importHelp")}</p>
           <Field label={t("cert.certPem")}>{(p) => <textarea {...p} className="nx-inp nx-mono nx-notes-input" rows={5} value={pem.certificat} placeholder="-----BEGIN CERTIFICATE-----" onChange={(e) => setPem((x) => ({ ...x, certificat: e.target.value }))} />}</Field>
           <Field label={t("cert.keyPem")}>{(p) => <textarea {...p} className="nx-inp nx-mono nx-notes-input" rows={5} value={pem.cle} placeholder="-----BEGIN PRIVATE KEY-----" autoComplete="off" spellCheck={false} onChange={(e) => setPem((x) => ({ ...x, cle: e.target.value }))} />}</Field>
-          <Field label={t("cert.chainPem")}>{(p) => <textarea {...p} className="nx-inp nx-mono nx-notes-input" rows={3} value={pem.chaine} onChange={(e) => setPem((x) => ({ ...x, chaine: e.target.value }))} />}</Field>
+          <Field label={t("cert.chainPem")} help={t("hlp.chain")}>{(p) => <textarea {...p} className="nx-inp nx-mono nx-notes-input" rows={3} value={pem.chaine} onChange={(e) => setPem((x) => ({ ...x, chaine: e.target.value }))} />}</Field>
           <div><button type="button" className="nx-btn nx-btn--primary" disabled={busy || !pem.certificat.includes("BEGIN CERTIFICATE") || !pem.cle.includes("PRIVATE KEY")}
             onClick={() => confirmThen(t("cert.importTitle"), t("cert.restartMsg"), () => importCertificate(pem), t("cert.imported"), t("cert.importFailed"))}>{t("cert.install")}</button></div>
         </div>

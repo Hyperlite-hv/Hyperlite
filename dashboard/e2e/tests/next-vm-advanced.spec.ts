@@ -55,9 +55,9 @@ test("advanced hardware: disk options, boot order, ballooning and machine type",
   await expect(page.getByText("Boot order saved")).toBeVisible();
 
   const balloon = main.getByRole("region", { name: "Memory ballooning" });
-  await balloon.getByLabel("Minimum memory").fill("100");
+  await balloon.getByLabel("Minimum memory", { exact: true }).fill("100");
   await expect(balloon.getByText("From 256 to 2048 MB (the VM's memory).")).toBeVisible();
-  await balloon.getByLabel("Minimum memory").fill("1024");
+  await balloon.getByLabel("Minimum memory", { exact: true }).fill("1024");
   await balloon.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Ballooning saved")).toBeVisible();
 
