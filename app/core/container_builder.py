@@ -110,7 +110,11 @@ def ensure_base_rootfs():
 
 
 def container_rootfs_path(name):
-    return safe_child(CONTAINERS_DIR, name)
+    """The container's filesystem: under its storage pool when one was chosen at creation, else the default place."""
+    from app.core.container_meta import get_container_storage
+
+    storage = get_container_storage(name)
+    return safe_child(Path(storage["base_dir"]) if storage else CONTAINERS_DIR, name)
 
 
 # ---- Images pulled from a registry (Docker Hub or other) ----
@@ -329,7 +333,7 @@ def bootstrap_os_container(rootfs):
     return family
 
 
-def create_container_rootfs(name, image=None, bootstrap=True):
+def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
     """Fast clone (local copy, no network) of the base image, either the local one
     (debootstrap, the default) or one pulled from an external registry
     (`image`, e.g. "ubuntu:22.04", "alpine:3.19", "ghcr.io/foo/bar:tag"), for a
@@ -354,6 +358,12 @@ def create_container_rootfs(name, image=None, bootstrap=True):
         base = ensure_base_rootfs()
         family = "apt"
 
+    if storage:
+        # storage: {"pool": name, "base_dir": directory}, see resolve_container_storage in the containers router.
+        from app.core.container_meta import set_container_storage
+
+        Path(storage["base_dir"]).mkdir(mode=0o711, parents=True, exist_ok=True)
+        set_container_storage(name, storage["pool"], storage["base_dir"])
     dest = container_rootfs_path(name)
     if dest.exists():
         raise ValueError(f"Container '{name}' already has a filesystem on disk")
@@ -362,7 +372,10 @@ def create_container_rootfs(name, image=None, bootstrap=True):
 
 
 def delete_container_rootfs(name):
+    from app.core.container_meta import delete_container_storage
+
     shutil.rmtree(container_rootfs_path(name), ignore_errors=True)
+    delete_container_storage(name)
 
 
 # Container clone and backup. CONFIRMED in testing (virsh -c lxc:///system
@@ -385,11 +398,20 @@ def clone_container_rootfs(name, new_name):
     two as long as nothing forces their regeneration. It does keep the existing
     user account and password (the copied rootfs already has them), exactly as
     VM cloning does not recreate the account either."""
+    from app.core.container_meta import get_container_storage, set_container_storage
+
     src = container_rootfs_path(name)
     if not src.exists():
         raise ValueError(f"Filesystem of container '{name}' not found")
+    storage = get_container_storage(name)
+    if storage:  # a clone stays in its source's storage pool
+        set_container_storage(new_name, storage["pool"], storage["base_dir"])
     dest = container_rootfs_path(new_name)
     if dest.exists():
+        if storage:
+            from app.core.container_meta import delete_container_storage
+
+            delete_container_storage(new_name)
         raise ValueError(f"Container '{new_name}' already has a filesystem on disk")
     subprocess.run(["cp", "-a", str(src), str(dest)], check=True, capture_output=True, text=True)
     _reset_container_identity(dest, new_name)
@@ -682,9 +704,14 @@ def prepare_app_rootfs(rootfs, hostname, dns):
         target.write_text(content)
 
 
-def _app_os_xml(init, spec):
+def _app_os_xml(init, spec, launcher=None):
+    """launcher: (launcher path, log path) inside the container, when its output is captured (container_console):
+    the launcher then runs first and execs the program."""
+    args = spec["args"][1:]
+    if launcher:
+        init, args = launcher[0], [launcher[1], init, *args]
     parts = [f"    <init>{escape(init)}</init>"]
-    parts += [f"    <initarg>{escape(a)}</initarg>" for a in spec["args"][1:]]
+    parts += [f"    <initarg>{escape(a)}</initarg>" for a in args]
     parts += [f"    <initenv name={quoteattr(k)}>{escape(v)}</initenv>" for k, v in spec["env"].items()]
     parts.append(f"    <initdir>{escape(spec.get('cwd') or '/')}</initdir>")
     parts.append(f"    <inituser>{int(spec.get('uid', 0))}</inituser>")
@@ -703,7 +730,7 @@ def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=No
     ip_xml = ""
     if app:
         # app: {"init": absolute path, "spec": process settings, "ip": ..., "prefix": ..., "gateway": ...}
-        os_xml = _app_os_xml(app["init"], app["spec"])
+        os_xml = _app_os_xml(app["init"], app["spec"], launcher=app.get("launcher"))
         ip_xml = (
             f"\n      <ip address={quoteattr(app['ip'])} family='ipv4' prefix='{int(app['prefix'])}'/>"
             f"\n      <route family='ipv4' address='0.0.0.0' prefix='0' gateway={quoteattr(app['gateway'])}/>"

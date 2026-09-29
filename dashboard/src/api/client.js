@@ -867,6 +867,10 @@ export async function stopContainer(name, force = false) {
 export async function deleteContainer(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
+// What a Docker (application) container's process printed: { actif, disponible, lignes }.
+export async function fetchContainerLogs(name, lines = 300) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/logs?lines=${lines}`);
+}
 export async function createContainerTerminalTicket(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
