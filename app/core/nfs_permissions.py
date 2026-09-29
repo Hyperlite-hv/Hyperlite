@@ -21,6 +21,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 QEMU_CONF = Path("/etc/libvirt/qemu.conf")
+# Where Hyperlite mounts the NFS pools it creates: the only directories check() writes into.
+POOLS_ROOT = Path("/var/lib/libvirt/hyperlite-pools")
 DEFAULT_USER = "libvirt-qemu"
 DEFAULT_GROUP = "kvm"
 _SETTING = re.compile(r'^\s*(user|group)\s*=\s*"([^"]+)"', re.MULTILINE)
@@ -65,8 +67,18 @@ def advice(uid, gid, export="/srv/share"):
 
 def check(path, export="/srv/share"):
     """{"ok": bool, "message": str|None} for a mounted NFS pool directory."""
+    # The service runs as root and writes a file here: only ever inside a pool mount point Hyperlite made (the
+    # path comes from a pool name or from libvirt's configuration, never trusted as is). Resolved, so a
+    # symbolic link cannot lead elsewhere.
+    root = os.path.realpath(POOLS_ROOT)
+    target = os.path.realpath(path)
+    if not target.startswith(root + os.sep) or os.path.dirname(target) != root:
+        return {
+            "ok": False,
+            "message": f"Only the NFS pools Hyperlite mounts under {POOLS_ROOT} can be checked; this one is at {path}.",
+        }
     uid, gid, who = qemu_identity()
-    probe = Path(path) / f".hyperlite-permission-check-{secrets.token_hex(4)}"
+    probe = os.path.join(target, f".hyperlite-permission-check-{secrets.token_hex(4)}")
     try:
         fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except OSError as e:
@@ -80,10 +92,10 @@ def check(path, export="/srv/share"):
             os.chown(probe, uid, gid)
         except OSError as e:  # judged by the owner the server recorded, below
             logger.debug("chown refused on the NFS share: %s", e)
-        owner = probe.stat().st_uid
+        owner = os.stat(probe).st_uid
     finally:
         try:
-            probe.unlink()
+            os.unlink(probe)
         except OSError as e:
             logger.warning("Could not remove the permission probe %s: %s", probe, e)
     if owner == uid:
