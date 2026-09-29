@@ -16,6 +16,7 @@ export default function SecurityKeysSection({ open }) {
   const lang = useLangStore((s) => s.lang);
   const pushToast = useInfraStore((s) => s.pushToast);
   const refreshMe = useAuthStore((s) => s.refreshMe);
+  const authSource = useAuthStore((s) => s.authSource);
   const [keys, setKeys] = useState(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,9 +26,15 @@ export default function SecurityKeysSection({ open }) {
 
   async function add(e) {
     e.preventDefault();
+    // The password is asked again, as for removing a key: a session left open must not be enough to add one.
+    let password = "";
+    if (authSource !== "sso") {
+      password = await promptText({ title: t("sk.addTitle"), label: t("sk.password"), type: "password", confirmLabel: t("sk.add"), validate: (v) => (v ? "" : t("sk.passwordRequired")) });
+      if (!password) return;
+    }
     setBusy(true);
     try {
-      const options = await securityKeyOptions();
+      const options = await securityKeyOptions(password);
       const credential = await createCredential(options);
       const r = await registerSecurityKey(credential, name.trim());
       setKeys(r.cles); setName("");

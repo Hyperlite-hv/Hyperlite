@@ -71,7 +71,9 @@ def verify_token(token: str):
         return None
     token_hash = _hash(token)
     with get_conn() as conn:
-        row = conn.execute("SELECT username, expires_at FROM api_tokens WHERE token_hash = ?", (token_hash,)).fetchone()
+        row = conn.execute(
+            "SELECT id, username, expires_at FROM api_tokens WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
         if not row:
             return None
         if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= datetime.now(UTC):
@@ -82,4 +84,7 @@ def verify_token(token: str):
         )
         conn.commit()
         user = conn.execute("SELECT * FROM users WHERE username = ?", (row["username"],)).fetchone()
-    return dict(user) if user else None
+    if not user:
+        return None
+    # Which token authenticated the request: a token may revoke itself, never create or revoke others.
+    return {**dict(user), "api_token_id": row["id"]}

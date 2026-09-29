@@ -928,8 +928,9 @@ export async function restoreContainerBackup(id, newName = null) {
 
 // Two-factor authentication and API tokens, self-service: each user manages their
 // own account (no need to be an admin).
-export async function setup2FA() {
-  return realFetch("/auth/2fa/setup", { method: "POST" });
+// Enrolling a second factor takes the password (as removing one does).
+export async function setup2FA(password) {
+  return realFetch("/auth/2fa/setup", { method: "POST", ...jsonBody({ password: password || "" }) });
 }
 export async function confirm2FA(code) {
   return realFetch("/auth/2fa/confirm", { method: "POST", ...jsonBody({ code }) });
@@ -941,8 +942,8 @@ export async function disable2FA(password, code) {
 export function fetchSecurityKeys() {
   return realFetch("/auth/webauthn/keys");
 }
-export function securityKeyOptions() {
-  return realFetch("/auth/webauthn/keys/options", { method: "POST" });
+export function securityKeyOptions(password) {
+  return realFetch("/auth/webauthn/keys/options", { method: "POST", ...jsonBody({ password: password || "" }) });
 }
 export function registerSecurityKey(credential, name) {
   return realFetch("/auth/webauthn/keys", { method: "POST", ...jsonBody({ credential, name }) });
@@ -967,8 +968,9 @@ export async function decideCliRequest(code, approve) {
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
 }
-export async function createApiToken(name) {
-  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name }) });
+// expiresDays: null for a token that never expires (an explicit choice).
+export async function createApiToken(name, expiresDays = 90) {
+  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name, expires_days: expiresDays }) });
 }
 export async function deleteApiToken(id) {
   return realFetch(`/auth/tokens/${id}`, { method: "DELETE" });

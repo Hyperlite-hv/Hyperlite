@@ -81,7 +81,7 @@ def alice(client, make_user):
 
 
 def register(client, headers, key, name="YubiKey"):
-    options = client.post("/auth/webauthn/keys/options", headers=headers)
+    options = client.post("/auth/webauthn/keys/options", headers=headers, json={"password": PASSWORD})
     assert options.status_code == 200, options.text
     return client.post(
         "/auth/webauthn/keys", json={"credential": key.create(options.json()), "name": name}, headers=headers
@@ -192,7 +192,7 @@ def test_localhost_over_http_is_allowed_like_browsers_do():
 
 def test_an_expired_or_foreign_challenge_is_refused(client, alice, database, monkeypatch):
     key = SoftKey()
-    options = client.post("/auth/webauthn/keys/options", headers=alice).json()
+    options = client.post("/auth/webauthn/keys/options", headers=alice, json={"password": PASSWORD}).json()
     with database.get_conn() as db:
         db.execute("UPDATE webauthn_challenges SET expire_le = '2000-01-01T00:00:00+00:00'")
         db.commit()
@@ -220,7 +220,7 @@ def test_totp_and_keys_are_both_offered_and_removing_a_key_takes_the_password(cl
 def test_the_same_key_cannot_be_registered_twice_and_deleting_the_user_removes_its_keys(client, alice, auth_headers):
     key = SoftKey()
     register(client, alice, key)
-    options = client.post("/auth/webauthn/keys/options", headers=alice).json()
+    options = client.post("/auth/webauthn/keys/options", headers=alice, json={"password": PASSWORD}).json()
     assert [c["id"] for c in options["excludeCredentials"]] == [bytes_to_base64url(key.credential_id)]
     assert (
         client.post("/auth/webauthn/keys", json={"credential": key.create(options)}, headers=alice).status_code == 409

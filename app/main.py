@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core import version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
+from app.core.client_address import client_address
 from app.core.cluster import start_node_poller
 from app.core.config_copy import start_config_copy
 from app.core.ha_watch import start_ha_watch
@@ -21,6 +22,7 @@ from app.core.metrics import start_metrics_collector
 from app.core.network_firewall import reapply_all as reapply_network_firewalls
 from app.core.security import optional_user
 from app.core.seed import seed_admin
+from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.routers.acl import router as acl_router
@@ -83,9 +85,9 @@ async def add_security_headers(request: Request, call_next):
 
 @app.middleware("http")
 async def remember_client_ip(request: Request, call_next):
-    """Makes the caller's address available to log_action() for the audit log. The
-    direct peer address, like the login rate limiter: no proxy header is trusted."""
-    token = request_ip.set(request.client.host if request.client else None)
+    """Makes the caller's address available to log_action() for the audit log: the same address as the sign-in
+    locks (the direct peer, or the client a trusted proxy reports, see app/core/client_address.py)."""
+    token = request_ip.set(client_address(request) if request.client else None)
     try:
         return await call_next(request)
     finally:
@@ -243,6 +245,7 @@ def on_startup():
         with os.fdopen(fd, "w") as f:
             f.write(pwd + "\n")
         print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
+    encrypt_stored_totp_secrets()
     start_metrics_collector()
     start_backup_scheduler()
     ensure_lb_job_exists()

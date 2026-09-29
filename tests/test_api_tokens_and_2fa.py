@@ -1,5 +1,7 @@
 """API tokens, TOTP two-factor codes and secret encryption."""
 
+import time
+
 import pyotp
 
 from app.core import api_tokens, secrets_crypto, twofa
@@ -45,12 +47,19 @@ def test_a_user_cannot_revoke_someone_elses_token(database, make_user):
     assert len(api_tokens.list_tokens("alice")) == 1
 
 
-def test_totp_code_round_trip():
+def test_totp_code_round_trip(make_user):
+    make_user("tess")
     secret = twofa.generate_secret()
-    assert twofa.verify_code(secret, pyotp.TOTP(secret).now())
-    assert not twofa.verify_code(secret, "000000") or pyotp.TOTP(secret).now() == "000000"
-    assert not twofa.verify_code(secret, "not-a-code")
-    assert not twofa.verify_code(secret, "")
+    sealed = twofa.seal_secret(secret)
+    assert sealed != secret
+    assert not twofa.verify_code("tess", sealed, "not-a-code")
+    assert not twofa.verify_code("tess", sealed, "")
+    wrong = next(c for c in ("000000", "111111") if not pyotp.TOTP(secret).verify(c, valid_window=1))
+    assert not twofa.verify_code("tess", sealed, wrong)
+    code = pyotp.TOTP(secret).now()
+    assert twofa.verify_code("tess", sealed, code)
+    assert not twofa.verify_code("tess", sealed, code)  # the same code, replayed
+    assert twofa.verify_code("tess", secret, pyotp.TOTP(secret).at(time.time() + 30))  # a legacy clear secret
 
 
 def test_totp_provisioning_uri_and_qr_code():
