@@ -17,7 +17,7 @@ Hyperlite is a self-hosted virtualization manager: a FastAPI backend that drives
 - **Web console**: VNC console and SSH terminals in the browser, host shell for administrators.
 - **Workstation access**: the `hyperlite` client opens SSH or remote desktop from the user's own computer through a tunnel over the server's HTTPS port, with sign-in through the web interface (SSO and 2FA apply), per-VM permission and audit.
 
-See [docs/features.md](docs/features.md) for details.
+See [docs/features.md](docs/features.md) for details and the [user guide](docs/user-guide.md) for how to use each feature.
 
 For Windows guests, including Windows Server 2025, see [the Windows installation guide](docs/windows.md).
 The Windows profile defaults to SATA storage to avoid loading a separate storage driver.
@@ -58,6 +58,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | Document | Content |
 |---|---|
+| [docs/user-guide.md](docs/user-guide.md) | User guide: how to use every feature of the web interface |
 | [docs/webui-test-matrix.md](docs/webui-test-matrix.md) | Web UI end-to-end coverage matrix and how to run it |
 | [docs/onboarding.md](docs/onboarding.md) | Access and working rules for a new contributor and their AI assistant |
 | [docs/architecture.md](docs/architecture.md) | Components, data model, security model |
