@@ -1037,7 +1037,7 @@ export default {
   "vh.moveBtn": "Move the disk",
   "vh.moveStarted": "Move started (see Tasks)",
   "vh.moveFailed": "Move refused",
-  "vh.moveUnsupported": "Only disks in a directory or NFS pool can be moved.",
+  "vh.moveUnsupported": "This disk is not a file in a directory or NFS pool: only such disks can be moved.",
   "task.type.move_disk": "Move disk",
   "vh.resize": "Grow",
   "vh.resizeTitle": "Grow disk {dev}",

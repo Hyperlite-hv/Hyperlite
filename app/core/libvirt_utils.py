@@ -1,9 +1,12 @@
+import logging
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import libvirt
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 LIBVIRT_URI = "qemu:///system"
 LXC_URI = "lxc:///system"
@@ -96,6 +99,83 @@ def pool_type_and_target_path(pool):
         return root.get("type"), root.findtext("target/path")
     except (libvirt.libvirtError, ET.ParseError):
         return None, None
+
+
+# Pools whose volumes are plain files directly inside the pool's target directory.
+FILE_POOL_TYPES = ("dir", "netfs")
+
+
+def _file_pool_by_directory(conn, path):
+    parent = os.path.dirname(os.path.normpath(path))
+    try:
+        pools = conn.listAllStoragePools(0)
+    except libvirt.libvirtError:
+        logger.warning("Could not list the storage pools to locate %s", path, exc_info=True)
+        return None
+    for pool in pools:
+        kind, target = pool_type_and_target_path(pool)
+        # Pure string comparison: resolving symlinks would stat the pool's mount
+        # point, which hangs on an unreachable NFS server.
+        if kind in FILE_POOL_TYPES and target and os.path.normpath(target) == parent:
+            return pool
+    return None
+
+
+def pool_for_path(conn, path):
+    """The storage pool holding the disk `path`, or None when it is in none.
+
+    Hyperlite writes most disk files itself (qemu-img, copies, restores), behind
+    libvirt's back, and libvirt only learns about such a file when its pool is
+    refreshed: storageVolLookupByPath() alone reports a freshly created disk as
+    outside every pool. A file pool is therefore matched on its target directory,
+    which needs no cache; the volume lookup remains for block pools (iSCSI, LVM),
+    whose volumes libvirt enumerates itself."""
+    if not path:
+        return None
+    pool = _file_pool_by_directory(conn, path)
+    if pool is not None:
+        return pool
+    try:
+        return conn.storageVolLookupByPath(path).storagePoolLookupByVolume()
+    except libvirt.libvirtError:
+        return None
+
+
+def lookup_volume(pool, name):
+    """pool.storageVolLookupByName(), refreshing the pool once on a miss: a file
+    written outside libvirt is only in libvirt's volume cache after a refresh.
+    Raises libvirt.libvirtError when the volume really does not exist (or the
+    pool cannot be refreshed, e.g. because it is stopped)."""
+    try:
+        return pool.storageVolLookupByName(name)
+    except libvirt.libvirtError:
+        pool.refresh(0)
+    return pool.storageVolLookupByName(name)
+
+
+def refresh_pools_for_paths(conn, paths):
+    """Refresh, once each, the active file pools holding `paths` (Path, str, or
+    (path, kind) tuples as built for build_domain_xml; None entries ignored).
+
+    Called after writing disk or ISO files outside libvirt, so that the Storage
+    page, the disk list and every volume lookup see them right away. Best-effort:
+    a failed refresh is logged, never raised, since the files themselves are fine."""
+    seen = set()
+    for entry in paths or ():
+        path = entry[0] if isinstance(entry, tuple) else entry
+        if not path:
+            continue
+        pool = _file_pool_by_directory(conn, str(path))
+        if pool is None:
+            continue
+        try:
+            name = pool.name()
+            if name in seen or not pool.isActive():
+                continue
+            seen.add(name)
+            pool.refresh(0)
+        except libvirt.libvirtError:
+            logger.warning("Could not refresh the storage pool holding %s", path, exc_info=True)
 
 
 def domain_disk_paths(domain):

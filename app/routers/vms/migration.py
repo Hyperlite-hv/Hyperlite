@@ -14,6 +14,7 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     domain_disk_paths,
     open_conn,
+    refresh_pools_for_paths,
     uses_shared_storage,
 )
 from app.core.security import require_role
@@ -387,6 +388,9 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             # unlink here) becomes useless once the copy to the destination is confirmed
             # successful.
             _delete_paths_on_node(copied_cdrom_paths, source_node)
+            # The disks were copied in and deleted outside libvirt on both ends.
+            refresh_pools_for_paths(src_conn, source_disk_paths)
+            refresh_pools_for_paths(dest_conn, source_disk_paths)
 
         if ha.follow_migration(vm_name, target_node):
             log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")

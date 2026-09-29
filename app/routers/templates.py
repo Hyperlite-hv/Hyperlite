@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.core import firmware, maintenance, templates_store
 from app.core.audit import log_action
-from app.core.libvirt_utils import open_conn
+from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import IMAGES_DIR, validate_name
@@ -77,8 +77,14 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
         shutil.move(disk_source, str(target_disk))
         # Deploying from a template drops the CD-ROM devices, so the helper ISOs of the source VM
         # (cloud-init seed, unattended installation media) would stay behind as orphans.
-        for suffix in ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso"):
-            safe_child(IMAGES_DIR, f"{name}{suffix}").unlink(missing_ok=True)
+        helper_isos = [
+            safe_child(IMAGES_DIR, f"{name}{suffix}")
+            for suffix in ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso")
+        ]
+        for iso in helper_isos:
+            iso.unlink(missing_ok=True)
+        # The disk left its pool behind libvirt's back: without a refresh the pool keeps listing a volume that is gone.
+        refresh_pools_for_paths(conn, [disk_source, target_disk, *helper_isos])
 
         log_action(user["username"], "convert_to_template", name, "succes", f"template -> {tpl_name}")
         return {"template": tpl_name, "vm_source": name}
@@ -168,6 +174,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
             log_action(user["username"], "deploy_template", template_name, "echec", str(exc))
             raise HTTPException(status_code=500, detail=f"Domain definition failed: {exc}") from exc
 
+        refresh_pools_for_paths(conn, [new_disk_path])
         log_action(user["username"], "deploy_template", template_name, "succes", f"-> {payload.new_name}")
         return {"template": template_name, "vm": new_domain.name(), "etat": "arretee"}
     finally:

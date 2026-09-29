@@ -67,6 +67,9 @@ class FakeConn:
     def storageVolLookupByPath(self, path):
         raise libvirt.libvirtError("not in a pool")
 
+    def listAllStoragePools(self, flags):
+        return []
+
     def close(self):
         pass
 

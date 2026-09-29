@@ -1069,7 +1069,7 @@ export default {
   "vh.moveBtn": "Déplacer le disque",
   "vh.moveStarted": "Déplacement lancé (voir les tâches)",
   "vh.moveFailed": "Déplacement refusé",
-  "vh.moveUnsupported": "Seuls les disques d’un pool dossier ou NFS peuvent être déplacés.",
+  "vh.moveUnsupported": "Ce disque n’est pas un fichier d’un pool dossier ou NFS : seuls ces disques peuvent être déplacés.",
   "task.type.move_disk": "Déplacer un disque",
   "vh.resize": "Agrandir",
   "vh.resizeTitle": "Agrandir le disque {dev}",

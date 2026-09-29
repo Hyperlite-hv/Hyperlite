@@ -10,9 +10,7 @@ from pydantic import BaseModel
 from app.core import firmware, iscsi, maintenance
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import (
-    open_conn,
-)
+from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.network_alloc import allocate_static_ip, generate_mac, release_static_ip
 from app.core.safe_paths import safe_child
 from app.core.security import require_vm_privilege
@@ -210,6 +208,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
             log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Clone definition failed: {msg}") from exc
 
+        refresh_pools_for_paths(conn, [*new_disk_paths, reseed_iso])
         rename_vm_ssh_user(name, payload.new_name)
         rename_vm_os_label(name, payload.new_name)
         log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}", task_id=task_id)

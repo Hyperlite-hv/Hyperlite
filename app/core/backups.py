@@ -38,7 +38,7 @@ from app.core import backup_integrity, firmware, guest_agent
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import open_conn
+from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
@@ -406,6 +406,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
                 src = disk_files[min(i, len(disk_files) - 1)]
                 update_task_progress(task_id, int(10 + 80 * i / max(len(existing_disks), 1)))
                 shutil.copyfile(src, dest_path)
+            refresh_pools_for_paths(conn, [path for _dev, path in existing_disks])
             restored = backup_integrity.restore_firmware_state(src_dir, domain)
             finish_task(task_id, "termine")
             detail = f"overwrite from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
@@ -446,6 +447,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
                 firmware=config["firmware"],
             )
             new_domain = conn.defineXML(xml)
+            refresh_pools_for_paths(conn, new_disk_paths)
             restored = backup_integrity.restore_firmware_state(src_dir, new_domain)
             finish_task(task_id, "termine")
             detail = f"new VM from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
