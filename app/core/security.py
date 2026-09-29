@@ -1,4 +1,7 @@
+import logging
 import os
+import secrets
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -10,7 +13,28 @@ from jwt import PyJWTError
 from app.core.database import get_conn
 from app.core.passwords import bcrypt_hash, bcrypt_verify
 
-SECRET_KEY = os.environ.get("HYPERLITE_SECRET_KEY", "dev-" + os.urandom(16).hex())
+logger = logging.getLogger(__name__)
+
+MIN_SECRET_KEY_LENGTH = 32
+
+
+def _load_secret_key():
+    """The key that signs every session token. Set but empty or short, it is refused: an empty HMAC key lets anyone
+    forge a session. Unset (development only), a random key is used and every session is lost at restart; the
+    installer always writes one to .env."""
+    raw = os.environ.get("HYPERLITE_SECRET_KEY")
+    if raw is None:
+        logger.warning("HYPERLITE_SECRET_KEY is not set: using a random key, every session ends at restart")
+        return "dev-" + secrets.token_hex(32)
+    if len(raw.strip()) < MIN_SECRET_KEY_LENGTH:
+        raise RuntimeError(
+            f"HYPERLITE_SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} characters "
+            "(generate one with: openssl rand -hex 32)"
+        )
+    return raw
+
+
+SECRET_KEY = _load_secret_key()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 240  # 4 h: a long working or testing session used to expire the token silently (60 min), e.g. an ISO upload failing at the final step with no clear message
 
@@ -35,9 +59,33 @@ def create_access_token(data: dict, remember: bool = False):
     )
     now = datetime.now(UTC)
     # iat (issued at, whole seconds): lets a password change sign out every session opened before it
-    # (see _session_user and set_password).
-    to_encode.update({"exp": now + lifetime, "iat": int(now.timestamp())})
+    # (see _session_user and set_password). jti: identifies this session, so that signing out revokes it.
+    to_encode.update({"exp": now + lifetime, "iat": int(now.timestamp()), "jti": secrets.token_urlsafe(16)})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def revoke_session(token: str) -> bool:
+    """Sign a session token out before it expires (POST /auth/logout). A JWT is valid on its own until its expiry:
+    without this, "Sign out" only forgot it in the browser, and a copy (another tab, a stolen token) kept working."""
+    payload = _decode_session(token)
+    if not payload or not payload.get("jti"):
+        return False
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute("DELETE FROM revoked_sessions WHERE expires_at < ?", (now,))
+        conn.execute(
+            "INSERT OR IGNORE INTO revoked_sessions (jti, expires_at) VALUES (?, ?)",
+            (payload["jti"], int(payload.get("exp") or now)),
+        )
+        conn.commit()
+    return True
+
+
+def _session_revoked(jti) -> bool:
+    if not jti:
+        return False
+    with get_conn() as conn:
+        return conn.execute("SELECT 1 FROM revoked_sessions WHERE jti = ?", (jti,)).fetchone() is not None
 
 
 def session_remembered(token: str) -> bool:
@@ -84,9 +132,26 @@ def get_user(username: str):
         return dict(row) if row else None
 
 
+_dummy_hash = None
+_dummy_lock = threading.Lock()
+
+
+def _unknown_user_hash():
+    """A hash to check the password against when the account does not exist, so an unknown username costs the same
+    bcrypt time as a wrong password: a fast answer told which usernames exist."""
+    global _dummy_hash
+    with _dummy_lock:
+        if _dummy_hash is None:
+            _dummy_hash = hash_password(secrets.token_hex(16))
+        return _dummy_hash
+
+
 def authenticate_user(username: str, password: str):
     user = get_user(username)
-    if not user or not verify_password(password, user["hashed_password"]):
+    if not user:
+        verify_password(password, _unknown_user_hash())
+        return None
+    if not verify_password(password, user["hashed_password"]):
         return None
     return user
 
@@ -118,6 +183,8 @@ def _session_user(payload: dict, pending_ok: bool = False):
     # session token.
     if username is None or payload.get("2fa_pending"):
         raise _credentials_exception()
+    if _session_revoked(payload.get("jti")):
+        raise _credentials_exception()
     user = get_user(username)
     if user is None:
         raise _credentials_exception()
@@ -146,6 +213,10 @@ def _current_user(token: str, pending_ok: bool):
     user = verify_token(token)
     if user is None:
         raise _credentials_exception()
+    # The same rule as a session: an account whose password must be changed can do nothing else, including
+    # through a script's token.
+    if user.get("must_change_password") and not pending_ok:
+        raise _password_change_required()
     return user
 
 

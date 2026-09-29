@@ -628,9 +628,31 @@ def init_db():
             # Source address of the request that produced the audit entry (NULL for
             # background jobs, which have no request).
             "ALTER TABLE audit_log ADD COLUMN ip TEXT",
+            # Last TOTP time step accepted for the account: a code is accepted once (app/core/twofa.py).
+            "ALTER TABLE users ADD COLUMN totp_last_step INTEGER",
+            # The identity provider's stable identifier (`sub`) of an SSO account (app/core/sso.py).
+            "ALTER TABLE users ADD COLUMN sso_subject TEXT",
+            # The browser a sign-in started from: the callback must come back to it (app/core/sso.py).
+            "ALTER TABLE sso_login_state ADD COLUMN binding TEXT",
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
+        # Session tokens signed out before their expiry (POST /auth/logout); rows are dropped once expired.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS revoked_sessions (
+                jti TEXT PRIMARY KEY,
+                expires_at INTEGER NOT NULL
+            )
+        """)
+        # One-time codes that hand an SSO sign-in over to the dashboard (the session token never travels in
+        # a URL): single use, a minute at most.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sso_handoffs (
+                code TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
         # The local host used to be stored under a machine-specific label; it is now always "local".
         for table in ("ha_protected_vms", "tasks"):
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608

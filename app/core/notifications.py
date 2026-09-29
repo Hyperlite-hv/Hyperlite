@@ -56,7 +56,11 @@ def list_channels():
         d = dict(r)
         d["config"] = json.loads(d["config"])
         if d["type"] == "email" and d["config"].get("smtp_password"):
-            d["config"]["smtp_password"] = secrets_crypto.decrypt(d["config"]["smtp_password"])
+            try:
+                d["config"]["smtp_password"] = secrets_crypto.decrypt(d["config"]["smtp_password"])
+            except secrets_crypto.SecretUnreadable:
+                d["config"]["smtp_password"] = None
+                d["config"]["smtp_password_unreadable"] = True
         d["events"] = json.loads(d["events"])
         d["enabled"] = bool(d["enabled"])
         result.append(d)
@@ -117,6 +121,9 @@ def update_channel(channel_id, name=None, config=None, events=None, enabled=None
         if config is not None or clear_smtp_password:
             stored = json.loads(row["config"])
             new_config = dict(config) if config is not None else dict(stored)
+            # Markers the API adds when it lists channels, never settings.
+            for marker in ("smtp_password_set", "smtp_password_unreadable", "redacted"):
+                new_config.pop(marker, None)
             if row["type"] == "email":
                 if clear_smtp_password:
                     new_config.pop("smtp_password", None)
@@ -165,6 +172,9 @@ def _send_email(config, title, message, event, result):
     missing = [k for k in required if not config.get(k)]
     if missing:
         raise ValueError(f"Missing fields: {', '.join(missing)}")
+
+    if config.get("smtp_password_unreadable"):
+        raise ValueError("The stored SMTP password cannot be decrypted (the encryption key changed): enter it again")
 
     msg = EmailMessage()
     msg["Subject"] = f"[Hyperlite] {title}"

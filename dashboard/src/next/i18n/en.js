@@ -1883,6 +1883,7 @@ export default {
   "sk.unsupported": "Security keys need the dashboard opened over HTTPS through a host name.",
   "sk.name": "Key name",
   "sk.namePlaceholder": "e.g. YubiKey, laptop",
+  "sk.addTitle": "Add a security key",
   "sk.add": "Add a key",
   "sk.added": "Security key added",
   "sk.addedMsg": "It will be asked for at the next sign-in.",

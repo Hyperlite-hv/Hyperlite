@@ -69,7 +69,7 @@ export default function NotificationsPage() {
         : { smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_user: form.smtp_user, smtp_password: form.smtp_password, from_addr: form.from_addr, to_addr: form.to_addr, use_tls: form.use_tls };
       if (editing) {
         // Settings this form does not show are kept; the masked password markers are not settings.
-        const kept = Object.fromEntries(Object.entries(editing.config || {}).filter(([k]) => k !== "smtp_password" && k !== "smtp_password_set"));
+        const kept = Object.fromEntries(Object.entries(editing.config || {}).filter(([k]) => !["smtp_password", "smtp_password_set", "smtp_password_unreadable", "redacted"].includes(k)));
         await updateNotificationChannel(editing.id, { name: form.name.trim(), config: { ...kept, ...fields }, events: picked });
         pushToast({ kind: "success", title: t("nt.updated"), message: form.name });
       } else {

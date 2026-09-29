@@ -1915,6 +1915,7 @@ export default {
   "sk.unsupported": "Les clés de sécurité nécessitent le tableau de bord ouvert en HTTPS par un nom d’hôte.",
   "sk.name": "Nom de la clé",
   "sk.namePlaceholder": "ex. YubiKey, portable",
+  "sk.addTitle": "Ajouter une clé de sécurité",
   "sk.add": "Ajouter une clé",
   "sk.added": "Clé de sécurité ajoutée",
   "sk.addedMsg": "Elle sera demandée à la prochaine connexion.",
