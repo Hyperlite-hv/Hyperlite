@@ -124,9 +124,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     }
   });
 
-  test("all eight node pages are reachable as flat tabs", async ({ page }) => {
+  test("all nine node pages are reachable as flat tabs", async ({ page }) => {
     await nextLogin(page);
-    for (const [id, label] of [["summary", "Summary"], ["perf", "Performance"], ["system", "System"], ["network", "Network"], ["disk", "Storage"], ["tasks", "Tasks"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
+    for (const [id, label] of [["summary", "Summary"], ["perf", "Performance"], ["system", "System"], ["updates", "Updates"], ["network", "Network"], ["disk", "Storage"], ["tasks", "Tasks"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
       await page.goto(id === "summary" ? "/node/local" : `/node/local?tab=${id}`);
       await expect(page.getByRole("main").getByRole("tab", { name: label, exact: true }), id).toHaveAttribute("aria-selected", "true");
     }
