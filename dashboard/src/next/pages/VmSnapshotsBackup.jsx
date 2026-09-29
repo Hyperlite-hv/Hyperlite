@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, fetchTaskDetail,
-  fetchVMBackups, createBackup, deleteBackup, restoreBackup, fetchBackupSchedule, setBackupSchedule, deleteBackupSchedule,
+  fetchVMBackups, createBackup, deleteBackup, restoreBackup, verifyBackup, fetchBackupSchedule, setBackupSchedule, deleteBackupSchedule,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -15,7 +15,7 @@ import { formatSizeMb, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
 import { PageHeader, Card, Empty, Field, Loading, TableWrap } from "../components/ui";
-import { Archive, Camera, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
+import { Archive, Camera, Info, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 const SNAP_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
@@ -64,6 +64,8 @@ export function VmSnapshotsPage({ resource: vm }) {
   if (error && snaps == null) return <ErrorState message={error} onRetry={reload} />;
   const zfs = Boolean(vm.stockage_zfs);
   const busy = job != null;
+  // QEMU cannot snapshot a running VM whose UEFI firmware is in pflash; the server refuses it too.
+  const uefiRunning = !zfs && vm.etat === "actif" && Boolean(vm.firmware) && vm.firmware !== "bios";
   const list = snaps || [];
 
   async function run(label, start, okTitle, failTitle) {
@@ -102,7 +104,8 @@ export function VmSnapshotsPage({ resource: vm }) {
   return (
     <>
       <PageHeader level={2} title={t("tab.snapshots")} count={snaps ? list.length : null} desc={t("vs.desc")}
-        actions={caps.admin && <button id="vs-create" type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={create}><Camera size={15} aria-hidden="true" />{t("vs.create")}</button>} />
+        actions={caps.admin && <button id="vs-create" type="button" className="nx-btn nx-btn--primary" disabled={busy || uefiRunning} onClick={create}><Camera size={15} aria-hidden="true" />{t("vs.create")}</button>} />
+      {uefiRunning && <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vs.uefiStop")}</span></div>}
       {list.length >= 3 && <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t(zfs ? "vs.manyZfs" : "vs.manyQcow", { n: list.length })}</span></div>}
       {job && (
         <div className="nx-bn" data-tone="info" role="status" aria-live="polite">
@@ -204,7 +207,28 @@ export function VmBackupPage({ resource: vm }) {
     if (!name) return;
     try { await restoreBackup(b.id, "new", name.trim()); pushToast({ kind: "success", title: t("vb.restoreStarted"), message: name.trim() }); } catch (er) { fail(t("vb.restoreFailed"))(er); }
   }
+  async function verify(b) {
+    setBusy(true);
+    try {
+      const { task_id } = await verifyBackup(b.id);
+      pushToast({ kind: "info", title: t("vb.verifying"), message: `#${b.id}` });
+      // A large backup takes a while to read: poll its task, then show the recorded result.
+      for (let i = 0; i < 720; i += 1) {
+        await new Promise((r) => setTimeout(r, 2500));
+        const task = await fetchTaskDetail(task_id).catch(() => null);
+        if (task && task.statut !== "en_cours") break;
+      }
+      const fresh = (await fetchVMBackups(vm.nom)).find((x) => x.id === b.id);
+      await reload();
+      if (fresh?.verification === "verifie") pushToast({ kind: "success", title: t("vb.verified"), message: `#${b.id}` });
+      else pushToast({ kind: "error", title: t("vb.corrupt"), message: fresh?.verification_detail || t("err.unknown") });
+    } catch (er) { fail(t("vb.verifyFailed"))(er); } finally { setBusy(false); }
+  }
   const size = (bytes) => (bytes ? formatSizeMb(bytes / 1048576, lang) : "—");
+  const integrity = (b) => (b.statut !== "termine" ? null
+    : b.verification === "verifie" ? <span className="nx-chip" data-tone="success" title={t("vb.verifiedOn", { date: formatDateTime(b.verifie_le, lang) })}>{t("vb.v.ok")}</span>
+    : b.verification === "corrompu" ? <span className="nx-chip" data-tone="danger" title={b.verification_detail || ""}>{t("vb.v.bad")}</span>
+    : <span className="nx-chip" title={t("vb.v.neverHelp")}>{t("vb.v.never")}</span>);
 
   return (
     <>
@@ -216,7 +240,7 @@ export function VmBackupPage({ resource: vm }) {
           {backups == null ? <Loading style={{ margin: 0 }} /> : list.length === 0 ? <Empty icon={Archive} title={t("vb.none")} text={t("vb.noneHelp")} /> : (
             <TableWrap>
               <table className="nx-table">
-                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("vm.created")}</th><th scope="col">{t("vb.mode")}</th><th scope="col" className="nx-num">{t("ct.size")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("vm.created")}</th><th scope="col">{t("vb.mode")}</th><th scope="col" className="nx-num">{t("ct.size")}</th><th scope="col">{t("vb.integrity")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {list.map((b) => (
                     <tr key={b.id}>
@@ -224,7 +248,9 @@ export function VmBackupPage({ resource: vm }) {
                       <td className="nx-mono">{formatDateTime(b.cree_le, lang)}{b.erreur && <div className="nx-f-h is-error nx-wrapcell">{b.erreur}</div>}</td>
                       <td>{b.mode === "chaud" ? t("vb.hot") : t("vb.cold")}</td>
                       <td className="nx-num nx-mono">{size(b.taille_octets)}</td>
+                      <td>{integrity(b)}{b.verification === "corrompu" && b.verification_detail && <div className="nx-f-h is-error nx-wrapcell">{b.verification_detail}</div>}</td>
                       <td><div className="nx-ra">
+                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
                         {caps.admin && (b.statut === "termine" || b.statut === "echec") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}

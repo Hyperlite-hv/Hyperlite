@@ -94,7 +94,7 @@ def test_legacy_mount_without_target_still_selects_first_cd(domain):
 @pytest.mark.parametrize(
     "drivers_iso", ["../outside.iso", "/etc/driver.iso", "..\\outside.iso", "bad.txt", "missing.iso"]
 )
-def test_invalid_driver_media_is_rejected_before_allocation(monkeypatch, tmp_path, drivers_iso):
+def test_invalid_driver_media_is_rejected_before_allocation(database, monkeypatch, tmp_path, drivers_iso):
     monkeypatch.setattr(creation, "ISOS_DIR", tmp_path)
     monkeypatch.setattr(creation, "validate_vm_resources", lambda *args: [])
     connection = Mock(side_effect=AssertionError("Must not allocate resources"))

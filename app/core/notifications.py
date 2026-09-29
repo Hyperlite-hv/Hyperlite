@@ -32,6 +32,7 @@ NOTIFY_EVENTS = {
     "migrate_vm": "VM migration",
     "backup_vm": "VM backup",
     "restore_backup": "Backup restore",
+    "verify_backup": "Backup verification (a corrupted backup)",
     # "delete_vm" (already above) also covers the automatic deletion of an
     # inactive VM: same notification event, and the message text tells an
     # "automatic deletion" apart from a manual one.

@@ -306,6 +306,19 @@ def create_zvol(pool_name, zvol_name, size_gb):
     return path
 
 
+def grow_zvol(pool_name, zvol_name, size_bytes):
+    """Raise a zvol's volsize. Callers refuse a shrink before getting here: a smaller volsize would cut the end of
+    the guest's disk. `size_bytes` must be a multiple of the volblocksize; whole GiB always are."""
+    for part in (pool_name, zvol_name):
+        name_error = validate_zfs_name(part)
+        if name_error:
+            raise ZfsError(name_error)
+    full_name = f"{pool_name}/{zvol_name}"
+    if _run("zfs", "list", "-H", full_name, check=False).returncode != 0:
+        raise ZfsNotFoundError(f"Zvol '{zvol_name}' not found in pool '{pool_name}'")
+    _run("zfs", "set", f"volsize={int(size_bytes)}", full_name)
+
+
 def delete_zvol(pool_name, zvol_name):
     full_name = f"{pool_name}/{zvol_name}"
     if _run("zfs", "list", "-H", full_name, check=False).returncode != 0:

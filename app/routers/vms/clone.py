@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import iscsi
+from app.core import firmware, iscsi, maintenance
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -37,6 +37,7 @@ class CloneRequest(BaseModel):
 
 @router.post("/{name}/clone", status_code=201)
 def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone"))):
+    maintenance.refuse_if_in_maintenance("local", "Cloning")
     # Real bugs fixed in the cloning logic after an audit:
     # 1. SECURITY: there was no permission check (just get_current_user), so any
     #    account, even an "observateur" (read-only everywhere else), could clone and
@@ -146,6 +147,8 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
         uuid_el = root.find("uuid")
         if uuid_el is not None:
             root.remove(uuid_el)  # libvirt generates a new, distinct one at defineXML
+        # A UEFI source: the clone gets its own NVRAM (and, with its new UUID, its own TPM state).
+        firmware.drop_nvram(root)
 
         devices_el = root.find(".//devices")
         if devices_el is not None:
@@ -183,7 +186,8 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
                 cdrom_el = ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"})
                 ET.SubElement(cdrom_el, "driver", {"name": "qemu", "type": "raw"})
                 ET.SubElement(cdrom_el, "source", {"file": str(reseed_iso)})
-                ET.SubElement(cdrom_el, "target", {"dev": "hdc", "bus": "ide"})
+                dev, bus = firmware.cdrom_target("hdc", firmware.of_domain(root))
+                ET.SubElement(cdrom_el, "target", {"dev": dev, "bus": bus})
                 ET.SubElement(cdrom_el, "readonly")
             except subprocess.CalledProcessError:
                 reseed_iso = None  # too bad for the customization, the clone remains functional

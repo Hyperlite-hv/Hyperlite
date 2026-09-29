@@ -21,18 +21,20 @@ update_task_progress().
 """
 
 import contextlib
-import hashlib
 import json
+import logging
 import re
 import shutil
 import subprocess
 import threading
 import time
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import libvirt
 
+from app.core import backup_integrity, firmware, guest_agent
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
@@ -40,6 +42,8 @@ from app.core.libvirt_utils import open_conn
 from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BACKUP_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "backups"
 SCHEDULER_INTERVAL_S = 300  # checks due jobs every 5 minutes: enough, the granularity is the hour (HH:MM)
@@ -64,11 +68,7 @@ def _now():
 
 
 def _sha256_of(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    return backup_integrity.sha256_of(path)
 
 
 def domain_disk_paths(domain):
@@ -218,7 +218,9 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
     snap_name = f"hyperlite-backup-{int(time.time())}"
     snap_xml = f"<domainsnapshot><name>{snap_name}</name><disks>{''.join(disk_xml_parts)}</disks></domainsnapshot>"
 
-    snap = domain.snapshotCreateXML(snap_xml, libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
+    # With Hyperlite Tools the guest file systems are frozen while the snapshot is taken (consistent copy).
+    snap, quiesced = guest_agent.quiesced_snapshot(domain, snap_xml, libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
+    logger.info("Hot backup of %s: snapshot %s", vm_name, "quiesced by the guest agent" if quiesced else "not quiesced")
     update_task_progress(task_id, 10)
 
     try:
@@ -265,13 +267,16 @@ def _write_vm_config(domain, dest_dir):
         "vcpu": int(root.findtext("vcpu") or 1),
         "memory_mb": max(memory_kib // 1024, 1),
         "network": interface.get("network") if interface is not None and interface.get("network") else "default",
+        # A UEFI system disk does not boot with a BIOS: a VM restored to a new location keeps its firmware kind,
+        # and gets its NVRAM and TPM state back from the backup (see backup_integrity.py).
+        "firmware": firmware.of_domain(root),
     }
     (dest_dir / "vm-config.json").write_text(json.dumps(config))
 
 
 def _read_vm_config(src_dir):
     """Settings recorded at backup time; older backups fall back to the historical defaults."""
-    config = {"vcpu": 1, "memory_mb": 1024, "network": "default"}
+    config = {"vcpu": 1, "memory_mb": 1024, "network": "default", "firmware": "bios"}
     with contextlib.suppress(OSError, ValueError):
         config.update(json.loads((Path(src_dir) / "vm-config.json").read_text()))
     return config
@@ -306,6 +311,8 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         dest_dir = target_root / vm_name / stamp
         dest_dir.mkdir(parents=True, exist_ok=True)
         _write_vm_config(domain, dest_dir)
+        backup_integrity.save_firmware_state(domain, dest_dir)
+        firmware_kind = firmware.of_domain(ET.fromstring(domain.XMLDesc(0)))
 
         task_id = create_task("backup_vm", vm_name, node=conn.getHostname(), username=username)
         with get_conn() as db:
@@ -324,8 +331,14 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
                 dest_paths = backup_hot(conn, domain, vm_name, dest_dir, task_id)
 
             update_task_progress(task_id, 95)
-            total_size = sum(p.stat().st_size for p in dest_paths)
-            checksum = _sha256_of(dest_paths[0]) if len(dest_paths) == 1 else None
+            devs = [dev for dev, _source in domain_disk_paths(domain)]
+            manifest = backup_integrity.write_manifest(
+                dest_dir, vm_name, mode, firmware_kind, list(zip(devs, dest_paths, strict=False))
+            )
+            total_size = sum(f["taille"] for f in manifest["fichiers"])
+            disk_sums = [f["sha256"] for f in manifest["fichiers"] if f["role"] == "disque"]
+            # Kept for the backups listed before manifests existed and for the API's single-disk field.
+            checksum = disk_sums[0] if len(disk_sums) == 1 else None
             with get_conn() as db:
                 db.execute(
                     "UPDATE backups SET statut = 'termine', taille_octets = ?, checksum_sha256 = ? WHERE id = ?",
@@ -393,8 +406,10 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
                 src = disk_files[min(i, len(disk_files) - 1)]
                 update_task_progress(task_id, int(10 + 80 * i / max(len(existing_disks), 1)))
                 shutil.copyfile(src, dest_path)
+            restored = backup_integrity.restore_firmware_state(src_dir, domain)
             finish_task(task_id, "termine")
-            log_action(username, "restore_backup", target_name, "succes", f"overwrite from backup #{backup_id}")
+            detail = f"overwrite from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
+            log_action(username, "restore_backup", target_name, "succes", detail)
             return {"vm": target_name, "mode": "overwrite"}
 
         elif mode == "new":
@@ -422,11 +437,19 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
 
             config = _read_vm_config(src_dir)
             xml = build_domain_xml(
-                new_name, config["vcpu"], config["memory_mb"], new_disk_paths, None, config["network"]
+                new_name,
+                config["vcpu"],
+                config["memory_mb"],
+                new_disk_paths,
+                None,
+                config["network"],
+                firmware=config["firmware"],
             )
-            conn.defineXML(xml)
+            new_domain = conn.defineXML(xml)
+            restored = backup_integrity.restore_firmware_state(src_dir, new_domain)
             finish_task(task_id, "termine")
-            log_action(username, "restore_backup", new_name, "succes", f"new VM from backup #{backup_id}")
+            detail = f"new VM from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
+            log_action(username, "restore_backup", new_name, "succes", detail)
             return {"vm": new_name, "mode": "new"}
         else:
             raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
@@ -435,6 +458,63 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
         raise
     finally:
         conn.close()
+
+
+def verify_backup(backup_id, username="system", task_id=None):
+    """Check one backup (checksums of every file, qemu-img check of the images) and record the result. Returns
+    {"verification", "problemes"}. A corrupted backup is audited and notified."""
+    with get_conn() as db:
+        row = db.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
+    if not row:
+        raise RuntimeError("Backup not found")
+    if row["statut"] != "termine":
+        raise RuntimeError("Only a finished backup can be verified")
+    own_task = task_id is None
+    if own_task:
+        task_id = create_task("verify_backup", row["vm_name"], username=username)
+    try:
+        status, problems, _count = backup_integrity.verify(
+            row["chemin"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, pct)
+        )
+    except Exception as e:
+        if own_task:
+            finish_task(task_id, "echec", str(e))
+        raise
+    with get_conn() as db:
+        db.execute(
+            "UPDATE backups SET verification = ?, verifie_le = ?, verification_detail = ? WHERE id = ?",
+            (status, _now().isoformat(), "; ".join(problems) or None, backup_id),
+        )
+        db.commit()
+    if own_task:
+        finish_task(task_id, "termine")
+    if status == backup_integrity.CORRUPT:
+        detail = f"backup #{backup_id}: {'; '.join(problems)}"[:1000]
+        log_action(username, "verify_backup", row["vm_name"], "echec", detail)
+        from app.core.notifications import notify
+
+        notify("verify_backup", f"Corrupted backup of {row['vm_name']}", detail, result="echec")
+    else:
+        log_action(username, "verify_backup", row["vm_name"], "succes", f"backup #{backup_id}")
+    return {"verification": status, "problemes": problems}
+
+
+def _verify_due_backup():
+    """The weekly verification: at most one backup per scheduler tick (they can be large), never while a backup
+    runs, the one verified longest ago (or never) first."""
+    limit = (_now() - timedelta(days=backup_integrity.VERIFY_EVERY_DAYS)).isoformat()
+    with get_conn() as db:
+        row = db.execute(
+            "SELECT id FROM backups WHERE statut = 'termine' AND (verifie_le IS NULL OR verifie_le < ?) "
+            "ORDER BY COALESCE(verifie_le, '') ASC, cree_le ASC LIMIT 1",
+            (limit,),
+        ).fetchone()
+    if row is None or not _backup_lock.acquire(blocking=False):
+        return None
+    try:
+        return verify_backup(row["id"], username="scheduler")
+    finally:
+        _backup_lock.release()
 
 
 def _apply_retention(vm_name, retention_count):
@@ -492,6 +572,7 @@ def _scheduler_loop():
                         (now.isoformat(), next_run.isoformat(), job["id"]),
                     )
                     db.commit()
+            _verify_due_backup()
         except Exception as e:
             print(f"[backups] scheduler tick failed: {e!r}", flush=True)
         time.sleep(SCHEDULER_INTERVAL_S)

@@ -30,6 +30,13 @@ export function diskController(form) {
   return guestProfile(form) === "linux" ? "virtio-scsi" : "sata";
 }
 
+// The firmware sent at creation. "Automatic" gives a Windows installation what Windows 11 requires (UEFI, Secure
+// Boot, TPM 2.0) when this host can, and every other VM the legacy BIOS it always had.
+export function vmFirmware(form, support) {
+  if (form.firmware && form.firmware !== "auto") return form.firmware;
+  return guestProfile(form) === "windows" && support?.uefi_secure ? "uefi_secure" : "bios";
+}
+
 export function detectOsFamily(isoFilename) {
   if (!isoFilename) return null;
   const name = isoFilename.toLowerCase();

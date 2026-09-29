@@ -60,7 +60,8 @@ async function realFetch(path, opts = {}) {
   }
   if (!res.ok) {
     const msg = (data && data.detail) ? (formatDetail(data.detail) || "Unknown error") : "Unknown error";
-    throw new Error(msg);
+    // The status lets a caller tell "this object does not exist (any more)" from a real failure.
+    throw Object.assign(new Error(msg), { status: res.status });
   }
   return data;
 }
@@ -75,6 +76,11 @@ export function mountVMDriversIso(name, iso) {
 
 export function ejectVMDriversIso(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cdrom?target_dev=hdd`, { method: "DELETE" });
+}
+
+// Which VM firmwares this host can build: { uefi, uefi_secure, raison }.
+export function fetchHostFirmware() {
+  return realFetch("/host/firmware");
 }
 
 // Per-VM resource limits derived from the real host (GET /host/limits), which
@@ -156,7 +162,10 @@ export async function fetchNodes() {
     }));
   } catch { /* GET /nodes unavailable: stay on the local node alone, as before this fix */ }
 
-  return [localNode, ...remoteNodes];
+  // Maintenance state of every node ("local" for this host); a failure only hides the badge.
+  let inMaintenance = {};
+  try { inMaintenance = Object.fromEntries((await fetchNodeMaintenance()).map((m) => [m.node, m])); } catch { /* keep the nodes without it */ }
+  return [localNode, ...remoteNodes].map((n) => ({ ...n, maintenance: inMaintenance[n.id] || null }));
 }
 
 // GET /vms does not return every statistic displayed by this dashboard yet
@@ -174,6 +183,8 @@ function mapVm(v, nodeId) {
     // here unless it is listed: VMSnapshotsTab.jsx would always receive `undefined`.
     stockage_zfs: v.stockage_zfs,
     stockage_iscsi: v.stockage_iscsi,
+    agent_invite: v.agent_invite,
+    firmware: v.firmware,
   };
 }
 
@@ -273,6 +284,10 @@ export async function deleteBackup(id) {
 }
 export async function restoreBackup(id, mode, newName = null) {
   return realFetch(`/backups/${id}/restore`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
+}
+// Recompute every checksum of a backup and check its images (a task).
+export async function verifyBackup(id) {
+  return realFetch(`/backups/${id}/verify`, { method: "POST" });
 }
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
@@ -456,6 +471,21 @@ export async function migrateVM(name, targetNode, sourceNode, ignorerVerificatio
   const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, ignorer_verifications: ignorerVerifications }) });
 }
+// ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode;
+// targetNode null only marks the node.
+export async function fetchNodeMaintenance() {
+  return realFetch("/nodes/maintenance");
+}
+export async function fetchDrainPlan(node, targetNode) {
+  const qs = targetNode ? `?target_node=${encodeURIComponent(targetNode)}` : "";
+  return realFetch(`/nodes/${encodeURIComponent(node)}/drain-plan${qs}`);
+}
+export async function enterNodeMaintenance(node, targetNode) {
+  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "POST", ...jsonBody({ target_node: targetNode || null }) });
+}
+export async function leaveNodeMaintenance(node) {
+  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "DELETE" });
+}
 // Cluster compatibility diagnostic
 export async function fetchMigrationCheck(name, targetNode, sourceNode) {
   const params = new URLSearchParams({ target_node: targetNode });
@@ -465,8 +495,36 @@ export async function fetchMigrationCheck(name, targetNode, sourceNode) {
 export async function fetchNodeCompatibility(nodeName) {
   return realFetch(`/nodes/${encodeURIComponent(nodeName)}/compatibility`);
 }
-// HA: see app/core/ha.py. There is no fencing, and recovery is always triggered by
-// an admin, never automatic.
+// Copy of the cluster configuration to the nodes (app/core/config_copy.py).
+export function fetchConfigCopies() {
+  return realFetch("/nodes/config-copy");
+}
+export function copyConfigNow() {
+  return realFetch("/nodes/config-copy", { method: "POST" });
+}
+// HA: see app/core/ha.py. Recovery is always triggered by an admin; the watcher (ha_watch.py) runs in dry-run mode
+// and only records what automatic HA would have done. Fencing settings are tested with a status query only.
+export function fetchHaStatus() {
+  return realFetch("/ha/status");
+}
+export function saveHaSettings(payload) {
+  return realFetch("/ha/settings", { method: "PUT", ...jsonBody(payload) });
+}
+export function fetchFencing() {
+  return realFetch("/ha/fencing");
+}
+export function saveFencing(node, payload) {
+  return realFetch(`/ha/fencing/${encodeURIComponent(node)}`, { method: "PUT", ...jsonBody(payload) });
+}
+export function deleteFencing(node) {
+  return realFetch(`/ha/fencing/${encodeURIComponent(node)}`, { method: "DELETE" });
+}
+export function testFencing(node) {
+  return realFetch(`/ha/fencing/${encodeURIComponent(node)}/test`, { method: "POST" });
+}
+export function checkLeases(node) {
+  return realFetch(`/ha/leases/${encodeURIComponent(node)}`);
+}
 export async function fetchHaProtected() {
   return realFetch("/ha");
 }
@@ -546,6 +604,26 @@ export async function fetchVMLimits(name) {
 export async function setVMLimits(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/limits`, { method: "PUT", ...jsonBody(payload) });
 }
+// CPU pinning and NUMA placement (GET/PUT /vms/{name}/cpu-pinning), with the host topology.
+export async function fetchVMCpuPinning(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cpu-pinning`);
+}
+export async function setVMCpuPinning(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cpu-pinning`, { method: "PUT", ...jsonBody(payload) });
+}
+// Host devices (PCI and USB passthrough): the host inventory and a VM's devices.
+export function fetchHostDevices() {
+  return realFetch("/host/devices");
+}
+export function fetchVMHostDevices(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs`);
+}
+export function attachVMHostDevice(name, device, confirm = false) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs`, { method: "POST", ...jsonBody({ device, confirm }) });
+}
+export function detachVMHostDevice(name, device) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
+}
 export async function fetchVMMetrics(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
 }
@@ -591,6 +669,14 @@ export async function attachDisk(name, volumeName, targetDev, pool = "default") 
 }
 export async function detachDisk(name, targetDev) {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}`, { method: "DELETE" });
+}
+// The new TOTAL size in GB (grow only; the backend refuses a shrink).
+// Move a disk to another directory/NFS pool (a background task; the source is kept unless deleteSource).
+export async function moveDisk(name, targetDev, pool, deleteSource = false) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}/move`, { method: "POST", ...jsonBody({ pool, delete_source: deleteSource }) });
+}
+export async function resizeDisk(name, targetDev, sizeGb) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(targetDev)}/resize`, { method: "POST", ...jsonBody({ size_gb: sizeGb }) });
 }
 export async function fetchVMNetwork(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/network${nodeQs(node)}`);
@@ -780,6 +866,19 @@ export async function confirm2FA(code) {
 export async function disable2FA(password, code) {
   return realFetch("/auth/2fa/disable", { method: "POST", ...jsonBody({ password, code }) });
 }
+// Security keys (WebAuthn), self-service: list, registration challenge, registration, removal (password).
+export function fetchSecurityKeys() {
+  return realFetch("/auth/webauthn/keys");
+}
+export function securityKeyOptions() {
+  return realFetch("/auth/webauthn/keys/options", { method: "POST" });
+}
+export function registerSecurityKey(credential, name) {
+  return realFetch("/auth/webauthn/keys", { method: "POST", ...jsonBody({ credential, name }) });
+}
+export function deleteSecurityKey(id, password) {
+  return realFetch(`/auth/webauthn/keys/${id}`, { method: "DELETE", ...jsonBody({ password }) });
+}
 // Workstation client (hyperlite): settings, and approval of a sign-in code from the web session.
 export async function fetchWorkstationConfig() {
   return realFetch("/workstation/config");
@@ -811,13 +910,4 @@ export async function fetchNodeCapabilitiesById(nodeId) {
 }
 export async function fetchHostPreflight() {
   return realFetch("/host/preflight");
-}
-export async function fetchHostProfile() {
-  return realFetch("/host/profile");
-}
-export async function setHostProfile(profil) {
-  return realFetch("/host/profile", { method: "PUT", ...jsonBody({ profil }) });
-}
-export async function setHostAllocation(politique) {
-  return realFetch("/host/allocation", { method: "PUT", ...jsonBody({ politique }) });
 }
