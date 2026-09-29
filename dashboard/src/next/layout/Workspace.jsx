@@ -17,6 +17,7 @@ import { PageHeader, StatePill } from "../components/ui";
 import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions";
 import { ContainerHeaderActions } from "../pages/ContainerPages";
 import { formatSizeMb } from "../lib/format";
+import PendingChanges from "../components/PendingChanges";
 
 
 
@@ -205,7 +206,7 @@ export default function Workspace({ children }) {
           <div className="nx-page"><EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>} /></div>
         ) : resource ? (
           <>
-            {selection.type === "vm" ? <VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} />
+            {selection.type === "vm" ? <><VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} /><PendingChanges vm={resource} tab={tab} /></>
               : selection.type === "container" ? <ContainerHead ct={resource} />
               : <NodeHead node={resource} setTab={setTab} />}
             <div className="nx-tabs" role="tablist" aria-label={resource.nom} onKeyDown={onTabKeyDown}>

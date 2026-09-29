@@ -828,3 +828,10 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 .nx-iplist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: var(--space-1); }
 .nx-iplist li { display: grid; grid-template-columns: 8rem 10.5rem minmax(0, 1fr) auto auto; gap: var(--space-3); align-items: center; font-size: var(--font-size-sm); min-height: 2rem; }
 @media (max-width: 720px) { .nx-iplist li { grid-template-columns: 1fr 1fr; } }
+
+/* Settings waiting for a VM's next start, under its header. */
+.nx-pending { margin: 0.9333rem 1.6rem 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
+.nx-pending-h { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.nx-pending-t { margin-top: var(--space-2); }
+.nx-pending + .nx-tabs { margin-top: 0.9333rem; }
+.nx-pending-t td { white-space: normal; word-break: break-all; }
