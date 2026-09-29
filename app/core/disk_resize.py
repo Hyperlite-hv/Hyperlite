@@ -21,6 +21,7 @@ import libvirt
 
 from app.core import iscsi, zfs_storage
 from app.core.error_messages import describe_exception
+from app.core.libvirt_utils import refresh_pools_for_paths
 
 logger = logging.getLogger(__name__)
 
@@ -111,10 +112,7 @@ def _qemu_img_resize(path, fmt, size_bytes):
 
 def _refresh_pool_of(conn, path):
     # A stopped VM's file is grown behind libvirt's back: refresh its pool so the Storage page shows the new size.
-    try:
-        conn.storageVolLookupByPath(path).storagePoolLookupByVolume().refresh(0)
-    except libvirt.libvirtError:
-        logger.debug("Pool refresh after resizing %s failed", path, exc_info=True)
+    refresh_pools_for_paths(conn, [path])
 
 
 def grow(conn, domain, target_dev, size_gb):

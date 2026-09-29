@@ -10,9 +10,7 @@ from pydantic import BaseModel, Field
 from app.core import disk_move, disk_resize, passthrough
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import (
-    open_conn,
-)
+from app.core.libvirt_utils import lookup_volume, open_conn, pool_for_path
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_limits import validate_vm_resources
@@ -54,7 +52,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
 
         try:
             pool = conn.storagePoolLookupByName(payload.pool)
-            vol = pool.storageVolLookupByName(payload.volume_name)
+            vol = lookup_volume(pool, payload.volume_name)
         except libvirt.libvirtError:
             log_action(user["username"], "attach_disk", name, "echec", "Volume not found")
             raise HTTPException(
@@ -274,10 +272,12 @@ def _disk_size(domain, conn, target, source):
         except libvirt.libvirtError:
             logger.debug("No block info for %s", target, exc_info=True)
     if source:
-        try:
-            out["pool"] = conn.storageVolLookupByPath(source).storagePoolLookupByVolume().name()
-        except libvirt.libvirtError:
-            logger.debug("No pool for %s", source, exc_info=True)
+        pool = pool_for_path(conn, source)
+        if pool is not None:
+            try:
+                out["pool"] = pool.name()
+            except libvirt.libvirtError:
+                logger.debug("No pool name for %s", source, exc_info=True)
     return out
 
 

@@ -41,7 +41,6 @@ def test_legacy_french_name_is_migrated_in_place(database):
 # --- Running a job: a refused or failing run is never reported as a success ---
 
 
-
 @pytest.fixture()
 def no_libvirt(monkeypatch):
     def _refuse(*_a, **_k):
