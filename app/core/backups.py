@@ -42,7 +42,7 @@ from app.core.database import get_conn
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, raise_if_cancelled, register_cancel, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,7 @@ def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
     """Copy with qemu-img convert -p, parse the real progress on stdout and report it
     in the task (base_pct/span_pct allow calling this several times, e.g. for
     several disks, without each one restarting from 0%)."""
+    raise_if_cancelled(task_id)
     proc = subprocess.Popen(
         ["qemu-img", "convert", "-p", "-O", "qcow2", str(source), str(dest)],
         stdout=subprocess.PIPE,
@@ -141,6 +142,8 @@ def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
         text=True,
         bufsize=1,
     )
+    # Cancelling the task stops the copy at once; the caller removes the partial files as for any failure.
+    register_cancel(task_id, proc.terminate)
     # try/finally: proc.wait() ALWAYS happens, even if reading stdout or
     # update_task_progress() raises. Otherwise an exception raised from this loop
     # (e.g. a 'database is locked' from update_task_progress()) left the finished
@@ -173,6 +176,8 @@ def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
         stderr = proc.stderr.read()
     finally:
         proc.wait()
+        register_cancel(task_id)  # still cancellable between two disks
+    raise_if_cancelled(task_id)
     if proc.returncode != 0:
         raise RuntimeError(f"qemu-img convert failed: {stderr.strip()[:400]}")
 

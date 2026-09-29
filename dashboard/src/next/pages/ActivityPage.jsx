@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { fetchTasks, fetchTaskDetail, downloadTasksCsv } from "../../api/client";
+import TaskLog from "../components/TaskLog";
+import { parseVmKey } from "../lib/vmId";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
@@ -24,6 +26,9 @@ function duration(start, end, now) {
 // On a node page (`selection.type === "node"`) the same view is scoped to that node.
 export default function ActivityPage({ selection }) {
   const nodeId = selection?.type === "node" ? selection.id : undefined;
+  // A VM's or a container's own history: its exact name, among the tasks of its kind.
+  const own = selection?.type === "vm" ? { objet: parseVmKey(selection.id).nom, famille: "vm" }
+    : selection?.type === "container" ? { objet: selection.id, famille: "container" } : null;
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const navigateTo = useInfraStore((s) => s.navigateTo);
@@ -41,8 +46,8 @@ export default function ActivityPage({ selection }) {
   const pushToast = useInfraStore((s) => s.pushToast);
   const filters = useCallback(() => {
     const depuis = SINCE[f.since] ? new Date(Date.now() - SINCE[f.since] * 1000).toISOString() : undefined;
-    return { node: nodeId ?? (f.node || undefined), statut: f.statut, type: f.type, cible: f.cible, username: f.username, depuis };
-  }, [f, nodeId]);
+    return { node: nodeId ?? (f.node || undefined), statut: f.statut, type: f.type, cible: f.cible, username: f.username, depuis, ...own };
+  }, [f, nodeId, own?.objet, own?.famille]); // eslint-disable-line react-hooks/exhaustive-deps
   const load = useCallback(async () => {
     try {
       const r = await fetchTasks({ ...filters(), limit: 200, tri: "cree_le", ordre: "desc" });
@@ -97,6 +102,8 @@ export default function ActivityPage({ selection }) {
                     <tr><td colSpan={6} className="nx-detailcell">
                       <p className="nx-muted" style={{ margin: "0 0 4px" }}>{t("ns.node")} : <span className="nx-mono">{r.node ? nodeName(r.node) : "—"}</span></p>
                       {r.erreur ? <p className="nx-mono" style={{ margin: 0, overflowWrap: "anywhere" }}><StatusIndicator override={{ key: "state.failed", shape: "diamond", tone: "danger" }} compact /> {r.erreur}</p> : <p className="nx-muted" style={{ margin: 0 }}>{t("act.noError")}</p>}
+                      <TaskLog task={r} onChanged={load} />
+                      {(detail[r.id]?.logs || []).length > 0 && <h3 className="nx-tasklog-h">{t("tl.audit")}</h3>}
                       {(detail[r.id]?.logs || []).slice(0, 8).map((l, i) => <p key={i} className="nx-mono nx-muted" style={{ margin: "2px 0 0" }}>{l.timestamp} · {l.action} · {l.result}{l.error_message ? ` · ${l.error_message}` : ""}</p>)}
                     </td></tr>
                   )}

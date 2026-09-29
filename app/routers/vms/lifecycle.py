@@ -6,7 +6,7 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import firmware, guest_agent, vm_locks, zfs_storage
+from app.core import cloudinit_edit, firmware, guest_agent, object_meta, vm_boot, vm_locks, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -228,6 +228,10 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     delete_acl_for_vm(name)
     remove_vm_from_all_pools(name)
     delete_vm_auto_cleanup(name)
+    vm_boot.delete_setting(name, node)
+    object_meta.delete("vm", name, node)
+    if not node:
+        cloudinit_edit.delete_state(name)
 
 
 @router.delete("/{name}")

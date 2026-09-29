@@ -16,6 +16,7 @@ message: they are block devices, not files in a pool directory.
 
 import logging
 import subprocess
+import threading
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -127,13 +128,22 @@ def _point_config_at(domain, target_dev, dest):
     domain.updateDeviceFlags(ET.tostring(disk_el, encoding="unicode"), libvirt.VIR_DOMAIN_AFFECT_CONFIG)
 
 
-def _mirror_live(domain, target_dev, dest, progress):
+CANCELLED = "The move was cancelled; the VM stays on its source disk"
+
+
+def _stopped(stop):
+    return stop is not None and stop.is_set()
+
+
+def _mirror_live(domain, target_dev, dest, progress, stop=None):
     dest_xml = f"<disk type='file'><driver type='qcow2'/><source file='{dest}'/></disk>"
     flags = libvirt.VIR_DOMAIN_BLOCK_COPY_REUSE_EXT | libvirt.VIR_DOMAIN_BLOCK_COPY_TRANSIENT_JOB
     domain.blockCopy(target_dev, dest_xml, {}, flags)
     last_cur, last_move = -1, time.monotonic()
     try:
         while True:
+            if _stopped(stop):
+                raise MoveError(CANCELLED, 409)
             info = domain.blockJobInfo(target_dev, 0)
             if not info:
                 raise MoveError("The copy job ended unexpectedly", 500)
@@ -161,7 +171,7 @@ def _mirror_live(domain, target_dev, dest, progress):
         _point_config_at(domain, target_dev, dest)
 
 
-def _convert_cold(source, dest, progress):
+def _convert_cold(source, dest, progress, stop=None):
     proc = subprocess.Popen(
         ["qemu-img", "convert", "-p", "-O", "qcow2", source, dest],
         stdout=subprocess.PIPE,
@@ -169,6 +179,16 @@ def _convert_cold(source, dest, progress):
         text=True,
         bufsize=1,
     )
+
+    def watch():
+        # qemu-img prints its progress now and then: stop it as soon as asked, not at its next line.
+        while proc.poll() is None:
+            if stop.wait(0.5):
+                proc.terminate()
+                return
+
+    if stop is not None:
+        threading.Thread(target=watch, daemon=True, name="disk-move-cancel").start()
     try:
         for line in iter(proc.stdout.readline, ""):
             pct = line.strip().split("/")[0].strip("( %)")
@@ -179,6 +199,8 @@ def _convert_cold(source, dest, progress):
     finally:
         stderr = proc.stderr.read()
         proc.wait()
+    if _stopped(stop):
+        raise MoveError(CANCELLED, 409)
     if proc.returncode != 0:
         raise MoveError(f"qemu-img convert failed: {stderr.strip()[:400]}", 500)
 
@@ -190,8 +212,9 @@ def _refresh(pool):
         logger.debug("Pool refresh failed", exc_info=True)
 
 
-def move(domain, target_dev, how, delete_source, progress=lambda pct: None):
-    """Copy the disk to the destination pool and switch the VM to it. `how` comes from plan()."""
+def move(domain, target_dev, how, delete_source, progress=lambda pct: None, stop=None):
+    """Copy the disk to the destination pool and switch the VM to it. `how` comes from plan(). `stop`: an Event
+    that cancels the copy when set (the partial destination is removed, the VM keeps its source disk)."""
     src, dest = how["source"], how["dest"]
     try:
         if how["live"]:
@@ -201,9 +224,9 @@ def move(domain, target_dev, how, delete_source, progress=lambda pct: None):
                 capture_output=True,
                 text=True,
             )
-            _mirror_live(domain, target_dev, dest, progress)
+            _mirror_live(domain, target_dev, dest, progress, stop)
         else:
-            _convert_cold(src, dest, progress)
+            _convert_cold(src, dest, progress, stop)
             _point_config_at(domain, target_dev, dest)
     except libvirt.libvirtError as e:
         Path(dest).unlink(missing_ok=True)
