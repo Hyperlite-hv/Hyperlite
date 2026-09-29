@@ -148,6 +148,20 @@ def _unknown_user_hash():
 
 def authenticate_user(username: str, password: str):
     user = get_user(username)
+    # Directory accounts, and names no account has yet, are checked by the LDAP directory when one is set up
+    # (app/core/ldap_auth.py); a local or SSO account never is.
+    if user is None or user.get("auth_source") == "ldap":
+        from app.core import ldap_auth
+
+        try:
+            directory_user = ldap_auth.authenticate(username, password)
+        except (ldap_auth.LdapError, ldap_auth.LocalAccountConflict) as e:
+            logging.getLogger(__name__).warning("LDAP sign-in of %r failed: %s", username, e)
+            directory_user = None
+        if directory_user is not None:
+            return directory_user
+        if user is not None:
+            return None
     if not user:
         verify_password(password, _unknown_user_hash())
         return None

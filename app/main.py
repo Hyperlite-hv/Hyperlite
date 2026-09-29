@@ -43,6 +43,7 @@ from app.routers.host_system import router as host_system_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
 from app.routers.kubernetes import router as kubernetes_router
+from app.routers.ldap import router as ldap_router
 from app.routers.meta import router as meta_router
 from app.routers.metric_servers import router as metric_servers_router
 from app.routers.metrics import router as metrics_router
@@ -134,6 +135,7 @@ app.include_router(host_system_router)
 app.include_router(metric_servers_router)
 app.include_router(backup_groups_router)
 app.include_router(file_restore_router)
+app.include_router(ldap_router)
 
 if os.path.isdir(DASHBOARD_DIST):
     app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")

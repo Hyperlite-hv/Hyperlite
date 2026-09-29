@@ -7,6 +7,7 @@ import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
 import { PageHeader, Card, Field, Loading } from "../components/ui";
 import { Copy } from "lucide-react";
+import LdapCard from "../components/LdapCard";
 
 const EMPTY = { enabled: false, issuer: "", client_id: "", client_secret: "", redirect_uri: "", scope: "openid profile email groups", group_claim: "groups", admin_groups: "" };
 const FIELDS = ["enabled", "issuer", "client_id", "redirect_uri", "scope", "group_claim", "admin_groups"];
@@ -127,6 +128,7 @@ export default function SsoPage() {
             </div>
           </form>
         </Card>
+        <div style={{ marginTop: "var(--space-4)" }}><LdapCard /></div>
       </div>
     </>
   );
