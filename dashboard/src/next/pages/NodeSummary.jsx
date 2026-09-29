@@ -15,6 +15,7 @@ import { formatSizeMb, formatSizeGb, formatUptimeLong, formatVersionInt, clockTi
 import StatusIndicator from "../components/StatusIndicator";
 import { KpiStrip, Card, Loading, TableWrap } from "../components/ui";
 import { useHostHistory } from "./VmPerformance";
+import NotesCard from "../components/NotesCard";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
 const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);
@@ -98,6 +99,8 @@ export default function NodeSummary({ resource: node }) {
           </dl>
         </Card>
       </div>
+
+      <NotesCard kind="node" name={nodeId} canEdit={admin} />
 
       <Card title={t("ns.activity")} actions={<button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("node", nodeId, "tasks")}>{t("ns.nodeTasks")}<ChevronRight size={14} aria-hidden="true" /></button>}>
         {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (

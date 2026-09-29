@@ -12,6 +12,9 @@ import { formatSizeMb, formatRate, clockTime, formatDateTime } from "../lib/form
 import StatusIndicator from "../components/StatusIndicator";
 import { KpiStrip, Card, Loading } from "../components/ui";
 import { useVmHistory } from "./VmPerformance";
+import NotesCard from "../components/NotesCard";
+import { useAuthStore } from "../../store/useAuthStore";
+import { capabilities } from "../lib/capabilities";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
 const base = (p) => (p ? String(p).split("/").pop() : "");
@@ -22,6 +25,7 @@ const pct = (u, tot) => (u != null && tot ? (u / tot) * 100 : null);
 // Every operation lives in the header (primary, Stop, Actions menu): nothing is repeated here.
 export default function VmSummary({ resource: vm }) {
   const t = useT();
+  const caps = capabilities(useAuthStore((s) => s.role));
   const lang = useLangStore((s) => s.lang);
   const { nodes, navigateTo, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, navigateTo: s.navigateTo, pushToast: s.pushToast, refreshAll: s.refreshAll })));
   const hist = useVmHistory(vm, "1h");
@@ -140,6 +144,8 @@ export default function VmSummary({ resource: vm }) {
           )}
         </Card>
       </div>
+
+      <NotesCard kind="vm" name={vm.nom} node={vm.node} canEdit={caps.admin} />
 
       <Card title={t("ns.activity")}>
         {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (

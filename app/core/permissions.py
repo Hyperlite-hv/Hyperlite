@@ -33,6 +33,7 @@ ALL_PRIVILEGES = {
     "container.view": "View (state, IP)",
     "container.power": "Start / stop",
     "container.console": "Terminal SSH web",
+    "container.options": "Options (notes and tags)",
 }
 
 # Predefined, scoped roles that can be assigned through an ACL (distinct from
@@ -72,6 +73,7 @@ ROLES = {
             "container.view",
             "container.power",
             "container.console",
+            "container.options",
         },
     },
 }

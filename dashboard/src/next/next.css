@@ -803,3 +803,12 @@ select.nx-input { height: 2rem; }
 .nx-bulkbar-n { font-weight: 600; font-size: var(--font-size-sm); }
 .nx-pickcell { width: 2.25rem; padding-right: 0; }
 .nx-pick { width: 1rem; height: 1rem; margin: 0; accent-color: var(--color-border-focus); cursor: pointer; }
+
+/* Tags (small words on VMs, containers and nodes) and notes, shown as plain text with their line breaks. */
+.nx-tags { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); vertical-align: middle; }
+td .nx-tags, th .nx-tags, .nx-vmcard2 .nx-tags { display: flex; margin-top: 2px; }
+.nx-tag { display: inline-flex; align-items: center; height: 1.25rem; padding: 0 var(--space-2); border-radius: var(--radius-xs); border: 1px solid var(--color-border-default); background: var(--color-accent-2-subtle); color: var(--color-text-primary); font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 1; white-space: nowrap; }
+button.nx-tag { cursor: pointer; }
+button.nx-tag:hover { border-color: var(--color-border-strong); }
+.nx-notes { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nx-notes-input { min-height: 8rem; resize: vertical; font-family: inherit; }

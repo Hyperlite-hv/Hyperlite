@@ -665,6 +665,17 @@ def init_db():
             )
         """)
         conn.execute("CREATE TABLE IF NOT EXISTS vm_boot_state (node TEXT PRIMARY KEY, boot_id TEXT NOT NULL)")
+        # Notes and tags (app/core/object_meta.py). node is '' for a node itself, the VM's node otherwise.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS object_meta (
+                kind TEXT NOT NULL,
+                node TEXT NOT NULL,
+                name TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                tags TEXT NOT NULL DEFAULT '[]',
+                PRIMARY KEY (kind, node, name)
+            )
+        """)
         # The local host used to be stored under a machine-specific label; it is now always "local".
         for table in ("ha_protected_vms", "tasks"):
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608

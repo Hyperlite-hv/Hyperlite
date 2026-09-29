@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronDown, ChevronRight, Copy, Monitor, Play, Plus, Search, Square, SquareTerminal, TriangleAlert, X } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -14,6 +14,8 @@ import { VmContextMenu, NodeContextMenu } from "../components/ObjectActions";
 import { PageHeader, Spark, Empty, StatePill, TableWrap, Meter, Chip } from "../components/ui";
 import { useVmHistory } from "./VmPerformance";
 import BulkBar from "../components/BulkBar";
+import { TagChips } from "../components/NotesCard";
+import { allTags, metaOf, useMetaStore } from "../lib/meta";
 
 const VIEW_KEY = "hyperlite-next-vmview";
 const GROUP_KEY = "hyperlite-next-vmgroup";
@@ -137,6 +139,11 @@ export default function VmList() {
   const [selName, setSelName] = useState(null);
   const [detail, setDetail] = useState(true);
   const [nodeFilter, setNodeFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const { byKey: metaByKey, load: loadMeta } = useMetaStore(useShallow((s) => ({ byKey: s.byKey, load: s.load })));
+  useEffect(() => { loadMeta(); }, [loadMeta]);
+  const tagsOf = (v) => metaOf(metaByKey, "vm", v.node, v.nom)?.tags || [];
+  const tagList = allTags(metaByKey, "vm");
   const [groupPref, setGroupPref] = useState(readGroup);
   const group = groupPref ?? true;
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -171,13 +178,13 @@ export default function VmList() {
 
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
-    const list = vms.filter((v) => (!nodeFilter || v.node === nodeFilter) && (chip === "all" || (chip === "running" && v.etat === "actif") || (chip === "stopped" && (v.etat === "arrete" || v.etat === "en_arret")) || (chip === "problems" && PROBLEM.has(v.etat)))
-      && (!n || `${v.nom} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)}`.toLowerCase().includes(n)));
+    const list = vms.filter((v) => (!nodeFilter || v.node === nodeFilter) && (!tagFilter || tagsOf(v).includes(tagFilter)) && (chip === "all" || (chip === "running" && v.etat === "actif") || (chip === "stopped" && (v.etat === "arrete" || v.etat === "en_arret")) || (chip === "problems" && PROBLEM.has(v.etat)))
+      && (!n || `${v.nom} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)} ${tagsOf(v).join(" ")}`.toLowerCase().includes(n)));
     const rank = (v) => (PROBLEM.has(v.etat) ? 0 : v.etat === "actif" ? 1 : 2); // problems first
     const val = { state: rank, name: (v) => v.nom.toLowerCase(), node: (v) => nodeName(v.node).toLowerCase(), res: (v) => (v.vcpu || 0) * 1e6 + (v.memoire_mo || 0), uptime: (v) => v.uptime_s || 0 }[sort.key];
     return [...list].sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : a.nom.localeCompare(b.nom)) * sort.dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vms, q, chip, sort, nodes, nodeFilter]);
+  }, [vms, q, chip, sort, nodes, nodeFilter, tagFilter, metaByKey]);
 
   const shownPicked = shown.filter((v) => picked.has(vmKey(v))).length;
   const pickAllShown = () => setPicked((prev) => {
@@ -193,7 +200,7 @@ export default function VmList() {
 
   // One section per node (the machine that runs the VMs), in the order of the nodes page; a node without VMs is
   // shown too when nothing is filtered, so every machine appears.
-  const filtering = chip !== "all" || q.trim() !== "";
+  const filtering = chip !== "all" || q.trim() !== "" || tagFilter !== "";
   const groups = nodes
     .filter((n) => !nodeFilter || n.id === nodeFilter)
     .map((n) => ({ node: n, vms: shown.filter((v) => v.node === n.id) }))
@@ -211,7 +218,12 @@ export default function VmList() {
       <button type="button" className="nx-thbtn" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : 1 }))}>{label}{sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}</button>
     </th>
   );
-  const sub = (v) => (PROBLEM.has(v.etat) ? <small className="is-warn">{t(`vmlist.reason.${v.etat}`)}</small> : v.os ? <small>{v.os}</small> : null);
+  const sub = (v) => (
+    <>
+      {PROBLEM.has(v.etat) ? <small className="is-warn">{t(`vmlist.reason.${v.etat}`)}</small> : v.os ? <small>{v.os}</small> : null}
+      <TagChips tags={tagsOf(v)} onTag={setTagFilter} />
+    </>
+  );
   const showDetail = detail && selected && view === "table";
   const nodeCell = (id) => {
     const n = nodes.find((x) => x.id === id);
@@ -221,6 +233,7 @@ export default function VmList() {
               <article key={`${vm.node}:${vm.nom}`} className={`nx-card2 nx-vmcard2${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-label={vm.nom} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
                 <div className="nx-inline">{selectable && pickBox(vm)}<StatusIndicator kind="vm" wire={vm.etat} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{vm.nom}</button></div>
                 <div className="nx-muted" style={{ fontSize: "var(--fs-12)" }}>{PROBLEM.has(vm.etat) ? <span className="nx-tone-warning">{t(`vmlist.reason.${vm.etat}`)}</span> : vm.os || "—"}</div>
+                <TagChips tags={tagsOf(vm)} onTag={setTagFilter} />
                 <dl className="nx-dl2" style={{ gridTemplateColumns: "5.3333rem minmax(0,1fr)", marginTop: "var(--space-2)" }}>
                   <dt>{t("ns.node")}</dt><dd className="nx-mono">{nodeName(vm.node)}</dd>
                   <dt>IP</dt><dd className="nx-mono">{vm.ip || "—"}</dd>
@@ -274,6 +287,12 @@ export default function VmList() {
           <select className="nx-sel" aria-label={t("vmlist.filterNode")} value={nodeFilter} onChange={(e) => setNodeFilter(e.target.value)}>
             <option value="">{t("vmlist.allNodes")}</option>
             {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom} ({vms.filter((v) => v.node === n.id).length})</option>)}
+          </select>
+        )}
+        {(tagList.length > 0 || tagFilter) && (
+          <select className="nx-sel" aria-label={t("vmlist.filterTag")} value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+            <option value="">{t("vmlist.allTags")}</option>
+            {tagList.map((tg) => <option key={tg} value={tg}>{tg} ({vms.filter((v) => tagsOf(v).includes(tg)).length})</option>)}
           </select>
         )}
         <button type="button" className="nx-btn nx-btn--sm" aria-pressed={group} onClick={() => setGroup(!group)}>{t("vmlist.groupByNode")}</button>
