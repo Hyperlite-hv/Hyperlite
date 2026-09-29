@@ -70,9 +70,10 @@ def chroot_env():
     }
 
 
-def _chroot_run(args, **kwargs):
-    kwargs.setdefault("env", chroot_env())
-    return subprocess.run(args, **kwargs)
+def _chroot_run(rootfs, *command, **kwargs):
+    """Run a command inside a container's filesystem: always `chroot`, with the command's words as separate
+    arguments (never a shell) and the clean environment above."""
+    return subprocess.run(["chroot", str(rootfs), *command], env=chroot_env(), **kwargs)
 
 
 def _ensure_tmp(rootfs):
@@ -91,7 +92,7 @@ def ensure_base_rootfs():
         return BASE_ROOTFS
     BASE_ROOTFS.parent.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(BASE_ROOTFS, ignore_errors=True)
-    _chroot_run(
+    subprocess.run(
         [
             "debootstrap",
             "--arch=amd64",
@@ -103,6 +104,7 @@ def ensure_base_rootfs():
         check=True,
         capture_output=True,
         text=True,
+        env=chroot_env(),  # debootstrap runs the packages' scripts inside the new filesystem
     )
     return BASE_ROOTFS
 
@@ -254,37 +256,43 @@ def bootstrap_os_container(rootfs):
             # packages installed afterwards.
             insecure = ["-o", "Acquire::AllowInsecureRepositories=true", "-o", "APT::Get::AllowUnauthenticated=true"]
             _chroot_run(
-                ["chroot", str(rootfs), "apt-get", *insecure, "update"],
+                rootfs,
+                "apt-get",
+                *insecure,
+                "update",
                 check=True,
                 capture_output=True,
                 text=True,
             )
             _chroot_run(
-                ["chroot", str(rootfs), "apt-get", "install", "-y", *insecure, "--no-install-recommends", "gnupg"],
+                rootfs,
+                "apt-get",
+                "install",
+                "-y",
+                *insecure,
+                "--no-install-recommends",
+                "gnupg",
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            _chroot_run(["chroot", str(rootfs), "apt-get", "update"], check=True, capture_output=True, text=True)
+            _chroot_run(rootfs, "apt-get", "update", check=True, capture_output=True, text=True)
             _chroot_run(
-                [
-                    "chroot",
-                    str(rootfs),
-                    "apt-get",
-                    "install",
-                    "-y",
-                    "--no-install-recommends",
-                    "systemd",
-                    "systemd-sysv",
-                    "openssh-server",
-                    "sudo",
-                ],
+                rootfs,
+                "apt-get",
+                "install",
+                "-y",
+                "--no-install-recommends",
+                "systemd",
+                "systemd-sysv",
+                "openssh-server",
+                "sudo",
                 check=True,
                 capture_output=True,
                 text=True,
             )
         elif family == "apk":
-            _chroot_run(["chroot", str(rootfs), "apk", "update"], check=True, capture_output=True, text=True)
+            _chroot_run(rootfs, "apk", "update", check=True, capture_output=True, text=True)
             # EXPLICIT openrc: the official "alpine" image from Docker Hub does NOT have
             # openrc preinstalled (verified in real testing: /etc/init.d/ was empty after
             # configuration, "sshd"/"networking" stayed broken symlinks pointing to scripts
@@ -296,7 +304,15 @@ def bootstrap_os_container(rootfs):
             # works identically whatever the family, without duplicating it per package
             # family.
             _chroot_run(
-                ["chroot", str(rootfs), "apk", "add", "--no-cache", "openrc", "openssh", "sudo", "shadow", "bash"],
+                rootfs,
+                "apk",
+                "add",
+                "--no-cache",
+                "openrc",
+                "openssh",
+                "sudo",
+                "shadow",
+                "bash",
                 check=True,
                 capture_output=True,
                 text=True,
@@ -404,7 +420,7 @@ def _reset_container_identity(rootfs, new_hostname):
     if ssh_dir.exists():
         for key_file in ssh_dir.glob("ssh_host_*"):
             key_file.unlink(missing_ok=True)
-        _chroot_run(["chroot", str(rootfs), "ssh-keygen", "-A"], check=True, capture_output=True, text=True)
+        _chroot_run(rootfs, "ssh-keygen", "-A", check=True, capture_output=True, text=True)
 
     # Empty machine-id (NOT removed: systemd wants it present but empty to trigger a
     # regeneration at first boot, see machine-id(5)): avoids D-Bus/journald identifiers
@@ -511,13 +527,20 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
     # it) and is not needed anyway, since sudo access is granted to this user by name
     # through sudoers.d below, not through group membership.
     _chroot_run(
-        ["chroot", str(rootfs), "useradd", "-m", "-s", "/bin/bash", username],
+        rootfs,
+        "useradd",
+        "-m",
+        "-s",
+        "/bin/bash",
+        username,
         check=True,
         capture_output=True,
         text=True,
     )
     _chroot_run(
-        ["chroot", str(rootfs), "chpasswd", "-e"],
+        rootfs,
+        "chpasswd",
+        "-e",
         input=f"{username}:{pwd_hash}\n",
         check=True,
         capture_output=True,
@@ -525,7 +548,7 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
     )
     # Root locked, the same posture as the RHEL kickstart (rootpw --lock): only the
     # account created by name is usable.
-    _chroot_run(["chroot", str(rootfs), "passwd", "-l", "root"], check=True, capture_output=True, text=True)
+    _chroot_run(rootfs, "passwd", "-l", "root", check=True, capture_output=True, text=True)
 
     # sudo WITHOUT a password for this account: membership of the "sudo" group alone
     # is not enough (the default Debian policy requires a password), seen in testing
@@ -537,12 +560,8 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
     sudoers_dropin.write_text(f"{username} ALL=(ALL) NOPASSWD:ALL\n")
     sudoers_dropin.chmod(0o440)
 
-    uid = _chroot_run(
-        ["chroot", str(rootfs), "id", "-u", username], check=True, capture_output=True, text=True
-    ).stdout.strip()
-    gid = _chroot_run(
-        ["chroot", str(rootfs), "id", "-g", username], check=True, capture_output=True, text=True
-    ).stdout.strip()
+    uid = _chroot_run(rootfs, "id", "-u", username, check=True, capture_output=True, text=True).stdout.strip()
+    gid = _chroot_run(rootfs, "id", "-g", username, check=True, capture_output=True, text=True).stdout.strip()
 
     ssh_dir = safe_child(rootfs / "home", username) / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)
