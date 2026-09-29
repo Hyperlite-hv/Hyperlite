@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, ShieldAlert, CheckCircle2, XCircle } from "lucide-react";
 import ProgressBar from "./ProgressBar";
-import { fetchUpdateCheck, applyUpdate, fetchTaskDetail } from "../api/client";
+import { fetchUpdateCheck, applyUpdate, fetchTaskDetail, fetchHealth } from "../api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -73,11 +73,8 @@ export default function UpdateModal({ open, onClose, triggerRef }) {
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
-          const res = await fetch("/health");
-          if (res.ok) {
-            runningVersion = (await res.json()).hyperlite_version ?? null;
-            if (!target || runningVersion === target) { setPhase("ok"); return; }
-          }
+          runningVersion = (await fetchHealth()).hyperlite_version ?? null;
+          if (!target || runningVersion === target) { setPhase("ok"); return; }
         } catch { /* service restarting, expected */ }
       }
       setPhase("failed");

@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
-from app.core.secrets_crypto import decrypt, encrypt
+from app.core.secrets_crypto import SecretUnreadable, decrypt, encrypt
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import PROJDIR
 
@@ -112,7 +112,10 @@ def get_kubeconfig(name):
         raise ClusterError(f"Cluster '{name}' not found", 404)
     if not r["kubeconfig"]:
         raise ClusterError(f"Cluster '{name}' has no kubeconfig yet", 409)
-    return decrypt(r["kubeconfig"])
+    try:
+        return decrypt(r["kubeconfig"])
+    except SecretUnreadable as e:
+        raise ClusterError(str(e), 409) from e
 
 
 def recover_interrupted():

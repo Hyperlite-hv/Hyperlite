@@ -48,6 +48,9 @@ export default function NextLogin() {
     const params = new URLSearchParams(window.location.search);
     const ssoError = params.get("sso_error");
     if (ssoError) { setError(ssoError); window.history.replaceState({}, "", window.location.pathname); }
+    // An SSO sign-in whose account also requires its second factor: straight to that step.
+    const pending = useAuthStore.getState().ssoPending;
+    if (pending) { setPreAuthToken(pending.preAuthToken); setMethods(pending.methods); useAuthStore.setState({ ssoPending: null }); }
   }, []);
 
   async function onSubmit(e) {

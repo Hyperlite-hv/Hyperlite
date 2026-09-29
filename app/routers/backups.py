@@ -8,7 +8,7 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import maintenance
+from app.core import maintenance, vm_locks
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -21,6 +21,7 @@ from app.core.backups import (
 from app.core.database import get_conn
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task
+from app.core.vm_builder import validate_name
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +60,23 @@ def create_backup(name: str, payload: BackupRequest, user: dict = Depends(requir
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit)
     # rather than introducing yet another dedicated privilege.
+    claim = vm_locks.claim_or_409(name, "a backup")
+
     def job():
         try:
-            run_backup(name, payload.target_dir, username=user["username"])
+            run_backup(name, payload.target_dir, username=user["username"], claim=claim)
         except Exception:
             logger.debug(
                 "Ignored exception in job()", exc_info=True
             )  # already logged and tracked in run_backup (task + audit_log)
+        finally:
+            claim.release()  # run_backup releases it too; a no-op then, a safety net if it failed before
 
-    threading.Thread(target=job, daemon=True).start()
+    try:
+        threading.Thread(target=job, daemon=True).start()
+    except BaseException:
+        claim.release()
+        raise
     log_action(user["username"], "backup_vm_requested", name, "succes")
     return {"message": f"Backup of '{name}' started in the background"}
 
@@ -121,17 +130,34 @@ class RestoreRequest(BaseModel):
 def restore_backup_endpoint(backup_id: int, payload: RestoreRequest, user: dict = Depends(require_role("admin"))):
     maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
     with get_conn() as conn:
-        row = conn.execute("SELECT vm_name FROM backups WHERE id = ?", (backup_id,)).fetchone()
+        row = conn.execute("SELECT vm_name, statut FROM backups WHERE id = ?", (backup_id,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Backup not found")
+    # What can be refused at once is refused here, so a request that cannot run never reads as started.
+    if payload.mode not in ("overwrite", "new"):
+        raise HTTPException(status_code=422, detail="Invalid mode (expected 'overwrite' or 'new')")
+    if row["statut"] != "termine":
+        raise HTTPException(status_code=409, detail="This backup is not in a restorable state (failed or in progress)")
+    if payload.mode == "new":
+        name_error = validate_name(payload.new_name or "")
+        if name_error:
+            raise HTTPException(status_code=422, detail=name_error)
+    target = row["vm_name"] if payload.mode == "overwrite" else payload.new_name
+    claim = vm_locks.claim_or_409(target, "a backup restore")
 
     def job():
         try:
-            restore_backup(backup_id, payload.mode, payload.new_name, username=user["username"])
+            restore_backup(backup_id, payload.mode, payload.new_name, username=user["username"], claim=claim)
         except Exception:
             logger.debug("Ignored exception in job()", exc_info=True)  # already logged in restore_backup
+        finally:
+            claim.release()
 
-    threading.Thread(target=job, daemon=True).start()
+    try:
+        threading.Thread(target=job, daemon=True).start()
+    except BaseException:
+        claim.release()
+        raise
     log_action(user["username"], "restore_backup_requested", row["vm_name"], "succes", f"mode={payload.mode}")
     return {"message": "Restore started in the background"}
 

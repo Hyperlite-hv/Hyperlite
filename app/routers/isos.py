@@ -1,3 +1,5 @@
+import logging
+import re
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -8,13 +10,16 @@ from pydantic import BaseModel
 
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import open_conn
+from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
-from app.core.vm_builder import validate_name
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/isos", tags=["isos"])
+
+ISO_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,200}")
 
 ISOS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "isos"
 ISOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,6 +77,20 @@ def copy_iso(payload: IsoCopy, user: dict = Depends(require_role("admin"))):
     return {"nom": payload.nom, "taches": tasks}
 
 
+def _refresh_iso_pool(path):
+    """The ISO was written directly, not through libvirt: refresh the pool that holds it (if any) so that it is
+    listed right away. Best-effort, the upload itself succeeded."""
+    try:
+        conn = open_conn()
+    except (libvirt.libvirtError, HTTPException):
+        logger.warning("libvirt unreachable, the pool holding %s was not refreshed", path, exc_info=True)
+        return
+    try:
+        refresh_pools_for_paths(conn, [path])
+    finally:
+        conn.close()
+
+
 @router.post("", status_code=201)
 async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_role("admin"))):
     filename = Path(file.filename or "").name
@@ -80,12 +99,12 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
     if not filename.lower().endswith(".iso"):
         finish_task(task_id, "echec", "The file must have the .iso extension")
         raise HTTPException(status_code=422, detail="The file must have the .iso extension")
-    base_name = filename[:-4]
-    try:
-        validate_name(base_name)
-    except ValueError as exc:
-        finish_task(task_id, "echec", str(exc))
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Not the VM name rule: distribution ISOs are named with dots and underscores
+    # (debian-13.1.0-amd64-netinst.iso, ubuntu-24.04.3-live-server-amd64.iso).
+    if not ISO_NAME_RE.fullmatch(filename[:-4]):
+        msg = "Invalid ISO file name (letters, digits, dots, dashes, underscores and +, starting with a letter or a digit)"
+        finish_task(task_id, "echec", msg)
+        raise HTTPException(status_code=422, detail=msg)
 
     dest = safe_child(ISOS_DIR, filename)
     try:
@@ -102,6 +121,7 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
         finish_task(task_id, "echec", msg)
         raise HTTPException(status_code=500, detail=f"Failed to write the ISO: {msg}") from e
 
+    _refresh_iso_pool(dest)
     log_action(user["username"], "upload_iso", filename, "succes", task_id=task_id)
     return {"nom": filename, "taille_mo": round(dest.stat().st_size / (1024 * 1024), 1)}
 

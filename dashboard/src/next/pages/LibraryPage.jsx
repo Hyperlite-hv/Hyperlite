@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Disc3, Trash2, Upload } from "lucide-react";
-import { fetchClusterIsos, deleteIso, fetchTemplates } from "../../api/client";
+import { Copy, Disc3, HardDrive, Trash2, Upload } from "lucide-react";
+import { fetchClusterIsos, deleteIso, fetchTemplates, fetchVmDisks, deleteVmDisk } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -10,6 +10,8 @@ import { formatSizeMb, formatDateTime } from "../lib/format";
 import { errorMessage } from "../lib/errors";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
+import VmDiskUploadDropzone from "../../components/VmDiskUploadDropzone";
+import { ErrorState } from "../components/States";
 import TemplatesPanel from "./TemplatesPage";
 import CopyIsoDialog from "../components/CopyIsoDialog";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
@@ -62,7 +64,7 @@ export default function LibraryPage() {
     try { await deleteIso(iso.nom, iso.node); pushToast({ kind: "success", title: t("stor.isoDeleted"), message: multiNode ? `${iso.nom} · ${where}` : iso.nom }); loadIsos(); }
     catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
-  const tabs = [["iso", t("lib.iso"), holders.size || (isos ? 0 : null)], ["tpl", t("lib.templates"), tplCount]];
+  const tabs = [["iso", t("lib.iso"), holders.size || (isos ? 0 : null)], ["tpl", t("lib.templates"), tplCount], ...(caps.admin ? [["disks", t("lib.disks"), null]] : [])];
   const upload = () => drop.current?.querySelector("input[type=file]")?.click();
 
   return (
@@ -113,9 +115,55 @@ export default function LibraryPage() {
             ]} />
             {copying && <CopyIsoDialog iso={copying} nodes={nodes} holders={holders.get(copying.nom) || new Set()} onClose={() => setCopying(null)} />}
           </>
-        ) : <TemplatesPanel />}
+        ) : tab === "disks" ? <ImportedDisksPanel /> : <TemplatesPanel />}
       </div>
     </>
   );
 }
 LibraryPage.ownHeader = true;
+
+// Disk images uploaded to create a VM from ("import a VM from a disk"): they were only reachable from the creation
+// wizard, so they piled up with no screen to see or remove them. Administrators only, like the endpoints.
+function ImportedDisksPanel() {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [disks, setDisks] = useState(null);
+  const [error, setError] = useState(null);
+  const load = useCallback(async () => {
+    try { const r = await fetchVmDisks(); setDisks(Array.isArray(r) ? r : []); setError(null); }
+    catch (e) { setError(errorMessage(e)); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  async function remove(d) {
+    if (!(await confirmAction({ title: t("lib.diskDeleteTitle", { name: d.nom }), message: t("lib.diskDeleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
+    try { await deleteVmDisk(d.nom); pushToast({ kind: "success", title: t("lib.diskDeleted"), message: d.nom }); load(); }
+    catch (e) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(e) }); }
+  }
+  return (
+    <>
+      <p className="nx-f-h" style={{ margin: 0 }}>{t("lib.disksHelp")}</p>
+      <VmDiskUploadDropzone onDone={load} labels={{ drop: t("up.dropDisk"), done: t("up.done"), eta: t("up.eta") }} />
+      <div className="nx-card2 nx-card2--flush">
+        {error ? <ErrorState message={error} onRetry={load} />
+          : disks == null ? <Loading style={{ padding: "var(--space-4)" }} />
+          : disks.length === 0 ? <Empty icon={HardDrive} title={t("lib.noDisks")} text={t("lib.noDisksHelp")} /> : (
+            <TableWrap>
+              <table className="nx-table">
+                <thead><tr><th scope="col">{t("lib.image")}</th><th scope="col" className="nx-num">{t("lib.size")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+                <tbody>
+                  {disks.map((d) => (
+                    <tr key={d.nom}>
+                      <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{d.nom}</th>
+                      <td className="nx-num nx-mono">{formatSizeMb(d.taille_mo, lang)}</td>
+                      <td><div className="nx-ra"><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("lib.diskDeleteAria", { name: d.nom })} title={t("vx.delete")} onClick={() => remove(d)}><Trash2 size={15} aria-hidden="true" /></button></div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrap>
+          )}
+      </div>
+    </>
+  );
+}

@@ -18,6 +18,12 @@ mkdir -p "$APP_DIR/data/isos" "$APP_DIR/data/templates" "$APP_DIR/data/tls" "$AP
          "$APP_DIR/data/vm-exports" "$APP_DIR/data/imported-disks" "$APP_DIR/data/casper-cache" "$APP_DIR/data/tmp"
 chmod +x "$APP_DIR/scripts/"*.sh 2>/dev/null || true
 chmod o+x /root  # see postinstall.sh: required so libvirt-qemu can mount the ISOs under data/isos/
+# /root is traversable (above), so the update backups (they hold .env, the SSH and TLS keys) must be root-only;
+# earlier versions left them world-readable.
+if [ -d /root/hyperlite-backups ]; then
+    chmod 700 /root/hyperlite-backups
+    find /root/hyperlite-backups -maxdepth 1 -name 'hyperlite-backup-*' -type f -exec chmod 600 {} +
+fi
 
 log "preflight check (system)"
 PREFLIGHT="$APP_DIR/app/core/preflight.py"

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -93,5 +94,50 @@ func TestWorkstationName(t *testing.T) {
 	name := workstationName()
 	if name == "" || hostnameChars.MatchString(name) || len(name) > 63 {
 		t.Fatalf("workstation name %q", name)
+	}
+}
+
+func TestEnvironmentTokenOnlyGoesToItsServer(t *testing.T) {
+	t.Setenv("HYPERLITE_TOKEN", "hlt_secret")
+	t.Setenv("HYPERLITE_SERVER", "https://hv.example.com")
+	cfg := &config{Servers: map[string]*server{}}
+	s, err := cfg.pick("")
+	if err != nil || s.URL != "https://hv.example.com" || s.Token != "hlt_secret" || !s.FromEnv {
+		t.Fatalf("home server: %+v, %v", s, err)
+	}
+	if s, err = cfg.pick("https://HV.example.com"); err != nil || s.Token != "hlt_secret" {
+		t.Fatalf("same server named differently: %+v, %v", s, err)
+	}
+	// A link pointing elsewhere: the token must not be sent there.
+	s, err = cfg.pick("https://attacker.example.net")
+	var notIn *notSignedInError
+	if !errors.As(err, &notIn) || s != nil {
+		t.Fatalf("token handed to another server: %+v, %v", s, err)
+	}
+	t.Setenv("HYPERLITE_SERVER", "")
+	if _, err := cfg.pick("https://hv.example.com"); err == nil {
+		t.Fatal("HYPERLITE_TOKEN without HYPERLITE_SERVER accepted")
+	}
+}
+
+func TestServerAddressesCannotCarryShellCharacters(t *testing.T) {
+	for _, raw := range []string{
+		"https://hv.example.com;touch${IFS}x",
+		"https://hv.example.com`id`",
+		"https://a$(id).example.com",
+		"https://hv example.com",
+		"https://hv.example.com'",
+	} {
+		if u, err := normalizeURL(raw); err == nil {
+			t.Errorf("accepted %q as %q", raw, u)
+		}
+	}
+	for _, raw := range []string{"hv.example.com", "https://10.0.0.5:8000", "https://[fd00::1]:8000", "http://hv-01.lan"} {
+		if _, err := normalizeURL(raw); err != nil {
+			t.Errorf("refused %q: %v", raw, err)
+		}
+	}
+	if _, err := proxyCommand(&server{URL: "https://x;id"}, "vm1", 22); err == nil {
+		t.Error("proxyCommand accepted an unchecked address")
 	}
 }

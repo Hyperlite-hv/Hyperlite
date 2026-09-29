@@ -4,12 +4,14 @@ import logging
 import secrets
 import time
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import asyncssh
 import libvirt
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.core.audit import log_action
+from app.core.cluster import get_cluster_private_key_path, get_node
 from app.core.libvirt_utils import (
     ensure_vnc_graphics,
     open_conn,
@@ -26,10 +28,38 @@ from app.routers.vms.runtime import CONSOLE_TICKET_TTL, CONSOLE_TICKETS
 
 logger = logging.getLogger(__name__)
 
+# The trust store the cluster's ssh connections already use (see cluster.node_ssh_options): a node's host key is
+# verified here too, never accepted blindly.
+KNOWN_HOSTS = Path.home() / ".ssh" / "known_hosts"
+
+
+def _remote(node):
+    """The registered node a VM lives on, or None for the local host."""
+    return None if not node or node == "local" else node
+
+
+async def _connect_to_node(node_name):
+    """SSH connection to a registered node with the cluster key. A VM of a remote node has its VNC server on THAT
+    node's loopback, and its IP address on THAT node's networks: both are reached through this connection."""
+    node = get_node(node_name)
+    if node is None:
+        raise OSError(f"Node '{node_name}' not found")
+    return await asyncssh.connect(
+        node["hostname"],
+        port=int(node["ssh_port"]),
+        username=node["ssh_user"],
+        client_keys=[str(get_cluster_private_key_path())],
+        known_hosts=str(KNOWN_HOSTS),
+        connect_timeout=10,
+    )
+
 
 @router.post("/{name}/console-ticket")
-def create_console_ticket(name: str, user: dict = Depends(require_vm_privilege("vm.console"))):
-    conn = open_conn()
+def create_console_ticket(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.console"))):
+    """node: the registered node the VM runs on (the local host by default). Without it, a VM of a remote node was
+    looked up on the local host: a 404, or the console of a local VM that happens to have the same name."""
+    node = _remote(node)
+    conn = open_conn(node)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -62,12 +92,12 @@ def create_console_ticket(name: str, user: dict = Depends(require_vm_privilege("
             raise HTTPException(status_code=500, detail="VNC port not available yet")
 
         now = time.time()
-        for old_ticket, (_old_vm, _old_port, old_expiry) in list(CONSOLE_TICKETS.items()):
-            if old_expiry < now:
+        for old_ticket, entry in list(CONSOLE_TICKETS.items()):
+            if entry[2] < now:
                 CONSOLE_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL)
+        CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL, node)
         log_action(user["username"], "create_console_ticket", name, "succes")
         return {"ticket": ticket, "expire_dans_s": CONSOLE_TICKET_TTL}
     finally:
@@ -82,16 +112,26 @@ async def vm_console(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    vm_name, port, expiry = entry
+    vm_name, port, expiry, node = entry
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
 
+    node_ssh = None
     try:
-        reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    except OSError:
+        if node:
+            node_ssh = await _connect_to_node(node)
+            reader, writer = await node_ssh.open_connection("127.0.0.1", port)
+        else:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    except (asyncssh.Error, OSError):
+        logger.warning(
+            "Console of %s: cannot reach its VNC server%s", name, f" on {node}" if node else "", exc_info=True
+        )
+        if node_ssh is not None:
+            node_ssh.close()
         await websocket.close(code=1011)
         return
 
@@ -123,6 +163,8 @@ async def vm_console(websocket: WebSocket, name: str):
     _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
         t.cancel()
+    if node_ssh is not None:
+        node_ssh.close()
     try:
         await websocket.close()
     except RuntimeError:
@@ -139,8 +181,11 @@ TERMINAL_TICKET_TTL = 30
 
 
 @router.post("/{name}/terminal-ticket")
-def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin"))):
-    conn = open_conn()
+def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    """node: as for the console ticket. A VM of a remote node is reached through that node (its address is on the
+    node's networks, not necessarily routable from here)."""
+    node = _remote(node)
+    conn = open_conn(node)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -169,12 +214,12 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin")
             )
 
         now = time.time()
-        for old_ticket, (_old_vm, _old_ip, _old_user, old_expiry) in list(TERMINAL_TICKETS.items()):
-            if old_expiry < now:
+        for old_ticket, entry in list(TERMINAL_TICKETS.items()):
+            if entry[3] < now:
                 TERMINAL_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL)
+        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, node)
         log_action(user["username"], "create_terminal_ticket", name, "succes")
         return {"ticket": ticket, "utilisateur": ssh_user, "expire_dans_s": TERMINAL_TICKET_TTL}
     finally:
@@ -189,7 +234,7 @@ async def vm_terminal(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    vm_name, ip, ssh_user, expiry = entry
+    vm_name, ip, ssh_user, expiry, node = entry
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
@@ -197,16 +242,23 @@ async def vm_terminal(websocket: WebSocket, name: str):
     await websocket.accept()
 
     private_key = get_automation_private_key_path()
+    node_ssh = None
     try:
+        if node:
+            node_ssh = await _connect_to_node(node)
         ssh_conn = await asyncssh.connect(
             ip,
             username=ssh_user,
             client_keys=[str(private_key)],
             known_hosts=None,
             connect_timeout=10,
+            tunnel=node_ssh,
         )
     except (asyncssh.Error, OSError) as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] SSH connection to {ip} failed: {e}\x1b[0m\r\n")
+        if node_ssh is not None:
+            node_ssh.close()
+        via = f" through node {node}" if node else ""
+        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] SSH connection to {ip}{via} failed: {e}\x1b[0m\r\n")
         await websocket.close(code=1011)
         return
 
@@ -260,6 +312,8 @@ async def vm_terminal(websocket: WebSocket, name: str):
     except Exception:
         logger.debug("Ignored exception in vm_terminal()", exc_info=True)
     ssh_conn.close()
+    if node_ssh is not None:
+        node_ssh.close()
     try:
         await websocket.close()
     except (RuntimeError, WebSocketDisconnect):

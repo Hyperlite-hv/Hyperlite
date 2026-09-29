@@ -19,6 +19,7 @@ before libvirt has any chance to allow it."""
 
 import hashlib
 import json
+import logging
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -27,6 +28,8 @@ import libvirt
 from app.core.database import get_conn
 
 UMBRELLA_CHAIN = "HYPERLITENETFW"
+
+logger = logging.getLogger(__name__)
 
 
 def _chain_name(network_name: str) -> str:
@@ -192,5 +195,5 @@ def reapply_all(conn):
         config = {"default_policy": row["default_policy"], "rules": json.loads(row["rules_json"])}
         try:
             apply_network_firewall(conn, row["network_name"], config)
-        except Exception as e:
-            print(f"[network_firewall] reapply failed for '{row['network_name']}': {e!r}", flush=True)
+        except Exception:
+            logger.exception("Reapplying the firewall of network %s failed", row["network_name"])

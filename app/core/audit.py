@@ -1,9 +1,12 @@
 """Audit log. See _AUDIT_QUEUE below for why writes are asynchronous."""
 
 import contextvars
+import logging
+import os
 import queue
 import threading
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 
 from app.core.database import get_conn
 from app.core.tasks import _finish_task_in
@@ -28,6 +31,51 @@ from app.core.tasks import _finish_task_in
 # for a secondary log.
 _AUDIT_QUEUE = queue.Queue(maxsize=10000)
 
+logger = logging.getLogger(__name__)
+
+# Successful READS are not audited: the dashboard polls the inventory every few seconds (four lists) and each
+# console window its VM, which wrote some 2 500 rows an hour and buried the actions that matter. A failed read is
+# still recorded (an unknown VM, a refused access: worth seeing).
+READ_ACTION_PREFIXES = ("list_", "get_")
+
+# How long the audit log keeps its entries (days); HYPERLITE_AUDIT_RETENTION_DAYS, 0 = forever.
+DEFAULT_RETENTION_DAYS = 365
+PURGE_INTERVAL_S = 86400
+_last_purge = 0.0
+
+
+def retention_days():
+    raw = (os.environ.get("HYPERLITE_AUDIT_RETENTION_DAYS") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return DEFAULT_RETENTION_DAYS
+
+
+def purge_old_entries(now=None):
+    """Delete the entries older than the retention. Returns how many were deleted."""
+    days = retention_days()
+    if days <= 0:
+        return 0
+    limit = ((now or datetime.now(UTC)) - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM audit_log WHERE timestamp < ?", (limit,))
+        conn.commit()
+    return cur.rowcount
+
+
+def _purge_if_due():
+    global _last_purge
+    if time.monotonic() - _last_purge < PURGE_INTERVAL_S and _last_purge:
+        return
+    _last_purge = time.monotonic()
+    try:
+        deleted = purge_old_entries()
+        if deleted:
+            logger.info("Audit log: %d entries older than %d days deleted", deleted, retention_days())
+    except Exception:
+        logger.exception("Audit log purge failed")
+
+
 # Source address of the HTTP request being served, set by a middleware in app/main.py:
 # log_action() is called from dozens of endpoints that do not receive the request.
 # Background jobs run outside any request and record NULL.
@@ -47,10 +95,12 @@ def _writer_loop():
                     (ts, username, action, resource, result, error_message, ip),
                 )
                 conn.commit()
-        except Exception as e:
-            print(f"[audit] write failed (entry lost): {e!r}", flush=True)
+        except Exception:
+            logger.exception("Audit write failed, entry lost: %s %s %s", action, resource, result)
         finally:
             _AUDIT_QUEUE.task_done()
+        # The single writer also trims the table, at most once a day: nothing else writes audit rows.
+        _purge_if_due()
 
 
 def _ensure_writer_started():
@@ -77,12 +127,16 @@ def log_action(
             _finish_task_in(conn, task_id, "termine" if result == "succes" else "echec", error_message)
             conn.commit()
 
+    if result == "succes" and action.startswith(READ_ACTION_PREFIXES):
+        return
     _ensure_writer_started()
     entry = (username, action, resource, result, error_message, datetime.now(UTC).isoformat(), request_ip.get())
     try:
         _AUDIT_QUEUE.put_nowait(entry)
     except queue.Full:
-        print(f"[audit] queue full, entry lost: {entry}", flush=True)
+        # The kind of entry only: its other fields come from requests (sign-in forms, free-text messages quoting
+        # user input) and have no place in the service log; the loss itself is what needs attention.
+        logger.error("Audit queue full, an entry was lost: %s (%s)", action, result)
 
     # Outbound notifications: a single entry point instead of calling notify() at
     # every log_action() call site. It runs in a separate thread rather than in the
@@ -94,5 +148,5 @@ def log_action(
 
     if action in NOTIFY_EVENTS:
         title = f"{NOTIFY_EVENTS[action]} — {resource}"
-        message = error_message or f"{action} sur '{resource}' : {result}"
+        message = error_message or f"{action} on '{resource}': {result}"
         threading.Thread(target=notify, args=(action, title, message, result), daemon=True).start()

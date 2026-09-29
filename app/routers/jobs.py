@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core.audit import log_action
 from app.core.database import get_conn
-from app.core.jobs import LB_PREDEFINED_KEY, run_job_async, run_lb_job_async
+from app.core.jobs import JobRunRefused, start_job_run
 from app.core.security import get_current_user, require_role
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -107,22 +107,22 @@ class RunRequest(BaseModel):
 @router.post("/{job_id}/run", status_code=202)
 def run_job_endpoint(job_id: int, payload: RunRequest, user: dict = Depends(require_role("admin"))):
     with get_conn() as conn:
-        job = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        job = conn.execute("SELECT name FROM jobs WHERE id = ?", (job_id,)).fetchone()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if job["predefined_key"] == LB_PREDEFINED_KEY:
-        run_lb_job_async(job_id, payload.targets, payload.dry_run, username=user["username"])
-    else:
-        run_job_async(job_id, payload.targets, payload.dry_run, username=user["username"])
-    log_action(
-        user["username"],
-        "run_job_requested",
-        job["name"],
-        "succes",
-        f"cibles={payload.targets} dry_run={payload.dry_run}",
-    )
-    return {"message": f"Run of '{job['name']}' started in the background"}
+    details = f"cibles={payload.targets} dry_run={payload.dry_run}"
+    try:
+        run_id = start_job_run(job_id, payload.targets, payload.dry_run, username=user["username"])
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except JobRunRefused as e:
+        log_action(user["username"], "run_job_requested", job["name"], "echec", f"{details} : {e}")
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    # Audited only now that the run exists: its outcome is audited separately
+    # ("run_job") when it ends.
+    log_action(user["username"], "run_job_requested", job["name"], "succes", f"{details} run={run_id}")
+    return {"message": f"Run of '{job['name']}' started in the background", "run_id": run_id}
 
 
 @router.get("/{job_id}/runs")

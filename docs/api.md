@@ -1,6 +1,6 @@
 # API conventions
 
-The HTTP API is what the dashboard uses; an interactive OpenAPI description is served by the running service at `/docs`. Requests are authenticated with `Authorization: Bearer <token>`, where the token is a session JWT (from `POST /auth/login`, or the two-step `POST /auth/login/2fa`) or a personal API token (`hlt_...`).
+The HTTP API is what the dashboard uses; an interactive OpenAPI description (`/docs`, `/redoc`, `/openapi.json`) is served by the running service when `HYPERLITE_API_DOCS=1` is set (off by default: it answers without authentication). `GET /health` answers everyone with `{"status", "environment"}`; the host name and software versions are only reported to a signed-in caller. Requests are authenticated with `Authorization: Bearer <token>`, where the token is a session JWT (from `POST /auth/login`, or the two-step `POST /auth/login/2fa`) or a personal API token (`hlt_...`).
 
 ## French wire format
 

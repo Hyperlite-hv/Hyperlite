@@ -16,6 +16,7 @@ import { useT } from "../i18n";
 import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
 import { errorMessage } from "../lib/errors";
+import { vmKey, isRemoteVm } from "../lib/vmId";
 import { requestIntent } from "../lib/intents";
 import Menu, { MenuItem } from "./Menu";
 import ContextMenu from "./ContextMenu";
@@ -78,9 +79,11 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   const { nodes, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, pushToast: s.pushToast, refreshAll: s.refreshAll })));
   const vmActions = useVmActions();
   const [migrate, setMigrate] = useState(false);
-  const [cleanup, setCleanup] = useState(null);
+  // undefined while loading, null when the load failed: an unknown state must never read as "off",
+  // or the HA entry would offer to protect a VM that already is (and the toggle would do the opposite).
+  const [cleanup, setCleanup] = useState(undefined);
   const [cleanupOpen, setCleanupOpen] = useState(false);
-  const [ha, setHa] = useState(null);
+  const [ha, setHa] = useState(undefined);
   const running = vm.etat === "actif";
   const act = (a) => vmActionState(a, vm, caps);
   const admin = (state = { enabled: true }) => (caps.admin ? state : { enabled: false, reason: "menu.reason.admin" });
@@ -89,11 +92,17 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   const mig = !caps.admin ? { enabled: false, reason: "menu.reason.admin" } : !running ? { enabled: false, reason: "menu.reason.notRunning" } : targets.length === 0 ? { enabled: false, reason: "mig.noTarget" } : { enabled: true };
 
   useEffect(() => {
-    if (!open || !caps.admin) return;
+    if (!open || !caps.admin || isRemoteVm(vm)) return;
+    setHa(undefined); setCleanup(undefined);
     fetchHaProtected().then((r) => setHa((Array.isArray(r) ? r : []).some((x) => x.vm_name === vm.nom))).catch(() => setHa(null));
     fetchVMAutoCleanup(vm.nom).then(setCleanup).catch(() => setCleanup(null));
-  }, [open, caps.admin, vm.nom]);
+  }, [open, caps.admin, vm.nom, vm.node]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // These operations are served for the VMs of this host only (the backend has no node for them): on a remote VM
+  // they would act on a local VM of the same name, so they are unavailable, with the reason.
+  const remote = isRemoteVm(vm);
+  const localOnly = (state) => (remote ? { enabled: false, reason: "menu.reason.localOnly" } : state);
+  const known = (value) => (value === undefined ? { enabled: false, reason: "menu.reason.loading" } : value === null ? { enabled: false, reason: "menu.reason.unknown" } : admin());
   const fail = (title, e) => pushToast({ kind: "error", title, message: errorMessage(e) });
 
   async function clone() {
@@ -127,7 +136,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   }
   async function remove() {
     if (!(await confirmAction({ title: t("vx.deleteTitle", { name: vm.nom }), message: t("vx.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
-    try { await useInfraStore.getState().runVMAction(vm.nom, "delete"); onDeleted?.(); }
+    try { await useInfraStore.getState().runVMAction(vmKey(vm), "delete"); onDeleted?.(); }
     catch { /* the store already shows the error */ }
   }
   function snapshot() {
@@ -156,18 +165,18 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       {item("force-stop", Power, t("menu.forceStop"), act("force-stop"), () => vmActions.run(vm, "force-stop"), { danger: true })}
       <hr />
       <MenuGroup label={t("vx.g.protection")} />
-      {item("snapshot", Camera, t("vx.snapshot"), admin(), snapshot)}
-      {item("backup", Archive, t("vb.now"), admin(), backupNow)}
-      {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), admin(), toggleHa)}
+      {item("snapshot", Camera, t("vx.snapshot"), localOnly(admin()), snapshot)}
+      {item("backup", Archive, t("vb.now"), localOnly(admin()), backupNow)}
+      {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), localOnly(caps.admin ? known(ha) : admin()), toggleHa)}
       <hr />
       <MenuGroup label={t("vx.g.lifecycle")} />
-      {item("clone", CopyPlus, t("vx.cloneMenu"), admin(stopped), clone)}
+      {item("clone", CopyPlus, t("vx.cloneMenu"), localOnly(admin(stopped)), clone)}
       {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
-      {item("template", LayoutTemplate, t("vx.tplMenu"), admin(stopped), toTemplate)}
-      {item("export", Share, t("vx.exportMenu"), admin(), doExport)}
-      {item("cleanup", Eraser, cleanup?.active ? t("vx.cleanupOn", { n: cleanup.inactive_days }) : t("vx.cleanupMenu"), admin(), () => setCleanupOpen(true))}
+      {item("template", LayoutTemplate, t("vx.tplMenu"), localOnly(admin(stopped)), toTemplate)}
+      {item("export", Share, t("vx.exportMenu"), localOnly(admin()), doExport)}
+      {item("cleanup", Eraser, cleanup?.active ? t("vx.cleanupOn", { n: cleanup.inactive_days }) : t("vx.cleanupMenu"), localOnly(caps.admin ? known(cleanup) : admin()), () => setCleanupOpen(true))}
       <hr />
-      {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(objectLink("vm", vm.nom)))}
+      {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(objectLink("vm", vmKey(vm))))}
       {vm.ip && item("ip", Copy, t("menu.copyIp"), { enabled: true }, () => navigator.clipboard?.writeText(vm.ip))}
       <hr />
       {item("delete", Trash2, t("vx.deleteMenu"), admin(stopped), remove, { danger: true })}
@@ -226,7 +235,7 @@ export function VmContextMenu({ vm, at, returnFocus, onDone }) {
   const menu = useVmMenu(vm, {
     open: menuOpen,
     close: () => setMenuOpen(false),
-    openTab: (tab) => navigateTo("vm", vm.nom, tab),
+    openTab: (tab) => navigateTo("vm", vmKey(vm), tab),
     withPower: true,
     followBackup: false,
     onDialogClose: onDone,

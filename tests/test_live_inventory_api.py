@@ -215,6 +215,9 @@ class _Vol:
 
 
 class _Conn:
+    def listAllStoragePools(self, flags):
+        return []  # no file pool matches: the libvirt volume lookup below answers
+
     def storageVolLookupByPath(self, path):
         if path.endswith(".qcow2"):
             return _Vol()

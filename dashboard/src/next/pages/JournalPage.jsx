@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchAuditLog, fetchAuditActions, fetchAuditCount } from "../../api/client";
+import { fetchAuditLog, fetchAuditActions, fetchAuditCount, downloadAuditCsv } from "../../api/client";
+import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
 import { errorMessage } from "../lib/errors";
@@ -8,10 +9,6 @@ import { ErrorState } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Download, ScrollText } from "lucide-react";
 
-function csv(rows) {
-  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  return ["timestamp,user,action,resource,result,error,ip", ...rows.map((r) => [r.timestamp, r.username, r.action, r.resource, r.result, r.error_message, r.ip].map(esc).join(","))].join("\n");
-}
 const iso = (local) => (local ? new Date(local).toISOString() : undefined);
 const LIMIT = 300;
 const EMPTY_F = { result: "", action: "", username: "", resource: "", from: "", to: "" };
@@ -28,16 +25,18 @@ export default function JournalPage() {
   const [total, setTotal] = useState(null);
   const [applied, setApplied] = useState(f);
   const [open, setOpen] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const filters = (a) => ({ result: a.result, action: a.action, username: a.username, resource: a.resource, depuis: iso(a.from), jusqu_a: iso(a.to) });
 
   useEffect(() => { const h = setTimeout(() => setApplied(f), 300); return () => clearTimeout(h); }, [f]); // debounce typing
   useEffect(() => { fetchAuditActions().then((a) => setActions(Array.isArray(a) ? a : [])).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
     try {
-      const filters = { result: applied.result, action: applied.action, username: applied.username, resource: applied.resource, depuis: iso(applied.from), jusqu_a: iso(applied.to) };
-      const r = await fetchAuditLog({ limit: LIMIT, ...filters });
+      const r = await fetchAuditLog({ limit: LIMIT, ...filters(applied) });
       setRows(Array.isArray(r) ? r : []); setError(null);
-      fetchAuditCount(filters).then((c) => setTotal(c?.total ?? null)).catch(() => setTotal(null));
+      fetchAuditCount(filters(applied)).then((c) => setTotal(c?.total ?? null)).catch(() => setTotal(null));
     } catch (e) { setError(errorMessage(e)); }
   }, [applied]);
   useEffect(() => { load(); }, [load]);
@@ -45,9 +44,12 @@ export default function JournalPage() {
 
   const upd = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
   const fmt = (ts) => new Intl.DateTimeFormat(lang, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(ts));
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([csv(rows || [])], { type: "text/csv" }));
-    const a = document.createElement("a"); a.href = url; a.download = "hyperlite-audit.csv"; a.click(); URL.revokeObjectURL(url);
+  // The whole filtered log, from the server: the page itself only holds the most recent entries.
+  const download = async () => {
+    setExporting(true);
+    try { await downloadAuditCsv(filters(applied)); }
+    catch (e) { pushToast({ kind: "error", title: t("act.exportFailed"), message: errorMessage(e) }); }
+    finally { setExporting(false); }
   };
 
   const dirty = JSON.stringify(f) !== JSON.stringify(EMPTY_F);
@@ -63,8 +65,9 @@ export default function JournalPage() {
         <label className="nx-bar-lbl">{t("jr.to")}<input className="nx-inp nx-mono" style={{ width: "auto", height: "2.1333rem" }} aria-label={t("a11y.show_entries_until")} type="datetime-local" value={f.to} onChange={upd("to")} /></label>
         {dirty && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setF(EMPTY_F)}>{t("act.clear")}</button>}
         <span className="nx-sp" />
-        <button type="button" className="nx-btn" disabled={!rows?.length} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>
+        <button type="button" className="nx-btn" disabled={!rows?.length || exporting} title={total != null ? t("act.exportAll", { n: total }) : undefined} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>
       </div>
+      {rows && total != null && total > rows.length && <p className="nx-hint" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("jr.partial", { n: new Intl.NumberFormat(lang).format(rows.length), total: new Intl.NumberFormat(lang).format(total) })}</p>}
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
           : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
