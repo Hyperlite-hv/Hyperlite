@@ -657,8 +657,10 @@ export async function createVM(payload) {
 export async function updateVM(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
 }
-export async function fetchVM(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}`);
+// node: the node the VM runs on; omitted (or "local") for the local host.
+const nodeQuery = (node) => (node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "");
+export async function fetchVM(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}${nodeQuery(node)}`);
 }
 
 // ---- Resource limits/reservations (real: GET/PUT /vms/{name}/limits, cgroups
@@ -777,11 +779,11 @@ export async function deleteStoragePool(poolName, node, detacher = false) {
 }
 
 // ---- VNC console / SSH terminal (real WebSocket relays) ----
-export async function createConsoleTicket(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/console-ticket`, { method: "POST" });
+export async function createConsoleTicket(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/console-ticket${nodeQuery(node)}`, { method: "POST" });
 }
-export async function createTerminalTicket(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
+export async function createTerminalTicket(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket${nodeQuery(node)}`, { method: "POST" });
 }
 
 // ---- Interactive shell on the physical host (admin only, see app/routers/host.py) ----
