@@ -81,8 +81,10 @@ def install(rootfs, uid, gid):
     if log.is_symlink():
         log.unlink()
     log.touch(mode=0o640, exist_ok=True)
-    # The process may run as the image's own user: it must be able to write its log.
-    os.chown(log, uid, gid)
+    # The process may run as the image's own user: it must be able to write its log. Only root can hand a file
+    # over (the service runs as root, as it must to create LXC containers; a test run may not).
+    if os.geteuid() == 0:
+        os.chown(log, uid, gid)
     return True
 
 
