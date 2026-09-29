@@ -79,6 +79,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- The NFS permission check writes its probe file only inside a pool mount point Hyperlite created (under `/var/lib/libvirt/hyperlite-pools`); a pool mounted elsewhere is reported as not checkable.
 - An automation job run is no longer reported as started, nor audited as a success, before it exists; invalid steps are refused with HTTP 422 and a crashed run is closed as failed.
 - Disks written by Hyperlite itself (clone, restore, move, resize, templates, ISOs) are found without depending on libvirt's volume cache.
 - Name validation matches the whole name, names the resource in the error, and is applied to clone, template and ISO names that escaped it.
