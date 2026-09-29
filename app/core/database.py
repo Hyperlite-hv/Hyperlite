@@ -725,6 +725,26 @@ def init_db():
                 PRIMARY KEY (kind, node, name)
             )
         """)
+        # LDAP / Active Directory sign-in (app/core/ldap_auth.py): one directory; the bind password is encrypted.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ldap_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                enabled INTEGER NOT NULL DEFAULT 0,
+                url TEXT NOT NULL DEFAULT '',
+                starttls INTEGER NOT NULL DEFAULT 0,
+                verify_tls INTEGER NOT NULL DEFAULT 1,
+                ca_cert TEXT NOT NULL DEFAULT '',
+                bind_dn TEXT NOT NULL DEFAULT '',
+                bind_password TEXT NOT NULL DEFAULT '',
+                base_dn TEXT NOT NULL DEFAULT '',
+                user_filter TEXT NOT NULL DEFAULT '(&(objectClass=person)(|(uid={username})(sAMAccountName={username})))',
+                group_attribute TEXT NOT NULL DEFAULT 'memberOf',
+                admin_groups TEXT NOT NULL DEFAULT '',
+                allowed_groups TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+            conn.execute("ALTER TABLE users ADD COLUMN ldap_dn TEXT")
         # Metric servers the collector pushes each sample to (app/core/metric_export.py); the token is encrypted.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS metric_servers (

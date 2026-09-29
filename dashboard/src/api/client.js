@@ -732,6 +732,16 @@ export async function testNotificationChannel(id) {
 export async function fetchSsoStatus() {
   return realFetch("/auth/sso/status");
 }
+// LDAP / Active Directory sign-in (admin).
+export async function fetchLdapConfig() {
+  return realFetch("/ldap/config");
+}
+export async function saveLdapConfig(payload) {
+  return realFetch("/ldap/config", { method: "PUT", ...jsonBody(payload) });
+}
+export async function testLdap(payload) {
+  return realFetch("/ldap/test", { method: "POST", ...jsonBody(payload) });
+}
 export async function fetchSsoConfig() {
   return realFetch("/auth/sso/config");
 }

@@ -160,7 +160,7 @@ export default function Sidebar({ collapsed }) {
           {["dark", "light", "system"].map((m) => <MenuItem key={m} onSelect={() => setMode(m)}>{t(`top.theme.${m}`)}{mode === m ? " ✓" : ""}</MenuItem>)}
           <hr />
           {caps.admin && <MenuItem onSelect={() => { setUserMenuOpen(false); setUpdateOpen(true); }}>{t("top.updates")}</MenuItem>}
-          {authSource !== "sso" && <MenuItem onSelect={() => { setUserMenuOpen(false); setPasswordOpen(true); }}>{t("pw.changeMenu")}</MenuItem>}
+          {authSource !== "sso" && authSource !== "ldap" && <MenuItem onSelect={() => { setUserMenuOpen(false); setPasswordOpen(true); }}>{t("pw.changeMenu")}</MenuItem>}
           <MenuItem onSelect={() => { setUserMenuOpen(false); setSecurityOpen(true); }}>{t("top.security")}</MenuItem>
           <MenuItem onSelect={() => { setUserMenuOpen(false); setPrefsOpen(true); }}>{t("prefs.menu")}</MenuItem>
           <hr />
