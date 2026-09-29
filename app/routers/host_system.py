@@ -1,6 +1,7 @@
 """System settings of this node (app/core/host_system.py): package updates, DNS, time, remote syslog.
 Administrators only: they change the host itself."""
 
+import socket
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -134,3 +135,47 @@ def put_syslog(payload: SyslogSettings, user: dict = Depends(require_role("admin
         f"{payload.protocole}://{payload.hote}:{payload.port}" if payload.hote else "off",
     )
     return result
+
+
+class PowerRequest(BaseModel):
+    action: str  # "reboot" | "poweroff"
+    confirmation: str  # the node's host name, typed by the administrator
+    arreter_invites: bool = False
+
+
+@router.post("/power", status_code=202)
+def power(payload: PowerRequest, user: dict = Depends(require_role("admin"))):
+    """Reboot or shut down this node. The host name must be typed back; running VMs and containers are either a
+    refusal (listed) or shut down cleanly first, and the node goes down only when all of them stopped."""
+    if payload.action not in host_system.POWER_ACTIONS:
+        raise HTTPException(status_code=422, detail="action must be reboot or poweroff")
+    hostname = socket.gethostname()
+    if payload.confirmation.strip() != hostname:
+        raise HTTPException(status_code=422, detail=f"Type the node's name ({hostname}) to confirm")
+    guests = host_system.running_guests()
+    if guests and not payload.arreter_invites:
+        names = ", ".join(n for _, n in guests)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Running on this node: {names}. Move them (maintenance mode) or choose to shut them down first",
+        )
+    task_id = create_task(f"node_{payload.action}", hostname, None, user["username"])
+    log_action(user["username"], f"node_{payload.action}", hostname, "succes", f"{len(guests)} guests to stop")
+
+    def work():
+        try:
+            if guests:
+                left = host_system.stop_guests(guests, lambda line: task_log(task_id, line))
+                if left:
+                    finish_task(
+                        task_id, "echec", f"Still running after the wait, {payload.action} cancelled: {', '.join(left)}"
+                    )
+                    return
+            host_system.schedule_power(payload.action)
+            task_log(task_id, f"{payload.action} in {host_system.POWER_DELAY_S} s")
+            finish_task(task_id, "termine")
+        except Exception as e:  # the task must end whatever happened, with the cause in its log
+            finish_task(task_id, "echec", str(e))
+
+    threading.Thread(target=work, name="node-power", daemon=True).start()
+    return {"tache": task_id}

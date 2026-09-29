@@ -343,3 +343,75 @@ def set_syslog(host, port, protocol):
     if r.returncode != 0:
         raise SettingError(f"rsyslog did not restart: {r.stderr.strip()[-300:]}")
     return syslog()
+
+
+# ---- Power ----
+
+POWER_ACTIONS = {"reboot": "reboot", "poweroff": "poweroff"}
+POWER_DELAY_S = 5
+
+
+def running_guests():
+    """Running VMs and containers of this node, as (kind, name)."""
+    from app.core.libvirt_utils import open_conn, open_lxc_conn
+
+    found = []
+    for kind, opener in (("vm", open_conn), ("conteneur", open_lxc_conn)):
+        try:
+            conn = opener()
+        except Exception:  # noqa: S112 -- no LXC driver on this node: it simply has no containers
+            continue
+        try:
+            found += [(kind, d.name()) for d in conn.listAllDomains(1)]  # VIR_CONNECT_LIST_DOMAINS_ACTIVE
+        finally:
+            conn.close()
+    return found
+
+
+def stop_guests(guests, log, timeout_s=180, poll_s=3):
+    """Ask each running guest to shut down, then wait. Returns the names still running at the end."""
+    from app.core.libvirt_utils import open_conn, open_lxc_conn
+
+    conns = {"vm": open_conn(), "conteneur": None}
+    try:
+        try:
+            conns["conteneur"] = open_lxc_conn()
+        except Exception:
+            conns["conteneur"] = None
+        for kind, name in guests:
+            try:
+                conns[kind].lookupByName(name).shutdown()
+                log(f"Shutdown requested: {name}")
+            except Exception as e:
+                log(f"Shutdown request failed for {name}: {e}")
+        waited = 0
+        while True:
+            left = []
+            for kind, name in guests:
+                try:
+                    if conns[kind].lookupByName(name).isActive():
+                        left.append(name)
+                except Exception:  # noqa: S112 -- gone (transient domain): it is stopped
+                    continue
+            if not left or waited >= timeout_s:
+                return left
+            time.sleep(poll_s)
+            waited += poll_s
+    finally:
+        for c in conns.values():
+            if c is not None:
+                c.close()
+
+
+def schedule_power(action):
+    """Reboot or power off the node a few seconds from now, from outside the service (a transient timer), so the
+    answer and the task's end are recorded first."""
+    if action not in POWER_ACTIONS:
+        raise SettingError("action must be reboot or poweroff")
+    if not (shutil.which("systemd-run") and Path("/run/systemd/system").is_dir()):
+        raise SettingError("This node does not run systemd: reboot or shut it down from its console")
+    r = _run(
+        ["systemd-run", "--quiet", "--collect", f"--on-active={POWER_DELAY_S}", "systemctl", POWER_ACTIONS[action]]
+    )
+    if r.returncode != 0:
+        raise SettingError(f"The {action} could not be scheduled: {r.stderr.strip()[-300:]}")
