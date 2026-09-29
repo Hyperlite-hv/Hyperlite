@@ -230,3 +230,15 @@ def require_container_privilege(privilege):
         return user
 
     return checker
+
+
+def optional_user(request):
+    """The user behind the request's bearer token, or None for an anonymous or invalid
+    one. For the few endpoints that answer everyone but tell a signed-in user more."""
+    scheme, _, token = (request.headers.get("Authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+    try:
+        return _current_user(token.strip(), pending_ok=True)
+    except HTTPException:
+        return None

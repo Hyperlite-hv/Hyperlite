@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, CircleCheck, ExternalLink, Network, Plug, RefreshCw, TriangleAlert, Unplug } from "lucide-react";
-import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility, fetchNodeHardware, createHostTerminalTicket } from "../../api/client";
+import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility, fetchNodeHardware, createHostTerminalTicket, fetchHealth } from "../../api/client";
 import { flattenCapabilities, deriveFeatures, NA } from "../../lib/capabilitiesView";
 import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -53,7 +53,7 @@ export function NodeSystemPage({ resource: node }) {
   const [health, setHealth] = useState(null);
   const nodeId = node?.id;
   useEffect(() => { if (nodeId) fetchNodeCapabilitiesById(nodeId).then(setCaps).catch(() => setCaps(null)); }, [nodeId]);
-  useEffect(() => { if (local) fetch("/health").then((r) => (r.ok ? r.json() : null)).then(setHealth).catch(() => setHealth(null)); }, [local]);
+  useEffect(() => { if (local) fetchHealth().then(setHealth).catch(() => setHealth(null)); }, [local]);
   if (!node) return null;
   const cpu = hw?.cpu || {};
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;

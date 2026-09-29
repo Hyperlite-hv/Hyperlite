@@ -66,6 +66,15 @@ async function realFetch(path, opts = {}) {
   return data;
 }
 
+// /health answers everyone but reports versions and host details only to a signed-in
+// caller. Plain fetch rather than realFetch: it is polled while the service restarts,
+// where a failure is expected and must not sign the user out.
+export async function fetchHealth() {
+  const res = await fetch("/health", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.json();
+}
+
 function jsonBody(payload) {
   return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
 }
