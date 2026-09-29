@@ -149,6 +149,10 @@ log "=== 4/6: boot menu, unattended installation by default ==="
 # No "preseed/file=/cdrom/..." here: it is never consulted anyway, because the
 # preseed embedded in the initrd is found and loaded first (see above).
 # The installer locale defaults (fr/FR/fr_FR.UTF-8) are the appliance defaults.
+APPEND_ARGS="auto=true priority=critical debian-installer/language=fr debian-installer/country=FR debian-installer/locale=fr_FR.UTF-8 keyboard-configuration/xkb-keymap=fr netcfg/get_hostname=hyperlite netcfg/hostname=hyperlite netcfg/get_domain=local hostname=hyperlite domain= --- quiet"
+# Without `set -u` an unset variable expands to nothing, silently: this line was lost once and the ISO booted with an
+# empty kernel command line. Fail the build instead.
+: "${APPEND_ARGS:?APPEND_ARGS must be set before the boot menus are written}"
 
 # ---- BIOS (isolinux/syslinux) ----
 # Dedicated fragment (the convention Debian already uses for

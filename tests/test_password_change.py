@@ -170,7 +170,7 @@ def test_change_my_password_needs_the_2fa_code_when_enabled(client, make_user, d
     ok = client.post(
         "/auth/me/password",
         headers=session,
-        json={"current_password": OLD, "new_password": GOOD, "code": pyotp.TOTP(secret).now()},
+        json={"current_password": OLD, "new_password": GOOD, "code": pyotp.TOTP(secret).at(time.time() + 30)},
     )
     assert ok.status_code == 200
 

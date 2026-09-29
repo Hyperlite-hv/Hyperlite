@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, CircleCheck, ExternalLink, Network, Plug, RefreshCw, TriangleAlert, Unplug } from "lucide-react";
-import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility, fetchNodeHardware, createHostTerminalTicket } from "../../api/client";
+import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility, fetchNodeHardware, createHostTerminalTicket, fetchHealth } from "../../api/client";
 import { flattenCapabilities, deriveFeatures, NA } from "../../lib/capabilitiesView";
 import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -11,7 +11,7 @@ import { errorMessage } from "../lib/errors";
 import { formatSizeGb, formatSizeMb, formatVersionInt } from "../lib/format";
 import { capRow, featureRow } from "../lib/capsI18n";
 import StatusIndicator from "../components/StatusIndicator";
-import { EmptyState, ErrorState } from "../components/States";
+import { EmptyState, ErrorState, InlineError } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
 import { Card, Chip, Empty, Loading, TableWrap } from "../components/ui";
 
@@ -53,7 +53,7 @@ export function NodeSystemPage({ resource: node }) {
   const [health, setHealth] = useState(null);
   const nodeId = node?.id;
   useEffect(() => { if (nodeId) fetchNodeCapabilitiesById(nodeId).then(setCaps).catch(() => setCaps(null)); }, [nodeId]);
-  useEffect(() => { if (local) fetch("/health").then((r) => (r.ok ? r.json() : null)).then(setHealth).catch(() => setHealth(null)); }, [local]);
+  useEffect(() => { if (local) fetchHealth().then(setHealth).catch(() => setHealth(null)); }, [local]);
   if (!node) return null;
   const cpu = hw?.cpu || {};
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
@@ -288,16 +288,18 @@ export function NodeCompatPage({ resource: node }) {
   const [caps, setCaps] = useState(null);
   const [preflight, setPreflight] = useState(null);
   const [pair, setPair] = useState(null);
+  const [checksError, setChecksError] = useState(null); // the preflight or pair checks could not be read
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!nodeId) return;
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setChecksError(null);
+    const checksFailed = (e) => setChecksError(errorMessage(e));
     try {
       const jobs = [fetchNodeCapabilitiesById(nodeId).then(setCaps)];
-      if (local) { setPair(null); jobs.push(fetchHostPreflight().then(setPreflight).catch(() => setPreflight(null))); }
-      else { setPreflight(null); jobs.push(fetchNodeCompatibility(nodeId).then(setPair).catch(() => setPair(null))); }
+      if (local) { setPair(null); jobs.push(fetchHostPreflight().then(setPreflight).catch((e) => { setPreflight(null); checksFailed(e); })); }
+      else { setPreflight(null); jobs.push(fetchNodeCompatibility(nodeId).then(setPair).catch((e) => { setPair(null); checksFailed(e); })); }
       await Promise.all(jobs);
     } catch (e) { setError(errorMessage(e)); } finally { setLoading(false); }
   }, [nodeId, local]);
@@ -315,6 +317,7 @@ export function NodeCompatPage({ resource: node }) {
   return (
     <>
       {!caps && <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("cp.detecting")}</p>}
+      {checksError && <InlineError message={checksError} onRetry={load} />}
       {(preflight || pair) && (
         <div className="nx-bn" data-tone={blocking ? "danger" : bad.length ? "warning" : "success"} role="status">
           {blocking || bad.length ? <TriangleAlert size={16} aria-hidden="true" /> : <CircleCheck size={16} aria-hidden="true" />}

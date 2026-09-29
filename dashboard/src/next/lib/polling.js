@@ -12,13 +12,19 @@ export function usePolling(fn, baseMs, { enabled = true } = {}) {
     let stopped = false;
     let delay = baseMs;
 
+    let running = false;
+    const schedule = (ms) => { clearTimeout(timer); if (!stopped) timer = setTimeout(tick, ms); };
     const tick = async () => {
       if (stopped) return;
-      if (document.hidden) { timer = setTimeout(tick, baseMs); return; }
+      if (document.hidden) { schedule(baseMs); return; }
+      // Coming back to the tab while a call is still in flight must not start a second chain of calls.
+      if (running) return;
+      running = true;
       try { await ref.current(); delay = baseMs; } catch { delay = Math.min(delay * 2, baseMs * 5); }
-      if (!stopped) timer = setTimeout(tick, delay);
+      finally { running = false; }
+      schedule(delay);
     };
-    const onVisible = () => { if (!document.hidden) { clearTimeout(timer); tick(); } };
+    const onVisible = () => { if (!document.hidden && !running) { clearTimeout(timer); tick(); } };
     document.addEventListener("visibilitychange", onVisible);
     timer = setTimeout(tick, baseMs);
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };

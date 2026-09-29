@@ -251,7 +251,7 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
         raise HTTPException(status_code=422, detail=" ; ".join(_errs))
     errors = []
     mode = payload.mode or ("application" if payload.image else "systeme")
-    name_error = validate_name(payload.name)
+    name_error = validate_name(payload.name, "container")
     if name_error:
         errors.append(name_error)
     if mode == "application":
@@ -481,7 +481,7 @@ def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depe
             )
             raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
 
-        name_error = validate_name(payload.new_name)
+        name_error = validate_name(payload.new_name, "container")
         if name_error:
             log_action(user["username"], "clone_container", name, "echec", name_error, task_id=task_id)
             raise HTTPException(status_code=422, detail=name_error)
@@ -643,7 +643,7 @@ def restore_container_backup(
     if not row or row["statut"] != "termine":
         raise HTTPException(status_code=404, detail="Backup not found or incomplete")
     target_name = payload.new_name or row["container_name"]
-    name_error = validate_name(target_name)
+    name_error = validate_name(target_name, "container")
     if name_error:
         raise HTTPException(status_code=422, detail=name_error)
 

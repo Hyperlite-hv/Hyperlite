@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from app.core import iscsi, nfs_permissions, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, open_conn
+from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
 from app.core.vm_limits import validate_vm_resources
@@ -82,6 +82,9 @@ def _pool_summary(pool):
         # libvirt counts every LUN as fully allocated, so an iSCSI pool always looked 100 % full. What matters is
         # how much of it VMs already use: a LUN is taken whole or not at all.
         try:
+            # LUNs appear and disappear on the storage server: the cached list would count stale ones.
+            if pool.isActive():
+                pool.refresh(0)
             in_use = get_disk_paths_in_use(pool.connect())
             allocation = sum(v.info()[1] for v in pool.listAllVolumes() if v.path() in in_use)
             available = capacity - allocation
@@ -247,7 +250,7 @@ def storage_support(user: dict = Depends(get_current_user)):
 
 @router.post("", status_code=201)
 def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depends(require_role("admin"))):
-    name_error = validate_name(payload.name)
+    name_error = validate_name(payload.name, "storage pool")
     if name_error:
         log_action(user["username"], "create_storage_pool", payload.name, "echec", name_error)
         raise HTTPException(status_code=422, detail=name_error)
@@ -600,13 +603,13 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
             )
 
         base_name = payload.name[: -len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
-        name_error = validate_name(base_name)
+        name_error = validate_name(base_name, "volume")
         if name_error:
             log_action(user["username"], "create_volume", payload.name, "echec", name_error)
             raise HTTPException(status_code=422, detail=name_error)
         filename = f"{base_name}.qcow2"
         try:
-            pool.storageVolLookupByName(filename)
+            lookup_volume(pool, filename)
             log_action(user["username"], "create_volume", filename, "echec", "Volume already exists")
             raise HTTPException(status_code=422, detail=f"A volume '{filename}' already exists in this pool")
         except libvirt.libvirtError:
@@ -677,7 +680,7 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
                 status_code=422, detail="An iSCSI pool's LUNs are deleted on the storage server, not here"
             )
         try:
-            vol = pool.storageVolLookupByName(volume_name)
+            vol = lookup_volume(pool, volume_name)
         except libvirt.libvirtError:
             log_action(user["username"], "delete_volume", volume_name, "echec", "Volume not found")
             raise HTTPException(status_code=404, detail=f"Volume '{volume_name}' not found") from None

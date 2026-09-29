@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cluster_compat, maintenance
+from app.core import cluster_compat, maintenance, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import get_cluster_pubkey, node_summary, register_node, remove_node, test_node_connection
 from app.core.database import get_conn
@@ -287,10 +287,16 @@ def _drain_job(parent_id, username, source, target, names):
                 # The admin ended the maintenance: stop moving VMs away.
                 not_started = names[i:]
                 break
-            task_id = create_task("migrate_vm", vm_name, node=source, username=username)
-            _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
-            if task_status(task_id) != "termine":
-                failed.append(vm_name)
+            try:
+                claim = vm_locks.claim(vm_name, "a migration (node drain)", node=source)
+            except vm_locks.VmBusy as busy:
+                failed.append(f"{vm_name} ({busy.running} in progress)")
+            else:
+                with claim:
+                    task_id = create_task("migrate_vm", vm_name, node=source, username=username)
+                    _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
+                if task_status(task_id) != "termine":
+                    failed.append(vm_name)
             update_task_progress(parent_id, int((i + 1) * 100 / len(names)))
     except Exception as e:
         logger.exception("Drain of %s stopped", source)

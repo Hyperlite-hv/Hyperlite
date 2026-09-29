@@ -18,6 +18,7 @@ from app.core.libvirt_utils import (
     get_disk_paths_in_use,
     open_conn,
     pool_type_and_target_path,
+    refresh_pools_for_paths,
 )
 from app.core.network_alloc import allocate_static_ip, generate_mac
 from app.core.safe_paths import safe_child
@@ -512,6 +513,9 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
             firmware=payload.firmware,
         )
         domain = conn.defineXML(xml)
+        # The disks and ISOs were written by qemu-img/cloud-localds, not through libvirt:
+        # without a refresh their pool does not list them.
+        refresh_pools_for_paths(conn, [*disk_paths, cloudinit_path, seed_iso_path, kernel_path, initrd_path])
         if needs_account:
             set_vm_ssh_user(payload.name, payload.username)
         if automated_install:

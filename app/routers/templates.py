@@ -6,9 +6,9 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import firmware, maintenance, templates_store
+from app.core import firmware, maintenance, templates_store, vm_locks
 from app.core.audit import log_action
-from app.core.libvirt_utils import open_conn
+from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import IMAGES_DIR, validate_name
@@ -27,11 +27,15 @@ class ConvertRequest(BaseModel):
 
 @router.post("/from-vm/{name}", status_code=201)
 def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends(require_role("admin"))):
+    with vm_locks.claim_or_409(name, "a conversion to a template"):
+        return _convert_to_template(name, payload, user)
+
+
+def _convert_to_template(name, payload, user):
     tpl_name = (payload.template_name or name).strip()
-    try:
-        validate_name(tpl_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    name_error = validate_name(tpl_name, "template")
+    if name_error:
+        raise HTTPException(status_code=422, detail=name_error)
     if templates_store.exists(tpl_name):
         raise HTTPException(status_code=409, detail=f"A template '{tpl_name}' already exists")
 
@@ -77,8 +81,14 @@ def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends
         shutil.move(disk_source, str(target_disk))
         # Deploying from a template drops the CD-ROM devices, so the helper ISOs of the source VM
         # (cloud-init seed, unattended installation media) would stay behind as orphans.
-        for suffix in ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso"):
-            safe_child(IMAGES_DIR, f"{name}{suffix}").unlink(missing_ok=True)
+        helper_isos = [
+            safe_child(IMAGES_DIR, f"{name}{suffix}")
+            for suffix in ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso")
+        ]
+        for iso in helper_isos:
+            iso.unlink(missing_ok=True)
+        # The disk left its pool behind libvirt's back: without a refresh the pool keeps listing a volume that is gone.
+        refresh_pools_for_paths(conn, [disk_source, target_disk, *helper_isos])
 
         log_action(user["username"], "convert_to_template", name, "succes", f"template -> {tpl_name}")
         return {"template": tpl_name, "vm_source": name}
@@ -98,10 +108,9 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
     if tpl is None:
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
 
-    try:
-        validate_name(payload.new_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    name_error = validate_name(payload.new_name)
+    if name_error:
+        raise HTTPException(status_code=422, detail=name_error)
 
     conn = open_conn()
     try:
@@ -168,6 +177,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
             log_action(user["username"], "deploy_template", template_name, "echec", str(exc))
             raise HTTPException(status_code=500, detail=f"Domain definition failed: {exc}") from exc
 
+        refresh_pools_for_paths(conn, [new_disk_path])
         log_action(user["username"], "deploy_template", template_name, "succes", f"-> {payload.new_name}")
         return {"template": template_name, "vm": new_domain.name(), "etat": "arretee"}
     finally:

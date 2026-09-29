@@ -24,11 +24,10 @@ import libvirt
 
 from app.core.disk_resize import find_disk
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import pool_type_and_target_path
+from app.core.libvirt_utils import FILE_POOL_TYPES, pool_for_path, pool_type_and_target_path
 
 logger = logging.getLogger(__name__)
 
-FILE_POOL_TYPES = ("dir", "netfs")
 MIRROR_POLL_S = 1
 # A mirror that makes no progress for this long is abandoned rather than left running forever.
 MIRROR_STALL_S = 600
@@ -72,10 +71,9 @@ def plan(conn, domain, target_dev, dest_pool_name):
         raise MoveError("This disk is a block device (ZFS zvol or iSCSI LUN): moving it is not supported yet")
     if driver_el is None or driver_el.get("type") not in ("qcow2", "raw"):
         raise MoveError("Only qcow2 and raw disks can be moved")
-    try:
-        src_pool = conn.storageVolLookupByPath(src).storagePoolLookupByVolume()
-    except libvirt.libvirtError:
-        raise MoveError("The disk is not in a storage pool Hyperlite knows") from None
+    src_pool = pool_for_path(conn, src)
+    if src_pool is None:
+        raise MoveError("The disk file is in no storage pool: only disks in a directory or NFS pool can be moved")
     src_kind, _ = pool_type_and_target_path(src_pool)
     if src_kind not in FILE_POOL_TYPES:
         raise MoveError(f"The disk is in a '{src_kind}' pool: only directory and NFS pools are supported")

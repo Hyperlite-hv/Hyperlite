@@ -36,8 +36,11 @@ terminal already is.
 """
 
 import json
+import logging
+import socket
 import subprocess
 import threading
+import uuid
 from datetime import UTC, datetime
 
 import libvirt
@@ -47,6 +50,8 @@ from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_meta import get_vm_ssh_user
+
+logger = logging.getLogger(__name__)
 
 STEP_TIMEOUT_S = 120
 
@@ -74,7 +79,7 @@ def _resolve_vm_ssh(vm_name):
             raise RuntimeError(f"VM '{vm_name}' is stopped")
         ip = _get_ip(domain)
         if not ip:
-            raise RuntimeError(f"Adresse IP de '{vm_name}' inconnue")
+            raise RuntimeError(f"IP address of '{vm_name}' unknown")
         username = get_vm_ssh_user(vm_name)
         if not username:
             raise RuntimeError(f"No known SSH user for '{vm_name}'")
@@ -158,35 +163,99 @@ def _expand_steps(steps, targets):
     return expanded
 
 
-def run_job(job_id, targets=None, dry_run=False, username="system"):
+class JobRunRefused(ValueError):
+    """A run request that cannot start (targets that do not fit the job). Raised
+    before anything is recorded, so the caller answers with an error instead of
+    announcing a background run that dies where nobody sees it."""
+
+
+def _local_node():
+    """Name of the node the run is recorded under. The run must still be recorded
+    when libvirt is unreachable, so it falls back to the system host name."""
+    try:
+        conn = open_conn()
+    except libvirt.libvirtError:
+        logger.warning("libvirt unreachable, recording the job run under the system host name", exc_info=True)
+        return socket.gethostname()
+    try:
+        return conn.getHostname()
+    finally:
+        conn.close()
+
+
+def _check_targets(job, steps, targets):
+    if any(not t.strip() for t in targets):
+        raise JobRunRefused("Target VM names must not be empty")
+    if len(set(targets)) != len(targets):
+        raise JobRunRefused("A target VM is listed more than once")
+    if job["predefined_key"] == LB_PREDEFINED_KEY:
+        # The steps of this job are generated from the targets at run time, so the
+        # stored steps cannot tell whether targets are needed: check it here.
+        if len(targets) < 2:
+            raise JobRunRefused("At least 2 target VMs are needed (1 balancer + 1 backend minimum)")
+        return
+    if not steps:
+        raise JobRunRefused("This job has no step to run")
+    if not targets and any(s["cible_type"] == "chaque_cible" for s in steps):
+        # Without targets those steps expand to nothing: the run would report a
+        # success for work it silently skipped.
+        raise JobRunRefused("This job runs steps on each target VM: choose at least one target")
+
+
+def start_job_run(job_id, targets=None, dry_run=False, username="system"):
+    """Validate a run request, record the run and its task, then execute it in a
+    daemon thread. Returns the run id.
+
+    Raises LookupError for an unknown job and JobRunRefused for a request that
+    cannot run; both happen before anything is recorded, so a refused request is
+    never reported (nor audited) as started. Once this returns, the run exists and
+    always ends in 'succes' or 'echec', whatever happens in the thread."""
+    targets = list(targets or [])
     with get_conn() as db:
         job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if not job:
-            raise RuntimeError("Job not found")
-        steps = db.execute("SELECT * FROM job_steps WHERE job_id = ? ORDER BY ordre", (job_id,)).fetchall()
-    steps = [dict(s) for s in steps]
-    targets = targets or []
+            raise LookupError("Job not found")
+        steps = [
+            dict(s) for s in db.execute("SELECT * FROM job_steps WHERE job_id = ? ORDER BY ordre", (job_id,)).fetchall()
+        ]
+    _check_targets(job, steps, targets)
 
-    import uuid
+    if job["predefined_key"] == LB_PREDEFINED_KEY:
+
+        def build_steps():
+            return _lb_steps(targets, dry_run)
+
+    else:
+
+        def build_steps():
+            return _expand_steps(steps, targets)
 
     run_id = str(uuid.uuid4())
-    conn = open_conn()
-    node = conn.getHostname()
-    conn.close()
-    task_id = create_task("run_job", job["name"], node=node, username=username)
+    task_id = create_task("run_job", job["name"], node=_local_node(), username=username)
+    try:
+        with get_conn() as db:
+            db.execute(
+                "INSERT INTO job_runs (id, job_id, task_id, dry_run, targets, statut, started_at) "
+                "VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
+                (run_id, job_id, task_id, int(dry_run), json.dumps(targets), _now()),
+            )
+            db.commit()
+    except Exception as e:
+        finish_task(task_id, "echec", f"Could not record the run: {e}")
+        raise
 
-    with get_conn() as db:
-        db.execute(
-            "INSERT INTO job_runs (id, job_id, task_id, dry_run, targets, statut, started_at) VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
-            (run_id, job_id, task_id, int(dry_run), json.dumps(targets), _now()),
-        )
-        db.commit()
+    threading.Thread(
+        target=_execute_run,
+        args=(run_id, task_id, job["name"], build_steps, dry_run, username),
+        daemon=True,
+    ).start()
+    return run_id
 
-    expanded = _expand_steps(steps, targets)
-    total = max(len(expanded), 1)
-    overall_ok = True
 
-    for i, step in enumerate(expanded):
+def _run_steps(run_id, task_id, steps, dry_run):
+    """Run the steps in order and log each one. Returns True when all succeeded."""
+    total = max(len(steps), 1)
+    for i, step in enumerate(steps):
         cible = "the host" if step["cible_type"] == "host" else step["cible"]
         try:
             stdout, stderr, exit_code = _run_command(step["cible_type"], step["cible"], step["commande"], dry_run)
@@ -198,28 +267,46 @@ def run_job(job_id, targets=None, dry_run=False, username="system"):
         update_task_progress(task_id, int((i + 1) / total * 100))
 
         if not reussi:
-            overall_ok = False
-            break  # stop at the first failed step: no "best effort", a job is a sequence
+            return False  # stop at the first failed step: no "best effort", a job is a sequence
+    return True
 
-    resultat = "SUCCESS" if overall_ok else "FAILED"
-    statut = "succes" if overall_ok else "echec"
+
+def _close_run(run_id, task_id, job_name, username, ok, error=None):
+    if ok:
+        resultat = "SUCCESS"
+    elif error:
+        resultat = f"ERROR: {error}"
+    else:
+        resultat = "FAILED"
+    if ok:
+        finish_task(task_id, "termine")
+    else:
+        finish_task(task_id, "echec", f"Job '{job_name}': {resultat}")
+    log_action(username, "run_job", job_name, "succes" if ok else "echec", resultat)
+    # The run row is what the dashboard polls: written last, a run shown as finished never has its task still
+    # running nor its outcome missing from the audit log.
     with get_conn() as db:
         db.execute(
             "UPDATE job_runs SET statut = ?, finished_at = ?, resultat = ? WHERE id = ?",
-            (statut, _now(), resultat, run_id),
+            ("succes" if ok else "echec", _now(), resultat, run_id),
         )
         db.commit()
 
-    if overall_ok:
-        finish_task(task_id, "termine")
-    else:
-        finish_task(task_id, "echec", f"Job '{job['name']}' : {resultat}")
-    log_action(username, "run_job", job["name"], "succes" if overall_ok else "echec", resultat)
-    return run_id
 
-
-def run_job_async(job_id, targets=None, dry_run=False, username="system"):
-    threading.Thread(target=run_job, args=(job_id, targets, dry_run, username), daemon=True).start()
+def _execute_run(run_id, task_id, job_name, build_steps, dry_run, username):
+    """Body of the run thread. An exception raised in a daemon thread is only
+    printed on stderr: without this catch-all the run would stay 'en_cours'
+    forever and nobody would learn why it stopped."""
+    try:
+        ok = _run_steps(run_id, task_id, build_steps(), dry_run)
+        error = None
+    except Exception as e:
+        logger.exception("Job run %s (%s) aborted", run_id, job_name)
+        ok, error = False, str(e) or type(e).__name__
+    try:
+        _close_run(run_id, task_id, job_name, username, ok, error)
+    except Exception:
+        logger.exception("Could not record the end of job run %s (%s)", run_id, job_name)
 
 
 # --- Predefined job "Deploy a load balancer" (a concrete example) ---
@@ -259,12 +346,11 @@ def ensure_lb_job_exists():
         return cur.lastrowid
 
 
-def run_lb_job(job_id, targets, dry_run=False, username="system"):
-    """Dynamically generated sequence (no stored job_steps for this predefined
-    job: its steps depend on the targets chosen at each run, unlike a custom
-    job whose sequence is fixed)."""
-    if len(targets) < 2:
-        raise RuntimeError("At least 2 target VMs are needed (1 balancer + 1 backend minimum)")
+def _lb_steps(targets, dry_run):
+    """Steps of the predefined job, generated from the targets of the run (no
+    stored job_steps: unlike a custom job, its sequence depends on the targets).
+    The first target becomes the HAProxy node, the following ones the Nginx
+    backends. The caller has already checked that there are at least 2 targets."""
     lb_vm, backends = targets[0], targets[1:]
 
     backend_lines = "\n".join(f"    server backend{i + 1} __IP_{b}__:80 check" for i, b in enumerate(backends))
@@ -283,7 +369,7 @@ def run_lb_job(job_id, targets, dry_run=False, username="system"):
             "condition_valeur": "0",
         },
     ]
-    for _i, b in enumerate(backends):
+    for b in backends:
         steps.append(
             {
                 "ordre": len(steps),
@@ -295,16 +381,39 @@ def run_lb_job(job_id, targets, dry_run=False, username="system"):
             }
         )
 
-    # Resolve the backend IPs to build the real HAProxy configuration: this must
-    # happen AFTER the installation (the VMs must already have an address) but BEFORE
-    # pushing the configuration to the LB node.
-    resolved_cfg_step_index = len(steps)
+    # Backend IPs are resolved here, specific to this job, rather than in the
+    # generic _run_command. Every backend is reached over SSH by its IP for the
+    # install steps anyway, so a backend without a known IP could not run them.
+    from app.routers.vms._shared import _get_ip
+
+    if dry_run:
+        ip_map = dict.fromkeys(backends, "0.0.0.0")  # noqa: S104 -- placeholder address, not a bind
+    else:
+        ip_map = {}
+        conn = open_conn()
+        try:
+            for b in backends:
+                try:
+                    domain = conn.lookupByName(b)
+                except libvirt.libvirtError:
+                    raise RuntimeError(f"VM '{b}' not found") from None
+                ip = _get_ip(domain)
+                if not ip:
+                    # A 0.0.0.0 placeholder would deploy a balancer that forwards nowhere.
+                    raise RuntimeError(f"IP address of '{b}' unknown (is the VM running?)")
+                ip_map[b] = ip
+        finally:
+            conn.close()
+
+    cfg = haproxy_cfg
+    for b, ip in ip_map.items():
+        cfg = cfg.replace(f"__IP_{b}__", ip)
     steps.append(
         {
-            "ordre": resolved_cfg_step_index,
+            "ordre": len(steps),
             "cible_type": "vm",
             "cible": lb_vm,
-            "commande": "__PLACEHOLDER_HAPROXY_CONFIG__",
+            "commande": f"echo '{cfg}' | sudo tee /etc/haproxy/haproxy.cfg > /dev/null && sudo systemctl restart haproxy",
             "condition_type": "exit_code",
             "condition_valeur": "0",
         }
@@ -319,66 +428,4 @@ def run_lb_job(job_id, targets, dry_run=False, username="system"):
             "condition_valeur": "0",
         }
     )
-
-    # Replace the placeholder with the real command once the IPs are known (it needs
-    # to resolve each backend; done here rather than in the generic _run_command
-    # because it is specific to this job).
-    from app.routers.vms._shared import _get_ip
-
-    ip_map = {}
-    if not dry_run:
-        conn = open_conn()
-        try:
-            for b in backends:
-                domain = conn.lookupByName(b)
-                ip_map[b] = _get_ip(domain) or "0.0.0.0"  # noqa: S104 -- placeholder address in the generated config, not a bind
-        finally:
-            conn.close()
-    else:
-        ip_map = dict.fromkeys(backends, "0.0.0.0")  # noqa: S104 -- placeholder address, not a bind
-
-    cfg = haproxy_cfg
-    for b, ip in ip_map.items():
-        cfg = cfg.replace(f"__IP_{b}__", ip)
-    steps[resolved_cfg_step_index]["commande"] = (
-        f"echo '{cfg}' | sudo tee /etc/haproxy/haproxy.cfg > /dev/null && sudo systemctl restart haproxy"
-    )
-
-    import uuid
-
-    run_id = str(uuid.uuid4())
-    conn = open_conn()
-    node = conn.getHostname()
-    conn.close()
-    task_id = create_task("run_job", LB_JOB_NAME, node=node, username=username)
-    with get_conn() as db:
-        db.execute(
-            "INSERT INTO job_runs (id, job_id, task_id, dry_run, targets, statut, started_at) VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
-            (run_id, job_id, task_id, int(dry_run), json.dumps(targets), _now()),
-        )
-        db.commit()
-
-    overall_ok = True
-    for i, step in enumerate(steps):
-        stdout, stderr, exit_code = _run_command(step["cible_type"], step["cible"], step["commande"], dry_run)
-        reussi = _step_succeeded(step["condition_type"], step["condition_valeur"], stdout, exit_code)
-        _log_step(run_id, step["ordre"], step["cible"], step["commande"], stdout, stderr, exit_code, reussi)
-        update_task_progress(task_id, int((i + 1) / len(steps) * 100))
-        if not reussi:
-            overall_ok = False
-            break
-
-    resultat = "SUCCESS" if overall_ok else "FAILED"
-    with get_conn() as db:
-        db.execute(
-            "UPDATE job_runs SET statut = ?, finished_at = ?, resultat = ? WHERE id = ?",
-            ("succes" if overall_ok else "echec", _now(), resultat, run_id),
-        )
-        db.commit()
-    finish_task(task_id, "termine" if overall_ok else "echec", None if overall_ok else resultat)
-    log_action(username, "run_job", LB_JOB_NAME, "succes" if overall_ok else "echec", resultat)
-    return run_id
-
-
-def run_lb_job_async(job_id, targets, dry_run=False, username="system"):
-    threading.Thread(target=run_lb_job, args=(job_id, targets, dry_run, username), daemon=True).start()
+    return steps

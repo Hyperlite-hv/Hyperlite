@@ -4,8 +4,19 @@ from app.core import database
 
 
 def test_init_db_is_idempotent(database):
+    def schema():
+        with database.get_conn() as conn:
+            return sorted(tuple(r) for r in conn.execute("SELECT type, name, sql FROM sqlite_master"))
+
+    with database.get_conn() as conn:
+        conn.execute("INSERT INTO users (username, hashed_password, role) VALUES ('keep', 'x', 'admin')")
+        conn.commit()
+    before = schema()
     database.init_db()
-    database.init_db()  # running the migrations again on an existing database must not fail
+    database.init_db()  # running the migrations again on an existing database must not fail...
+    assert schema() == before  # ...nor change the schema...
+    with database.get_conn() as conn:  # ...nor touch the data
+        assert conn.execute("SELECT role FROM users WHERE username = 'keep'").fetchone()[0] == "admin"
 
 
 def test_core_tables_exist(database):

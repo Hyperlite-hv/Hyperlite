@@ -4,6 +4,7 @@ import { ChevronRight, Info, TriangleAlert } from "lucide-react";
 import { fetchNodeMetricsHistory, fetchStorageHistory, fetchTasks, fetchBackupSchedules } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
+import { vmKey } from "../lib/vmId";
 import { usePolling } from "../lib/polling";
 import { useFreshness } from "../lib/inventory";
 import { deriveAlerts } from "../lib/alerts";
@@ -68,7 +69,7 @@ function Summary({ setView }) {
       {problems.length > 0 && (
         <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" />
           <span className="nx-bn-t"><b>{t("ov.attention", { n: problems.length })}</b> : {problems.slice(0, 3).map((v) => v.nom).join(", ")}</span>
-          <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", problems[0].nom, "summary")}>{t("dock.view")}</button></div>
+          <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", vmKey(problems[0]), "summary")}>{t("dock.view")}</button></div>
       )}
       <KpiStrip label={t("ov.inventory")} items={[
         { id: "nodes", label: t("nav.nodes"), dot: online === nodes.length && nodes.length ? "success" : "warning", value: online, unit: `/ ${nodes.length}`, sub: online === nodes.length ? t("ov.nodesOnlineAll") : t("ov.nodesOnline"), onClick: () => navigateTo("datacenter", null, "nodes") },

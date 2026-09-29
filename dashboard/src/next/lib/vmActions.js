@@ -1,6 +1,7 @@
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { errorMessage } from "./errors";
+import { apiNode, vmKey } from "./vmId";
 import { useT } from "../i18n";
 
 const ACTION_LABEL_KEY = { start: "menu.start", stop: "confirm.stop.confirm", "force-stop": "confirm.forceStop.confirm", restart: "confirm.restart.confirm" };
@@ -17,17 +18,17 @@ export function useVmActions() {
       if (action === "stop") {
         const ok = await confirmAction({ title: t("confirm.stop.title", { name: vm.nom }), message: t("confirm.stop.message"), confirmLabel: t("confirm.stop.confirm"), danger: false });
         if (!ok) return;
-        await runVMAction(vm.nom, "stop", { force: false });
+        await runVMAction(vmKey(vm), "stop", { force: false });
       } else if (action === "force-stop") {
         const ok = await confirmAction({ title: t("confirm.forceStop.title", { name: vm.nom }), message: t("confirm.forceStop.message"), confirmLabel: t("confirm.forceStop.confirm"), danger: true });
         if (!ok) return;
-        await runVMAction(vm.nom, "stop", { force: true });
+        await runVMAction(vmKey(vm), "stop", { force: true });
       } else if (action === "restart") {
         const ok = await confirmAction({ title: t("confirm.restart.title", { name: vm.nom }), message: t("confirm.restart.message"), confirmLabel: t("confirm.restart.confirm"), danger: true });
         if (!ok) return;
-        await runVMAction(vm.nom, "restart");
+        await runVMAction(vmKey(vm), "restart");
       } else {
-        await runVMAction(vm.nom, action);
+        await runVMAction(vmKey(vm), action);
       }
     } catch (e) {
       const label = ACTION_LABEL_KEY[action] ? t(ACTION_LABEL_KEY[action]) : action;
@@ -36,8 +37,18 @@ export function useVmActions() {
   }
 
   function openConsole(vm) {
-    window.open(`/console/${encodeURIComponent(vm.nom)}`, `hl-console-${vm.nom}`, "width=1100,height=760");
+    window.open(consoleUrl(vm), `hl-console-${vmKey(vm)}`, "width=1100,height=760,noopener");
   }
 
   return { run, openConsole };
+}
+
+// The console window of a VM: its node travels in the URL, so a remote VM's console is never looked up on the local
+// host (nor a homonymous local VM's shown instead).
+export function consoleUrl(vm, mode) {
+  const params = new URLSearchParams();
+  if (apiNode(vm.node)) params.set("node", vm.node);
+  if (mode) params.set("mode", mode);
+  const qs = params.toString();
+  return `/console/${encodeURIComponent(vm.nom)}${qs ? `?${qs}` : ""}`;
 }

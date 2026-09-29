@@ -7,12 +7,10 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import disk_move, disk_resize, passthrough
+from app.core import disk_move, disk_resize, passthrough, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import (
-    open_conn,
-)
+from app.core.libvirt_utils import lookup_volume, open_conn, pool_for_path
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_limits import validate_vm_resources
@@ -54,7 +52,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
 
         try:
             pool = conn.storagePoolLookupByName(payload.pool)
-            vol = pool.storageVolLookupByName(payload.volume_name)
+            vol = lookup_volume(pool, payload.volume_name)
         except libvirt.libvirtError:
             log_action(user["username"], "attach_disk", name, "echec", "Volume not found")
             raise HTTPException(
@@ -142,6 +140,11 @@ def resize_disk(
     if size_errors:
         log_action(user["username"], "resize_disk", name, "echec", "; ".join(size_errors))
         raise HTTPException(status_code=422, detail=size_errors)
+    with vm_locks.claim_or_409(name, "a disk resize"):
+        return _resize_disk(name, target_dev, payload, user)
+
+
+def _resize_disk(name, target_dev, payload, user):
     conn = open_conn()
     try:
         try:
@@ -231,8 +234,21 @@ def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depend
             raise HTTPException(status_code=e.status, detail=e.message) from e
     finally:
         conn.close()
-    task_id = create_task("move_disk", name, node="local", username=user["username"])
-    _run_in_background(_move_disk_job, task_id, user["username"], name, target_dev, payload.pool, payload.delete_source)
+    claim = vm_locks.claim_or_409(name, "a disk move")
+    try:
+        task_id = create_task("move_disk", name, node="local", username=user["username"])
+        _run_in_background(
+            vm_locks.released_after(claim, _move_disk_job),
+            task_id,
+            user["username"],
+            name,
+            target_dev,
+            payload.pool,
+            payload.delete_source,
+        )
+    except BaseException:
+        claim.release()
+        raise
     return {"task_id": task_id, "statut": "en_cours", "destination": how["dest"], "a_chaud": how["live"]}
 
 
@@ -274,10 +290,12 @@ def _disk_size(domain, conn, target, source):
         except libvirt.libvirtError:
             logger.debug("No block info for %s", target, exc_info=True)
     if source:
-        try:
-            out["pool"] = conn.storageVolLookupByPath(source).storagePoolLookupByVolume().name()
-        except libvirt.libvirtError:
-            logger.debug("No pool for %s", source, exc_info=True)
+        pool = pool_for_path(conn, source)
+        if pool is not None:
+            try:
+                out["pool"] = pool.name()
+            except libvirt.libvirtError:
+                logger.debug("No pool name for %s", source, exc_info=True)
     return out
 
 

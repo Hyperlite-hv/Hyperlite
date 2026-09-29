@@ -28,15 +28,17 @@
   --color-bg-surface-raised: #2C272E;
   --color-bg-hover: #2E292F;
   --color-bg-selected: #3A2631;
-  /* Borders */
-  --color-border-subtle: #2E2930;
-  --color-border-default: #3A343B;
+  /* Borders. Default: the edge of cards, tables and panels, clearly visible (about 2:1; at 1.3:1 the surfaces
+     "floated" with no readable limit). Subtle: separators inside them (rows). Strong: controls, 3:1. */
+  --color-border-subtle: #3A343B;
+  --color-border-default: #524A53;
   --color-border-strong: #7A7079;
   --color-border-focus: #CE9DB2;
   /* Text */
   --color-text-primary: #F1ECEE;
-  --color-text-secondary: #B3AAB0;
-  --color-text-muted: #ABA2A8;
+  /* Three distinct levels (secondary and muted used to be nearly the same colour), all at 4.5:1 or more. */
+  --color-text-secondary: #C9C1C6;
+  --color-text-muted: #A89FA5;
   --color-text-disabled: #6A6268;
   --color-text-on-accent: #19161A;
   /* Functional: brand plum, telemetry teal (info, charts), desaturated status colours */
@@ -94,10 +96,10 @@
   --color-bg-app: #E2DDDA; --color-bg-sidebar: #EEEAE7; --color-bg-workspace: #E2DDDA;
   --color-bg-surface: #EEEAE7; --color-bg-surface-raised: #E8E3E0;
   --color-bg-hover: #DED8D5; --color-bg-selected: #EAD9E1;
-  --color-border-subtle: #D6D0CD; --color-border-default: #CCC5C2;
+  --color-border-subtle: #CCC5C2; --color-border-default: #ADA5A1;
   --color-border-strong: #7F767A; --color-border-focus: #6E3550;
-  --color-text-primary: #1F1A1D; --color-text-secondary: #4E464A;
-  --color-text-muted: #4E464A; --color-text-disabled: #948C90; --color-text-on-accent: #FFFFFF;
+  --color-text-primary: #1F1A1D; --color-text-secondary: #3A3336;
+  --color-text-muted: #5A5256; --color-text-disabled: #948C90; --color-text-on-accent: #FFFFFF;
   --color-accent: #6E3550; --color-accent-2: #365F69; --color-info: #2A5B66; --color-success: #225A42;
   --color-warning: #734A0E; --color-danger: #933129; --color-offline: #574F53; --color-unknown: #574F53;
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 12%, var(--color-bg-surface));
@@ -110,9 +112,9 @@
   color-scheme: dark;
   --color-bg-sidebar: #141215; --color-bg-surface: #242026; --color-bg-surface-raised: #2C272E;
   --color-bg-hover: #2E292F; --color-bg-selected: #3A2631; --color-bg-workspace: #1C191D;
-  --color-border-subtle: #2E2930; --color-border-default: #3A343B; --color-border-strong: #7A7079;
+  --color-border-subtle: #3A343B; --color-border-default: #524A53; --color-border-strong: #7A7079;
   --color-border-focus: #CE9DB2;
-  --color-text-primary: #F1ECEE; --color-text-secondary: #B3AAB0; --color-text-muted: #ABA2A8;
+  --color-text-primary: #F1ECEE; --color-text-secondary: #C9C1C6; --color-text-muted: #A89FA5;
   --color-text-disabled: #6A6268; --color-text-on-accent: #19161A;
   --color-accent: #CE9DB2; --color-info: #6FAAB6; --color-success: #4FAF86; --color-warning: #D9A441;
   --color-danger: #E0776F; --color-offline: #A0979D; --color-unknown: #A0979D;
@@ -213,7 +215,9 @@
 /* ---------- Menus ---------- */
 .nx-menu { position: absolute; z-index: 50; min-width: 12rem; background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-float); padding: var(--space-1); }
 .nx-menu [role="menuitem"] { display: flex; align-items: center; gap: var(--space-2); width: 100%; text-align: left; background: none; border: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-sm); }
+/* Keyboard focus keeps a ring: the hover background alone differed from the resting state by about 1.1:1. */
 .nx-menu [role="menuitem"]:hover, .nx-menu [role="menuitem"]:focus-visible { background: var(--color-bg-hover); outline: none; }
+.nx-menu [role="menuitem"]:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
 .nx-menu [role="menuitem"][aria-disabled="true"] { color: var(--color-text-disabled); cursor: not-allowed; }
 .nx-menu [role="menuitem"].nx-danger { color: var(--color-danger); }
 .nx-menu hr { border: 0; border-top: 1px solid var(--color-border-subtle); margin: var(--space-1) 0; }
@@ -348,13 +352,16 @@
    Screens not yet rebuilt still render inside the new layout: the legacy colour ramp
    (--a-*, RGB triplets) and the shadcn/Tailwind tokens are remapped onto the new palette
    so they inherit the theme, fonts and semantics. Removed at the end of the migration. */
+/* The ramp mirrors the tokens above (it used to be the legacy cold blue-grey: a legacy-styled section showed cold
+   borders inside warm panels): 900 app, 800 surface, 700 hover, 600 border, 500 subtle border, 400/300 muted text,
+   200 secondary text, 100 primary text. */
 :root[data-ui="next"], :root[data-ui="next"][data-theme="dark"] {
-  --a-950: 19 24 32; --a-900: 29 35 44; --a-800: 35 42 53; --a-700: 44 53 66; --a-600: 59 70 87;
-  --a-500: 74 86 106; --a-400: 152 164 183; --a-300: 152 164 183; --a-200: 170 181 197; --a-100: 228 233 240;
+  --a-950: 20 18 21; --a-900: 25 22 26; --a-800: 36 32 38; --a-700: 46 41 47; --a-600: 82 74 83;
+  --a-500: 58 52 59; --a-400: 168 159 165; --a-300: 168 159 165; --a-200: 201 193 198; --a-100: 241 236 238;
 }
 :root[data-ui="next"][data-theme="light"] {
-  --a-950: 250 251 252; --a-900: 233 237 242; --a-800: 244 246 249; --a-700: 224 229 235; --a-600: 199 206 216;
-  --a-500: 174 184 197; --a-400: 31 41 51; --a-300: 31 41 51; --a-200: 75 87 104; --a-100: 31 41 51;
+  --a-950: 244 241 239; --a-900: 226 221 218; --a-800: 238 234 231; --a-700: 222 216 213; --a-600: 173 165 161;
+  --a-500: 204 197 194; --a-400: 90 82 86; --a-300: 90 82 86; --a-200: 58 51 54; --a-100: 31 26 29;
 }
 :root[data-ui="next"] {
   --color-accent-blue: var(--color-accent); --color-accent-orange: var(--color-warning);
@@ -364,6 +371,8 @@
   --font-sans: var(--font-ui);
   --primary: var(--color-accent); --primary-foreground: var(--color-text-on-accent);
   --ring: var(--color-border-focus); --destructive: var(--color-danger);
+  /* Separators like the new components; form fields at the 3:1 of a control border. */
+  --border: var(--color-border-default); --input: var(--color-border-strong);
   --sidebar: var(--color-bg-sidebar); --sidebar-foreground: var(--color-text-primary);
 }
 :root[data-ui="next"] body { font-family: var(--font-ui); }
@@ -768,3 +777,23 @@ select.nx-input { height: 2rem; }
 .nx-dialog-field { display: grid; gap: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-secondary); }
 .nx-vm-chart-head h3 { white-space: nowrap; }
 .nx-dl--stack .nx-progress--inline { display: block; width: 100%; max-width: 12rem; margin-top: var(--space-1); }
+
+/* Security keys section of the account dialog: built on the tokens (it used Tailwind classes, whose borders and
+   radius came from the other design system). */
+.nx-sk { display: grid; gap: var(--space-3); border-top: 1px solid var(--color-border-default); padding-top: var(--space-4); }
+.nx-sk-h { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); }
+.nx-sk-form { display: flex; align-items: flex-end; gap: var(--space-2); }
+.nx-sk-label { flex: 1; display: grid; gap: var(--space-1); font-size: var(--font-size-xs); font-weight: 500; color: var(--color-text-secondary); }
+.nx-sk-list { border: 1px solid var(--color-border-default); border-radius: var(--radius-md); }
+.nx-sk-list > * + * { border-top: 1px solid var(--color-border-subtle); }
+.nx-sk-empty { padding: var(--space-3); text-align: center; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nx-sk-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); font-size: var(--font-size-sm); }
+.nx-sk-main { min-width: 0; flex: 1; }
+.nx-sk-name { color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-f-h.is-warning { color: var(--color-warning); }
+
+/* A table wider than its card: where scroll-driven fading is not supported, an inner shadow on the right edge
+   still says there is more to scroll to (mobile scrollbars are hidden until touched). */
+@supports not (animation-timeline: scroll()) {
+  .nx-tablewrap[data-scrolls] { box-shadow: inset -14px 0 12px -12px rgba(0, 0, 0, 0.45); scrollbar-width: thin; }
+}

@@ -5,6 +5,7 @@ import { fetchSnapshots, fetchVMBackups, fetchHaProtected, fetchTasks, fetchVMDi
 import { useProvisioningStatus } from "../../hooks/useProvisioningStatus";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
+import { isRemoteVm, vmKey } from "../lib/vmId";
 import { usePolling } from "../lib/polling";
 import { taskLabel } from "../lib/enums";
 import { formatSizeMb, formatRate, clockTime, formatDateTime } from "../lib/format";
@@ -37,18 +38,21 @@ export default function VmSummary({ resource: vm }) {
   const [recent, setRecent] = useState(null);
   const name = vm?.nom;
   const node = vm?.node;
+  const remote = isRemoteVm(vm);
 
   useEffect(() => {
     if (!name) return;
     setSnaps(null); setBackups(null); setSchedule(undefined); setHa(null); setDisks(null); setNet(null); setCleanup(null);
+    fetchVMDisks(name, node).then((r) => setDisks(asList(r))).catch(() => setDisks(false));
+    fetchVMNetwork(name, node).then((r) => setNet(asList(r?.interfaces))).catch(() => setNet(false));
+    // Served for the VMs of this host only: for a remote VM they would describe a local VM of the same name.
+    if (remote) return;
     fetchSnapshots(name).then((r) => setSnaps(asList(r))).catch(() => setSnaps(false));
     fetchVMBackups(name).then((r) => setBackups(asList(r))).catch(() => setBackups([]));
     fetchBackupSchedule(name).then((r) => setSchedule(r || null)).catch(() => setSchedule(null));
     fetchHaProtected().then((r) => setHa(asList(r).some((x) => x.vm_name === name))).catch(() => setHa(false));
     fetchVMAutoCleanup(name).then(setCleanup).catch(() => setCleanup(null));
-    fetchVMDisks(name, node).then((r) => setDisks(asList(r))).catch(() => setDisks(false));
-    fetchVMNetwork(name, node).then((r) => setNet(asList(r?.interfaces))).catch(() => setNet(false));
-  }, [name, node]);
+  }, [name, node]); // eslint-disable-line react-hooks/exhaustive-deps
   const loadRecent = async () => { if (name) setRecent(asList(await fetchTasks({ cible: name, limit: 6, tri: "cree_le", ordre: "desc" }))); };
   usePolling(loadRecent, 10000, { enabled: !!name });
   useEffect(() => { loadRecent().catch(() => setRecent([])); }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -72,7 +76,7 @@ export default function VmSummary({ resource: vm }) {
   const [diskV, diskU] = live && rd != null ? split(rate(rd + (wr || 0))) : ["—", null];
   const [netV, netU] = live && rx != null ? split(rate(rx + (tx || 0))) : ["—", null];
   const lastBackup = backups && backups.length ? [...backups].sort((a, b) => String(b.cree_le).localeCompare(String(a.cree_le)))[0] : null;
-  const goPerf = () => navigateTo("vm", vm.nom, "perf");
+  const goPerf = () => navigateTo("vm", vmKey(vm), "perf");
   const problem = vm.etat === "plante" || vm.etat === "bloque";
   const today = new Date().toDateString();
   const phase = prov?.phase ? t(`vm.phase.${prov.phase}`) : "";
@@ -120,18 +124,20 @@ export default function VmSummary({ resource: vm }) {
           </dl>
         </Card>
         <Card title={t("vm.protection")}>
+          {remote ? <p className="nx-muted" style={{ margin: 0 }}>{t("vm.remoteLocalOnly")}</p> : (
           <ul className="nx-list2">
             <li><Archive size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("vm.lastBackup")}<div className="nx-list2-sub">{backups == null ? "…" : lastBackup ? `${formatDateTime(lastBackup.cree_le, lang)} · ${t(lastBackup.statut === "echec" ? "state.failed" : lastBackup.statut === "termine" || lastBackup.statut === "succes" ? "state.done" : "state.inprogress")}` : t("vm.noBackup")}{schedule ? ` · ${t(`vb.f.${schedule.frequence}`)} ${schedule.heure} UTC` : schedule === null ? ` · ${t("vm.noSchedule")}` : ""}</div></div>
-              <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", vm.nom, "backup")}>{schedule ? t("vm.manage") : t("ov.plan")}</button></li>
+              <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "backup")}>{schedule ? t("vm.manage") : t("ov.plan")}</button></li>
             <li><Camera size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("tab.snapshots")}<div className="nx-list2-sub">{snaps == null ? "…" : snaps === false ? t("ns.notReported") : snaps.length ? t("vm.snapsN", { n: snaps.length }) : t("vm.snapsNone")}</div></div>
-              <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", vm.nom, "snapshots")}>{t("dock.view")}</button></li>
+              <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "snapshots")}>{t("dock.view")}</button></li>
             <li><Heart size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("tab.ha")}<div className="nx-list2-sub">{ha == null ? "…" : ha ? t("vm.haOn") : t("vm.haOff")}</div></div></li>
             <li><Eraser size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("vm.cleanup")}<div className="nx-list2-sub">{cleanup == null ? "…" : cleanup.active ? t("vm.cleanupOn", { n: cleanup.inactive_days }) : t("vm.cleanupOff")}</div></div></li>
           </ul>
+          )}
         </Card>
       </div>
 

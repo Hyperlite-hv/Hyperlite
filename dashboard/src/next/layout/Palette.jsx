@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
+import { vmKey } from "../lib/vmId";
 import { normalize } from "../lib/format";
 import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
@@ -20,7 +21,19 @@ export default function Palette({ open, onClose, setWizards }) {
   const caps = capabilities(role);
   const vmActions = useVmActions();
 
-  useEffect(() => { if (open) { setQ(""); setIdx(0); setTimeout(() => inputRef.current?.focus(), 0); } }, [open]);
+  // Focus goes back where it was when the palette closes (as the menus do), unless the chosen command moved it.
+  const opener = useRef(null);
+  useEffect(() => {
+    if (open) {
+      opener.current = document.activeElement;
+      setQ(""); setIdx(0); setTimeout(() => inputRef.current?.focus(), 0);
+      return undefined;
+    }
+    const back = opener.current;
+    opener.current = null;
+    if (back && document.contains(back) && (document.activeElement === document.body || !document.activeElement)) back.focus?.();
+    return undefined;
+  }, [open]);
 
   const items = useMemo(() => {
     const nq = normalize(q.trim());
@@ -28,7 +41,7 @@ export default function Palette({ open, onClose, setWizards }) {
     const res = [
       { group: "cmd.group.resources", id: "dc", label: t("inv.datacenter"), hint: null, state: null, hay: t("inv.datacenter"), run: () => select("datacenter", null) },
       ...nodes.map((n) => ({ group: "cmd.group.resources", id: `n:${n.id}`, label: n.nom, hint: t("res.node"), state: stateInfo("node", n.etat), hay: `${n.nom} ${n.ip || ""}`, run: () => select("node", n.id) })),
-      ...vms.map((v) => ({ group: "cmd.group.resources", id: `v:${v.node}:${v.nom}`, label: v.nom, hint: [v.ip, nodes.find((n) => n.id === v.node)?.nom].filter(Boolean).join(" · "), state: stateInfo("vm", v.etat), hay: `${v.nom} ${v.ip || ""} ${v.os || ""} ${v.etat} ${v.node}`, run: () => select("vm", v.nom) })),
+      ...vms.map((v) => ({ group: "cmd.group.resources", id: `v:${v.node}:${v.nom}`, label: v.nom, hint: [v.ip, nodes.find((n) => n.id === v.node)?.nom].filter(Boolean).join(" · "), state: stateInfo("vm", v.etat), hay: `${v.nom} ${v.ip || ""} ${v.os || ""} ${v.etat} ${v.node}`, run: () => select("vm", vmKey(v)) })),
     ].filter((i) => match(i.hay)).slice(0, 30);
     const actions = [];
     if (caps.create) {
@@ -54,6 +67,8 @@ export default function Palette({ open, onClose, setWizards }) {
   }, [q, nodes, vms, caps.create, caps.admin]);
 
   useEffect(() => { setIdx(0); }, [q]);
+  // The inventory refreshes underneath: keep the highlighted option on an option that still exists.
+  useEffect(() => { setIdx((i) => Math.min(i, Math.max(items.length - 1, 0))); }, [items.length]);
 
   // Escape closes the palette wherever the focus is (not only while the field has it).
   useEffect(() => {

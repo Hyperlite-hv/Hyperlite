@@ -5,6 +5,8 @@ import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 
 const RETRY_S = 5;
+// As for the VM console: about a minute of retries, none after a refusal (4xx), then a Retry button.
+const MAX_ATTEMPTS = 12;
 
 // A terminal (xterm) on a ticket + WebSocket relay that connects by itself and reconnects after a drop, like the VM
 // console: used by the host shell and container terminal windows. getUrl() asks for a fresh ticket and returns the
@@ -14,6 +16,7 @@ export default function LiveTerminal({ getUrl, label, note }) {
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
   const [retryIn, setRetryIn] = useState(null);
+  const [gaveUp, setGaveUp] = useState(false);
   const attempts = useRef(0);
   const screen = useRef(null);
   const term = useRef(null);
@@ -52,12 +55,17 @@ export default function LiveTerminal({ getUrl, label, note }) {
       onResize.current = () => fit.fit();
       window.addEventListener("resize", onResize.current);
       tm.focus();
-    } catch (e) { setError(errorMessage(e)); setStatus("error"); }
+    } catch (e) {
+      setError(errorMessage(e)); setStatus("error");
+      // Not allowed, or no such container: asking again every few seconds cannot help (and each ticket is audited).
+      if (e?.status >= 400 && e.status < 500) setGaveUp(true);
+    }
   }, [getUrl, cleanup, t]);
 
   // Right away the first time, then every RETRY_S seconds while it fails or after a drop.
   useEffect(() => {
-    if (status !== "idle" && status !== "error") { setRetryIn(null); return undefined; }
+    if (gaveUp || (status !== "idle" && status !== "error")) { setRetryIn(null); return undefined; }
+    if (attempts.current >= MAX_ATTEMPTS) { setGaveUp(true); setRetryIn(null); return undefined; }
     const delay = attempts.current === 0 ? 0 : RETRY_S;
     attempts.current += 1;
     setRetryIn(delay || null);
@@ -65,10 +73,11 @@ export default function LiveTerminal({ getUrl, label, note }) {
     const tick = delay ? setInterval(() => { left -= 1; setRetryIn(left > 0 ? left : null); }, 1000) : null;
     const go = setTimeout(() => { if (tick) clearInterval(tick); setRetryIn(null); connect(); }, delay * 1000);
     return () => { clearTimeout(go); if (tick) clearInterval(tick); };
-  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [status, gaveUp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const connected = status === "connected";
-  const stateLabel = connected ? t("nn.connected") : status === "connecting" ? t("nn.connecting") : retryIn ? t("vc.retryIn", { s: retryIn }) : t("nn.notConnected");
+  const retryNow = () => { attempts.current = 0; setError(null); setGaveUp(false); };
+  const stateLabel = connected ? t("nn.connected") : status === "connecting" ? t("nn.connecting") : retryIn ? t("vc.retryIn", { s: retryIn }) : gaveUp ? t("vc.stopped") : t("nn.notConnected");
   return (
     <div className="nx-console-standalone">
       {note}
@@ -82,6 +91,7 @@ export default function LiveTerminal({ getUrl, label, note }) {
         <div className="nx-term nx-term--screen" ref={screen} role="region" aria-label={label} />
       </div>
       {error && <p className="nx-f-h is-error" role="alert">{error}</p>}
+      {gaveUp && <div className="nx-inline"><span className="nx-f-h">{t("vc.gaveUp")}</span><button type="button" className="nx-btn nx-btn--sm" onClick={retryNow}>{t("action.retry")}</button></div>}
     </div>
   );
 }
