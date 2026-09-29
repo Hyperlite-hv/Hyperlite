@@ -16,6 +16,7 @@ const TASK_LABELS = {
   upload_iso: "ISO upload",
 };
 
+const ERROR_TOAST_MS = 15000;
 let toastCounter = 0;
 
 export const useInfraStore = create((set, get) => ({
@@ -123,18 +124,17 @@ export const useInfraStore = create((set, get) => ({
   },
 
   // ---- Toasts ----
-  // Rendered by sonner's <Toaster/> (AppShell.jsx), not a hand-rolled list
-  // anymore. Errors stay displayed until closed manually (duration: Infinity):
-  // a technical failure message (e.g. a libvirt error) takes more than 5 s to
-  // read, and having it vanish by itself gave the impression that no error had
-  // been reported when it had (just too quickly to be seen).
+  // Rendered by sonner's <Toaster/>, which has a close button. Errors stay three times longer than successes: a
+  // technical failure message (e.g. a libvirt error) takes more than 5 s to read, and one that vanished too fast
+  // looked like no error had been reported. They still go away by themselves (hovering pauses the countdown):
+  // errors that never left piled up over the page.
   pushToast({ kind, title, message, duration }) {
     toastCounter += 1;
     const id = `toast-${toastCounter}`;
     toast[kind === "error" ? "error" : "success"](title, {
       id,
       description: message || undefined,
-      duration: kind === "error" ? Infinity : (duration ?? 5000),
+      duration: duration ?? (kind === "error" ? ERROR_TOAST_MS : 5000),
     });
     return id;
   },

@@ -98,6 +98,45 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(cible, tier, ts)")
 
+        # ---- Security keys and passkeys (WebAuthn, see app/core/webauthn_keys.py) ----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS webauthn_credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                nom TEXT NOT NULL,
+                credential_id TEXT NOT NULL UNIQUE,
+                public_key TEXT NOT NULL,
+                sign_count INTEGER NOT NULL DEFAULT 0,
+                rp_id TEXT NOT NULL,
+                cree_le TEXT NOT NULL,
+                utilise_le TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials(username, rp_id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS webauthn_challenges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                but TEXT NOT NULL,
+                challenge TEXT NOT NULL,
+                rp_id TEXT NOT NULL,
+                origin TEXT NOT NULL,
+                expire_le TEXT NOT NULL
+            )
+        """)
+
+        # Last copy of the configuration to each node (app/core/config_copy.py).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS config_copies (
+                node TEXT PRIMARY KEY,
+                copie_le TEXT NOT NULL,
+                statut TEXT NOT NULL CHECK(statut IN ('ok', 'echec')),
+                taille INTEGER,
+                empreinte TEXT,
+                erreur TEXT
+            )
+        """)
+
         # ---- Native backups ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS backup_jobs (
@@ -128,6 +167,15 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, cree_le)")
+        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verifie' or 'corrompu'
+        # with the date and what was wrong.
+        for ddl in (
+            "ALTER TABLE backups ADD COLUMN verification TEXT",
+            "ALTER TABLE backups ADD COLUMN verifie_le TEXT",
+            "ALTER TABLE backups ADD COLUMN verification_detail TEXT",
+        ):
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+                conn.execute(ddl)
 
         # ---- Automation: job engine ----
         conn.execute("""
@@ -327,6 +375,40 @@ def init_db():
                 last_synced_at TEXT
             )
         """)
+        # HA dry run (app/core/ha_watch.py): the watcher's view of each protected VM, and what automatic HA would
+        # have done when its node failed.
+        for ddl in (
+            "ALTER TABLE ha_protected_vms ADD COLUMN etat_ha TEXT",
+            "ALTER TABLE ha_protected_vms ADD COLUMN derniere_action TEXT",
+            "ALTER TABLE ha_protected_vms ADD COLUMN derniere_action_le TEXT",
+        ):
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+                conn.execute(ddl)
+        # Fencing settings per node ("local" or a registered node name), see app/core/ha_fencing.py. The password
+        # is Fernet-encrypted and never returned by the API.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS node_fencing (
+                node TEXT PRIMARY KEY,
+                methode TEXT NOT NULL CHECK(methode IN ('ipmi', 'redfish', 'amt', 'lease_only')),
+                adresse TEXT,
+                port INTEGER,
+                utilisateur TEXT,
+                secret TEXT,
+                tls_non_verifie INTEGER NOT NULL DEFAULT 0,
+                modifie_par TEXT,
+                modifie_le TEXT
+            )
+        """)
+        conn.execute("CREATE TABLE IF NOT EXISTS ha_settings (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)")
+        # Nodes in maintenance: "local" (the host running Hyperlite, not a row of `nodes`) or a registered node
+        # name. No new VM lands on them and they are never a migration or HA recovery target.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS node_maintenance (
+                node TEXT PRIMARY KEY,
+                started_by TEXT NOT NULL,
+                started_at TEXT NOT NULL
+            )
+        """)
         # Outbound notifications: the JSON config is stored in clear text (including
         # the SMTP password when type='email'), except that the SMTP password is
         # encrypted at rest (see app/core/secrets_crypto.py). Admin-only. `events` is a
@@ -428,22 +510,6 @@ def init_db():
                 scope TEXT NOT NULL DEFAULT 'openid profile email groups',
                 group_claim TEXT NOT NULL DEFAULT 'groups',
                 admin_groups TEXT NOT NULL DEFAULT ''
-            )
-        """)
-        # Deployment profile chosen by the admin: 'auto' = the profile recommended by
-        # hardware detection.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS deployment_profile (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                profil TEXT NOT NULL DEFAULT 'auto'
-            )
-        """)
-        # VM resource allocation policy chosen by the admin (limits / overcommit /
-        # free), see app/core/vm_limits.py.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS allocation_policy (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                politique TEXT NOT NULL DEFAULT 'limites'
             )
         """)
         # CSRF/nonce states of the OIDC Authorization Code flow: SINGLE USE (deleted as

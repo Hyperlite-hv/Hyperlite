@@ -12,6 +12,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState } from "../components/States";
 import { NAME_RE } from "../lib/containerImages";
 import { PageHeader, Card, Empty, Loading, TableWrap } from "../components/ui";
@@ -44,6 +45,7 @@ export default function ContainersPage() {
   // The creation dialog (Create ▸ Container, or the button below) announces a new container.
   useEffect(() => { window.addEventListener("nx:containers-changed", reload); return () => window.removeEventListener("nx:containers-changed", reload); }, [reload]);
 
+  const ctx = useContextTarget(); // right click on a container: the same actions as its row buttons
   const fail = (title) => (e) => pushToast({ kind: "error", title, message: errorMessage(e) });
   const nameCheck = (v) => (NAME_RE.test(v) ? "" : t("ct.nameRule"));
 
@@ -103,7 +105,7 @@ export default function ContainersPage() {
                   {list.map((ct) => {
                     const on = ct.etat === "actif";
                     return (
-                      <tr key={ct.nom}>
+                      <tr key={ct.nom} className={ctx.is("ct", ct.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
                         <td><StatusIndicator kind="vm" wire={on ? "actif" : "arrete"} /></td>
                         <th scope="row" className="nx-mono">{ct.nom}</th>
                         <td className="nx-num nx-mono">{ct.vcpu}</td>
@@ -152,6 +154,20 @@ export default function ContainersPage() {
           )}
         </Card>
       )}
+      <ActionsContextMenu ctx={ctx} label={(ct) => t("ctx.menuOf", { name: ct.nom })} entries={(ct) => {
+        const on = ct.etat === "actif";
+        const admin = { disabled: !caps.admin, reason: t("menu.reason.admin") };
+        return [
+          on ? { key: "terminal", icon: "terminal", label: t("ct.terminal"), run: () => openTerminal(ct), ...admin }
+            : { key: "start", icon: "start", label: t("ct.start"), run: () => act(startContainer, ct, t("ct.started")), ...admin },
+          on && { key: "stop", icon: "stop", label: t("ct.stop"), run: () => stop(ct), ...admin },
+          "-",
+          { key: "clone", icon: "clone", label: t("ct.clone"), run: () => clone(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
+          { key: "backup", icon: "backup", label: t("ct.backup"), run: () => backup(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
+          "-",
+          { key: "delete", icon: "delete", label: del, danger: true, run: () => remove(ct), ...admin },
+        ];
+      }} />
     </>
   );
 }

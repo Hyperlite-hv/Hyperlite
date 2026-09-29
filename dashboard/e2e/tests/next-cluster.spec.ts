@@ -44,7 +44,7 @@ test("Nodes: this host is listed and opens its page, add form sends the SSH port
   await expect(page.getByText("SSH connection refused").first()).toBeVisible();
   added = "list"; // the peer is now registered
   await page.reload();
-  const row = main.getByRole("row", { name: /peer/ });
+  const row = main.getByRole("row", { name: /peer/ }).filter({ hasText: "Member" }); // not the configuration copy card
   await expect(row).toContainText("root@10.0.0.9:2222");
   await expect(row).toContainText("Offline");
   await expect(row).toContainText("3");

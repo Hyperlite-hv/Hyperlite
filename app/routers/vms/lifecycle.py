@@ -6,7 +6,7 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import zfs_storage
+from app.core import firmware, guest_agent, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -71,15 +71,16 @@ def stop_vm(
             log_action(user["username"], "stop_vm", name, "echec", "VM already stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already stopped")
         try:
+            method = None
             if force:
                 domain.destroy()
             else:
-                domain.shutdown()
+                method = guest_agent.shutdown(domain)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], action_name, name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to stop the VM: {msg}") from e
-        log_action(user["username"], action_name, name, "succes", task_id=task_id)
+        log_action(user["username"], action_name, name, "succes", f"via {method}" if method else None, task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -101,16 +102,17 @@ def restart_vm(
             log_action(user["username"], "restart_vm", name, "echec", "VM stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is stopped, start it first")
         try:
+            method = None
             if force:
                 domain.destroy()
                 domain.create()
             else:
-                domain.reboot()
+                method = guest_agent.reboot(domain)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "restart_vm", name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to restart the VM: {msg}") from e
-        log_action(user["username"], "restart_vm", name, "succes", task_id=task_id)
+        log_action(user["username"], "restart_vm", name, "succes", f"via {method}" if method else None, task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -151,8 +153,10 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     # another node).
     zvol_paths_to_remove = []
     ifaces_to_release = []
+    extra_undefine_flags = 0
     try:
         root = ET.fromstring(domain.XMLDesc())
+        extra_undefine_flags = firmware.undefine_flags(root)
         for disk_el in root.findall(".//devices/disk"):
             source_el = disk_el.find("source")
             if source_el is None:
@@ -181,7 +185,8 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     # with N snapshots"), even partially deleted ones. Harmless here: the qcow2 file
     # that held the internal snapshots is deleted right afterwards anyway (unlink
     # below), and the VM itself is already irrevocably confirmed as deleted.
-    domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA)
+    # A UEFI VM also takes its NVRAM and TPM state with it (see app/core/firmware.py).
+    domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA | extra_undefine_flags)
 
     for iface_network, iface_mac in ifaces_to_release:
         try:

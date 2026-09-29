@@ -5,6 +5,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { promptText } from "../../store/usePromptStore";
 import { useT, useLangStore } from "../i18n";
+import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
@@ -33,6 +34,7 @@ export default function TemplatesPanel() {
   }, []);
   useEffect(() => { reload(); }, [reload]);
 
+  const ctx = useContextTarget(); // right click on a template: its actions
   async function deploy(tpl) {
     const taken = new Set(vms.map((v) => v.nom));
     const name = await promptText({
@@ -63,7 +65,7 @@ export default function TemplatesPanel() {
             <thead><tr><th scope="col">{t("ct.name")}</th><th scope="col">{t("tp.source")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">{t("tp.created")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
               {list.map((tpl) => (
-                <tr key={tpl.nom}>
+                <tr key={tpl.nom} className={ctx.is("tpl", tpl.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("tpl", tpl)}>
                   <th scope="row" className="nx-mono">{tpl.nom}</th>
                   <td className="nx-mono">{tpl.vm_source}</td>
                   <td className="nx-num nx-mono">{tpl.vcpu}</td>
@@ -77,6 +79,11 @@ export default function TemplatesPanel() {
               ))}
             </tbody>
           </table>
+          <ActionsContextMenu ctx={ctx} label={(tpl) => t("ctx.menuOf", { name: tpl.nom })} entries={(tpl) => [
+            { key: "deploy", icon: "deploy", label: t("tp.deploy"), run: () => deploy(tpl), disabled: !caps.admin || busy === tpl.nom, reason: t("menu.reason.admin") },
+            "-",
+            { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(tpl), disabled: !caps.admin || busy === tpl.nom, reason: t("menu.reason.admin") },
+          ]} />
         </TableWrap>
       )}
     </div>

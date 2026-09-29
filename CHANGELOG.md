@@ -6,18 +6,34 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Move a VM disk to another directory or NFS pool from the Hardware tab (`POST /vms/{name}/disks/{target_dev}/move`, admin): live with a block copy and a pivot, or stopped with `qemu-img convert`; the original file is kept unless asked. ZFS and iSCSI disks, and VMs with snapshots, are refused with a clear message.
+- Hyperlite Tools (the QEMU guest agent): shutdown and reboot through the agent with an ACPI fallback, the VM's IP address from the guest, quiesced hot-backup snapshots, the agent installed by cloud-init in new cloud-image VMs, and its state in the VM summary (`agent_invite`: `actif`, `inactif`, `non_configure`).
+- Node maintenance mode (`POST`/`DELETE /nodes/{name}/maintenance`, `GET /nodes/{name}/drain-plan`, `GET /nodes/maintenance`): the node's running VMs are live-migrated to a chosen node one after another, the VMs that stay are listed with the reason, and the node receives no new VM and is never a migration or HA recovery target. From the node's Actions and right-click menus.
+- Grow a VM disk from the Hardware tab (`POST /vms/{name}/disks/{target_dev}/resize`, privilege `vm.resize`): live or stopped for qcow2/raw files, `volsize` for ZFS zvols. Shrinking and iSCSI LUNs (sized on the storage server) are refused with a clear message.
+- Right-click menus on every list with actions (VMs, nodes, containers, storage pools, networks, ISO images, templates, snapshots, backups, exports, users, high availability), with the same entries and rules as the Actions menus and row buttons.
+- iSCSI storage pools: a target on a NAS or storage array (portal, IQN, optional CHAP kept in a private libvirt secret); VMs take whole LUNs, which are overwritten only after an explicit confirmation and never deleted with the VM.
+- Create a VM from an ISO image stored on another node, and share ISO images between nodes from the Library.
+- Change your own password from the account menu, and administrators can reset another account's password (its sessions and API tokens are revoked). Passwords follow a policy (12 characters at least, no account name, no common password or sequence) checked in the form as you type.
+- VM list grouped under one band per node (load, running count, collapsible).
+- Storage support check (`GET /storage/support`): the pool form says when the NFS client, the ZFS module (Secure Boot) or the iSCSI initiator is missing, and how to fix it.
+
 - Workstation access: the `hyperlite` client (Windows, Linux, macOS; `cli/`) signs in through the web interface and opens SSH (`hyperlite ssh`) or remote desktop (`hyperlite rdp`) to a VM through a tunnel over the server's HTTPS port. New `vm.tunnel` privilege, allowed ports and limits in the environment, tunnels in the audit log, `hyperlite://` links from the VM console. See `docs/workstation-access.md`.
 - API tokens can expire (`expires_at`); workstation tokens always do.
 - A `Publish` GitHub workflow and `scripts/ci-publish.sh` that build, sign and publish the package, the APT repository and the ISO from a clean checkout (manual dispatch with a dry run for now); the signing passphrase and key location come from the environment.
 - APT mirror monitoring: `scripts/verify-apt-mirror.sh` (run after each publication and every 30 minutes by a systemd timer, optional webhook alert), and an actionable message in the update dialog when the mirror is momentarily out of sync.
 - Coordination between people and their AI assistants through a pinned GitHub issue, with rules in `CLAUDE.md` and `docs/onboarding.md`.
-- Contributor onboarding guide (): GitHub role and token, private network access, accounts, development environment and rules for AI assistants.
+- Contributor onboarding guide (`docs/onboarding.md`): GitHub role and token, private network access, accounts, development environment and rules for AI assistants.
 - E2E coverage for automation jobs, snapshot restore, SMTP notifications and multi-session behavior; optional Firefox and WebKit projects; advisory `e2e` CI job.
 - Branching model documented in `CONTRIBUTING.md` (`test` = development, `master` = production); CI and CodeQL now also run on pushes to `test`.
 - End-to-end web UI test suite (Playwright) against a real backend, with a coverage matrix in `docs/webui-test-matrix.md` (`npm run test:e2e`).
 - Backups now record the VM's vCPU, memory and network so a restore to a new VM rebuilds the original hardware.
 
 ### Changed
+
+- Hyperlite no longer caps a VM's vCPU, memory or disks from the host's size, like Proxmox and vSphere: the deployment profiles (homelab, standard, advanced), the allocation policies and their settings (`GET`/`PUT /host/profile`, `PUT /host/allocation`, `HYPERLITE_PROFILE`, `HYPERLITE_ALLOCATION`) are removed. Only technical floors and typo ceilings remain, plus the optional `HYPERLITE_VM_MAX_*` caps an administrator sets on purpose. The creation form still warns, without blocking, when a value exceeds the hardware.
+- Accounts whose password predates the policy must choose a new one at the next sign-in before doing anything else.
+- The package depends on `nfs-common`, so NFS pools work on an APT install.
+- The dashboard scales with large screens (2K, 4K) instead of staying a small island of text.
 
 - The historical interface is removed: the rebuilt dashboard is the only one (the `?ui=` switch is gone). The separate VM console, host shell and container terminal windows use it too and connect by themselves; its end-to-end specs were ported to the rebuilt screens.
 - Publication is automatic: the `Publish` workflow runs on every push to `master` (package, signed APT repository, mirror, ISO release), replacing the post-merge hook on the build machine. The version is stamped into the artifacts only, so no version-bump commit or `master`/`test` synchronization is needed any more.
@@ -26,7 +42,7 @@ All notable changes to this project are documented here. The format is based on 
 
 - The public APT repository moves to the organization mirror (`Hyperlite-hv/hyperlite-hv.github.io`, independent of the code repository); previous mirrors keep receiving publications during the migration.
 
-- The ISO download address joins the APT address in ; a test checks that the README links to it.
+- The ISO download address joins the APT address in `installer/apt-source.conf`; a test checks that the README links to it.
 
 - The APT repository address now lives in one file (`installer/apt-source.conf`) read by the ISO build, the post-install script, the mirror check and the publishing hook; a test fails if another address is hard-coded.
 
@@ -42,6 +58,13 @@ All notable changes to this project are documented here. The format is based on 
 - The local host is always labelled `local`; rows still using a legacy label are migrated at start-up.
 
 ### Fixed
+
+- Live-migrating an HA-protected VM no longer disables its protection: the HA record now follows the VM to its new node.
+- A good update could be rolled back when the previous process took long to close its connections; the dashboard then reported a success and the update check said "up to date". `/health` now reports the version the process started with, the watchdog waits for it, the service stops within 5 s, and a rolled-back update is detected and can be applied again.
+- The update check no longer says "up to date" when the Hyperlite APT source is missing or points to the old address.
+- Backups and exports refuse a VM with ZFS or iSCSI disks with a clear message, instead of failing with "No disk found" or silently leaving the block disk out.
+- Without the ZFS kernel module (refused by Secure Boot) no `zpool`/`zfs` command runs any more; each one made the kernel log an error every few seconds.
+- "Stay signed in" is kept after changing your own password.
 
 - The mirror publication script no longer fails on a CI runner that has no git identity.
 - The gh-pages APT mirror no longer serves a stale signed Release: the post-merge hook inherited Git variables that hid the changes of Release, InRelease and Release.gpg, so apt reported "File has unexpected size". The mirror is now published by a script that clears them, compares contents and verifies the result.
@@ -65,6 +88,9 @@ All notable changes to this project are documented here. The format is based on 
 - Trust-on-first-use SSH host key checking for cluster nodes.
 
 ### Security
+
+- The brute-force lock is stored in the database, so a restart no longer resets it; knowing the password no longer allows unlimited guesses of the 2FA code; removing 2FA needs the password and a current code, from a signed-in session only (never an API token).
+- A password change or reset signs out every other session of the account.
 
 - Replaced `python-jose` (and its vulnerable `ecdsa` dependency) with `PyJWT`; hardened OIDC ID token validation (algorithm allow-list, required claims, clock leeway).
 - Replaced the unmaintained `passlib` with `bcrypt` and `openssl passwd` for password hashing.

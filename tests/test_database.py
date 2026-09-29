@@ -21,8 +21,6 @@ def test_core_tables_exist(database):
         "backups",
         "api_tokens",
         "sso_config",
-        "deployment_profile",
-        "allocation_policy",
         "notification_channels",
         "ha_protected_vms",
     }

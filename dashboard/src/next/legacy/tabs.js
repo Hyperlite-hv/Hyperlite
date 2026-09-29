@@ -1,5 +1,5 @@
 // Bridge to the screens that are not rebuilt yet: the same panel components, rendered inside the new
-// workspace. Each domain replaces its entries here as it is migrated (see docs/frontend-rebuild/07).
+// workspace. Each domain replaces its entries here as it is migrated.
 import SecurityPage from "../pages/SecurityPage";
 import LibraryPage from "../pages/LibraryPage";
 import AutomationPage from "../pages/AutomationPage";

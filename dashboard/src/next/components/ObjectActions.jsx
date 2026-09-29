@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-  Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Heart, LayoutTemplate, Link, MoveHorizontal, Play, Plus, Power, RefreshCw,
-  RotateCw, Share, Square, SquareTerminal, Trash2,
+  ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Heart, LayoutTemplate, Link, MoveHorizontal, Play, Plus, Power, RefreshCw,
+  RotateCw, Share, Square, SquareTerminal, Trash2, Wrench,
 } from "lucide-react";
 import {
   cloneVM, createTemplateFromVM, createBackup, exportVM, fetchHaProtected, enableHa, disableHa,
@@ -18,7 +18,10 @@ import { useVmActions } from "../lib/vmActions";
 import { errorMessage } from "../lib/errors";
 import { requestIntent } from "../lib/intents";
 import Menu, { MenuItem } from "./Menu";
+import ContextMenu from "./ContextMenu";
+import { selectionToPath } from "../lib/urls";
 import MigrateDialog from "./MigrateDialog";
+import { leaveMaintenance } from "./MaintenanceDialog";
 import { SideDrawer, Field } from "./ui";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -59,25 +62,30 @@ function CleanupDrawer({ vm, state, onClose, onSaved }) {
   );
 }
 
-// VM header: the contextual primary (Console when running, Start when stopped), Stop, and ONE grouped Actions
-// menu holding every other operation (power, protection, lifecycle, links, delete). Unavailable entries stay
-// listed and say why.
-export function VmHeaderActions({ vm, currentTab, setTab }) {
+const objectLink = (type, id) => `${window.location.origin}${selectionToPath({ type, id })}`;
+
+// Every action on a VM, as menu entries plus the dialogs some of them open. Shared by the VM header's Actions menu
+// and the right-click menu of the lists, so both always offer the same operations with the same rules; unavailable
+// entries stay listed and say why.
+//   open: the menu is shown (the HA and clean-up states are read then);
+//   openTab(tab): show one of the VM's tabs;
+//   withPower: also Open, Console, Start and Stop at the top (the header has them as buttons);
+//   followBackup: open the Backups tab once a backup starts (from the header, not from a list);
+//   onDialogClose / onDeleted: the caller's follow-up.
+export function useVmMenu(vm, { open, close, openTab, withPower = false, followBackup = true, onDialogClose, onDeleted }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
-  const { nodes, pushToast, refreshAll, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, pushToast: s.pushToast, refreshAll: s.refreshAll, navigateTo: s.navigateTo })));
+  const { nodes, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, pushToast: s.pushToast, refreshAll: s.refreshAll })));
   const vmActions = useVmActions();
-  const [open, setOpen] = useState(false);
   const [migrate, setMigrate] = useState(false);
   const [cleanup, setCleanup] = useState(null);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [ha, setHa] = useState(null);
-  const btn = useRef(null);
   const running = vm.etat === "actif";
   const act = (a) => vmActionState(a, vm, caps);
   const admin = (state = { enabled: true }) => (caps.admin ? state : { enabled: false, reason: "menu.reason.admin" });
   const stopped = running ? { enabled: false, reason: "menu.reason.mustStop" } : { enabled: true };
-  const targets = nodes.filter((n) => n.id !== vm.node && n.etat === "online");
+  const targets = nodes.filter((n) => n.id !== vm.node && n.etat === "online" && !n.maintenance);
   const mig = !caps.admin ? { enabled: false, reason: "menu.reason.admin" } : !running ? { enabled: false, reason: "menu.reason.notRunning" } : targets.length === 0 ? { enabled: false, reason: "mig.noTarget" } : { enabled: true };
 
   useEffect(() => {
@@ -86,7 +94,6 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
     fetchVMAutoCleanup(vm.nom).then(setCleanup).catch(() => setCleanup(null));
   }, [open, caps.admin, vm.nom]);
 
-  const close = () => setOpen(false);
   const fail = (title, e) => pushToast({ kind: "error", title, message: errorMessage(e) });
 
   async function clone() {
@@ -98,11 +105,11 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
   async function toTemplate() {
     const name = await promptText({ title: t("vx.tplTitle", { name: vm.nom }), message: t("vx.tplMsg"), label: t("vx.tplName"), defaultValue: vm.nom, confirmLabel: t("vx.tpl"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
     if (!name) return;
-    try { await createTemplateFromVM(vm.nom, name.trim()); pushToast({ kind: "success", title: t("vx.tplDone"), message: name.trim() }); refreshAll?.(); navigateTo("datacenter", null, "templates"); }
+    try { await createTemplateFromVM(vm.nom, name.trim()); pushToast({ kind: "success", title: t("vx.tplDone"), message: name.trim() }); refreshAll?.(); useInfraStore.getState().navigateTo("datacenter", null, "templates"); }
     catch (e) { fail(t("vx.tplFailed"), e); }
   }
   async function backupNow() {
-    try { await createBackup(vm.nom); pushToast({ kind: "success", title: t("vb.started"), message: vm.nom }); setTab("backup"); }
+    try { await createBackup(vm.nom); pushToast({ kind: "success", title: t("vb.started"), message: vm.nom }); if (followBackup) openTab("backup"); }
     catch (e) { fail(t("vb.startFailed"), e); }
   }
   async function doExport() {
@@ -120,12 +127,12 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
   }
   async function remove() {
     if (!(await confirmAction({ title: t("vx.deleteTitle", { name: vm.nom }), message: t("vx.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
-    try { await useInfraStore.getState().runVMAction(vm.nom, "delete"); navigateTo("datacenter", null, "vms"); }
+    try { await useInfraStore.getState().runVMAction(vm.nom, "delete"); onDeleted?.(); }
     catch { /* the store already shows the error */ }
   }
   function snapshot() {
     requestIntent("snapshot", vm.nom);
-    if (currentTab !== "snapshots") setTab("snapshots");
+    openTab("snapshots");
   }
 
   const item = (key, Icon, label, state, run, extra = {}) => (
@@ -134,6 +141,64 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
     </MenuItem>
   );
 
+  const items = (
+    <>
+      {withPower && <>
+        {item("open", ArrowUpRight, t("ctx.open"), { enabled: true }, () => openTab("summary"))}
+        {running
+          ? item("console", SquareTerminal, t("actions.primary.console"), act("console"), () => vmActions.openConsole(vm))
+          : item("start", Play, t("menu.start"), act("start"), () => vmActions.run(vm, "start"))}
+        {running && item("stop", Square, t("menu.stop"), act("stop"), () => vmActions.run(vm, "stop"))}
+        <hr />
+      </>}
+      <MenuGroup label={t("vx.g.power")} />
+      {item("restart", RotateCw, t("menu.restart"), act("restart"), () => vmActions.run(vm, "restart"))}
+      {item("force-stop", Power, t("menu.forceStop"), act("force-stop"), () => vmActions.run(vm, "force-stop"), { danger: true })}
+      <hr />
+      <MenuGroup label={t("vx.g.protection")} />
+      {item("snapshot", Camera, t("vx.snapshot"), admin(), snapshot)}
+      {item("backup", Archive, t("vb.now"), admin(), backupNow)}
+      {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), admin(), toggleHa)}
+      <hr />
+      <MenuGroup label={t("vx.g.lifecycle")} />
+      {item("clone", CopyPlus, t("vx.cloneMenu"), admin(stopped), clone)}
+      {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
+      {item("template", LayoutTemplate, t("vx.tplMenu"), admin(stopped), toTemplate)}
+      {item("export", Share, t("vx.exportMenu"), admin(), doExport)}
+      {item("cleanup", Eraser, cleanup?.active ? t("vx.cleanupOn", { n: cleanup.inactive_days }) : t("vx.cleanupMenu"), admin(), () => setCleanupOpen(true))}
+      <hr />
+      {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(objectLink("vm", vm.nom)))}
+      {vm.ip && item("ip", Copy, t("menu.copyIp"), { enabled: true }, () => navigator.clipboard?.writeText(vm.ip))}
+      <hr />
+      {item("delete", Trash2, t("vx.deleteMenu"), admin(stopped), remove, { danger: true })}
+    </>
+  );
+  const dialogs = (
+    <>
+      {migrate && <MigrateDialog vm={vm} targets={targets} onClose={() => { setMigrate(false); onDialogClose?.(); }} />}
+      {cleanupOpen && <CleanupDrawer vm={vm} state={cleanup} onClose={() => { setCleanupOpen(false); onDialogClose?.(); }} onSaved={setCleanup} />}
+    </>
+  );
+  return { items, dialogs, dialogOpen: migrate || cleanupOpen };
+}
+
+// VM header: the contextual primary (Console when running, Start when stopped), Stop, and ONE grouped Actions
+// menu holding every other operation (see useVmMenu).
+export function VmHeaderActions({ vm, currentTab, setTab }) {
+  const t = useT();
+  const caps = capabilities(useAuthStore((s) => s.role));
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const vmActions = useVmActions();
+  const [open, setOpen] = useState(false);
+  const btn = useRef(null);
+  const close = () => setOpen(false);
+  const menu = useVmMenu(vm, {
+    open, close,
+    openTab: (tab) => { if (currentTab !== tab) setTab(tab); },
+    onDeleted: () => navigateTo("datacenter", null, "vms"),
+  });
+  const running = vm.etat === "actif";
+  const act = (a) => vmActionState(a, vm, caps);
   const c = act("console"); const st = act("start"); const sp = act("stop");
   return (
     <div className="nx-oh-acts">
@@ -144,63 +209,94 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
       <span className="nx-relative">
         <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{t("actions")}<ChevronDown size={14} aria-hidden="true" /></button>
         <Menu open={open} onClose={close} label={t("actions")} returnFocusRef={btn} style={{ top: "calc(100% + 4px)", right: 0 }}>
-          <MenuGroup label={t("vx.g.power")} />
-          {item("restart", RotateCw, t("menu.restart"), act("restart"), () => vmActions.run(vm, "restart"))}
-          {item("force-stop", Power, t("menu.forceStop"), act("force-stop"), () => vmActions.run(vm, "force-stop"), { danger: true })}
-          <hr />
-          <MenuGroup label={t("vx.g.protection")} />
-          {item("snapshot", Camera, t("vx.snapshot"), admin(), snapshot)}
-          {item("backup", Archive, t("vb.now"), admin(), backupNow)}
-          {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), admin(), toggleHa)}
-          <hr />
-          <MenuGroup label={t("vx.g.lifecycle")} />
-          {item("clone", CopyPlus, t("vx.cloneMenu"), admin(stopped), clone)}
-          {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
-          {item("template", LayoutTemplate, t("vx.tplMenu"), admin(stopped), toTemplate)}
-          {item("export", Share, t("vx.exportMenu"), admin(), doExport)}
-          {item("cleanup", Eraser, cleanup?.active ? t("vx.cleanupOn", { n: cleanup.inactive_days }) : t("vx.cleanupMenu"), admin(), () => setCleanupOpen(true))}
-          <hr />
-          {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(window.location.href))}
-          {vm.ip && item("ip", Copy, t("menu.copyIp"), { enabled: true }, () => navigator.clipboard?.writeText(vm.ip))}
-          <hr />
-          {item("delete", Trash2, t("vx.deleteMenu"), admin(stopped), remove, { danger: true })}
+          {menu.items}
         </Menu>
       </span>
-      {migrate && <MigrateDialog vm={vm} targets={targets} onClose={() => setMigrate(false)} />}
-      {cleanupOpen && <CleanupDrawer vm={vm} state={cleanup} onClose={() => setCleanupOpen(false)} onSaved={setCleanup} />}
+      {menu.dialogs}
     </div>
   );
 }
 
-// Node header: one Actions menu (no other button, the Shell is a tab).
-export function NodeHeaderActions({ node, setTab }) {
+// Right-click menu of a VM in a list: the same entries as the header's Actions menu, plus Open, Console, Start
+// and Stop. It stays mounted while one of its dialogs (migration, clean-up) is open.
+export function VmContextMenu({ vm, at, returnFocus, onDone }) {
+  const t = useT();
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const [menuOpen, setMenuOpen] = useState(true);
+  const menu = useVmMenu(vm, {
+    open: menuOpen,
+    close: () => setMenuOpen(false),
+    openTab: (tab) => navigateTo("vm", vm.nom, tab),
+    withPower: true,
+    followBackup: false,
+    onDialogClose: onDone,
+    onDeleted: onDone,
+  });
+  const { dialogOpen } = menu;
+  useEffect(() => { if (!menuOpen && !dialogOpen) onDone(); }, [menuOpen, dialogOpen, onDone]);
+  return (
+    <>
+      {menuOpen && <ContextMenu at={at} label={t("ctx.menuOf", { name: vm.nom })} returnFocus={returnFocus} onClose={() => setMenuOpen(false)}>{menu.items}</ContextMenu>}
+      {menu.dialogs}
+    </>
+  );
+}
+
+// Every action on a node (see useVmMenu for the pattern): create a VM there, its shell, its link.
+function useNodeMenu(node, { close, openTab, withOpen = false }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
-  const [open, setOpen] = useState(false);
-  const btn = useRef(null);
   const local = node.id === "local";
-  const close = () => setOpen(false);
   const create = !caps.create ? { enabled: false, reason: "menu.reason.admin" } : !local ? { enabled: false, reason: "node.createLocalOnly" } : { enabled: true };
   const shell = !caps.hostShell ? { enabled: false, reason: "menu.reason.admin" } : !local ? { enabled: false, reason: "node.shellLocalOnly" } : { enabled: true };
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const refreshAll = useInfraStore((s) => s.refreshAll);
+  const admin = caps.admin ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
   const item = (key, Icon, label, state, run) => (
     <MenuItem key={key} disabled={!state.enabled} reason={state.reason ? t(state.reason) : undefined} onSelect={() => { close(); run(); }}>
       <Icon size={16} aria-hidden="true" />{label}{!state.enabled && state.reason ? <span className="nx-menu-k" aria-hidden="true">{t(state.reason)}</span> : null}
     </MenuItem>
   );
   return (
+    <>
+      {withOpen && <>{item("open", ArrowUpRight, t("ctx.open"), { enabled: true }, () => openTab("summary"))}<hr /></>}
+      {item("vm", Plus, t("node.createVm"), create, () => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" })))}
+      {item("shell", SquareTerminal, t("node.openShell"), shell, () => openTab("shell"))}
+      {node.maintenance
+        ? item("maint", Wrench, t("mt.leave"), admin, () => leaveMaintenance(node, t, pushToast, refreshAll))
+        : item("maint", Wrench, t("mt.enter"), admin, () => window.dispatchEvent(new CustomEvent("nx:node-maintenance", { detail: node.id })))}
+      <hr />
+      {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(objectLink("node", node.id)))}
+      {!withOpen && item("caps", RefreshCw, t("node.refreshCaps"), { enabled: true }, () => window.dispatchEvent(new CustomEvent("nx:node-refresh", { detail: node.id })))}
+    </>
+  );
+}
+
+// Node header: one Actions menu (no other button, the Shell is a tab).
+export function NodeHeaderActions({ node, setTab }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const btn = useRef(null);
+  const close = () => setOpen(false);
+  const items = useNodeMenu(node, { close, openTab: setTab });
+  return (
     <div className="nx-oh-acts">
       <span className="nx-relative">
         <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{t("actions")}<ChevronDown size={14} aria-hidden="true" /></button>
         <Menu open={open} onClose={close} label={t("actions")} returnFocusRef={btn} style={{ top: "calc(100% + 4px)", right: 0 }}>
-          {item("vm", Plus, t("node.createVm"), create, () => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" })))}
-          {item("shell", SquareTerminal, t("node.openShell"), shell, () => setTab("shell"))}
-          <hr />
-          {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(window.location.href))}
-          {item("caps", RefreshCw, t("node.refreshCaps"), { enabled: true }, () => window.dispatchEvent(new CustomEvent("nx:node-refresh", { detail: node.id })))}
+          {items}
         </Menu>
       </span>
     </div>
   );
+}
+
+// Right-click menu of a node in a list.
+export function NodeContextMenu({ node, at, returnFocus, onDone }) {
+  const t = useT();
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const items = useNodeMenu(node, { close: onDone, openTab: (tab) => navigateTo("node", node.id, tab), withOpen: true });
+  return <ContextMenu at={at} label={t("ctx.menuOf", { name: node.nom })} returnFocus={returnFocus} onClose={onDone}>{items}</ContextMenu>;
 }
 
 function HeadBtn({ state, label, onClick, primary, icon: Icon }) {
