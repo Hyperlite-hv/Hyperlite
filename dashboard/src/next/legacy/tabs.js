@@ -28,6 +28,7 @@ import { VmHardwarePage, VmOptionsPage, VmNetworkPage } from "../pages/VmConfigu
 import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
 import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage } from "../pages/ContainerPages";
 import VmCloudInitPage from "../pages/VmCloudInit";
+import VmAdvancedPage from "../pages/VmAdvanced";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
@@ -40,7 +41,7 @@ export const NODE_TABS = {
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage,
 };
 export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, backup: ContainerBackupsPage, tasks: ActivityPage };
 
@@ -69,7 +70,7 @@ export const OBJECT_TABS = {
     { id: "perf", label: "tab.perf", pages: [page("perf")] },
     { id: "snapshots", label: "tab.snapshots", pages: [page("snapshots")] },
     { id: "backup", label: "tab.backups", pages: [page("backup")] },
-    { id: "hardware", label: "tab.hardware", pages: [page("hardware"), page("options"), page("cloudinit")] },
+    { id: "hardware", label: "tab.hardware", pages: [page("hardware"), page("advanced"), page("options"), page("cloudinit")] },
     { id: "network", label: "tab.network", pages: [page("network")] },
     { id: "console", label: "tab.console", pages: [page("console")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },

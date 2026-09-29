@@ -697,6 +697,22 @@ export async function saveMeta(kind, name, payload, node = null) {
   const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/meta/${kind}/${encodeURIComponent(name)}${q}`, { method: "PUT", ...jsonBody(payload) });
 }
+// ---- Advanced hardware settings of a VM of this host: disk options, boot order, ballooning, machine type.
+export async function fetchVMHardwareOptions(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hardware-options`);
+}
+export async function setVMDiskOptions(name, dev, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(dev)}/options`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function setVMBootOrder(name, ordre) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/boot-order`, { method: "PUT", ...jsonBody({ ordre }) });
+}
+export async function setVMBalloon(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/balloon`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function setVMMachine(name, machine) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/machine`, { method: "PUT", ...jsonBody({ machine }) });
+}
 // ---- Cloud-init after creation (GET/PUT /vms/{name}/cloud-init, VMs of this host made from a cloud image).
 export async function fetchVMCloudInit(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`);
