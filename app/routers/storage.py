@@ -10,7 +10,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import iscsi, zfs_storage
+from app.core import iscsi, nfs_permissions, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, open_conn
@@ -355,7 +355,12 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
             raise HTTPException(status_code=500, detail=f"Pool creation error: {msg}") from e
 
         log_action(user["username"], "create_storage_pool", payload.name, "succes")
-        return _pool_summary(pool)
+        summary = _pool_summary(pool)
+        if payload.type == "netfs" and not node:
+            # Mounted fine is not enough: QEMU must be able to own its disk files there (root_squash).
+            perm = nfs_permissions.check(target_path, export=payload.nfs_export_path)
+            summary["avertissement"] = perm["message"]
+        return summary
     finally:
         conn.close()
 
@@ -395,6 +400,35 @@ def _vms_using_path(conn, target):
                 names.append(dom.name())
                 break
     return names
+
+
+@router.post("/{pool_name}/check-permissions")
+def check_pool_permissions(pool_name: str, user: dict = Depends(require_role("admin"))):
+    """For an NFS pool of this host: can QEMU own its disk files there (see app/core/nfs_permissions.py)?"""
+    conn = open_conn()
+    try:
+        try:
+            pool = conn.storagePoolLookupByName(pool_name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
+        if _pool_type(pool) != "netfs":
+            raise HTTPException(status_code=422, detail="Only NFS pools need this check")
+        if not pool.isActive():
+            raise HTTPException(status_code=409, detail="Start the pool first: the share must be mounted")
+        export = ET.fromstring(pool.XMLDesc(0)).find("source/dir")
+        result = nfs_permissions.check(
+            _pool_path(pool), export=export.get("path") if export is not None else "/srv/share"
+        )
+        log_action(
+            user["username"],
+            "check_pool_permissions",
+            pool_name,
+            "succes" if result["ok"] else "echec",
+            result["message"],
+        )
+        return {"nom": pool_name, "ok": result["ok"], "message": result["message"]}
+    finally:
+        conn.close()
 
 
 @router.delete("/{pool_name}")

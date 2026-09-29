@@ -65,6 +65,13 @@ def describe_exception(e: Exception) -> str:
     raw = str(e)
     lowered = raw.lower()
 
+    # A disk QEMU may not open on an NFS share: the usual root_squash case, whose fix is on the NFS server.
+    from app.core.nfs_permissions import explain_denied_disk
+
+    nfs = explain_denied_disk(raw)
+    if nfs:
+        return f"{nfs} : {raw}"
+
     errno_val = getattr(e, "errno", None)
     if errno_val in _ERRNO_LABELS:
         return f"{_ERRNO_LABELS[errno_val]} : {raw}"
