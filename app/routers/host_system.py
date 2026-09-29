@@ -38,7 +38,7 @@ class UpgradeRequest(BaseModel):
 @router.post("/updates/upgrade", status_code=202)
 def upgrade(payload: UpgradeRequest, user: dict = Depends(require_role("admin"))):
     try:
-        host_system.upgrade_command(payload.paquets)
+        cmd = host_system.upgrade_command(payload.paquets)
     except host_system.SettingError as e:
         raise _refused(user, "host_upgrade", e) from e
     if not _upgrade_lock.acquire(blocking=False):
@@ -48,7 +48,7 @@ def upgrade(payload: UpgradeRequest, user: dict = Depends(require_role("admin"))
 
     def work():
         try:
-            code = host_system.run_upgrade(payload.paquets, lambda line: task_log(task_id, line))
+            code = host_system.run_upgrade(cmd, lambda line: task_log(task_id, line))
             finish_task(
                 task_id, "termine" if code == 0 else "echec", None if code == 0 else f"apt-get exited with {code}"
             )

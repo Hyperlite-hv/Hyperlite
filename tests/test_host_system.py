@@ -57,13 +57,17 @@ def test_upgradable_packages_are_parsed_with_security_flag(host):
 
 def test_upgrade_names_the_packages_and_leaves_hyperlite_out(host, monkeypatch):
     monkeypatch.setattr(hs.Path, "is_dir", lambda self: True)
-    cmd = hs.upgrade_command(["openssl", "hyperlite", "libvirt0"])
+    listed = hs.parse_upgradable(APT_LIST)
+    cmd = hs.upgrade_command(["libvirt0", "openssl", "hyperlite"], listed)
     assert cmd[:5] == ["systemd-run", "--quiet", "--collect", "--wait", "--pipe"]
+    # apt's own names, in apt's order
     assert cmd[-2:] == ["openssl", "libvirt0"] and "--only-upgrade" in cmd and "hyperlite" not in cmd
     with pytest.raises(hs.SettingError, match="Nothing to upgrade"):
-        hs.upgrade_command(["hyperlite"])
-    with pytest.raises(hs.SettingError, match="Invalid package"):
-        hs.upgrade_command(["openssl; reboot"])
+        hs.upgrade_command(["hyperlite"], listed)
+    with pytest.raises(hs.SettingError, match="Not upgradable on this node: openssl; reboot"):
+        hs.upgrade_command(["openssl; reboot"], listed)
+    host["answers"][("apt", "list")] = APT_LIST
+    assert hs.upgrade_command(["base-files"])[-1] == "base-files"  # the list read from apt when not given
 
 
 def test_dns_follows_who_manages_resolv_conf(host):
@@ -137,7 +141,8 @@ def test_api_is_admin_only_and_starts_one_upgrade_task(client, auth_headers, hos
 
     release = threading.Event()
 
-    def fake_run(packages, log):
+    def fake_run(cmd, log):
+        assert cmd[-1] == "openssl"
         log("Setting up openssl ...")
         release.wait(5)
         return 0
