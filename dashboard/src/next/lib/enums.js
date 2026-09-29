@@ -25,6 +25,7 @@ const POOL_STATES = {
 };
 const TASK_STATES = {
   en_cours: { key: "state.inprogress", shape: "spinner", tone: "info" },
+  en_attente: { key: "state.pending", shape: "ring", tone: "offline" },
   termine: { key: "state.done", shape: "check", tone: "success" },
   echec: { key: "state.failed", shape: "cross", tone: "danger" },
 };
