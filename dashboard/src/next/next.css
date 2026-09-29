@@ -853,3 +853,6 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 .nx-explain dt { font-weight: 600; color: var(--color-text-primary); }
 .nx-explain dd { margin: 0; }
 .nx-help-tip { white-space: normal; }
+/* Console side panels: text to type into the VM, the VM's clipboard. */
+.nx-typebar { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-subtle); border-top: 0; background: var(--color-bg-surface); }
+.nx-clip { display: block; max-height: 5rem; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: var(--fs-12); }
