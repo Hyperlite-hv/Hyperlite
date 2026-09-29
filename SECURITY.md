@@ -27,5 +27,4 @@ Hyperlite has no stable release yet. Only the latest published version receives 
 - Root SSH login with a password is enabled by the appliance installer.
 - SSH connections to VMs and containers that Hyperlite creates itself do not verify host keys (they are new, local guests).
 - There is no fencing for high availability, see the README.
-- The dashboard loads fonts from Google Fonts.
 - No third-party security audit has been performed.
