@@ -678,12 +678,7 @@ select.nx-input { height: 2rem; }
   .nx-cap-na { grid-column: 1 / -1; }
 }
 
-/* Sidebar as in the reference: cluster button, three navigation sections, running operation, account */
-.nx-cluster { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) var(--space-3) var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); color: var(--color-text-primary); cursor: pointer; font: inherit; font-family: var(--font-mono); font-size: var(--font-size-sm); text-align: left; flex: none; }
-.nx-cluster:hover { background: var(--color-bg-hover); }
-.nx-cluster-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-cluster-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); flex: none; }
-.nx-cluster-dot.is-warn { background: var(--color-warning); }
+/* Sidebar as in the reference: three navigation sections, running operation, account */
 .nx-nav-scroll { flex: 1 1 auto; max-height: none; }
 .nx-sidebar-op { flex: none; margin: 0 var(--space-3) var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); display: grid; gap: var(--space-2); font-size: var(--font-size-xs); }
 .nx-sidebar-op-head { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
