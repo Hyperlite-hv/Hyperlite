@@ -29,8 +29,8 @@ async function open(page: Page, lang = "en") {
 test("cannot enable an incomplete configuration; saving sends the fields, keeps the secret hidden, and flags unsaved changes", async ({ page, request }) => {
   await open(page);
   const main = page.getByRole("main");
-  // Scoped to the OIDC form: the LDAP card on the same page has its own Save button.
-  const save = main.locator("form").getByRole("button", { name: "Save", exact: true });
+  // The LDAP card below has its own "Save": this one is the OIDC card's.
+  const save = main.getByRole("region", { name: "OIDC provider" }).getByRole("button", { name: "Save", exact: true });
   await expect(main.getByRole("heading", { level: 1, name: "Authentication (SSO)" })).toBeVisible({ timeout: 20_000 });
   await expect(main.getByRole("heading", { name: "OIDC provider" })).toBeVisible();
   await expect(save).toBeDisabled(); // nothing changed yet
