@@ -209,7 +209,7 @@ export default function Workspace({ children }) {
               : selection.type === "container" ? <ContainerHead ct={resource} />
               : <NodeHead node={resource} setTab={setTab} />}
             <div className="nx-tabs" role="tablist" aria-label={resource.nom} onKeyDown={onTabKeyDown}>
-              {topTabs.map((x) => (
+              {topTabs.filter((x) => !x.admin || caps.admin || x.id === top.id).map((x) => (
                 <button key={x.id} id={`nx-top-${x.id}`} type="button" role="tab" aria-selected={top.id === x.id} aria-controls="nx-panel" tabIndex={top.id === x.id ? 0 : -1} onClick={() => goTop(x)}>{t(x.label)}</button>
               ))}
             </div>

@@ -29,6 +29,7 @@ import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
 import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage } from "../pages/ContainerPages";
 import VmCloudInitPage from "../pages/VmCloudInit";
 import VmAdvancedPage from "../pages/VmAdvanced";
+import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPermissions";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
@@ -41,9 +42,9 @@ export const NODE_TABS = {
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage,
 };
-export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, backup: ContainerBackupsPage, tasks: ActivityPage };
+export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
 
 // vSphere-style model: every inventory object has a few top tabs; a top tab that holds several
@@ -74,12 +75,14 @@ export const OBJECT_TABS = {
     { id: "network", label: "tab.network", pages: [page("network")] },
     { id: "console", label: "tab.console", pages: [page("console")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
+    { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
   ],
   container: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
     { id: "console", label: "tab.console", pages: [page("console")] },
     { id: "backup", label: "tab.backups", pages: [page("backup")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
+    { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
   ],
 };
 

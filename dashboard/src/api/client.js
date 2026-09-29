@@ -929,6 +929,10 @@ export async function fetchAcl() {
 export async function createAcl(payload) {
   return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
 }
+// Assignments on one VM or container, with those a VM inherits from its pools (`herite_de`).
+export async function fetchObjectAcl(kind, name) {
+  return realFetch(`/acl/object/${kind}/${encodeURIComponent(name)}`);
+}
 export async function deleteAcl(aclId) {
   return realFetch(`/acl/${aclId}`, { method: "DELETE" });
 }
