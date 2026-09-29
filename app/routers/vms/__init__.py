@@ -12,6 +12,7 @@ from app.routers.vms import create  # noqa: F401
 from app.routers.vms import lifecycle  # noqa: F401
 from app.routers.vms import auto_cleanup  # noqa: F401
 from app.routers.vms import devices  # noqa: F401
+from app.routers.vms import hardware_opts  # noqa: F401
 from app.routers.vms import firewall  # noqa: F401
 from app.routers.vms import snapshots  # noqa: F401
 from app.routers.vms import clone  # noqa: F401

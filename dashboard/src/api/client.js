@@ -67,6 +67,54 @@ async function realFetch(path, opts = {}) {
 // /health answers everyone but reports versions and host details only to a signed-in
 // caller. Plain fetch rather than realFetch: it is polled while the service restarts,
 // where a failure is expected and must not sign the user out.
+// This node's system settings (local node, admin): package updates, DNS, time, remote syslog.
+export async function fetchHostUpdates(refresh = false) {
+  return realFetch(`/host/system/updates${refresh ? "?refresh=true" : ""}`);
+}
+export async function upgradeHostPackages(paquets) {
+  return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
+}
+// Reboot or power off this node: the host name typed back, running guests refused or shut down first.
+export async function nodePower(payload) {
+  return realFetch("/host/system/power", { method: "POST", ...jsonBody(payload) });
+}
+export async function fetchHostDns() {
+  return realFetch("/host/system/dns");
+}
+export async function setHostDns(payload) {
+  return realFetch("/host/system/dns", { method: "PUT", ...jsonBody(payload) });
+}
+export async function fetchHostTime() {
+  return realFetch("/host/system/time");
+}
+export async function fetchHostTimezones() {
+  return realFetch("/host/system/time/zones");
+}
+export async function setHostTime(payload) {
+  return realFetch("/host/system/time", { method: "PUT", ...jsonBody(payload) });
+}
+export async function fetchHostSyslog() {
+  return realFetch("/host/system/syslog");
+}
+export async function setHostSyslog(payload) {
+  return realFetch("/host/system/syslog", { method: "PUT", ...jsonBody(payload) });
+}
+// This node's HTTPS certificate; every change restarts the service (`redemarrage`).
+export async function fetchCertificate() {
+  return realFetch("/host/certificate");
+}
+export async function importCertificate(pem) {
+  return realFetch("/host/certificate", { method: "POST", ...jsonBody(pem) });
+}
+export async function requestAcmeCertificate(payload) {
+  return realFetch("/host/certificate/acme", { method: "POST", ...jsonBody(payload) });
+}
+export async function restorePreviousCertificate() {
+  return realFetch("/host/certificate/previous", { method: "POST" });
+}
+export async function selfSignedCertificate() {
+  return realFetch("/host/certificate/self-signed", { method: "POST" });
+}
 export async function fetchHealth() {
   const res = await fetch("/health", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
@@ -260,6 +308,16 @@ export async function deleteNetwork(name) {
 export async function fetchHostInterfaces() {
   return realFetch("/networks/host-interfaces");
 }
+// Subnet, DHCP range and mode of a NAT/isolated network; `a_redemarrer` when the change waits for its restart.
+export async function editNetwork(name, payload) {
+  return realFetch(`/networks/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
+}
+export async function addNetworkReservation(name, payload) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/reservations`, { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteNetworkReservation(name, mac) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/reservations/${encodeURIComponent(mac)}`, { method: "DELETE" });
+}
 export async function startNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}/start`, { method: "POST" });
 }
@@ -404,6 +462,19 @@ async function downloadCsv(path, filters, fallbackName) {
   const a = document.createElement("a");
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+// File-level restore: a browsing session on a backup's disks, its folders, and a file (or a folder as .tar.gz).
+export async function openBackupFiles(backupId) {
+  return realFetch(`/backups/${backupId}/files`, { method: "POST" });
+}
+export async function listBackupDir(session, device, path) {
+  return realFetch(`/file-restore/${encodeURIComponent(session)}/ls?${new URLSearchParams({ device, path })}`);
+}
+export function downloadBackupFile(session, device, path) {
+  return downloadCsv(`/file-restore/${encodeURIComponent(session)}/download`, { device, path }, "restored-file");
+}
+export async function closeBackupFiles(session) {
+  return realFetch(`/file-restore/${encodeURIComponent(session)}`, { method: "DELETE" });
 }
 export function downloadAuditCsv(filters = {}) {
   return downloadCsv("/audit/export.csv", filters, "hyperlite-audit.csv");
@@ -661,6 +732,16 @@ export async function testNotificationChannel(id) {
 export async function fetchSsoStatus() {
   return realFetch("/auth/sso/status");
 }
+// LDAP / Active Directory sign-in (admin).
+export async function fetchLdapConfig() {
+  return realFetch("/ldap/config");
+}
+export async function saveLdapConfig(payload) {
+  return realFetch("/ldap/config", { method: "PUT", ...jsonBody(payload) });
+}
+export async function testLdap(payload) {
+  return realFetch("/ldap/test", { method: "POST", ...jsonBody(payload) });
+}
 export async function fetchSsoConfig() {
   return realFetch("/auth/sso/config");
 }
@@ -697,6 +778,22 @@ export async function saveMeta(kind, name, payload, node = null) {
   const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/meta/${kind}/${encodeURIComponent(name)}${q}`, { method: "PUT", ...jsonBody(payload) });
 }
+// ---- Advanced hardware settings of a VM of this host: disk options, boot order, ballooning, machine type.
+export async function fetchVMHardwareOptions(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/hardware-options`);
+}
+export async function setVMDiskOptions(name, dev, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(dev)}/options`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function setVMBootOrder(name, ordre) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/boot-order`, { method: "PUT", ...jsonBody({ ordre }) });
+}
+export async function setVMBalloon(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/balloon`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function setVMMachine(name, machine) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/machine`, { method: "PUT", ...jsonBody({ machine }) });
+}
 // ---- Cloud-init after creation (GET/PUT /vms/{name}/cloud-init, VMs of this host made from a cloud image).
 export async function fetchVMCloudInit(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`);
@@ -705,6 +802,11 @@ export async function setVMCloudInit(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`, { method: "PUT", ...jsonBody(payload) });
 }
 // ---- Start at boot (GET/PUT /vms/{name}/boot): per node, so the VM's node travels with the call.
+// Settings a running VM takes only at its next start (live definition vs saved one).
+export async function fetchVMPendingChanges(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/pending-changes${q}`);
+}
 export async function fetchVMBoot(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`);
@@ -760,6 +862,22 @@ export async function fetchNodeHardware(node) {
 }
 export async function testNodeConnection(payload) {
   return realFetch("/nodes/test", { method: "POST", ...jsonBody(payload) });
+}
+// Grouped backup jobs (admin): all VMs of this node, a tag's or a pool's, on one schedule.
+export async function fetchBackupGroups() {
+  return realFetch("/backup-groups");
+}
+export async function createBackupGroup(payload) {
+  return realFetch("/backup-groups", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateBackupGroup(id, payload) {
+  return realFetch(`/backup-groups/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteBackupGroup(id) {
+  return realFetch(`/backup-groups/${id}`, { method: "DELETE" });
+}
+export async function runBackupGroup(id) {
+  return realFetch(`/backup-groups/${id}/run`, { method: "POST" });
 }
 export async function fetchBackupSchedules() {
   return realFetch("/backup-schedules");
@@ -913,6 +1031,10 @@ export async function fetchAcl() {
 export async function createAcl(payload) {
   return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
 }
+// Assignments on one VM or container, with those a VM inherits from its pools (`herite_de`).
+export async function fetchObjectAcl(kind, name) {
+  return realFetch(`/acl/object/${kind}/${encodeURIComponent(name)}`);
+}
 export async function deleteAcl(aclId) {
   return realFetch(`/acl/${aclId}`, { method: "DELETE" });
 }
@@ -1021,6 +1143,22 @@ export async function decideCliRequest(code, approve) {
   return realFetch(`/auth/cli/requests/${encodeURIComponent(code)}/${approve ? "approve" : "deny"}`, { method: "POST" });
 }
 
+// External metric servers the collector pushes to (InfluxDB 2, Graphite); admin only.
+export async function fetchMetricServers() {
+  return realFetch("/metric-servers");
+}
+export async function createMetricServer(payload) {
+  return realFetch("/metric-servers", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateMetricServer(id, payload) {
+  return realFetch(`/metric-servers/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteMetricServer(id) {
+  return realFetch(`/metric-servers/${id}`, { method: "DELETE" });
+}
+export async function testMetricServer(id) {
+  return realFetch(`/metric-servers/${id}/test`, { method: "POST" });
+}
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
 }

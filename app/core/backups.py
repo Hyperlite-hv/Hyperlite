@@ -36,7 +36,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import backup_integrity, firmware, guest_agent, vm_locks
+from app.core import backup_integrity, backup_retention, firmware, guest_agent, vm_locks
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
@@ -401,9 +401,9 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             # policy means no imposed limit, so a 100% manual usage without scheduling is
             # unchanged).
             with get_conn() as db:
-                job_row = db.execute("SELECT retention_count FROM backup_jobs WHERE vm_name = ?", (vm_name,)).fetchone()
+                job_row = db.execute("SELECT * FROM backup_jobs WHERE vm_name = ?", (vm_name,)).fetchone()
             if job_row:
-                _apply_retention(vm_name, job_row["retention_count"])
+                _apply_retention(vm_name, backup_retention.policy_of(job_row))
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
             with get_conn() as db:
@@ -696,18 +696,24 @@ def _verify_due_backup():
         _backup_lock.release()
 
 
-def _apply_retention(vm_name, retention_count):
-    """Per VM, not per job_id (see the comment in run_backup): a retention_count
-    configured for a VM caps the TOTAL number of its finished backups, whether
-    they come from a scheduled job or from a manual trigger."""
+def _apply_retention(vm_name, policy):
+    """Per VM, not per job_id (see the comment in run_backup): the policy (app/core/backup_retention.py) applies
+    to ALL the finished backups of the VM, whether they come from a schedule or from a manual trigger."""
     with get_conn() as db:
         rows = db.execute(
-            "SELECT id, chemin FROM backups WHERE vm_name = ? AND statut = 'termine' ORDER BY cree_le DESC",
-            (vm_name,),
+            "SELECT id, chemin, cree_le FROM backups WHERE vm_name = ? AND statut = 'termine'", (vm_name,)
         ).fetchall()
-        for row in rows[retention_count:]:
-            shutil.rmtree(row["chemin"], ignore_errors=True)
-            db.execute("DELETE FROM backups WHERE id = ?", (row["id"],))
+        keep = backup_retention.kept(
+            [(r["id"], r["cree_le"]) for r in rows],
+            policy["last"],
+            policy["daily"],
+            policy["weekly"],
+            policy["monthly"],
+        )
+        for row in rows:
+            if row["id"] not in keep:
+                shutil.rmtree(row["chemin"], ignore_errors=True)
+                db.execute("DELETE FROM backups WHERE id = ?", (row["id"],))
         db.commit()
 
 
@@ -753,6 +759,9 @@ def _scheduler_loop():
                         (now.isoformat(), next_run.isoformat(), job["id"]),
                     )
                     db.commit()
+            from app.core import backup_groups
+
+            backup_groups.run_due(now)
             _verify_due_backup()
         except Exception:
             logger.exception("Backup scheduler tick failed")

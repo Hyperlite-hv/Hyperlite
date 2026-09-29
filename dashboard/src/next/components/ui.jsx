@@ -210,14 +210,16 @@ export function SideDrawer({ open, title, onClose, children, footer, busy = fals
   );
 }
 
-// Labelled form field: label above, hint (or error) below, optional unit inside the input.
-export function Field({ label, hint, error, unit, children, id }) {
+// Labelled form field: label above, hint (or error) below, optional unit inside the input. `help` adds an (i)
+// next to the label for what does not fit in a hint: what the setting does and when to change it.
+export function Field({ label, hint, error, unit, help, children, id }) {
+  const t = useT();
   const autoId = useId();
   const fid = id || autoId;
   const child = typeof children === "function" ? children({ id: fid, "aria-invalid": error ? true : undefined, "aria-describedby": hint || error ? `${fid}-h` : undefined }) : children;
   return (
     <div className="nx-f">
-      <label htmlFor={fid}>{label}</label>
+      {help ? <span className="nx-f-l"><label htmlFor={fid}>{label}</label><HelpTip text={help} label={t("helpOn", { label: typeof label === "string" ? label : "" })} /></span> : <label htmlFor={fid}>{label}</label>}
       {unit ? <div className="nx-unit">{child}<span aria-hidden="true">{unit}</span></div> : child}
       {(error || hint) && <span id={`${fid}-h`} className={`nx-f-h${error ? " is-error" : ""}`} role={error ? "alert" : undefined}>{error || hint}</span>}
     </div>

@@ -13,6 +13,7 @@ import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu"
 import { ErrorState, InlineError } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Archive, Info, Trash2 } from "lucide-react";
+import BackupGroupJobs from "../components/BackupGroupJobs";
 
 const STATUS = { termine: "termine", echec: "echec" };
 
@@ -30,6 +31,9 @@ export default function BackupsPage() {
   const [scheduled, setScheduled] = useState(null);
   const [scheduleError, setScheduleError] = useState(null);
   const vms = useInfraStore((s) => s.vms);
+  // VMs a grouped job covers count as scheduled too (known to administrators, who alone read the jobs).
+  const [grouped, setGrouped] = useState(new Set());
+  const onGroups = useCallback((jobs) => setGrouped(new Set(jobs.filter((j) => j.actif).flatMap((j) => j.vms))), []);
 
   const load = useCallback(async () => {
     try { const r = await fetchAllBackups(); setRows(Array.isArray(r) ? r : []); setError(null); }
@@ -43,7 +47,7 @@ export default function BackupsPage() {
   useEffect(() => { load(); }, [load]);
   const running = Boolean(rows?.some((b) => !STATUS[b.statut]));
   usePolling(load, running ? 4000 : 15000);
-  const unprotected = scheduled ? vms.filter((v) => !scheduled.has(v.nom)).length : 0;
+  const unprotected = scheduled ? vms.filter((v) => !scheduled.has(v.nom) && !grouped.has(v.nom)).length : 0;
 
   async function remove(b) {
     if (!(await confirmAction({ title: t("vb.deleteTitle", { id: b.id }), message: t("bk.deleteHelp"), confirmLabel: t("vx.delete"), danger: true }))) return;
@@ -84,6 +88,7 @@ export default function BackupsPage() {
             </TableWrap>
           )}
       </div>
+      {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><BackupGroupJobs onChange={onGroups} /></div>}
       <ActionsContextMenu ctx={ctx} label={(b) => t("ctx.menuOf", { name: `${b.vm_name} #${b.id}` })} entries={(b) => [
         { key: "vm", icon: "open", label: t("ctx.vmBackups"), run: () => navigateTo("vm", b.vm_name, "backup") },
         b.chemin && b.statut === "termine" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.chemin) },
