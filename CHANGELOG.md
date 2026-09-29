@@ -46,6 +46,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- The Tasks page is laid out as a task list with status tabs (All, Running, Failed, with their counts) and, under it, the log of the selected task in a terminal-style panel, coloured by level. Columns: task, target, node, status with a progress bar, start, duration.
 - The sidebar no longer shows the host name and node count box under the logo; the search stays in the top bar and on Ctrl+K.
 - The interactive API documentation (`/docs`, `/redoc`, `/openapi.json`) is off by default; `HYPERLITE_API_DOCS=1` turns it back on.
 - `/health` answers anonymous callers with the status only; the version is given to the loopback (update watchdog) and the full report to signed-in users.
