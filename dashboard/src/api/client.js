@@ -479,6 +479,13 @@ export async function fetchTasks(filters = {}) {
 export async function fetchTaskDetail(id) {
   return realFetch(`/tasks/${encodeURIComponent(id)}`);
 }
+// A task's own log, and asking it to stop (force: close the record of one that cannot stop, administrator only).
+export async function fetchTaskLog(id) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}/log`);
+}
+export async function cancelTask(id, force = false) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}/cancel${force ? "?force=true" : ""}`, { method: "POST" });
+}
 
 // ---- Hyperlite update from Git (real: GET/POST /update/*, see
 // app/routers/update.py) ----

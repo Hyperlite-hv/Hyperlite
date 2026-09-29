@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { fetchTasks, fetchTaskDetail, downloadTasksCsv } from "../../api/client";
+import TaskLog from "../components/TaskLog";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
@@ -97,6 +98,8 @@ export default function ActivityPage({ selection }) {
                     <tr><td colSpan={6} className="nx-detailcell">
                       <p className="nx-muted" style={{ margin: "0 0 4px" }}>{t("ns.node")} : <span className="nx-mono">{r.node ? nodeName(r.node) : "—"}</span></p>
                       {r.erreur ? <p className="nx-mono" style={{ margin: 0, overflowWrap: "anywhere" }}><StatusIndicator override={{ key: "state.failed", shape: "diamond", tone: "danger" }} compact /> {r.erreur}</p> : <p className="nx-muted" style={{ margin: 0 }}>{t("act.noError")}</p>}
+                      <TaskLog task={r} onChanged={load} />
+                      {(detail[r.id]?.logs || []).length > 0 && <h3 className="nx-tasklog-h">{t("tl.audit")}</h3>}
                       {(detail[r.id]?.logs || []).slice(0, 8).map((l, i) => <p key={i} className="nx-mono nx-muted" style={{ margin: "2px 0 0" }}>{l.timestamp} · {l.action} · {l.result}{l.error_message ? ` · ${l.error_message}` : ""}</p>)}
                     </td></tr>
                   )}
