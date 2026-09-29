@@ -6,9 +6,9 @@ import jwt
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jwt import PyJWTError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.core import login_guard
+from app.core import login_guard, webauthn_keys
 from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.database import get_conn
@@ -103,6 +103,24 @@ class TwoFADisable(BaseModel):
     code: str | None = None  # current TOTP code, required when 2FA is on
 
 
+class LoginWebAuthnOptions(BaseModel):
+    pre_auth_token: str
+
+
+class LoginWebAuthn(BaseModel):
+    pre_auth_token: str
+    credential: dict
+
+
+class WebAuthnRegister(BaseModel):
+    credential: dict
+    name: str = Field("", max_length=64)
+
+
+class WebAuthnDelete(BaseModel):
+    password: str
+
+
 class TokenCreate(BaseModel):
     name: str
 
@@ -164,20 +182,79 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
             log_action(user["username"], "login", "auth", "succes", "Weak password: a change is required")
         user["must_change_password"] = 1
 
-    # Correct password but 2FA enabled: no full session token yet, only a 5-minute
+    # Correct password but a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
     # intermediate token (see create_preauth_token) that the frontend exchanges for
     # the real token through /auth/login/2fa after the TOTP code. The account's
     # failures are cleared only once the code is right too: clearing them here would
     # let whoever knows the password guess the code without limit.
-    if user["totp_enabled"]:
+    methods = [
+        m for m, on in (("totp", user["totp_enabled"]), ("webauthn", webauthn_keys.has_keys(user["username"]))) if on
+    ]
+    if methods:
         pre_auth = create_preauth_token(user["username"], remember)
-        log_action(user["username"], "login", "auth", "succes", "Password validated, 2FA code required")
-        return {"require_2fa": True, "pre_auth_token": pre_auth}
+        log_action(user["username"], "login", "auth", "succes", "Password validated, second factor required")
+        return {"require_2fa": True, "pre_auth_token": pre_auth, "methods": methods}
 
     _login_clear_failures(user["username"])
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=remember)
     _record_login(user["username"])
     log_action(user["username"], "login", "auth", "succes")
+    return _session_response(token, user)
+
+
+def _preauth_username(token):
+    try:
+        claims = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except PyJWTError:
+        raise HTTPException(status_code=401, detail="Login session expired, sign in again") from None
+    username = claims.get("sub")
+    if not claims.get("2fa_pending") or not username:
+        raise HTTPException(status_code=401, detail="Invalid pre-authentication token")
+    return username, claims
+
+
+def _refuse_if_locked(request, username, action):
+    ip = _client_ip(request)
+    if _login_ip_locked_out(ip) or (username and _login_locked_out(username)):
+        log_action(username or "system", action, "auth", "echec", "Locked out after repeated failures")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed attempts, try again in {LOGIN_WINDOW_S // 60} minutes",
+        )
+    return ip
+
+
+@router.post("/login/webauthn/options")
+def login_webauthn_options(request: Request, payload: LoginWebAuthnOptions):
+    """Second step with a security key: the challenge for this sign-in, after a valid password."""
+    username, _claims = _preauth_username(payload.pre_auth_token)
+    _refuse_if_locked(request, username, "login")
+    try:
+        return webauthn_keys.authentication_options(username, request.headers.get("origin"))
+    except webauthn_keys.WebAuthnError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from None
+
+
+@router.post("/login/webauthn")
+def login_webauthn(request: Request, payload: LoginWebAuthn):
+    username, claims = _preauth_username(payload.pre_auth_token)
+    ip = _refuse_if_locked(request, username, "login")
+    user = get_user(username)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    try:
+        ok = webauthn_keys.authenticate(username, request.headers.get("origin"), payload.credential)
+    except webauthn_keys.WebAuthnError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from None
+    if not ok:
+        _login_record_failure(username)
+        _login_ip_record_failure(ip)
+        log_action(username, "login", "auth", "echec", "Security key refused")
+        raise HTTPException(status_code=401, detail="Security key refused: try again, or use the code")
+    _login_clear_failures(username)
+    token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=bool(claims.get("remember")))
+    _record_login(username)
+    log_action(username, "login", "auth", "succes", "Security key validated")
     return _session_response(token, user)
 
 
@@ -233,6 +310,7 @@ def me(user: dict = Depends(get_current_user_pending_ok)):
         "username": user["username"],
         "role": user["role"],
         "totp_enabled": bool(user["totp_enabled"]),
+        "cles_securite": len(webauthn_keys.list_keys(user["username"])),
         "auth_source": user.get("auth_source", "local"),
         "password_change_required": bool(user.get("must_change_password")),
     }
@@ -302,6 +380,52 @@ def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(ge
         conn.commit()
     log_action(user["username"], "disable_2fa", user["username"], "succes")
     return {"message": "2FA disabled"}
+
+
+# --- Security keys (WebAuthn): each user manages their own, from a signed-in session (never an API token).
+
+
+@router.get("/webauthn/keys")
+def list_webauthn_keys(user: dict = Depends(get_session_user)):
+    return webauthn_keys.list_keys(user["username"])
+
+
+@router.post("/webauthn/keys/options")
+def webauthn_register_options(request: Request, user: dict = Depends(get_session_user)):
+    try:
+        return webauthn_keys.registration_options(user["username"], request.headers.get("origin"))
+    except webauthn_keys.WebAuthnError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from None
+
+
+@router.post("/webauthn/keys", status_code=201)
+def webauthn_register(request: Request, payload: WebAuthnRegister, user: dict = Depends(get_session_user)):
+    try:
+        key_id = webauthn_keys.register(
+            user["username"], request.headers.get("origin"), payload.credential, payload.name
+        )
+    except webauthn_keys.WebAuthnError as e:
+        log_action(user["username"], "add_security_key", user["username"], "echec", e.message)
+        raise HTTPException(status_code=e.status, detail=e.message) from None
+    log_action(user["username"], "add_security_key", user["username"], "succes", payload.name or "Security key")
+    return {"id": key_id, "cles": webauthn_keys.list_keys(user["username"])}
+
+
+@router.delete("/webauthn/keys/{key_id}")
+def webauthn_delete(request: Request, key_id: int, payload: WebAuthnDelete, user: dict = Depends(get_session_user)):
+    """Removing a key weakens the account: it takes the password, with the same lock as the sign-in form."""
+    username = user["username"]
+    ip = _refuse_if_locked(request, username, "remove_security_key")
+    if user.get("auth_source") != "sso" and not verify_password(payload.password, user["hashed_password"]):
+        _login_record_failure(username)
+        _login_ip_record_failure(ip)
+        log_action(username, "remove_security_key", username, "echec", "Incorrect password")
+        raise HTTPException(status_code=400, detail="Incorrect password")
+    if not webauthn_keys.delete_key(username, key_id):
+        raise HTTPException(status_code=404, detail="Security key not found")
+    _login_clear_failures(username)
+    log_action(username, "remove_security_key", username, "succes", f"key #{key_id}")
+    return {"cles": webauthn_keys.list_keys(username)}
 
 
 # --- Self-service API tokens: designed for automation (scripts, Terraform, cron),
@@ -473,6 +597,7 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
                 raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
         conn.execute("DELETE FROM users WHERE username = ?", (username,))
         conn.commit()
+    webauthn_keys.delete_all_keys(username)
     for group_id in get_user_groups(username):
         remove_group_member(group_id, username)
     log_action(user["username"], "delete_user", username, "succes")

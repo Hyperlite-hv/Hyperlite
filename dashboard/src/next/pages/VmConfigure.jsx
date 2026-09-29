@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Info, Plus, Trash2, Zap } from "lucide-react";
 import {
-  fetchVMDisks, attachDisk, detachDisk, createVolume, fetchVolumes, fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
-  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
+  fetchVMDisks, attachDisk, detachDisk, resizeDisk, moveDisk, createVolume, fetchVolumes, fetchVMNetwork, attachInterface, detachInterface, fetchNetworks,
+  fetchVMFirewall, setVMFirewall, fetchVMLimits, setVMLimits, fetchVMCpuPinning, setVMCpuPinning, fetchHostDevices, fetchVMHostDevices, attachVMHostDevice, detachVMHostDevice, fetchIsoTemplates, mountVMDriversIso, ejectVMDriversIso,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -61,10 +61,10 @@ function ComputeCard({ vm, admin }) {
     <Card title={t("vh.compute")}>
       {running && <p className="nx-f-h" style={{ margin: "0 0 var(--space-3)" }}>{t("vo.stopFirst")}</p>}
       <div className="nx-fg nx-fg--3">
-        <Field label="vCPU" unit="vCPU" error={vBad ? t("vo.range", { min: vMin, max: vMax ?? "…" }) : null} hint={t("vo.range", { min: vMin, max: vMax ?? "…" })}>
+        <Field label="vCPU" unit="vCPU" error={vBad ? t("vo.range", { min: vMin, max: vMax ?? "∞" }) : null} hint={t("vo.range", { min: vMin, max: vMax ?? "∞" })}>
           {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vcpu_count")} type="number" min={vMin} max={vMax} disabled={!admin || running} value={vcpu} onChange={(e) => setVcpu(e.target.value)} />}
         </Field>
-        <Field label={t("ct.memory")} unit={lang() === "fr" ? "Mo" : "MB"} error={mBad ? t("vo.range", { min: mMin, max: mMax ?? "…" }) : null} hint={t("vo.range", { min: mMin, max: mMax ?? "…" })}>
+        <Field label={t("ct.memory")} unit={lang() === "fr" ? "Mo" : "MB"} error={mBad ? t("vo.range", { min: mMin, max: mMax ?? "∞" }) : null} hint={t("vo.range", { min: mMin, max: mMax ?? "∞" })}>
           {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.memory_in_mb")} type="number" min={mMin} max={mMax} step={128} disabled={!admin || running} value={mem} onChange={(e) => setMem(e.target.value)} />}
         </Field>
         <Field label={t("vh.osLabel")} hint={t("vh.osHint")}>
@@ -127,9 +127,97 @@ function AddDiskDrawer({ open, onClose, vmName, disks, onDone }) {
       <Field label={t("vh.disk")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.disk_to_attach")} value={source} onChange={(e) => setSource(e.target.value)}><option value="__new__">{t("vh.newDisk")}</option>{volumes.map((v) => <option key={v.nom} value={v.nom}>{v.nom} ({v.capacite_go} GB)</option>)}</select>}</Field>
       {source === "__new__" && <>
         <Field label={t("vh.volName")} error={nameBad ? t("vh.volRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.volume_name")} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
-        <Field label={t("vh.size")} unit={lang() === "fr" ? "Go" : "GB"} error={sizeBad ? t("vh.sizeRule", { max: maxGb ?? "…" }) : null} hint={pick?.disponible_go != null ? t("vh.poolFree", { n: formatSizeGb(pick.disponible_go, lang()) }) : null}>
+        <Field label={t("vh.size")} unit={lang() === "fr" ? "Go" : "GB"} error={sizeBad ? t("vh.sizeRule", { max: maxGb ?? "∞" }) : null} hint={pick?.disponible_go != null ? t("vh.poolFree", { n: formatSizeGb(pick.disponible_go, lang()) }) : null}>
           {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.new_disk_size_in_gb")} type="number" min={1} max={maxGb} value={size} onChange={(e) => setSize(e.target.value)} />}
         </Field>
+      </>}
+    </SideDrawer>
+  );
+}
+
+// Grow one disk to a new total size. Growing never destroys data, so the explicit button in the drawer is the
+// confirmation; the backend refuses a shrink and the disks it cannot grow (iSCSI LUNs).
+function ResizeDiskDrawer({ disk, onClose, vm, onDone }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const limits = useHostLimits();
+  const [size, setSize] = useState("");
+  const [busy, setBusy] = useState(false);
+  const minGb = disk?.taille_go != null ? Math.floor(disk.taille_go) + 1 : 1;
+  useEffect(() => { if (disk) setSize(String(minGb)); }, [disk, minGb]);
+  const maxGb = limits?.disque_go?.max;
+  // Already at the per-disk limit: no size is valid, so say why instead of showing an impossible range.
+  const atLimit = maxGb != null && minGb > maxGb;
+  const limitOrigin = limits?.disque_go?.source === "configuration" ? limits.disque_go.variable : limits?.disque_go?.detail;
+  const sizeBad = atLimit || !intIn(size, minGb, maxGb);
+  async function submit() {
+    if (sizeBad) return;
+    setBusy(true);
+    try {
+      const r = await resizeDisk(vm.nom, disk.cible, Number(size));
+      pushToast({ kind: "success", title: t("vh.resized"), message: `${disk.cible} → ${formatSizeGb(r.taille_go, lang())}` });
+      onDone(); onClose();
+    } catch (e) { pushToast({ kind: "error", title: t("vh.resizeFailed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  const unit = lang() === "fr" ? "Go" : "GB";
+  return (
+    <SideDrawer open={!!disk} title={disk ? t("vh.resizeTitle", { dev: disk.cible }) : ""} onClose={onClose} busy={busy} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || sizeBad} onClick={submit}>{t("vh.resizeBtn")}</button>
+    </>}>
+      {disk && <>
+        <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeCurrent", { n: disk.taille_go != null ? formatSizeGb(disk.taille_go, lang()) : "—" })}</p>
+        {atLimit ? <p className="nx-notice nx-notice--warning" role="status" style={{ margin: 0 }}>{t("vh.resizeAtLimit", { max: formatSizeGb(maxGb, lang()), origin: limitOrigin || "—" })}</p> : (
+          <Field label={t("vh.resizeNew")} unit={unit} error={sizeBad ? t("vh.resizeRule", { min: minGb, max: maxGb ?? "∞" }) : null}>
+            {(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.new_size_in_gb")} type="number" min={minGb} max={maxGb} value={size} onChange={(e) => setSize(e.target.value)} />}
+          </Field>
+        )}
+        {vm.etat === "actif" && <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeLive")}</p>}
+        <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.resizeGuest")}</p>
+      </>}
+    </SideDrawer>
+  );
+}
+
+// Move one disk to another directory or NFS pool. The server checks everything again and runs the copy as a
+// task; the source file is kept unless the admin asks to delete it.
+function MoveDiskDrawer({ disk, onClose, vm, onDone }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const storagePools = useInfraStore((s) => s.storagePools);
+  const targets = storagePools.filter((p) => p.node === "local" && ["dir", "netfs"].includes(p.type) && p.etat === "actif" && p.nom !== disk?.pool);
+  const [pool, setPool] = useState("");
+  const [deleteSource, setDeleteSource] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (disk) { setPool(""); setDeleteSource(false); } }, [disk]);
+  async function submit() {
+    setBusy(true);
+    try {
+      await moveDisk(vm.nom, disk.cible, pool, deleteSource);
+      pushToast({ kind: "success", title: t("vh.moveStarted"), message: `${disk.cible} → ${pool}` });
+      onClose();
+      setTimeout(onDone, 3000);
+    } catch (e) { pushToast({ kind: "error", title: t("vh.moveFailed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  return (
+    <SideDrawer open={!!disk} title={disk ? t("vh.moveTitle", { dev: disk.cible }) : ""} onClose={onClose} busy={busy} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !pool} onClick={submit}>{t("vh.moveBtn")}</button>
+    </>}>
+      {disk && <>
+        <p className="nx-f-h" style={{ margin: 0 }}>{t("vh.moveFrom", { pool: disk.pool || "—" })}</p>
+        {targets.length === 0 ? <p className="nx-notice nx-notice--warning" role="status" style={{ margin: 0 }}>{t("vh.moveNoTarget")}</p> : (
+          <Field label={t("vh.moveTo")}>
+            {(p) => <select {...p} className="nx-inp" aria-label={t("a11y.move_destination_pool")} value={pool} onChange={(e) => setPool(e.target.value)}>
+              <option value="">{t("vh.moveChoose")}</option>
+              {targets.map((x) => <option key={x.nom} value={x.nom}>{x.nom} ({x.type === "netfs" ? "NFS" : t("vh.moveDir")}{x.disponible_go != null ? ` · ${formatSizeGb(x.disponible_go, lang())} ${t("stor.free").toLowerCase()}` : ""})</option>)}
+            </select>}
+          </Field>
+        )}
+        <label className="nx-check"><input type="checkbox" checked={deleteSource} onChange={(e) => setDeleteSource(e.target.checked)} /> {t("vh.moveDelete")}</label>
+        <p className="nx-f-h" style={{ margin: 0 }}>{t(vm.etat === "actif" ? "vh.moveLive" : "vh.moveCold")}</p>
       </>}
     </SideDrawer>
   );
@@ -166,6 +254,116 @@ function DriversCard({ vmName, onChanged }) {
   );
 }
 
+// ---- Host devices: PCI and USB passthrough (administrators only) ----------------------------------------
+function HostDevicesCard({ vm }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [list, setList] = useState(null);
+  const [error, setError] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const running = vm.etat === "actif";
+  const reload = useCallback(async () => {
+    try { setList(await fetchVMHostDevices(vm.nom)); setError(null); } catch (e) { setError(errorMessage(e)); }
+  }, [vm.nom]);
+  useEffect(() => { reload(); }, [reload]);
+  async function remove(d) {
+    if (!(await confirmAction({ title: t("hd.removeTitle", { name: d.produit || d.id }), message: t("hd.removeMsg"), confirmLabel: t("hd.remove"), danger: true }))) return;
+    setBusy(true);
+    try { await detachVMHostDevice(vm.nom, d.id); pushToast({ kind: "success", title: t("hd.removed"), message: d.produit || d.id }); await reload(); }
+    catch (e) { pushToast({ kind: "error", title: t("hd.removeFailed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Card title={t("hd.title")} note={list ? list.length : null} flush actions={<button type="button" className="nx-btn nx-btn--sm" onClick={() => setAdding(true)}><Plus size={14} aria-hidden="true" />{t("hd.add")}</button>}>
+      {error && list == null ? <ErrorState message={error} onRetry={reload} /> : list == null ? <Loading style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }} /> : list.length === 0 ? <p className="nx-muted" style={{ padding: "0 var(--space-4) var(--space-4)", margin: 0 }}>{t("hd.none")}</p> : (
+        <TableWrap>
+          <table className="nx-table">
+            <thead><tr><th scope="col">{t("hd.device")}</th><th scope="col">{t("hd.type")}</th><th scope="col">{t("hd.address")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+            <tbody>
+              {list.map((d) => (
+                <tr key={d.id}>
+                  <th scope="row" style={{ fontWeight: 500 }}>{d.produit || d.id}{d.fabricant && <span className="nx-muted"> · {d.fabricant}</span>}{!d.present && <> <Chip tone="warning">{t("hd.absent")}</Chip></>}</th>
+                  <td><Chip>{d.type.toUpperCase()}</Chip></td>
+                  <td className="nx-mono">{d.adresse || "—"}</td>
+                  <td><div className="nx-ra"><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy || (d.type === "pci" && running)} title={d.type === "pci" && running ? t("hd.stopFirst") : undefined} aria-label={t("hd.removeAria", { name: d.produit || d.id })} onClick={() => remove(d)}>{t("hd.remove")}</button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
+      )}
+      <p className="nx-f-h" style={{ margin: "var(--space-2) var(--space-4) var(--space-4)" }}>{t("hd.help")}</p>
+      <AddHostDeviceDrawer open={adding} onClose={() => setAdding(false)} vm={vm} onDone={reload} />
+    </Card>
+  );
+}
+
+function AddHostDeviceDrawer({ open, onClose, vm, onDone }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [inv, setInv] = useState(null);
+  const [error, setError] = useState(null);
+  const [pick, setPick] = useState("");
+  const [busy, setBusy] = useState(false);
+  const running = vm.etat === "actif";
+  useEffect(() => {
+    if (!open) return;
+    setPick(""); setInv(null);
+    fetchHostDevices().then((r) => { setInv(r); setError(null); }).catch((e) => setError(errorMessage(e)));
+  }, [open]);
+  const all = inv ? [...inv.pci, ...inv.usb] : [];
+  const byId = Object.fromEntries(all.map((d) => [d.id, d]));
+  // Why a device cannot be chosen, or null.
+  const blocked = (d) => (d.hote ? t("hd.hostUses", { reason: d.hote })
+    : d.vm ? (d.vm === vm.nom ? t("hd.alreadyHere") : t("hd.givenTo", { vm: d.vm }))
+    : d.type === "pci" && !inv.iommu.actif ? t("hd.noIommu")
+    : d.type === "pci" && running ? t("hd.stopFirst") : null);
+  const chosen = byId[pick];
+  const group = chosen?.type === "pci" ? (chosen.groupe || []).map((id) => byId[id]).filter((m) => m && m.id !== chosen.id && !(m.classe || "").startsWith("0x06")) : [];
+  async function add() {
+    if (!chosen) return;
+    const pci = chosen.type === "pci";
+    if (pci && !(await confirmAction({ title: t("hd.confirmTitle", { name: chosen.produit }), message: t("hd.confirmMsg"), confirmLabel: t("hd.give"), danger: true }))) return;
+    setBusy(true);
+    try {
+      await attachVMHostDevice(vm.nom, chosen.id, pci);
+      pushToast({ kind: "success", title: t("hd.added"), message: chosen.produit });
+      onDone(); onClose();
+    } catch (e) { pushToast({ kind: "error", title: t("hd.addFailed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  const tile = (d) => {
+    const why = blocked(d);
+    return (
+      <label key={d.id} className={`nx-tile nx-tile--radio${pick === d.id ? " is-on" : ""}`} aria-disabled={why ? true : undefined} style={why ? { opacity: 0.6 } : undefined}>
+        <input type="radio" className="nx-tile-input" name="hostdev" checked={pick === d.id} disabled={Boolean(why)} onChange={() => setPick(d.id)} />
+        <b>{d.produit}</b><small className="nx-mono">{[d.adresse, d.ids, d.pilote].filter(Boolean).join(" · ")}</small>
+        <small>{d.fabricant}</small>{why && <small>{why}</small>}
+      </label>
+    );
+  };
+  return (
+    <SideDrawer open={open} title={t("hd.add")} onClose={onClose} busy={busy} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !chosen} onClick={add}>{t("hd.give")}</button>
+    </>}>
+      {error ? <ErrorState message={error} /> : !inv ? <Loading /> : (
+        <>
+          {!inv.iommu.actif && <p className="nx-notice nx-notice--warning" role="note">{t("hd.iommuOff")} {inv.iommu.raison}</p>}
+          <fieldset className="nx-fieldset"><legend>USB</legend>
+            {inv.usb.length === 0 ? <p className="nx-muted">{t("hd.noUsb")}</p> : <div className="nx-tiles">{inv.usb.map(tile)}</div>}
+          </fieldset>
+          <fieldset className="nx-fieldset"><legend>PCI</legend>
+            {inv.pci.length === 0 ? <p className="nx-muted">{t("hd.noPci")}</p> : <div className="nx-tiles">{inv.pci.map(tile)}</div>}
+          </fieldset>
+          {group.length > 0 && <p className="nx-hint" role="note">{t("hd.group", { list: group.map((m) => `${m.adresse} ${m.produit}`).join(", ") })}</p>}
+        </>
+      )}
+    </SideDrawer>
+  );
+}
+
 // Hardware: the editable processor and memory, the disks (table, add from a drawer), the Windows drivers drive.
 export function VmHardwarePage({ resource: vm }) {
   const t = useT();
@@ -174,6 +372,8 @@ export function VmHardwarePage({ resource: vm }) {
   const [disks, setDisks] = useState(null);
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [resizing, setResizing] = useState(null);
+  const [moving, setMoving] = useState(null);
   const [busy, setBusy] = useState(false);
   const name = vm?.nom;
   const node = vm?.node;
@@ -206,7 +406,7 @@ export function VmHardwarePage({ resource: vm }) {
                     <td><Chip>{[d.bus ? d.bus.toUpperCase() : null, d.type === "cdrom" ? "CD" : null].filter(Boolean).join(" · ") || "—"}</Chip></td>
                     <td className="nx-mono nx-wrapcell">{d.source || <span className="nx-muted">{t("vh.emptyDrive")}</span>}{d.pool && <span className="nx-muted"> ({d.pool})</span>}</td>
                     <td className="nx-num nx-mono">{size(d)}</td>
-                    <td><div className="nx-ra">{admin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("a11y.detach_disk_x", { v: d.cible })} onClick={() => detach(d)}>{t("vh.detach")}</button>}</div></td>
+                    <td><div className="nx-ra">{admin && d.type !== "cdrom" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy || !!d.non_agrandissable} title={d.non_agrandissable ? t(d.non_agrandissable === "iscsi" ? "vh.resizeIscsi" : "vh.resizeUnsupported") : undefined} aria-label={t("a11y.resize_disk_x", { v: d.cible })} onClick={() => setResizing(d)}>{t("vh.resize")}</button>}{admin && d.type !== "cdrom" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy || !d.pool || (d.source || "").startsWith("/dev/")} title={!d.pool || (d.source || "").startsWith("/dev/") ? t("vh.moveUnsupported") : undefined} aria-label={t("a11y.move_disk_x", { v: d.cible })} onClick={() => setMoving(d)}>{t("vh.move")}</button>}{admin && d.type !== "cdrom" && d.cible !== "vda" && d.cible !== "sda" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("a11y.detach_disk_x", { v: d.cible })} onClick={() => detach(d)}>{t("vh.detach")}</button>}</div></td>
                   </tr>
                 ))}
               </tbody>
@@ -215,7 +415,10 @@ export function VmHardwarePage({ resource: vm }) {
         )}
       </Card>
       {admin && <DriversCard vmName={vm.nom} onChanged={reload} />}
+      {admin && <HostDevicesCard vm={vm} />}
       <AddDiskDrawer open={adding} onClose={() => setAdding(false)} vmName={vm.nom} disks={disks} onDone={reload} />
+      <ResizeDiskDrawer disk={resizing} onClose={() => setResizing(null)} vm={vm} onDone={reload} />
+      <MoveDiskDrawer disk={moving} onClose={() => setMoving(null)} vm={vm} onDone={reload} />
     </>
   );
 }
@@ -251,6 +454,7 @@ export function VmNetworkPage({ resource: vm }) {
   const t = useT();
   const admin = capabilities(useAuthStore((s) => s.role)).admin;
   const pushToast = useInfraStore((s) => s.pushToast);
+  const refreshAll = useInfraStore((s) => s.refreshAll);
   const [info, setInfo] = useState(null);
   const [nets, setNets] = useState([]);
   const [error, setError] = useState(null);
@@ -263,7 +467,9 @@ export function VmNetworkPage({ resource: vm }) {
     catch (e) { setError(errorMessage(e)); }
   }, [name, node]);
   useEffect(() => { if (name) reload(); }, [name, reload]);
-  const fetchFw = useCallback(() => fetchVMFirewall(name), [name]);
+  // The VM list in the browser can still hold a VM that was just deleted (it is refreshed every few seconds):
+  // on "not found", refresh it now so the page shows the VM as missing instead of a stale one.
+  const fetchFw = useCallback(() => fetchVMFirewall(name).catch((e) => { if (e.status === 404) refreshAll?.(); throw e; }), [name, refreshAll]);
   const saveFw = useCallback((c) => setVMFirewall(name, c), [name]);
   if (!vm) return null;
   const ifaces = info?.interfaces || [];
@@ -338,6 +544,7 @@ export function VmOptionsPage({ resource: vm }) {
     } catch (er) { pushToast({ kind: "error", title: t("vo.applyFailed"), message: errorMessage(er) }); } finally { setBusy(false); }
   }
   return (
+    <>
     <Card title={t("vo.limits")}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-4)", fontSize: "var(--fs-13)" }}>{t("vo.limitsHelp")}</p>
       <div className="nx-fg nx-fg--3">
@@ -346,6 +553,108 @@ export function VmOptionsPage({ resource: vm }) {
         <Field label={t("vo.ramCap")} unit={lang() === "fr" ? "Mo" : "MB"} error={bad.ram ? t("vo.ramCapRule") : null} hint={t("vo.ramCapHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.ram_limit_in_mb")} type="number" min={64} placeholder={t("vo.unlimited")} disabled={!admin} value={ram} onChange={(e) => setRam(e.target.value)} />}</Field>
       </div>
       {admin && <div className="nx-fa"><button type="button" className="nx-btn" aria-label={t("a11y.apply_live")} disabled={!dirty || busy || bad.shares || bad.cpu || bad.ram} onClick={save}><Zap size={14} aria-hidden="true" />{t("vo.applyLive")}</button></div>}
+    </Card>
+    <CpuPinningCard vm={vm} admin={admin} />
+    </>
+  );
+}
+
+// ---- CPU pinning (affinity) and NUMA placement ----------------------------------------------------------
+// Client mirror of app/core/cpu_pinning.parse_cpuset, only to validate as the user types; the server decides.
+function parseCpuset(text) {
+  const s = (text || "").replace(/\s/g, "");
+  if (!/^\d{1,4}(-\d{1,4})?(,\d{1,4}(-\d{1,4})?)*$/.test(s)) return null;
+  const out = new Set();
+  for (const part of s.split(",")) {
+    const [a, b] = part.split("-").map(Number);
+    const hi = b ?? a;
+    if (a > hi) return null;
+    for (let i = a; i <= hi; i += 1) out.add(i);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+function formatCpuset(cpus) {
+  const s = [...new Set(cpus)].sort((x, y) => x - y), parts = [];
+  for (let i = 0; i < s.length;) {
+    let j = i;
+    while (j + 1 < s.length && s[j + 1] === s[j] + 1) j += 1;
+    parts.push(i === j ? `${s[i]}` : `${s[i]}-${s[j]}`);
+    i = j + 1;
+  }
+  return parts.join(",");
+}
+
+function CpuPinningCard({ vm, admin }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [pin, setPin] = useState(null);
+  const [error, setError] = useState(null);
+  const [mode, setMode] = useState("none");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const name = vm.nom;
+  const load = useCallback(async () => {
+    try {
+      const p = await fetchVMCpuPinning(name);
+      setPin(p); setMode(p.cpuset ? (p.strict ? "strict" : "set") : "none"); setText(p.cpuset || ""); setError(null);
+    } catch (e) { setError(errorMessage(e)); }
+  }, [name]);
+  useEffect(() => { load(); }, [load]);
+  if (error && !pin) return <Card title={t("pin.title")}><ErrorState message={error} onRetry={load} /></Card>;
+  if (!pin) return <Card title={t("pin.title")}><Loading /></Card>;
+
+  const topo = pin.topologie;
+  const known = new Set(topo.cpus.map((c) => c.id));
+  const chosen = mode === "none" ? [] : parseCpuset(text);
+  const problem = mode === "none" ? null
+    : chosen == null || chosen.length === 0 ? t("pin.e.format")
+    : chosen.some((c) => !known.has(c)) ? t("pin.e.missing", { cpus: formatCpuset(chosen.filter((c) => !known.has(c))) })
+    : mode === "strict" && chosen.length < vm.vcpu ? t("pin.e.strict", { n: vm.vcpu, m: chosen.length })
+    : null;
+  const wanted = { cpuset: mode === "none" ? null : formatCpuset(chosen || []), strict: mode === "strict" };
+  const dirty = wanted.cpuset !== (pin.cpuset ?? null) || wanted.strict !== pin.strict;
+  const toggle = (id) => {
+    const cur = new Set(parseCpuset(text) || []);
+    if (cur.has(id)) cur.delete(id); else cur.add(id);
+    setText(formatCpuset([...cur]));
+  };
+  async function save() {
+    if (problem) return;
+    setBusy(true);
+    try {
+      const r = await setVMCpuPinning(name, wanted);
+      setPin(r); setText(r.cpuset || "");
+      pushToast({ kind: "success", title: t("pin.saved"), message: r.redemarrage_requis ? t("pin.restart") : name });
+    } catch (e) { pushToast({ kind: "error", title: t("pin.failed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  }
+  const modes = [["none", t("pin.m.none"), t("pin.m.noneHelp")], ["set", t("pin.m.set"), t("pin.m.setHelp")], ["strict", t("pin.m.strict"), t("pin.m.strictHelp", { n: vm.vcpu })]];
+  return (
+    <Card title={t("pin.title")}>
+      <p className="nx-muted" style={{ margin: "0 0 var(--space-4)", fontSize: "var(--fs-13)" }}>{t("pin.help")}</p>
+      <fieldset className="nx-fieldset" disabled={!admin}>
+        <legend className="nx-sr">{t("pin.title")}</legend>
+        <div className="nx-tiles">{modes.map(([id, title, sub]) => (
+          <label key={id} className={`nx-tile nx-tile--radio${mode === id ? " is-on" : ""}`}><input type="radio" className="nx-tile-input" name="cpu-pin-mode" checked={mode === id} onChange={() => setMode(id)} /><b>{title}</b><small>{sub}</small></label>
+        ))}</div>
+      </fieldset>
+      {mode !== "none" && (
+        <div style={{ marginTop: "var(--space-4)" }}>
+          <Field label={t("pin.cpus")} error={problem} hint={t("pin.cpusHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("pin.cpus")} placeholder="2-5" disabled={!admin} value={text} onChange={(e) => setText(e.target.value)} />}</Field>
+          {topo.cellules.map((cell) => (
+            <div key={cell.id} role="group" aria-label={t("pin.cell", { id: cell.id })} style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center", marginTop: "var(--space-2)" }}>
+              {topo.cellules.length > 1 && <span className="nx-muted" style={{ minWidth: "6rem" }}>{t("pin.cell", { id: cell.id })}</span>}
+              {topo.cpus.filter((c) => c.cellule === cell.id).map((c) => (
+                <button key={c.id} type="button" className="nx-btn nx-btn--sm nx-mono" aria-pressed={(chosen || []).includes(c.id)} disabled={!admin}
+                  title={t("pin.cpuTitle", { socket: c.socket, core: c.coeur, siblings: formatCpuset(c.freres) })} onClick={() => toggle(c.id)}
+                  style={(chosen || []).includes(c.id) ? { background: "var(--accent)", color: "var(--accent-fg, #fff)" } : undefined}>{c.id}</button>
+              ))}
+            </div>
+          ))}
+          {pin.numa_cellule != null && <p className="nx-hint" role="note">{t("pin.numa", { id: pin.numa_cellule })}</p>}
+        </div>
+      )}
+      {admin && <div className="nx-fa"><button type="button" className="nx-btn" disabled={!dirty || busy || Boolean(problem)} onClick={save}>{t("pin.apply")}</button></div>}
     </Card>
   );
 }

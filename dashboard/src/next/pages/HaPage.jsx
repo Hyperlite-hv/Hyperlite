@@ -10,10 +10,11 @@ import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
+import { FencingCard, HaSettingsCard, HaWatchBanner, useHaStatus } from "../components/HaDryRun";
 import { Heart, Info, Monitor, RefreshCw } from "lucide-react";
 
-// High availability: protected VMs with the real status of their node. Recovery is always a manual,
-// confirmed action (no fencing: recovering while the original node still runs could corrupt the disk).
+// High availability: protected VMs with the real status of their node. Recovery is always a manual, confirmed
+// action; automatic HA runs in dry-run mode: the watcher shows, per VM, what it would have done.
 export default function HaPage() {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
@@ -27,6 +28,7 @@ export default function HaPage() {
   const [target, setTarget] = useState({});
   const [busy, setBusy] = useState(null);
   const ctx = useContextTarget(); // right click on a protected VM: its actions
+  const [status, reloadStatus] = useHaStatus();
 
   const reload = useCallback(async () => {
     try { const r = await fetchHaProtected(); setRows(Array.isArray(r) ? r : []); setError(null); }
@@ -61,6 +63,7 @@ export default function HaPage() {
         actions={<button type="button" className="nx-btn" onClick={reload}><RefreshCw size={15} aria-hidden="true" />{t("action.refresh")}</button>} />
       <div className="nx-bn" data-tone={online >= 2 && shared > 0 ? "success" : "info"} role="status"><Info size={16} aria-hidden="true" />
         <span className="nx-bn-t">{t("ha.prereq", { nodes: online, pools: shared })}</span></div>
+      <HaWatchBanner status={status} />
       {error && rows == null ? <ErrorState message={error} onRetry={reload} /> : (
         <div className="nx-card2 nx-card2--flush">
           {rows == null ? <Loading style={{ padding: "var(--space-4)" }} /> : list.length === 0 ? (
@@ -68,7 +71,7 @@ export default function HaPage() {
           ) : (
             <TableWrap>
               <table className="nx-table">
-                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">VM</th><th scope="col">{t("ha.node")}</th><th scope="col">{t("ha.sync")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">VM</th><th scope="col">{t("ha.node")}</th><th scope="col">{t("ha.sync")}</th><th scope="col">{t("hw.state")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {list.map((r) => {
                     const down = r.statut_noeud === "hors_ligne";
@@ -79,6 +82,7 @@ export default function HaPage() {
                         <th scope="row"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("vm", r.vm_name, "summary")}>{r.vm_name}</button></th>
                         <td className="nx-mono">{nodes.find((n) => n.id === r.node)?.nom || r.node}</td>
                         <td className="nx-mono">{fmt(r.last_synced_at) || <span className="nx-muted">{t("ha.never")}</span>}</td>
+                        <td className="nx-wrapcell">{r.etat_ha ? <span className="nx-chip" data-tone={{ ok: "success", suspect: "warning", en_panne: "danger", libvirt_injoignable: "warning" }[r.etat_ha]}>{t(`hw.s.${r.etat_ha}`)}</span> : <span className="nx-muted">—</span>}{r.derniere_action && <div className="nx-f-h" title={fmt(r.derniere_action_le) || undefined}>{r.derniere_action}</div>}</td>
                         <td><div className="nx-ra">
                           {caps.admin && down && (
                             <>
@@ -100,6 +104,8 @@ export default function HaPage() {
           )}
         </div>
       )}
+      {caps.admin && <HaSettingsCard status={status} onSaved={reloadStatus} />}
+      {caps.admin && <FencingCard nodes={nodes} />}
       <ActionsContextMenu ctx={ctx} label={(r) => t("ctx.menuOf", { name: r.vm_name })} entries={(r) => [
         { key: "vm", icon: "open", label: t("ctx.openVm"), run: () => navigateTo("vm", r.vm_name, "summary") },
         "-",

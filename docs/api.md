@@ -13,7 +13,6 @@ For historical reasons the API and the database use French identifiers and value
 | Task and backup status | `en_cours`, `termine`, `echec`, `succes` |
 | Global roles | `admin`, `observateur` |
 | Backup frequency and mode | `quotidien`, `hebdomadaire`, `mensuel`; `chaud`, `froid` |
-| Deployment profiles and allocation policies | `homelab`, `standard`, `avance`; `limites`, `surallocation`, `libre` |
 
 The dashboard translates these values for display (`dashboard/src/lib/labels.js`, `StatusBadge`). A future API version could introduce English identifiers; until then, treat the French values as stable.
 

@@ -39,7 +39,7 @@ Known limitation: the watchdog restores files but does not roll back dpkg's reco
 
 `installer/build-deb.sh` builds `hyperlite_<version>_amd64.deb` from the files tracked by Git plus the built dashboard. `installer/build-apt-repo.sh` assembles and signs a classic Debian repository (`dists/` and `pool/`) in `installer/apt-repo/` with a GPG key kept outside the repository (`/root/.hyperlite-apt-gpg`); only the public key is published.
 
-Publishing is automated by the **Publish** workflow (see "Publishing from GitHub Actions" below): after every change on `master` it builds the package and the ISO, signs the repository, updates the mirror and the stable `appliance-iso-latest` release. `scripts/git-hooks/post-merge` is the previous mechanism, kept only as a manual fallback on a build machine (it is not installed on the reference one); do not run both at once, they would publish the same version twice.
+Publishing is automated by the **Publish** workflow (see "Publishing from GitHub Actions" below): after every change on `master` it builds the package and the ISO, signs the repository, updates the mirror and the stable `appliance-iso-latest` release.
 
 ### Serving the repository
 

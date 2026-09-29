@@ -11,6 +11,7 @@ import Menu, { MenuItem } from "../components/Menu";
 import CreateVmWizard from "../wizard/CreateVmWizard";
 import CreateContainerWizard from "../wizard/CreateContainerWizard";
 import { locate } from "../legacy/tabs";
+import { useEnvironmentLabel } from "../lib/environment";
 
 // Top bar: clickable breadcrumb, global search (opens the palette), one Activity button whose badge counts
 // alerts (or running tasks), and the Create menu as a default button: list pages carry their own primary.
@@ -22,6 +23,7 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
   const caps = capabilities(useAuthStore((s) => s.role));
   const [createOpen, setCreateOpen] = useState(false);
   const createBtn = useRef(null);
+  const env = useEnvironmentLabel();
 
   const running = tasks.filter((x) => x.statut === "en_cours").length;
   const alerts = deriveAlerts({ nodes, vms, storagePools, tasks }).length;
@@ -48,10 +50,11 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
   };
 
   return (
-    <header className="nx-top">
+    <header className={`nx-top${env ? " nx-top--env" : ""}`}>
       <button type="button" className="nx-btn nx-btn--icon nx-btn--ghost" aria-label={t("nav.toggleSidebar")} onClick={onToggleSidebar}>
         <PanelLeft size={16} aria-hidden="true" />
       </button>
+      {env && <span className="nx-envbadge" title={t("env.title", { label: env })}>{env}</span>}
       <nav className="nx-crumbs" aria-label={t("crumb.label")}>
         {crumbs.length === 0 ? <span className="nx-crumb-current" aria-current="page">{t("crumb.datacenter")}</span>
           : <button type="button" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>}

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Make THIS node the Hyperlite controller from the last configuration copy the old controller sent it.
+# Refuses while the old controller still answers. See docs/cluster-failover.md.
+set -eu
+cd /root/hyperlite
+exec venv/bin/python -m app.core.config_copy promote "$@"
