@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test, uiLogin } from "../support/fixtures";
+import { apiLogin, expect, test, uiLogin } from "../support/fixtures";
 
 // The top bar "Create" menu, then its "Virtual machine" entry: the VM wizard.
 async function openVmWizard(page: Page) {
@@ -61,7 +61,9 @@ test.describe("Keyboard-only use", () => {
   });
 
   test("the search palette opens a node with the keyboard", async ({ page, request }) => {
-    const { hostname } = await (await request.get("/health")).json();
+    // /health reports the host name to a signed-in caller only.
+    const token = await apiLogin(request);
+    const { hostname } = await (await request.get("/health", { headers: { Authorization: `Bearer ${token}` } })).json();
     await uiLogin(page);
     await page.keyboard.press("Control+k");
     const palette = page.getByRole("dialog", { name: "Find a node or VM" });

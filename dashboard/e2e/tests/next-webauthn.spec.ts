@@ -54,6 +54,10 @@ test("a security key is added, then signs in instead of a code, then is removed 
   await expect(keys.getByText("No security key.")).toBeVisible();
   await keys.getByLabel("Key name").fill("Virtual key");
   await keys.getByRole("button", { name: "Add a key" }).click();
+  // Adding a key takes the password, like removing one.
+  const confirmAdd = page.getByRole("dialog", { name: "Add a security key" });
+  await confirmAdd.getByLabel("Your password").fill(PASSWORD);
+  await confirmAdd.getByRole("button", { name: "Add a key" }).click();
   await expect(keys.getByText("Virtual key", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(keys.getByText(/^localhost · added/)).toBeVisible();
   await page.keyboard.press("Escape");

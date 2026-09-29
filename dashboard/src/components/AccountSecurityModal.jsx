@@ -1,5 +1,6 @@
 import LoadingState from "./LoadingState";
 import { confirmAction } from "../store/useConfirmStore";
+import { promptText } from "../store/usePromptStore";
 import { useEffect, useState } from "react";
 import { ShieldCheck, ShieldOff, KeyRound, Plus, Trash2, Copy, Check } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
@@ -18,6 +19,7 @@ import SecurityKeysSection from "../next/components/SecurityKeysSection";
 // infrastructure.
 export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   const totpEnabled = useAuthStore((s) => s.totpEnabled);
+  const authSource = useAuthStore((s) => s.authSource);
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const pushToast = useInfraStore((s) => s.pushToast);
 
@@ -29,9 +31,15 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   const [busy2fa, setBusy2fa] = useState(false);
 
   async function handleStartSetup() {
+    // The password is asked again: a session left open must not be enough to enrol someone else's device.
+    let password = "";
+    if (authSource !== "sso") {
+      password = await promptText({ title: "Enable two-factor authentication", label: "Your password", type: "password", confirmLabel: "Continue", validate: (v) => (v ? "" : "Enter your password") });
+      if (!password) return;
+    }
     setBusy2fa(true);
     try {
-      setSetupData(await setup2FA());
+      setSetupData(await setup2FA(password));
     } catch (e) {
       pushToast({ kind: "error", title: "Failed", message: e.message });
     } finally {
@@ -74,6 +82,7 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   // --- Jetons API ---
   const [tokens, setTokens] = useState(null);
   const [newTokenName, setNewTokenName] = useState("");
+  const [newTokenDays, setNewTokenDays] = useState("90"); // "" = never expires
   const [freshToken, setFreshToken] = useState(null); // { id, name, token } -- displayed ONCE
   const [copied, setCopied] = useState(false);
   const [busyToken, setBusyToken] = useState(false);
@@ -98,7 +107,7 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
     if (!newTokenName.trim()) return;
     setBusyToken(true);
     try {
-      const created = await createApiToken(newTokenName.trim());
+      const created = await createApiToken(newTokenName.trim(), newTokenDays ? Number(newTokenDays) : null);
       setFreshToken(created);
       setNewTokenName("");
       reloadTokens();
@@ -234,6 +243,15 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
             <div className="flex-1">
               <Label className="text-xs font-medium text-foreground/80">Token name</Label>
               <Input aria-label="Token name" className="mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs font-medium text-foreground/80">Expires</Label>
+              <select aria-label="Token expiry" className="nx-input mt-1" value={newTokenDays} onChange={(e) => setNewTokenDays(e.target.value)}>
+                <option value="30">in 30 days</option>
+                <option value="90">in 90 days</option>
+                <option value="365">in a year</option>
+                <option value="">never</option>
+              </select>
             </div>
             <Button type="submit" disabled={busyToken || !newTokenName.trim()} variant="secondary">
               <Plus /> Create

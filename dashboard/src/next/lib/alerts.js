@@ -1,11 +1,12 @@
+import { vmKey } from "./vmId";
 // Alerts derived on the client from the states already loaded (there is no alerts API yet:
 // improvement A-14). Pure function, unit tested.
 export function deriveAlerts({ nodes = [], vms = [], storagePools = [], tasks = [] }) {
   const out = [];
   for (const n of nodes) if (n.etat !== "online") out.push({ id: `node:${n.id}`, level: "offline", text: `${n.nom}`, kind: "node-offline", target: { type: "node", id: n.id } });
   for (const v of vms) {
-    if (v.etat === "plante") out.push({ id: `vm:${v.node}:${v.nom}`, level: "danger", text: v.nom, kind: "vm-crashed", target: { type: "vm", id: v.nom } });
-    else if (v.etat === "bloque") out.push({ id: `vm:${v.node}:${v.nom}`, level: "warning", text: v.nom, kind: "vm-blocked", target: { type: "vm", id: v.nom } });
+    if (v.etat === "plante") out.push({ id: `vm:${v.node}:${v.nom}`, level: "danger", text: v.nom, kind: "vm-crashed", target: { type: "vm", id: vmKey(v) } });
+    else if (v.etat === "bloque") out.push({ id: `vm:${v.node}:${v.nom}`, level: "warning", text: v.nom, kind: "vm-blocked", target: { type: "vm", id: vmKey(v) } });
   }
   for (const p of storagePools) {
     const used = p.capacite_go ? ((p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go) * 100 : 0;

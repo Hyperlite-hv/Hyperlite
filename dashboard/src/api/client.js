@@ -2,6 +2,8 @@
 // real Hyperlite backend (the same paths as the real FastAPI routes, see
 // vite.config.js for the dev proxy).
 
+import { normalizeDetail } from "../next/lib/errors";
+
 let taskIdCounter = 0;
 export function makeTaskId() {
   taskIdCounter += 1;
@@ -23,31 +25,27 @@ export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = fn;
 }
 
-// FastAPI answers `detail` as a string, a list of strings or (validation, 422) a list of
-// {loc, msg, type} objects; joining the latter used to print "[object Object]".
-function formatDetail(d) {
-  if (d == null) return "";
-  if (typeof d === "string") return d;
-  if (Array.isArray(d)) return d.map(formatDetail).filter(Boolean).join(" ; ");
-  if (typeof d === "object") {
-    if (d.msg) {
-      const where = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body").join(".") : "";
-      return where ? `${where}: ${d.msg}` : d.msg;
-    }
-    try { return JSON.stringify(d); } catch { return String(d); }
-  }
-  return String(d);
-}
+const READ_TIMEOUT_MS = 30000;
 
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const sent = token;
   if (token) headers.Authorization = `Bearer ${token}`;
+  // A read that never answers used to freeze the polling for good, with nothing saying the data went stale: reads
+  // give up after READ_TIMEOUT_MS, so the failure shows (the stale-data banner) and the next tick tries again.
+  // Changes (POST, PUT...) keep no limit: some legitimately run for minutes, and must not be retried blindly.
+  const isRead = !opts.method || opts.method.toUpperCase() === "GET";
+  const controller = isRead && !opts.signal ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), READ_TIMEOUT_MS) : null;
   let res;
   try {
-    res = await fetch(path, { ...opts, headers });
-  } catch {
+    res = await fetch(path, { ...opts, headers, ...(controller ? { signal: controller.signal } : {}) });
+  } catch (e) {
+    if (controller?.signal.aborted) throw new Error(`The server did not answer within ${READ_TIMEOUT_MS / 1000} s.`);
+    if (e?.name === "AbortError") throw e;
     throw new Error("Cannot reach the server. Check your network connection and try again.");
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   let data = null;
   let parsed = true;
@@ -59,11 +57,20 @@ async function realFetch(path, opts = {}) {
     throw new Error("The server returned an unreadable response.");
   }
   if (!res.ok) {
-    const msg = (data && data.detail) ? (formatDetail(data.detail) || "Unknown error") : "Unknown error";
+    const msg = (data && data.detail) ? (normalizeDetail(data.detail) || "Unknown error") : "Unknown error";
     // The status lets a caller tell "this object does not exist (any more)" from a real failure.
     throw Object.assign(new Error(msg), { status: res.status });
   }
   return data;
+}
+
+// /health answers everyone but reports versions and host details only to a signed-in
+// caller. Plain fetch rather than realFetch: it is polled while the service restarts,
+// where a failure is expected and must not sign the user out.
+export async function fetchHealth() {
+  const res = await fetch("/health", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.json();
 }
 
 function jsonBody(payload) {
@@ -342,7 +349,9 @@ export async function fetchKubeconfig(name) {
   if (!res.ok) {
     let detail = null;
     try { detail = (await res.json()).detail; } catch { /* not JSON: keep the generic message */ }
-    throw new Error(formatDetail(detail) || "Unknown error");
+    // Same session handling as every other call: an expired session signs out instead of looking like an error.
+    if (res.status === 401 && token) unauthorizedHandler?.();
+    throw Object.assign(new Error(normalizeDetail(detail) || "Unknown error"), { status: res.status });
   }
   return res.text();
 }
@@ -371,6 +380,38 @@ export async function downloadVmExport(filename) {
 }
 
 // ---- Audit journal (real: the audit_log table, fed by every action) ----
+// Complete CSV exports (GET /audit/export.csv, /tasks/export.csv): every row matching the
+// filters, streamed by the server, not only the rows loaded on the page.
+async function downloadCsv(path, filters, fallbackName) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") params.set(k, v);
+  });
+  const qs = params.toString();
+  let res;
+  try {
+    res = await fetch(`${path}${qs ? `?${qs}` : ""}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch {
+    throw new Error("Cannot reach the server. Check your network connection and try again.");
+  }
+  if (!res.ok) {
+    let detail = null;
+    try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+    throw Object.assign(new Error(normalizeDetail(detail) || `HTTP ${res.status}`), { status: res.status });
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "")?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+export function downloadAuditCsv(filters = {}) {
+  return downloadCsv("/audit/export.csv", filters, "hyperlite-audit.csv");
+}
+export function downloadTasksCsv(filters = {}) {
+  return downloadCsv("/tasks/export.csv", filters, "hyperlite-tasks.csv");
+}
+
 export async function fetchAuditLog(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
@@ -593,6 +634,10 @@ export async function fetchNotificationChannels() {
 export async function createNotificationChannel(payload) {
   return realFetch("/notifications/channels", { method: "POST", ...jsonBody(payload) });
 }
+// Only the fields given are changed; an empty smtp_password keeps the stored one.
+export async function updateNotificationChannel(id, patch) {
+  return realFetch(`/notifications/channels/${id}`, { method: "PATCH", ...jsonBody(patch) });
+}
 export async function setNotificationChannelEnabled(id, enabled) {
   return realFetch(`/notifications/channels/${id}`, { method: "PATCH", ...jsonBody({ enabled }) });
 }
@@ -626,8 +671,10 @@ export async function createVM(payload) {
 export async function updateVM(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
 }
-export async function fetchVM(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}`);
+// node: the node the VM runs on; omitted (or "local") for the local host.
+const nodeQuery = (node) => (node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "");
+export async function fetchVM(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}${nodeQuery(node)}`);
 }
 
 // ---- Resource limits/reservations (real: GET/PUT /vms/{name}/limits, cgroups
@@ -658,9 +705,6 @@ export function attachVMHostDevice(name, device, confirm = false) {
 export function detachVMHostDevice(name, device) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
 }
-export async function fetchVMMetrics(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
-}
 export async function fetchVMMetricsHistory(name, range = "1h", node = null) {
   const params = new URLSearchParams({ range });
   if (node && node !== "local") params.set("node", node);
@@ -687,9 +731,6 @@ export async function fetchBackupSchedules() {
 export async function fetchAuditCount(filters = {}) {
   const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString();
   return realFetch(`/audit/count${qs ? `?${qs}` : ""}`);
-}
-export async function fetchHostMetricsHistory(range = "1h") {
-  return realFetch(`/host/metrics/history?range=${encodeURIComponent(range)}`);
 }
 export async function fetchProvisioningStatus(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);
@@ -724,6 +765,10 @@ export async function detachInterface(name, mac) {
 export async function createVolume(pool, name, sizeGb) {
   return realFetch(`/storage/${encodeURIComponent(pool)}/volumes`, { method: "POST", ...jsonBody({ name, size_gb: sizeGb }) });
 }
+// Irreversible: the server refuses a volume a VM uses.
+export async function deleteVolume(pool, name) {
+  return realFetch(`/storage/${encodeURIComponent(pool)}/volumes/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
+}
 export async function fetchVolumes(pool) {
   return realFetch(`/storage/${encodeURIComponent(pool)}/volumes`);
 }
@@ -733,6 +778,10 @@ export async function fetchVolumes(pool) {
 // What the local host can create now (NFS client, ZFS module): the pool form warns before trying.
 export async function fetchStorageSupport() {
   return realFetch("/storage/support");
+}
+// Whether QEMU can own its disk files on an NFS pool of this host (root_squash): { ok, message }.
+export async function checkPoolPermissions(name) {
+  return realFetch(`/storage/${encodeURIComponent(name)}/check-permissions`, { method: "POST" });
 }
 export async function createStoragePool(payload, node) {
   const qs = node ? `?node=${encodeURIComponent(node)}` : "";
@@ -746,11 +795,11 @@ export async function deleteStoragePool(poolName, node, detacher = false) {
 }
 
 // ---- VNC console / SSH terminal (real WebSocket relays) ----
-export async function createConsoleTicket(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/console-ticket`, { method: "POST" });
+export async function createConsoleTicket(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/console-ticket${nodeQuery(node)}`, { method: "POST" });
 }
-export async function createTerminalTicket(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
+export async function createTerminalTicket(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket${nodeQuery(node)}`, { method: "POST" });
 }
 
 // ---- Interactive shell on the physical host (admin only, see app/routers/host.py) ----
@@ -849,9 +898,6 @@ export async function deleteCustomRole(roleId) {
 export async function fetchContainers() {
   return realFetch("/containers");
 }
-export async function fetchContainer(name) {
-  return realFetch(`/containers/${encodeURIComponent(name)}`);
-}
 export async function searchDockerHub(query) {
   return realFetch(`/containers/docker-hub/search?q=${encodeURIComponent(query)}`);
 }
@@ -895,8 +941,9 @@ export async function restoreContainerBackup(id, newName = null) {
 
 // Two-factor authentication and API tokens, self-service: each user manages their
 // own account (no need to be an admin).
-export async function setup2FA() {
-  return realFetch("/auth/2fa/setup", { method: "POST" });
+// Enrolling a second factor takes the password (as removing one does).
+export async function setup2FA(password) {
+  return realFetch("/auth/2fa/setup", { method: "POST", ...jsonBody({ password: password || "" }) });
 }
 export async function confirm2FA(code) {
   return realFetch("/auth/2fa/confirm", { method: "POST", ...jsonBody({ code }) });
@@ -908,8 +955,8 @@ export async function disable2FA(password, code) {
 export function fetchSecurityKeys() {
   return realFetch("/auth/webauthn/keys");
 }
-export function securityKeyOptions() {
-  return realFetch("/auth/webauthn/keys/options", { method: "POST" });
+export function securityKeyOptions(password) {
+  return realFetch("/auth/webauthn/keys/options", { method: "POST", ...jsonBody({ password: password || "" }) });
 }
 export function registerSecurityKey(credential, name) {
   return realFetch("/auth/webauthn/keys", { method: "POST", ...jsonBody({ credential, name }) });
@@ -934,8 +981,9 @@ export async function decideCliRequest(code, approve) {
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
 }
-export async function createApiToken(name) {
-  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name }) });
+// expiresDays: null for a token that never expires (an explicit choice).
+export async function createApiToken(name, expiresDays = 90) {
+  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name, expires_days: expiresDays }) });
 }
 export async function deleteApiToken(id) {
   return realFetch(`/auth/tokens/${id}`, { method: "DELETE" });

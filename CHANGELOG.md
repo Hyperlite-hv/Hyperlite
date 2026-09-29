@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
+- Edit a notification channel in place (`PATCH /notifications/channels/{id}`).
+- CSV exports of the full audit log and task history (`GET /audit/export.csv`, `GET /tasks/export.csv`), with every matching entry rather than the page on screen.
+- Create and delete storage volumes from the Storage page; an "Imported disks" tab in the Library.
+- Audit log retention (`HYPERLITE_AUDIT_RETENTION_DAYS`).
+- Trusted reverse proxies (`HYPERLITE_TRUSTED_PROXIES`): the client address is taken from `X-Forwarded-For` only when the request comes from one of them.
+- Sign out revokes the session server-side (`POST /auth/logout`).
+
 - Move a VM disk to another directory or NFS pool from the Hardware tab (`POST /vms/{name}/disks/{target_dev}/move`, admin): live with a block copy and a pivot, or stopped with `qemu-img convert`; the original file is kept unless asked. ZFS and iSCSI disks, and VMs with snapshots, are refused with a clear message.
 - Hyperlite Tools (the QEMU guest agent): shutdown and reboot through the agent with an ACPI fallback, the VM's IP address from the guest, quiesced hot-backup snapshots, the agent installed by cloud-init in new cloud-image VMs, and its state in the VM summary (`agent_invite`: `actif`, `inactif`, `non_configure`).
 - Node maintenance mode (`POST`/`DELETE /nodes/{name}/maintenance`, `GET /nodes/{name}/drain-plan`, `GET /nodes/maintenance`): the node's running VMs are live-migrated to a chosen node one after another, the VMs that stay are listed with the reason, and the node receives no new VM and is never a migration or HA recovery target. From the node's Actions and right-click menus.
@@ -29,6 +37,18 @@ All notable changes to this project are documented here. The format is based on 
 - Backups now record the VM's vCPU, memory and network so a restore to a new VM rebuilds the original hardware.
 
 ### Changed
+
+- The interactive API documentation (`/docs`, `/redoc`, `/openapi.json`) is off by default; `HYPERLITE_API_DOCS=1` turns it back on.
+- `/health` answers anonymous callers with the status only; the version is given to the loopback (update watchdog) and the full report to signed-in users.
+- A TOTP code is accepted only once; enabling two-factor authentication or a security key asks for the account password.
+- Session tokens carry an identifier and can be revoked; new API tokens expire after 90 days unless another lifetime is chosen, and a token can revoke only itself.
+- SSO sign-in binds the identity provider's answer to the browser that started it (cookie) and hands the session over with a one-time code instead of a token in the URL; it asks for the second factor when the account has one.
+- TOTP secrets are stored encrypted (existing ones are encrypted at start-up).
+- Successful reads (`list_*`, `get_*`) are no longer written to the audit log, which the dashboard's polling was flooding.
+- A VM is identified by its node and name in the dashboard; pages that act on the local host only are hidden for a VM on another node.
+- Operations on one VM (backup, restore, snapshot, migration, disk move or resize, clone, export, template, deletion) are serialized: a second one gets HTTP 409 naming the operation in progress.
+- Update backups are readable by root only and hold a consistent copy of the database (SQLite backup API) instead of the live file.
+- The dashboard no longer loads fonts from Google (they were already bundled); design tokens give readable contrast for borders and secondary text and a visible focus ring.
 
 - Hyperlite no longer caps a VM's vCPU, memory or disks from the host's size, like Proxmox and vSphere: the deployment profiles (homelab, standard, advanced), the allocation policies and their settings (`GET`/`PUT /host/profile`, `PUT /host/allocation`, `HYPERLITE_PROFILE`, `HYPERLITE_ALLOCATION`) are removed. Only technical floors and typo ceilings remain, plus the optional `HYPERLITE_VM_MAX_*` caps an administrator sets on purpose. The creation form still warns, without blocking, when a value exceeds the hardware.
 - Accounts whose password predates the policy must choose a new one at the next sign-in before doing anything else.
@@ -58,6 +78,20 @@ All notable changes to this project are documented here. The format is based on 
 - The local host is always labelled `local`; rows still using a legacy label are migrated at start-up.
 
 ### Fixed
+
+- An automation job run is no longer reported as started, nor audited as a success, before it exists; invalid steps are refused with HTTP 422 and a crashed run is closed as failed.
+- Disks written by Hyperlite itself (clone, restore, move, resize, templates, ISOs) are found without depending on libvirt's volume cache.
+- Name validation matches the whole name, names the resource in the error, and is applied to clone, template and ISO names that escaped it.
+- Restoring a backup over an existing VM is verified first and atomic (temporary files, rename, rollback); an overlay left by a failed hot backup is merged back instead of being lost.
+- Automatic cleanup never deletes a VM without the warning it promised, and one failing VM no longer stops the others.
+- An update rollback leaves Git on the previous commit and restores the database copy.
+- The console and terminal of a VM on another node connect through that node.
+- Account lockout counts per account and address, so an attacker can no longer lock an administrator out from anywhere; re-authentication has its own counter.
+- The `hyperlite` client sends `HYPERLITE_TOKEN` only to `HYPERLITE_SERVER`, refuses server addresses with shell characters, and `logout` says when the token could not be revoked.
+- The datacenter compatibility view no longer contradicts the per-node migration checks.
+- A failed load in a form (networks, ISO images) is shown instead of silently disabling the control.
+- Dashboard refreshes that started before a local change no longer undo it (a deleted VM coming back, a started VM shown stopped); reads have a 30 s time limit; terminals stop retrying after a refusal.
+- The ISO kernel command line lost by an earlier change is restored; path checks refuse symbolic links leading outside their directory.
 
 - Live-migrating an HA-protected VM no longer disables its protection: the HA record now follows the VM to its new node.
 - A good update could be rolled back when the previous process took long to close its connections; the dashboard then reported a success and the update check said "up to date". `/health` now reports the version the process started with, the watchdog waits for it, the service stops within 5 s, and a rolled-back update is detected and can be applied again.

@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useT, useLangStore } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { formatSizeGb, formatSizeMb } from "../lib/format";
+import { InlineError } from "../components/States";
+import { Chip } from "../components/ui";
 
 const STEPS = ["source", "identity", "placement", "compute", "storage", "network", "advanced", "review"];
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -19,11 +21,14 @@ const int = (v, min, max) => v !== "" && v != null && Number.isInteger(Number(v)
 // The sizes the form starts from (a Windows installation raises them, see patch()).
 const DEFAULTS = { vcpu: 2, memory_mb: 2048, disk_gb: 20 };
 
+// A stopped network is only offered, never preselected: a VM created on it would not start.
+const defaultNetwork = (networks) => (networks.find((n) => n.actif !== false) || networks[0])?.nom;
+
 function initialForm(nodes, networks, d = DEFAULTS) {
   return {
     node: (nodes.find((n) => !n.maintenance) || nodes[0])?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", firmware: "auto", importDisk: null,
     name: "", vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }],
-    username: "", password: "", network: networks[0]?.nom || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
+    username: "", password: "", network: defaultNetwork(networks) || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
 }
 
@@ -50,6 +55,10 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const [disks, setDisks] = useState([]);
   const [luns, setLuns] = useState(null); // LUNs of the chosen iSCSI pool, null while unknown
   const [fwSupport, setFwSupport] = useState(null); // what this host offers beyond BIOS, null while unknown
+  const [loadErrors, setLoadErrors] = useState({}); // failed loads by name (isos, disks, firmware, luns)
+  const [lunsReload, setLunsReload] = useState(0);
+  const loadFailed = (key) => (e) => setLoadErrors((p) => ({ ...p, [key]: errorMessage(e) }));
+  const loadOk = (key) => setLoadErrors((p) => (p[key] ? { ...p, [key]: null } : p));
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -64,17 +73,18 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     const remote = [];
     for (const i of all) if (i.node !== "local" && !here.has(i.nom) && !remote.some((x) => x.nom === i.nom)) remote.push(i);
     setIsos([...local, ...remote.sort((a, b) => a.nom.localeCompare(b.nom))]);
-  }).catch(() => {});
+    loadOk("isos");
+  }).catch(loadFailed("isos"));
   const isoNodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
   const isoSub = (iso) => (iso.node === "local" ? `${formatSizeMb(iso.taille_mo, lang)} · ISO`
     : t("wz.src.remoteIso", { size: formatSizeMb(iso.taille_mo, lang), node: isoNodeName(iso.node) }));
-  const reloadDisks = () => fetchVmDisks().then((r) => setDisks(Array.isArray(r) ? r : [])).catch(() => {});
+  const reloadDisks = () => fetchVmDisks().then((r) => { setDisks(Array.isArray(r) ? r : []); loadOk("disks"); }).catch(loadFailed("disks"));
+  // A failed firmware probe must not pass for "this host has no UEFI": the options stay
+  // available (the server checks them again) and the failure is shown with a retry.
+  const reloadFirmware = () => fetchHostFirmware().then((r) => { setFwSupport(r); loadOk("firmware"); }).catch((e) => { setFwSupport(null); loadFailed("firmware")(e); });
   useEffect(() => {
-    if (open) {
-      reloadIsos(); reloadDisks();
-      fetchHostFirmware().then(setFwSupport).catch(() => setFwSupport({ uefi: false, uefi_secure: false, raison: null }));
-    }
-  }, [open]);
+    if (open) { reloadIsos(); reloadDisks(); reloadFirmware(); }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { bodyRef.current?.scrollTo?.(0, 0); }, [step]);
 
   function patch(fields) {
@@ -94,7 +104,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   useEffect(() => {
     setForm((f) => {
       const node = f.node || nodes[0]?.id || "";
-      const network = networks.some((n) => n.nom === f.network) ? f.network : networks[0]?.nom || f.network;
+      const network = networks.some((n) => n.nom === f.network) ? f.network : defaultNetwork(networks) || f.network;
       return node === f.node && network === f.network ? f : { ...f, node, network };
     });
   }, [nodes, networks]);
@@ -111,9 +121,11 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     if (!iscsiPool) { setLuns(null); return undefined; }
     let alive = true;
     setLuns(null);
-    fetchVolumes(iscsiPool.nom).then((v) => { if (alive) setLuns(Array.isArray(v) ? v : []); }).catch(() => { if (alive) setLuns([]); });
+    fetchVolumes(iscsiPool.nom)
+      .then((v) => { if (alive) { setLuns(Array.isArray(v) ? v : []); loadOk("luns"); } })
+      .catch((e) => { if (alive) { setLuns([]); loadFailed("luns")(e); } });
     return () => { alive = false; };
-  }, [iscsiPool?.nom]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [iscsiPool?.nom, lunsReload]); // eslint-disable-line react-hooks/exhaustive-deps
   const lunGb = (nom) => Math.max(1, Math.ceil(luns?.find((l) => l.nom === nom)?.capacite_go || 1));
   const freeLuns = (luns || []).filter((l) => !l.utilise);
 
@@ -242,7 +254,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
               {importMode ? (
                 <fieldset className="nx-fieldset">
                   <legend>{t("wz.src.disk")}</legend>
-                  {disks.length === 0 && <span className="nx-muted">{t("wz.src.noDisks")}</span>}
+                  {loadErrors.disks ? <InlineError message={loadErrors.disks} onRetry={reloadDisks} /> : disks.length === 0 && <span className="nx-muted">{t("wz.src.noDisks")}</span>}
                   <div className="nx-tiles">{disks.map((d) => radio(form.importDisk === d.nom, () => patch({ importDisk: d.nom }), d.nom, formatSizeMb(d.taille_mo, lang), "import"))}</div>
                   {show("source", "importDisk")}
                   <VmDiskUploadDropzone onDone={reloadDisks} labels={{ drop: t("up.dropDisk"), done: t("up.done"), eta: t("up.eta") }} />
@@ -255,6 +267,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                       {radio(!form.iso, () => patch({ iso: "" }), t("wz.src.debian"), t("wz.src.debianSub"), "iso")}
                       {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom, isoNode: iso.node }), iso.nom, isoSub(iso), "iso"))}
                     </div>
+                    {loadErrors.isos && <InlineError message={loadErrors.isos} onRetry={reloadIsos} />}
                   </fieldset>
                   {form.iso && (
                     <label>{t("wz.os")}
@@ -332,6 +345,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                   </div>
                 ))}
                 {attempted && Object.keys(errors.storage).some((k) => k.startsWith("disk")) && <span className="nx-hint nx-hint--error">{t("wz.e.lun")}</span>}
+                {loadErrors.luns && <InlineError message={loadErrors.luns} onRetry={() => setLunsReload((n) => n + 1)} />}
                 <div><button type="button" className="nx-btn" disabled={form.disks.length >= freeLuns.length} onClick={() => patch({ disks: [...form.disks, { size_gb: 1, lun: "" }] })}>{t("wz.addDisk")}</button></div>
               </fieldset>
               <label className="nx-check" style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem" }}>
@@ -370,7 +384,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
           {stepId === "network" && (
             <fieldset className="nx-fieldset">
               <legend>{t("vh.network")}</legend>
-              <div className="nx-tiles">{networks.map((n) => radio(form.network === n.nom, () => patch({ network: n.nom }), n.nom, `${t(`net.mode.${n.type}`)} · ${n.pont || "—"} · ${n.reseau ? n.reseau.adresse : t("nn.noSubnet")}`, "network"))}</div>
+              <div className="nx-tiles">{networks.map((n) => radio(form.network === n.nom, () => patch({ network: n.nom }), n.nom, `${t(`net.mode.${n.type}`)} · ${n.pont || "—"} · ${n.reseau ? n.reseau.adresse : t("nn.noSubnet")}`, "network", n.actif === false ? <Chip>{t("wz.netStopped")}</Chip> : null))}</div>
+              {networks.find((n) => n.nom === form.network)?.actif === false && <span className="nx-hint">{t("wz.netStoppedHelp")}</span>}
               {show("network", "network")}
             </fieldset>
           )}
@@ -391,11 +406,12 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <select className="nx-input" aria-label={t("wz.firmware")} value={form.firmware || "auto"} onChange={(e) => patch({ firmware: e.target.value })}>
                   <option value="auto">{t("wz.fw.auto", { name: t(`fw.${vmFirmware({ ...form, firmware: "auto" }, fwSupport)}`) })}</option>
                   <option value="bios">{t("fw.bios")}</option>
-                  <option value="uefi" disabled={!fwSupport?.uefi}>{t("fw.uefi")}</option>
-                  <option value="uefi_secure" disabled={!fwSupport?.uefi_secure}>{t("fw.uefi_secure")}</option>
+                  <option value="uefi" disabled={!loadErrors.firmware && !fwSupport?.uefi}>{t("fw.uefi")}</option>
+                  <option value="uefi_secure" disabled={!loadErrors.firmware && !fwSupport?.uefi_secure}>{t("fw.uefi_secure")}</option>
                 </select>
                 <span className="nx-hint">{t(`wz.fw.${vmFirmware(form, fwSupport)}Help`)}{vmFirmware(form, fwSupport) !== "bios" && form.iso && !importMode && ` ${t("wz.fw.keyHelp")}`}</span>
                 {fwSupport && !fwSupport.uefi_secure && fwSupport.raison && <span className="nx-hint">{t("wz.fw.missing", { reason: fwSupport.raison })}</span>}
+                {loadErrors.firmware && <InlineError message={loadErrors.firmware} onRetry={reloadFirmware} />}
               </label>
               <fieldset className="nx-fieldset">
                 <legend>{t("wz.cleanup")}</legend>

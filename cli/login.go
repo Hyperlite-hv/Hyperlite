@@ -180,14 +180,23 @@ func cmdLogout(flag string) error {
 	if err != nil {
 		return err
 	}
-	s, err := cfg.pick(flag)
+	// The workstation's own sign-in, never HYPERLITE_TOKEN: signing out of a server must revoke the token this
+	// workstation stored for it, not report "Signed out" while that token stays valid.
+	s, err := cfg.pickStored(flag)
 	if err != nil {
+		if os.Getenv("HYPERLITE_TOKEN") != "" {
+			return errors.New("HYPERLITE_TOKEN comes from the environment: it is not a sign-in of this workstation. " +
+				"Revoke it in the web interface (Account security > API tokens) and unset it")
+		}
 		return err
 	}
 	if s.TokenID != 0 {
 		if err := call(s, "DELETE", fmt.Sprintf("/auth/tokens/%d", s.TokenID), nil, nil); err != nil {
-			fmt.Fprintln(os.Stderr, "warning: the token could not be revoked on the server:", err)
+			return fmt.Errorf("the token could not be revoked on the server, nothing was removed (try again, or revoke it "+
+				"in the web interface): %w", err)
 		}
+	} else {
+		fmt.Fprintln(os.Stderr, "warning: no token id is known for this sign-in: revoke it in the web interface (Account security > API tokens)")
 	}
 	delete(cfg.Servers, s.URL)
 	if cfg.Default == s.URL {

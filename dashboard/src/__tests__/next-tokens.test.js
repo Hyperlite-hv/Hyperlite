@@ -38,6 +38,13 @@ for (const [name, T] of [["dark", dark], ["light", light]]) {
         for (const s of surfaces) expect(ratio(T[`color-${c}`], T[s]), `${c} on ${s}`).toBeGreaterThanOrEqual(4.5);
       }
     });
+    it("secondary and muted text are two levels, not one", () => {
+      expect(ratio(T["color-text-secondary"], T["color-text-muted"])).toBeGreaterThanOrEqual(1.3);
+    });
+    it("the edges of cards and tables are clearly visible", () => {
+      expect(ratio(T["color-border-default"], T["color-bg-surface"])).toBeGreaterThanOrEqual(1.8);
+      expect(ratio(T["color-border-default"], T["color-bg-workspace"])).toBeGreaterThanOrEqual(1.6);
+    });
     it("focus ring and control borders meet 3:1", () => {
       expect(ratio(T["color-border-focus"], T["color-bg-workspace"])).toBeGreaterThanOrEqual(3);
       expect(ratio(T["color-border-strong"], T["color-bg-surface"])).toBeGreaterThanOrEqual(3);

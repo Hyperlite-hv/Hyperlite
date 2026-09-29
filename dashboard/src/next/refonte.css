@@ -141,7 +141,8 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-table tr.is-warn td:first-child { box-shadow: inset 3px 0 0 var(--color-warning); }
 .nx-nm small { display: block; font-weight: 400; font-size: var(--fs-12); color: var(--color-text-muted); line-height: 1.25; }
 .nx-nm small.is-warn { color: var(--color-warning); }
-.nx-lnk { all: unset; cursor: pointer; font-weight: 600; color: var(--color-text-primary); border-radius: 3px; overflow-wrap: anywhere; }
+/* padding-block widens the hit area to 24 px (WCAG 2.2 target size) without moving the text of dense tables. */
+.nx-lnk { all: unset; cursor: pointer; font-weight: 600; color: var(--color-text-primary); border-radius: 3px; overflow-wrap: anywhere; padding-block: 0.1667rem; }
 .nx-lnk:hover { text-decoration: underline; text-decoration-color: var(--color-accent); text-underline-offset: 3px; }
 .nx-lnk:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .nx-ra { display: flex; gap: 0.1333rem; justify-content: flex-end; align-items: center; }

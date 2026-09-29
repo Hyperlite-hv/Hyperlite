@@ -149,9 +149,15 @@ test.describe("Account security", () => {
     const dlg = page.getByRole("dialog", { name: "Account security" });
     const setup = page.waitForResponse((r) => r.url().endsWith("/auth/2fa/setup"));
     await dlg.getByRole("button", { name: "Enable" }).click();
+    // Enrolling a second factor takes the password.
+    const confirmPw = page.getByRole("dialog", { name: "Enable two-factor authentication" });
+    await confirmPw.getByLabel("Your password").fill(USER.password);
+    await confirmPw.getByRole("button", { name: "Continue" }).click();
     const secret = ((await (await setup).json()) as { secret: string }).secret;
     await expect(dlg.locator("svg").first()).toBeVisible();
-    const totp = () => new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret), digits: 6, period: 30 }).generate();
+    // A code is accepted once: each later step uses the code of the next 30 s period (inside the server's window).
+    const totp = (offsetS = 0) => new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret), digits: 6, period: 30 }).generate({ timestamp: Date.now() + offsetS * 1000 });
+    const nextPeriod = () => page.waitForTimeout(30_000 - (Date.now() % 30_000) + 500);
     await dlg.getByRole("textbox", { name: "6-digit code" }).fill("000000");
     await dlg.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByText(/Invalid code/i)).toBeVisible();
@@ -174,7 +180,7 @@ test.describe("Account security", () => {
     await page.getByRole("textbox", { name: "6-digit verification code" }).fill("111111");
     await page.getByRole("button", { name: "Verify" }).click();
     await expect(page.getByRole("alert")).toBeVisible();
-    await page.getByRole("textbox", { name: "6-digit verification code" }).fill(totp());
+    await page.getByRole("textbox", { name: "6-digit verification code" }).fill(totp(30));
     await page.getByRole("button", { name: "Verify" }).click();
     await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
 
@@ -183,7 +189,8 @@ test.describe("Account security", () => {
     await security.getByRole("textbox", { name: /Password/ }).fill(USER.password);
     // Removing 2FA takes a current code too: the password alone is refused.
     await expect(security.getByRole("button", { name: "Disable" })).toBeDisabled();
-    await security.getByRole("textbox", { name: "Current 2FA code" }).fill(totp());
+    await nextPeriod();
+    await security.getByRole("textbox", { name: "Current 2FA code" }).fill(totp(30));
     await security.getByRole("button", { name: "Disable" }).click();
     await expect(page.getByRole("dialog", { name: "Account security" }).getByText(/Not enabled/i)).toBeVisible();
   });

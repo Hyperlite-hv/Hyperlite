@@ -6,6 +6,7 @@ import { confirmAction } from "../../store/useConfirmStore";
 import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { Card, Field, SideDrawer, TableWrap } from "./ui";
+import { InlineError } from "./States";
 
 // Automatic HA in dry-run mode (docs/design/ha-automatic.md): the watcher's status, the witness and thresholds, and
 // each node's fencing settings with a status-only test. Nothing here ever powers a node off or restarts a VM.
@@ -97,7 +98,13 @@ export function FencingCard({ nodes }) {
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(null);
   const [results, setResults] = useState({});
-  const reload = useCallback(() => fetchFencing().then(setList).catch(() => setList([])), []);
+  const [loadError, setLoadError] = useState(null);
+  // A failed load is not "no fencing configured": showing every node as unconfigured would
+  // hide Test and Remove and invite overwriting a configuration that exists.
+  const reload = useCallback(() => {
+    setLoadError(null);
+    return fetchFencing().then(setList).catch((e) => { setList(null); setLoadError(errorMessage(e)); });
+  }, []);
   useEffect(() => { reload(); }, [reload]);
   const names = ["local", ...nodes.filter((n) => n.id !== "local").map((n) => n.id)];
   const byNode = Object.fromEntries((list || []).map((f) => [f.node, f]));
@@ -119,6 +126,7 @@ export function FencingCard({ nodes }) {
   return (
     <Card title={t("hw.fencing")} flush>
       <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("hw.fencingHelp")}</p>
+      {loadError ? <div style={{ margin: "0 var(--space-4) var(--space-3)" }}><InlineError message={loadError} onRetry={reload} /></div> : list === null ? null : (
       <TableWrap>
         <table className="nx-table">
           <thead><tr><th scope="col">{t("ha.node")}</th><th scope="col">{t("hw.method")}</th><th scope="col">{t("hw.result")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
@@ -147,6 +155,7 @@ export function FencingCard({ nodes }) {
           </tbody>
         </table>
       </TableWrap>
+      )}
       <FencingDrawer node={editing} name={editing ? label(editing) : ""} current={editing ? byNode[editing] : null} onClose={() => setEditing(null)} onDone={reload} />
     </Card>
   );

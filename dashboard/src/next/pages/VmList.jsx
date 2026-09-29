@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Copy, Monitor, Play, Plus, Search, Square, S
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
+import { vmKey } from "../lib/vmId";
 import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
 import { formatSizeMb, formatUptimeLong } from "../lib/format";
@@ -64,7 +65,7 @@ function DetailPanel({ vm, onClose }) {
           {running ? btn(cons, t("actions.primary.console"), () => openConsole(vm), "nx-btn nx-btn--primary", SquareTerminal) : btn(start, t("menu.start"), () => run(vm, "start"), "nx-btn nx-btn--primary", Play)}
           {running ? btn(stop, t("menu.stop"), () => run(vm, "stop"), "nx-btn", Square) : null}
           <span className="nx-sp" />
-          <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("vm", vm.nom, "summary")}>{t("vmlist.openPage")}<ChevronRight size={14} aria-hidden="true" /></button>
+          <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{t("vmlist.openPage")}<ChevronRight size={14} aria-hidden="true" /></button>
         </div>
       </div>
       {PROBLEM.has(vm.etat) && <div className="nx-bn" data-tone="warning" style={{ margin: "var(--space-3) var(--space-4) 0" }}><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t(vm.etat === "plante" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>}
@@ -177,11 +178,11 @@ export default function VmList() {
   const orphans = shown.filter((v) => !nodes.some((n) => n.id === v.node));
   if (orphans.length) groups.push({ node: { id: "?", nom: t("vmlist.unknownNode") }, vms: orphans });
 
-  const selected = shown.find((v) => v.nom === selName) || (detail ? shown[0] : null);
+  const selected = shown.find((v) => vmKey(v) === selName) || (detail ? shown[0] : null);
   const runningVms = vms.filter((v) => v.etat === "actif");
   const vcpu = runningVms.reduce((a, v) => a + (v.vcpu || 0), 0);
   const mem = runningVms.reduce((a, v) => a + (v.memoire_mo || 0), 0);
-  const select = (v) => { setSelName(v.nom); setDetail(true); };
+  const select = (v) => { setSelName(vmKey(v)); setDetail(true); };
   const th = (key, label, cls) => (
     <th scope="col" className={cls} aria-sort={sort.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
       <button type="button" className="nx-thbtn" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : 1 }))}>{label}{sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}</button>
@@ -194,8 +195,8 @@ export default function VmList() {
     return n ? <button type="button" className="nx-lnk nx-mono" title={nodeAddress(n) || undefined} onClick={(e) => { e.stopPropagation(); navigateTo("node", n.id, "summary"); }}>{n.nom}</button> : <span className="nx-mono">{id}</span>;
   };
   const renderCard = (vm) => (
-              <article key={`${vm.node}:${vm.nom}`} className={`nx-card2 nx-vmcard2${ctx.is("vm", vm.nom) ? " is-ctx" : ""}`} aria-label={vm.nom} onContextMenu={ctx.open("vm", vm)}>
-                <div className="nx-inline"><StatusIndicator kind="vm" wire={vm.etat} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vm.nom, "summary")}>{vm.nom}</button></div>
+              <article key={`${vm.node}:${vm.nom}`} className={`nx-card2 nx-vmcard2${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-label={vm.nom} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
+                <div className="nx-inline"><StatusIndicator kind="vm" wire={vm.etat} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{vm.nom}</button></div>
                 <div className="nx-muted" style={{ fontSize: "var(--fs-12)" }}>{PROBLEM.has(vm.etat) ? <span className="nx-tone-warning">{t(`vmlist.reason.${vm.etat}`)}</span> : vm.os || "—"}</div>
                 <dl className="nx-dl2" style={{ gridTemplateColumns: "5.3333rem minmax(0,1fr)", marginTop: "var(--space-2)" }}>
                   <dt>{t("ns.node")}</dt><dd className="nx-mono">{nodeName(vm.node)}</dd>
@@ -207,10 +208,10 @@ export default function VmList() {
   const renderRow = (vm, withNode) => {
                       const sel = showDetail && selected?.nom === vm.nom;
                       return (
-                        <tr key={`${vm.node}:${vm.nom}`} className={`nx-rowlink${sel ? " is-sel" : PROBLEM.has(vm.etat) ? " is-warn" : ""}${ctx.is("vm", vm.nom) ? " is-ctx" : ""}`} aria-selected={sel || undefined} tabIndex={0}
-                          onClick={() => select(vm)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(vm); } }} onContextMenu={ctx.open("vm", vm)}>
+                        <tr key={`${vm.node}:${vm.nom}`} className={`nx-rowlink${sel ? " is-sel" : PROBLEM.has(vm.etat) ? " is-warn" : ""}${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-selected={sel || undefined} tabIndex={0}
+                          onClick={() => select(vm)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(vm); } }} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
                           <td style={{ width: "2rem" }}><StatusIndicator kind="vm" wire={vm.etat} compact /></td>
-                          <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vm.nom, "summary"); }}>{vm.nom}</button>{sub(vm)}</th>
+                          <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vmKey(vm), "summary"); }}>{vm.nom}</button>{sub(vm)}</th>
                           {withNode && <td>{nodeCell(vm.node)}</td>}
                           <td className="nx-mono">{vm.ip || <span className="nx-muted">—</span>}</td>
                           <td className="nx-num nx-mono">{vm.vcpu} · {formatSizeMb(vm.memoire_mo, lang)}</td>

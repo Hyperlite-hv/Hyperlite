@@ -12,6 +12,7 @@ import CreateVmWizard from "../wizard/CreateVmWizard";
 import CreateContainerWizard from "../wizard/CreateContainerWizard";
 import { locate } from "../legacy/tabs";
 import { useEnvironmentLabel } from "../lib/environment";
+import { parseVmKey } from "../lib/vmId";
 
 // Top bar: clickable breadcrumb, global search (opens the palette), one Activity button whose badge counts
 // alerts (or running tasks), and the Create menu as a default button: list pages carry their own primary.
@@ -33,7 +34,7 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
 
   const crumbs = [];
   if (selection.type === "node") crumbs.push([t("nav.nodes"), () => navigateTo("datacenter", null, "nodes")], [node?.nom || selection.id]);
-  else if (selection.type === "vm") crumbs.push([t("nav.vms"), () => navigateTo("datacenter", null, "vms")], [selection.id]);
+  else if (selection.type === "vm") crumbs.push([t("nav.vms"), () => navigateTo("datacenter", null, "vms")], [parseVmKey(selection.id).nom]);
   else if (page !== "summary") crumbs.push([t(`tab.${page}`)]);
 
   // The Activity button toggles the panel: a second click closes it.

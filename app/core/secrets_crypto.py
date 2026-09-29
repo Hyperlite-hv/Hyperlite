@@ -16,14 +16,29 @@ a home-made scheme.
 
 """
 
+import fcntl
+import logging
 import os
+import threading
 from pathlib import Path
 
 from cryptography.fernet import Fernet
 
+logger = logging.getLogger(__name__)
+
 ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 _KEY_VAR = "HYPERLITE_ENCRYPTION_KEY"
 _fernet = None
+_key_lock = threading.Lock()
+
+# Every Fernet token starts with the base64 of its version byte (0x80): what tells an encrypted value from a
+# plaintext one stored before encryption existed.
+_FERNET_PREFIX = "gAAAAA"
+
+
+class SecretUnreadable(RuntimeError):
+    """An encrypted secret that the current key cannot decrypt (the key changed or was lost: a restored .env, a
+    configuration copied from another node). The secret must be entered again."""
 
 
 def _read_key_from_env_file():
@@ -51,9 +66,21 @@ def _load_or_create_key():
     # No key anywhere (first time this machine needs one): generate one and PERSIST
     # it in .env immediately. A key lost at the next restart would make every
     # already encrypted secret unreadable forever (there is no other copy).
-    new_key = Fernet.generate_key()
-    with open(ENV_PATH, "a") as f:
-        f.write(f"\n{_KEY_VAR}={new_key.decode()}\n")
+    # Two first uses at once (two threads, or the service and a script) must not each
+    # append a key of their own: the file is locked, and read again under the lock.
+    with _key_lock, open(ENV_PATH, "a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            key = _read_key_from_env_file()
+            if key:
+                os.environ[_KEY_VAR] = key
+                return key.encode()
+            new_key = Fernet.generate_key()
+            f.write(f"\n{_KEY_VAR}={new_key.decode()}\n")
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
     os.chmod(ENV_PATH, 0o600)
     os.environ[_KEY_VAR] = new_key.decode()
     return new_key
@@ -72,15 +99,25 @@ def encrypt(plaintext):
     return _get_fernet().encrypt(plaintext.encode()).decode()
 
 
+def is_encrypted(value):
+    return bool(value) and value.startswith(_FERNET_PREFIX)
+
+
 def decrypt(value):
-    """Silently fall back to the value as is if decryption fails. This covers
-    values stored before encryption existed (never encrypted, so not a valid
-    Fernet token): rather than crashing an existing SMTP send or OIDC login,
-    the old plaintext value keeps working until an admin next edits it (which
-    then encrypts it)."""
+    """The plaintext of a stored secret.
+
+    A value stored before encryption existed is not a Fernet token: it is returned as is and keeps working until
+    an admin next edits it (which then encrypts it). An ENCRYPTED value that does not decrypt raises
+    SecretUnreadable: handing the ciphertext on as if it were the secret only produced an opaque refusal from the
+    SMTP server or the identity provider, with nothing saying why."""
     if not value:
+        return value
+    if not is_encrypted(value):
         return value
     try:
         return _get_fernet().decrypt(value.encode()).decode()
-    except Exception:
-        return value
+    except Exception as e:
+        logger.error("A stored secret cannot be decrypted with the current %s", _KEY_VAR)
+        raise SecretUnreadable(
+            "A stored secret cannot be decrypted: the encryption key changed since it was saved. Enter it again."
+        ) from e

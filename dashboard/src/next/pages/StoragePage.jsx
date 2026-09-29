@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Layers, Plus, Trash2 } from "lucide-react";
-import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchVolumes } from "../../api/client";
+import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -13,6 +13,8 @@ import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "../components/ui";
+import { InlineError } from "../components/States";
+import { promptText } from "../../store/usePromptStore";
 
 const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
@@ -47,8 +49,10 @@ function CreatePoolDrawer({ open, onClose }) {
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host, iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user || null, chap_password: form.chap_user ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
-      await createStoragePool(payload, form.node === "local" ? undefined : form.node);
+      const created = await createStoragePool(payload, form.node === "local" ? undefined : form.node);
       pushToast({ kind: "success", title: t("stor.created"), message: form.name });
+      // Mounted is not enough: an export with root_squash leaves QEMU unable to open its disks there.
+      if (created?.avertissement) pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: created.avertissement, duration: Infinity });
       setForm(EMPTY); onClose(); refreshAll();
     } catch (err) { pushToast({ kind: "error", title: t("stor.createFailed"), message: errorMessage(err) }); }
     finally { setBusy(false); }
@@ -107,16 +111,44 @@ export default function StoragePage() {
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState(null);
   const [volumes, setVolumes] = useState({});
+  const [volumeErrors, setVolumeErrors] = useState({});
   useIntent("pool", () => caps.admin && setCreating(true));
   const ctx = useContextTarget(); // right click on a pool: its actions
 
+  async function loadVolumes(p) {
+    const key = `${p.node}:${p.nom}`;
+    setVolumeErrors((x) => ({ ...x, [key]: null }));
+    try { const v = await fetchVolumes(p.nom); setVolumes((x) => ({ ...x, [key]: Array.isArray(v) ? v : [] })); }
+    // A failed read is not an empty pool: say so, with a retry.
+    catch (e) { setVolumes((x) => ({ ...x, [key]: undefined })); setVolumeErrors((x) => ({ ...x, [key]: errorMessage(e) })); }
+  }
   async function toggleVolumes(p) {
     const key = `${p.node}:${p.nom}`;
     setOpen(open === key ? null : key);
-    if (open !== key && p.node === "local" && !volumes[key]) {
-      try { const v = await fetchVolumes(p.nom); setVolumes((x) => ({ ...x, [key]: Array.isArray(v) ? v : [] })); }
-      catch { setVolumes((x) => ({ ...x, [key]: [] })); }
-    }
+    if (open !== key && p.node === "local" && !volumes[key]) loadVolumes(p);
+  }
+  // Volumes are files (or zvols) of a pool of this host; an iSCSI pool's LUNs are managed on the storage side.
+  const volumesEditable = (p) => caps.admin && p.node === "local" && p.type !== "iscsi";
+  async function newVolume(p) {
+    const name = await promptText({ title: t("stor.newVolumeTitle", { name: p.nom }), label: t("stor.volName"), confirmLabel: t("wz.next"), validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v.replace(/\.qcow2$/, "")) ? "" : t("wz.e.name")) });
+    if (!name) return;
+    const size = await promptText({ title: t("stor.newVolumeTitle", { name: p.nom }), label: t("stor.volSize"), defaultValue: "10", confirmLabel: t("stor.createVolume"), validate: (v) => (/^[1-9][0-9]{0,5}$/.test(v) ? "" : t("stor.volSizeRule")) });
+    if (!size) return;
+    try { await createVolume(p.nom, name, Number(size)); pushToast({ kind: "success", title: t("stor.volCreated"), message: name }); loadVolumes(p); refreshAll(); }
+    catch (e) { pushToast({ kind: "error", title: t("stor.volCreateFailed"), message: errorMessage(e) }); }
+  }
+  async function removeVolume(p, v) {
+    const ok = await confirmAction({ title: t("stor.volDeleteTitle", { name: v.nom }), message: t("stor.volDeleteMsg", { pool: p.nom }), confirmLabel: t("action.confirm"), danger: true });
+    if (!ok) return;
+    try { await deleteVolume(p.nom, v.nom); pushToast({ kind: "success", title: t("stor.volDeleted"), message: v.nom }); loadVolumes(p); refreshAll(); }
+    catch (e) { pushToast({ kind: "error", title: t("stor.volDeleteFailed"), message: errorMessage(e) }); }
+  }
+  async function checkPerm(p) {
+    try {
+      const r = await checkPoolPermissions(p.nom);
+      if (r.ok) pushToast({ kind: "success", title: t("stor.nfsPermOk"), message: p.nom });
+      else pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: r.message, duration: Infinity });
+    } catch (e) { pushToast({ kind: "error", title: t("stor.nfsPermFailed"), message: errorMessage(e) }); }
   }
   async function removePool(p) {
     if (p.nom === "default") return;
@@ -159,8 +191,17 @@ export default function StoragePage() {
                       </tr>
                       {open === key && (
                         <tr><td colSpan={8} className="nx-detailcell">
-                          {p.node !== "local" ? <span className="nx-muted">{t("stor.volLocalOnly")}</span> : vols == null ? <span className="nx-muted">{t("loading")}</span> : vols.length === 0 ? <span className="nx-muted">{t("stor.noVolumes")}</span> : (
-                            <ul className="nx-list nx-list--vols">{vols.map((v) => <li key={v.nom}><span className="nx-mono">{v.nom}</span><span className="nx-mono nx-muted">{formatSizeGb(v.capacite_go, lang)}</span><span className="nx-muted">{v.utilise ? t("stor.inUse") : t("stor.free")}</span></li>)}</ul>
+                          {p.node !== "local" ? <span className="nx-muted">{t("stor.volLocalOnly")}</span> : volumeErrors[key] ? <InlineError message={volumeErrors[key]} onRetry={() => loadVolumes(p)} /> : vols == null ? <span className="nx-muted">{t("loading")}</span> : (
+                            <>
+                              {vols.length === 0 ? <span className="nx-muted">{t("stor.noVolumes")}</span> : (
+                                <ul className="nx-list nx-list--vols">{vols.map((v) => (
+                                  <li key={v.nom}><span className="nx-mono">{v.nom}</span><span className="nx-mono nx-muted">{formatSizeGb(v.capacite_go, lang)}</span><span className="nx-muted">{v.utilise ? t("stor.inUse") : t("stor.free")}</span>
+                                    {volumesEditable(p) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={v.utilise} title={v.utilise ? t("stor.volInUse") : t("menu.delete").replace("…", "")} aria-label={t("stor.volDeleteAria", { name: v.nom })} onClick={() => removeVolume(p, v)}><Trash2 size={14} aria-hidden="true" /></button>}
+                                  </li>
+                                ))}</ul>
+                              )}
+                              {volumesEditable(p) && <div style={{ marginTop: "var(--space-2)" }}><button type="button" className="nx-btn nx-btn--sm" onClick={() => newVolume(p)}><Plus size={14} aria-hidden="true" />{t("stor.createVolume")}</button></div>}
+                            </>
                           )}
                         </td></tr>
                       )}
@@ -176,6 +217,7 @@ export default function StoragePage() {
       <ActionsContextMenu ctx={ctx} label={(p) => t("ctx.menuOf", { name: p.nom })} entries={(p) => [
         { key: "volumes", icon: "volumes", label: t("stor.volumes"), run: () => toggleVolumes(p) },
         p.chemin && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.chemin) },
+        p.type === "netfs" && { key: "perm", icon: "admin", label: t("stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.etat !== "actif", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
         "-",
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => removePool(p),
           disabled: !caps.admin || p.nom === "default", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.defaultPool") },
