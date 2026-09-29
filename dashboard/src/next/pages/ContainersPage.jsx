@@ -28,6 +28,7 @@ export default function ContainersPage() {
   const lang = useLangStore((s) => s.lang);
   const caps = capabilities(useAuthStore((s) => s.role));
   const pushToast = useInfraStore((s) => s.pushToast);
+  const navigateTo = useInfraStore((s) => s.navigateTo);
   const [containers, setContainers] = useState(null);
   const [error, setError] = useState(null);
   const [backups, setBackups] = useState(null);
@@ -109,7 +110,7 @@ export default function ContainersPage() {
                     return (
                       <tr key={ct.nom} className={ctx.is("ct", ct.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
                         <td><StatusIndicator kind="vm" wire={on ? "actif" : "arrete"} /></td>
-                        <th scope="row" className="nx-mono">{ct.nom}</th>
+                        <th scope="row" className="nx-mono"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("container", ct.nom, "summary")}>{ct.nom}</button></th>
                         <td>{ct.mode === "application"
                           ? <><Chip tone="info">Docker</Chip> <span className="nx-mono nx-muted">{ct.image}</span></>
                           : <Chip>LXC</Chip>}</td>
@@ -183,7 +184,7 @@ ContainersPage.ownHeader = true;
 
 // What a Docker container's process printed (docker logs), refreshed every few seconds while open: the way to see
 // why a container stopped by itself.
-function ContainerLogs({ name, onClose }) {
+export function ContainerLogs({ name, onClose }) {
   const t = useT();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);

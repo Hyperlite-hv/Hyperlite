@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -28,11 +29,20 @@ def list_tasks(
     tri: str = "cree_le",
     ordre: str = "desc",
     limit: int = Query(200, ge=1, le=1000),
+    # One object's history: its exact name (cible matches any part of a name), and whether it is a container.
+    objet: str | None = None,
+    famille: Literal["vm", "container"] | None = None,
     user: dict = Depends(get_current_user),
 ):
     tri = _SORT_COLUMNS.get(tri, "cree_le")
     ordre_sql = "ASC" if ordre.lower() == "asc" else "DESC"
     clauses, params = _clauses(statut, type, username, cible, node, depuis)
+    if objet:
+        clauses.append("cible = ?")
+        params.append(objet)
+    if famille:
+        # Container task types all name the container (create_container, clone_container, backup_container...).
+        clauses.append("type LIKE '%container%'" if famille == "container" else "type NOT LIKE '%container%'")
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)
     with get_conn() as conn:

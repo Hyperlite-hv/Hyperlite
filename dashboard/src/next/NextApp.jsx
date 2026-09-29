@@ -111,6 +111,7 @@ export default function NextApp() {
           <Route path="/datacenter" element={<Workspace />} />
           <Route path="/node/:id" element={<Workspace />} />
           <Route path="/vm/:id" element={<Workspace />} />
+          <Route path="/container/:id" element={<Workspace />} />
           <Route path="*" element={<Navigate to="/datacenter" replace />} />
         </Routes>
         <Dock />
