@@ -731,6 +731,11 @@ export async function setVMCloudInit(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`, { method: "PUT", ...jsonBody(payload) });
 }
 // ---- Start at boot (GET/PUT /vms/{name}/boot): per node, so the VM's node travels with the call.
+// Settings a running VM takes only at its next start (live definition vs saved one).
+export async function fetchVMPendingChanges(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/pending-changes${q}`);
+}
 export async function fetchVMBoot(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`);

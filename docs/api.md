@@ -40,6 +40,7 @@ Each endpoint requires a global role or a scoped privilege (for example `vm.hard
 | `PUT /vms/{name}/balloon` | `actif`, `minimum_mo` (privilege `vm.resize`). |
 | `PUT /vms/{name}/machine` | `machine`: the current version of the same family, on a stopped VM. |
 | `GET /acl/object/{vm\|container}/{name}` | Assignments on one VM or container (admin), with those a VM inherits from its pools (`herite_de`: the pool name, `null` for its own). |
+| `GET /vms/{name}/pending-changes` | What a running VM takes only at its next start: `en_marche`, `changements` (`cle`, `objet`, `actuel`, `prochain`; `null` for a device on one side only). |
 | `PATCH /networks/{name}` | A NAT or isolated network's `mode` (`nat`, `isole`), `adresse` (gateway), `masque` and `dhcp` (`{debut, fin}` or `null`). A DHCP range change is live; the rest waits for the network's restart (`a_redemarrer`). `GET /networks/{name}` returns `ipam` and `a_redemarrer`. |
 | `POST /networks/{name}/reservations`, `DELETE /networks/{name}/reservations/{mac}` | DHCP reservations: `mac`, `ip`, optional `nom`; applied live and in the network's definition. |
 | `GET /meta?kind=`, `GET`/`PUT /meta/{vm,container,node}/{name}?node=` | Notes (plain text) and tags of an object. The listing gives tags and `a_des_notes`, not the notes. |
