@@ -3,6 +3,9 @@ import { useShallow } from "zustand/react/shallow";
 import { ChevronRight } from "lucide-react";
 import { fetchTasks } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
+import { useAuthStore } from "../../store/useAuthStore";
+import { capabilities } from "../lib/capabilities";
+import { leaveMaintenance } from "../components/MaintenanceDialog";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
 import { deriveAlerts } from "../lib/alerts";
@@ -22,6 +25,9 @@ export default function NodeSummary({ resource: node }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const { vms, storagePools, navigateTo } = useInfraStore(useShallow((s) => ({ vms: s.vms, storagePools: s.storagePools, navigateTo: s.navigateTo })));
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const refreshAll = useInfraStore((s) => s.refreshAll);
+  const admin = capabilities(useAuthStore((s) => s.role)).admin;
   const hist = useHostHistory(node, "1h");
   const [recent, setRecent] = useState(null);
   const nodeId = node?.id;
@@ -45,6 +51,12 @@ export default function NodeSummary({ resource: node }) {
 
   return (
     <>
+      {node.maintenance && (
+        <div className="nx-notice nx-notice--warning nx-inline" role="status">
+          <span style={{ flex: 1 }}>{t("mt.banner", { by: node.maintenance.started_by, at: formatDateTime(node.maintenance.started_at, lang) })}</span>
+          {admin && <button type="button" className="nx-btn nx-btn--sm" onClick={() => leaveMaintenance(node, t, pushToast, refreshAll)}>{t("mt.leave")}</button>}
+        </div>
+      )}
       <KpiStrip label={t("ns.resources")} items={[
         { id: "cpu", label: t("ns.cpu"), value: node.cpu_utilisation != null ? fmt1(node.cpu_utilisation, lang) : "—", unit: node.cpu_utilisation != null ? "%" : null, sub: [node.cpu_coeurs && t("nd.cores", { n: node.cpu_coeurs }), node.cpu_modele].filter(Boolean).join(" · ") || t("ns.collecting"), spark: rows.map((r) => r.cpu_pct), onClick: () => navigateTo("node", nodeId, "perf") },
         { id: "mem", label: t("ns.memory"), value: node.memoire_utilisee_mo != null ? formatSizeMb(node.memoire_utilisee_mo, lang) : "—", unit: node.memoire_totale_mo ? `/ ${formatSizeMb(node.memoire_totale_mo, lang)}` : null, sub: memP != null ? t("ns.usedPct", { p: Math.round(memP) }) : t("ns.collecting"), spark: rows.map((r) => pct(r.mem_used_mb, r.mem_total_mb)), onClick: () => navigateTo("node", nodeId, "perf") },

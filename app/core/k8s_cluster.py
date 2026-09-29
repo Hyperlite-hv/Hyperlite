@@ -38,7 +38,9 @@ from app.core.vm_builder import PROJDIR
 logger = logging.getLogger(__name__)
 
 CHANNELS_URL = "https://update.k3s.io/v1-release/channels"
-RELEASE_URL = "https://github.com/k3s-io/k3s/releases/download/{tag}/{file}"
+# The k3s project's own releases (a third-party source, unrelated to Hyperlite's APT address).
+K3S_RELEASES = "https://github.com/k3s-io/k3s/releases"
+RELEASE_URL = K3S_RELEASES + "/download/{tag}/{file}"
 ARTIFACTS_DIR = PROJDIR / "data" / "k3s"
 BINARY = "k3s"
 IMAGES = "k3s-airgap-images-amd64.tar.zst"
@@ -329,7 +331,8 @@ def wait_nodes_ready(server_vm, expected, timeout=NODES_READY_TIMEOUT_S):
 
 def fetch_kubeconfig(server_vm, server_ip, name):
     raw = vm_run(server_vm, "sudo cat /etc/rancher/k3s/k3s.yaml", timeout=60)
-    raw = raw.replace("https://127.0.0.1:6443", f"https://{server_ip}:6443")
+    # k3s writes its loopback address; clients outside the VM need the server VM's own address.
+    raw = re.sub(r"https://127\.0\.0\.1:(\d+)", rf"https://{server_ip}:\1", raw)
     return re.sub(r"(?m)^(\s*(?:-\s+)?(?:name|cluster|user|current-context):\s*)default\s*$", rf"\g<1>{name}", raw)
 
 

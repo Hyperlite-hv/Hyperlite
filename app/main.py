@@ -9,6 +9,8 @@ from app.core import version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.cluster import start_node_poller
+from app.core.config_copy import start_config_copy
+from app.core.ha_watch import start_ha_watch
 from app.core.jobs import ensure_lb_job_exists
 from app.core.k8s_cluster import recover_interrupted as recover_interrupted_k8s_clusters
 from app.core.libvirt_utils import open_conn
@@ -105,6 +107,13 @@ def serve_favicon():
     return JSONResponse(status_code=404, content={"detail": "favicon not found"})
 
 
+def _environment_label():
+    """Label of a non-production installation (HYPERLITE_ENV_LABEL, e.g. "DEV"), shown by the dashboard so it is
+    never mistaken for production; None when unset."""
+    label = (os.environ.get("HYPERLITE_ENV_LABEL") or "").strip()
+    return label[:24] or None
+
+
 def _running_version():
     """Version of the code this process runs: read when it started, not the VERSION file as it is now (an
     update installs the new file before restarting, see app/core/version.py). The update watchdog relies on it
@@ -131,6 +140,7 @@ def health():
         return {
             "status": "ok",
             "hyperlite_version": _running_version(),
+            "environment": _environment_label(),
             "hypervisor": conn.getType(),
             "hostname": conn.getHostname(),
             "libvirt_version": conn.getLibVersion(),
@@ -192,6 +202,8 @@ def on_startup():
     start_backup_scheduler()
     ensure_lb_job_exists()
     start_node_poller()
+    start_config_copy()
+    start_ha_watch()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
     recover_interrupted_k8s_clusters()

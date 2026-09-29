@@ -4,9 +4,11 @@ import "./next.css";
 import "./refonte.css";
 import { useAuthStore } from "../store/useAuthStore";
 import { fetchSsoStatus } from "../api/client";
+import { getAssertion, webauthnSupported } from "./lib/webauthn";
 import EnclaveMark from "../components/EnclaveMark";
 import { useT, useLangStore } from "./i18n";
 import { useThemeStore } from "./tokens/theme";
+import { useEnvironmentLabel } from "./lib/environment";
 
 // Sign-in screen of the rebuilt interface: a graphite brand pane and the form card. Same store actions as the
 // historical screen (password, then the TOTP step when 2FA is on, SSO when the server enables it); "Stay signed
@@ -17,6 +19,7 @@ export default function NextLogin() {
   const initTheme = useThemeStore((s) => s.init);
   const login = useAuthStore((s) => s.login);
   const loginWith2FA = useAuthStore((s) => s.loginWith2FA);
+  const loginWithSecurityKey = useAuthStore((s) => s.loginWithSecurityKey);
   const storeError = useAuthStore((s) => s.error);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -28,6 +31,8 @@ export default function NextLogin() {
   const [health, setHealth] = useState(null);
   const [preAuthToken, setPreAuthToken] = useState(null);
   const [code, setCode] = useState("");
+  const [methods, setMethods] = useState([]);
+  const env = useEnvironmentLabel();
 
   useEffect(() => {
     const root = document.documentElement;
@@ -50,9 +55,17 @@ export default function NextLogin() {
     setError(""); setLoading(true);
     try {
       const result = await login(username, password, remember);
-      if (result.require2FA) setPreAuthToken(result.preAuthToken);
+      if (result.require2FA) { setPreAuthToken(result.preAuthToken); setMethods(result.methods); }
     } catch (err) { setError(err.message); } finally { setLoading(false); }
   }
+  async function signInWithKey() {
+    setError(""); setLoading(true);
+    try { await loginWithSecurityKey(preAuthToken, username, getAssertion); }
+    catch (err) { setError(err.name === "NotAllowedError" ? t("login.keyCancelled") : err.message); }
+    finally { setLoading(false); }
+  }
+  const keyOffered = methods.includes("webauthn");
+  const codeOffered = methods.includes("totp");
   async function onSubmit2FA(e) {
     e.preventDefault();
     setError(""); setLoading(true);
@@ -65,17 +78,30 @@ export default function NextLogin() {
         <EnclaveMark size={44} rails="var(--color-text-primary)" core="var(--color-accent)" />
         <b>{t("app.name")}</b>
         <p>{t("login.tagline")}</p>
+        {env && <span className="nx-envbadge" title={t("env.title", { label: env })}>{env}</span>}
         {health && <span className="nx-login-v">{[health.hyperlite_version, health.hostname].filter(Boolean).join(" · ")}</span>}
       </div>
       <div className="nx-login-r">
         {preAuthToken ? (
           <form className="nx-login-box" onSubmit={onSubmit2FA}>
             <h1><ShieldCheck size={20} aria-hidden="true" /> {t("login.twoStep")}</h1>
-            <p className="nx-muted" style={{ margin: 0 }}>{t("login.twoStepHelp")}</p>
-            <input className="nx-inp nx-mono nx-login-code" aria-label={t("login.code")} autoComplete="one-time-code" autoFocus inputMode="numeric" maxLength={6}
-              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+            {keyOffered && (
+              <>
+                <p className="nx-muted" style={{ margin: 0 }}>{t("login.keyHelp")}</p>
+                <button type="button" className={`nx-btn ${codeOffered ? "" : "nx-btn--primary "}nx-login-btn`} disabled={loading || !webauthnSupported()} onClick={signInWithKey}><KeyRound size={15} aria-hidden="true" />{t("login.useKey")}</button>
+                {!webauthnSupported() && <p className="nx-f-h" style={{ margin: 0 }}>{t("login.keyUnsupported")}</p>}
+              </>
+            )}
+            {keyOffered && codeOffered && <div className="nx-login-or"><span />{t("login.or")}<span /></div>}
+            {codeOffered && (
+              <>
+                <p className="nx-muted" style={{ margin: 0 }}>{t("login.twoStepHelp")}</p>
+                <input className="nx-inp nx-mono nx-login-code" aria-label={t("login.code")} autoComplete="one-time-code" autoFocus={!keyOffered} inputMode="numeric" maxLength={6}
+                  value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+              </>
+            )}
             {error && <p role="alert" className="nx-f-h is-error" style={{ margin: 0 }}>{error}</p>}
-            <button type="submit" className="nx-btn nx-btn--primary nx-login-btn" disabled={loading || code.length !== 6}>{loading ? t("login.verifying") : t("login.verify")}</button>
+            {codeOffered && <button type="submit" className="nx-btn nx-btn--primary nx-login-btn" disabled={loading || code.length !== 6}>{loading ? t("login.verifying") : t("login.verify")}</button>}
             <button type="button" className="nx-btn nx-btn--ghost nx-login-btn" onClick={() => { setPreAuthToken(null); setCode(""); setError(""); }}>{t("login.back")}</button>
           </form>
         ) : (

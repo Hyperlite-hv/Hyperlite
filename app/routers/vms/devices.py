@@ -1,17 +1,21 @@
 import logging
 import re
+import threading
 import xml.etree.ElementTree as ET
 
 import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import disk_move, disk_resize, passthrough
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
-from app.core.security import get_current_user, require_vm_privilege
+from app.core.security import get_current_user, require_role, require_vm_privilege
+from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.vm_limits import validate_vm_resources
 from app.routers.vms._shared import TARGET_DEV_RE, _get_ip, router
 
 logger = logging.getLogger(__name__)
@@ -122,6 +126,116 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
         conn.close()
 
 
+class DiskResize(BaseModel):
+    # The new TOTAL size in GB, not an increment: repeating the request cannot grow the disk twice.
+    size_gb: int = Field(ge=1)
+
+
+@router.post("/{name}/disks/{target_dev}/resize")
+def resize_disk(
+    name: str, target_dev: str, payload: DiskResize, user: dict = Depends(require_vm_privilege("vm.resize"))
+):
+    if not TARGET_DEV_RE.match(target_dev):
+        log_action(user["username"], "resize_disk", name, "echec", "Invalid target_dev")
+        raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
+    size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
+    if size_errors:
+        log_action(user["username"], "resize_disk", name, "echec", "; ".join(size_errors))
+        raise HTTPException(status_code=422, detail=size_errors)
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "resize_disk", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        try:
+            old_bytes, new_bytes, live = disk_resize.grow(conn, domain, target_dev, payload.size_gb)
+        except disk_resize.ResizeError as e:
+            log_action(user["username"], "resize_disk", name, "echec", f"{target_dev}: {e.message}")
+            raise HTTPException(status_code=e.status, detail=e.message) from e
+        old_gb, new_gb = round(old_bytes / disk_resize.GIB, 2), round(new_bytes / disk_resize.GIB, 2)
+        log_action(
+            user["username"],
+            "resize_disk",
+            name,
+            "succes",
+            f"{target_dev}: {old_gb} GB -> {new_gb} GB ({'live' if live else 'stopped'})",
+        )
+        return {
+            "cible": target_dev,
+            "ancienne_taille_go": old_gb,
+            "taille_go": new_gb,
+            "a_chaud": live,
+            "message": f"Disk '{target_dev}' of '{name}' grown to {new_gb} GB",
+        }
+    finally:
+        conn.close()
+
+
+class DiskMove(BaseModel):
+    pool: str = Field(min_length=1, max_length=64)
+    # Off by default: the original file stays in its pool until the admin deletes it, a cheap safety net.
+    delete_source: bool = False
+
+
+def _run_in_background(target, *args):
+    threading.Thread(target=target, args=args, daemon=True).start()
+
+
+def _move_disk_job(task_id, username, name, target_dev, dest_pool, delete_source):
+    conn = open_conn()
+    try:
+        domain = conn.lookupByName(name)
+        # Checked again here: the VM may have changed (started, stopped, snapshotted) since the request.
+        how = disk_move.plan(conn, domain, target_dev, dest_pool)
+        result = disk_move.move(
+            domain, target_dev, how, delete_source, progress=lambda pct: update_task_progress(task_id, pct)
+        )
+        finish_task(task_id, "termine")
+        log_action(
+            username,
+            "move_disk",
+            name,
+            "succes",
+            f"{target_dev}: {result['source']} -> {result['destination']} "
+            f"({'live' if how['live'] else 'stopped'}; source {'deleted' if result['source_supprimee'] else 'kept'})",
+        )
+    except disk_move.MoveError as e:
+        finish_task(task_id, "echec", e.message)
+        log_action(username, "move_disk", name, "echec", f"{target_dev}: {e.message}")
+    except Exception as e:
+        logger.exception("Moving %s of %s failed", target_dev, name)
+        finish_task(task_id, "echec", f"Internal error: {e}")
+        log_action(username, "move_disk", name, "echec", f"{target_dev}: internal error: {e}")
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/disks/{target_dev}/move", status_code=202)
+def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depends(require_role("admin"))):
+    """Move a disk to another directory or NFS pool, live or stopped (see app/core/disk_move.py). Admin only, like
+    a migration: it changes where the cluster's data lives."""
+    if not TARGET_DEV_RE.match(target_dev):
+        raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        try:
+            how = disk_move.plan(conn, domain, target_dev, payload.pool)
+        except disk_move.MoveError as e:
+            log_action(user["username"], "move_disk", name, "echec", f"{target_dev}: {e.message}")
+            raise HTTPException(status_code=e.status, detail=e.message) from e
+    finally:
+        conn.close()
+    task_id = create_task("move_disk", name, node="local", username=user["username"])
+    _run_in_background(_move_disk_job, task_id, user["username"], name, target_dev, payload.pool, payload.delete_source)
+    return {"task_id": task_id, "statut": "en_cours", "destination": how["dest"], "a_chaud": how["live"]}
+
+
 def _get_interfaces(domain):
     xml_desc = domain.XMLDesc(0)
     root = ET.fromstring(xml_desc)
@@ -190,6 +304,8 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
                     "bus": target.get("bus") if target is not None else None,
                     "type": disk.get("device"),
                     "source": path,
+                    # null when the disk can be grown, else why not ("iscsi", "non_gere"); see disk_resize.
+                    "non_agrandissable": disk_resize.not_growable_code(disk),
                     **(
                         _disk_size(domain, conn, dev, path)
                         if path
@@ -388,3 +504,127 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
 # mechanism for this, applied automatically by the QEMU driver at every VM
 # (re)start with no external script to maintain. One filter per VM
 # ("hyperlite-vm-<name>"), referenced by a <filterref> on each interface of the VM.
+
+
+# --- Host devices given to a VM: PCI (VFIO) and USB passthrough (see app/core/passthrough.py). Administrators only:
+# a PCI device is taken away from the host while the VM runs.
+
+
+class HostDeviceAttach(BaseModel):
+    device: str = Field(max_length=80)
+    # A PCI device leaves the host's control while the VM runs: asked explicitly.
+    confirm: bool = False
+
+
+def _hostdev_entries(conn, domain):
+    """The VM's host devices, described from the host inventory, each with its <hostdev> XML (for a detach)."""
+    inventory = passthrough.list_devices(conn)
+    by_key = {}
+    for dev in inventory["pci"] + inventory["usb"]:
+        for key in passthrough.device_keys(dev):
+            by_key[key] = dev
+    out = []
+    for item in passthrough.attached(domain):
+        dev = next((by_key[k] for k in item["cles"] if k in by_key), None)
+        out.append(
+            {
+                "id": dev["id"] if dev else item["cles"][0],
+                "type": item["type"],
+                "adresse": dev["adresse"] if dev else None,
+                "fabricant": dev["fabricant"] if dev else None,
+                "produit": dev["produit"] if dev else None,
+                # A USB device can be unplugged; a PCI one can vanish after a hardware change.
+                "present": dev is not None,
+                "xml": item["xml"],
+            }
+        )
+    return out
+
+
+def _hostdev_listing(conn, domain):
+    return [{k: v for k, v in e.items() if k != "xml"} for e in _hostdev_entries(conn, domain)]
+
+
+@router.get("/{name}/hostdevs")
+def get_vm_hostdevs(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        return _hostdev_listing(conn, domain)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/hostdevs", status_code=201)
+def attach_vm_hostdev(name: str, payload: HostDeviceAttach, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "attach_hostdev", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        running = bool(domain.isActive())
+        try:
+            plan = passthrough.plan_attach(conn, name, payload.device, running)
+        except passthrough.PassthroughError as e:
+            log_action(user["username"], "attach_hostdev", name, "echec", e.message)
+            raise HTTPException(status_code=e.status, detail=e.message) from e
+        if plan[0][0]["type"] == "pci" and not payload.confirm:
+            raise HTTPException(
+                status_code=422,
+                detail="Giving a PCI device to a VM takes it away from the host while the VM runs: confirm with confirm",
+            )
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG | (libvirt.VIR_DOMAIN_AFFECT_LIVE if running else 0)
+        done = []
+        try:
+            for _dev, xml in plan:
+                domain.attachDeviceFlags(xml, flags)
+                done.append(xml)
+        except libvirt.libvirtError as e:
+            # A group is given whole or not at all.
+            for xml in done:
+                try:
+                    domain.detachDeviceFlags(xml, flags)
+                except libvirt.libvirtError:
+                    logger.warning("Could not roll back %s on %s", xml, name, exc_info=True)
+            msg = describe_exception(e)
+            log_action(user["username"], "attach_hostdev", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Device attach error: {msg}") from e
+        log_action(user["username"], "attach_hostdev", name, "succes", ", ".join(d["adresse"] for d, _ in plan))
+        return {"vm": name, "ajoutes": [d["id"] for d, _ in plan], "hostdevs": _hostdev_listing(conn, domain)}
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}/hostdevs/{device_id}")
+def detach_vm_hostdev(name: str, device_id: str, user: dict = Depends(require_role("admin"))):
+    if not passthrough.DEVICE_ID_RE.match(device_id):
+        raise HTTPException(status_code=422, detail="Invalid device identifier")
+    conn = open_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "detach_hostdev", name, "echec", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        item = next((e for e in _hostdev_entries(conn, domain) if e["id"] == device_id), None)
+        if item is None:
+            raise HTTPException(status_code=404, detail="This device is not given to this VM")
+        running = bool(domain.isActive())
+        if item["type"] == "pci" and running:
+            raise HTTPException(status_code=409, detail="Shut down the VM before taking a PCI device back")
+        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG | (libvirt.VIR_DOMAIN_AFFECT_LIVE if running else 0)
+        try:
+            domain.detachDeviceFlags(item["xml"], flags)
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "detach_hostdev", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Device detach error: {msg}") from e
+        log_action(user["username"], "detach_hostdev", name, "succes", device_id)
+        return {"vm": name, "retire": device_id}
+    finally:
+        conn.close()

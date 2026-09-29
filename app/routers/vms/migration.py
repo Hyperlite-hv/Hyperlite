@@ -8,7 +8,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import cluster_compat, iscsi
+from app.core import cluster_compat, ha, iscsi, maintenance
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -388,6 +388,9 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             # successful.
             _delete_paths_on_node(copied_cdrom_paths, source_node)
 
+        if ha.follow_migration(vm_name, target_node):
+            log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")
+
         stop_event.set()
         update_task_progress(task_id, 100)
         finish_task(task_id, "termine")
@@ -449,6 +452,7 @@ def migrate_vm(
     what an ACL scoped to one VM is meant to cover."""
     if _norm_node(payload.target_node) == _norm_node(node):
         raise HTTPException(status_code=422, detail="The destination node must be different from the source node")
+    maintenance.refuse_if_in_maintenance(payload.target_node, "Migration")
     # Migration from a remote node to the local host was long blocked here, because
     # peer-to-peer migration is initiated by the SOURCE libvirtd, which needs to be
     # able to connect ITSELF to the local host. It is now possible through a dedicated

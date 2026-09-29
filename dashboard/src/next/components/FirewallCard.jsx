@@ -4,6 +4,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { Card, Loading, TableWrap } from "./ui";
+import { ErrorState } from "./States";
 
 const PROTOCOLS = ["tcp", "udp", "icmp", "all"];
 
@@ -15,12 +16,17 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
   const [config, setConfig] = useState(null);
   const [saved, setSaved] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
+  // A failed load is shown in the card with a retry, not as a notification: a notification left the card
+  // spinning forever, and it fired on a page whose VM had just been deleted.
   const reload = useCallback(() => {
-    fetchConfig().then((c) => { setConfig(c); setSaved(JSON.stringify(c)); }).catch((e) => pushToast({ kind: "error", title: t("fw.error"), message: errorMessage(e) }));
-  }, [fetchConfig, pushToast, t]);
+    setLoadError(null);
+    fetchConfig().then((c) => { setConfig(c); setSaved(JSON.stringify(c)); }).catch((e) => setLoadError(errorMessage(e)));
+  }, [fetchConfig]);
   useEffect(() => { reload(); }, [reload]);
 
+  if (loadError && !config) return <Card title={title}><ErrorState title={t("fw.error")} message={loadError} onRetry={reload} /></Card>;
   if (!config) return <Card title={title}><Loading style={{ margin: 0 }} /></Card>;
   const dirty = JSON.stringify(config) !== saved;
   const update = (i, patch) => setConfig((c) => ({ ...c, rules: c.rules.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));

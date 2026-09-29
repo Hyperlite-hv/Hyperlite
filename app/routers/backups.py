@@ -8,6 +8,7 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import maintenance
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -15,9 +16,11 @@ from app.core.backups import (
     refuse_vm_with_block_disks,
     restore_backup,
     run_backup,
+    verify_backup,
 )
 from app.core.database import get_conn
 from app.core.security import get_current_user, require_role, require_vm_privilege
+from app.core.tasks import create_task, finish_task
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +89,29 @@ def delete_backup(backup_id: int, confirm: bool = False, user: dict = Depends(re
     return {"message": "Backup deleted"}
 
 
+@router.post("/backups/{backup_id}/verify", status_code=202)
+def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("admin"))):
+    """Recompute every checksum and check the images now, as a task (a large backup takes a while to read)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT vm_name, statut FROM backups WHERE id = ?", (backup_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    if row["statut"] != "termine":
+        raise HTTPException(status_code=409, detail="Only a finished backup can be verified")
+    task_id = create_task("verify_backup", row["vm_name"], username=user["username"])
+
+    def job():
+        try:
+            verify_backup(backup_id, username=user["username"], task_id=task_id)
+            finish_task(task_id, "termine")
+        except Exception as e:
+            logger.warning("Verification of backup #%s failed", backup_id, exc_info=True)
+            finish_task(task_id, "echec", str(e))
+
+    threading.Thread(target=job, daemon=True).start()
+    return {"task_id": task_id, "backup": backup_id}
+
+
 class RestoreRequest(BaseModel):
     mode: str = Field(description="'overwrite' (replaces the original VM) or 'new' (new VM)")
     new_name: str | None = None
@@ -93,6 +119,7 @@ class RestoreRequest(BaseModel):
 
 @router.post("/backups/{backup_id}/restore", status_code=202)
 def restore_backup_endpoint(backup_id: int, payload: RestoreRequest, user: dict = Depends(require_role("admin"))):
+    maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
     with get_conn() as conn:
         row = conn.execute("SELECT vm_name FROM backups WHERE id = ?", (backup_id,)).fetchone()
     if not row:

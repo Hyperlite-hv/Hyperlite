@@ -101,6 +101,10 @@ class _Domain:
     def isActive(self):
         return self._active
 
+    def XMLDesc(self, *_):
+        # No guest agent channel: the address comes from the DHCP lease below.
+        return "<domain><devices/></domain>"
+
     def interfaceAddresses(self, source):
         return {"vnet0": {"addrs": [{"type": 0, "addr": "192.168.122.50"}]}}
 
