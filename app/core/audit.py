@@ -59,6 +59,8 @@ def purge_old_entries(now=None):
     limit = ((now or datetime.now(UTC)) - timedelta(days=days)).isoformat()
     with get_conn() as conn:
         cur = conn.execute("DELETE FROM audit_log WHERE timestamp < ?", (limit,))
+        # Task log lines follow the same retention (the tasks themselves stay listed).
+        conn.execute("DELETE FROM task_logs WHERE at < ?", (limit,))
         conn.commit()
     return cur.rowcount
 

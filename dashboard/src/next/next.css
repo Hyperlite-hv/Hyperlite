@@ -812,3 +812,9 @@ button.nx-tag { cursor: pointer; }
 button.nx-tag:hover { border-color: var(--color-border-strong); }
 .nx-notes { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .nx-notes-input { min-height: 8rem; resize: vertical; font-family: inherit; }
+
+/* A task's own log in the task list's detail row. */
+.nx-tasklog { margin-top: var(--space-3); }
+.nx-tasklog-h { margin: var(--space-3) 0 var(--space-1); font-size: var(--font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); }
+.nx-tasklog-l { margin: 0; padding: 0; list-style: none; max-height: 16rem; overflow: auto; font-size: var(--font-size-sm); }
+.nx-tasklog-l li { padding: 1px 0; overflow-wrap: anywhere; }

@@ -22,6 +22,7 @@ from app.core.metrics import start_metrics_collector
 from app.core.network_firewall import reapply_all as reapply_network_firewalls
 from app.core.security import optional_user
 from app.core.seed import seed_admin
+from app.core.tasks import close_interrupted_tasks
 from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
@@ -249,6 +250,8 @@ def on_startup():
             f.write(pwd + "\n")
         print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
     encrypt_stored_totp_secrets()
+    # Before anything starts new tasks: the ones still "running" belonged to the previous process.
+    close_interrupted_tasks()
     start_metrics_collector()
     start_backup_scheduler()
     ensure_lb_job_exists()

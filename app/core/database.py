@@ -665,6 +665,18 @@ def init_db():
             )
         """)
         conn.execute("CREATE TABLE IF NOT EXISTS vm_boot_state (node TEXT PRIMARY KEY, boot_id TEXT NOT NULL)")
+        # Task log lines (app/core/tasks.py) and who cancelled a task.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                at TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_task_logs_task ON task_logs(task_id)")
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+            conn.execute("ALTER TABLE tasks ADD COLUMN annule_par TEXT")
         # Notes and tags (app/core/object_meta.py). node is '' for a node itself, the VM's node otherwise.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS object_meta (

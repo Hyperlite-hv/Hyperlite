@@ -18,7 +18,7 @@ from app.core.libvirt_utils import (
     uses_shared_storage,
 )
 from app.core.security import require_role
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, raise_if_cancelled, register_cancel, task_log, update_task_progress
 from app.routers.vms._shared import router
 
 logger = logging.getLogger(__name__)
@@ -230,6 +230,14 @@ def _local_migrate_uri_host():
     return None
 
 
+def _abort_domain_job(domain):
+    try:
+        domain.abortJob()
+    except libvirt.libvirtError as e:
+        # No job yet (still preparing): the task stops at its next step instead.
+        logger.info("No libvirt job to abort on %s: %s", domain.name(), e)
+
+
 def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
     from app.core.cluster import build_libvirt_uri, get_node
 
@@ -248,6 +256,8 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
     )
     try:
         domain = src_conn.lookupByName(vm_name)
+        # Cancelling aborts the migration job: libvirt stops copying and the VM keeps running on its source node.
+        register_cancel(task_id, lambda: _abort_domain_job(domain))
         dest_conn = open_conn(dest_node_key)
 
         _ensure_networks_active(dest_conn, _domain_network_names(domain))
@@ -373,8 +383,11 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             dest_uri = build_libvirt_uri(dest_node)
             migrate_params = {"migrate_uri": f"tcp://{dest_node['hostname']}"}
 
+        raise_if_cancelled(task_id)
+        task_log(task_id, f"Migrating {vm_name} to {target_node} ({'shared' if shared else 'copied'} storage)")
         progress_thread.start()
         domain.migrateToURI3(dest_uri, migrate_params, flags)
+        task_log(task_id, "Migration done, cleaning up")
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
         # but NEVER deletes the original file, so every migration on non-shared storage

@@ -12,7 +12,7 @@ from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import lookup_volume, open_conn, pool_for_path
 from app.core.security import get_current_user, require_role, require_vm_privilege
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
 from app.core.vm_limits import validate_vm_resources
 from app.routers.vms._shared import TARGET_DEV_RE, _get_ip, router
 
@@ -192,8 +192,11 @@ def _move_disk_job(task_id, username, name, target_dev, dest_pool, delete_source
         domain = conn.lookupByName(name)
         # Checked again here: the VM may have changed (started, stopped, snapshotted) since the request.
         how = disk_move.plan(conn, domain, target_dev, dest_pool)
+        stop = threading.Event()
+        register_cancel(task_id, stop.set)
+        task_log(task_id, f"Copying {target_dev} to {dest_pool} ({'live' if how['live'] else 'VM stopped'})")
         result = disk_move.move(
-            domain, target_dev, how, delete_source, progress=lambda pct: update_task_progress(task_id, pct)
+            domain, target_dev, how, delete_source, progress=lambda pct: update_task_progress(task_id, pct), stop=stop
         )
         finish_task(task_id, "termine")
         log_action(
