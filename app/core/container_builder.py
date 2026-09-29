@@ -53,6 +53,37 @@ DEBOOTSTRAP_MIRROR = "http://deb.debian.org/debian"
 DEBOOTSTRAP_INCLUDE = "openssh-server,sudo"
 
 
+def chroot_env():
+    """Environment for debootstrap and every command run inside a container's filesystem.
+
+    Not the service's own: its TMPDIR points to a host directory that does not exist in the container (package
+    scripts then fail with "mktemp: failed to create file via template '/root/hyperlite/data/tmp/...'", which
+    broke openssh-server's post-installation), and its locale (fr_FR.UTF-8, say) may not be installed there
+    (perl warns on every call). A minimal, always-valid environment instead."""
+    return {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME": "/root",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "DEBIAN_FRONTEND": "noninteractive",
+    }
+
+
+def _chroot_run(rootfs, *command, **kwargs):
+    """Run a command inside a container's filesystem: always `chroot`, with the command's words as separate
+    arguments (never a shell) and the clean environment above."""
+    return subprocess.run(["chroot", str(rootfs), *command], env=chroot_env(), **kwargs)
+
+
+def _ensure_tmp(rootfs):
+    """Package scripts need a /tmp inside the container; some minimal images have none."""
+    tmp = Path(rootfs) / "tmp"
+    if not tmp.is_symlink():
+        tmp.mkdir(exist_ok=True)
+        tmp.chmod(0o1777)
+
+
 def ensure_base_rootfs():
     """Build the containers' base image (once). A slow operation (several minutes,
     network download): called explicitly before the first container creation,
@@ -73,12 +104,17 @@ def ensure_base_rootfs():
         check=True,
         capture_output=True,
         text=True,
+        env=chroot_env(),  # debootstrap runs the packages' scripts inside the new filesystem
     )
     return BASE_ROOTFS
 
 
 def container_rootfs_path(name):
-    return safe_child(CONTAINERS_DIR, name)
+    """The container's filesystem: under its storage pool when one was chosen at creation, else the default place."""
+    from app.core.container_meta import get_container_storage
+
+    storage = get_container_storage(name)
+    return safe_child(Path(storage["base_dir"]) if storage else CONTAINERS_DIR, name)
 
 
 # ---- Images pulled from a registry (Docker Hub or other) ----
@@ -205,6 +241,7 @@ def bootstrap_os_container(rootfs):
             "it is not compatible with the Hyperlite container model (full system + SSH access)."
         )
 
+    _ensure_tmp(rootfs)
     host_resolv = Path("/etc/resolv.conf")
     target_resolv = rootfs / "etc" / "resolv.conf"
     original_resolv = target_resolv.read_bytes() if target_resolv.exists() else None
@@ -214,7 +251,6 @@ def bootstrap_os_container(rootfs):
 
     try:
         if family == "apt":
-            env = {**os.environ, "DEBIAN_FRONTEND": "noninteractive"}
             # Chicken-and-egg problem seen in real testing: "apt-get update" fails right away
             # with "gpgv...required for verification". The minimal official Docker images do
             # not have gnupg preinstalled, yet gnupg is precisely what would be needed to
@@ -223,43 +259,44 @@ def bootstrap_os_container(rootfs):
             # referenced as is in the image, not a source added by Hyperlite), never for the
             # packages installed afterwards.
             insecure = ["-o", "Acquire::AllowInsecureRepositories=true", "-o", "APT::Get::AllowUnauthenticated=true"]
-            subprocess.run(
-                ["chroot", str(rootfs), "apt-get", *insecure, "update"],
+            _chroot_run(
+                rootfs,
+                "apt-get",
+                *insecure,
+                "update",
                 check=True,
                 capture_output=True,
                 text=True,
-                env=env,
             )
-            subprocess.run(
-                ["chroot", str(rootfs), "apt-get", "install", "-y", *insecure, "--no-install-recommends", "gnupg"],
+            _chroot_run(
+                rootfs,
+                "apt-get",
+                "install",
+                "-y",
+                *insecure,
+                "--no-install-recommends",
+                "gnupg",
                 check=True,
                 capture_output=True,
                 text=True,
-                env=env,
             )
-            subprocess.run(
-                ["chroot", str(rootfs), "apt-get", "update"], check=True, capture_output=True, text=True, env=env
-            )
-            subprocess.run(
-                [
-                    "chroot",
-                    str(rootfs),
-                    "apt-get",
-                    "install",
-                    "-y",
-                    "--no-install-recommends",
-                    "systemd",
-                    "systemd-sysv",
-                    "openssh-server",
-                    "sudo",
-                ],
+            _chroot_run(rootfs, "apt-get", "update", check=True, capture_output=True, text=True)
+            _chroot_run(
+                rootfs,
+                "apt-get",
+                "install",
+                "-y",
+                "--no-install-recommends",
+                "systemd",
+                "systemd-sysv",
+                "openssh-server",
+                "sudo",
                 check=True,
                 capture_output=True,
                 text=True,
-                env=env,
             )
         elif family == "apk":
-            subprocess.run(["chroot", str(rootfs), "apk", "update"], check=True, capture_output=True, text=True)
+            _chroot_run(rootfs, "apk", "update", check=True, capture_output=True, text=True)
             # EXPLICIT openrc: the official "alpine" image from Docker Hub does NOT have
             # openrc preinstalled (verified in real testing: /etc/init.d/ was empty after
             # configuration, "sshd"/"networking" stayed broken symlinks pointing to scripts
@@ -270,8 +307,16 @@ def bootstrap_os_container(rootfs):
             # They are installed so that configure_container_rootfs (useradd/chpasswd -e/bash)
             # works identically whatever the family, without duplicating it per package
             # family.
-            subprocess.run(
-                ["chroot", str(rootfs), "apk", "add", "--no-cache", "openrc", "openssh", "sudo", "shadow", "bash"],
+            _chroot_run(
+                rootfs,
+                "apk",
+                "add",
+                "--no-cache",
+                "openrc",
+                "openssh",
+                "sudo",
+                "shadow",
+                "bash",
                 check=True,
                 capture_output=True,
                 text=True,
@@ -288,7 +333,7 @@ def bootstrap_os_container(rootfs):
     return family
 
 
-def create_container_rootfs(name, image=None, bootstrap=True):
+def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
     """Fast clone (local copy, no network) of the base image, either the local one
     (debootstrap, the default) or one pulled from an external registry
     (`image`, e.g. "ubuntu:22.04", "alpine:3.19", "ghcr.io/foo/bar:tag"), for a
@@ -313,6 +358,12 @@ def create_container_rootfs(name, image=None, bootstrap=True):
         base = ensure_base_rootfs()
         family = "apt"
 
+    if storage:
+        # storage: {"pool": name, "base_dir": directory}, see resolve_container_storage in the containers router.
+        from app.core.container_meta import set_container_storage
+
+        Path(storage["base_dir"]).mkdir(mode=0o711, parents=True, exist_ok=True)
+        set_container_storage(name, storage["pool"], storage["base_dir"])
     dest = container_rootfs_path(name)
     if dest.exists():
         raise ValueError(f"Container '{name}' already has a filesystem on disk")
@@ -321,7 +372,10 @@ def create_container_rootfs(name, image=None, bootstrap=True):
 
 
 def delete_container_rootfs(name):
+    from app.core.container_meta import delete_container_storage
+
     shutil.rmtree(container_rootfs_path(name), ignore_errors=True)
+    delete_container_storage(name)
 
 
 # Container clone and backup. CONFIRMED in testing (virsh -c lxc:///system
@@ -344,11 +398,20 @@ def clone_container_rootfs(name, new_name):
     two as long as nothing forces their regeneration. It does keep the existing
     user account and password (the copied rootfs already has them), exactly as
     VM cloning does not recreate the account either."""
+    from app.core.container_meta import get_container_storage, set_container_storage
+
     src = container_rootfs_path(name)
     if not src.exists():
         raise ValueError(f"Filesystem of container '{name}' not found")
+    storage = get_container_storage(name)
+    if storage:  # a clone stays in its source's storage pool
+        set_container_storage(new_name, storage["pool"], storage["base_dir"])
     dest = container_rootfs_path(new_name)
     if dest.exists():
+        if storage:
+            from app.core.container_meta import delete_container_storage
+
+            delete_container_storage(new_name)
         raise ValueError(f"Container '{new_name}' already has a filesystem on disk")
     subprocess.run(["cp", "-a", str(src), str(dest)], check=True, capture_output=True, text=True)
     _reset_container_identity(dest, new_name)
@@ -379,7 +442,7 @@ def _reset_container_identity(rootfs, new_hostname):
     if ssh_dir.exists():
         for key_file in ssh_dir.glob("ssh_host_*"):
             key_file.unlink(missing_ok=True)
-        subprocess.run(["chroot", str(rootfs), "ssh-keygen", "-A"], check=True, capture_output=True, text=True)
+        _chroot_run(rootfs, "ssh-keygen", "-A", check=True, capture_output=True, text=True)
 
     # Empty machine-id (NOT removed: systemd wants it present but empty to trigger a
     # regeneration at first boot, see machine-id(5)): avoids D-Bus/journald identifiers
@@ -485,14 +548,21 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
     # No -G sudo: the "sudo" group does not necessarily exist (Alpine does not create
     # it) and is not needed anyway, since sudo access is granted to this user by name
     # through sudoers.d below, not through group membership.
-    subprocess.run(
-        ["chroot", str(rootfs), "useradd", "-m", "-s", "/bin/bash", username],
+    _chroot_run(
+        rootfs,
+        "useradd",
+        "-m",
+        "-s",
+        "/bin/bash",
+        username,
         check=True,
         capture_output=True,
         text=True,
     )
-    subprocess.run(
-        ["chroot", str(rootfs), "chpasswd", "-e"],
+    _chroot_run(
+        rootfs,
+        "chpasswd",
+        "-e",
         input=f"{username}:{pwd_hash}\n",
         check=True,
         capture_output=True,
@@ -500,7 +570,7 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
     )
     # Root locked, the same posture as the RHEL kickstart (rootpw --lock): only the
     # account created by name is usable.
-    subprocess.run(["chroot", str(rootfs), "passwd", "-l", "root"], check=True, capture_output=True, text=True)
+    _chroot_run(rootfs, "passwd", "-l", "root", check=True, capture_output=True, text=True)
 
     # sudo WITHOUT a password for this account: membership of the "sudo" group alone
     # is not enough (the default Debian policy requires a password), seen in testing
@@ -512,12 +582,8 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
     sudoers_dropin.write_text(f"{username} ALL=(ALL) NOPASSWD:ALL\n")
     sudoers_dropin.chmod(0o440)
 
-    uid = subprocess.run(
-        ["chroot", str(rootfs), "id", "-u", username], check=True, capture_output=True, text=True
-    ).stdout.strip()
-    gid = subprocess.run(
-        ["chroot", str(rootfs), "id", "-g", username], check=True, capture_output=True, text=True
-    ).stdout.strip()
+    uid = _chroot_run(rootfs, "id", "-u", username, check=True, capture_output=True, text=True).stdout.strip()
+    gid = _chroot_run(rootfs, "id", "-g", username, check=True, capture_output=True, text=True).stdout.strip()
 
     ssh_dir = safe_child(rootfs / "home", username) / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)
@@ -638,9 +704,14 @@ def prepare_app_rootfs(rootfs, hostname, dns):
         target.write_text(content)
 
 
-def _app_os_xml(init, spec):
+def _app_os_xml(init, spec, launcher=None):
+    """launcher: (launcher path, log path) inside the container, when its output is captured (container_console):
+    the launcher then runs first and execs the program."""
+    args = spec["args"][1:]
+    if launcher:
+        init, args = launcher[0], [launcher[1], init, *args]
     parts = [f"    <init>{escape(init)}</init>"]
-    parts += [f"    <initarg>{escape(a)}</initarg>" for a in spec["args"][1:]]
+    parts += [f"    <initarg>{escape(a)}</initarg>" for a in args]
     parts += [f"    <initenv name={quoteattr(k)}>{escape(v)}</initenv>" for k, v in spec["env"].items()]
     parts.append(f"    <initdir>{escape(spec.get('cwd') or '/')}</initdir>")
     parts.append(f"    <inituser>{int(spec.get('uid', 0))}</inituser>")
@@ -659,7 +730,7 @@ def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=No
     ip_xml = ""
     if app:
         # app: {"init": absolute path, "spec": process settings, "ip": ..., "prefix": ..., "gateway": ...}
-        os_xml = _app_os_xml(app["init"], app["spec"])
+        os_xml = _app_os_xml(app["init"], app["spec"], launcher=app.get("launcher"))
         ip_xml = (
             f"\n      <ip address={quoteattr(app['ip'])} family='ipv4' prefix='{int(app['prefix'])}'/>"
             f"\n      <route family='ipv4' address='0.0.0.0' prefix='0' gateway={quoteattr(app['gateway'])}/>"
