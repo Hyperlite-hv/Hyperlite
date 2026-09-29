@@ -31,7 +31,7 @@ export default function RetentionFields({ value, onChange, disabled }) {
   const t = useT();
   const bad = retentionProblems(value);
   const input = (key, label, unit) => (
-    <Field label={label} unit={unit} error={bad[key] ? (key === "retention_count" ? t("vb.retentionRule") : t("gfs.rule", { max: RETENTION_LIMITS[key][1] })) : null}>{(p) => (
+    <Field label={label} unit={unit} help={t(`hlp.${key}`)} error={bad[key] ? (key === "retention_count" ? t("vb.retentionRule") : t("gfs.rule", { max: RETENTION_LIMITS[key][1] })) : null}>{(p) => (
       <input {...p} aria-label={key === "retention_count" ? t("a11y.retention_backups_kept") : undefined} className="nx-inp nx-mono" type="number" min={RETENTION_LIMITS[key][0]} max={RETENTION_LIMITS[key][1]} disabled={disabled}
         placeholder={key === "retention_count" ? undefined : "—"} value={value[key]} onChange={(e) => onChange({ ...value, [key]: e.target.value })} />
     )}</Field>

@@ -44,7 +44,7 @@ function Settings({ name, detail, onChange }) {
     try { await stopNetwork(name); await startNetwork(name); pushToast({ kind: "success", title: t("ipam.restarted"), message: name }); onChange(); }
     catch (e) { pushToast({ kind: "error", title: t("ipam.restartFailed"), message: errorMessage(e) }); onChange(); }
   }
-  const input = (k, label) => <Field label={label} error={bad[k] ? t("net.ipInvalid") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f[k]} onChange={set(k)} />}</Field>;
+  const input = (k, label, help) => <Field label={label} help={help} error={bad[k] ? t("net.ipInvalid") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f[k]} onChange={set(k)} />}</Field>;
   return (
     <section className="nx-stack" aria-label={t("ipam.settings")} style={{ gap: "var(--space-3)" }}>
       <strong>{t("ipam.settings")}</strong>
@@ -56,7 +56,7 @@ function Settings({ name, detail, onChange }) {
       <div className="nx-fg">
         <Field label={t("net.mode")}>{(p) => <select {...p} className="nx-inp" value={f.mode} onChange={set("mode")}><option value="nat">{t("net.mode.nat")}</option><option value="isole">{t("net.mode.isole")}</option></select>}</Field>
         {input("adresse", t("ipam.gateway"))}
-        {input("masque", t("ipam.netmask"))}
+        {input("masque", t("ipam.netmask"), t("hlp.netmask"))}
       </div>
       <label className="nx-check"><input type="checkbox" checked={f.dhcp} onChange={set("dhcp")} /> {t("ipam.dhcpOn")}</label>
       {f.dhcp && <div className="nx-fg">{input("debut", t("ipam.dhcpStart"))}{input("fin", t("ipam.dhcpEnd"))}</div>}
@@ -120,7 +120,7 @@ function Addresses({ name, detail, isAdmin, onChange }) {
       </div>
       {canAdd && (
         <div className="nx-fg" role="group" aria-label={t("ipam.add")}>
-          <Field label={t("ipam.mac")} error={bad.mac ? t("ipam.macInvalid") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.mac} placeholder="52:54:00:12:34:56" onChange={(e) => setF((x) => ({ ...x, mac: e.target.value.trim() }))} />}</Field>
+          <Field label={t("ipam.mac")} help={t("hlp.reservation")} error={bad.mac ? t("ipam.macInvalid") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.mac} placeholder="52:54:00:12:34:56" onChange={(e) => setF((x) => ({ ...x, mac: e.target.value.trim() }))} />}</Field>
           <Field label={t("ipam.ip")} error={bad.ip ? t("net.ipInvalid") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.ip} onChange={(e) => setF((x) => ({ ...x, ip: e.target.value.trim() }))} />}</Field>
           <Field label={t("ipam.name")} error={bad.nom ? t("ipam.nameInvalid") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.nom} onChange={(e) => setF((x) => ({ ...x, nom: e.target.value.trim() }))} />}</Field>
           <div style={{ alignSelf: "end" }}><button type="button" className="nx-btn" disabled={!f.mac || !f.ip || bad.mac || bad.ip || bad.nom || busy} onClick={add}>{t("ipam.add")}</button></div>

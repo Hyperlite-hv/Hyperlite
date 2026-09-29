@@ -105,7 +105,7 @@ export default function MetricsPage() {
             <Field label={t("mx.url")} hint={t("mx.urlHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.url} placeholder="https://influx.example.org:8086" onChange={set("url")} />}</Field>
             <div className="nx-fg">
               <Field label={t("mx.org")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.org} onChange={set("org")} />}</Field>
-              <Field label={t("mx.bucket")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.bucket} onChange={set("bucket")} />}</Field>
+              <Field label={t("mx.bucket")} help={t("hlp.bucket")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.bucket} onChange={set("bucket")} />}</Field>
             </div>
             <Field label={t("mx.token")} hint={form.id ? t("mx.tokenKeep") : t("mx.tokenHint")}>{(p) => <input {...p} type="password" className="nx-inp nx-mono" value={form.jeton} autoComplete="new-password" onChange={set("jeton")} />}</Field>
           </> : <>
@@ -113,7 +113,7 @@ export default function MetricsPage() {
               <Field label={t("mx.host")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.hote} placeholder="graphite.example.org" onChange={set("hote")} />}</Field>
               <Field label={t("mx.port")}>{(p) => <input {...p} className="nx-inp nx-mono" inputMode="numeric" value={form.port} onChange={set("port")} />}</Field>
             </div>
-            <Field label={t("mx.prefix")} hint={t("mx.prefixHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.prefixe} onChange={set("prefixe")} />}</Field>
+            <Field label={t("mx.prefix")} hint={t("mx.prefixHint")} help={t("hlp.graphite")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.prefixe} onChange={set("prefixe")} />}</Field>
           </>}
           <label className="nx-check"><input type="checkbox" checked={form.actif} onChange={set("actif")} /> {t("mx.active")}</label>
         </>}

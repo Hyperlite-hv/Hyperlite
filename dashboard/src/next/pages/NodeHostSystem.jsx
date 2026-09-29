@@ -108,7 +108,7 @@ function DnsCard() {
       {!d.modifiable && <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("hs.dnsReadOnly")}</p>}
       <div className="nx-fg">
         <Field label={t("hs.dnsServers")} hint={t("hs.dnsServersHint")} error={d.modifiable && bad.serveurs ? t("hs.dnsServersRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.serveurs} onChange={(e) => setF((x) => ({ ...x, serveurs: e.target.value }))} />}</Field>
-        <Field label={t("hs.dnsSearch")} error={d.modifiable && bad.recherche ? t("hs.dnsSearchRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.recherche} onChange={(e) => setF((x) => ({ ...x, recherche: e.target.value }))} />}</Field>
+        <Field label={t("hs.dnsSearch")} help={t("hlp.dnsSearch")} error={d.modifiable && bad.recherche ? t("hs.dnsSearchRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.recherche} onChange={(e) => setF((x) => ({ ...x, recherche: e.target.value }))} />}</Field>
       </div>
       {d.modifiable && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.serveurs || bad.recherche} onClick={save}>{t("hs.save")}</button></div>}
     </Card>
@@ -175,7 +175,7 @@ function SyslogCard() {
       <div className="nx-fg">
         <Field label={t("hs.syslogHost")} hint={t("hs.syslogHostHint")} error={bad.hote ? t("hs.syslogHostRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.hote} placeholder="logs.example.org" onChange={(e) => setF((x) => ({ ...x, hote: e.target.value.trim() }))} />}</Field>
         <Field label={t("hs.syslogPort")} error={bad.port ? t("hs.syslogPortRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" inputMode="numeric" value={f.port} onChange={(e) => setF((x) => ({ ...x, port: e.target.value.trim() }))} />}</Field>
-        <Field label={t("hs.syslogProto")}>{(p) => <select {...p} className="nx-inp" value={f.protocole} onChange={(e) => setF((x) => ({ ...x, protocole: e.target.value }))}><option value="udp">UDP</option><option value="tcp">TCP</option></select>}</Field>
+        <Field label={t("hs.syslogProto")} help={t("hlp.syslogProto")}>{(p) => <select {...p} className="nx-inp" value={f.protocole} onChange={(e) => setF((x) => ({ ...x, protocole: e.target.value }))}><option value="udp">UDP</option><option value="tcp">TCP</option></select>}</Field>
       </div>
       <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.hote || bad.port} onClick={save}>{t("hs.save")}</button></div>
     </Card>

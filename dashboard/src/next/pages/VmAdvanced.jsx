@@ -121,7 +121,7 @@ function BalloonCard({ vm, state, admin, onSaved }) {
       <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("va.balloonHelp")}</p>
       <label className="nx-check"><input type="checkbox" checked={on} disabled={!admin} onChange={(e) => setOn(e.target.checked)} /> {t("va.balloonOn")}</label>
       {on && <div className="nx-fg nx-fg--2" style={{ marginTop: "var(--space-3)" }}>
-        <Field label={t("va.balloonMin")} unit={lang === "fr" ? "Mo" : "MB"} error={bad ? t("va.balloonRule", { max: b.memoire_mo }) : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={256} max={b.memoire_mo} disabled={!admin} value={min} onChange={(e) => setMin(e.target.value)} />}</Field>
+        <Field label={t("va.balloonMin")} help={t("hlp.balloonMin")} unit={lang === "fr" ? "Mo" : "MB"} error={bad ? t("va.balloonRule", { max: b.memoire_mo }) : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={256} max={b.memoire_mo} disabled={!admin} value={min} onChange={(e) => setMin(e.target.value)} />}</Field>
       </div>}
       {admin && <div className="nx-fa"><button type="button" className="nx-btn" disabled={!dirty || bad || busy} onClick={save}>{t("va.save")}</button></div>}
     </Card>
@@ -168,6 +168,12 @@ export default function VmAdvancedPage({ resource: vm }) {
     <>
       <Card title={t("va.disks")} flush>
         <p className="nx-muted" style={{ margin: "0 var(--space-4) var(--space-3)", fontSize: "var(--fs-13)" }}>{t("va.disksHelp")}</p>
+        <details className="nx-explain" style={{ margin: "0 var(--space-4) var(--space-3)" }}>
+          <summary>{t("hlp.disksWhat")}</summary>
+          <dl>{[["va.cache", "hlp.cache"], ["va.discard", "hlp.discard"], ["va.io", "hlp.io"], ["va.iothread", "hlp.iothread"], ["IOPS", "hlp.iops"], ["MB/s", "hlp.mbps"]].map(([k, h]) => (
+            <div key={k}><dt>{k.startsWith("va.") ? t(k) : k}</dt><dd>{t(h)}</dd></div>
+          ))}</dl>
+        </details>
         <TableWrap>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("vh.device")}</th><th scope="col">{t("va.cache")}</th><th scope="col">{t("va.discard")}</th><th scope="col">{t("va.io")}</th><th scope="col">{t("va.iothread")}</th><th scope="col">IOPS</th><th scope="col">MB/s</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
