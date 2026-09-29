@@ -39,5 +39,6 @@ Each endpoint requires a global role or a scoped privilege (for example `vm.hard
 | `PUT /vms/{name}/boot-order` | `ordre`: disk targets and `net:<mac>` in boot order. |
 | `PUT /vms/{name}/balloon` | `actif`, `minimum_mo` (privilege `vm.resize`). |
 | `PUT /vms/{name}/machine` | `machine`: the current version of the same family, on a stopped VM. |
+| `GET /acl/object/{vm\|container}/{name}` | Assignments on one VM or container (admin), with those a VM inherits from its pools (`herite_de`: the pool name, `null` for its own). |
 | `GET /meta?kind=`, `GET`/`PUT /meta/{vm,container,node}/{name}?node=` | Notes (plain text) and tags of an object. The listing gives tags and `a_des_notes`, not the notes. |
 | `GET`/`PATCH /containers/{name}` | A container's details (`interfaces`, `dns`, `demarrage_auto`) and changing `vcpu`, `memory_mb`, `dns`, `demarrage_auto`; `a_redemarrer` says when part of it applies at the next start. |
