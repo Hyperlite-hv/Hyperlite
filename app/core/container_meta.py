@@ -52,3 +52,27 @@ def delete_container_app(container_name):
     with get_conn() as conn:
         conn.execute("DELETE FROM container_apps WHERE container_name = ?", (container_name,))
         conn.commit()
+
+
+# Storage pool holding a container's filesystem, when not the default location.
+
+
+def set_container_storage(container_name, pool, base_dir):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO container_storage (container_name, pool, base_dir) VALUES (?, ?, ?)",
+            (container_name, pool, str(base_dir)),
+        )
+        conn.commit()
+
+
+def get_container_storage(container_name):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM container_storage WHERE container_name = ?", (container_name,)).fetchone()
+    return {"pool": row["pool"], "base_dir": row["base_dir"]} if row else None
+
+
+def delete_container_storage(container_name):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM container_storage WHERE container_name = ?", (container_name,))
+        conn.commit()
