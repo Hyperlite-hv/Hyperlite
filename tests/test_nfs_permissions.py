@@ -12,43 +12,64 @@ def qemu(monkeypatch, tmp_path):
     conf = tmp_path / "qemu.conf"
     conf.write_text('# user = "root"\nuser = "+64055"\ngroup = "+993"\n')
     monkeypatch.setattr(nfs_permissions, "QEMU_CONF", conf)
+    monkeypatch.setattr(nfs_permissions, "POOLS_ROOT", tmp_path / "pools")
     return nfs_permissions
+
+
+@pytest.fixture()
+def share(tmp_path):
+    """A pool mount point where Hyperlite puts them (POOLS_ROOT is redirected by the qemu fixture)."""
+    path = tmp_path / "pools" / "nfs-shared"
+    path.mkdir(parents=True)
+    return path
 
 
 def test_qemus_identity_comes_from_qemu_conf(qemu):
     assert qemu.qemu_identity() == (64055, 993, "+64055:+993")
 
 
-def test_a_share_where_files_can_be_given_to_qemu_passes(qemu, tmp_path, monkeypatch):
+def test_a_share_where_files_can_be_given_to_qemu_passes(qemu, share, monkeypatch):
     real_chown = os.chown
     monkeypatch.setattr(qemu.os, "chown", lambda p, u, g: real_chown(p, u, g) if os.geteuid() == 0 else None)
     if os.geteuid() != 0:
         # without root, emulate all_squash,anonuid=<qemu>: the server records QEMU's user as owner
         monkeypatch.setattr(qemu, "qemu_identity", lambda: (os.getuid(), os.getgid(), "me:me"))
-    result = qemu.check(tmp_path, export="/srv/vms")
+    result = qemu.check(share, export="/srv/vms")
     assert result == {"ok": True, "message": None}
-    assert not list(tmp_path.glob(".hyperlite-permission-check-*"))  # the probe file is removed
+    assert not list(share.glob(".hyperlite-permission-check-*"))  # the probe file is removed
 
 
-def test_root_squash_is_detected_and_the_fix_is_given(qemu, tmp_path, monkeypatch):
+def test_root_squash_is_detected_and_the_fix_is_given(qemu, share, monkeypatch):
     def squashed(path, uid, gid):
         raise PermissionError(1, "Operation not permitted")  # what root_squash answers to chown
 
     monkeypatch.setattr(qemu.os, "chown", squashed)
     monkeypatch.setattr(qemu, "qemu_identity", lambda: (64055, 993, "libvirt-qemu:kvm"))
-    result = qemu.check(tmp_path, export="/srv/vms")
+    result = qemu.check(share, export="/srv/vms")
     assert result["ok"] is False
     msg = result["message"]
     assert "root_squash" in msg and "libvirt-qemu:kvm" in msg
     assert "/srv/vms <network>(rw,sync,no_subtree_check,all_squash,anonuid=64055,anongid=993)" in msg
     assert "exportfs -ra" in msg and "chown 64055:993" in msg
-    assert not list(tmp_path.glob(".hyperlite-permission-check-*"))
+    assert not list(share.glob(".hyperlite-permission-check-*"))
 
 
 def test_a_share_this_host_cannot_write_to_is_reported(qemu, tmp_path):
-    missing = tmp_path / "not-mounted"
+    missing = tmp_path / "pools" / "not-mounted"
     result = qemu.check(missing)
     assert result["ok"] is False and "cannot even write" in result["message"]
+
+
+def test_only_a_pool_mount_point_of_hyperlite_is_written_to(qemu, share, tmp_path, monkeypatch):
+    written = []
+    monkeypatch.setattr(qemu.os, "open", lambda *a, **k: written.append(a[0]) or os.open(*a, **k))
+    elsewhere = tmp_path / "etc"
+    elsewhere.mkdir()
+    (share / "link").symlink_to(elsewhere)
+    for path in (elsewhere, share / ".." / ".." / "etc", share / "link", share.parent, share / "sub"):
+        result = qemu.check(path)
+        assert result["ok"] is False and "Only the NFS pools Hyperlite mounts" in result["message"], path
+    assert written == []
 
 
 def test_a_denied_disk_on_nfs_gets_the_real_reason(qemu, tmp_path, monkeypatch):
