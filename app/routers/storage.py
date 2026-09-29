@@ -3,6 +3,7 @@ import re
 import shutil
 import socket
 import xml.etree.ElementTree as ET
+from typing import Literal
 from xml.sax import saxutils
 
 import libvirt
@@ -56,6 +57,22 @@ def _pool_path(pool):
         return None
 
 
+_FS_NS = "{http://libvirt.org/schemas/storagepool/fs/1.0}"
+
+
+def _nfs_version(pool):
+    """The 'vers=' mount option of an NFS pool (None for one defined outside Hyperlite without it)."""
+    try:
+        root = ET.fromstring(pool.XMLDesc(0))
+    except (libvirt.libvirtError, ET.ParseError):
+        return None
+    for option in root.iter(f"{_FS_NS}option"):
+        name = option.get("name", "")
+        if name.startswith("vers="):
+            return name.split("=", 1)[1]
+    return None
+
+
 def _pool_summary(pool):
     state, capacity, allocation, available = pool.info()
     if _pool_type(pool) == "iscsi":
@@ -68,6 +85,7 @@ def _pool_summary(pool):
         except libvirt.libvirtError:
             pass
     return {
+        "nfs_version": _nfs_version(pool) if _pool_type(pool) == "netfs" else None,
         "chemin": _pool_path(pool),
         "nom": pool.name(),
         "uuid": pool.UUIDString(),
@@ -123,6 +141,9 @@ class PoolCreate(BaseModel):
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
     nfs_host: str | None = None  # "netfs" pool: NFS server host
     nfs_export_path: str | None = None  # pool "netfs" : chemin exporte cote serveur
+    # "netfs" pool: the NFS protocol version to mount with. Always explicit, never negotiated (see _build_pool_xml):
+    # 4.2 unless the server only offers an older one (a NAS limited to NFSv3, for instance).
+    nfs_version: Literal["3", "4", "4.0", "4.1", "4.2"] = "4.2"
     size_gb: int | None = Field(None, ge=1)  # "zfs" pool: size of the loopback file
     iscsi_host: str | None = None  # "iscsi" pool: portal address of the storage server
     iscsi_port: int = Field(iscsi.DEFAULT_PORT, ge=1, le=65535)
@@ -167,7 +188,8 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
         #
         # 2) Even with 'addr=' passed correctly, the mount then fails with "NFS: Version
         # unavailable" unless the NFS version is fixed explicitly: automatic negotiation
-        # fails silently on this client. 'vers=4.2' is added for the same reason.
+        # fails silently on this client. 'vers=' is therefore always given: 4.2 by default, or the version chosen
+        # at creation for a server that does not offer it (NFSv3-only appliances are common).
         #
         # 3) The libvirt element is 'mount_opts' (NOT 'mountopts', which libvirt ignores
         # silently) and it lives in its OWN XML namespace (checked in
@@ -188,7 +210,7 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
             addr = payload.nfs_host  # resolution failed: try anyway with the value as provided
         mount_opts_xml = (
             f'<mount_opts xmlns="http://libvirt.org/schemas/storagepool/fs/1.0">'
-            f'<option name="addr={saxutils.escape(addr)}"/><option name="vers=4.2"/></mount_opts>'
+            f'<option name="addr={saxutils.escape(addr)}"/><option name="vers={payload.nfs_version}"/></mount_opts>'
         )
     else:
         mount_opts_xml = ""

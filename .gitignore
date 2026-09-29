@@ -14,6 +14,7 @@ data/tls/
 data/isos/
 data/templates/
 data/casper-cache/
+data/k3s/
 data/vm-exports/
 data/imported-disks/
 installer/*.iso

@@ -14,6 +14,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import asyncssh
 import libvirt
@@ -23,20 +24,31 @@ from pydantic import BaseModel, Field
 from app.core import maintenance
 from app.core.audit import log_action
 from app.core.container_builder import (
+    app_spec,
     backup_container_rootfs,
     build_container_xml,
     clone_container_rootfs,
     configure_container_rootfs,
     create_container_rootfs,
     delete_container_rootfs,
+    prepare_app_rootfs,
+    resolve_init,
     restore_container_rootfs,
+    validate_app_overrides,
 )
-from app.core.container_meta import delete_container_ssh_user, get_container_ssh_user, set_container_ssh_user
+from app.core.container_meta import (
+    delete_container_app,
+    delete_container_ssh_user,
+    get_container_app,
+    get_container_ssh_user,
+    set_container_app,
+    set_container_ssh_user,
+)
 from app.core.database import get_conn
 from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn
-from app.core.network_alloc import generate_mac
+from app.core.network_alloc import allocate_static_ip, generate_mac, network_gateway, release_static_ip
 from app.core.security import get_current_user, require_container_privilege, require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import (
@@ -80,14 +92,18 @@ def _get_ip(domain):
 def _summary(domain):
     active = domain.isActive()
     state, maxmem, _mem, nvcpu, _cputime = domain.info()
+    app = get_container_app(domain.name())
     return {
+        "mode": "application" if app else "systeme",
+        "image": app["image"] if app else None,
         "nom": domain.name(),
         "id": domain.ID() if active else None,
         "uuid": domain.UUIDString(),
         "etat": STATE_NAMES.get(state, "inconnu"),
         "vcpu": nvcpu,
         "memoire_mo": maxmem // 1024,
-        "ip": _get_ip(domain) if active else None,
+        # An application container has no DHCP lease: its address is the one libvirt set on its interface.
+        "ip": (app["ip"] if app else _get_ip(domain)) if active else None,
     }
 
 
@@ -95,13 +111,20 @@ class ContainerCreate(BaseModel):
     name: str
     vcpu: int = Field(default=1, ge=1)
     memory_mb: int = Field(default=512, ge=128)
-    username: str
-    password: str
+    # Required for a system container (the account created in it); unused by an application container.
+    username: str | None = None
+    password: str | None = None
     network: str = "default"
     # None/empty = the local Debian 12 base (fast, already cached); otherwise a
     # Docker Hub image reference (or any OCI registry), e.g. "ubuntu:22.04",
     # "alpine:3.19", "nginx:latest". See container_builder.pull_image_rootfs.
     image: str | None = None
+    # "application": run the image's own process (the default with an image); "systeme": boot it as a small
+    # system with systemd and sshd (the only choice without an image). See container_builder.read_image_config.
+    mode: Literal["application", "systeme"] | None = None
+    # Application containers only: replaces the image's Entrypoint+Cmd, and adds to or overrides its environment.
+    command: list[str] | None = None
+    env: dict[str, str] | None = None
 
 
 @router.get("")
@@ -147,6 +170,34 @@ def get_container(name: str, user: dict = Depends(require_container_privilege("c
         conn.close()
 
 
+def _app_domain_xml(conn, name, rootfs, spec, network, vcpu, memory_mb):
+    """Reserve an address on the network, prepare the image's filesystem and build the domain of an application
+    container. Returns (xml, mac, ip); the reservation is released again if anything after it fails."""
+    gateway = network_gateway(conn, network)
+    if gateway is None:
+        raise ValueError(
+            f"Network '{network}' has no Hyperlite-managed subnet: an application container needs a NAT or isolated "
+            "network, whose address it receives from Hyperlite"
+        )
+    mac = generate_mac(conn)
+    ip = allocate_static_ip(conn, network, mac)
+    if not ip:
+        raise ValueError(f"Network '{network}' has no free address left in its DHCP range")
+    try:
+        init = resolve_init(rootfs, spec)
+        prepare_app_rootfs(rootfs, name, gateway[0])
+        app = {"init": init, "spec": spec, "ip": ip, "prefix": gateway[1], "gateway": gateway[0]}
+        return build_container_xml(name, vcpu, memory_mb, rootfs, network=network, mac=mac, app=app), mac, ip
+    except Exception:
+        release_static_ip(conn, network, mac)
+        raise
+
+
+def _domain_mac(domain):
+    mac = ET.fromstring(domain.XMLDesc(0)).find(".//devices/interface/mac")
+    return mac.get("address") if mac is not None else None
+
+
 @router.post("", status_code=201)
 def create_container(payload: ContainerCreate, user: dict = Depends(require_role("admin"))):
     maintenance.refuse_if_in_maintenance("local", "Container creation")
@@ -166,14 +217,22 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
     if _errs:
         raise HTTPException(status_code=422, detail=" ; ".join(_errs))
     errors = []
+    mode = payload.mode or ("application" if payload.image else "systeme")
     name_error = validate_name(payload.name)
     if name_error:
         errors.append(name_error)
-    username_error = validate_username(payload.username)
-    if username_error:
-        errors.append(username_error)
-    if len(payload.password or "") < 4:
-        errors.append("The password must contain at least 4 characters")
+    if mode == "application":
+        if not payload.image:
+            errors.append("An application container needs an image")
+        errors.extend(validate_app_overrides(payload.command, payload.env))
+    else:
+        if payload.command or payload.env:
+            errors.append("A command or environment variables apply to application containers only")
+        username_error = validate_username(payload.username or "")
+        if username_error:
+            errors.append(username_error)
+        if len(payload.password or "") < 4:
+            errors.append("The password must contain at least 4 characters")
 
     conn = open_lxc_conn()
     task_id = create_task("create_container", payload.name, node=conn.getHostname(), username=user["username"])
@@ -184,9 +243,28 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
         except libvirt.libvirtError:
             logger.debug("Ignored exception in create_container()", exc_info=True)
 
+        # Checked before the image is fetched: a download of hundreds of MB must not end in this refusal.
+        try:
+            if not conn.networkLookupByName(payload.network).isActive():
+                errors.append(f"Network '{payload.network}' is not started")
+        except libvirt.libvirtError:
+            logger.debug("Network lookup failed in create_container()", exc_info=True)
+        if mode == "application":
+            try:
+                if network_gateway(conn, payload.network) is None:
+                    errors.append(
+                        f"Network '{payload.network}' has no Hyperlite-managed subnet: an application container "
+                        "needs a NAT or isolated network"
+                    )
+            except libvirt.libvirtError:
+                errors.append(f"Network '{payload.network}' not found")
+
         if errors:
             log_action(user["username"], "create_container", payload.name, "echec", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
+
+        if mode == "application":
+            return _create_app_container(conn, payload, user, task_id)
 
         try:
             rootfs, family = create_container_rootfs(payload.name, image=payload.image)
@@ -221,6 +299,54 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
         return _summary(domain)
     finally:
         conn.close()
+
+
+def _create_app_container(conn, payload, user, task_id):
+    try:
+        rootfs, _family = create_container_rootfs(payload.name, image=payload.image, bootstrap=False)
+    except subprocess.CalledProcessError as e:
+        msg = e.stderr or str(e)
+        delete_container_rootfs(payload.name)
+        log_action(user["username"], "create_container", payload.name, "echec", msg, task_id=task_id)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch the image: {msg}") from e
+    except ValueError as e:
+        log_action(user["username"], "create_container", payload.name, "echec", str(e), task_id=task_id)
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    mac = None
+    try:
+        spec = app_spec(payload.image, payload.command, payload.env)
+        xml, mac, ip = _app_domain_xml(
+            conn, payload.name, rootfs, spec, payload.network, payload.vcpu, payload.memory_mb
+        )
+        domain = conn.defineXML(xml)
+    except (ValueError, libvirt.libvirtError) as e:
+        msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+        if mac:
+            release_static_ip(conn, payload.network, mac)
+        delete_container_rootfs(payload.name)
+        log_action(user["username"], "create_container", payload.name, "echec", msg, task_id=task_id)
+        raise HTTPException(status_code=422 if isinstance(e, ValueError) else 500, detail=msg) from e
+
+    set_container_app(payload.name, payload.image, spec, ip, payload.network)
+    try:
+        domain.create()
+    except libvirt.libvirtError as e:
+        # Defined but not started (a wrong command, for instance): kept, so it can be fixed or deleted.
+        msg = describe_exception(e)
+        log_action(
+            user["username"],
+            "create_container",
+            payload.name,
+            "echec",
+            f"defined, start failed: {msg}",
+            task_id=task_id,
+        )
+        raise HTTPException(status_code=500, detail=f"Container defined but its process did not start: {msg}") from e
+    log_action(
+        user["username"], "create_container", payload.name, "succes", f"application {payload.image}", task_id=task_id
+    )
+    return _summary(domain)
 
 
 @router.post("/{name}/start")
@@ -268,6 +394,7 @@ def delete_container(name: str, user: dict = Depends(require_role("admin"))):
     try:
         try:
             domain = conn.lookupByName(name)
+            mac, network = _domain_mac(domain), _domain_network(domain)
             try:
                 domain.destroy()
             except libvirt.libvirtError:
@@ -280,6 +407,10 @@ def delete_container(name: str, user: dict = Depends(require_role("admin"))):
 
         delete_container_rootfs(name)
         delete_container_ssh_user(name)
+        if get_container_app(name):
+            if mac:
+                release_static_ip(conn, network, mac)
+            delete_container_app(name)
         log_action(user["username"], "delete_container", name, "succes")
         return {"ok": True}
     finally:
@@ -344,14 +475,22 @@ def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depe
         source_root = ET.fromstring(domain.XMLDesc(0))
         vcpu = int(source_root.findtext("vcpu") or "1")
         memory_kb = int(source_root.findtext("memory") or str(512 * 1024))
-        mac = generate_mac(conn)
-        xml = build_container_xml(
-            payload.new_name, vcpu, memory_kb // 1024, rootfs, network=_domain_network(domain), mac=mac
-        )
+        network = _domain_network(domain)
+        app = get_container_app(name)
+        mac = ip = None
         try:
+            if app:
+                xml, mac, ip = _app_domain_xml(
+                    conn, payload.new_name, rootfs, app["spec"], network, vcpu, memory_kb // 1024
+                )
+            else:
+                mac = generate_mac(conn)
+                xml = build_container_xml(payload.new_name, vcpu, memory_kb // 1024, rootfs, network=network, mac=mac)
             new_domain = conn.defineXML(xml)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
+        except (ValueError, libvirt.libvirtError) as e:
+            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+            if app and ip:
+                release_static_ip(conn, network, mac)
             delete_container_rootfs(payload.new_name)
             log_action(user["username"], "clone_container", name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Failed to define the cloned container: {msg}") from e
@@ -359,6 +498,8 @@ def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depe
         ssh_user = get_container_ssh_user(name)
         if ssh_user:
             set_container_ssh_user(payload.new_name, ssh_user)
+        if app:
+            set_container_app(payload.new_name, app["image"], app["spec"], ip, network)
         log_action(user["username"], "clone_container", name, "succes", f"-> {payload.new_name}", task_id=task_id)
         return _summary(new_domain)
     finally:
@@ -488,19 +629,29 @@ def restore_container_backup(
         # cloning, which reads them straight from the still defined source domain), so
         # they fall back to the default values, adjustable afterwards like for any
         # container.
-        mac = generate_mac(conn)
-        xml = build_container_xml(target_name, 1, 512, rootfs, network="default", mac=mac)
+        app = get_container_app(row["container_name"])
+        mac = ip = None
         try:
+            if app:
+                # The original network, not "default": that one may not even be started on this host.
+                network = app["network"] or "default"
+                xml, mac, ip = _app_domain_xml(conn, target_name, rootfs, app["spec"], network, 1, 512)
+            else:
+                mac = generate_mac(conn)
+                xml = build_container_xml(target_name, 1, 512, rootfs, network="default", mac=mac)
             domain = conn.defineXML(xml)
-        except libvirt.libvirtError as e:
+        except (ValueError, libvirt.libvirtError) as e:
+            if app and ip:
+                release_static_ip(conn, network, mac)
             delete_container_rootfs(target_name)
-            raise HTTPException(
-                status_code=500, detail=f"Failed to define the restored container: {describe_exception(e)}"
-            ) from e
+            detail = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+            raise HTTPException(status_code=500, detail=f"Failed to define the restored container: {detail}") from e
 
         ssh_user = get_container_ssh_user(row["container_name"])
         if ssh_user:
             set_container_ssh_user(target_name, ssh_user)
+        if app:
+            set_container_app(target_name, app["image"], app["spec"], ip, network)
         log_action(user["username"], "restore_container_backup", target_name, "succes", f"from backup #{backup_id}")
         return _summary(domain)
     finally:
@@ -522,6 +673,12 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_container_pri
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
 
+        if get_container_app(name):
+            raise HTTPException(
+                status_code=409,
+                detail="An application container runs only its image's process, with no SSH server: reach its "
+                "service on its address instead",
+            )
         if not domain.isActive():
             raise HTTPException(status_code=409, detail="The container must be running to open a terminal")
 
