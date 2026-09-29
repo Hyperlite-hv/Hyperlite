@@ -127,11 +127,16 @@ def updates(refresh=False):
     }
 
 
-def upgrade_command(packages):
-    names = [p for p in packages if p != SELF_PACKAGE]
-    bad = [p for p in names if not PKG_RE.match(p)]
-    if bad:
-        raise SettingError(f"Invalid package names: {', '.join(bad)}")
+def upgrade_command(packages, upgradable=None):
+    """apt command upgrading the requested packages. The names in the command are apt's own (the packages it lists
+    as upgradable right now), never the request's strings: a name apt does not list is refused, and `hyperlite`
+    is left to its own update page."""
+    listed = [p["nom"] for p in (upgradable if upgradable is not None else updates()["paquets"])]
+    requested = set(packages)
+    unknown = sorted(requested - set(listed) - {SELF_PACKAGE})
+    if unknown:
+        raise SettingError(f"Not upgradable on this node: {', '.join(unknown)[:300]}")
+    names = [n for n in listed if n in requested and n != SELF_PACKAGE and PKG_RE.match(n)]
     if not names:
         raise SettingError("Nothing to upgrade")
     apt = [
@@ -154,9 +159,8 @@ def upgrade_command(packages):
     return apt
 
 
-def run_upgrade(packages, log):
-    """Upgrade the packages, passing every output line to `log`. Returns the exit code."""
-    cmd = upgrade_command(packages)
+def run_upgrade(cmd, log):
+    """Run an upgrade command made by upgrade_command, passing every output line to `log`. Returns the exit code."""
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in proc.stdout:
         line = line.rstrip()
