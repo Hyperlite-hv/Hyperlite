@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Bulk actions on the VM list: select VMs (or every VM shown) and start, stop, force stop, restart, migrate or delete them together; the confirmation names them and the ones left as they are, and each failure is reported by name.
+- Start at boot for VMs, with an order and a pause before the next VM, in a VM's Options. Run once per boot of each node (never on a service restart), on every node, and following a live-migrated VM.
+- Notes (plain text) and tags on VMs, containers and nodes; tags show in the VM list, which filters by tag and finds them in its search.
+- A log per task, shown in the task list, and cancelling a running task: migrations and node drains abort the libvirt job, disk moves, backups and exports stop their copy and remove partial files, automation runs stop the command in progress. A task nobody runs any more (the service restarted) can be closed, and the ones left over are closed at start-up.
+- A page per container: resources, network interfaces and DNS servers, start at boot, notes and tags, terminal or process output, backups and history.
+- A Tasks tab on VMs and containers with the object's own history.
+- Cloud-init after creation: change a cloud image VM's SSH keys and password from its Hardware tab, applied at its next boot; its SSH host keys and Hyperlite's automation key are kept, the password is never stored.
+- New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).
 - CSV exports of the full audit log and task history (`GET /audit/export.csv`, `GET /tasks/export.csv`), with every matching entry rather than the page on screen.
