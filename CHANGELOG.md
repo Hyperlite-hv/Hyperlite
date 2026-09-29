@@ -24,6 +24,7 @@ All notable changes to this project are documented here. The format is based on 
 - My preferences (account menu), kept in the browser: the terminals' font and size, and the storage pools the Home page follows.
 - A Metrics page (administration): the Prometheus endpoint with a ready scrape job, and metric servers the collector pushes every sample to (InfluxDB 2 over HTTP, Graphite over TCP), each with a test button and its last error.
 - Backup jobs on the Backups page: one schedule for all of this node's VMs, those of a tag or of a pool (resolved at each run, some left out if wanted), run now or on schedule. GFS retention (last, daily, weekly, monthly) for these jobs and for each VM's schedule.
+- VM list views: grouped by node, tag or pool (a VM under each of its tags or pools), optional columns (node, IP, system, CPU and memory, uptime), and saved views that bring back filters, grouping, columns and sort, kept in the browser.
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).
