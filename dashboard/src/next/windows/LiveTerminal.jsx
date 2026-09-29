@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { termOptions } from "../lib/prefs";
 import { Eraser, X } from "lucide-react";
 import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
 import { useT } from "../i18n";
@@ -40,7 +41,7 @@ export default function LiveTerminal({ getUrl, label, note }) {
       cleanup();
       // xterm is loaded as a UMD global; its theme is the graphite of the navigation column.
       // eslint-disable-next-line no-undef
-      const tm = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "IBM Plex Mono, ui-monospace, monospace", theme: { background: "#141215", foreground: "#F1ECEE", cursor: "#CE9DB2" } });
+      const tm = new Terminal(termOptions());
       // eslint-disable-next-line no-undef
       const fit = new FitAddon.FitAddon();
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;

@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { create } from "zustand";
 import en from "./en";
 import fr from "./fr";
@@ -30,9 +31,12 @@ export function translate(lang, key, vars) {
   return s;
 }
 
+// The same function for as long as the language does not change: pages list `t` among the dependencies of the
+// effects that load their data, and a new function at each render made those effects run again at each render
+// (the network list asked the server hundreds of times a second).
 export function useT() {
   const lang = useLangStore((s) => s.lang);
-  return (key, vars) => translate(lang, key, vars);
+  return useCallback((key, vars) => translate(lang, key, vars), [lang]);
 }
 
 export const LANGS = [{ id: "en", label: "English" }, { id: "fr", label: "Français" }];

@@ -64,6 +64,15 @@ def delete_custom_role(role_id: int, user: dict = Depends(require_role("admin"))
     return {"message": "Role deleted"}
 
 
+@router.get("/object/{resource_type}/{resource_id}")
+def object_acl(resource_type: str, resource_id: str, user: dict = Depends(require_role("admin"))):
+    """Assignments on one VM or container, for the object's Permissions tab: its own ones and, for a VM, the
+    ones it inherits from its pools."""
+    if resource_type not in ("vm", "container"):
+        raise HTTPException(status_code=422, detail="resource_type must be 'vm' or 'container'")
+    return perm.acl_for_object(resource_type, resource_id)
+
+
 @router.get("")
 def list_acl(user: dict = Depends(require_role("admin"))):
     return perm.list_acl()

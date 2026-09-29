@@ -28,21 +28,25 @@ import { VmHardwarePage, VmOptionsPage, VmNetworkPage } from "../pages/VmConfigu
 import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
 import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage } from "../pages/ContainerPages";
 import VmCloudInitPage from "../pages/VmCloudInit";
+import VmAdvancedPage from "../pages/VmAdvanced";
+import MetricsPage from "../pages/MetricsPage";
+import { NodeUpdatesPage } from "../pages/NodeHostSystem";
+import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPermissions";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage,
+  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage, metrics: MetricsPage,
 };
 export const NODE_TABS = {
-  summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
+  summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage,
 };
-export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, backup: ContainerBackupsPage, tasks: ActivityPage };
+export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
 
 // vSphere-style model: every inventory object has a few top tabs; a top tab that holds several
@@ -57,6 +61,7 @@ export const OBJECT_TABS = {
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
     { id: "perf", label: "tab.perf", pages: [page("perf")] },
     { id: "system", label: "tab.system", pages: [page("system")] },
+    { id: "updates", label: "tab.updates", pages: [page("updates")], admin: true },
     { id: "network", label: "tab.network", pages: [page("network")] },
     { id: "disk", label: "tab.disk", pages: [page("disk")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
@@ -69,16 +74,18 @@ export const OBJECT_TABS = {
     { id: "perf", label: "tab.perf", pages: [page("perf")] },
     { id: "snapshots", label: "tab.snapshots", pages: [page("snapshots")] },
     { id: "backup", label: "tab.backups", pages: [page("backup")] },
-    { id: "hardware", label: "tab.hardware", pages: [page("hardware"), page("options"), page("cloudinit")] },
+    { id: "hardware", label: "tab.hardware", pages: [page("hardware"), page("advanced"), page("options"), page("cloudinit")] },
     { id: "network", label: "tab.network", pages: [page("network")] },
     { id: "console", label: "tab.console", pages: [page("console")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
+    { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
   ],
   container: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
     { id: "console", label: "tab.console", pages: [page("console")] },
     { id: "backup", label: "tab.backups", pages: [page("backup")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
+    { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
   ],
 };
 

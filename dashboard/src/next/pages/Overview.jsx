@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { poolKey, usePrefs } from "../lib/prefs";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronRight, Info, TriangleAlert } from "lucide-react";
 import { fetchNodeMetricsHistory, fetchStorageHistory, fetchTasks, fetchBackupSchedules } from "../../api/client";
@@ -43,6 +44,9 @@ function Summary({ setView }) {
   useEffect(() => { load(); }, []);
   usePolling(load, 30000);
 
+  // The pools this person chose to follow here (My preferences); all of them when no choice was made.
+  const chosenPools = usePrefs((s) => s.overviewPools);
+  const shownPools = chosenPools ? storagePools.filter((p) => chosenPools.includes(poolKey(p))) : storagePools;
   const alerts = useMemo(() => deriveAlerts({ nodes, vms, storagePools, tasks }), [nodes, vms, storagePools, tasks]);
   const online = nodes.filter((n) => n.etat === "online").length;
   const running = vms.filter((v) => v.etat === "actif").length;
@@ -121,7 +125,7 @@ function Summary({ setView }) {
 
       <div className="nx-cols2 nx-cols2--fit">
         <Card title={t("ov.pools")} actions={<button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("datacenter", null, "storage")}>{t("ov.seeAll")}<ChevronRight size={14} aria-hidden="true" /></button>}>
-          {storagePools.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("ov.noPools")}</p> : storagePools.map((p) => {
+          {storagePools.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("ov.noPools")}</p> : shownPools.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("prefs.noPoolShown")}</p> : shownPools.map((p) => {
             const r = p.capacite_go ? ((p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go) * 100 : null;
             return (
               <div key={`${p.node}:${p.nom}`} className="nx-cap">

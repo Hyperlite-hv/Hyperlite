@@ -313,7 +313,7 @@ test("header actions and performance: Snapshot and Migrate are in the Actions me
   await expect(main.getByRole("heading", { level: 2, name: "Configuration" })).toBeVisible({ timeout: 20_000 });
   // R8: KPI tiles on the summary, the full charts only in the Performance tab.
   await expect(main.getByRole("heading", { level: 2, name: /^Performance · last hour/ })).toHaveCount(0);
-  for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console", "Tasks"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
+  for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console", "Tasks", "Permissions"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
   const head = page.locator(".nx-oh-acts");
   // stopped VM on a single-node install: Start is the primary action, Migrate says why it is unavailable
   await expect(head.getByRole("button", { name: "Start", exact: true })).toBeVisible();

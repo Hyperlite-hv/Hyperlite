@@ -30,16 +30,22 @@ from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.routers.acl import router as acl_router
 from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
+from app.routers.backup_groups import router as backup_groups_router
 from app.routers.backups import router as backups_router
+from app.routers.certificate import router as certificate_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.file_restore import router as file_restore_router
 from app.routers.groups import router as groups_router
 from app.routers.ha import router as ha_router
 from app.routers.host import router as host_router
+from app.routers.host_system import router as host_system_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
 from app.routers.kubernetes import router as kubernetes_router
+from app.routers.ldap import router as ldap_router
 from app.routers.meta import router as meta_router
+from app.routers.metric_servers import router as metric_servers_router
 from app.routers.metrics import router as metrics_router
 from app.routers.network import router as network_router
 from app.routers.nodes import router as nodes_router
@@ -124,6 +130,12 @@ app.include_router(notifications_router)
 app.include_router(workstation_router)
 app.include_router(kubernetes_router)
 app.include_router(meta_router)
+app.include_router(certificate_router)
+app.include_router(host_system_router)
+app.include_router(metric_servers_router)
+app.include_router(backup_groups_router)
+app.include_router(file_restore_router)
+app.include_router(ldap_router)
 
 if os.path.isdir(DASHBOARD_DIST):
     app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")
