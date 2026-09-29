@@ -167,6 +167,10 @@ class ScheduleRequest(BaseModel):
     heure: str = Field(description="Heure locale UTC au format HH:MM")
     cible_dir: str | None = None
     retention_count: int = Field(7, ge=1, le=365)
+    # GFS retention on top of the count (app/core/backup_retention.py); None: not used.
+    garder_jours: int | None = Field(None, ge=1, le=366)
+    garder_semaines: int | None = Field(None, ge=1, le=260)
+    garder_mois: int | None = Field(None, ge=1, le=120)
 
 
 @router.get("/vms/{name}/backup-schedule")
@@ -188,15 +192,32 @@ def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depend
     if not valid_time:
         raise HTTPException(status_code=422, detail="Invalid time (expected HH:MM)")
 
-    target = payload.cible_dir or str(DEFAULT_BACKUP_DIR)
+    from app.core.backup_groups import GroupError, validate_target
+
+    try:
+        target = validate_target(payload.cible_dir) or str(DEFAULT_BACKUP_DIR)
+    except GroupError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     next_run = _next_run(payload.frequence, payload.heure)
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, actif, prochaine_execution) "
-            "VALUES (?, ?, ?, ?, ?, 1, ?) "
+            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, garder_jours, "
+            "garder_semaines, garder_mois, actif, prochaine_execution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?) "
             "ON CONFLICT(vm_name) DO UPDATE SET frequence=excluded.frequence, heure=excluded.heure, "
-            "cible_dir=excluded.cible_dir, retention_count=excluded.retention_count, actif=1, prochaine_execution=excluded.prochaine_execution",
-            (name, payload.frequence, payload.heure, target, payload.retention_count, next_run.isoformat()),
+            "cible_dir=excluded.cible_dir, retention_count=excluded.retention_count, garder_jours=excluded.garder_jours, "
+            "garder_semaines=excluded.garder_semaines, garder_mois=excluded.garder_mois, actif=1, "
+            "prochaine_execution=excluded.prochaine_execution",
+            (
+                name,
+                payload.frequence,
+                payload.heure,
+                target,
+                payload.retention_count,
+                payload.garder_jours,
+                payload.garder_semaines,
+                payload.garder_mois,
+                next_run.isoformat(),
+            ),
         )
         conn.commit()
     log_action(user["username"], "set_backup_schedule", name, "succes", f"{payload.frequence} at {payload.heure}")

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import RetentionFields, { retentionForm, retentionPayload, retentionProblems } from "../components/RetentionFields";
 import {
   fetchSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, fetchTaskDetail,
   fetchVMBackups, createBackup, deleteBackup, restoreBackup, verifyBackup, fetchBackupSchedule, setBackupSchedule, deleteBackupSchedule,
@@ -153,7 +154,7 @@ export function VmBackupPage({ resource: vm }) {
   const [backups, setBackups] = useState(null);
   const [error, setError] = useState(null);
   const [schedule, setSchedule] = useState(null);
-  const [form, setForm] = useState({ frequence: "quotidien", heure: "02:00", retention_count: 7 });
+  const [form, setForm] = useState({ frequence: "quotidien", heure: "02:00", ...retentionForm(null) });
   const [busy, setBusy] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const vmName = vm?.nom;
@@ -161,7 +162,7 @@ export function VmBackupPage({ resource: vm }) {
   const reload = useCallback(async () => {
     if (!vmName) return;
     try { const b = await fetchVMBackups(vmName); setBackups(Array.isArray(b) ? b : []); setError(null); } catch (e) { setError(errorMessage(e)); }
-    fetchBackupSchedule(vmName).then((s) => { setSchedule(s || null); if (s) setForm({ frequence: s.frequence, heure: s.heure, retention_count: s.retention_count }); }).catch(() => {});
+    fetchBackupSchedule(vmName).then((s) => { setSchedule(s || null); if (s) setForm({ frequence: s.frequence, heure: s.heure, ...retentionForm(s) }); }).catch(() => {});
   }, [vmName]);
   useEffect(() => { reload(); }, [reload]);
   const running = Boolean(backups?.some((b) => b.statut !== "termine" && b.statut !== "echec"));
@@ -171,9 +172,10 @@ export function VmBackupPage({ resource: vm }) {
   if (error && backups == null) return <ErrorState message={error} onRetry={reload} />;
   const list = backups || [];
   const stopped = vm.etat !== "actif";
-  const ret = Number(form.retention_count);
-  const problems = { heure: !TIME_RE.test(form.heure || ""), retention: !Number.isInteger(ret) || ret < 1 || ret > 365 };
-  const dirty = !schedule || schedule.frequence !== form.frequence || schedule.heure !== form.heure || schedule.retention_count !== ret;
+  const retention = retentionPayload(form);
+  const problems = { heure: !TIME_RE.test(form.heure || ""), retention: Object.keys(retentionProblems(form)).length > 0 };
+  const dirty = !schedule || schedule.frequence !== form.frequence || schedule.heure !== form.heure
+    || ["retention_count", "garder_jours", "garder_semaines", "garder_mois"].some((k) => (schedule[k] ?? null) !== retention[k]);
   const fail = (title) => (e) => pushToast({ kind: "error", title, message: errorMessage(e) });
 
   async function now() {
@@ -184,7 +186,7 @@ export function VmBackupPage({ resource: vm }) {
     e?.preventDefault();
     if (problems.heure || problems.retention) return;
     setBusy(true);
-    try { const s = await setBackupSchedule(vm.nom, { ...form, retention_count: ret }); setSchedule(s); setEnabling(false); pushToast({ kind: "success", title: t("vb.scheduleSaved"), message: `${t(`vb.f.${form.frequence}`)} · ${form.heure} UTC` }); }
+    try { const s = await setBackupSchedule(vm.nom, { frequence: form.frequence, heure: form.heure, ...retention }); setSchedule(s); setEnabling(false); pushToast({ kind: "success", title: t("vb.scheduleSaved"), message: `${t(`vb.f.${form.frequence}`)} · ${form.heure} UTC` }); }
     catch (er) { fail(t("vb.scheduleFailed"))(er); } finally { setBusy(false); }
   }
   async function disable() {
@@ -270,8 +272,8 @@ export function VmBackupPage({ resource: vm }) {
           <div className="nx-fg nx-fg--1">
             <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.backup_frequency")} disabled={!caps.admin} value={form.frequence} onChange={(e) => setForm({ ...form, frequence: e.target.value })}><option value="quotidien">{t("vb.f.quotidien")}</option><option value="hebdomadaire">{t("vb.f.hebdomadaire")}</option><option value="mensuel">{t("vb.f.mensuel")}</option></select>}</Field>
             <Field label={t("vb.time")} hint={t("vb.utc")} error={problems.heure ? t("vb.timeRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.backup_time")} type="time" disabled={!caps.admin} value={form.heure} onChange={(e) => setForm({ ...form, heure: e.target.value })} />}</Field>
-            <Field label={t("vb.retention")} unit={t("vb.copies")} error={problems.retention ? t("vb.retentionRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.retention_backups_kept")} type="number" min={1} max={365} disabled={!caps.admin} value={form.retention_count} onChange={(e) => setForm({ ...form, retention_count: e.target.value })} />}</Field>
           </div>
+          <RetentionFields value={form} disabled={!caps.admin} onChange={(v) => setForm({ ...form, ...v })} />
           {caps.admin && (
             <div className="nx-fa">
               <span className="nx-fa-l">{schedule?.prochaine_execution ? `${t("vb.next")} : ${formatDateTime(schedule.prochaine_execution, lang)}` : ""}{schedule?.derniere_execution ? ` · ${t("vb.last")} ${formatDateTime(schedule.derniere_execution, lang)}` : ""}</span>
