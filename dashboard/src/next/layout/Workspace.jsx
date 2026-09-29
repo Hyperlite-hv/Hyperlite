@@ -17,6 +17,7 @@ import { PageHeader, StatePill } from "../components/ui";
 import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions";
 import { ContainerHeaderActions } from "../pages/ContainerPages";
 import { formatSizeMb } from "../lib/format";
+import PendingChanges from "../components/PendingChanges";
 
 
 
@@ -71,10 +72,10 @@ function useUrlSync() {
 // VM pages whose endpoints only manage the VMs of this host (they take no node): for a remote VM they would read
 // and change a local VM of the same name, so they are replaced by an explanation.
 // "options" is not listed: start at boot works on every node; its local-only sections say so themselves.
-const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots", "cloudinit"]);
+const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots", "cloudinit", "advanced"]);
 
 // Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
-const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports"]);
+const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports", "metrics"]);
 
 // Object header of a VM: state, OS, node, IP and uptime on one line, then the actions.
 function VmHead({ vm, node, tab, setTab }) {
@@ -205,11 +206,11 @@ export default function Workspace({ children }) {
           <div className="nx-page"><EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>} /></div>
         ) : resource ? (
           <>
-            {selection.type === "vm" ? <VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} />
+            {selection.type === "vm" ? <><VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} /><PendingChanges vm={resource} tab={tab} /></>
               : selection.type === "container" ? <ContainerHead ct={resource} />
               : <NodeHead node={resource} setTab={setTab} />}
             <div className="nx-tabs" role="tablist" aria-label={resource.nom} onKeyDown={onTabKeyDown}>
-              {topTabs.map((x) => (
+              {topTabs.filter((x) => !x.admin || caps.admin || x.id === top.id).map((x) => (
                 <button key={x.id} id={`nx-top-${x.id}`} type="button" role="tab" aria-selected={top.id === x.id} aria-controls="nx-panel" tabIndex={top.id === x.id ? 0 : -1} onClick={() => goTop(x)}>{t(x.label)}</button>
               ))}
             </div>

@@ -1,6 +1,6 @@
 # Features
 
-This is a reference of what Hyperlite does today and where its scope stops.
+This is a reference of what Hyperlite does today and where its scope stops. For how to use each feature in the web interface, see the [user guide](user-guide.md).
 
 ## Virtual machines
 

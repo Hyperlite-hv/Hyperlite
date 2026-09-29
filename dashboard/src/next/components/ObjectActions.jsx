@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Heart, LayoutTemplate, Link, MoveHorizontal, Play, Plus, Power, RefreshCw,
-  RotateCw, Share, Square, SquareTerminal, Trash2, Wrench,
+  RotateCcw, RotateCw, Share, Square, SquareTerminal, Trash2, Wrench,
 } from "lucide-react";
 import {
   cloneVM, createTemplateFromVM, createBackup, exportVM, fetchHaProtected, enableHa, disableHa,
@@ -261,6 +261,7 @@ function useNodeMenu(node, { close, openTab, withOpen = false }) {
   const pushToast = useInfraStore((s) => s.pushToast);
   const refreshAll = useInfraStore((s) => s.refreshAll);
   const admin = caps.admin ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
+  const power = !caps.admin ? admin : !local ? { enabled: false, reason: "np.localOnly" } : { enabled: true };
   const item = (key, Icon, label, state, run) => (
     <MenuItem key={key} disabled={!state.enabled} reason={state.reason ? t(state.reason) : undefined} onSelect={() => { close(); run(); }}>
       <Icon size={16} aria-hidden="true" />{label}{!state.enabled && state.reason ? <span className="nx-menu-k" aria-hidden="true">{t(state.reason)}</span> : null}
@@ -274,6 +275,9 @@ function useNodeMenu(node, { close, openTab, withOpen = false }) {
       {node.maintenance
         ? item("maint", Wrench, t("mt.leave"), admin, () => leaveMaintenance(node, t, pushToast, refreshAll))
         : item("maint", Wrench, t("mt.enter"), admin, () => window.dispatchEvent(new CustomEvent("nx:node-maintenance", { detail: node.id })))}
+      <hr />
+      {item("reboot", RotateCcw, t("np.reboot.menu"), power, () => window.dispatchEvent(new CustomEvent("nx:node-power", { detail: { node: node.id, action: "reboot" } })))}
+      {item("poweroff", Power, t("np.poweroff.menu"), power, () => window.dispatchEvent(new CustomEvent("nx:node-power", { detail: { node: node.id, action: "poweroff" } })))}
       <hr />
       {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(objectLink("node", node.id)))}
       {!withOpen && item("caps", RefreshCw, t("node.refreshCaps"), { enabled: true }, () => window.dispatchEvent(new CustomEvent("nx:node-refresh", { detail: node.id })))}

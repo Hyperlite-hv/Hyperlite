@@ -5,7 +5,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cloudinit_edit, cpu_pinning, vm_boot
+from app.core import cloudinit_edit, cpu_pinning, vm_boot, vm_pending
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -367,5 +367,20 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
             f"user {payload.utilisateur}, {len(keys)} key(s), password {'changed' if payload.mot_de_passe else 'kept'}",
         )
         return {**_cloudinit_view(name, domain), "recharge_a_chaud": reloaded}
+    finally:
+        conn.close()
+
+
+@router.get("/{name}/pending-changes")
+def get_vm_pending_changes(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
+    """Settings changed on a running VM that wait for its next start (app/core/vm_pending.py)."""
+    conn = open_conn(node)
+    try:
+        domain = _lookup(conn, name)
+        try:
+            running = bool(domain.isActive())
+            return {"en_marche": running, "changements": vm_pending.pending_changes(domain)}
+        except libvirt.libvirtError as e:
+            raise HTTPException(status_code=500, detail=describe_exception(e)) from e
     finally:
         conn.close()

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { termOptions } from "../lib/prefs";
 import { Check, CircleCheck, ExternalLink, Network, Plug, RefreshCw, TriangleAlert, Unplug } from "lucide-react";
 import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility, fetchNodeHardware, createHostTerminalTicket, fetchHealth } from "../../api/client";
 import { flattenCapabilities, deriveFeatures, NA } from "../../lib/capabilitiesView";
@@ -14,6 +15,8 @@ import StatusIndicator from "../components/StatusIndicator";
 import { EmptyState, ErrorState, InlineError } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
 import { Card, Chip, Empty, Loading, TableWrap } from "../components/ui";
+import CertificateCard from "../components/CertificateCard";
+import { HostSettingsCards } from "./NodeHostSystem";
 
 const isLocal = (node) => node?.id === "local";
 
@@ -51,6 +54,7 @@ export function NodeSystemPage({ resource: node }) {
   const { hw, error, load } = useHardware(node);
   const [caps, setCaps] = useState(null);
   const [health, setHealth] = useState(null);
+  const isAdmin = capabilities(useAuthStore((s) => s.role)).admin;
   const nodeId = node?.id;
   useEffect(() => { if (nodeId) fetchNodeCapabilitiesById(nodeId).then(setCaps).catch(() => setCaps(null)); }, [nodeId]);
   useEffect(() => { if (local) fetchHealth().then(setHealth).catch(() => setHealth(null)); }, [local]);
@@ -85,6 +89,9 @@ export function NodeSystemPage({ resource: node }) {
           </dl>
         </Card>
       </div>
+      {/* Each node serves its own certificate; this API manages the one of the machine answering it. */}
+      {local && isAdmin && <CertificateCard />}
+      {local && isAdmin && <HostSettingsCards />}
     </>
   );
 }
@@ -206,7 +213,7 @@ export function NodeShellPage({ resource: node }) {
       screen.current.innerHTML = "";
       // xterm is loaded as a UMD global; its theme is the graphite of the navigation column.
       // eslint-disable-next-line no-undef
-      const tm = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "IBM Plex Mono, ui-monospace, monospace", theme: { background: "#141215", foreground: "#F1ECEE", cursor: "#CE9DB2" } });
+      const tm = new Terminal(termOptions());
       // eslint-disable-next-line no-undef
       const fit = new FitAddon.FitAddon();
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;

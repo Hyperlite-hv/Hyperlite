@@ -509,7 +509,7 @@
 .nx-filters { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4); }
 .nx-filters label { display: grid; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nx-rowlink { cursor: pointer; }
-.nx-detailcell { background: var(--color-bg-workspace); padding: var(--space-3) var(--space-4) !important; }
+.nx-detailcell { background: var(--color-bg-workspace); padding: var(--space-3) var(--space-4) !important; white-space: normal !important; }
 .nx-nav-group-btn { display: flex; align-items: center; gap: var(--space-2); width: 100%; background: none; border: 0; cursor: pointer; text-align: left; }
 .nx-nav-group-btn:hover { color: var(--color-text-primary); }
 [data-sidebar="collapsed"] .nx-nav-group-btn span[aria-hidden] { display: none; }
@@ -813,3 +813,53 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 .nx-tasklog-h { margin: var(--space-3) 0 var(--space-1); font-size: var(--font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); }
 .nx-tasklog-l { margin: 0; padding: 0; list-style: none; max-height: 16rem; overflow: auto; font-size: var(--font-size-sm); }
 .nx-tasklog-l li { padding: 1px 0; overflow-wrap: anywhere; }
+
+/* Advanced hardware: compact inputs inside the disk options table, and the boot order list. */
+.nx-inp--sm { width: 6rem; height: 1.75rem; }
+.nx-bootlist { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-1); }
+.nx-bootlist li { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); }
+
+/* Addresses of a network: address, MAC, name, lease end, action on one line each. */
+.nx-iplist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: var(--space-1); }
+.nx-iplist li { display: grid; grid-template-columns: 8rem 10.5rem minmax(0, 1fr) auto auto; gap: var(--space-3); align-items: center; font-size: var(--font-size-sm); min-height: 2rem; }
+@media (max-width: 720px) { .nx-iplist li { grid-template-columns: 1fr 1fr; } }
+
+/* Settings waiting for a VM's next start, under its header. */
+.nx-pending { margin: 0.9333rem 1.6rem 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
+.nx-pending-h { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.nx-pending-t { margin-top: var(--space-2); }
+.nx-pending + .nx-tabs { margin-top: 0.9333rem; }
+.nx-pending-t td { white-space: normal; word-break: break-all; }
+
+/* Terminal font preview in My preferences, with the terminals' own colors. */
+.nx-term-sample { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: #141215; color: #F1ECEE; white-space: nowrap; overflow: hidden; }
+
+/* A configuration snippet to copy (Prometheus scrape job). */
+.nx-code { margin: var(--space-3) 0 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-bg-workspace); border: 1px solid var(--color-border-subtle); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-12); overflow-x: auto; white-space: pre; }
+
+/* Column picker of the VM list: a small panel of checkboxes under its button. */
+.nx-colpick { position: relative; }
+.nx-colpick > summary { list-style: none; cursor: pointer; }
+.nx-colpick > summary::-webkit-details-marker { display: none; }
+.nx-colpick-p { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; margin: 0; min-width: 12rem; display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); box-shadow: var(--shadow-md, 0 6px 20px rgba(0,0,0,.25)); }
+@media (max-width: 720px) { .nx-colpick-p { right: auto; left: 0; } }
+
+/* A field label followed by its (i) help. */
+.nx-f-l { display: inline-flex; align-items: center; gap: var(--space-1); }
+/* Explanations of a group of settings, folded under a one-line summary. */
+.nx-explain { font-size: var(--fs-13); color: var(--color-text-secondary); }
+.nx-explain > summary { cursor: pointer; color: var(--color-text-link, var(--color-accent)); width: max-content; }
+.nx-explain dl { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; }
+.nx-explain dt { font-weight: 600; color: var(--color-text-primary); }
+.nx-explain dd { margin: 0; }
+.nx-help-tip { white-space: normal; }
+/* Console side panels: text to type into the VM, the VM's clipboard. */
+.nx-typebar { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-subtle); border-top: 0; background: var(--color-bg-surface); }
+.nx-clip { display: block; max-height: 5rem; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: var(--fs-12); }
+/* Folders and files of a backup being browsed. */
+.nx-crumbs2 { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: var(--fs-13); }
+.nx-crumbs2 > span { display: inline-flex; align-items: center; gap: 2px; }
+.nx-crumbs2 > .nx-btn { margin-left: auto; }
+.nx-files { list-style: none; margin: 0; padding: 0; display: grid; }
+.nx-files li { display: grid; grid-template-columns: minmax(0, 1fr) 5rem 7.5rem 2rem; gap: var(--space-2); align-items: center; min-height: 2rem; border-bottom: 1px solid var(--color-border-subtle); font-size: var(--fs-13); }
+.nx-files li > button.nx-lnk, .nx-files li > span:first-child { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

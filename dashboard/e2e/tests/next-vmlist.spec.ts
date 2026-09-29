@@ -36,8 +36,7 @@ test("VMs are grouped by node, can be filtered by node, and the grouping can be 
 
   // without grouping, the Node column names the machine and leads to it
   await nodeFilter.getByRole("button", { name: /All nodes/ }).click();
-  await main.getByRole("button", { name: "Group by node" }).click();
-  await expect(main.getByRole("button", { name: "Group by node" })).toHaveAttribute("aria-pressed", "false");
+  await main.getByLabel("Group by").selectOption("none");
   const row = table.getByRole("row", { name: /e2e-peer-vm/ });
   await expect(row.getByRole("button", { name: "peer", exact: true })).toBeVisible();
   await row.getByRole("button", { name: "peer", exact: true }).click();
