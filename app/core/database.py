@@ -698,6 +698,24 @@ def init_db():
                 PRIMARY KEY (kind, node, name)
             )
         """)
+        # Metric servers the collector pushes each sample to (app/core/metric_export.py); the token is encrypted.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS metric_servers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nom TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL,
+                url TEXT,
+                hote TEXT,
+                port INTEGER,
+                org TEXT,
+                bucket TEXT,
+                jeton TEXT,
+                prefixe TEXT NOT NULL DEFAULT 'hyperlite',
+                actif INTEGER NOT NULL DEFAULT 1,
+                dernier_envoi TEXT,
+                derniere_erreur TEXT
+            )
+        """)
         # The local host used to be stored under a machine-specific label; it is now always "local".
         for table in ("ha_protected_vms", "tasks"):
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608

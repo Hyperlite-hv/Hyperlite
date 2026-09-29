@@ -75,7 +75,7 @@ function useUrlSync() {
 const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots", "cloudinit", "advanced"]);
 
 // Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
-const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports"]);
+const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports", "metrics"]);
 
 // Object header of a VM: state, OS, node, IP and uptime on one line, then the actions.
 function VmHead({ vm, node, tab, setTab }) {

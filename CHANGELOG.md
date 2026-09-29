@@ -22,6 +22,7 @@ All notable changes to this project are documented here. The format is based on 
 - Storage replication between nodes: decided not to build it for now, with the reasons, what covers the need today and what would reopen it (docs/design/replication.md).
 - Reboot or shut down the local node from its Actions menu: its name typed back to confirm, running VMs and containers named, and shut down cleanly first when asked (the node stays up if one of them does not stop).
 - My preferences (account menu), kept in the browser: the terminals' font and size, and the storage pools the Home page follows.
+- A Metrics page (administration): the Prometheus endpoint with a ready scrape job, and metric servers the collector pushes every sample to (InfluxDB 2 over HTTP, Graphite over TCP), each with a test button and its last error.
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).
