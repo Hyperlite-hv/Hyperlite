@@ -359,6 +359,16 @@ def init_db():
                 username TEXT NOT NULL
             )
         """)
+        # Containers that run their image's own process (app/core/container_meta.py::set_container_app).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS container_apps (
+                container_name TEXT PRIMARY KEY,
+                image TEXT NOT NULL,
+                spec TEXT NOT NULL,
+                ip TEXT,
+                network TEXT
+            )
+        """)
         # HA: "protected" VMs. domain_xml is a CACHE refreshed periodically (see
         # app/core/ha.py::sync_protected_vms) WHILE the source node is reachable, the only
         # way to redefine the VM elsewhere if that node really fails (its XML can no longer
