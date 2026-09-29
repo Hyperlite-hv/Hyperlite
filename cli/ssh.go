@@ -17,10 +17,18 @@ import (
 var sshUserRe = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$`)
 
 // proxyCommand is the ssh ProxyCommand that runs this very program in --stdio mode.
-// '%' is doubled because ssh expands %-tokens in ProxyCommand.
+// '%' is doubled because ssh expands %-tokens in ProxyCommand. OpenSSH runs it through a shell, so every part
+// must be inert there: the program path is quoted, the VM name and port are validated, and the server address is
+// checked again against the strict form normalizeURL produces (no quote, space, $, ; or backtick can get in).
 func proxyCommand(s *server, vm string, port int) (string, error) {
 	self, err := os.Executable()
 	if err != nil {
+		return "", err
+	}
+	if u, err := normalizeURL(s.URL); err != nil || u != s.URL {
+		return "", fmt.Errorf("refusing server address %q in an ssh command", s.URL)
+	}
+	if err := checkVM(vm); err != nil {
 		return "", err
 	}
 	quoted := `"` + strings.ReplaceAll(self, "%", "%%") + `"`
