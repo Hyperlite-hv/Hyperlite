@@ -6,6 +6,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import network_edit
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_isolated_network, open_conn
@@ -141,11 +142,14 @@ def get_network(name: str, user: dict = Depends(get_current_user)):
                             "mac": lease.get("mac"),
                             "ip": lease.get("ipaddr"),
                             "hostname": lease.get("hostname"),
+                            "expire": lease.get("expirytime"),
                         }
                     )
             except libvirt.libvirtError:
                 pass
         summary["baux_dhcp"] = leases
+        summary["ipam"] = network_edit.describe_xml(net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
+        summary["a_redemarrer"] = network_edit.pending(net)
         log_action(user["username"], "get_network", name, "succes")
         return summary
     finally:
@@ -304,6 +308,96 @@ def set_network_autostart(name: str, payload: AutostartSetting, user: dict = Dep
             raise HTTPException(status_code=500, detail=describe_exception(e)) from e
         log_action(user["username"], "network_autostart", name, "succes", "on" if payload.autostart else "off")
         return _network_summary(net)
+    finally:
+        conn.close()
+
+
+class DhcpRange(BaseModel):
+    debut: str
+    fin: str
+
+
+class NetworkEdit(BaseModel):
+    mode: str = Field(description="'nat' | 'isole'")
+    adresse: str = Field(description="Gateway address of the network on the host")
+    masque: str = "255.255.255.0"
+    dhcp: DhcpRange | None = None
+
+
+@router.patch("/{name}")
+def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_role("admin"))):
+    """Subnet, DHCP range and NAT/isolated mode of a network Hyperlite routes itself (not a bridge onto the LAN).
+    On a running network only a DHCP range change is live; the rest waits for its restart (`a_redemarrer`)."""
+    conn = open_conn()
+    try:
+        net = _lookup(conn, name)
+        try:
+            restart = network_edit.apply_edit(
+                conn,
+                net,
+                mode=payload.mode,
+                address=payload.adresse,
+                netmask=payload.masque,
+                dhcp=payload.dhcp.model_dump() if payload.dhcp else None,
+            )
+        except network_edit.EditError as e:
+            log_action(user["username"], "edit_network", name, "echec", str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "edit_network", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"The network could not be changed: {msg}") from e
+        detail = f"{payload.mode} {payload.adresse}/{payload.masque}"
+        if payload.dhcp:
+            detail += f" dhcp {payload.dhcp.debut}-{payload.dhcp.fin}"
+        log_action(user["username"], "edit_network", name, "succes", detail)
+        return get_network(name, user) | {"a_redemarrer": restart}
+    finally:
+        conn.close()
+
+
+class Reservation(BaseModel):
+    mac: str
+    ip: str
+    nom: str | None = None
+
+
+@router.post("/{name}/reservations", status_code=201)
+def add_reservation(name: str, payload: Reservation, user: dict = Depends(require_role("admin"))):
+    """A fixed address for one MAC on the network's DHCP server, live and in its definition."""
+    conn = open_conn()
+    try:
+        net = _lookup(conn, name)
+        try:
+            network_edit.add_reservation(net, mac=payload.mac, ip=payload.ip, name=payload.nom or None)
+        except network_edit.EditError as e:
+            log_action(user["username"], "add_reservation", name, "echec", str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "add_reservation", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"The reservation could not be added: {msg}") from e
+        log_action(user["username"], "add_reservation", name, "succes", f"{payload.mac} -> {payload.ip}")
+        return network_edit.describe_xml(net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
+    finally:
+        conn.close()
+
+
+@router.delete("/{name}/reservations/{mac}")
+def delete_reservation(name: str, mac: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        net = _lookup(conn, name)
+        try:
+            found = network_edit.delete_reservation(net, mac)
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "delete_reservation", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"The reservation could not be removed: {msg}") from e
+        if not found:
+            raise HTTPException(status_code=404, detail=f"No reservation for {mac} on '{name}'")
+        log_action(user["username"], "delete_reservation", name, "succes", mac)
+        return network_edit.describe_xml(net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
     finally:
         conn.close()
 

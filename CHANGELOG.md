@@ -15,6 +15,7 @@ All notable changes to this project are documented here. The format is based on 
 - Cloud-init after creation: change a cloud image VM's SSH keys and password from its Hardware tab, applied at its next boot; its SSH host keys and Hyperlite's automation key are kept, the password is never stored.
 - Advanced VM hardware settings under the Hardware tab: disk cache, discard, I/O mode, I/O thread and IOPS/MB/s limits (limits apply live), boot order across disks and network cards, memory ballooning with a minimum, and updating the machine type to the current version of its family.
 - A Permissions tab on VMs and containers (administrators): who has rights on the object, its own assignments added and removed in place, and those a VM inherits from its pools.
+- Edit a NAT or isolated network after its creation (subnet, DHCP range, NAT or isolated), with the subnet checked against the other networks; a DHCP range change is live, the rest is applied by restarting the network from its details. IP address management: DHCP reservations added, removed or made from a current lease, and lease end times.
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).

@@ -12,6 +12,7 @@ import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu"
 import { PageHeader, Chip, Empty, SideDrawer, Field, Loading, TableWrap } from "../components/ui";
 import { Network, Plus, Trash2 } from "lucide-react";
 import FirewallCard from "../components/FirewallCard";
+import NetworkIpam from "../components/NetworkIpam";
 
 const PROTECTED = ["default", "hyperlite-isolated"];
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
@@ -51,6 +52,10 @@ export default function NetworkPage() {
   }, [pushToast, t]);
   useEffect(() => { reload(); }, [reload]);
 
+  async function refresh(name) {
+    try { setDetail(await fetchNetworkDetail(name)); } catch (e) { pushToast({ kind: "error", title: t("net.detailError"), message: errorMessage(e) }); }
+    reload();
+  }
   async function toggle(name) {
     if (open === name) { setOpen(null); return; }
     setOpen(name); setDetail(null);
@@ -145,11 +150,7 @@ export default function NetworkPage() {
                       <tr><td colSpan={8} className="nx-detailcell">
                         {!detail ? <span className="nx-muted">{t("loading")}</span> : (
                           <div className="nx-ns">
-                            <div><strong>{t("net.leases")}</strong>
-                              {(detail.baux_dhcp || []).length === 0 ? <p className="nx-muted" style={{ margin: "4px 0 0" }}>{t("net.noLeases")}</p> : (
-                                <ul className="nx-list nx-list--vols">{detail.baux_dhcp.map((b, i) => <li key={i}><span className="nx-mono">{b.ip}</span><span className="nx-mono nx-muted">{b.mac}</span><span className="nx-muted">{b.hostname || ""}</span></li>)}</ul>
-                              )}
-                            </div>
+                            <NetworkIpam name={n.nom} detail={{ ...detail, vms: n.vms }} isAdmin={caps.admin} onChange={() => refresh(n.nom)} />
                             <FirewallSection name={n.nom} isAdmin={caps.admin} />
                           </div>
                         )}

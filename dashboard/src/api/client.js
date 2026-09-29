@@ -260,6 +260,16 @@ export async function deleteNetwork(name) {
 export async function fetchHostInterfaces() {
   return realFetch("/networks/host-interfaces");
 }
+// Subnet, DHCP range and mode of a NAT/isolated network; `a_redemarrer` when the change waits for its restart.
+export async function editNetwork(name, payload) {
+  return realFetch(`/networks/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
+}
+export async function addNetworkReservation(name, payload) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/reservations`, { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteNetworkReservation(name, mac) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/reservations/${encodeURIComponent(mac)}`, { method: "DELETE" });
+}
 export async function startNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}/start`, { method: "POST" });
 }
