@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import firmware, iscsi, zfs_storage
+from app.core import firmware, iscsi, vm_locks, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -141,12 +141,19 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             # DISK-ONLY snapshot (never the memory, unlike the qcow2 path below when the VM
             # is running), documented on the frontend/API side rather than silently
             # different.
-            task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
-            threading.Thread(
-                target=_create_zvol_snapshot_job,
-                args=(task_id, user["username"], zvol_specs, payload.name),
-                daemon=True,
-            ).start()
+            claim = vm_locks.claim_or_409(name, "a snapshot")
+            try:
+                task_id = create_task(
+                    "create_snapshot", payload.name, node=conn.getHostname(), username=user["username"]
+                )
+                threading.Thread(
+                    target=vm_locks.released_after(claim, _create_zvol_snapshot_job),
+                    args=(task_id, user["username"], zvol_specs, payload.name),
+                    daemon=True,
+                ).start()
+            except BaseException:
+                claim.release()
+                raise
             return {"task_id": task_id, "nom": payload.name, "statut": "en_cours"}
 
         # QEMU cannot save a running VM's state while its firmware is in pflash (every UEFI VM): libvirt would fail
@@ -173,12 +180,17 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
         # flags=0: internal, memory included automatically if the VM is running, disk
         # only if it is stopped. See the design note above _snapshot_summary for why no
         # other option is offered.
-        task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
-        threading.Thread(
-            target=_create_snapshot_job,
-            args=(task_id, user["username"], name, payload.name, snap_xml),
-            daemon=True,
-        ).start()
+        claim = vm_locks.claim_or_409(name, "a snapshot")
+        try:
+            task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
+            threading.Thread(
+                target=vm_locks.released_after(claim, _create_snapshot_job),
+                args=(task_id, user["username"], name, payload.name, snap_xml),
+                daemon=True,
+            ).start()
+        except BaseException:
+            claim.release()
+            raise
 
         return {"task_id": task_id, "nom": payload.name, "statut": "en_cours"}
     finally:
@@ -248,12 +260,19 @@ def restore_snapshot(
                 raise HTTPException(
                     status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore"
                 )
-            task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
-            threading.Thread(
-                target=_restore_zvol_snapshot_job,
-                args=(task_id, user["username"], zvol_specs, snapshot_name),
-                daemon=True,
-            ).start()
+            claim = vm_locks.claim_or_409(name, "a snapshot")
+            try:
+                task_id = create_task(
+                    "restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"]
+                )
+                threading.Thread(
+                    target=vm_locks.released_after(claim, _restore_zvol_snapshot_job),
+                    args=(task_id, user["username"], zvol_specs, snapshot_name),
+                    daemon=True,
+                ).start()
+            except BaseException:
+                claim.release()
+                raise
             return {
                 "task_id": task_id,
                 "statut": "en_cours",
@@ -270,12 +289,17 @@ def restore_snapshot(
             log_action(user["username"], "restore_snapshot", snapshot_name, "echec", "Confirmation manquante")
             raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore")
 
-        task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
-        threading.Thread(
-            target=_restore_snapshot_job,
-            args=(task_id, user["username"], name, snapshot_name),
-            daemon=True,
-        ).start()
+        claim = vm_locks.claim_or_409(name, "a snapshot")
+        try:
+            task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
+            threading.Thread(
+                target=vm_locks.released_after(claim, _restore_snapshot_job),
+                args=(task_id, user["username"], name, snapshot_name),
+                daemon=True,
+            ).start()
+        except BaseException:
+            claim.release()
+            raise
 
         return {
             "task_id": task_id,
@@ -293,7 +317,12 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
     # reparents the child automatically), tested and confirmed on this host. `zfs
     # destroy` of a snapshot is of the same order of magnitude (nearly instantaneous),
     # hence the same choice for ZFS VMs.
-    conn = open_conn()
+    claim = vm_locks.claim_or_409(name, "a snapshot deletion")
+    try:
+        conn = open_conn()
+    except BaseException:
+        claim.release()
+        raise
     task_id = create_task("delete_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
     try:
         try:
@@ -331,3 +360,4 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
         return {"message": f"Snapshot '{snapshot_name}' deleted"}
     finally:
         conn.close()
+        claim.release()
