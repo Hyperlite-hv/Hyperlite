@@ -21,7 +21,19 @@ export default function Palette({ open, onClose, setWizards }) {
   const caps = capabilities(role);
   const vmActions = useVmActions();
 
-  useEffect(() => { if (open) { setQ(""); setIdx(0); setTimeout(() => inputRef.current?.focus(), 0); } }, [open]);
+  // Focus goes back where it was when the palette closes (as the menus do), unless the chosen command moved it.
+  const opener = useRef(null);
+  useEffect(() => {
+    if (open) {
+      opener.current = document.activeElement;
+      setQ(""); setIdx(0); setTimeout(() => inputRef.current?.focus(), 0);
+      return undefined;
+    }
+    const back = opener.current;
+    opener.current = null;
+    if (back && document.contains(back) && (document.activeElement === document.body || !document.activeElement)) back.focus?.();
+    return undefined;
+  }, [open]);
 
   const items = useMemo(() => {
     const nq = normalize(q.trim());
@@ -55,6 +67,8 @@ export default function Palette({ open, onClose, setWizards }) {
   }, [q, nodes, vms, caps.create, caps.admin]);
 
   useEffect(() => { setIdx(0); }, [q]);
+  // The inventory refreshes underneath: keep the highlighted option on an option that still exists.
+  useEffect(() => { setIdx((i) => Math.min(i, Math.max(items.length - 1, 0))); }, [items.length]);
 
   // Escape closes the palette wherever the focus is (not only while the field has it).
   useEffect(() => {
