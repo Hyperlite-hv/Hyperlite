@@ -297,6 +297,27 @@ export async function copyIso(nom, source, cibles) {
   return realFetch("/isos/copy", { method: "POST", ...jsonBody({ nom, source, cibles }) });
 }
 
+// ---- Kubernetes (k3s) clusters on VMs ----
+export async function fetchK8sClusters() {
+  return realFetch("/kubernetes/clusters");
+}
+export async function createK8sCluster(payload) {
+  return realFetch("/kubernetes/clusters", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteK8sCluster(name) {
+  return realFetch(`/kubernetes/clusters/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
+}
+// The kubeconfig is YAML, not JSON: read it as text, with the same authentication as realFetch.
+export async function fetchKubeconfig(name) {
+  const res = await fetch(`/kubernetes/clusters/${encodeURIComponent(name)}/kubeconfig`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    let detail = null;
+    try { detail = (await res.json()).detail; } catch { /* not JSON: keep the generic message */ }
+    throw new Error(formatDetail(detail) || "Unknown error");
+  }
+  return res.text();
+}
+
 // ---- Importable disks (importing a VM from a disk file) ----
 export async function fetchVmDisks() {
   return realFetch("/vm-disks");
