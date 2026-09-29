@@ -47,20 +47,28 @@ class ChannelCreate(BaseModel):
     events: list[str] = []
 
 
+def _check_config(type_, config):
+    if type_ == "webhook":
+        try:
+            require_http_url(str(config.get("url", "")))
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Invalid webhook URL: {e}") from e
+
+
+def _check_events(events):
+    invalid_events = [e for e in events if e not in notif.NOTIFY_EVENTS]
+    if invalid_events:
+        raise HTTPException(status_code=422, detail=f"Unknown event(s): {', '.join(invalid_events)}")
+
+
 @router.post("/channels", status_code=201)
 def create_channel(payload: ChannelCreate, user: dict = Depends(require_role("admin"))):
     if payload.type not in ("webhook", "email"):
         raise HTTPException(status_code=422, detail="Invalid channel type (webhook or email)")
     if not payload.name.strip():
         raise HTTPException(status_code=422, detail="Name required")
-    if payload.type == "webhook":
-        try:
-            require_http_url(str(payload.config.get("url", "")))
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=f"Invalid webhook URL: {e}") from e
-    invalid_events = [e for e in payload.events if e not in notif.NOTIFY_EVENTS]
-    if invalid_events:
-        raise HTTPException(status_code=422, detail=f"Unknown event(s): {', '.join(invalid_events)}")
+    _check_config(payload.type, payload.config)
+    _check_events(payload.events)
 
     channel_id = notif.create_channel(
         payload.type, payload.name.strip(), payload.config, payload.events, user["username"]
@@ -70,19 +78,47 @@ def create_channel(payload: ChannelCreate, user: dict = Depends(require_role("ad
 
 
 class ChannelUpdate(BaseModel):
-    enabled: bool
+    """Every field is optional: only those sent are changed. The type of a channel cannot
+    change. In an email `config`, an empty or missing smtp_password keeps the stored one
+    (it is never sent back to the client); clear_smtp_password removes it."""
+
+    enabled: bool | None = None
+    name: str | None = None
+    config: dict | None = None
+    events: list[str] | None = None
+    clear_smtp_password: bool = False
 
 
 @router.patch("/channels/{channel_id}")
 def update_channel(channel_id: int, payload: ChannelUpdate, user: dict = Depends(require_role("admin"))):
-    notif.set_enabled(channel_id, payload.enabled)
-    log_action(user["username"], "update_notification_channel", str(channel_id), "succes")
+    type_ = notif.get_channel_type(channel_id)
+    if type_ is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    name = payload.name.strip() if payload.name is not None else None
+    if name == "":
+        raise HTTPException(status_code=422, detail="Name required")
+    if payload.config is not None:
+        _check_config(type_, payload.config)
+    if payload.events is not None:
+        _check_events(payload.events)
+    if not notif.update_channel(
+        channel_id,
+        name=name,
+        config=payload.config,
+        events=payload.events,
+        enabled=payload.enabled,
+        clear_smtp_password=payload.clear_smtp_password,
+    ):
+        raise HTTPException(status_code=404, detail="Channel not found")
+    changed = sorted(k for k in payload.model_fields_set if k != "clear_smtp_password")
+    log_action(user["username"], "update_notification_channel", str(channel_id), "succes", ", ".join(changed))
     return {"message": "Channel updated"}
 
 
 @router.delete("/channels/{channel_id}")
 def delete_channel(channel_id: int, user: dict = Depends(require_role("admin"))):
-    notif.delete_channel(channel_id)
+    if not notif.delete_channel(channel_id):
+        raise HTTPException(status_code=404, detail="Channel not found")
     log_action(user["username"], "delete_notification_channel", str(channel_id), "succes")
     return {"message": "Channel deleted"}
 

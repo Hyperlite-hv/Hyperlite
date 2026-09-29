@@ -620,6 +620,10 @@ export async function fetchNotificationChannels() {
 export async function createNotificationChannel(payload) {
   return realFetch("/notifications/channels", { method: "POST", ...jsonBody(payload) });
 }
+// Only the fields given are changed; an empty smtp_password keeps the stored one.
+export async function updateNotificationChannel(id, patch) {
+  return realFetch(`/notifications/channels/${id}`, { method: "PATCH", ...jsonBody(patch) });
+}
 export async function setNotificationChannelEnabled(id, enabled) {
   return realFetch(`/notifications/channels/${id}`, { method: "PATCH", ...jsonBody({ enabled }) });
 }
