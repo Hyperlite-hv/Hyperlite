@@ -31,6 +31,7 @@ from app.routers.acl import router as acl_router
 from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
 from app.routers.backups import router as backups_router
+from app.routers.certificate import router as certificate_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.groups import router as groups_router
@@ -124,6 +125,7 @@ app.include_router(notifications_router)
 app.include_router(workstation_router)
 app.include_router(kubernetes_router)
 app.include_router(meta_router)
+app.include_router(certificate_router)
 
 if os.path.isdir(DASHBOARD_DIST):
     app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")
