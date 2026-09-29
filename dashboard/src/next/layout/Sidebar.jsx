@@ -91,11 +91,8 @@ export default function Sidebar({ collapsed }) {
   const onDatacenterTab = (id) => selection.type === "datacenter" && tab === id;
   // On narrow screens the sidebar is a drawer: close it once a page is chosen.
   const goto = (dcTab) => { navigateTo("datacenter", null, dcTab); window.dispatchEvent(new Event("nx:navigated")); };
-  const activeNode = selection.type === "node" ? nodes.find((n) => n.id === selection.id) : null;
 
-  const nodesOnline = nodes.filter((n) => n.etat === "online").length;
   const problems = vms.filter((v) => ["plante", "bloque", "inconnu"].includes(v.etat)).length;
-  const host = activeNode || nodes.find((n) => n.id === "local") || nodes[0];
 
   return (
     <nav className={`nx-sidebar${collapsed ? " collapsed" : ""}`} aria-label={t("nav.main")}>
@@ -104,14 +101,6 @@ export default function Sidebar({ collapsed }) {
         <span className="nx-brand-mark"><EnclaveMark size={24} rails="var(--color-text-primary)" core="var(--color-accent)" /></span>
         <span className="nx-brand-text"><strong>{t("app.name")}</strong><small>{t("app.tagline")}</small></span>
       </div>
-
-      {!collapsed && (
-        <button type="button" className="nx-cluster" aria-label={`${host?.nom || t("res.datacenter")} — ${t("cluster.hint")}`} title={t("cluster.hint")} onClick={() => window.dispatchEvent(new Event("nx:palette"))}>
-          <span className={`nx-cluster-dot${nodesOnline === nodes.length && nodes.length > 0 ? "" : " is-warn"}`} aria-hidden="true" />
-          <span className="nx-cluster-name">{host?.nom || t("res.datacenter")}</span>
-          <span className="nx-cluster-count">{nodes.length === 1 ? t("nav.nodeCount1") : t("nav.nodesCount", { n: nodes.length })}</span>
-        </button>
-      )}
 
       <div className="nx-nav-scroll">
         <NavGroup>

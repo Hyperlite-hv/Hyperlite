@@ -72,12 +72,6 @@ export default function NextApp() {
   }, [toggleSidebar]);
 
   useEffect(() => {
-    const on = () => setPaletteOpen(true);
-    window.addEventListener("nx:palette", on);
-    return () => window.removeEventListener("nx:palette", on);
-  }, []);
-
-  useEffect(() => {
     const on = (e) => setWizards({ [e.detail]: true });
     window.addEventListener("nx:wizard", on);
     return () => window.removeEventListener("nx:wizard", on);
