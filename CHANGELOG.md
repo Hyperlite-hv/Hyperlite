@@ -26,6 +26,7 @@ All notable changes to this project are documented here. The format is based on 
 - Backup jobs on the Backups page: one schedule for all of this node's VMs, those of a tag or of a pool (resolved at each run, some left out if wanted), run now or on schedule. GFS retention (last, daily, weekly, monthly) for these jobs and for each VM's schedule.
 - VM list views: grouped by node, tag or pool (a VM under each of its tags or pools), optional columns (node, IP, system, CPU and memory, uptime), and saved views that bring back filters, grouping, columns and sort, kept in the browser.
 - Help next to the technical settings (disk cache, discard, I/O, limits, ballooning, network mask, DHCP reservations, retention, metric servers, DNS search, syslog protocol, certificate chain): an (i) on the field, read on hover or keyboard focus, and a folded explanation for the disk options.
+- VM console: type text into the VM as key presses (passwords at a login prompt, no agent needed), a Keys menu for the combinations the workstation would catch (Ctrl+Alt+F1/F2/F7, Alt+Tab, Alt+F4, Windows key, Print Screen), and the guest's clipboard when it sends one. USB redirection stays with RDP and USB passthrough (docs/workstation-access.md).
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).

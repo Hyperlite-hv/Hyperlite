@@ -104,3 +104,22 @@ Each entry includes the client address.
 - **VMs of remote nodes:** tunnels reach the VMs of the node that runs the Hyperlite service. VMs of other cluster nodes are not supported yet.
 - **VM address:** the VM must have an IPv4 address known to libvirt (DHCP lease, or the ARP table of the host).
 - **macOS links:** `hyperlite://` links are not registered on macOS yet; the commands work.
+
+## Clipboard, special keys and USB
+
+In the browser console (VNC):
+
+- **Type text** types what you enter into the VM as key presses: it works at a login prompt or in a system without
+  any agent, which a clipboard cannot do. Symbols follow the guest's keyboard layout, so the guest's layout must
+  match yours. A guest running a clipboard agent also receives the text as its clipboard.
+- **Keys** sends the combinations your own computer would catch first (Ctrl+Alt+F1/F2/F7 to switch virtual
+  terminals, Alt+Tab, Alt+F4, the Windows key, Print Screen), next to Ctrl+Alt+Del.
+- When the guest sends its clipboard (with an agent), the console shows it with a **Copy** button.
+
+USB devices are not redirected from the browser: a web page cannot hand a USB device of your computer to a VNC
+server. Two ways cover it:
+
+- **From your workstation, remote desktop (RDP)** for Windows VMs: the Windows client shares the clipboard, drives,
+  printers and, with RemoteFX USB redirection enabled on both sides, USB devices.
+- **USB passthrough** of a device plugged into the server (VM Hardware tab), for dongles and devices that stay with
+  the host.
