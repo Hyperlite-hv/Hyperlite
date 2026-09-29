@@ -49,8 +49,9 @@ def content_security_policy(script_hashes, host=None):
             "default-src 'self'",
             f"script-src {script_src}",
             # Inline styles: React style props, and the <style> elements xterm.js injects for its theme.
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            "font-src 'self' https://fonts.gstatic.com data:",
+            "style-src 'self' 'unsafe-inline'",
+            # The fonts are bundled with the dashboard: an appliance often has no Internet access.
+            "font-src 'self' data:",
             "img-src 'self' data: blob:",
             f"connect-src {connect_src}",
             "worker-src 'self' blob:",
