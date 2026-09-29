@@ -96,7 +96,7 @@ test.describe("Network page", () => {
     await expect(main.getByRole("alert").filter({ hasText: "valid IPv4" }).first()).toBeVisible();
     // bridge mode swaps the fields
     await main.getByRole("combobox", { name: "Network mode" }).selectOption({ label: "Bridge to an existing physical network" });
-    await expect(main.getByRole("textbox", { name: "Host bridge name (e.g. br0)" })).toBeVisible();
+    await expect(main.getByRole("combobox", { name: "Host bridge name (e.g. br0)" })).toBeVisible();
     await main.getByRole("combobox", { name: "Network mode" }).selectOption({ label: "Isolated (no external access)" });
     // a valid isolated network
     await drawer.getByRole("textbox", { name: "Name", exact: true }).fill(NET);
