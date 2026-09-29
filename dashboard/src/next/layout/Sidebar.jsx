@@ -10,6 +10,7 @@ import Menu, { MenuItem } from "../components/Menu";
 import UpdateModal from "../../components/UpdateModal";
 import AccountSecurityModal from "../../components/AccountSecurityModal";
 import ChangePasswordDrawer from "../components/ChangePasswordDrawer";
+import PreferencesDrawer from "../components/PreferencesDrawer";
 import EnclaveMark from "../../components/EnclaveMark";
 import { Archive, Bell, Box, Boxes, Camera, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
 
@@ -85,6 +86,7 @@ export default function Sidebar({ collapsed }) {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
   const authSource = useAuthStore((st) => st.authSource);
   const userBtn = useRef(null);
   const tab = useInfraStore((s) => s.activeTab);
@@ -159,6 +161,7 @@ export default function Sidebar({ collapsed }) {
           {caps.admin && <MenuItem onSelect={() => { setUserMenuOpen(false); setUpdateOpen(true); }}>{t("top.updates")}</MenuItem>}
           {authSource !== "sso" && <MenuItem onSelect={() => { setUserMenuOpen(false); setPasswordOpen(true); }}>{t("pw.changeMenu")}</MenuItem>}
           <MenuItem onSelect={() => { setUserMenuOpen(false); setSecurityOpen(true); }}>{t("top.security")}</MenuItem>
+          <MenuItem onSelect={() => { setUserMenuOpen(false); setPrefsOpen(true); }}>{t("prefs.menu")}</MenuItem>
           <hr />
           <MenuItem danger onSelect={logout}>{t("top.signout")}</MenuItem>
         </Menu>
@@ -167,6 +170,7 @@ export default function Sidebar({ collapsed }) {
       <UpdateModal open={updateOpen} onClose={() => setUpdateOpen(false)} triggerRef={userBtn} />
       <AccountSecurityModal open={securityOpen} onClose={() => setSecurityOpen(false)} triggerRef={userBtn} />
       <ChangePasswordDrawer open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      <PreferencesDrawer open={prefsOpen} onClose={() => setPrefsOpen(false)} />
     </nav>
   );
 }
