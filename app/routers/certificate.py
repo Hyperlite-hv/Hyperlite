@@ -84,11 +84,9 @@ def acme_certificate(payload: AcmeRequest, user: dict = Depends(require_role("ad
     """Let's Encrypt by HTTP-01: the domain must resolve to this node and port 80 must reach it from the Internet.
     certbot's deploy hook installs the certificate and restarts the service; certbot's own timer renews it."""
     try:
-        cmd = tls_certs.acme_command(payload.domaine, payload.email, payload.test)
+        run = tls_certs.run_acme(payload.domaine, payload.email, payload.test, ACME_TIMEOUT_S)
     except tls_certs.CertError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    try:
-        run = subprocess.run(cmd, capture_output=True, text=True, timeout=ACME_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         log_action(user["username"], "acme_certificate", payload.domaine, "echec", "timeout")
         raise HTTPException(status_code=504, detail="certbot did not finish in time") from None
