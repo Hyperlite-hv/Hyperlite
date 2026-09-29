@@ -677,6 +677,15 @@ export async function fetchVM(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}${nodeQuery(node)}`);
 }
 
+// ---- Start at boot (GET/PUT /vms/{name}/boot): per node, so the VM's node travels with the call.
+export async function fetchVMBoot(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`);
+}
+export async function setVMBoot(name, payload, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`, { method: "PUT", ...jsonBody(payload) });
+}
 // ---- Resource limits/reservations (real: GET/PUT /vms/{name}/limits, cgroups
 // through libvirt schedulerParametersFlags/memoryParameters) ----
 export async function fetchVMLimits(name) {
