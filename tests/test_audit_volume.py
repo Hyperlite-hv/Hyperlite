@@ -21,15 +21,15 @@ def test_successful_reads_are_not_audited_but_failures_and_actions_are(database)
     assert _rows(database) == [("get_vm", "echec"), ("start_vm", "succes")]
 
 
-def test_a_lost_entry_is_logged_without_its_free_text_message(database, monkeypatch, caplog):
+def test_a_lost_entry_is_logged_without_what_came_from_the_request(database, monkeypatch, caplog):
     def _full(_entry):
         raise queue.Full
 
     monkeypatch.setattr(audit._AUDIT_QUEUE, "put_nowait", _full)
     with caplog.at_level(logging.ERROR, logger=audit.__name__):
         audit.log_action("alice", "change_password", "alice", "echec", "rejected: Tr0ub4dor&3")
-    assert "change_password" in caplog.text and "alice" in caplog.text
-    assert "Tr0ub4dor" not in caplog.text
+    assert "change_password" in caplog.text
+    assert "Tr0ub4dor" not in caplog.text and "alice" not in caplog.text
 
 
 class _EmptyHost:
