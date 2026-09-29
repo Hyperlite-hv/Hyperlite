@@ -927,6 +927,13 @@ export async function deleteCustomRole(roleId) {
 export async function fetchContainers() {
   return realFetch("/containers");
 }
+// One container's details (interfaces, DNS servers, start at boot) and changing them (administrator).
+export async function fetchContainer(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}`);
+}
+export async function updateContainer(name, payload) {
+  return realFetch(`/containers/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
+}
 export async function searchDockerHub(query) {
   return realFetch(`/containers/docker-hub/search?q=${encodeURIComponent(query)}`);
 }

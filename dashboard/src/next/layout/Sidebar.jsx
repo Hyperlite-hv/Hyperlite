@@ -120,7 +120,7 @@ export default function Sidebar({ collapsed }) {
         <NavGroup label={t("nav.group.infrastructure")}>
           <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes") || selection.type === "node"} onClick={() => goto("nodes")} />
           <NavItem icon="vms" label={t("nav.vms")} count={vms.length} tone={problems ? "warning" : undefined} active={selection.type === "vm" || onDatacenterTab("vms")} onClick={() => goto("vms")} />
-          <NavItem icon="containers" label={t("nav.containers")} count={containers?.length ?? 0} active={onDatacenterTab("containers")} onClick={() => goto("containers")} />
+          <NavItem icon="containers" label={t("nav.containers")} count={containers?.length ?? 0} active={selection.type === "container" || onDatacenterTab("containers")} onClick={() => goto("containers")} />
           <NavItem icon="kubernetes" label={t("nav.kubernetes")} active={onDatacenterTab("kubernetes")} onClick={() => goto("kubernetes")} />
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
           <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />

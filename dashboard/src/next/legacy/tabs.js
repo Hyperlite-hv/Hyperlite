@@ -26,6 +26,7 @@ import VmConsole from "../pages/VmConsole";
 import { VmSnapshotsPage, VmBackupPage } from "../pages/VmSnapshotsBackup";
 import { VmHardwarePage, VmOptionsPage, VmNetworkPage } from "../pages/VmConfigure";
 import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
+import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage } from "../pages/ContainerPages";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
@@ -38,8 +39,9 @@ export const NODE_TABS = {
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage,
 };
+export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, backup: ContainerBackupsPage, tasks: ActivityPage };
 
 
 // vSphere-style model: every inventory object has a few top tabs; a top tab that holds several
@@ -69,6 +71,13 @@ export const OBJECT_TABS = {
     { id: "hardware", label: "tab.hardware", pages: [page("hardware"), page("options")] },
     { id: "network", label: "tab.network", pages: [page("network")] },
     { id: "console", label: "tab.console", pages: [page("console")] },
+    { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
+  ],
+  container: [
+    { id: "summary", label: "tab.summary", pages: [page("summary")] },
+    { id: "console", label: "tab.console", pages: [page("console")] },
+    { id: "backup", label: "tab.backups", pages: [page("backup")] },
+    { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
   ],
 };
 
