@@ -37,7 +37,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel = "Co
           </div>
           <div className="flex-1 text-left">
             <AlertDialogTitle className="text-sm">{title}</AlertDialogTitle>
-            <AlertDialogDescription className="mt-1 text-sm">{message}</AlertDialogDescription>
+            <AlertDialogDescription className="mt-1 text-sm whitespace-pre-line">{message}</AlertDialogDescription>
           </div>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -7,14 +7,16 @@ import { useT, useLangStore } from "../i18n";
 import { findVm, isRemoteVm } from "../lib/vmId";
 import { EmptyState } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
-import { DATACENTER_TABS, NODE_TABS, VM_TABS, locate } from "../legacy/tabs";
+import { CONTAINER_TABS, DATACENTER_TABS, NODE_TABS, VM_TABS, locate } from "../legacy/tabs";
 import { selectionToPath, withTab } from "../lib/urls";
 import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
 import { formatUptimeLong, formatVersionInt } from "../lib/format";
-import { Monitor, Server } from "lucide-react";
+import { Box, Monitor, Server } from "lucide-react";
 import { PageHeader, StatePill } from "../components/ui";
 import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions";
+import { ContainerHeaderActions } from "../pages/ContainerPages";
+import { formatSizeMb } from "../lib/format";
 
 
 
@@ -30,7 +32,7 @@ function useUrlSync() {
 
   // URL -> store
   useEffect(() => {
-    const m = pathname.match(/^\/(node|vm)\/([^/]+)/);
+    const m = pathname.match(/^\/(node|vm|container)\/([^/]+)/);
     const cur = useInfraStore.getState().selection;
     if (m) {
       const id = decodeURIComponent(m[2]);
@@ -68,7 +70,8 @@ function useUrlSync() {
 
 // VM pages whose endpoints only manage the VMs of this host (they take no node): for a remote VM they would read
 // and change a local VM of the same name, so they are replaced by an explanation.
-const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "options", "network", "backup", "snapshots"]);
+// "options" is not listed: start at boot works on every node; its local-only sections say so themselves.
+const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots", "cloudinit"]);
 
 // Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
 const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports"]);
@@ -94,6 +97,29 @@ function VmHead({ vm, node, tab, setTab }) {
         </div>
       </div>
       <VmHeaderActions vm={vm} currentTab={tab} setTab={setTab} />
+    </div>
+  );
+}
+
+// Object header of a container: state, kind (system LXC or Docker application), address, resources.
+function ContainerHead({ ct }) {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  return (
+    <div className="nx-oh">
+      <span className="nx-otile" aria-hidden="true"><Box size={20} /></span>
+      <div className="nx-oh-main">
+        <h1>{ct.nom}</h1>
+        <div className="nx-ometa">
+          <StatePill kind="vm" wire={ct.etat === "actif" ? "actif" : "arrete"} />
+          <span>{ct.mode === "application" ? `Docker · ${ct.image || ""}` : "LXC"}</span>
+          <span className="nx-sep" aria-hidden="true">·</span>
+          <span className="nx-mono">{ct.ip || t("ct.noIp")}</span>
+          <span className="nx-sep" aria-hidden="true">·</span>
+          <span className="nx-mono">{ct.vcpu} vCPU · {formatSizeMb(ct.memoire_mo, lang)}</span>
+        </div>
+      </div>
+      <ContainerHeaderActions ct={ct} />
     </div>
   );
 }
@@ -128,15 +154,18 @@ export default function Workspace({ children }) {
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const caps = capabilities(useAuthStore((s) => s.role));
   const failing = useFreshness((s) => s.failing);
+  const { containers, containersLoaded } = useFreshness(useShallow((s) => ({ containers: s.containers, containersLoaded: s.containersLoaded })));
 
   const resource = selection.type === "vm" ? findVm(vms, selection.id)
-    : selection.type === "node" ? nodes.find((n) => n.id === selection.id) : null;
+    : selection.type === "node" ? nodes.find((n) => n.id === selection.id)
+    : selection.type === "container" ? containers.find((c) => c.nom === selection.id) : null;
   const isDc = selection.type === "datacenter";
-  const isObj = selection.type === "node" || selection.type === "vm";
+  const isObj = selection.type === "node" || selection.type === "vm" || selection.type === "container";
   const { tabs: topTabs, top, page: tab } = locate(isObj ? selection.type : "datacenter", activeTab);
-  const Registry = selection.type === "node" ? NODE_TABS : selection.type === "vm" ? VM_TABS : DATACENTER_TABS;
+  const Registry = { node: NODE_TABS, vm: VM_TABS, container: CONTAINER_TABS }[selection.type] || DATACENTER_TABS;
   const Active = Registry[tab];
-  const missing = !loading && isObj && !resource;
+  const listLoaded = selection.type === "container" ? containersLoaded : !loading;
+  const missing = listLoaded && isObj && !resource;
   const vmNode = selection.type === "vm" && resource ? nodes.find((n) => n.id === resource.node) : null;
   const remote = (selection.type === "node" && resource?.distant) || vmNode?.distant;
 
@@ -176,7 +205,9 @@ export default function Workspace({ children }) {
           <div className="nx-page"><EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>} /></div>
         ) : resource ? (
           <>
-            {selection.type === "vm" ? <VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} /> : <NodeHead node={resource} setTab={setTab} />}
+            {selection.type === "vm" ? <VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} />
+              : selection.type === "container" ? <ContainerHead ct={resource} />
+              : <NodeHead node={resource} setTab={setTab} />}
             <div className="nx-tabs" role="tablist" aria-label={resource.nom} onKeyDown={onTabKeyDown}>
               {topTabs.map((x) => (
                 <button key={x.id} id={`nx-top-${x.id}`} type="button" role="tab" aria-selected={top.id === x.id} aria-controls="nx-panel" tabIndex={top.id === x.id ? 0 : -1} onClick={() => goTop(x)}>{t(x.label)}</button>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronDown, ChevronRight, Copy, Monitor, Play, Plus, Search, Square, SquareTerminal, TriangleAlert, X } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -13,6 +13,9 @@ import { useContextTarget } from "../components/ContextMenu";
 import { VmContextMenu, NodeContextMenu } from "../components/ObjectActions";
 import { PageHeader, Spark, Empty, StatePill, TableWrap, Meter, Chip } from "../components/ui";
 import { useVmHistory } from "./VmPerformance";
+import BulkBar from "../components/BulkBar";
+import { TagChips } from "../components/NotesCard";
+import { allTags, metaOf, useMetaStore } from "../lib/meta";
 
 const VIEW_KEY = "hyperlite-next-vmview";
 const GROUP_KEY = "hyperlite-next-vmgroup";
@@ -136,6 +139,11 @@ export default function VmList() {
   const [selName, setSelName] = useState(null);
   const [detail, setDetail] = useState(true);
   const [nodeFilter, setNodeFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const { byKey: metaByKey, load: loadMeta } = useMetaStore(useShallow((s) => ({ byKey: s.byKey, load: s.load })));
+  useEffect(() => { loadMeta(); }, [loadMeta]);
+  const tagsOf = (v) => metaOf(metaByKey, "vm", v.node, v.nom)?.tags || [];
+  const tagList = allTags(metaByKey, "vm");
   const [groupPref, setGroupPref] = useState(readGroup);
   const group = groupPref ?? true;
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -149,6 +157,16 @@ export default function VmList() {
   const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* preference only */ } };
   const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
   const ctx = useContextTarget(); // right click on a VM or a node band: its actions
+  // Selection for bulk actions, by VM identity (node and name): a VM that disappears leaves the selection.
+  const selectable = caps.power;
+  const [picked, setPicked] = useState(() => new Set());
+  const pickedVms = selectable ? vms.filter((v) => picked.has(vmKey(v))) : [];
+  const togglePick = (vm) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(vmKey(vm))) next.delete(vmKey(vm)); else next.add(vmKey(vm));
+    return next;
+  });
+  const clearPicks = () => setPicked(new Set());
 
   const counts = useMemo(() => ({
     all: vms.length,
@@ -160,17 +178,29 @@ export default function VmList() {
 
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
-    const list = vms.filter((v) => (!nodeFilter || v.node === nodeFilter) && (chip === "all" || (chip === "running" && v.etat === "actif") || (chip === "stopped" && (v.etat === "arrete" || v.etat === "en_arret")) || (chip === "problems" && PROBLEM.has(v.etat)))
-      && (!n || `${v.nom} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)}`.toLowerCase().includes(n)));
+    const list = vms.filter((v) => (!nodeFilter || v.node === nodeFilter) && (!tagFilter || tagsOf(v).includes(tagFilter)) && (chip === "all" || (chip === "running" && v.etat === "actif") || (chip === "stopped" && (v.etat === "arrete" || v.etat === "en_arret")) || (chip === "problems" && PROBLEM.has(v.etat)))
+      && (!n || `${v.nom} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)} ${tagsOf(v).join(" ")}`.toLowerCase().includes(n)));
     const rank = (v) => (PROBLEM.has(v.etat) ? 0 : v.etat === "actif" ? 1 : 2); // problems first
     const val = { state: rank, name: (v) => v.nom.toLowerCase(), node: (v) => nodeName(v.node).toLowerCase(), res: (v) => (v.vcpu || 0) * 1e6 + (v.memoire_mo || 0), uptime: (v) => v.uptime_s || 0 }[sort.key];
     return [...list].sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : a.nom.localeCompare(b.nom)) * sort.dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vms, q, chip, sort, nodes, nodeFilter]);
+  }, [vms, q, chip, sort, nodes, nodeFilter, tagFilter, metaByKey]);
+
+  const shownPicked = shown.filter((v) => picked.has(vmKey(v))).length;
+  const pickAllShown = () => setPicked((prev) => {
+    const next = new Set(prev);
+    if (shownPicked === shown.length) shown.forEach((v) => next.delete(vmKey(v)));
+    else shown.forEach((v) => next.add(vmKey(v)));
+    return next;
+  });
+  const pickBox = (vm) => (
+    <input type="checkbox" className="nx-pick" checked={picked.has(vmKey(vm))} aria-label={t("bulk.pick", { name: vm.nom })}
+      onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={() => togglePick(vm)} />
+  );
 
   // One section per node (the machine that runs the VMs), in the order of the nodes page; a node without VMs is
   // shown too when nothing is filtered, so every machine appears.
-  const filtering = chip !== "all" || q.trim() !== "";
+  const filtering = chip !== "all" || q.trim() !== "" || tagFilter !== "";
   const groups = nodes
     .filter((n) => !nodeFilter || n.id === nodeFilter)
     .map((n) => ({ node: n, vms: shown.filter((v) => v.node === n.id) }))
@@ -188,7 +218,12 @@ export default function VmList() {
       <button type="button" className="nx-thbtn" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : 1 }))}>{label}{sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}</button>
     </th>
   );
-  const sub = (v) => (PROBLEM.has(v.etat) ? <small className="is-warn">{t(`vmlist.reason.${v.etat}`)}</small> : v.os ? <small>{v.os}</small> : null);
+  const sub = (v) => (
+    <>
+      {PROBLEM.has(v.etat) ? <small className="is-warn">{t(`vmlist.reason.${v.etat}`)}</small> : v.os ? <small>{v.os}</small> : null}
+      <TagChips tags={tagsOf(v)} onTag={setTagFilter} />
+    </>
+  );
   const showDetail = detail && selected && view === "table";
   const nodeCell = (id) => {
     const n = nodes.find((x) => x.id === id);
@@ -196,8 +231,9 @@ export default function VmList() {
   };
   const renderCard = (vm) => (
               <article key={`${vm.node}:${vm.nom}`} className={`nx-card2 nx-vmcard2${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-label={vm.nom} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
-                <div className="nx-inline"><StatusIndicator kind="vm" wire={vm.etat} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{vm.nom}</button></div>
+                <div className="nx-inline">{selectable && pickBox(vm)}<StatusIndicator kind="vm" wire={vm.etat} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{vm.nom}</button></div>
                 <div className="nx-muted" style={{ fontSize: "var(--fs-12)" }}>{PROBLEM.has(vm.etat) ? <span className="nx-tone-warning">{t(`vmlist.reason.${vm.etat}`)}</span> : vm.os || "—"}</div>
+                <TagChips tags={tagsOf(vm)} onTag={setTagFilter} />
                 <dl className="nx-dl2" style={{ gridTemplateColumns: "5.3333rem minmax(0,1fr)", marginTop: "var(--space-2)" }}>
                   <dt>{t("ns.node")}</dt><dd className="nx-mono">{nodeName(vm.node)}</dd>
                   <dt>IP</dt><dd className="nx-mono">{vm.ip || "—"}</dd>
@@ -210,6 +246,7 @@ export default function VmList() {
                       return (
                         <tr key={`${vm.node}:${vm.nom}`} className={`nx-rowlink${sel ? " is-sel" : PROBLEM.has(vm.etat) ? " is-warn" : ""}${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-selected={sel || undefined} tabIndex={0}
                           onClick={() => select(vm)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(vm); } }} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
+                          {selectable && <td className="nx-pickcell">{pickBox(vm)}</td>}
                           <td style={{ width: "2rem" }}><StatusIndicator kind="vm" wire={vm.etat} compact /></td>
                           <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vmKey(vm), "summary"); }}>{vm.nom}</button>{sub(vm)}</th>
                           {withNode && <td>{nodeCell(vm.node)}</td>}
@@ -252,6 +289,12 @@ export default function VmList() {
             {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom} ({vms.filter((v) => v.node === n.id).length})</option>)}
           </select>
         )}
+        {(tagList.length > 0 || tagFilter) && (
+          <select className="nx-sel" aria-label={t("vmlist.filterTag")} value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+            <option value="">{t("vmlist.allTags")}</option>
+            {tagList.map((tg) => <option key={tg} value={tg}>{tg} ({vms.filter((v) => tagsOf(v).includes(tg)).length})</option>)}
+          </select>
+        )}
         <button type="button" className="nx-btn nx-btn--sm" aria-pressed={group} onClick={() => setGroup(!group)}>{t("vmlist.groupByNode")}</button>
         <label className="nx-search2"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t("ns.filterVms")} placeholder={t("vmlist.searchPh")} value={q} onChange={(e) => setQ(e.target.value)} /></label>
         <div className="nx-seg2" role="group" aria-label={t("ns.viewMode")}>
@@ -260,6 +303,7 @@ export default function VmList() {
         </div>
       </div>
 
+      {pickedVms.length > 0 && <BulkBar selected={pickedVms} caps={caps} nodes={nodes} onClear={clearPicks} />}
       {vms.length === 0 ? (
         <div className="nx-card2"><Empty icon={Monitor} title={t("ns.noVms")} text={t("vmlist.noneHelp")} action={caps.create && <button type="button" className="nx-btn" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}><Plus size={15} aria-hidden="true" />{t("vmlist.create")}</button>} /></div>
       ) : view === "cards" ? (
@@ -281,19 +325,24 @@ export default function VmList() {
             {shown.length === 0 ? <p className="nx-muted" role="status" style={{ padding: "var(--space-4)", margin: 0 }}>{t("act.noneFiltered")}</p> : (
               <TableWrap sticky>
                 <table className="nx-table">
-                  <thead><tr>{th("state", <span className="nx-sr">{t("ns.col.state")}</span>)}{th("name", t("ns.col.name"))}{!group && th("node", t("ns.node"))}<th scope="col">{t("vmlist.ip")}</th>{th("res", t("vmlist.cpuMem"), "nx-num")}{th("uptime", t("ns.col.uptime"))}</tr></thead>
+                  <thead><tr>{selectable && (
+                    <th scope="col" className="nx-pickcell">
+                      <input type="checkbox" className="nx-pick" aria-label={t("bulk.pickAll", { n: shown.length })} checked={shown.length > 0 && shownPicked === shown.length}
+                        ref={(el) => { if (el) el.indeterminate = shownPicked > 0 && shownPicked < shown.length; }} onChange={pickAllShown} />
+                    </th>
+                  )}{th("state", <span className="nx-sr">{t("ns.col.state")}</span>)}{th("name", t("ns.col.name"))}{!group && th("node", t("ns.node"))}<th scope="col">{t("vmlist.ip")}</th>{th("res", t("vmlist.cpuMem"), "nx-num")}{th("uptime", t("ns.col.uptime"))}</tr></thead>
                   {group ? groups.map(({ node, vms: list }) => {
                     const folded = collapsed.has(node.id);
                     return (
                       <tbody key={node.id} className="nx-group">
                         <tr className={`nx-grouprow nx-grouprow--band${ctx.is("node", node.id) ? " is-ctx" : ""}`} onContextMenu={node.id !== "?" ? ctx.open("node", node) : undefined}>
-                          <th scope="colgroup" colSpan={5}><NodeBand node={node} list={list} collapsed={folded} onToggle={() => toggleNode(node.id)} /></th>
+                          <th scope="colgroup" colSpan={5 + (selectable ? 1 : 0)}><NodeBand node={node} list={list} collapsed={folded} onToggle={() => toggleNode(node.id)} /></th>
                         </tr>
-                        {folded ? null : list.length === 0 ? <tr><td colSpan={5} className="nx-muted" style={{ paddingLeft: "2.6667rem" }}>{t("ns.noVms")}</td></tr> : list.map((vm) => renderRow(vm, false))}
+                        {folded ? null : list.length === 0 ? <tr><td colSpan={5 + (selectable ? 1 : 0)} className="nx-muted" style={{ paddingLeft: "2.6667rem" }}>{t("ns.noVms")}</td></tr> : list.map((vm) => renderRow(vm, false))}
                       </tbody>
                     );
                   }) : <tbody>{shown.map((vm) => renderRow(vm, true))}</tbody>}
-                  <tfoot><tr><td colSpan={group ? 5 : 6}>{t("vmlist.footer", { shown: shown.length, total: vms.length, vcpu, mem: formatSizeMb(mem, lang) })}</td></tr></tfoot>
+                  <tfoot><tr><td colSpan={(group ? 5 : 6) + (selectable ? 1 : 0)}>{t("vmlist.footer", { shown: shown.length, total: vms.length, vcpu, mem: formatSizeMb(mem, lang) })}</td></tr></tfoot>
                 </table>
               </TableWrap>
             )}

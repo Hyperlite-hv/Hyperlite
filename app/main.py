@@ -22,8 +22,10 @@ from app.core.metrics import start_metrics_collector
 from app.core.network_firewall import reapply_all as reapply_network_firewalls
 from app.core.security import optional_user
 from app.core.seed import seed_admin
+from app.core.tasks import close_interrupted_tasks
 from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
+from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.routers.acl import router as acl_router
 from app.routers.audit import router as audit_router
@@ -37,6 +39,7 @@ from app.routers.host import router as host_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
 from app.routers.kubernetes import router as kubernetes_router
+from app.routers.meta import router as meta_router
 from app.routers.metrics import router as metrics_router
 from app.routers.network import router as network_router
 from app.routers.nodes import router as nodes_router
@@ -120,6 +123,7 @@ app.include_router(ha_router)
 app.include_router(notifications_router)
 app.include_router(workstation_router)
 app.include_router(kubernetes_router)
+app.include_router(meta_router)
 
 if os.path.isdir(DASHBOARD_DIST):
     app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")
@@ -246,6 +250,8 @@ def on_startup():
             f.write(pwd + "\n")
         print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
     encrypt_stored_totp_secrets()
+    # Before anything starts new tasks: the ones still "running" belonged to the previous process.
+    close_interrupted_tasks()
     start_metrics_collector()
     start_backup_scheduler()
     ensure_lb_job_exists()
@@ -255,6 +261,7 @@ def on_startup():
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
     recover_interrupted_k8s_clusters()
+    start_boot_sequence()
 
     # The iptables rules of the network firewall do not survive a host reboot
     # (unlike the per-VM firewall's nwfilter, which libvirt itself manages):

@@ -36,6 +36,7 @@ Architecture decision (two options were weighed):
 
 """
 
+import logging
 import subprocess
 import threading
 import time
@@ -47,6 +48,8 @@ import libvirt
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.vm_builder import PROJDIR
+
+logger = logging.getLogger(__name__)
 
 CLUSTER_SSH_KEY_DIR = PROJDIR / "data" / "ssh"
 POLL_INTERVAL_S = 60
@@ -378,6 +381,32 @@ def node_summary(node_name):
         conn.close()
 
 
+_boot_checks = set()
+_boot_checks_lock = threading.Lock()
+
+
+def _check_node_boot(node_row):
+    """Start at boot for a registered node: when it has booted since last seen, its sequence runs (app/core/
+    vm_boot.py). In its own thread: the sequence waits between VMs and must not hold the poll of the other nodes."""
+    with _boot_checks_lock:
+        if node_row["name"] in _boot_checks:
+            return
+        _boot_checks.add(node_row["name"])
+
+    def check():
+        from app.core import vm_boot
+
+        try:
+            vm_boot.boot_if_new(node_row["name"], vm_boot.remote_boot_id(node_row))
+        except Exception:
+            logger.exception("Start at boot failed on %s", node_row["name"])
+        finally:
+            with _boot_checks_lock:
+                _boot_checks.discard(node_row["name"])
+
+    threading.Thread(target=check, daemon=True, name=f"vm-start-at-boot-{node_row['name']}").start()
+
+
 def _poll_nodes():
     while True:
         try:
@@ -393,6 +422,8 @@ def _poll_nodes():
                         (new_statut, datetime.now(UTC).isoformat(), node["id"]),
                     )
                     conn.commit()
+                if ok:
+                    _check_node_boot(dict(node))
                 if prev and prev["statut"] != new_statut:
                     log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
                     if new_statut == "hors_ligne":

@@ -7,7 +7,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 // showing old data (the legacy refresh swallows every failure).
 export const useFreshness = create((set) => ({
   updatedAt: null, failing: false, lastError: null, loaded: false,
-  containers: [], pools: null, poolsState: "idle", // idle | ok | forbidden | error
+  containers: [], containersLoaded: false, pools: null, poolsState: "idle", // idle | ok | forbidden | error
   markOk() { set({ updatedAt: Date.now(), failing: false, lastError: null, loaded: true }); },
   markFail(e) { set({ failing: true, lastError: e?.message || String(e) }); },
   setExtras(patch) { set(patch); },
@@ -42,8 +42,8 @@ export async function refreshExtras() {
   const f = useFreshness.getState();
   try {
     const containers = await fetchContainers();
-    f.setExtras({ containers: Array.isArray(containers) ? containers : [] });
-  } catch { /* containers are optional: keep the last list */ }
+    f.setExtras({ containers: Array.isArray(containers) ? containers : [], containersLoaded: true });
+  } catch { f.setExtras({ containersLoaded: true }); /* containers are optional: keep the last list */ }
   // Resource pools are administrator-only on the backend: do not ask (and collect 403s) for anyone else.
   if (useAuthStore.getState().role !== "admin") { f.setExtras({ pools: null, poolsState: "forbidden" }); return; }
   try {

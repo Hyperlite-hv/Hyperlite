@@ -127,7 +127,7 @@ def test_the_endpoint_runs_the_move_as_a_task(api, database, monkeypatch):
     monkeypatch.setattr(
         disk_move,
         "move",
-        lambda domain, dev, how, delete, progress: (
+        lambda domain, dev, how, delete, progress, stop=None: (
             calls.append((dev, how["dest"], delete))
             or {"source": how["source"], "destination": how["dest"], "source_supprimee": delete}
         ),

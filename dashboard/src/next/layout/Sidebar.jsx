@@ -91,11 +91,8 @@ export default function Sidebar({ collapsed }) {
   const onDatacenterTab = (id) => selection.type === "datacenter" && tab === id;
   // On narrow screens the sidebar is a drawer: close it once a page is chosen.
   const goto = (dcTab) => { navigateTo("datacenter", null, dcTab); window.dispatchEvent(new Event("nx:navigated")); };
-  const activeNode = selection.type === "node" ? nodes.find((n) => n.id === selection.id) : null;
 
-  const nodesOnline = nodes.filter((n) => n.etat === "online").length;
   const problems = vms.filter((v) => ["plante", "bloque", "inconnu"].includes(v.etat)).length;
-  const host = activeNode || nodes.find((n) => n.id === "local") || nodes[0];
 
   return (
     <nav className={`nx-sidebar${collapsed ? " collapsed" : ""}`} aria-label={t("nav.main")}>
@@ -105,14 +102,6 @@ export default function Sidebar({ collapsed }) {
         <span className="nx-brand-text"><strong>{t("app.name")}</strong><small>{t("app.tagline")}</small></span>
       </div>
 
-      {!collapsed && (
-        <button type="button" className="nx-cluster" aria-label={`${host?.nom || t("res.datacenter")} — ${t("cluster.hint")}`} title={t("cluster.hint")} onClick={() => window.dispatchEvent(new Event("nx:palette"))}>
-          <span className={`nx-cluster-dot${nodesOnline === nodes.length && nodes.length > 0 ? "" : " is-warn"}`} aria-hidden="true" />
-          <span className="nx-cluster-name">{host?.nom || t("res.datacenter")}</span>
-          <span className="nx-cluster-count">{nodes.length === 1 ? t("nav.nodeCount1") : t("nav.nodesCount", { n: nodes.length })}</span>
-        </button>
-      )}
-
       <div className="nx-nav-scroll">
         <NavGroup>
           <NavItem icon="overview" label={t("nav.overview")} active={onDatacenterTab("summary")} onClick={() => goto("summary")} />
@@ -120,7 +109,7 @@ export default function Sidebar({ collapsed }) {
         <NavGroup label={t("nav.group.infrastructure")}>
           <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes") || selection.type === "node"} onClick={() => goto("nodes")} />
           <NavItem icon="vms" label={t("nav.vms")} count={vms.length} tone={problems ? "warning" : undefined} active={selection.type === "vm" || onDatacenterTab("vms")} onClick={() => goto("vms")} />
-          <NavItem icon="containers" label={t("nav.containers")} count={containers?.length ?? 0} active={onDatacenterTab("containers")} onClick={() => goto("containers")} />
+          <NavItem icon="containers" label={t("nav.containers")} count={containers?.length ?? 0} active={selection.type === "container" || onDatacenterTab("containers")} onClick={() => goto("containers")} />
           <NavItem icon="kubernetes" label={t("nav.kubernetes")} active={onDatacenterTab("kubernetes")} onClick={() => goto("kubernetes")} />
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
           <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />

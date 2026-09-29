@@ -35,6 +35,7 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
   const crumbs = [];
   if (selection.type === "node") crumbs.push([t("nav.nodes"), () => navigateTo("datacenter", null, "nodes")], [node?.nom || selection.id]);
   else if (selection.type === "vm") crumbs.push([t("nav.vms"), () => navigateTo("datacenter", null, "vms")], [parseVmKey(selection.id).nom]);
+  else if (selection.type === "container") crumbs.push([t("nav.containers"), () => navigateTo("datacenter", null, "containers")], [selection.id]);
   else if (page !== "summary") crumbs.push([t(`tab.${page}`)]);
 
   // The Activity button toggles the panel: a second click closes it.
