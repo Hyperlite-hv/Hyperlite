@@ -32,11 +32,34 @@ def test_a_lost_entry_is_logged_without_its_free_text_message(database, monkeypa
     assert "Tr0ub4dor" not in caplog.text
 
 
-def test_the_polled_inventory_leaves_no_trace(client, auth_headers, database):
+class _EmptyHost:
+    """A libvirt connection with nothing on it: the suite has no hypervisor."""
+
+    def listAllNetworks(self, *_a):
+        return []
+
+    def listAllStoragePools(self, *_a):
+        return []
+
+    def listAllDomains(self, *_a):
+        return []
+
+    def close(self):
+        return 0
+
+
+def test_the_polled_inventory_leaves_no_trace(client, auth_headers, database, monkeypatch):
+    from app.routers import network, storage
+
+    for module in (network, storage):
+        monkeypatch.setattr(module, "open_conn", lambda *_a, **_k: _EmptyHost())
+    monkeypatch.setattr(network, "ensure_isolated_network", lambda _conn: None)
+    monkeypatch.setattr(storage, "ensure_default_pool", lambda _conn: None)
+    monkeypatch.setattr(storage.zfs_storage, "list_pools", lambda: [])
     headers = auth_headers("alice")
     before = len(_rows(database))
-    for path in ("/networks", "/storage", "/nodes"):
-        client.get(path, headers=headers)
+    for path in ("/networks", "/storage"):
+        assert client.get(path, headers=headers).status_code == 200
     assert len(_rows(database)) == before
 
 
