@@ -34,6 +34,8 @@
 .nx-pill[data-tone="success"] { background: var(--color-success-subtle); color: var(--color-success); }
 .nx-pill[data-tone="warning"] { background: var(--color-warning-subtle); color: var(--color-warning); }
 .nx-pill[data-tone="danger"] { background: var(--color-danger-subtle); color: var(--color-danger); }
+/* The danger red alone is just under 4.5:1 on its own tint at pill size: nudged toward the text colour. */
+.nx-pill[data-tone="danger"] { color: color-mix(in oklab, var(--color-danger) 82%, var(--color-text-primary)); }
 .nx-pill[data-tone="info"] { background: var(--color-info-subtle); color: var(--color-info); }
 .nx-chip { display: inline-flex; align-items: center; gap: 0.25rem; height: 1.4667rem; padding: 0 0.5333rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border-default); font-size: var(--fs-12); color: var(--color-text-secondary); white-space: nowrap; background: var(--color-bg-surface); }
 .nx-chip[data-tone="accent"] { border-color: color-mix(in oklab, var(--color-accent) 40%, var(--color-border-default)); background: var(--color-accent-subtle); color: var(--color-accent); }
