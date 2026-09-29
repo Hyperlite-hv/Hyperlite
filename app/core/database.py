@@ -510,6 +510,28 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_storage_samples ON storage_samples(node, pool, tier, ts)")
+        # Kubernetes (k3s) clusters built on Hyperlite VMs (app/core/k8s_cluster.py). The join token and the
+        # kubeconfig are stored encrypted (app/core/secrets_crypto.py).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS k8s_clusters (
+                nom TEXT PRIMARY KEY,
+                version TEXT,
+                reseau TEXT NOT NULL,
+                serveur TEXT NOT NULL,
+                workers TEXT NOT NULL,
+                vcpu INTEGER NOT NULL,
+                memoire_mo INTEGER NOT NULL,
+                disque_go INTEGER NOT NULL,
+                adresse TEXT,
+                statut TEXT NOT NULL CHECK(statut IN ('creation', 'pret', 'echec', 'suppression')),
+                erreur TEXT,
+                jeton TEXT,
+                kubeconfig TEXT,
+                task_id TEXT,
+                cree_par TEXT,
+                cree_le TEXT NOT NULL
+            )
+        """)
         for ddl in (
             "ALTER TABLE users ADD COLUMN last_login_at TEXT",
             # Epoch second of the last password change or reset (NULL: never): session tokens issued

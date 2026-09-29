@@ -43,7 +43,7 @@ export const TASK_LABEL_KEYS = {
   start_vm: "Start VM", stop_vm: "Stop VM", force_stop_vm: "Force stop VM", restart_vm: "Restart VM", delete_vm: "Delete VM",
   create_vm: "Create VM", auto_install: "Automatic installation", update_vm: "Update VM resources", create_snapshot: "Create snapshot",
   restore_snapshot: "Restore snapshot", delete_snapshot: "Delete snapshot", clone_vm: "Clone VM", migrate_vm: "Migrate VM",
-  backup_vm: "Back up VM", restore_backup: "Restore backup", export_vm: "Export VM", run_job: "Run job", upload_iso: "Upload ISO", copy_iso: "Copy ISO to a node",
+  backup_vm: "Back up VM", restore_backup: "Restore backup", export_vm: "Export VM", run_job: "Run job", upload_iso: "Upload ISO", copy_iso: "Copy ISO to a node", create_k8s_cluster: "Create Kubernetes cluster", delete_k8s_cluster: "Delete Kubernetes cluster",
   upload_vm_disk: "Upload disk", create_container: "Create container", clone_container: "Clone container",
   backup_container: "Back up container", hyperlite_update: "Hyperlite update", host_shell: "Host shell",
 };

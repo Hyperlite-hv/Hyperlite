@@ -10,6 +10,7 @@ from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.cluster import start_node_poller
 from app.core.jobs import ensure_lb_job_exists
+from app.core.k8s_cluster import recover_interrupted as recover_interrupted_k8s_clusters
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import start_metrics_collector
 from app.core.network_firewall import reapply_all as reapply_network_firewalls
@@ -27,6 +28,7 @@ from app.routers.ha import router as ha_router
 from app.routers.host import router as host_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
+from app.routers.kubernetes import router as kubernetes_router
 from app.routers.metrics import router as metrics_router
 from app.routers.network import router as network_router
 from app.routers.nodes import router as nodes_router
@@ -81,6 +83,7 @@ app.include_router(vm_export_router)
 app.include_router(ha_router)
 app.include_router(notifications_router)
 app.include_router(workstation_router)
+app.include_router(kubernetes_router)
 
 # Web interface (React/Vite, dashboard/), served at the root.
 DASHBOARD_DIST = "dashboard/dist"
@@ -191,6 +194,7 @@ def on_startup():
     start_node_poller()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
+    recover_interrupted_k8s_clusters()
 
     # The iptables rules of the network firewall do not survive a host reboot
     # (unlike the per-VM firewall's nwfilter, which libvirt itself manages):
