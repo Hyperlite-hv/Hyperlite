@@ -14,6 +14,7 @@ import StatusIndicator from "../components/StatusIndicator";
 import { EmptyState, ErrorState, InlineError } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
 import { Card, Chip, Empty, Loading, TableWrap } from "../components/ui";
+import CertificateCard from "../components/CertificateCard";
 
 const isLocal = (node) => node?.id === "local";
 
@@ -51,6 +52,7 @@ export function NodeSystemPage({ resource: node }) {
   const { hw, error, load } = useHardware(node);
   const [caps, setCaps] = useState(null);
   const [health, setHealth] = useState(null);
+  const isAdmin = capabilities(useAuthStore((s) => s.role)).admin;
   const nodeId = node?.id;
   useEffect(() => { if (nodeId) fetchNodeCapabilitiesById(nodeId).then(setCaps).catch(() => setCaps(null)); }, [nodeId]);
   useEffect(() => { if (local) fetchHealth().then(setHealth).catch(() => setHealth(null)); }, [local]);
@@ -85,6 +87,8 @@ export function NodeSystemPage({ resource: node }) {
           </dl>
         </Card>
       </div>
+      {/* Each node serves its own certificate; this API manages the one of the machine answering it. */}
+      {local && isAdmin && <CertificateCard />}
     </>
   );
 }

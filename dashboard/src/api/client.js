@@ -67,6 +67,22 @@ async function realFetch(path, opts = {}) {
 // /health answers everyone but reports versions and host details only to a signed-in
 // caller. Plain fetch rather than realFetch: it is polled while the service restarts,
 // where a failure is expected and must not sign the user out.
+// This node's HTTPS certificate; every change restarts the service (`redemarrage`).
+export async function fetchCertificate() {
+  return realFetch("/host/certificate");
+}
+export async function importCertificate(pem) {
+  return realFetch("/host/certificate", { method: "POST", ...jsonBody(pem) });
+}
+export async function requestAcmeCertificate(payload) {
+  return realFetch("/host/certificate/acme", { method: "POST", ...jsonBody(payload) });
+}
+export async function restorePreviousCertificate() {
+  return realFetch("/host/certificate/previous", { method: "POST" });
+}
+export async function selfSignedCertificate() {
+  return realFetch("/host/certificate/self-signed", { method: "POST" });
+}
 export async function fetchHealth() {
   const res = await fetch("/health", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
