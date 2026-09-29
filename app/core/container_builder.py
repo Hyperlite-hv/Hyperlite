@@ -19,12 +19,14 @@ The principle mirrors app/core/vm_builder.py for VMs:
 
 """
 
+import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from xml.sax.saxutils import escape, quoteattr
 
 from app.core.passwords import sha512_crypt_hash
 from app.core.safe_paths import safe_child
@@ -286,7 +288,7 @@ def bootstrap_os_container(rootfs):
     return family
 
 
-def create_container_rootfs(name, image=None):
+def create_container_rootfs(name, image=None, bootstrap=True):
     """Fast clone (local copy, no network) of the base image, either the local one
     (debootstrap, the default) or one pulled from an external registry
     (`image`, e.g. "ubuntu:22.04", "alpine:3.19", "ghcr.io/foo/bar:tag"), for a
@@ -299,11 +301,12 @@ def create_container_rootfs(name, image=None):
     configuration (systemd vs OpenRC)."""
     if image:
         base = pull_image_rootfs(image)
-        family = detect_package_family(base)
+        family = detect_package_family(base) if bootstrap else None
         # Bootstrap systemd/ssh/sudo ONCE on the cached image, not for every container
-        # cloned from it: the same reasoning as debootstrap for the local base.
+        # cloned from it: the same reasoning as debootstrap for the local base. An application
+        # container (bootstrap=False) runs the image's own process and needs none of it.
         marker = base.parent / ".hyperlite-bootstrapped"
-        if not marker.exists():
+        if bootstrap and not marker.exists():
             bootstrap_os_container(base)
             marker.touch()
     else:
@@ -542,13 +545,125 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
                 symlink.symlink_to(unit_path)
 
 
-def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=None):
+# ---- Application containers ----
+# A container made from a Docker image can run that image's own process (nginx, redis...) instead of being
+# turned into a small system with systemd. Its command, environment, working directory and user come from the
+# image's OCI configuration (config.json written by `umoci unpack`), optionally overridden, and are passed to
+# libvirt's LXC driver (<init>, <initarg>, <initenv>, <initdir>, <inituser>, <initgroup>). Such a process has no
+# DHCP client: libvirt sets the container's address on its interface (<ip>, <route>).
+
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+def read_image_config(image_ref):
+    """The image's process settings: {"args": [...], "env": {...}, "cwd": str, "uid": int, "gid": int}."""
+    config_path = _image_cache_dir(image_ref) / "config.json"
+    try:
+        process = json.loads(config_path.read_text()).get("process", {})
+    except (OSError, ValueError) as e:
+        raise ValueError(f"Image '{image_ref}' has no readable process configuration") from e
+    env = {}
+    for item in process.get("env") or []:
+        key, sep, value = item.partition("=")
+        if sep and _ENV_NAME.match(key):
+            env[key] = value
+    user = process.get("user") or {}
+    return {
+        "args": [str(a) for a in process.get("args") or []],
+        "env": env,
+        "cwd": process.get("cwd") or "/",
+        "uid": int(user.get("uid", 0)),
+        "gid": int(user.get("gid", 0)),
+    }
+
+
+def validate_app_overrides(command=None, env=None):
+    """Error messages for a user-supplied command and environment (empty list when they are fine)."""
+    errors = []
+    bad_arg = any(not isinstance(a, str) or "\0" in a or len(a) > 4096 for a in command or [])
+    if command is not None and (not command or len(command) > 64 or bad_arg):
+        errors.append("Command: 1 to 64 arguments, without NUL characters")
+    for key, value in (env or {}).items():
+        if not _ENV_NAME.match(key) or "\0" in str(value) or len(str(value)) > 4096:
+            errors.append(f"Environment variable '{key}': invalid name or value")
+    return errors
+
+
+def app_spec(image_ref, command=None, env=None):
+    """The image's process settings with the user's overrides applied (a command replaces Entrypoint+Cmd)."""
+    spec = read_image_config(image_ref)
+    if command:
+        spec["args"] = list(command)
+    spec["env"] = {**spec["env"], **(env or {})}
+    spec["env"].setdefault("PATH", DEFAULT_PATH)
+    if not spec["args"]:
+        raise ValueError(f"Image '{image_ref}' defines no command: give one")
+    return spec
+
+
+def resolve_init(rootfs, spec):
+    """libvirt needs an absolute program path: look a bare name up in the image's PATH, inside its filesystem.
+    Links are not followed here, so an absolute link cannot point the check outside the container."""
+    program = spec["args"][0]
+    if program.startswith("/"):
+        return program
+    if "/" in program or program in ("", ".", ".."):
+        raise ValueError(f"Command '{program}': give a bare program name or an absolute path")
+    for folder in spec["env"].get("PATH", DEFAULT_PATH).split(":"):
+        if not folder.startswith("/"):
+            continue
+        try:
+            # safe_child refuses a PATH entry such as /../../etc that would leave the image's filesystem.
+            candidate = safe_child(rootfs, f"{folder.strip('/')}/{program}".lstrip("/"))
+        except ValueError:
+            continue
+        if os.path.lexists(candidate):
+            return f"{folder.rstrip('/')}/{program}"
+    raise ValueError(f"Command '{program}' not found in the image")
+
+
+def prepare_app_rootfs(rootfs, hostname, dns):
+    """The few files a Docker runtime would provide: host name, /etc/hosts and a resolver."""
+    etc = Path(rootfs) / "etc"
+    etc.mkdir(exist_ok=True)
+    for name, content in (
+        ("hostname", f"{hostname}\n"),
+        ("hosts", f"127.0.0.1\tlocalhost\n::1\tlocalhost\n127.0.1.1\t{hostname}\n"),
+        ("resolv.conf", f"nameserver {dns}\n" if dns else ""),
+    ):
+        target = etc / name
+        if target.is_symlink():  # a link into the image could point anywhere once resolved on the host
+            target.unlink()
+        target.write_text(content)
+
+
+def _app_os_xml(init, spec):
+    parts = [f"    <init>{escape(init)}</init>"]
+    parts += [f"    <initarg>{escape(a)}</initarg>" for a in spec["args"][1:]]
+    parts += [f"    <initenv name={quoteattr(k)}>{escape(v)}</initenv>" for k, v in spec["env"].items()]
+    parts.append(f"    <initdir>{escape(spec.get('cwd') or '/')}</initdir>")
+    parts.append(f"    <inituser>{int(spec.get('uid', 0))}</inituser>")
+    parts.append(f"    <initgroup>{int(spec.get('gid', 0))}</initgroup>")
+    return "\n".join(parts)
+
+
+def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=None, app=None):
     """Minimal LXC domain: /sbin/init (systemd) as PID 1, with the filesystem mounted
     directly from the rootfs on disk (no virtual/qcow2 disk as for VMs:
     containers share the host kernel, so there is no disk to emulate). The
     CPU/RAM limits are enforced natively by cgroups (<vcpu>/<memory>), with no
     need for the <cputune>/<memtune> XML used for QEMU VMs."""
     mac_xml = f"\n      <mac address='{mac}'/>" if mac else ""
+    os_xml = "    <init>/sbin/init</init>"
+    ip_xml = ""
+    if app:
+        # app: {"init": absolute path, "spec": process settings, "ip": ..., "prefix": ..., "gateway": ...}
+        os_xml = _app_os_xml(app["init"], app["spec"])
+        ip_xml = (
+            f"\n      <ip address={quoteattr(app['ip'])} family='ipv4' prefix='{int(app['prefix'])}'/>"
+            f"\n      <route family='ipv4' address='0.0.0.0' prefix='0' gateway={quoteattr(app['gateway'])}/>"
+        )
     return f"""
 <domain type='lxc'>
   <name>{name}</name>
@@ -557,7 +672,7 @@ def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=No
   <vcpu placement='static'>{vcpu}</vcpu>
   <os>
     <type arch='x86_64'>exe</type>
-    <init>/sbin/init</init>
+{os_xml}
   </os>
   <clock offset='utc'/>
   <on_poweroff>destroy</on_poweroff>
@@ -570,7 +685,7 @@ def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=No
       <target dir='/'/>
     </filesystem>
     <interface type='network'>
-      <source network='{network}'/>{mac_xml}
+      <source network='{network}'/>{mac_xml}{ip_xml}
     </interface>
   </devices>
 </domain>

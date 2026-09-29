@@ -15,7 +15,7 @@ import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState } from "../components/States";
 import { NAME_RE } from "../lib/containerImages";
-import { PageHeader, Card, Empty, Loading, TableWrap } from "../components/ui";
+import { PageHeader, Card, Empty, Loading, TableWrap, Chip } from "../components/ui";
 import { Box, Plus, Trash2 } from "lucide-react";
 
 const backupWire = (s) => (s === "termine" ? "termine" : s === "echec" ? "echec" : "en_cours");
@@ -100,7 +100,7 @@ export default function ContainersPage() {
           ) : (
             <TableWrap>
               <table className="nx-table">
-                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">IP</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col">{t("ct.type")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">IP</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {list.map((ct) => {
                     const on = ct.etat === "actif";
@@ -108,11 +108,14 @@ export default function ContainersPage() {
                       <tr key={ct.nom} className={ctx.is("ct", ct.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
                         <td><StatusIndicator kind="vm" wire={on ? "actif" : "arrete"} /></td>
                         <th scope="row" className="nx-mono">{ct.nom}</th>
+                        <td>{ct.mode === "application"
+                          ? <><Chip tone="info">Docker</Chip> <span className="nx-mono nx-muted">{ct.image}</span></>
+                          : <Chip>LXC</Chip>}</td>
                         <td className="nx-num nx-mono">{ct.vcpu}</td>
                         <td className="nx-num nx-mono">{formatSizeMb(ct.memoire_mo, lang)}</td>
                         <td className="nx-mono">{ct.ip || <span className="nx-muted">{t("ct.noIp")}</span>}</td>
                         <td><div className="nx-ra">
-                          {caps.admin && on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.terminal_x", { v: ct.nom })} onClick={() => openTerminal(ct)}>{t("ct.terminal")}</button>}
+                          {caps.admin && on && ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.terminal_x", { v: ct.nom })} onClick={() => openTerminal(ct)}>{t("ct.terminal")}</button>}
                           {caps.admin && !on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.start_x", { v: ct.nom })} onClick={() => act(startContainer, ct, t("ct.started"))}>{t("ct.start")}</button>}
                           {caps.admin && on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.stop_x", { v: ct.nom })} onClick={() => stop(ct)}>{t("ct.stop")}</button>}
                           {caps.admin && !on && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.clone_x", { v: ct.nom })} onClick={() => clone(ct)}>{t("ct.clone")}</button>}
@@ -158,7 +161,7 @@ export default function ContainersPage() {
         const on = ct.etat === "actif";
         const admin = { disabled: !caps.admin, reason: t("menu.reason.admin") };
         return [
-          on ? { key: "terminal", icon: "terminal", label: t("ct.terminal"), run: () => openTerminal(ct), ...admin }
+          on ? { key: "terminal", icon: "terminal", label: t("ct.terminal"), run: () => openTerminal(ct), ...(ct.mode === "application" ? { disabled: true, reason: t("ct.noTerminalApp") } : admin) }
             : { key: "start", icon: "start", label: t("ct.start"), run: () => act(startContainer, ct, t("ct.started")), ...admin },
           on && { key: "stop", icon: "stop", label: t("ct.stop"), run: () => stop(ct), ...admin },
           "-",

@@ -101,3 +101,17 @@ def release_static_ip(conn, network_name, mac):
             )
             return True
     return False
+
+
+def network_gateway(conn, network_name):
+    """(gateway address, prefix length) of a libvirt network's IPv4 subnet, or None when it has none (a bridge onto
+    the host's LAN: its addresses belong to the LAN's own DHCP server)."""
+    network = conn.networkLookupByName(network_name)
+    for ip in ET.fromstring(network.XMLDesc()).findall("ip"):
+        if ip.get("family", "ipv4") != "ipv4" or not ip.get("address"):
+            continue
+        if ip.get("prefix"):
+            return ip.get("address"), int(ip.get("prefix"))
+        if ip.get("netmask"):
+            return ip.get("address"), ipaddress.IPv4Network(f"0.0.0.0/{ip.get('netmask')}").prefixlen
+    return None
