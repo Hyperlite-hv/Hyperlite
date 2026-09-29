@@ -21,7 +21,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from app.core import maintenance
+from app.core import container_console, maintenance
 from app.core.audit import log_action
 from app.core.container_builder import (
     app_spec,
@@ -29,6 +29,7 @@ from app.core.container_builder import (
     build_container_xml,
     clone_container_rootfs,
     configure_container_rootfs,
+    container_rootfs_path,
     create_container_rootfs,
     delete_container_rootfs,
     prepare_app_rootfs,
@@ -41,6 +42,7 @@ from app.core.container_meta import (
     delete_container_ssh_user,
     get_container_app,
     get_container_ssh_user,
+    get_container_storage,
     set_container_app,
     set_container_ssh_user,
 )
@@ -93,7 +95,9 @@ def _summary(domain):
     active = domain.isActive()
     state, maxmem, _mem, nvcpu, _cputime = domain.info()
     app = get_container_app(domain.name())
+    storage = get_container_storage(domain.name())
     return {
+        "stockage": storage["pool"] if storage else None,
         "mode": "application" if app else "systeme",
         "image": app["image"] if app else None,
         "nom": domain.name(),
@@ -122,6 +126,8 @@ class ContainerCreate(BaseModel):
     # "application": run the image's own process (the default with an image); "systeme": boot it as a small
     # system with systemd and sshd (the only choice without an image). See container_builder.read_image_config.
     mode: Literal["application", "systeme"] | None = None
+    # A "dir" storage pool to hold the container's filesystem (None: the default /var/lib/libvirt/containers).
+    storage_pool: str | None = None
     # Application containers only: replaces the image's Entrypoint+Cmd, and adds to or overrides its environment.
     command: list[str] | None = None
     env: dict[str, str] | None = None
@@ -187,10 +193,37 @@ def _app_domain_xml(conn, name, rootfs, spec, network, vcpu, memory_mb):
         init = resolve_init(rootfs, spec)
         prepare_app_rootfs(rootfs, name, gateway[0])
         app = {"init": init, "spec": spec, "ip": ip, "prefix": gateway[1], "gateway": gateway[0]}
+        if container_console.install(rootfs, int(spec.get("uid", 0)), int(spec.get("gid", 0))):
+            app["launcher"] = (container_console.LAUNCHER, container_console.LOG)
         return build_container_xml(name, vcpu, memory_mb, rootfs, network=network, mac=mac, app=app), mac, ip
     except Exception:
         release_static_ip(conn, network, mac)
         raise
+
+
+def resolve_container_storage(pool_name):
+    """{"pool", "base_dir"} for a local directory storage pool, or raise ValueError. NFS, ZFS and iSCSI pools are
+    refused: a container filesystem needs root ownership, device files and extended attributes, which an NFS
+    export (root squash) does not reliably keep, and ZFS/iSCSI pools hold block volumes, not directories."""
+    from app.core.libvirt_utils import open_conn
+
+    conn = open_conn()
+    try:
+        try:
+            pool = conn.storagePoolLookupByName(pool_name)
+        except libvirt.libvirtError:
+            raise ValueError(f"Storage pool '{pool_name}' not found") from None
+        root = ET.fromstring(pool.XMLDesc(0))
+        if root.get("type") != "dir":
+            raise ValueError(f"Storage pool '{pool_name}' is not a local directory pool: containers need one")
+        if not pool.isActive():
+            raise ValueError(f"Storage pool '{pool_name}' is not started")
+        path = root.findtext("target/path")
+        if not path or not path.startswith("/"):
+            raise ValueError(f"Storage pool '{pool_name}' has no usable path")
+        return {"pool": pool_name, "base_dir": str(Path(path) / "hyperlite-containers")}
+    finally:
+        conn.close()
 
 
 def _domain_mac(domain):
@@ -243,6 +276,12 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
         except libvirt.libvirtError:
             logger.debug("Ignored exception in create_container()", exc_info=True)
 
+        storage = None
+        if payload.storage_pool:
+            try:
+                storage = resolve_container_storage(payload.storage_pool)
+            except ValueError as e:
+                errors.append(str(e))
         # Checked before the image is fetched: a download of hundreds of MB must not end in this refusal.
         try:
             if not conn.networkLookupByName(payload.network).isActive():
@@ -264,10 +303,10 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
             raise HTTPException(status_code=422, detail=errors)
 
         if mode == "application":
-            return _create_app_container(conn, payload, user, task_id)
+            return _create_app_container(conn, payload, user, task_id, storage)
 
         try:
-            rootfs, family = create_container_rootfs(payload.name, image=payload.image)
+            rootfs, family = create_container_rootfs(payload.name, image=payload.image, storage=storage)
             ssh_pubkey = get_or_create_automation_pubkey()
             configure_container_rootfs(
                 rootfs, payload.name, payload.username, payload.password, ssh_pubkey, family=family
@@ -301,9 +340,9 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
         conn.close()
 
 
-def _create_app_container(conn, payload, user, task_id):
+def _create_app_container(conn, payload, user, task_id, storage=None):
     try:
-        rootfs, _family = create_container_rootfs(payload.name, image=payload.image, bootstrap=False)
+        rootfs, _family = create_container_rootfs(payload.name, image=payload.image, bootstrap=False, storage=storage)
     except subprocess.CalledProcessError as e:
         msg = e.stderr or str(e)
         delete_container_rootfs(payload.name)
@@ -656,6 +695,27 @@ def restore_container_backup(
         return _summary(domain)
     finally:
         conn.close()
+
+
+# ---- Output of an application container (app/core/container_console.py) ----
+
+
+@router.get("/{name}/logs")
+def container_logs(name: str, lines: int = 300, user: dict = Depends(require_container_privilege("container.console"))):
+    """The last lines an application container's process printed: what `docker logs` shows."""
+    if not get_container_app(name):
+        raise HTTPException(status_code=409, detail="Only Docker (application) containers have a log: use the terminal")
+    conn = open_lxc_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
+        active = bool(domain.isActive())
+    finally:
+        conn.close()
+    tail = container_console.read_tail(container_rootfs_path(name), max(1, min(lines, 5000)))
+    return {"nom": name, "actif": active, "disponible": tail is not None, "lignes": tail or []}
 
 
 # ---- Web terminal (SSH, same mechanism as app/routers/vms.py) ----

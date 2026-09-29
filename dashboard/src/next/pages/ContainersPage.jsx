@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchContainers, startContainer, stopContainer, deleteContainer,
   cloneContainer, fetchContainerBackups, createContainerBackup, deleteContainerBackup, restoreContainerBackup,
+  fetchContainerLogs,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -15,7 +16,7 @@ import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState } from "../components/States";
 import { NAME_RE } from "../lib/containerImages";
-import { PageHeader, Card, Empty, Loading, TableWrap, Chip } from "../components/ui";
+import { PageHeader, Card, Empty, Loading, TableWrap, Chip, SideDrawer } from "../components/ui";
 import { Box, Plus, Trash2 } from "lucide-react";
 
 const backupWire = (s) => (s === "termine" ? "termine" : s === "echec" ? "echec" : "en_cours");
@@ -83,6 +84,7 @@ export default function ContainersPage() {
     try { await deleteContainerBackup(b.id); pushToast({ kind: "success", title: t("ct.backupDeleted") }); await reloadBackups(); }
     catch (err) { fail(t("ct.deleteFailed"))(err); }
   }
+  const [logsOf, setLogsOf] = useState(null);
   const openTerminal = (ct) => window.open(`/container-terminal/${encodeURIComponent(ct.nom)}`, `hyperlite-ct-terminal-${ct.nom}`, "width=1000,height=700,noopener");
 
   const list = containers || [];
@@ -115,6 +117,7 @@ export default function ContainersPage() {
                         <td className="nx-num nx-mono">{formatSizeMb(ct.memoire_mo, lang)}</td>
                         <td className="nx-mono">{ct.ip || <span className="nx-muted">{t("ct.noIp")}</span>}</td>
                         <td><div className="nx-ra">
+                          {ct.mode === "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("ct.logsX", { name: ct.nom })} onClick={() => setLogsOf(ct.nom)}>{t("ct.logs")}</button>}
                           {caps.admin && on && ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.terminal_x", { v: ct.nom })} onClick={() => openTerminal(ct)}>{t("ct.terminal")}</button>}
                           {caps.admin && !on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.start_x", { v: ct.nom })} onClick={() => act(startContainer, ct, t("ct.started"))}>{t("ct.start")}</button>}
                           {caps.admin && on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.stop_x", { v: ct.nom })} onClick={() => stop(ct)}>{t("ct.stop")}</button>}
@@ -157,6 +160,7 @@ export default function ContainersPage() {
           )}
         </Card>
       )}
+      <ContainerLogs name={logsOf} onClose={() => setLogsOf(null)} />
       <ActionsContextMenu ctx={ctx} label={(ct) => t("ctx.menuOf", { name: ct.nom })} entries={(ct) => {
         const on = ct.etat === "actif";
         const admin = { disabled: !caps.admin, reason: t("menu.reason.admin") };
@@ -164,6 +168,7 @@ export default function ContainersPage() {
           on ? { key: "terminal", icon: "terminal", label: t("ct.terminal"), run: () => openTerminal(ct), ...(ct.mode === "application" ? { disabled: true, reason: t("ct.noTerminalApp") } : admin) }
             : { key: "start", icon: "start", label: t("ct.start"), run: () => act(startContainer, ct, t("ct.started")), ...admin },
           on && { key: "stop", icon: "stop", label: t("ct.stop"), run: () => stop(ct), ...admin },
+          ct.mode === "application" && { key: "logs", icon: "details", label: t("ct.logs"), run: () => setLogsOf(ct.nom) },
           "-",
           { key: "clone", icon: "clone", label: t("ct.clone"), run: () => clone(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
           { key: "backup", icon: "backup", label: t("ct.backup"), run: () => backup(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
@@ -175,3 +180,33 @@ export default function ContainersPage() {
   );
 }
 ContainersPage.ownHeader = true;
+
+// What a Docker container's process printed (docker logs), refreshed every few seconds while open: the way to see
+// why a container stopped by itself.
+function ContainerLogs({ name, onClose }) {
+  const t = useT();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    if (!name) return undefined;
+    let alive = true;
+    setData(null); setError(null);
+    const load = () => fetchContainerLogs(name).then((r) => { if (alive) { setData(r); setError(null); } }).catch((e) => alive && setError(errorMessage(e)));
+    load();
+    const id = setInterval(load, 3000);
+    return () => { alive = false; clearInterval(id); };
+  }, [name]);
+  return (
+    <SideDrawer open={Boolean(name)} title={t("ct.logsTitle", { name: name || "" })} onClose={onClose}>
+      {error ? <div className="nx-bn" data-tone="danger" role="alert"><span className="nx-bn-t">{error}</span></div>
+        : !data ? <Loading />
+        : !data.disponible ? <p className="nx-muted">{t("ct.logsUnavailable")}</p>
+        : (<>
+          <p className="nx-muted" role="status" style={{ margin: 0 }}>{t(data.actif ? "ct.logsRunning" : "ct.logsStopped")}</p>
+          <pre className="nx-mono" tabIndex={0} aria-label={t("ct.logsTitle", { name })} style={{ margin: 0, padding: "var(--space-3)", background: "var(--color-bg-sunken, var(--color-bg-surface))", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", fontSize: "var(--fs-12)", whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: "70vh", overflow: "auto" }}>
+            {data.lignes.length ? data.lignes.join("\n") : t("ct.logsEmpty")}
+          </pre>
+        </>)}
+    </SideDrawer>
+  );
+}
