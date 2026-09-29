@@ -29,7 +29,8 @@ async function open(page: Page, lang = "en") {
 test("cannot enable an incomplete configuration; saving sends the fields, keeps the secret hidden, and flags unsaved changes", async ({ page, request }) => {
   await open(page);
   const main = page.getByRole("main");
-  const save = main.getByRole("button", { name: "Save", exact: true });
+  // Scoped to the OIDC form: the LDAP card on the same page has its own Save button.
+  const save = main.locator("form").getByRole("button", { name: "Save", exact: true });
   await expect(main.getByRole("heading", { level: 1, name: "Authentication (SSO)" })).toBeVisible({ timeout: 20_000 });
   await expect(main.getByRole("heading", { name: "OIDC provider" })).toBeVisible();
   await expect(save).toBeDisabled(); // nothing changed yet
@@ -93,7 +94,7 @@ test.describe("SSO settings persist and the secret is never returned", () => {
     const main = page.getByRole("main");
     await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
     await expect(main.getByText(/already saved/)).toBeVisible();
-    await expect(main.locator("input[type=password]")).toHaveValue("");
+    await expect(main.locator("form input[type=password]")).toHaveValue(""); // the OIDC form, not the LDAP card
     await page.reload();
     await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
   });
