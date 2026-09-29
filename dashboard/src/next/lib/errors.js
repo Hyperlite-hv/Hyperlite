@@ -1,6 +1,6 @@
 // FastAPI answers with `detail` as a string, a list of strings, or (validation, 422) a
-// list of {loc, msg, type}. The legacy client joins whatever it gets, which printed
-// "[object Object]" for validation errors.
+// list of {loc, msg, type}; joining the latter as is printed "[object Object]". The single
+// formatter of API errors: the API client (api/client.js) uses it too.
 export function normalizeDetail(detail) {
   if (detail == null) return "";
   if (typeof detail === "string") return detail;

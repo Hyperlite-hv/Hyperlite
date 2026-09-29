@@ -2,6 +2,8 @@
 // real Hyperlite backend (the same paths as the real FastAPI routes, see
 // vite.config.js for the dev proxy).
 
+import { normalizeDetail } from "../next/lib/errors";
+
 let taskIdCounter = 0;
 export function makeTaskId() {
   taskIdCounter += 1;
@@ -21,22 +23,6 @@ export function getAuthToken() {
 let unauthorizedHandler = null;
 export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = fn;
-}
-
-// FastAPI answers `detail` as a string, a list of strings or (validation, 422) a list of
-// {loc, msg, type} objects; joining the latter used to print "[object Object]".
-function formatDetail(d) {
-  if (d == null) return "";
-  if (typeof d === "string") return d;
-  if (Array.isArray(d)) return d.map(formatDetail).filter(Boolean).join(" ; ");
-  if (typeof d === "object") {
-    if (d.msg) {
-      const where = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body").join(".") : "";
-      return where ? `${where}: ${d.msg}` : d.msg;
-    }
-    try { return JSON.stringify(d); } catch { return String(d); }
-  }
-  return String(d);
 }
 
 async function realFetch(path, opts = {}) {
@@ -59,7 +45,7 @@ async function realFetch(path, opts = {}) {
     throw new Error("The server returned an unreadable response.");
   }
   if (!res.ok) {
-    const msg = (data && data.detail) ? (formatDetail(data.detail) || "Unknown error") : "Unknown error";
+    const msg = (data && data.detail) ? (normalizeDetail(data.detail) || "Unknown error") : "Unknown error";
     // The status lets a caller tell "this object does not exist (any more)" from a real failure.
     throw Object.assign(new Error(msg), { status: res.status });
   }
@@ -351,7 +337,7 @@ export async function fetchKubeconfig(name) {
   if (!res.ok) {
     let detail = null;
     try { detail = (await res.json()).detail; } catch { /* not JSON: keep the generic message */ }
-    throw new Error(formatDetail(detail) || "Unknown error");
+    throw new Error(normalizeDetail(detail) || "Unknown error");
   }
   return res.text();
 }
