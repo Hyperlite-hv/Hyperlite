@@ -53,14 +53,23 @@ test.describe("Virtual networks (real libvirt backend)", () => {
     await expect(page.getByText(/already|exists|failed/i).first()).toBeVisible();
   });
 
-  test("refuses an invalid bridge interface name", async ({ page }) => {
+  test("offers only the host's interfaces for a bridge, and the API refuses any other name", async ({ page, request }) => {
     await openNetworkTab(page);
     const form = await openCreate(page);
     await form.getByRole("textbox", { name: "Name", exact: true }).fill(`${PREFIX}br-${stamp}`);
     await form.getByRole("combobox", { name: "Network mode" }).selectOption({ label: "Bridge to an existing physical network" });
-    await form.getByRole("textbox", { name: /Host bridge name/ }).fill("bad name; rm -rf /");
-    await form.getByRole("button", { name: "Create a network", exact: true }).click();
-    await expect(page.getByText(/invalid|failed/i).first()).toBeVisible();
+    // a list of the host's interfaces now, not free text; libvirt's own bridges are never offered
+    const iface = form.getByRole("combobox", { name: /Host bridge name/ });
+    await expect(iface).toBeVisible();
+    await expect(iface.locator("option").first()).not.toHaveText(/Loading/, { timeout: 15_000 });
+    expect((await iface.locator("option").allInnerTexts()).some((o) => /^virbr/.test(o))).toBe(false);
+    // the check that matters is on the server: an invalid or unknown name is refused, nothing is created
+    const token = await apiLogin(request);
+    for (const bad of ["bad name; rm -rf /", "virbr0", "no-such-if0"]) {
+      const r = await request.post("/networks", { headers: { Authorization: `Bearer ${token}` }, data: { name: `${PREFIX}br-${stamp}`, mode: "bridge", bridge_name: bad } });
+      expect(r.status(), bad).toBe(422);
+    }
+    await page.reload();
     await expect(page.getByRole("main").getByRole("row", { name: new RegExp(`${PREFIX}br-${stamp}`) })).toHaveCount(0);
   });
 
