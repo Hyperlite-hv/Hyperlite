@@ -279,7 +279,7 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
         return pool
 
     if payload.type == "dir":
-        target_path = payload.path or f"/var/lib/libvirt/hyperlite-pools/{payload.name}"
+        target_path = payload.path or str(nfs_permissions.POOLS_ROOT / payload.name)
         if not POOL_PATH_RE.match(target_path):
             raise HTTPException(
                 status_code=422,
@@ -319,7 +319,7 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
         # LOCAL mount point on the node (the NFS client side): distinct from the path
         # exported on the server side, and never supplied by the caller, to avoid any
         # collision with an existing system directory.
-        target_path = f"/var/lib/libvirt/hyperlite-pools/{payload.name}"
+        target_path = str(nfs_permissions.POOLS_ROOT / payload.name)
 
     conn = open_conn(node)
     try:

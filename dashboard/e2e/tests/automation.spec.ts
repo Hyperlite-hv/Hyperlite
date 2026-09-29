@@ -86,9 +86,15 @@ test.describe("Automation jobs (real backend)", () => {
     await expect(page.getByRole("button", { name: `Delete job ${FAIL_JOB}` })).toBeVisible();
     await page.getByRole("button", { name: `Delete job ${FAIL_JOB}` }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+    // The confirmation proves the backend accepted the deletion; a missing button alone does not (a page sent
+    // back to the sign-in screen has no button either).
+    await expect(page.getByText("Job deleted").first()).toBeVisible();
     await expect(page.getByRole("button", { name: `Delete job ${FAIL_JOB}` })).toHaveCount(0);
-    const jobs = (await (await request.get("/jobs", { headers: auth() })).json()) as Array<{ name: string }>;
-    expect(jobs.some((j) => j.name === FAIL_JOB)).toBe(false);
+    await expect
+      .poll(async () => ((await (await request.get("/jobs", { headers: auth() })).json()) as Array<{ name: string }>).some((j) => j.name === FAIL_JOB), {
+        message: "the backend still lists the deleted job",
+      })
+      .toBe(false);
   });
 
   test("a read-only user cannot create or run jobs (backend refuses)", async ({ request }) => {
