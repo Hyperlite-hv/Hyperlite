@@ -107,6 +107,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Terminals (node shell, VM SSH console, container terminal and their windows) fit what they draw: the size sent to the shell counted the box's padding and border (the last row and a column were cut), the VM console's terminal kept a fixed height inside its 16:10 box (three rows cut), a separate window did not shrink with the window, and the size now follows any change of the box (zoom, display scaling, sidebar) and is measured once the terminal font is loaded. The node shell uses the height of the window instead of a fixed 26rem.
+- Narrow and short windows (laptops at 125 or 150 % display scaling): the path in the top bar stays on one line, and the navigation is denser on short screens.
 - A dashboard file that fails to download (a network change or drop, or files replaced by an update since the page was opened) no longer leaves a blank page: the page reloads, at most three times a minute.
 - Pages no longer ask the server again at each render: the translation function changed at every render, so the effects that load data kept running (the Network page called GET /networks hundreds of times a second, each call written to the audit log).
 - A backup schedule's directory is now checked: an absolute path outside the system's own directories (it was written as root wherever it pointed).
