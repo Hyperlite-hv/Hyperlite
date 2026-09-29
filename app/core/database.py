@@ -359,6 +359,15 @@ def init_db():
                 username TEXT NOT NULL
             )
         """)
+        # Where a container's filesystem lives when it is not the default /var/lib/libvirt/containers
+        # (app/core/container_builder.py::container_rootfs_path): a "dir" storage pool chosen at creation.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS container_storage (
+                container_name TEXT PRIMARY KEY,
+                pool TEXT NOT NULL,
+                base_dir TEXT NOT NULL
+            )
+        """)
         # Containers that run their image's own process (app/core/container_meta.py::set_container_app).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS container_apps (

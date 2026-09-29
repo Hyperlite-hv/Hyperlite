@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork, fetchNetworkFirewall, setNetworkFirewall } from "../../api/client";
+import { fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork, fetchNetworkFirewall, setNetworkFirewall, fetchHostInterfaces, startNetwork, stopNetwork, setNetworkAutostart } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -43,6 +43,7 @@ export default function NetworkPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [ifaces, setIfaces] = useState(null);
 
   const reload = useCallback(async () => {
     try { const r = await fetchNetworks(); setNets(Array.isArray(r) ? r : []); }
@@ -57,6 +58,15 @@ export default function NetworkPage() {
   }
 
   const bridge = form.mode === "bridge";
+  // The host's interfaces, read when the bridge mode is picked (so the list is current each time the form opens).
+  useEffect(() => {
+    if (!formOpen || !bridge) return undefined;
+    let alive = true;
+    setIfaces(null);
+    fetchHostInterfaces().then((r) => alive && setIfaces(Array.isArray(r) ? r : [])).catch(() => alive && setIfaces([]));
+    return () => { alive = false; };
+  }, [formOpen, bridge]);
+  const chosen = (ifaces || []).find((i) => i.nom === form.bridge_name);
   const problems = {
     name: !form.name.trim() ? t("net.nameRequired") : "",
     subnet_address: !bridge && !IPV4.test(form.subnet_address) ? t("net.ipInvalid") : "",
@@ -88,6 +98,17 @@ export default function NetworkPage() {
     catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
 
+  async function power(n, on) {
+    if (!on && !(await confirmAction({ title: t("net.stopTitle", { name: n.nom }), message: t("net.stopHelp", { n: n.vms ?? 0 }), confirmLabel: t("net.stop"), danger: true }))) return;
+    try { await (on ? startNetwork(n.nom) : stopNetwork(n.nom)); pushToast({ kind: "success", title: t(on ? "net.started" : "net.stopped"), message: n.nom }); await reload(); }
+    catch (err) { pushToast({ kind: "error", title: t(on ? "net.startFailed" : "net.stopFailed"), message: errorMessage(err) }); }
+  }
+  async function autostart(n) {
+    try { await setNetworkAutostart(n.nom, !n.autostart); await reload(); }
+    catch (err) { pushToast({ kind: "error", title: t("net.autostartFailed"), message: errorMessage(err) }); }
+  }
+  const ifaceLabel = (i) => `${i.nom} · ${t(`net.if.${i.type}`)}${i.adresses?.length ? ` · ${i.adresses.join(", ")}` : ""}${i.etat && i.etat !== "up" ? ` · ${i.etat}` : ""}`;
+
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const field = (k, label, aria, placeholder) => (
     <Field label={label} error={touched ? problems[k] : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={aria} value={form[k]} onChange={set(k)} placeholder={placeholder} />}</Field>
@@ -115,6 +136,7 @@ export default function NetworkPage() {
                       <td>{n.dhcp ? t("net.on") : <span className="nx-muted">{t("net.off")}</span>}</td>
                       <td className="nx-num nx-mono">{n.vms ?? "—"}</td>
                       <td><div className="nx-ra">
+                        {caps.admin && !n.actif && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("net.startX", { name: n.nom })} onClick={() => power(n, true)}>{t("net.start")}</button>}
                         <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === n.nom} aria-label={t("net.detailsOf", { name: n.nom })} onClick={() => toggle(n.nom)}>{t("net.details")}</button>
                         {caps.admin && !PROTECTED.includes(n.nom) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_network_x", { v: n.nom })} title={t("vx.delete")} onClick={() => remove(n.nom)}><Trash2 size={15} aria-hidden="true" /></button>}
                       </div></td>
@@ -152,7 +174,15 @@ export default function NetworkPage() {
             <option value="bridge">{t("net.modeBridge")}</option>
           </select>
         )}</Field>
-        {bridge ? field("bridge_name", t("net.bridge"), t("a11y.host_bridge_name"), "br0") : (<>
+        {bridge ? (<>
+          <Field label={t("net.hostInterface")} error={touched ? problems.bridge_name : null}>{(p) => (
+            <select {...p} className="nx-inp" aria-label={t("a11y.host_bridge_name")} value={form.bridge_name} onChange={set("bridge_name")} disabled={ifaces == null}>
+              <option value="">{ifaces == null ? t("loading") : ifaces.length === 0 ? t("net.noInterface") : t("net.pickInterface")}</option>
+              {(ifaces || []).map((i) => <option key={i.nom} value={i.nom} disabled={!i.utilisable}>{ifaceLabel(i)}{i.utilisable ? "" : ` (${t("net.if.unusable")})`}</option>)}
+            </select>
+          )}</Field>
+          {chosen && <div className="nx-bn" data-tone={chosen.type === "pont" ? "info" : "warning"} role="status"><span className="nx-bn-t">{t(chosen.type === "pont" ? "net.bridgeExisting" : "net.macvtapWarn", { name: chosen.nom })}</span></div>}
+        </>) : (<>
           {field("subnet_address", t("net.gateway"), t("a11y.gateway"), "192.168.150.1")}
           <div className="nx-fg">
             {field("dhcp_start", t("net.dhcpStart"), t("a11y.dhcp_start"), "192.168.150.10")}
@@ -162,6 +192,9 @@ export default function NetworkPage() {
       </SideDrawer>
       <ActionsContextMenu ctx={ctx} label={(n) => t("ctx.menuOf", { name: n.nom })} entries={(n) => [
         { key: "details", icon: "details", label: t("net.details"), run: () => toggle(n.nom) },
+        n.actif ? { key: "stop", icon: "stop", label: t("net.stop"), run: () => power(n, false), disabled: !caps.admin, reason: t("menu.reason.admin") }
+          : { key: "start", icon: "start", label: t("net.start"), run: () => power(n, true), disabled: !caps.admin, reason: t("menu.reason.admin") },
+        { key: "autostart", icon: "details", label: t(n.autostart ? "net.autostartOff" : "net.autostartOn"), run: () => autostart(n), disabled: !caps.admin, reason: t("menu.reason.admin") },
         "-",
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(n.nom),
           disabled: !caps.admin || PROTECTED.includes(n.nom), reason: !caps.admin ? t("menu.reason.admin") : t("ctx.protectedNet") },

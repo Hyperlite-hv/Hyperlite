@@ -245,7 +245,7 @@ def api(database, image, monkeypatch, tmp_path):
     rootfs = image("nginx:latest", NGINX_CONFIG)
     pulls = []
 
-    def create_rootfs(name, image=None, bootstrap=True):
+    def create_rootfs(name, image=None, bootstrap=True, storage=None):
         pulls.append((name, image, bootstrap))
         return rootfs, None
 
@@ -266,7 +266,9 @@ def test_an_image_runs_its_own_process_with_a_fixed_address(api, client, auth_he
     assert body["mode"] == "application" and body["image"] == "nginx:latest" and body["ip"] == "192.168.100.10"
     assert api["pulls"] == [("web", "nginx:latest", False)]  # no systemd/sshd bootstrap
     xml = ET.fromstring(api["conn"].domains["web"].xml)
-    assert xml.findtext("os/init") == "/docker-entrypoint.sh"
+    # the launcher runs first, sends the output to the log, then execs the image's entrypoint
+    assert xml.findtext("os/init") == "/.hyperlite/hl-console"
+    assert [a.text for a in xml.findall("os/initarg")][:2] == ["/.hyperlite/console.log", "/docker-entrypoint.sh"]
     assert {e.get("name"): e.text for e in xml.findall("os/initenv")}["TZ"] == "UTC"
 
     ticket = client.post("/containers/web/terminal-ticket", headers=admin)

@@ -7,7 +7,7 @@ import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { GALLERY, NAME_RE } from "../lib/containerImages";
 
-const initial = (networks) => ({ kind: "docker", name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: networks[0]?.nom || "default", image: "", command: "", env: "" });
+const initial = (networks) => ({ storage: "", kind: "docker", name: "", vcpu: 1, memory_mb: 512, username: "", password: "", network: networks[0]?.nom || "default", image: "", command: "", env: "" });
 // A Docker container gets its address from Hyperlite on the network's own subnet: NAT and isolated networks only.
 const hasSubnet = (n) => n.type === "nat" || n.type === "isole";
 const ENV_LINE = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -40,6 +40,8 @@ const int = (v, min, max) => v !== "" && Number.isInteger(Number(v)) && Number(v
 export default function CreateContainerWizard({ open, onClose, triggerRef }) {
   const t = useT();
   const networks = useInfraStore((s) => s.networks);
+  // Local directory pools only: a container filesystem needs root ownership and device files (see the API).
+  const dirPools = useInfraStore((s) => s.storagePools).filter((p) => p.type === "dir" && p.etat === "actif");
   const containersTaken = useInfraStore((s) => s.vms); // VM names share the libvirt namespace
   const addTask = useInfraStore((s) => s.addTask);
   const completeTask = useInfraStore((s) => s.completeTask);
@@ -102,7 +104,7 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
     setBusy(true); setError(null);
     const taskId = addTask({ type: "create_container", cible: form.name });
     try {
-      const common = { name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), network: form.network, image: form.image.trim() || null };
+      const common = { name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), network: form.network, image: form.image.trim() || null, storage_pool: form.storage || null };
       const created = await createContainer(docker
         ? { ...common, mode: "application", command: args.length ? args : null, env: envLines.length ? parseEnv(form.env) : null }
         : { ...common, mode: "systeme", username: form.username, password: form.password });
@@ -149,6 +151,10 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
             <div className="nx-formgrid nx-fg">
               <label>vCPU<input className="nx-input" aria-label={t("a11y.vcpu")} type="number" min={1} max={16} value={form.vcpu} onChange={(e) => patch({ vcpu: e.target.value })} {...inv("vcpu")} />{fe("vcpu")}</label>
               <label>{t("ct.ram")}<input className="nx-input" aria-label={t("a11y.ram_mb")} type="number" min={128} step={128} value={form.memory_mb} onChange={(e) => patch({ memory_mb: e.target.value })} {...inv("memory_mb")} />{fe("memory_mb")}</label>
+              <label>{t("cw.storage")}<select className="nx-input" value={form.storage} onChange={(e) => patch({ storage: e.target.value })}>
+                <option value="">{t("cw.storageDefault")}</option>
+                {dirPools.map((p) => <option key={p.nom} value={p.nom}>{p.nom}{p.chemin ? ` · ${p.chemin}` : ""}</option>)}
+              </select><span className="nx-hint">{t("cw.storageHelp")}</span></label>
               <label>{t("ct.network")}<select className="nx-input" aria-label={t("a11y.network")} value={form.network} onChange={(e) => patch({ network: e.target.value })}>{usableNetworks.length === 0 && <option value={docker ? "" : "default"}>{docker ? t("cw.noDockerNetwork") : "default"}</option>}{usableNetworks.map((n) => <option key={n.nom} value={n.nom}>{n.nom}</option>)}</select>{fe("network")}</label>
             </div>
             {docker ? (<>
