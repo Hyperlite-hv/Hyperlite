@@ -136,7 +136,7 @@ test.describe("Advanced VM operations (real backend)", () => {
     const list = page.getByRole("main").getByRole("table");
     await expect(list).toContainText(/Create VM|Clone VM|Restore backup/);
     await expect(list.getByText(/^Done$/).first()).toBeVisible();
-    await page.getByRole("group", { name: "Task filters" }).getByLabel("Status").selectOption({ label: "Failed" });
+    await page.getByRole("main").getByRole("group", { name: "Status" }).getByRole("button", { name: /^Failed/ }).click();
     await expect(list.getByText(/^Done$/)).toHaveCount(0);
   });
 
