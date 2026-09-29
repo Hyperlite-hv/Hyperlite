@@ -677,6 +677,16 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_task_logs_task ON task_logs(task_id)")
         with contextlib.suppress(sqlite3.OperationalError):  # column already exists
             conn.execute("ALTER TABLE tasks ADD COLUMN annule_par TEXT")
+        # Cloud-init edited after creation (app/core/cloudinit_edit.py): the account and keys last written, never a
+        # password.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_cloudinit (
+                vm_name TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                ssh_keys TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            )
+        """)
         # Notes and tags (app/core/object_meta.py). node is '' for a node itself, the VM's node otherwise.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS object_meta (
