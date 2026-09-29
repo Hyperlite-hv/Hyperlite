@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format is based on 
 - Reboot or shut down the local node from its Actions menu: its name typed back to confirm, running VMs and containers named, and shut down cleanly first when asked (the node stays up if one of them does not stop).
 - My preferences (account menu), kept in the browser: the terminals' font and size, and the storage pools the Home page follows.
 - A Metrics page (administration): the Prometheus endpoint with a ready scrape job, and metric servers the collector pushes every sample to (InfluxDB 2 over HTTP, Graphite over TCP), each with a test button and its last error.
+- Backup jobs on the Backups page: one schedule for all of this node's VMs, those of a tag or of a pool (resolved at each run, some left out if wanted), run now or on schedule. GFS retention (last, daily, weekly, monthly) for these jobs and for each VM's schedule.
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).
@@ -98,6 +99,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A backup schedule's directory is now checked: an absolute path outside the system's own directories (it was written as root wherever it pointed).
 - The NFS permission check writes its probe file only inside a pool mount point Hyperlite created (under `/var/lib/libvirt/hyperlite-pools`); a pool mounted elsewhere is reported as not checkable.
 - An automation job run is no longer reported as started, nor audited as a success, before it exists; invalid steps are refused with HTTP 422 and a crashed run is closed as failed.
 - Disks written by Hyperlite itself (clone, restore, move, resize, templates, ISOs) are found without depending on libvirt's volume cache.

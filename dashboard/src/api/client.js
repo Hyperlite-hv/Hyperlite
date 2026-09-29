@@ -840,6 +840,22 @@ export async function fetchNodeHardware(node) {
 export async function testNodeConnection(payload) {
   return realFetch("/nodes/test", { method: "POST", ...jsonBody(payload) });
 }
+// Grouped backup jobs (admin): all VMs of this node, a tag's or a pool's, on one schedule.
+export async function fetchBackupGroups() {
+  return realFetch("/backup-groups");
+}
+export async function createBackupGroup(payload) {
+  return realFetch("/backup-groups", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateBackupGroup(id, payload) {
+  return realFetch(`/backup-groups/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteBackupGroup(id) {
+  return realFetch(`/backup-groups/${id}`, { method: "DELETE" });
+}
+export async function runBackupGroup(id) {
+  return realFetch(`/backup-groups/${id}/run`, { method: "POST" });
+}
 export async function fetchBackupSchedules() {
   return realFetch("/backup-schedules");
 }

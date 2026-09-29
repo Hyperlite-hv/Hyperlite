@@ -173,9 +173,36 @@ def init_db():
             "ALTER TABLE backups ADD COLUMN verification TEXT",
             "ALTER TABLE backups ADD COLUMN verifie_le TEXT",
             "ALTER TABLE backups ADD COLUMN verification_detail TEXT",
+            # GFS retention (app/core/backup_retention.py): NULL keeps the plain count of retention_count.
+            "ALTER TABLE backup_jobs ADD COLUMN garder_jours INTEGER",
+            "ALTER TABLE backup_jobs ADD COLUMN garder_semaines INTEGER",
+            "ALTER TABLE backup_jobs ADD COLUMN garder_mois INTEGER",
+            # A backup made by a grouped job (backup_group_jobs), NULL otherwise.
+            "ALTER TABLE backups ADD COLUMN groupe_id INTEGER",
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
+        # Grouped backup jobs (app/core/backup_groups.py): one schedule for every VM of this node, of a tag or of a
+        # pool, resolved at each run so new VMs are covered without editing the job.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_group_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nom TEXT NOT NULL UNIQUE,
+                selection TEXT NOT NULL CHECK(selection IN ('toutes', 'etiquette', 'pool')),
+                valeur TEXT,
+                exclues TEXT NOT NULL DEFAULT '[]',
+                frequence TEXT NOT NULL CHECK(frequence IN ('quotidien', 'hebdomadaire', 'mensuel')),
+                heure TEXT NOT NULL,
+                cible_dir TEXT NOT NULL,
+                retention_count INTEGER NOT NULL DEFAULT 7,
+                garder_jours INTEGER,
+                garder_semaines INTEGER,
+                garder_mois INTEGER,
+                actif INTEGER NOT NULL DEFAULT 1,
+                derniere_execution TEXT,
+                prochaine_execution TEXT NOT NULL
+            )
+        """)
 
         # ---- Automation: job engine ----
         conn.execute("""
