@@ -917,6 +917,7 @@ export default {
   "au.logs": "Sortie de l’exécution",
   "au.needTargets": "Cibles requises",
   "au.needTargetsHelp": "Cette tâche a une étape sur « chaque cible de l’exécution » : saisissez au moins un nom de VM.",
+  "au.needLbTargetsHelp": "Cette tâche demande au moins 2 noms de VM : la première devient le répartiteur, les suivantes ses serveurs.",
   "au.stepsUnknown": "(étapes indisponibles)",
   "au.runTitle": "Exécuter « {name} » ?",
   "au.runMsg": "Ces commandes seront exécutées ({n} cible(s)) :",

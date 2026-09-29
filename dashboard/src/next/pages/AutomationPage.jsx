@@ -15,6 +15,7 @@ const newStep = () => ({ cible_type: "host", cible: "", commande: "", condition_
 const runWire = (s) => (s === "succes" ? "termine" : s === "echec" ? "echec" : "en_cours");
 const targetLabel = (s, t) => (s.cible_type === "host" ? t("au.host") : s.cible_type === "vm" ? `VM ${s.cible}` : t("au.eachTarget"));
 
+const LB_PREDEFINED_KEY = "deploy_load_balancing";
 const jobName = (job, t) => { const k = `au.pre.${job.predefined_key}.name`; const v = job.predefined_key ? t(k) : k; return v === k ? job.name : v; };
 const jobDesc = (job, t) => { const k = `au.pre.${job.predefined_key}.desc`; const v = job.predefined_key ? t(k) : k; return v === k ? job.description : v; };
 
@@ -72,10 +73,14 @@ export default function AutomationPage() {
     const list = (targets[job.id] || "").split(",").map((x) => x.trim()).filter(Boolean);
     let steps = detail[job.id]?.steps;
     if (!steps) { try { steps = (await fetchJob(job.id)).steps; } catch { steps = null; } }
+    // The predefined job stores no steps (they are generated from the targets at
+    // run time), so its target requirement cannot be read from the steps.
+    const predefined = job.predefined_key === LB_PREDEFINED_KEY;
+    if (predefined && list.length < 2) { pushToast({ kind: "error", title: t("au.needTargets"), message: t("au.needLbTargetsHelp") }); return; }
     const needsTargets = (steps || []).some((s) => s.cible_type === "chaque_cible");
     if (needsTargets && list.length === 0) { pushToast({ kind: "error", title: t("au.needTargets"), message: t("au.needTargetsHelp") }); return; }
     if (!dry) {
-      const cmds = steps ? steps.map((s, i) => `${i + 1}. [${targetLabel(s, t)}] ${s.commande}`).join("  •  ") : t("au.stepsUnknown");
+      const cmds = predefined ? jobDesc(job, t) : steps ? steps.map((s, i) => `${i + 1}. [${targetLabel(s, t)}] ${s.commande}`).join("  •  ") : t("au.stepsUnknown");
       if (!(await confirmAction({ title: t("au.runTitle", { name: job.name }), message: `${t("au.runMsg", { n: list.length })} ${cmds}`, confirmLabel: t("au.run"), danger: true }))) return;
     }
     try {
