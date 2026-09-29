@@ -6,7 +6,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import firmware, maintenance, templates_store
+from app.core import firmware, maintenance, templates_store, vm_locks
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
@@ -27,6 +27,11 @@ class ConvertRequest(BaseModel):
 
 @router.post("/from-vm/{name}", status_code=201)
 def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends(require_role("admin"))):
+    with vm_locks.claim_or_409(name, "a conversion to a template"):
+        return _convert_to_template(name, payload, user)
+
+
+def _convert_to_template(name, payload, user):
     tpl_name = (payload.template_name or name).strip()
     name_error = validate_name(tpl_name, "template")
     if name_error:
