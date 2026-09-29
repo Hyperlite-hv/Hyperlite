@@ -114,7 +114,8 @@ def test_acme_command_is_validated_and_uses_the_deploy_hook(monkeypatch):
     monkeypatch.setattr(tls_certs.shutil, "which", lambda name: f"/usr/bin/{name}")
     cmd = tls_certs.acme_command("hv1.example.org", "ops@example.org", staging=True)
     assert cmd[:3] == ["/usr/bin/certbot", "certonly", "--standalone"]
-    assert cmd[-1] == "--test-cert" and not any("example.org" in a for a in cmd)  # values only in the config file
+    assert cmd[-1] == "--test-cert"
+    assert "hv1.example.org" not in cmd and "ops@example.org" not in cmd  # values only in the config file
     assert (
         tls_certs.acme_config("hv1.example.org", "ops@example.org")
         == "domains = hv1.example.org\nemail = ops@example.org\n"
