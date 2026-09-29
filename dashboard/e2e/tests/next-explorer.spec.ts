@@ -23,7 +23,7 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
 // Datacenter-level pages (historical ?tab= ids) and the title of their page.
 // "templates" is the historical id of the Library page (ISO images and templates).
 const DATACENTER_PAGES: Record<string, string> = {
-  summary: "Home", activity: "Tasks", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
+  summary: "Home", activity: "Tasks and logs", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
   backups: "Backups", exports: "Exports", permissions: "Users and roles", reseau: "Network", automation: "Automation", containers: "Containers",
   nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Authentication (SSO)",
   journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots", metrics: "Metrics",
@@ -195,13 +195,13 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(nameHeader).toHaveAttribute("aria-sort", /ascending|descending/);
   });
 
-  test("the Tasks page filters tasks and Exports is in the Protection group", async ({ page }) => {
+  test("the Tasks page filters tasks by status and period, and Exports is in the Protection group", async ({ page }) => {
     await nextLogin(page);
     await page.goto("/datacenter?tab=activity");
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { name: /^Tasks/ })).toBeVisible();
     const filters = main.getByRole("group", { name: "Task filters" });
-    await filters.getByLabel("Status").selectOption("echec");
+    await main.getByRole("group", { name: "Status" }).getByRole("button", { name: /^Failed/ }).click();
     await filters.getByLabel("Period").selectOption("all");
     await expect(main.getByRole("button", { name: "Export as CSV" })).toBeVisible();
     // Exports now sits in the Protection group, always visible.
