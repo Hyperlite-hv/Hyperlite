@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import BackupFileBrowser from "../components/BackupFileBrowser";
 import RetentionFields, { retentionForm, retentionPayload, retentionProblems } from "../components/RetentionFields";
 import {
   fetchSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, fetchTaskDetail,
@@ -157,6 +158,7 @@ export function VmBackupPage({ resource: vm }) {
   const [form, setForm] = useState({ frequence: "quotidien", heure: "02:00", ...retentionForm(null) });
   const [busy, setBusy] = useState(false);
   const [enabling, setEnabling] = useState(false);
+  const [browsing, setBrowsing] = useState(null);
   const vmName = vm?.nom;
 
   const reload = useCallback(async () => {
@@ -255,6 +257,7 @@ export function VmBackupPage({ resource: vm }) {
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
+                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.nom })}>{t("fr.browse")}</button>}
                         {caps.admin && (b.statut === "termine" || b.statut === "echec") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}
                       </div></td>
                     </tr>
@@ -282,6 +285,7 @@ export function VmBackupPage({ resource: vm }) {
           )}
         </Card>
       </div>
+      {browsing && <BackupFileBrowser backup={browsing} onClose={() => setBrowsing(null)} />}
     </>
   );
 }
