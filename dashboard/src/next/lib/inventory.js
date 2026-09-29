@@ -14,11 +14,21 @@ export const useFreshness = create((set) => ({
 }));
 
 // Same API functions and contracts as the legacy store; only the orchestration is new.
+// A refresh answers for the moment it STARTED: when a newer refresh was started meanwhile, or an action changed a
+// VM locally since (useInfraStore.mutations), its answer is older than what is shown and is dropped. Applying it
+// brought a deleted VM back or showed a VM just started as stopped.
+let latestRefresh = 0;
 export async function refreshInventory({ initial = false } = {}) {
   const infra = useInfraStore;
+  const mine = ++latestRefresh;
+  const mutationsAtStart = infra.getState().mutations;
   if (initial) infra.setState({ loading: true, error: null });
   try {
     const [nodes, vms, storagePools, networks] = await Promise.all([fetchNodes(), fetchVMs(), fetchStoragePools(), fetchNetworks()]);
+    if (mine !== latestRefresh || infra.getState().mutations !== mutationsAtStart) {
+      if (initial) infra.setState({ loading: false });
+      return;
+    }
     infra.setState({ nodes, vms, storagePools, networks, loading: false, error: null });
     useFreshness.getState().markOk();
   } catch (e) {

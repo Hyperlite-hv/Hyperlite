@@ -23,22 +23,24 @@ update_task_progress().
 import contextlib
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
 import threading
 import time
+import uuid
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import libvirt
 
-from app.core import backup_integrity, firmware, guest_agent
+from app.core import backup_integrity, firmware, guest_agent, vm_locks
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import open_conn
+from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
@@ -223,6 +225,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
     logger.info("Hot backup of %s: snapshot %s", vm_name, "quiesced by the guest agent" if quiesced else "not quiesced")
     update_task_progress(task_id, 10)
 
+    copy_failed = False
     try:
         dest_paths = []
         span = 70 / len(disks)
@@ -233,27 +236,60 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
             # activity.
             qemu_img_convert_with_progress(source, dest, task_id, base_pct=15 + i * span, span_pct=span)
             dest_paths.append(dest)
+    except BaseException:
+        copy_failed = True
+        raise
     finally:
         # Merge the overlay back into the base for EVERY disk, even if the copy failed on
         # one of them: never leave the VM running indefinitely on a transient overlay (a
         # chain that grows without end, orphaned if Hyperlite restarts in the meantime).
-        for dev, source in disks:
-            try:
-                domain.blockCommit(dev, str(source), None, 0, libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
-                for _ in range(60):
-                    info = domain.blockJobInfo(dev, 0)
-                    if not info or (info.get("end", 0) and info.get("cur", 0) >= info["end"]):
-                        break
-                    time.sleep(0.5)
-                domain.blockJobAbort(dev, libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT)
-            except libvirt.libvirtError as e:
-                log_action("system", "backup_commit_warning", vm_name, "echec", f"{dev}: {describe_exception(e)}")
-        with contextlib.suppress(libvirt.libvirtError):
-            snap.delete(libvirt.VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
-        for overlay in overlay_paths.values():
-            Path(overlay).unlink(missing_ok=True)
+        failures = _merge_overlays_back(domain, vm_name, disks, overlay_paths, snap)
+        if failures and not copy_failed:
+            raise RuntimeError(
+                "The backup copy succeeded but merging the temporary overlay back failed ("
+                + "; ".join(failures)
+                + "): the VM still runs on it, and it was kept. Check the VM's disk chain before stopping it."
+            )
 
     return dest_paths
+
+
+# Committing the writes made during a backup back into the base: generous, the VM may have written a lot meanwhile.
+MERGE_TIMEOUT_S = 3600
+
+
+def _merge_overlays_back(domain, vm_name, disks, overlay_paths, snap):
+    """blockCommit + pivot of each disk back to its base. An overlay is deleted ONLY once its disk pivoted back: while
+    the pivot has not happened, the VM's disk chain still points to it and deleting it would lose the writes made
+    during the backup (or leave a VM that no longer starts). Returns the failures, each already audited."""
+    failures = []
+    for dev, source in disks:
+        try:
+            domain.blockCommit(dev, str(source), None, 0, libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
+            deadline = time.monotonic() + MERGE_TIMEOUT_S
+            while True:
+                info = domain.blockJobInfo(dev, 0)
+                if not info or (info.get("end", 0) and info.get("cur", 0) >= info["end"]):
+                    break
+                if time.monotonic() > deadline:
+                    raise RuntimeError(f"the merge did not finish within {MERGE_TIMEOUT_S} s")
+                time.sleep(0.5)
+            domain.blockJobAbort(dev, libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT)
+        except Exception as e:
+            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+            failures.append(f"{dev}: {msg}")
+            log_action("system", "backup_commit_warning", vm_name, "echec", f"{dev}: {msg}")
+            logger.error("Merging the backup overlay of %s/%s failed, overlay kept: %s", vm_name, dev, msg)
+            continue
+        overlay = overlay_paths.get(dev)
+        if overlay is not None:
+            Path(overlay).unlink(missing_ok=True)
+    if not failures:
+        # Only when every disk is back on its base: the snapshot metadata is what shows an administrator which
+        # overlay a disk still depends on.
+        with contextlib.suppress(libvirt.libvirtError):
+            snap.delete(libvirt.VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
+    return failures
 
 
 def _write_vm_config(domain, dest_dir):
@@ -282,15 +318,20 @@ def _read_vm_config(src_dir):
     return config
 
 
-def run_backup(vm_name, target_dir=None, job_id=None, username="system"):
+def run_backup(vm_name, target_dir=None, job_id=None, username="system", claim=None):
     """Run a backup (choosing hot or cold according to the real state of the VM) and
     return the id of the `backups` row created. Synchronous: called from a
     thread by the endpoint (manual backup) or by the scheduler.
 
     _backup_lock: only one backup at a time on the WHOLE server (all VMs
     combined), see the comment above _backup_lock. A concurrent caller simply
-    waits its turn instead of failing."""
-    with _backup_lock:
+    waits its turn instead of failing.
+
+    `claim`: the vm_locks claim the endpoint took on the VM; without one the backup takes its own (VmBusy when
+    another operation is running on the VM). Released when the backup ends."""
+    if claim is None:
+        claim = vm_locks.claim(vm_name, "a backup")
+    with claim, _backup_lock:
         return _run_backup_locked(vm_name, target_dir, job_id, username)
 
 
@@ -372,47 +413,173 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         conn.close()
 
 
-def restore_backup(backup_id, mode, new_name=None, username="system"):
-    """mode='overwrite': overwrite the disks of the original VM (it must be
-    stopped). mode='new': define a new VM from the backup, with a new UUID/MAC
-    (the same logic as cloning)."""
+def _backup_images(src_dir):
+    """[(target dev, image Path)] of a backup's disks, in the VM's disk order. The manifest records the target of
+    each image; a backup made before manifests names its images after their target (vda.qcow2)."""
+    manifest = backup_integrity.read_manifest(src_dir)
+    if manifest:
+        return [
+            (e["cible"], Path(src_dir) / Path(str(e["nom"])).name)
+            for e in manifest.get("fichiers") or []
+            if e.get("role") == "disque" and e.get("cible")
+        ]
+    return [(p.stem, p) for p in sorted(Path(src_dir).glob("*.qcow2"))]
+
+
+def _disk_formats(domain):
+    """{target dev: driver type ('qcow2', 'raw'...)} of a domain's file disks."""
+    root = ET.fromstring(domain.XMLDesc(0))
+    formats = {}
+    for disk in root.findall(".//devices/disk"):
+        target, driver = disk.find("target"), disk.find("driver")
+        if disk.get("device") == "disk" and target is not None:
+            formats[target.get("dev")] = (driver.get("type") if driver is not None else None) or "raw"
+    return formats
+
+
+def _convert(source, dest, fmt, task_id, base_pct, span_pct):
+    """qemu-img convert to `fmt`: a backup image is always qcow2, and writing it as is into a raw disk would leave
+    the VM with a disk it reads as garbage."""
+    proc = subprocess.run(
+        ["qemu-img", "convert", "-O", fmt, str(source), str(dest)], capture_output=True, text=True, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"qemu-img convert failed: {(proc.stderr or proc.stdout).strip()[:400]}")
+    update_task_progress(task_id, int(base_pct + span_pct))
+
+
+def _copy_owner_and_mode(reference, path):
+    try:
+        st = os.stat(reference)
+    except FileNotFoundError:
+        return
+    os.chmod(path, st.st_mode & 0o7777)
+    try:
+        os.chown(path, st.st_uid, st.st_gid)
+    except PermissionError:
+        logger.warning("Could not give %s the owner of %s", path, reference)
+
+
+def _check_before_restore(row, task_id, username):
+    """Verify the backup NOW, whatever an earlier verification said: a restore replaces good data, so it must not
+    start from a backup whose files changed or are damaged. The result is recorded like a manual verification."""
+    status, problems, _count = backup_integrity.verify(
+        row["chemin"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, int(pct * 0.2))
+    )
+    with get_conn() as db:
+        db.execute(
+            "UPDATE backups SET verification = ?, verifie_le = ?, verification_detail = ? WHERE id = ?",
+            (status, _now().isoformat(), "; ".join(problems) or None, row["id"]),
+        )
+        db.commit()
+    if status != backup_integrity.VERIFIED:
+        raise RuntimeError("The backup failed its integrity check, nothing was restored: " + "; ".join(problems[:5]))
+
+
+def _restore_overwrite(conn, domain, images, task_id):
+    """Replace the disks of a stopped VM with the backup images, all or nothing.
+
+    Every image is first written next to the disk it replaces, under a temporary name; only when all of them are
+    complete are the disks swapped by renames (atomic on one file system), the previous disks being kept until the
+    last swap succeeded. An interruption at any point leaves either the old disks or the new ones, never a
+    half-written disk."""
+    existing = domain_disk_paths(domain)
+    by_dev = dict(images)
+    missing = [dev for dev, _ in existing if dev not in by_dev]
+    extra = [dev for dev in by_dev if dev not in {d for d, _ in existing}]
+    if missing or extra:
+        raise RuntimeError(
+            f"The VM's disks ({', '.join(d for d, _ in existing) or 'none'}) no longer match the backup's "
+            f"({', '.join(by_dev)}): nothing was restored. Restore to a new VM instead."
+        )
+    formats = _disk_formats(domain)
+    token = uuid.uuid4().hex[:8]
+    staged = []  # (dest, temp)
+    try:
+        span = 65 / len(existing)
+        for i, (dev, dest) in enumerate(existing):
+            temp = Path(dest).with_name(f".{Path(dest).name}.restore-{token}")
+            staged.append((Path(dest), temp))
+            _convert(by_dev[dev], temp, formats.get(dev, "qcow2"), task_id, 20 + i * span, span)
+            _copy_owner_and_mode(dest, temp)
+            with open(temp, "rb") as f:
+                os.fsync(f.fileno())
+    except BaseException:
+        for _dest, temp in staged:
+            temp.unlink(missing_ok=True)
+        raise
+
+    swapped = []  # (dest, previous)
+    try:
+        for dest, temp in staged:
+            previous = dest.with_name(f".{dest.name}.pre-restore-{token}")
+            if dest.exists():
+                os.replace(dest, previous)
+                swapped.append((dest, previous))
+            else:
+                swapped.append((dest, None))
+            os.replace(temp, dest)
+    except BaseException:
+        for dest, previous in reversed(swapped):
+            if previous is not None:
+                os.replace(previous, dest)
+        for _dest, temp in staged:
+            temp.unlink(missing_ok=True)
+        raise
+    for _dest, previous in swapped:
+        if previous is not None:
+            previous.unlink(missing_ok=True)
+    update_task_progress(task_id, 90)
+    return [str(dest) for dest, _ in staged]
+
+
+def restore_backup(backup_id, mode, new_name=None, username="system", claim=None):
+    """mode='overwrite': replace the disks of the original VM (it must be stopped). mode='new': define a new VM from
+    the backup, with a new UUID/MAC (the same logic as cloning).
+
+    `claim`: the vm_locks claim the endpoint took on the VM, released here when the restore ends; without one, the
+    restore takes its own."""
     with get_conn() as db:
         row = db.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
     if not row:
         raise RuntimeError("Backup not found")
     if row["statut"] != "termine":
         raise RuntimeError("This backup is not in a restorable state (failed or in progress)")
+    if mode not in ("overwrite", "new"):
+        raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
+    target_name = row["vm_name"] if mode == "overwrite" else new_name
+    if claim is None:
+        claim = vm_locks.claim(target_name or "", "a backup restore")
 
-    src_dir = Path(row["chemin"])
-    disk_files = sorted(src_dir.glob("*.qcow2"))
-    if not disk_files:
-        raise RuntimeError("No disk file found in this backup")
+    with claim:
+        src_dir = Path(row["chemin"])
+        conn = open_conn()
+        task_id = create_task("restore_backup", row["vm_name"], node=conn.getHostname(), username=username)
+        new_disk_paths = []
+        try:
+            images = _backup_images(src_dir)
+            if not images:
+                raise RuntimeError("No disk file found in this backup")
+            if mode == "overwrite":
+                try:
+                    domain = conn.lookupByName(target_name)
+                except libvirt.libvirtError:
+                    raise RuntimeError(
+                        f"Original VM '{target_name}' not found: use the restore to a new location"
+                    ) from None
+                if domain.isActive():
+                    raise RuntimeError("Stop the VM before restoring over it")
+                _check_before_restore(row, task_id, username)
+                written = _restore_overwrite(conn, domain, images, task_id)
+                refresh_pools_for_paths(conn, written)
+                restored = backup_integrity.restore_firmware_state(src_dir, domain)
+                finish_task(task_id, "termine")
+                detail = f"overwrite from backup #{backup_id}" + (
+                    f", with {' and '.join(restored)}" if restored else ""
+                )
+                log_action(username, "restore_backup", target_name, "succes", detail)
+                return {"vm": target_name, "mode": "overwrite"}
 
-    conn = open_conn()
-    task_id = create_task("restore_backup", row["vm_name"], node=conn.getHostname(), username=username)
-    try:
-        if mode == "overwrite":
-            target_name = row["vm_name"]
-            try:
-                domain = conn.lookupByName(target_name)
-            except libvirt.libvirtError:
-                raise RuntimeError(
-                    f"Original VM '{target_name}' not found: use the restore to a new location"
-                ) from None
-            if domain.isActive():
-                raise RuntimeError("Stop the VM before restoring over it")
-            existing_disks = domain_disk_paths(domain)
-            for i, (_dev, dest_path) in enumerate(existing_disks):
-                src = disk_files[min(i, len(disk_files) - 1)]
-                update_task_progress(task_id, int(10 + 80 * i / max(len(existing_disks), 1)))
-                shutil.copyfile(src, dest_path)
-            restored = backup_integrity.restore_firmware_state(src_dir, domain)
-            finish_task(task_id, "termine")
-            detail = f"overwrite from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
-            log_action(username, "restore_backup", target_name, "succes", detail)
-            return {"vm": target_name, "mode": "overwrite"}
-
-        elif mode == "new":
             from app.core.vm_builder import IMAGES_DIR as _IMAGES_DIR
             from app.core.vm_builder import build_domain_xml, validate_name
 
@@ -426,14 +593,16 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
                 raise RuntimeError(f"A VM '{new_name}' already exists")
             except libvirt.libvirtError:
                 pass
+            _check_before_restore(row, task_id, username)
 
-            new_disk_paths = []
-            for i, src in enumerate(disk_files):
+            span = 60 / len(images)
+            for i, (_dev, src) in enumerate(images):
                 suffix = "" if i == 0 else f"-{i + 1}"
                 dest = safe_child(_IMAGES_DIR, f"{new_name}{suffix}.qcow2")
-                update_task_progress(task_id, int(10 + 70 * i / len(disk_files)))
-                shutil.copyfile(src, dest)
+                if dest.exists():
+                    raise RuntimeError(f"A disk file '{dest.name}' already exists")
                 new_disk_paths.append(dest)
+                _convert(src, dest, "qcow2", task_id, 20 + i * span, span)
 
             config = _read_vm_config(src_dir)
             xml = build_domain_xml(
@@ -446,18 +615,23 @@ def restore_backup(backup_id, mode, new_name=None, username="system"):
                 firmware=config["firmware"],
             )
             new_domain = conn.defineXML(xml)
+            refresh_pools_for_paths(conn, new_disk_paths)
             restored = backup_integrity.restore_firmware_state(src_dir, new_domain)
             finish_task(task_id, "termine")
             detail = f"new VM from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
             log_action(username, "restore_backup", new_name, "succes", detail)
             return {"vm": new_name, "mode": "new"}
-        else:
-            raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
-    except Exception as e:
-        finish_task(task_id, "echec", str(e))
-        raise
-    finally:
-        conn.close()
+        except Exception as e:
+            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+            if mode == "new":
+                # Only the files this restore created: the name check above refused existing ones.
+                for path in new_disk_paths:
+                    Path(path).unlink(missing_ok=True)
+            finish_task(task_id, "echec", msg)
+            log_action(username, "restore_backup", target_name or row["vm_name"], "echec", msg)
+            raise
+        finally:
+            conn.close()
 
 
 def verify_backup(backup_id, username="system", task_id=None):
@@ -563,6 +737,8 @@ def _scheduler_loop():
                     # Retention is now applied INSIDE run_backup() itself (see its body), which also
                     # covers the manual backups of this VM, not only those of the scheduler.
                     run_backup(job["vm_name"], job["cible_dir"], job_id=job["id"], username="scheduler")
+                except vm_locks.VmBusy:
+                    continue  # another operation runs on this VM: the job stays due and is retried next tick
                 except Exception as e:
                     log_action("scheduler", "backup_job_echec", job["vm_name"], "echec", str(e))
                 next_run = _next_run(job["frequence"], job["heure"], now)
@@ -573,8 +749,8 @@ def _scheduler_loop():
                     )
                     db.commit()
             _verify_due_backup()
-        except Exception as e:
-            print(f"[backups] scheduler tick failed: {e!r}", flush=True)
+        except Exception:
+            logger.exception("Backup scheduler tick failed")
         time.sleep(SCHEDULER_INTERVAL_S)
 
 

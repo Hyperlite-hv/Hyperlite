@@ -119,7 +119,10 @@ def delete(node):
 def _agent_input(row, action):
     """The fence agent options, one "name=value" per line on stdin (the agents' documented stdin interface)."""
     lines = [f"action={action}", f"ip={row['adresse']}", f"username={row['utilisateur']}"]
-    lines.append(f"password={secrets_crypto.decrypt(row['secret'])}")
+    try:
+        lines.append(f"password={secrets_crypto.decrypt(row['secret'])}")
+    except secrets_crypto.SecretUnreadable as e:
+        raise FencingError(f"{e} (fencing of {row['node']})", 409) from e
     if row["port"]:
         lines.append(f"ipport={int(row['port'])}")
     if row["methode"] == "ipmi":
@@ -171,7 +174,10 @@ def test(node):
     if state:
         return {"ok": True, "alimentation": state.group(1).lower(), "detail": f"Power state read through {agent}"}
     # Keep the agent's own words, without anything that could echo the password back.
-    secret = secrets_crypto.decrypt(row["secret"]) or ""
+    try:
+        secret = secrets_crypto.decrypt(row["secret"]) or ""
+    except secrets_crypto.SecretUnreadable:
+        secret = ""
     message = " ".join(line.strip() for line in out.splitlines() if line.strip())[-300:]
     if secret:
         message = message.replace(secret, "***")

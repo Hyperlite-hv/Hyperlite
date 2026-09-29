@@ -1,5 +1,7 @@
 """Authentication and authorization through the real HTTP application."""
 
+import time
+
 import pyotp
 import pytest
 
@@ -104,7 +106,7 @@ def test_blank_api_token_names_are_rejected(client, auth_headers):
 
 def test_two_factor_login_flow(client, auth_headers):
     session = auth_headers("alice", "admin")
-    secret = client.post("/auth/2fa/setup", headers=session).json()["secret"]
+    secret = client.post("/auth/2fa/setup", headers=session, json={"password": PASSWORD}).json()["secret"]
     assert client.post("/auth/2fa/confirm", headers=session, json={"code": "abc"}).status_code == 400
     assert client.post("/auth/2fa/confirm", headers=session, json={"code": pyotp.TOTP(secret).now()}).status_code == 200
 
@@ -118,17 +120,18 @@ def test_two_factor_login_flow(client, auth_headers):
 
     wrong = client.post("/auth/login/2fa", json={"pre_auth_token": challenge["pre_auth_token"], "code": "000001"})
     assert wrong.status_code == 401
+    # The code used to confirm the setup is spent: the next one signs in.
     right = client.post(
-        "/auth/login/2fa", json={"pre_auth_token": challenge["pre_auth_token"], "code": pyotp.TOTP(secret).now()}
+        "/auth/login/2fa", json={"pre_auth_token": challenge["pre_auth_token"], "code": _next_code(secret)}
     )
     assert right.status_code == 200 and right.json()["access_token"]
 
 
 def test_two_factor_can_only_be_disabled_with_the_password_and_a_code(client, auth_headers):
     session = auth_headers("alice")
-    secret = client.post("/auth/2fa/setup", headers=session).json()["secret"]
+    secret = client.post("/auth/2fa/setup", headers=session, json={"password": PASSWORD}).json()["secret"]
     client.post("/auth/2fa/confirm", headers=session, json={"code": pyotp.TOTP(secret).now()})
-    code = pyotp.TOTP(secret).now()
+    code = _next_code(secret)
     assert (
         client.post("/auth/2fa/disable", headers=session, json={"password": "wrong", "code": code}).status_code == 400
     )
@@ -141,9 +144,21 @@ def test_two_factor_can_only_be_disabled_with_the_password_and_a_code(client, au
 
 def test_two_factor_setup_is_refused_when_already_active(client, auth_headers):
     session = auth_headers("alice")
-    secret = client.post("/auth/2fa/setup", headers=session).json()["secret"]
+    secret = client.post("/auth/2fa/setup", headers=session, json={"password": PASSWORD}).json()["secret"]
     client.post("/auth/2fa/confirm", headers=session, json={"code": pyotp.TOTP(secret).now()})
-    assert client.post("/auth/2fa/setup", headers=session).status_code == 400
+    assert client.post("/auth/2fa/setup", headers=session, json={"password": PASSWORD}).status_code == 400
+
+
+def test_enrolling_a_second_factor_takes_the_password(client, auth_headers, database):
+    session = auth_headers("olive")
+    assert client.post("/auth/2fa/setup", headers=session, json={"password": "wrong"}).status_code == 400
+    assert client.post("/auth/2fa/setup", headers=session, json={}).status_code == 400
+    with database.get_conn() as conn:
+        assert conn.execute("SELECT totp_secret FROM users WHERE username = 'olive'").fetchone()[0] is None
+    assert client.post("/auth/2fa/setup", headers=session, json={"password": PASSWORD}).status_code == 200
+    with database.get_conn() as conn:  # stored encrypted, never in clear
+        stored = conn.execute("SELECT totp_secret FROM users WHERE username = 'olive'").fetchone()[0]
+    assert stored.startswith("gAAAAA")
 
 
 def test_notification_channel_configuration_is_only_visible_to_administrators(client, auth_headers):
@@ -181,3 +196,7 @@ def test_smtp_password_is_never_returned_even_to_administrators(client, auth_hea
     response = client.get("/notifications/channels", headers=admin)
     assert "hunter2" not in response.text
     assert response.json()[0]["config"]["smtp_password_set"] is True
+
+
+def _next_code(secret):
+    return pyotp.TOTP(secret).at(time.time() + 30)

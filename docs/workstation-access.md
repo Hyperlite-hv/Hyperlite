@@ -87,7 +87,7 @@ Each entry includes the client address.
 - **The executable:** it is the same for every server. It can be signed and distributed with the usual tools (Intune, GPO, SCCM, a package manager). The server shows the SHA-256 of each build it serves.
 - **Corporate proxy:** `HTTPS_PROXY` and `NO_PROXY` are honoured.
 - **Certificates:** the server certificate is verified against the system trust store, so a certificate from the company's CA works as is. With a self-signed certificate, `hyperlite login` shows its SHA-256 fingerprint and remembers it once the user confirms it, like an SSH host key.
-- **Scripts and CI:** set `HYPERLITE_SERVER` and `HYPERLITE_TOKEN` (an API token). No sign-in is needed.
+- **Scripts and CI:** set `HYPERLITE_SERVER` and `HYPERLITE_TOKEN` (an API token). No sign-in is needed. The token is only ever sent to `HYPERLITE_SERVER`: a `--server` (or a `hyperlite://` link) naming another server uses that server's own sign-in, never this token. `hyperlite logout` does not revoke it: revoke it in the web interface.
 - **Configuration file:** per user (`%AppData%\hyperlite\config.json`, `~/.config/hyperlite/config.json`), readable by its owner only. `HYPERLITE_CONFIG` chooses another file.
 
 ### Security notes

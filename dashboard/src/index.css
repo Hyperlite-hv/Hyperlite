@@ -39,7 +39,7 @@
   --color-chrome-900: #211c49;
   --color-chrome-950: #171340;
 
-  --font-sans: Archivo, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --shadow-panel:

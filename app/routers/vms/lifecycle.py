@@ -6,7 +6,7 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import firmware, guest_agent, zfs_storage
+from app.core import firmware, guest_agent, vm_locks, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -232,6 +232,11 @@ def _perform_vm_deletion(conn, domain, name, node=None):
 
 @router.delete("/{name}")
 def delete_vm(name: str, confirm: bool = False, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    with vm_locks.claim_or_409(name, "a deletion", node=node):
+        return _delete_vm(name, confirm, node, user)
+
+
+def _delete_vm(name, confirm, node, user):
     conn = open_conn(node)
     task_id = create_task("delete_vm", name, node=conn.getHostname(), username=user["username"])
     try:

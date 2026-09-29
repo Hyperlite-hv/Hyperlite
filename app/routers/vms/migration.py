@@ -8,12 +8,13 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import cluster_compat, ha, iscsi, maintenance
+from app.core import cluster_compat, ha, iscsi, maintenance, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     domain_disk_paths,
     open_conn,
+    refresh_pools_for_paths,
     uses_shared_storage,
 )
 from app.core.security import require_role
@@ -387,6 +388,9 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             # unlink here) becomes useless once the copy to the destination is confirmed
             # successful.
             _delete_paths_on_node(copied_cdrom_paths, source_node)
+            # The disks were copied in and deleted outside libvirt on both ends.
+            refresh_pools_for_paths(src_conn, source_disk_paths)
+            refresh_pools_for_paths(dest_conn, source_disk_paths)
 
         if ha.follow_migration(vm_name, target_node):
             log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")
@@ -498,12 +502,17 @@ def migrate_vm(
             dest_conn.close()
 
         source_node = node or "local"
-        task_id = create_task("migrate_vm", name, node=source_node, username=user["username"])
-        threading.Thread(
-            target=_migrate_vm_job,
-            args=(task_id, user["username"], node, payload.target_node, name),
-            daemon=True,
-        ).start()
+        claim = vm_locks.claim_or_409(name, "a migration", node=source_node)
+        try:
+            task_id = create_task("migrate_vm", name, node=source_node, username=user["username"])
+            threading.Thread(
+                target=vm_locks.released_after(claim, _migrate_vm_job),
+                args=(task_id, user["username"], node, payload.target_node, name),
+                daemon=True,
+            ).start()
+        except BaseException:
+            claim.release()
+            raise
         return {"task_id": task_id, "statut": "en_cours"}
     finally:
         src_conn.close()

@@ -7,12 +7,10 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import firmware, iscsi, maintenance
+from app.core import firmware, iscsi, maintenance, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import (
-    open_conn,
-)
+from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.network_alloc import allocate_static_ip, generate_mac, release_static_ip
 from app.core.safe_paths import safe_child
 from app.core.security import require_vm_privilege
@@ -38,6 +36,12 @@ class CloneRequest(BaseModel):
 @router.post("/{name}/clone", status_code=201)
 def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone"))):
     maintenance.refuse_if_in_maintenance("local", "Cloning")
+    # The source's disks are read: no restore, move or deletion may change them meanwhile.
+    with vm_locks.claim_or_409(name, "a clone"):
+        return _clone_vm(name, payload, user)
+
+
+def _clone_vm(name, payload, user):
     # Real bugs fixed in the cloning logic after an audit:
     # 1. SECURITY: there was no permission check (just get_current_user), so any
     #    account, even an "observateur" (read-only everywhere else), could clone and
@@ -70,13 +74,12 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         iscsi.refuse_if_iscsi(domain, "Cloning")
 
-        try:
-            validate_name(payload.new_name)
-        except ValueError as exc:
+        name_error = validate_name(payload.new_name)
+        if name_error:
             log_action(
                 user["username"], "clone_vm", name, "echec", f"invalid name: {payload.new_name}", task_id=task_id
             )
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail=name_error)
 
         try:
             conn.lookupByName(payload.new_name)
@@ -210,6 +213,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
             log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Clone definition failed: {msg}") from exc
 
+        refresh_pools_for_paths(conn, [*new_disk_paths, reseed_iso])
         rename_vm_ssh_user(name, payload.new_name)
         rename_vm_os_label(name, payload.new_name)
         log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}", task_id=task_id)

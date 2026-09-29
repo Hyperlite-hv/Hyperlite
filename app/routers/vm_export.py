@@ -19,6 +19,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from app.core import vm_locks
 from app.core.audit import log_action
 from app.core.backups import refuse_vm_with_block_disks
 from app.core.safe_paths import safe_child
@@ -44,6 +45,8 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit as
     # backups, see backups.py) rather than a new dedicated privilege.
+    claim = vm_locks.claim_or_409(name, "an export")
+
     def job():
         try:
             run_export(name, username=user["username"])
@@ -52,7 +55,7 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
                 "Ignored exception in job()", exc_info=True
             )  # already logged and tracked in run_export (task + audit_log)
 
-    threading.Thread(target=job, daemon=True).start()
+    threading.Thread(target=vm_locks.released_after(claim, job), daemon=True).start()
     log_action(user["username"], "export_vm_requested", name, "succes")
     return {"message": f"Export of '{name}' started in the background"}
 

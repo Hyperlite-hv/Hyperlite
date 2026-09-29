@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
+import { findVm, isRemoteVm } from "../lib/vmId";
 import { EmptyState } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
 import { DATACENTER_TABS, NODE_TABS, VM_TABS, locate } from "../legacy/tabs";
@@ -65,6 +66,10 @@ function useUrlSync() {
   return activeTab;
 }
 
+// VM pages whose endpoints only manage the VMs of this host (they take no node): for a remote VM they would read
+// and change a local VM of the same name, so they are replaced by an explanation.
+const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "options", "network", "backup", "snapshots"]);
+
 // Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
 const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports"]);
 
@@ -124,7 +129,7 @@ export default function Workspace({ children }) {
   const caps = capabilities(useAuthStore((s) => s.role));
   const failing = useFreshness((s) => s.failing);
 
-  const resource = selection.type === "vm" ? vms.find((v) => v.nom === selection.id)
+  const resource = selection.type === "vm" ? findVm(vms, selection.id)
     : selection.type === "node" ? nodes.find((n) => n.id === selection.id) : null;
   const isDc = selection.type === "datacenter";
   const isObj = selection.type === "node" || selection.type === "vm";
@@ -147,7 +152,10 @@ export default function Workspace({ children }) {
     if (n) { e.preventDefault(); goTop(n); requestAnimationFrame(() => document.getElementById(`nx-top-${n.id}`)?.focus()); }
   }
   const useSubnav = isObj && top.pages.length > 1;
-  const pageEl = Active ? <Active resource={resource} selection={selection} /> : null;
+  const localOnly = selection.type === "vm" && isRemoteVm(resource) && LOCAL_ONLY_VM_PAGES.has(tab);
+  const pageEl = localOnly
+    ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.nom || resource.node })} />
+    : Active ? <Active resource={resource} selection={selection} /> : null;
 
   return (
     <main className="nx-main" id="nx-main" tabIndex={-1}>

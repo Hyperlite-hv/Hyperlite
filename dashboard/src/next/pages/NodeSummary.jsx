@@ -7,6 +7,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { capabilities } from "../lib/capabilities";
 import { leaveMaintenance } from "../components/MaintenanceDialog";
 import { useT, useLangStore } from "../i18n";
+import { vmKey } from "../lib/vmId";
 import { usePolling } from "../lib/polling";
 import { deriveAlerts } from "../lib/alerts";
 import { taskLabel } from "../lib/enums";
@@ -74,7 +75,7 @@ export default function NodeSummary({ resource: node }) {
                   {nodeVms.map((v) => (
                     <tr key={v.nom}>
                       <td><StatusIndicator kind="vm" wire={v.etat} /></td>
-                      <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", v.nom, "summary")}>{v.nom}</button>{v.os && <small>{v.os}</small>}</th>
+                      <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(v), "summary")}>{v.nom}</button>{v.os && <small>{v.os}</small>}</th>
                       <td className="nx-num nx-mono">{v.vcpu} · {formatSizeMb(v.memoire_mo, lang)}</td>
                       <td className="nx-mono">{v.ip || <span className="nx-muted">—</span>}</td>
                       <td className="nx-mono nx-muted">{v.etat === "actif" ? formatUptimeLong(v.uptime_s, lang) || "—" : "—"}</td>
