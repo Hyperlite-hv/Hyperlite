@@ -1104,6 +1104,22 @@ export async function decideCliRequest(code, approve) {
   return realFetch(`/auth/cli/requests/${encodeURIComponent(code)}/${approve ? "approve" : "deny"}`, { method: "POST" });
 }
 
+// External metric servers the collector pushes to (InfluxDB 2, Graphite); admin only.
+export async function fetchMetricServers() {
+  return realFetch("/metric-servers");
+}
+export async function createMetricServer(payload) {
+  return realFetch("/metric-servers", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateMetricServer(id, payload) {
+  return realFetch(`/metric-servers/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteMetricServer(id) {
+  return realFetch(`/metric-servers/${id}`, { method: "DELETE" });
+}
+export async function testMetricServer(id) {
+  return realFetch(`/metric-servers/${id}/test`, { method: "POST" });
+}
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
 }

@@ -26,7 +26,7 @@ const DATACENTER_PAGES: Record<string, string> = {
   summary: "Home", activity: "Tasks", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
   backups: "Backups", exports: "Exports", permissions: "Users and roles", reseau: "Network", automation: "Automation", containers: "Containers",
   nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Authentication (SSO)",
-  journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots",
+  journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots", metrics: "Metrics",
 };
 
 test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {

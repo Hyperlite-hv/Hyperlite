@@ -370,6 +370,10 @@ def _collect_tick():
         )
         db.commit()
 
+    from app.core import metric_export
+
+    metric_export.push(rows, now)
+
 
 def _rollup_and_prune():
     """Once an hour: condense the raw samples of the elapsed hour into one average
