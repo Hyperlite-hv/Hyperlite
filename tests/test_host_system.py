@@ -155,3 +155,90 @@ def test_api_is_admin_only_and_starts_one_upgrade_task(client, auth_headers, hos
     assert any("Setting up openssl" in line["message"] for line in tasks.get_task_log(r.json()["tache"]))
     assert not router._upgrade_lock.locked()
     assert client.put("/host/system/dns", json={"serveurs": ["nope"]}, headers=admin).status_code == 422
+
+
+def test_power_needs_the_typed_name_and_stops_guests_first(client, auth_headers, monkeypatch):
+    import threading
+
+    from app.core import tasks
+    from app.routers import host_system as router
+
+    admin = auth_headers("root", "admin")
+    monkeypatch.setattr(router.socket, "gethostname", lambda: "hv1")
+    monkeypatch.setattr(hs, "running_guests", lambda: [("vm", "web"), ("conteneur", "ct1")])
+    scheduled, stopped = [], []
+    monkeypatch.setattr(hs, "schedule_power", lambda action: scheduled.append(action))
+
+    body = {"action": "reboot", "confirmation": "hv2"}
+    r = client.post("/host/system/power", json=body, headers=admin)
+    assert r.status_code == 422 and "(hv1)" in r.json()["detail"]
+    r = client.post("/host/system/power", json=body | {"confirmation": "hv1"}, headers=admin)
+    assert r.status_code == 409 and "web, ct1" in r.json()["detail"]
+    assert (
+        client.post(
+            "/host/system/power", json=body | {"action": "halt", "confirmation": "hv1"}, headers=admin
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post("/host/system/power", json=body, headers=auth_headers("watcher", "observateur")).status_code == 403
+    )
+
+    def wait(task_id):
+        for _ in range(100):
+            if tasks.task_status(task_id) != "en_cours":
+                return tasks.task_status(task_id)
+            threading.Event().wait(0.02)
+
+    monkeypatch.setattr(hs, "stop_guests", lambda guests, log: stopped.append(guests) or ["web"])
+    r = client.post(
+        "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "arreter_invites": True}, headers=admin
+    )
+    assert r.status_code == 202 and wait(r.json()["tache"]) == "echec" and scheduled == []
+
+    monkeypatch.setattr(hs, "stop_guests", lambda guests, log: [])
+    r = client.post(
+        "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "arreter_invites": True}, headers=admin
+    )
+    assert wait(r.json()["tache"]) == "termine" and scheduled == ["poweroff"]
+
+
+def test_power_is_scheduled_outside_the_service(host, monkeypatch):
+    monkeypatch.setattr(hs.Path, "is_dir", lambda self: True)
+    hs.schedule_power("reboot")
+    assert host["calls"][-1] == ["systemd-run", "--quiet", "--collect", "--on-active=5", "systemctl", "reboot"]
+    with pytest.raises(hs.SettingError):
+        hs.schedule_power("halt")
+    monkeypatch.setattr(hs.Path, "is_dir", lambda self: False)
+    with pytest.raises(hs.SettingError, match="does not run systemd"):
+        hs.schedule_power("reboot")
+
+
+def test_stop_guests_reports_what_did_not_stop(monkeypatch):
+    class Dom:
+        def __init__(self, stays):
+            self.stays, self.asked = stays, False
+
+        def shutdown(self):
+            self.asked = True
+
+        def isActive(self):
+            return self.stays
+
+    doms = {"web": Dom(False), "db": Dom(True)}
+
+    class Conn:
+        def lookupByName(self, name):
+            return doms[name]
+
+        def close(self):
+            pass
+
+    import app.core.libvirt_utils as lu
+
+    monkeypatch.setattr(lu, "open_conn", lambda node=None: Conn())
+    monkeypatch.setattr(lu, "open_lxc_conn", lambda: Conn())
+    lines = []
+    left = hs.stop_guests([("vm", "web"), ("vm", "db")], lines.append, timeout_s=0.02, poll_s=0.01)
+    assert left == ["db"] and doms["web"].asked and doms["db"].asked
+    assert lines == ["Shutdown requested: web", "Shutdown requested: db"]

@@ -74,6 +74,10 @@ export async function fetchHostUpdates(refresh = false) {
 export async function upgradeHostPackages(paquets) {
   return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
 }
+// Reboot or power off this node: the host name typed back, running guests refused or shut down first.
+export async function nodePower(payload) {
+  return realFetch("/host/system/power", { method: "POST", ...jsonBody(payload) });
+}
 export async function fetchHostDns() {
   return realFetch("/host/system/dns");
 }
