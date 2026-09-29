@@ -653,6 +653,18 @@ def init_db():
                 created_at REAL NOT NULL
             )
         """)
+        # Start at boot (app/core/vm_boot.py): per node and VM, and the last boot of each node that was handled.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_boot (
+                node TEXT NOT NULL DEFAULT 'local',
+                vm_name TEXT NOT NULL,
+                autostart INTEGER NOT NULL DEFAULT 0,
+                boot_order INTEGER,
+                delay_s INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (node, vm_name)
+            )
+        """)
+        conn.execute("CREATE TABLE IF NOT EXISTS vm_boot_state (node TEXT PRIMARY KEY, boot_id TEXT NOT NULL)")
         # The local host used to be stored under a machine-specific label; it is now always "local".
         for table in ("ha_protected_vms", "tasks"):
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608

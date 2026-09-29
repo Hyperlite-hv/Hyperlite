@@ -5,7 +5,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cpu_pinning
+from app.core import cpu_pinning, vm_boot
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -259,5 +259,53 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
         # The CPUs move at once; a new NUMA memory placement only applies when the guest's RAM is allocated again.
         result["redemarrage_requis"] = bool(domain.isActive()) and before["numa_cellule"] != how["numa_cellule"]
         return result
+    finally:
+        conn.close()
+
+
+class BootSetting(BaseModel):
+    demarrage_auto: bool
+    # Position in the node's start sequence; none: after the numbered VMs, by name.
+    ordre: int | None = Field(default=None, ge=0, le=vm_boot.MAX_ORDER)
+    # Wait after this VM has started, before the next one (a database before its applications).
+    delai_s: int = Field(default=0, ge=0, le=vm_boot.MAX_DELAY_S)
+
+
+def _lookup(conn, name):
+    try:
+        return conn.lookupByName(name)
+    except libvirt.libvirtError:
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+
+
+@router.get("/{name}/boot")
+def get_vm_boot(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
+    conn = open_conn(node)
+    try:
+        domain = _lookup(conn, name)
+        # A libvirt autostart flag set outside Hyperlite (virsh autostart) starts the VM in no order: say so.
+        return {**vm_boot.get_setting(name, node), "autostart_libvirt": bool(domain.autostart())}
+    finally:
+        conn.close()
+
+
+@router.put("/{name}/boot")
+def set_vm_boot(
+    name: str, payload: BootSetting, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.options"))
+):
+    conn = open_conn(node)
+    try:
+        domain = _lookup(conn, name)
+        vm_boot.set_setting(name, payload.demarrage_auto, payload.ordre, payload.delai_s, node)
+        if payload.demarrage_auto and domain.autostart():
+            # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over.
+            domain.setAutostart(0)
+        detail = (
+            f"on, order {payload.ordre if payload.ordre is not None else '-'}, delay {payload.delai_s} s"
+            if payload.demarrage_auto
+            else "off"
+        )
+        log_action(user["username"], "set_vm_boot", name, "succes", f"Start at boot {detail}")
+        return {**vm_boot.get_setting(name, node), "autostart_libvirt": bool(domain.autostart())}
     finally:
         conn.close()

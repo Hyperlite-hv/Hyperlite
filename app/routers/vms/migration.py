@@ -8,7 +8,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import cluster_compat, ha, iscsi, maintenance, vm_locks
+from app.core import cluster_compat, ha, iscsi, maintenance, vm_boot, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -394,6 +394,10 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
         if ha.follow_migration(vm_name, target_node):
             log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")
+        if vm_boot.follow_migration(vm_name, source_node, target_node):
+            log_action(
+                username, "autostart_follow", vm_name, "succes", f"Start at boot follows the VM to {target_node}"
+            )
 
         stop_event.set()
         update_task_progress(task_id, 100)

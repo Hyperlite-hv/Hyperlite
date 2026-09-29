@@ -24,6 +24,7 @@ from app.core.security import optional_user
 from app.core.seed import seed_admin
 from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
+from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.routers.acl import router as acl_router
 from app.routers.audit import router as audit_router
@@ -255,6 +256,7 @@ def on_startup():
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
     recover_interrupted_k8s_clusters()
+    start_boot_sequence()
 
     # The iptables rules of the network firewall do not survive a host reboot
     # (unlike the per-VM firewall's nwfilter, which libvirt itself manages):
