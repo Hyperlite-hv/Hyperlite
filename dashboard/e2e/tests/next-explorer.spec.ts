@@ -26,7 +26,7 @@ const DATACENTER_PAGES: Record<string, string> = {
   summary: "Home", activity: "Tasks and logs", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
   backups: "Backups", exports: "Exports", permissions: "Users and roles", reseau: "Network", automation: "Automation", containers: "Containers",
   nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Authentication (SSO)",
-  journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots",
+  journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots", metrics: "Metrics",
 };
 
 test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
@@ -124,9 +124,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     }
   });
 
-  test("all eight node pages are reachable as flat tabs", async ({ page }) => {
+  test("all nine node pages are reachable as flat tabs", async ({ page }) => {
     await nextLogin(page);
-    for (const [id, label] of [["summary", "Summary"], ["perf", "Performance"], ["system", "System"], ["network", "Network"], ["disk", "Storage"], ["tasks", "Tasks"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
+    for (const [id, label] of [["summary", "Summary"], ["perf", "Performance"], ["system", "System"], ["updates", "Updates"], ["network", "Network"], ["disk", "Storage"], ["tasks", "Tasks"], ["compat", "Compatibility"], ["shell", "Shell"]]) {
       await page.goto(id === "summary" ? "/node/local" : `/node/local?tab=${id}`);
       await expect(page.getByRole("main").getByRole("tab", { name: label, exact: true }), id).toHaveAttribute("aria-selected", "true");
     }
@@ -221,7 +221,7 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     // R7 / R8: no "All operations" block and no chart on the summary.
     await expect(main.getByText("All operations")).toHaveCount(0);
     await expect(main.getByRole("heading", { name: /^Performance · last hour/ })).toHaveCount(0);
-    for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console", "Tasks"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
+    for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console", "Tasks", "Permissions"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
     // R6: Snapshot and Migrate left the header for the grouped Actions menu, with every historical operation.
     const head = page.locator(".nx-oh-acts");
     for (const action of ["Snapshot", "Migrate…"]) await expect(head.getByRole("button", { name: new RegExp(`^${action}`) })).toHaveCount(0);

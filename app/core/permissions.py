@@ -285,6 +285,22 @@ def list_acl():
         return acl
 
 
+def acl_for_object(resource_type, resource_id):
+    """Assignments that give rights on one VM or container: its own, then (VMs only) those of the pools that
+    contain it, each with `herite_de` naming the pool so the page can say where the right comes from."""
+    entries = [
+        dict(a, herite_de=None)
+        for a in list_acl()
+        if a["resource_type"] == resource_type and a["resource_id"] == resource_id
+    ]
+    if resource_type == "vm":
+        pools = {p["id"]: p["name"] for p in list_pools() if resource_id in p["vms"]}
+        for a in list_acl():
+            if a["resource_type"] == "pool" and a["resource_id"].isdigit() and int(a["resource_id"]) in pools:
+                entries.append(dict(a, herite_de=pools[int(a["resource_id"])]))
+    return entries
+
+
 def create_acl(subject_type, subject_id, role, resource_type, resource_id):
     if not role_exists(role):
         raise ValueError(f"Unknown role: {role}")

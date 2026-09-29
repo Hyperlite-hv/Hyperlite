@@ -100,3 +100,21 @@ def test_terminal_ticket_is_admin_only(client, auth_headers):
     headers = auth_headers("watcher", "observateur")
     permissions.create_acl("user", "watcher", "gestionnaire", "vm", "vm1")
     assert client.post("/vms/vm1/terminal-ticket", headers=headers).status_code == 403
+
+
+def test_object_acl_lists_own_and_pool_assignments(client, auth_headers):
+    pool_id = permissions.create_pool("web")
+    permissions.add_pool_member(pool_id, "vm-a")
+    permissions.create_acl("user", "bob", "operateur", "vm", "vm-a")
+    permissions.create_acl("user", "erin", "lecteur", "pool", str(pool_id))
+    permissions.create_acl("user", "zed", "lecteur", "vm", "vm-b")
+    permissions.create_acl("user", "ct", "lecteur", "container", "vm-a")
+    admin = auth_headers("root", "admin")
+
+    rows = client.get("/acl/object/vm/vm-a", headers=admin).json()
+    assert [(r["subject_id"], r["herite_de"]) for r in rows] == [("bob", None), ("erin", "web")]
+    rows = client.get("/acl/object/container/vm-a", headers=admin).json()
+    assert [r["subject_id"] for r in rows] == ["ct"]
+
+    assert client.get("/acl/object/pool/1", headers=admin).status_code == 422
+    assert client.get("/acl/object/vm/vm-a", headers=auth_headers("watcher", "observateur")).status_code == 403

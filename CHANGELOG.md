@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- A user guide (`docs/user-guide.md`) that walks through every feature of the web interface: VMs, containers, storage, networks, backups and file restore, nodes, HA, users and sign-in, preferences and troubleshooting.
+
 - Bulk actions on the VM list: select VMs (or every VM shown) and start, stop, force stop, restart, migrate or delete them together; the confirmation names them and the ones left as they are, and each failure is reported by name.
 - Start at boot for VMs, with an order and a pause before the next VM, in a VM's Options. Run once per boot of each node (never on a service restart), on every node, and following a live-migrated VM.
 - Notes (plain text) and tags on VMs, containers and nodes; tags show in the VM list, which filters by tag and finds them in its search.
@@ -13,6 +15,22 @@ All notable changes to this project are documented here. The format is based on 
 - A page per container: resources, network interfaces and DNS servers, start at boot, notes and tags, terminal or process output, backups and history.
 - A Tasks tab on VMs and containers with the object's own history.
 - Cloud-init after creation: change a cloud image VM's SSH keys and password from its Hardware tab, applied at its next boot; its SSH host keys and Hyperlite's automation key are kept, the password is never stored.
+- Advanced VM hardware settings under the Hardware tab: disk cache, discard, I/O mode, I/O thread and IOPS/MB/s limits (limits apply live), boot order across disks and network cards, memory ballooning with a minimum, and updating the machine type to the current version of its family.
+- A Permissions tab on VMs and containers (administrators): who has rights on the object, its own assignments added and removed in place, and those a VM inherits from its pools.
+- Edit a NAT or isolated network after its creation (subnet, DHCP range, NAT or isolated), with the subnet checked against the other networks; a DHCP range change is live, the rest is applied by restarting the network from its details. IP address management: DHCP reservations added, removed or made from a current lease, and lease end times.
+- Pending changes under a running VM's header on every tab: the settings its next start applies (vCPU, memory, machine type, CPU, firmware, disks, network cards, boot order, passthrough devices), current and next values side by side.
+- The HTTPS certificate on the local node's System page: its names, issuer and expiry; import a PEM certificate and key (checked before it replaces the current one, which is kept), get one from Let's Encrypt through certbot (renewed by certbot's timer, installed by `scripts/acme-deploy-hook.sh`), or go back to the previous or a self-signed certificate.
+- An Updates tab on the local node: upgradable packages with the security ones marked, a reboot-required notice, and the upgrade run as a task with apt's output in its log (Hyperlite's own package is left to its update page). DNS servers, time zone and NTP, and remote syslog forwarding on the node's System page.
+- Storage replication between nodes: decided not to build it for now, with the reasons, what covers the need today and what would reopen it (docs/design/replication.md).
+- Reboot or shut down the local node from its Actions menu: its name typed back to confirm, running VMs and containers named, and shut down cleanly first when asked (the node stays up if one of them does not stop).
+- My preferences (account menu), kept in the browser: the terminals' font and size, and the storage pools the Home page follows.
+- A Metrics page (administration): the Prometheus endpoint with a ready scrape job, and metric servers the collector pushes every sample to (InfluxDB 2 over HTTP, Graphite over TCP), each with a test button and its last error.
+- Backup jobs on the Backups page: one schedule for all of this node's VMs, those of a tag or of a pool (resolved at each run, some left out if wanted), run now or on schedule. GFS retention (last, daily, weekly, monthly) for these jobs and for each VM's schedule.
+- VM list views: grouped by node, tag or pool (a VM under each of its tags or pools), optional columns (node, IP, system, CPU and memory, uptime), and saved views that bring back filters, grouping, columns and sort, kept in the browser.
+- Help next to the technical settings (disk cache, discard, I/O, limits, ballooning, network mask, DHCP reservations, retention, metric servers, DNS search, syslog protocol, certificate chain): an (i) on the field, read on hover or keyboard focus, and a folded explanation for the disk options.
+- VM console: type text into the VM as key presses (passwords at a login prompt, no agent needed), a Keys menu for the combinations the workstation would catch (Ctrl+Alt+F1/F2/F7, Alt+Tab, Alt+F4, Windows key, Print Screen), and the guest's clipboard when it sends one. USB redirection stays with RDP and USB passthrough (docs/workstation-access.md).
+- File-level restore: browse a backup's filesystems from the VM's Backups tab and download a file, or a folder as a .tar.gz, without restoring the VM. The disks are read-only through libguestfs (never mounted on the host); needs `libguestfs-tools` and `python3-guestfs` on the node.
+- Sign in with LDAP or Active Directory accounts (authentication page): the usual sign-in form, the user found by a service account and checked by binding as them (an empty password is refused), the role given by the directory groups at each sign-in, optional allowed groups, ldaps:// or StartTLS with certificate checking. Local accounts are never taken over by the directory.
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).
@@ -89,6 +107,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A dashboard file that fails to download (a network change or drop, or files replaced by an update since the page was opened) no longer leaves a blank page: the page reloads, at most three times a minute.
+- Pages no longer ask the server again at each render: the translation function changed at every render, so the effects that load data kept running (the Network page called GET /networks hundreds of times a second, each call written to the audit log).
+- A backup schedule's directory is now checked: an absolute path outside the system's own directories (it was written as root wherever it pointed).
 - The NFS permission check writes its probe file only inside a pool mount point Hyperlite created (under `/var/lib/libvirt/hyperlite-pools`); a pool mounted elsewhere is reported as not checkable.
 - An automation job run is no longer reported as started, nor audited as a success, before it exists; invalid steps are refused with HTTP 422 and a crashed run is closed as failed.
 - Disks written by Hyperlite itself (clone, restore, move, resize, templates, ISOs) are found without depending on libvirt's volume cache.

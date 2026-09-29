@@ -107,6 +107,19 @@ def _check_current_password(user, password, action):
         return
     username = user["username"]
     _refuse_reauth_if_locked(username, action)
+    if user.get("auth_source") == "ldap":
+        # A directory account's password is the directory's: asked to the directory again.
+        from app.core import ldap_auth
+
+        try:
+            ok = ldap_auth.authenticate(username, password or "") is not None
+        except (ldap_auth.LdapError, ldap_auth.LocalAccountConflict) as e:
+            raise HTTPException(status_code=502, detail=f"The directory could not check the password: {e}") from e
+        if not ok:
+            _reauth_record_failure(username)
+            log_action(username, action, username, "echec", "Incorrect current password")
+            raise HTTPException(status_code=400, detail="Incorrect current password")
+        return
     if not verify_password(password or "", user["hashed_password"]):
         _reauth_record_failure(username)
         log_action(username, action, username, "echec", "Incorrect password")
@@ -540,6 +553,11 @@ def change_my_password(
     _refuse_reauth_if_locked(username, "change_password")
     if user.get("auth_source") == "sso":
         raise HTTPException(status_code=400, detail="SSO account: the password is managed by the identity provider")
+    if user.get("auth_source") == "ldap":
+        raise HTTPException(
+            status_code=400,
+            detail="Directory account: the password is changed in the directory (LDAP / Active Directory)",
+        )
     # 400, not 401, for a wrong password or code: the session itself is valid (a 401 signs the dashboard out).
     if not verify_password(payload.current_password, user["hashed_password"]):
         _reauth_record_failure(username)
@@ -625,6 +643,8 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
         # by hand (useful as a fallback when the IdP is down).
         if payload.password is not None and existing["auth_source"] == "sso":
             raise HTTPException(status_code=400, detail="SSO account: the password cannot be changed locally")
+        if payload.password is not None and existing["auth_source"] == "ldap":
+            raise HTTPException(status_code=400, detail="Directory account: the password is changed in the directory")
         if payload.password is not None:
             # An administrator changes their own password through /auth/me/password, which asks for the
             # current one (and the 2FA code): a stolen admin session must not be enough to lock the owner out.
