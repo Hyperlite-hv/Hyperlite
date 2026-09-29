@@ -40,5 +40,40 @@ def test_tar_excludes_bulky_data_but_keeps_the_rest(tmp_path):
     listing = subprocess.run(["tar", "-tzf", str(tarball)], capture_output=True, text=True, check=True).stdout
     assert "hyperlite/data/isos/big.iso" not in listing
     assert "hyperlite/data/backups/vm/disk.qcow2" not in listing
-    for kept in ("hyperlite/data/ssh/key", "hyperlite/app/main.py", "hyperlite/.env", "hyperlite/hyperlite.db"):
+    for kept in ("hyperlite/data/ssh/key", "hyperlite/app/main.py", "hyperlite/.env"):
         assert kept in listing
+    # Copied separately and consistently (SQLite backup API), never archived live nor extracted over the live one.
+    assert "hyperlite/hyperlite.db" not in listing
+
+
+def test_update_backups_are_readable_by_root_only(tmp_path, monkeypatch):
+    import sqlite3
+    import stat
+    import subprocess
+
+    repo = tmp_path / "hyperlite"
+    (repo / "data").mkdir(parents=True)
+    (repo / ".env").write_text("HYPERLITE_SECRET_KEY=secret\n")
+    db = repo / "hyperlite.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE t (x)")
+        conn.execute("INSERT INTO t VALUES (42)")
+    backups = tmp_path / "backups"
+    backups.mkdir(mode=0o755)
+    (backups / "hyperlite-backup-20260101T000000Z.tar.gz").write_text("old archive")
+    (backups / "hyperlite-backup-20260101T000000Z.tar.gz").chmod(0o644)
+    monkeypatch.setattr(update, "REPO_DIR", repo)
+    monkeypatch.setattr(update, "BACKUP_DIR", backups)
+    monkeypatch.setattr(update, "DB_PATH", db)
+
+    tarball = update._backup("t")
+
+    assert stat.S_IMODE(backups.stat().st_mode) == 0o700
+    for path in backups.iterdir():
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600, path.name
+    copy = tarball.with_name(tarball.name.replace(".tar.gz", ".db"))
+    with sqlite3.connect(copy) as conn:
+        assert conn.execute("SELECT x FROM t").fetchone()[0] == 42
+    listing = subprocess.run(["tar", "-tzf", str(tarball)], capture_output=True, text=True, check=True).stdout
+    assert "hyperlite/.env" in listing and "hyperlite.db" not in listing

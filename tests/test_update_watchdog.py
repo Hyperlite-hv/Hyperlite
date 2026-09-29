@@ -42,7 +42,8 @@ def test_watchdog_restores_the_backup_over_the_real_files(tmp_path):
 
     assert (repo / "app" / "main.py").read_text() == "GOOD = True\n"
     assert not (repo / "hyperlite").exists(), "the archive must not be nested inside the repository"
-    assert "restart hyperlite" in (tmp_path / "systemctl.log").read_text()
+    calls = (tmp_path / "systemctl.log").read_text().splitlines()
+    assert calls == ["stop hyperlite", "start hyperlite"]  # nothing runs while the files are put back
     assert "ROLLBACK" in log_file.read_text()
 
 
@@ -117,7 +118,7 @@ def test_watchdog_waits_for_a_slow_shutdown_instead_of_rolling_back(tmp_path):
 def test_watchdog_rolls_back_when_only_the_previous_process_ever_answers(tmp_path):
     log, calls = _run_with_health(tmp_path, ["old"])
     assert "ROLLBACK" in log
-    assert "restart hyperlite" in calls
+    assert "start hyperlite" in calls
     assert (tmp_path / "hyperlite" / "VERSION").read_text() == "old\n"
 
 
@@ -130,3 +131,41 @@ def test_health_reports_the_version_the_process_started_with(tmp_path, monkeypat
     monkeypatch.setattr(version, "VERSION_FILE", fake)
     assert version.read_version_file() == "installed-but-not-running"
     assert app_main._running_version() == started
+
+
+def test_a_git_rollback_sets_head_back_so_later_updates_are_not_refused(tmp_path):
+    repo = tmp_path / "hyperlite"
+    repo.mkdir()
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+    }
+    git = ["git", "-C", str(repo)]
+    subprocess.run([*git, "init", "-q"], check=True, env=env)
+    (repo / "VERSION").write_text("old\n")
+    subprocess.run([*git, "add", "."], check=True, env=env)
+    subprocess.run([*git, "commit", "-qm", "old"], check=True, env=env)
+    previous = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    tarball = tmp_path / "backup.tar.gz"
+    subprocess.run(["tar", "czf", str(tarball), "--exclude=.git", "-C", str(repo.parent), repo.name], check=True)
+    (repo / "VERSION").write_text("new\n")
+    subprocess.run([*git, "commit", "-qam", "new"], check=True, env=env)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _fake_bin(bin_dir, "curl", "exit 7")
+    _fake_bin(bin_dir, "sleep", "exit 0")
+    _fake_bin(bin_dir, "systemctl", "exit 0")
+    subprocess.run(
+        ["bash", str(WATCHDOG), str(tarball), str(repo), str(tmp_path / "update.log"), previous],
+        check=True,
+        env={**env, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+    )
+    head = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    status = subprocess.run([*git, "status", "--porcelain"], capture_output=True, text=True, check=True).stdout
+    assert head == previous
+    assert status == ""  # a clean tree: the next update is not refused
+    assert (repo / "VERSION").read_text() == "old\n"

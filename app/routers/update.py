@@ -21,6 +21,7 @@ import contextlib
 import logging
 import os
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
@@ -31,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core import version
 from app.core.audit import log_action
-from app.core.database import get_conn
+from app.core.database import DB_PATH, get_conn
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 
@@ -68,11 +69,22 @@ def _spawn_outside_service(unit_prefix, argv):
 
 
 # Exclusions from the backup tarball: DERIVED code/state, plus the bulky user data an update
-# never touches (uploaded ISOs, VM backups, exports, templates, imported disks). hyperlite.db,
-# .env and the rest of data/ stay included, which is what a rollback must be able to restore.
+# never touches (uploaded ISOs, VM backups, exports, templates, imported disks). .env and the
+# rest of data/ stay included, which is what a rollback must be able to restore.
 # Excluded files are simply left in place by a rollback (tar extraction never deletes), so
 # leaving them out cannot lose them; including them made each backup ~12 GB.
+#
+# The SQLite database is left out too: archived while the service writes to it, the database
+# and its WAL came from different instants, and extracting them over the live files on
+# rollback corrupted the database or dropped every write made during the update. A
+# consistent copy is taken separately with SQLite's online backup API (_backup_database), and
+# a rollback leaves the live database alone: the schema only ever grows (CREATE TABLE/ADD
+# COLUMN IF NOT EXISTS), so the previous code runs on the newer database.
 _BACKUP_EXCLUDES = [
+    f"--exclude={DB_PATH.name}",
+    f"--exclude={DB_PATH.name}-wal",
+    f"--exclude={DB_PATH.name}-shm",
+    f"--exclude={DB_PATH.name}-journal",
     "--exclude=venv",
     "--exclude=dashboard/node_modules",
     "--exclude=dashboard/dist",
@@ -87,11 +99,46 @@ UPDATE_BACKUPS_KEPT = 3
 
 
 def _prune_old_backups(directory, keep=UPDATE_BACKUPS_KEPT):
-    """Keep only the newest `keep` update backups; other files in the directory are never touched."""
-    backups = sorted(Path(directory).glob("hyperlite-backup-*.tar.gz"), key=lambda p: p.name, reverse=True)
-    for old in backups[keep:]:
+    """Keep only the newest `keep` update backups (archive and database copy); other files in the directory are
+    never touched."""
+    for pattern in ("hyperlite-backup-*.tar.gz", "hyperlite-backup-*.db"):
+        backups = sorted(Path(directory).glob(pattern), key=lambda p: p.name, reverse=True)
+        for old in backups[keep:]:
+            with contextlib.suppress(OSError):
+                old.unlink()
+
+
+def _secure_backup_dir(directory):
+    """The archives hold .env (the session signing key), the cluster's SSH key and the TLS key, and /root is
+    traversable (the package opens it to libvirt-qemu for the ISOs): only root may read them. Also tightens the
+    archives an earlier version left world-readable."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    for path in directory.glob("hyperlite-backup-*"):
         with contextlib.suppress(OSError):
-            old.unlink()
+            os.chmod(path, 0o600)
+
+
+def _private_file(path):
+    """Create `path` empty, readable by root only, before anything is written into it."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.close(fd)
+    os.chmod(path, 0o600)
+
+
+def _backup_database(dest):
+    """A consistent copy of the live database (SQLite online backup: includes what is still in the WAL)."""
+    _private_file(dest)
+    src = sqlite3.connect(str(DB_PATH), timeout=30)
+    try:
+        out = sqlite3.connect(str(dest))
+        try:
+            src.backup(out)
+        finally:
+            out.close()
+    finally:
+        src.close()
 
 
 def _run(cmd, cwd=None, timeout=180):
@@ -327,9 +374,12 @@ def check_update(user: dict = Depends(require_role("admin"))):
 
 
 def _backup(task_id):
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    _secure_backup_dir(BACKUP_DIR)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     tarball = BACKUP_DIR / f"hyperlite-backup-{stamp}.tar.gz"
+    if DB_PATH.exists():
+        _backup_database(BACKUP_DIR / f"hyperlite-backup-{stamp}.db")
+    _private_file(tarball)  # tar keeps the mode of an existing file: never world-readable, even for a moment
     cmd = ["tar", "czf", str(tarball), *_BACKUP_EXCLUDES, "-C", str(REPO_DIR.parent), REPO_DIR.name]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     # WARNING (a real bug found on the very first /update/apply ever run under real
@@ -415,7 +465,7 @@ def _run_update_job(task_id, username, branch):
         # this process cannot verify its own replacement).
         _spawn_outside_service(
             "hyperlite-update-watchdog",
-            ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
+            ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file), old_commit or ""],
         )
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
