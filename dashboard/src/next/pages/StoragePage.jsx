@@ -14,9 +14,11 @@ import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "../components/ui";
 
-const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
+const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
 const typeLabel = (type) => ({ netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI" }[type] || type);
+// Versions the mount is forced to (never negotiated, see app/routers/storage.py::_build_pool_xml).
+const NFS_VERSIONS = ["4.2", "4.1", "4.0", "4", "3"];
 
 function CreatePoolDrawer({ open, onClose }) {
   const t = useT();
@@ -41,7 +43,7 @@ function CreatePoolDrawer({ open, onClose }) {
     setBusy(true);
     try {
       const payload = form.type === "dir" ? { name: form.name, type: "dir", path: form.path || null }
-        : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path }
+        : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path, nfs_version: form.nfs_version }
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host, iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user || null, chap_password: form.chap_user ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
@@ -69,6 +71,11 @@ function CreatePoolDrawer({ open, onClose }) {
       {form.type === "netfs" && <>
         <Field label={t("stor.nfsHost")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.nfs_server_host")} value={form.nfs_host} onChange={set("nfs_host")} placeholder="192.168.1.10" />}</Field>
         <Field label={t("stor.nfsPath")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.exported_path")} value={form.nfs_export_path} onChange={set("nfs_export_path")} placeholder="/srv/share" />}</Field>
+        <Field label={t("stor.nfsVersion")} hint={t("stor.nfsVersionHelp")}>{(p) => (
+          <select {...p} className="nx-inp" value={form.nfs_version} onChange={set("nfs_version")}>
+            {NFS_VERSIONS.map((v) => <option key={v} value={v}>{`NFSv${v}`}{v === "4.2" ? ` (${t("stor.nfsDefault")})` : ""}</option>)}
+          </select>
+        )}</Field>
       </>}
       {form.type === "iscsi" && <>
         {local && support?.iscsi_initiator && (
@@ -141,7 +148,7 @@ export default function StoragePage() {
                         <td><StatusIndicator kind="pool" wire={p.etat} /></td>
                         <th scope="row" className="nx-nm">{p.nom}{p.chemin && <small className="nx-mono">{p.chemin}</small>}</th>
                         <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.nom || p.node}</td>
-                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type)}</Chip></td>
+                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type)}{p.type === "netfs" && p.nfs_version ? ` v${p.nfs_version}` : ""}</Chip></td>
                         <td><Meter value={r} label={`${p.nom} ${t("stor.usage")}`} /></td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.capacite_go, lang) ?? "—"}</td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.disponible_go, lang) ?? "—"}</td>
