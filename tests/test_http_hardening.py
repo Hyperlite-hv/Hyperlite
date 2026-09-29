@@ -60,6 +60,10 @@ def test_the_inline_scripts_of_index_html_are_allowed_by_hash(tmp_path):
     expected = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
     assert http_headers.inline_script_hashes(index) == [f"'sha256-{expected}'"]
     assert http_headers.inline_script_hashes(tmp_path / "missing.html") == []
+    # An end tag written with trailing whitespace is still an end tag: the script must still be found and hashed.
+    spaced = tmp_path / "spaced.html"
+    spaced.write_text(f"<script>{body}</script ><SCRIPT>b()</SCRIPT\n>")
+    assert len(http_headers.inline_script_hashes(spaced)) == 2
     csp = http_headers.content_security_policy([f"'sha256-{expected}'"], "hv:8000")
     assert f"script-src 'self' 'sha256-{expected}'" in csp
     assert "connect-src 'self' wss://hv:8000 ws://hv:8000" in csp
