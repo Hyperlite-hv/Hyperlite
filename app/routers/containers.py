@@ -21,7 +21,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from app.core import container_console, maintenance
+from app.core import container_console, maintenance, object_meta
 from app.core.audit import log_action
 from app.core.container_builder import (
     app_spec,
@@ -446,6 +446,7 @@ def delete_container(name: str, user: dict = Depends(require_role("admin"))):
 
         delete_container_rootfs(name)
         delete_container_ssh_user(name)
+        object_meta.delete("container", name)
         if get_container_app(name):
             if mac:
                 release_static_ip(conn, network, mac)

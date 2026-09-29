@@ -44,3 +44,18 @@ describe("bulk actions", () => {
     expect(nameList(many, (n) => `and ${n} more`, 3)).toBe("vm0, vm1, vm2 and 8 more");
   });
 });
+
+describe("tags typed by a user", async () => {
+  const { parseTags, TAG_RE, allTags } = await import("../next/lib/meta");
+  it("are split on commas and spaces, lowercased and deduplicated", () => {
+    expect(parseTags(" Prod, db  prod,,client-x ")).toEqual(["prod", "db", "client-x"]);
+    expect(parseTags("")).toEqual([]);
+    expect(TAG_RE.test("rack-a")).toBe(true);
+    expect(TAG_RE.test("-rack")).toBe(false);
+  });
+  it("are listed once per kind, sorted", () => {
+    const byKey = { a: { kind: "vm", tags: ["web", "prod"] }, b: { kind: "vm", tags: ["prod"] }, c: { kind: "node", tags: ["rack"] } };
+    expect(allTags(byKey, "vm")).toEqual(["prod", "web"]);
+    expect(allTags(byKey)).toEqual(["prod", "rack", "web"]);
+  });
+});

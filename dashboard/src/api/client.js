@@ -677,6 +677,19 @@ export async function fetchVM(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}${nodeQuery(node)}`);
 }
 
+// ---- Notes and tags of VMs, containers and nodes (GET /meta, GET/PUT /meta/{kind}/{name}); a VM's node travels
+// with the call, a node is identified by its own name.
+export async function fetchMetaList(kind = null) {
+  return realFetch(`/meta${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`);
+}
+export async function fetchMeta(kind, name, node = null) {
+  const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/meta/${kind}/${encodeURIComponent(name)}${q}`);
+}
+export async function saveMeta(kind, name, payload, node = null) {
+  const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/meta/${kind}/${encodeURIComponent(name)}${q}`, { method: "PUT", ...jsonBody(payload) });
+}
 // ---- Start at boot (GET/PUT /vms/{name}/boot): per node, so the VM's node travels with the call.
 export async function fetchVMBoot(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
