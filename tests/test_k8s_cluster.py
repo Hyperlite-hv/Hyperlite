@@ -127,6 +127,9 @@ def test_a_cluster_is_built_server_first_then_workers_and_hands_over_a_kubeconfi
     assert "current-context: demo" in config.text and "name: default" not in config.text
     assert 'filename="demo.kubeconfig"' in config.headers["content-disposition"]
 
+    from app.core import audit as audit_module
+
+    audit_module._AUDIT_QUEUE.join()  # audit entries are written by a background thread
     with database.get_conn() as conn:
         stored = conn.execute("SELECT jeton, kubeconfig FROM k8s_clusters WHERE nom = 'demo'").fetchone()
         audit = [r["action"] for r in conn.execute("SELECT action FROM audit_log").fetchall()]
