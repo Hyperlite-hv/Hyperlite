@@ -240,7 +240,7 @@ def storage_support(user: dict = Depends(get_current_user)):
 
 @router.post("", status_code=201)
 def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depends(require_role("admin"))):
-    name_error = validate_name(payload.name)
+    name_error = validate_name(payload.name, "storage pool")
     if name_error:
         log_action(user["username"], "create_storage_pool", payload.name, "echec", name_error)
         raise HTTPException(status_code=422, detail=name_error)
@@ -559,7 +559,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
             )
 
         base_name = payload.name[: -len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
-        name_error = validate_name(base_name)
+        name_error = validate_name(base_name, "volume")
         if name_error:
             log_action(user["username"], "create_volume", payload.name, "echec", name_error)
             raise HTTPException(status_code=422, detail=name_error)

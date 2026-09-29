@@ -28,10 +28,9 @@ class ConvertRequest(BaseModel):
 @router.post("/from-vm/{name}", status_code=201)
 def convert_to_template(name: str, payload: ConvertRequest, user: dict = Depends(require_role("admin"))):
     tpl_name = (payload.template_name or name).strip()
-    try:
-        validate_name(tpl_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    name_error = validate_name(tpl_name, "template")
+    if name_error:
+        raise HTTPException(status_code=422, detail=name_error)
     if templates_store.exists(tpl_name):
         raise HTTPException(status_code=409, detail=f"A template '{tpl_name}' already exists")
 
@@ -104,10 +103,9 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
     if tpl is None:
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
 
-    try:
-        validate_name(payload.new_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    name_error = validate_name(payload.new_name)
+    if name_error:
+        raise HTTPException(status_code=422, detail=name_error)
 
     conn = open_conn()
     try:

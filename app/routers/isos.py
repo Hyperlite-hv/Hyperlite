@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -13,11 +14,12 @@ from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
-from app.core.vm_builder import validate_name
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/isos", tags=["isos"])
+
+ISO_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,200}")
 
 ISOS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "isos"
 ISOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,12 +99,12 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
     if not filename.lower().endswith(".iso"):
         finish_task(task_id, "echec", "The file must have the .iso extension")
         raise HTTPException(status_code=422, detail="The file must have the .iso extension")
-    base_name = filename[:-4]
-    try:
-        validate_name(base_name)
-    except ValueError as exc:
-        finish_task(task_id, "echec", str(exc))
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Not the VM name rule: distribution ISOs are named with dots and underscores
+    # (debian-13.1.0-amd64-netinst.iso, ubuntu-24.04.3-live-server-amd64.iso).
+    if not ISO_NAME_RE.fullmatch(filename[:-4]):
+        msg = "Invalid ISO file name (letters, digits, dots, dashes, underscores and +, starting with a letter or a digit)"
+        finish_task(task_id, "echec", msg)
+        raise HTTPException(status_code=422, detail=msg)
 
     dest = safe_child(ISOS_DIR, filename)
     try:
