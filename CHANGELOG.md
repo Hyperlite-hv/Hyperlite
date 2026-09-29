@@ -19,6 +19,7 @@ All notable changes to this project are documented here. The format is based on 
 - Pending changes under a running VM's header on every tab: the settings its next start applies (vCPU, memory, machine type, CPU, firmware, disks, network cards, boot order, passthrough devices), current and next values side by side.
 - The HTTPS certificate on the local node's System page: its names, issuer and expiry; import a PEM certificate and key (checked before it replaces the current one, which is kept), get one from Let's Encrypt through certbot (renewed by certbot's timer, installed by `scripts/acme-deploy-hook.sh`), or go back to the previous or a self-signed certificate.
 - An Updates tab on the local node: upgradable packages with the security ones marked, a reboot-required notice, and the upgrade run as a task with apt's output in its log (Hyperlite's own package is left to its update page). DNS servers, time zone and NTP, and remote syslog forwarding on the node's System page.
+- Storage replication between nodes: decided not to build it for now, with the reasons, what covers the need today and what would reopen it (docs/design/replication.md).
 - New `vm.options` and `container.options` privileges, part of the Manager role.
 - Security response headers on every answer (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy); HSTS is opt-in with `HYPERLITE_HSTS_MAX_AGE`.
 - Edit a notification channel in place (`PATCH /notifications/channels/{id}`).
