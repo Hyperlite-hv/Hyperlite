@@ -80,15 +80,63 @@ def create_channel(type_, name, config, events, username):
 
 
 def delete_channel(channel_id):
+    """False when there is no such channel."""
     with get_conn() as conn:
-        conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
+        cur = conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
         conn.commit()
+    return cur.rowcount > 0
+
+
+def get_channel_type(channel_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT type FROM notification_channels WHERE id = ?", (channel_id,)).fetchone()
+    return row["type"] if row else None
+
+
+def update_channel(channel_id, name=None, config=None, events=None, enabled=None, clear_smtp_password=False):
+    """Change the given fields of a channel (None leaves a field as is). Returns False
+    when there is no such channel.
+
+    `config` replaces the whole configuration, except the SMTP password: the API never
+    hands it back, so an edit form cannot resend it, and an empty or missing one keeps
+    the stored password unless `clear_smtp_password` is set."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT type, config FROM notification_channels WHERE id = ?", (channel_id,)).fetchone()
+        if row is None:
+            return False
+        sets, params = [], []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
+        if events is not None:
+            sets.append("events = ?")
+            params.append(json.dumps(events))
+        if enabled is not None:
+            sets.append("enabled = ?")
+            params.append(1 if enabled else 0)
+        if config is not None or clear_smtp_password:
+            stored = json.loads(row["config"])
+            new_config = dict(config) if config is not None else dict(stored)
+            if row["type"] == "email":
+                if clear_smtp_password:
+                    new_config.pop("smtp_password", None)
+                elif new_config.get("smtp_password"):
+                    new_config["smtp_password"] = secrets_crypto.encrypt(new_config["smtp_password"])
+                elif stored.get("smtp_password"):
+                    new_config["smtp_password"] = stored["smtp_password"]  # still encrypted
+                else:
+                    new_config.pop("smtp_password", None)
+            sets.append("config = ?")
+            params.append(json.dumps(new_config))
+        if sets:
+            # Only fixed column fragments are interpolated; values are bound parameters.
+            conn.execute(f"UPDATE notification_channels SET {', '.join(sets)} WHERE id = ?", (*params, channel_id))  # noqa: S608
+            conn.commit()
+    return True
 
 
 def set_enabled(channel_id, enabled):
-    with get_conn() as conn:
-        conn.execute("UPDATE notification_channels SET enabled = ? WHERE id = ?", (1 if enabled else 0, channel_id))
-        conn.commit()
+    return update_channel(channel_id, enabled=enabled)
 
 
 def _send_webhook(config, title, message, event, result):
