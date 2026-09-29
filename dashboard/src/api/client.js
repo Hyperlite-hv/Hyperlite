@@ -249,6 +249,19 @@ export async function createNetwork(payload) {
 export async function deleteNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
 }
+// The host's interfaces a bridged network can sit on (existing bridges, NICs, bonds, VLANs; Wi-Fi listed as unusable).
+export async function fetchHostInterfaces() {
+  return realFetch("/networks/host-interfaces");
+}
+export async function startNetwork(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/start`, { method: "POST" });
+}
+export async function stopNetwork(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/stop?confirm=true`, { method: "POST" });
+}
+export async function setNetworkAutostart(name, autostart) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/autostart`, { method: "PUT", ...jsonBody({ autostart }) });
+}
 
 // ---- Network firewall (real: GET/PUT /networks/{name}/firewall), distinct from
 // the per-VM firewall: it filters at the bridge level, not at the interface level ----
