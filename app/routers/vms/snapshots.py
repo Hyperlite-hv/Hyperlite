@@ -72,8 +72,16 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
                 for s in zfs_storage.list_zvol_snapshots(pool0, name0)
             ]
         else:
-            snaps = domain.listAllSnapshots()
-            result = [_snapshot_summary(s) for s in snaps]
+            result = []
+            for snap in domain.listAllSnapshots():
+                # A snapshot deleted while the list is built (the page refreshes it during a deletion) is skipped:
+                # the whole list used to fail with "Domain snapshot not found".
+                try:
+                    result.append(_snapshot_summary(snap))
+                except libvirt.libvirtError as e:
+                    if e.get_error_code() != libvirt.VIR_ERR_NO_DOMAIN_SNAPSHOT:
+                        raise
+                    logger.debug("Snapshot vanished while listing %s: %s", name, e)
         log_action(user["username"], "list_snapshots", name, "succes")
         return result
     finally:

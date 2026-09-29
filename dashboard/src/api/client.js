@@ -779,6 +779,10 @@ export async function fetchVolumes(pool) {
 export async function fetchStorageSupport() {
   return realFetch("/storage/support");
 }
+// Whether QEMU can own its disk files on an NFS pool of this host (root_squash): { ok, message }.
+export async function checkPoolPermissions(name) {
+  return realFetch(`/storage/${encodeURIComponent(name)}/check-permissions`, { method: "POST" });
+}
 export async function createStoragePool(payload, node) {
   const qs = node ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/storage${qs}`, { method: "POST", ...jsonBody(payload) });
