@@ -1,4 +1,5 @@
 import contextlib
+import logging
 import re
 import shutil
 import socket
@@ -17,6 +18,8 @@ from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, o
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
 from app.core.vm_limits import validate_vm_resources
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
@@ -112,8 +115,15 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
     conn = open_conn(node)
     try:
         ensure_default_pool(conn)
-        pools = conn.listAllStoragePools()
-        result = [_pool_summary(p) for p in pools]
+        result = []
+        for pool in conn.listAllStoragePools():
+            # A pool removed while the list is built (another session deleting it) is skipped, not a failed list.
+            try:
+                result.append(_pool_summary(pool))
+            except libvirt.libvirtError as e:
+                if e.get_error_code() != libvirt.VIR_ERR_NO_STORAGE_POOL:
+                    raise
+                logger.debug("Storage pool vanished while listing: %s", e)
         if not node or node == "local":
             result += zfs_storage.list_pools()
         for p in result:
