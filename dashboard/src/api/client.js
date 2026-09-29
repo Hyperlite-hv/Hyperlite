@@ -25,15 +25,27 @@ export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = fn;
 }
 
+const READ_TIMEOUT_MS = 30000;
+
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const sent = token;
   if (token) headers.Authorization = `Bearer ${token}`;
+  // A read that never answers used to freeze the polling for good, with nothing saying the data went stale: reads
+  // give up after READ_TIMEOUT_MS, so the failure shows (the stale-data banner) and the next tick tries again.
+  // Changes (POST, PUT...) keep no limit: some legitimately run for minutes, and must not be retried blindly.
+  const isRead = !opts.method || opts.method.toUpperCase() === "GET";
+  const controller = isRead && !opts.signal ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), READ_TIMEOUT_MS) : null;
   let res;
   try {
-    res = await fetch(path, { ...opts, headers });
-  } catch {
+    res = await fetch(path, { ...opts, headers, ...(controller ? { signal: controller.signal } : {}) });
+  } catch (e) {
+    if (controller?.signal.aborted) throw new Error(`The server did not answer within ${READ_TIMEOUT_MS / 1000} s.`);
+    if (e?.name === "AbortError") throw e;
     throw new Error("Cannot reach the server. Check your network connection and try again.");
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   let data = null;
   let parsed = true;
@@ -337,7 +349,9 @@ export async function fetchKubeconfig(name) {
   if (!res.ok) {
     let detail = null;
     try { detail = (await res.json()).detail; } catch { /* not JSON: keep the generic message */ }
-    throw new Error(normalizeDetail(detail) || "Unknown error");
+    // Same session handling as every other call: an expired session signs out instead of looking like an error.
+    if (res.status === 401 && token) unauthorizedHandler?.();
+    throw Object.assign(new Error(normalizeDetail(detail) || "Unknown error"), { status: res.status });
   }
   return res.text();
 }

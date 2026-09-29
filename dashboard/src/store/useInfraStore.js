@@ -28,6 +28,9 @@ export const useInfraStore = create((set, get) => ({
   networks: [],
   loading: true,
   error: null,
+  // Bumped by every local change of the inventory (a VM action's result): a refresh that started before it is
+  // stale and is dropped (see next/lib/inventory.js).
+  mutations: 0,
 
   // ---- Selection / navigation ----
   selection: { type: "datacenter", id: null }, // { type: "datacenter" | "node" | "vm", id }
@@ -75,10 +78,12 @@ export const useInfraStore = create((set, get) => ({
   // see the changes made by another user (or from another tab) without having to
   // reload the page by hand.
   async refreshAll() {
+    const mutationsAtStart = get().mutations;
     try {
       const [nodes, vms, storagePools, networks] = await Promise.all([
         fetchNodes(), fetchVMs(), fetchStoragePools(), fetchNetworks(),
       ]);
+      if (get().mutations !== mutationsAtStart) return; // an action changed the inventory meanwhile: stale answer
       set({ nodes, vms, storagePools, networks });
     } catch {
       // Silent failure: keep the last known state rather than break the display for a
@@ -175,7 +180,7 @@ export const useInfraStore = create((set, get) => ({
   },
 
   addVM(vm) {
-    set((s) => ({ vms: [...s.vms, vm] }));
+    set((s) => ({ mutations: s.mutations + 1, vms: [...s.vms, vm] }));
   },
 
   // ---- VM actions ----
@@ -215,6 +220,7 @@ export const useInfraStore = create((set, get) => ({
         ? await apiFn(vmName, force, node)
         : await apiFn(vmName, node);
       set((s) => ({
+        mutations: s.mutations + 1,
         vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: result.etat, ip: result.ip } : v))
           .filter((v) => !(action === "delete" && isThis(v))),
       }));
@@ -228,7 +234,7 @@ export const useInfraStore = create((set, get) => ({
         setTimeout(async () => {
           try {
             const fresh = await fetchVM(vmName, node);
-            set((s) => ({ vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
+            set((s) => ({ mutations: s.mutations + 1, vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
           } catch { /* the VM may have been deleted in the meantime, no consequence */ }
         }, 4000);
       }
@@ -251,6 +257,7 @@ export const useInfraStore = create((set, get) => ({
     try {
       const updated = await updateVM(vmName, payload);
       set((s) => ({
+        mutations: s.mutations + 1,
         vms: s.vms.map((v) => (sameVm(v, vm) ? { ...v, vcpu: updated.vcpu, memoire_mo: updated.memoire_mo } : v)),
       }));
       get().completeTask(taskId, "termine");
