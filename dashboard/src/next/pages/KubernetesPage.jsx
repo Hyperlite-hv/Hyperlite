@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Boxes, Download, Info, Plus, Trash2 } from "lucide-react";
-import { createK8sCluster, deleteK8sCluster, fetchK8sClusters, fetchKubeconfig } from "../../api/client";
+import { createK8sCluster, deleteK8sCluster, fetchK8sClusters, fetchKubeconfig, fetchNetworks } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -8,7 +8,7 @@ import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatDateTime } from "../lib/format";
-import { ErrorState } from "../components/States";
+import { ErrorState, InlineError } from "../components/States";
 import { PageHeader, Empty, Loading, Pill, StatePill, TableWrap } from "../components/ui";
 
 const TONE = { pret: "success", creation: "info", suppression: "info", echec: "danger" };
@@ -110,8 +110,22 @@ export default function KubernetesPage() {
 function CreateClusterDialog({ onClose, onStarted }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
-  const networks = useInfraStore((s) => s.networks).filter((n) => n.actif);
-  const [form, setForm] = useState({ nom: "", workers: 2, vcpu: 2, memoire_mo: 2048, disque_go: 20, reseau: networks.find((n) => n.type === "nat")?.nom || networks[0]?.nom || "" });
+  const storeNetworks = useInfraStore((s) => s.networks);
+  // Read fresh rather than trusted from the store: the store may be stale or not loaded yet, and an
+  // empty list would just disable "Create" with nothing saying why.
+  const [freshNetworks, setFreshNetworks] = useState(null);
+  const [networksError, setNetworksError] = useState(null);
+  const loadNetworks = useCallback(() => {
+    setNetworksError(null);
+    fetchNetworks().then((l) => setFreshNetworks(Array.isArray(l) ? l : [])).catch((e) => setNetworksError(errorMessage(e)));
+  }, []);
+  useEffect(() => { loadNetworks(); }, [loadNetworks]);
+  const networks = (freshNetworks ?? storeNetworks).filter((n) => n.actif);
+  const pickNetwork = (list) => list.find((n) => n.type === "nat")?.nom || list[0]?.nom || "";
+  const [form, setForm] = useState({ nom: "", workers: 2, vcpu: 2, memoire_mo: 2048, disque_go: 20, reseau: pickNetwork(networks) });
+  useEffect(() => {
+    setForm((f) => (networks.some((n) => n.nom === f.reseau) ? f : { ...f, reseau: pickNetwork(networks) }));
+  }, [freshNetworks, storeNetworks]); // eslint-disable-line react-hooks/exhaustive-deps
   const lang = useLangStore((s) => s.lang);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -158,6 +172,7 @@ function CreateClusterDialog({ onClose, onStarted }) {
             {networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom}{n.type ? ` (${n.type})` : ""}</option>)}
           </select>
         </label>
+        {networksError && <InlineError message={networksError} onRetry={loadNetworks} />}
         {/* wire value of an isolated libvirt network: "isole" (see app/routers/network.py) */}
         {net?.type === "isole" && <div className="nx-bn" data-tone="warning" role="status"><span className="nx-bn-t">{t("k8s.isolatedWarn")}</span></div>}
         <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("k8s.total", { n: nodesCount, vcpu: nodesCount * Number(form.vcpu), mem: new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format((nodesCount * Number(form.memoire_mo)) / 1024), disk: nodesCount * Number(form.disque_go) })}</p>

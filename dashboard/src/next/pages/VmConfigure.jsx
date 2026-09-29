@@ -12,7 +12,7 @@ import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeGb } from "../lib/format";
-import { ErrorState } from "../components/States";
+import { ErrorState, InlineError } from "../components/States";
 import { Card, Chip, Field, SideDrawer, Loading, TableWrap } from "../components/ui";
 import FirewallCard from "../components/FirewallCard";
 
@@ -227,9 +227,14 @@ function DriversCard({ vmName, onChanged }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [isos, setIsos] = useState([]);
+  const [isosError, setIsosError] = useState(null);
   const [iso, setIso] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { fetchIsoTemplates().then((r) => setIsos(Array.isArray(r) ? r : [])).catch(() => setIsos([])); }, []);
+  const loadIsos = useCallback(() => {
+    setIsosError(null);
+    fetchIsoTemplates().then((r) => setIsos(Array.isArray(r) ? r : [])).catch((e) => { setIsos([]); setIsosError(errorMessage(e)); });
+  }, []);
+  useEffect(() => { loadIsos(); }, [loadIsos]);
   async function change(eject) {
     setBusy(true);
     try {
@@ -249,6 +254,7 @@ function DriversCard({ vmName, onChanged }) {
         <button type="button" className="nx-btn" disabled={busy || !iso} onClick={() => change(false)}>{t("vh.drvInsert")}</button>
         <button type="button" className="nx-btn nx-btn--ghost" disabled={busy} onClick={() => change(true)}>{t("vh.drvEject")}</button>
       </div>
+      {isosError && <InlineError message={isosError} onRetry={loadIsos} />}
       <p className="nx-f-h" style={{ margin: "var(--space-2) 0 0" }}>{t("vh.drvHelp")}</p>
     </Card>
   );
@@ -427,10 +433,19 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [networks, setNetworks] = useState([]);
+  const [networksError, setNetworksError] = useState(null);
   const [net, setNet] = useState("");
   const [vlan, setVlan] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) fetchNetworks().then((n) => { const l = Array.isArray(n) ? n : []; setNetworks(l); setNet((p) => p || l[0]?.nom || ""); }).catch(() => setNetworks([])); }, [open]);
+  const loadNetworks = useCallback(() => {
+    setNetworksError(null);
+    fetchNetworks().then((n) => {
+      const l = Array.isArray(n) ? n : [];
+      setNetworks(l);
+      setNet((p) => p || (l.find((x) => x.actif) || l[0])?.nom || "");
+    }).catch((e) => { setNetworks([]); setNetworksError(errorMessage(e)); });
+  }, []);
+  useEffect(() => { if (open) loadNetworks(); }, [open, loadNetworks]);
   const vlanBad = vlan !== "" && (!Number.isInteger(Number(vlan)) || Number(vlan) < 1 || Number(vlan) > 4094);
   async function add() {
     if (!net || vlanBad) return;
@@ -443,7 +458,8 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
       <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
       <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !net || vlanBad} onClick={add}>{t("vh.addIfBtn")}</button>
     </>}>
-      <Field label={t("vh.network")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.network_to_attach")} value={net} onChange={(e) => setNet(e.target.value)}>{networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({t(`net.mode.${n.type}`)})</option>)}</select>}</Field>
+      <Field label={t("vh.network")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.network_to_attach")} value={net} onChange={(e) => setNet(e.target.value)}>{networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({t(`net.mode.${n.type}`)}{n.actif === false ? ` · ${t("wz.netStopped")}` : ""})</option>)}</select>}</Field>
+      {networksError && <InlineError message={networksError} onRetry={loadNetworks} />}
       <Field label="VLAN" error={vlanBad ? t("vh.vlanRule") : null} hint={t("vh.vlanHint")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vlan_optional")} type="number" min={1} max={4094} value={vlan} placeholder={t("vh.optional")} onChange={(e) => setVlan(e.target.value)} />}</Field>
     </SideDrawer>
   );

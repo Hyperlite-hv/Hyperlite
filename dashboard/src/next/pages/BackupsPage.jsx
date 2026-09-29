@@ -10,7 +10,7 @@ import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
-import { ErrorState } from "../components/States";
+import { ErrorState, InlineError } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Archive, Info, Trash2 } from "lucide-react";
 
@@ -28,12 +28,17 @@ export default function BackupsPage() {
   const ctx = useContextTarget(); // right click on a backup: its actions
   const [error, setError] = useState(null);
   const [scheduled, setScheduled] = useState(null);
+  const [scheduleError, setScheduleError] = useState(null);
   const vms = useInfraStore((s) => s.vms);
 
   const load = useCallback(async () => {
     try { const r = await fetchAllBackups(); setRows(Array.isArray(r) ? r : []); setError(null); }
     catch (e) { setError(errorMessage(e)); }
-    fetchBackupSchedules().then((r) => setScheduled(new Set((Array.isArray(r) ? r : []).map((x) => x.vm_name)))).catch(() => setScheduled(null));
+    // A failed read keeps the last known schedules and says so: dropping them would make the
+    // "VMs without a backup schedule" warning vanish exactly when it cannot be checked.
+    fetchBackupSchedules()
+      .then((r) => { setScheduled(new Set((Array.isArray(r) ? r : []).map((x) => x.vm_name))); setScheduleError(null); })
+      .catch((e) => setScheduleError(errorMessage(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
   const running = Boolean(rows?.some((b) => !STATUS[b.statut]));
@@ -54,6 +59,7 @@ export default function BackupsPage() {
         <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("bk.unscheduled", { n: unprotected })}</span>
           <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("datacenter", null, "vms")}>{t("bk.seeVms")}</button></div>
       )}
+      {scheduleError && <InlineError message={scheduleError} onRetry={load} />}
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
           : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
