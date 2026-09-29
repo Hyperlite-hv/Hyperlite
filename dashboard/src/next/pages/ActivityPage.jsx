@@ -1,10 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { fetchTasks, fetchTaskDetail } from "../../api/client";
+import { fetchTasks, fetchTaskDetail, downloadTasksCsv } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
 import { taskLabel, TASK_LABEL_KEYS } from "../lib/enums";
-import { normalizeDetail } from "../lib/errors";
+import { errorMessage, normalizeDetail } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
@@ -17,11 +17,6 @@ function duration(start, end, now) {
   if (!start) return "—";
   const s = Math.max(0, Math.round(((end ? new Date(end).getTime() : now) - new Date(start).getTime()) / 1000));
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-}
-
-function csv(rows) {
-  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  return ["id,type,target,node,user,status,started,ended,error", ...rows.map((r) => [r.id, r.type, r.cible, r.node, r.username, r.statut, r.debut_le || r.cree_le, r.fin_le, r.erreur].map(esc).join(","))].join("\n");
 }
 
 // Activity: every persisted task with the filters the API already supports (status, type, target,
@@ -42,13 +37,18 @@ export default function ActivityPage({ selection }) {
   const [open, setOpen] = useState(null);
   const [detail, setDetail] = useState({});
 
+  const [exporting, setExporting] = useState(false);
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const filters = useCallback(() => {
+    const depuis = SINCE[f.since] ? new Date(Date.now() - SINCE[f.since] * 1000).toISOString() : undefined;
+    return { node: nodeId ?? (f.node || undefined), statut: f.statut, type: f.type, cible: f.cible, username: f.username, depuis };
+  }, [f, nodeId]);
   const load = useCallback(async () => {
     try {
-      const depuis = SINCE[f.since] ? new Date(Date.now() - SINCE[f.since] * 1000).toISOString() : undefined;
-      const r = await fetchTasks({ node: nodeId ?? (f.node || undefined), statut: f.statut, type: f.type, cible: f.cible, username: f.username, depuis, limit: 200, tri: "cree_le", ordre: "desc" });
+      const r = await fetchTasks({ ...filters(), limit: 200, tri: "cree_le", ordre: "desc" });
       setRows(Array.isArray(r) ? r : []); setNow(Date.now()); setError(null);
     } catch (e) { setError(normalizeDetail(e.message)); }
-  }, [f, nodeId]);
+  }, [filters]);
   usePolling(load, 8000);
   useEffect(() => { load(); }, [load]);
 
@@ -63,9 +63,12 @@ export default function ActivityPage({ selection }) {
       setDetail((x) => ({ ...x, [r.id]: d }));
     }
   };
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([csv(rows || [])], { type: "text/csv" }));
-    const a = document.createElement("a"); a.href = url; a.download = "hyperlite-tasks.csv"; a.click(); URL.revokeObjectURL(url);
+  // Every matching task, from the server: the page itself only holds the 200 most recent.
+  const download = async () => {
+    setExporting(true);
+    try { await downloadTasksCsv(filters()); }
+    catch (e) { pushToast({ kind: "error", title: t("act.exportFailed"), message: errorMessage(e) }); }
+    finally { setExporting(false); }
   };
 
   const dirty = JSON.stringify(f) !== JSON.stringify(EMPTY_F);
@@ -117,7 +120,7 @@ export default function ActivityPage({ selection }) {
         <select className="nx-sel" aria-label={t("act.period")} value={f.since} onChange={upd("since")}>{Object.keys(SINCE).map((k) => <option key={k} value={k}>{t(`act.since.${k}`)}</option>)}</select>
         {dirty && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setF(EMPTY_F)}>{t("act.clear")}</button>}
         <span className="nx-sp" />
-        <button type="button" className="nx-btn" disabled={!rows?.length} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>
+        <button type="button" className="nx-btn" disabled={!rows?.length || exporting} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>
       </div>
       <div className="nx-card2 nx-card2--flush">{table}</div>
     </>

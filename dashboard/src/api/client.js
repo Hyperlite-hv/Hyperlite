@@ -366,6 +366,38 @@ export async function downloadVmExport(filename) {
 }
 
 // ---- Audit journal (real: the audit_log table, fed by every action) ----
+// Complete CSV exports (GET /audit/export.csv, /tasks/export.csv): every row matching the
+// filters, streamed by the server, not only the rows loaded on the page.
+async function downloadCsv(path, filters, fallbackName) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") params.set(k, v);
+  });
+  const qs = params.toString();
+  let res;
+  try {
+    res = await fetch(`${path}${qs ? `?${qs}` : ""}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch {
+    throw new Error("Cannot reach the server. Check your network connection and try again.");
+  }
+  if (!res.ok) {
+    let detail = null;
+    try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+    throw Object.assign(new Error(normalizeDetail(detail) || `HTTP ${res.status}`), { status: res.status });
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "")?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+export function downloadAuditCsv(filters = {}) {
+  return downloadCsv("/audit/export.csv", filters, "hyperlite-audit.csv");
+}
+export function downloadTasksCsv(filters = {}) {
+  return downloadCsv("/tasks/export.csv", filters, "hyperlite-tasks.csv");
+}
+
 export async function fetchAuditLog(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
