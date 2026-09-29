@@ -1,5 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import UTC, datetime
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
+from app.core.csv_export import csv_lines, newest_first
 from app.core.database import get_conn
 from app.core.security import get_current_user
 
@@ -26,7 +30,59 @@ def list_tasks(
 ):
     tri = _SORT_COLUMNS.get(tri, "cree_le")
     ordre_sql = "ASC" if ordre.lower() == "asc" else "DESC"
+    clauses, params = _clauses(statut, type, username, cible, node, depuis)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(
+            # Only fixed fragments/allowlisted column names are interpolated; values are bound parameters.
+            f"SELECT * FROM tasks {where} ORDER BY {tri} {ordre_sql} LIMIT ?",  # noqa: S608
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]
 
+
+EXPORT_COLUMNS = (
+    "id",
+    "cree_le",
+    "type",
+    "cible",
+    "node",
+    "username",
+    "statut",
+    "progres",
+    "debut_le",
+    "fin_le",
+    "erreur",
+)
+
+
+@router.get("/export.csv")
+def export_tasks(
+    statut: str | None = None,
+    type: str | None = None,
+    username: str | None = None,
+    cible: str | None = None,
+    node: str | None = None,
+    depuis: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """EVERY task matching the same filters as GET /tasks, newest first, as CSV (the page
+    only loads the most recent ones)."""
+    clauses, params = _clauses(statut, type, username, cible, node, depuis)
+    rows = newest_first("tasks", EXPORT_COLUMNS, clauses, params)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return StreamingResponse(
+        csv_lines(
+            ("id", "created", "type", "target", "node", "user", "status", "progress", "started", "finished", "error"),
+            rows,
+        ),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="hyperlite-tasks-{stamp}.csv"'},
+    )
+
+
+def _clauses(statut, type, username, cible, node, depuis):
     clauses, params = [], []
     if statut:
         clauses.append("statut = ?")
@@ -46,16 +102,7 @@ def list_tasks(
     if depuis:
         clauses.append("cree_le >= ?")
         params.append(depuis)
-
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    params.append(limit)
-    with get_conn() as conn:
-        rows = conn.execute(
-            # Only fixed fragments/allowlisted column names are interpolated; values are bound parameters.
-            f"SELECT * FROM tasks {where} ORDER BY {tri} {ordre_sql} LIMIT ?",  # noqa: S608
-            params,
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return clauses, params
 
 
 @router.get("/{task_id}")
