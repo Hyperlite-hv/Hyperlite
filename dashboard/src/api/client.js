@@ -697,6 +697,13 @@ export async function saveMeta(kind, name, payload, node = null) {
   const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/meta/${kind}/${encodeURIComponent(name)}${q}`, { method: "PUT", ...jsonBody(payload) });
 }
+// ---- Cloud-init after creation (GET/PUT /vms/{name}/cloud-init, VMs of this host made from a cloud image).
+export async function fetchVMCloudInit(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`);
+}
+export async function setVMCloudInit(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`, { method: "PUT", ...jsonBody(payload) });
+}
 // ---- Start at boot (GET/PUT /vms/{name}/boot): per node, so the VM's node travels with the call.
 export async function fetchVMBoot(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";

@@ -71,7 +71,7 @@ function useUrlSync() {
 // VM pages whose endpoints only manage the VMs of this host (they take no node): for a remote VM they would read
 // and change a local VM of the same name, so they are replaced by an explanation.
 // "options" is not listed: start at boot works on every node; its local-only sections say so themselves.
-const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots"]);
+const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots", "cloudinit"]);
 
 // Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
 const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports"]);
