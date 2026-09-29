@@ -278,17 +278,19 @@ def _close_run(run_id, task_id, job_name, username, ok, error=None):
         resultat = f"ERROR: {error}"
     else:
         resultat = "FAILED"
+    if ok:
+        finish_task(task_id, "termine")
+    else:
+        finish_task(task_id, "echec", f"Job '{job_name}': {resultat}")
+    log_action(username, "run_job", job_name, "succes" if ok else "echec", resultat)
+    # The run row is what the dashboard polls: written last, a run shown as finished never has its task still
+    # running nor its outcome missing from the audit log.
     with get_conn() as db:
         db.execute(
             "UPDATE job_runs SET statut = ?, finished_at = ?, resultat = ? WHERE id = ?",
             ("succes" if ok else "echec", _now(), resultat, run_id),
         )
         db.commit()
-    if ok:
-        finish_task(task_id, "termine")
-    else:
-        finish_task(task_id, "echec", f"Job '{job_name}': {resultat}")
-    log_action(username, "run_job", job_name, "succes" if ok else "echec", resultat)
 
 
 def _execute_run(run_id, task_id, job_name, build_steps, dry_run, username):
