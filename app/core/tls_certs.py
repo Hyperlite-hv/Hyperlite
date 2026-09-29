@@ -202,10 +202,9 @@ def acme_command(domain, email, staging=False):
         "--keep-until-expiring",
         "--preferred-challenges",
         "http",
-        "-d",
-        domain,
-        "-m",
-        email,
+        # The attached "--opt=value" form: a value can never be read as another option, whatever it starts with.
+        f"--domains={domain}",
+        f"--email={email}",
         "--deploy-hook",
         str(ACME_HOOK),
     ]
