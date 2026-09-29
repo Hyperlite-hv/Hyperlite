@@ -166,7 +166,10 @@
 .nx-brand { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
 .nx-crumbs { display: flex; flex: 0 1 auto; align-items: center; gap: var(--space-1); min-width: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
 .nx-crumbs span[aria-hidden] { color: var(--color-text-muted); }
-.nx-crumbs button { background: none; border: 0; cursor: pointer; padding: 2px var(--space-1); color: inherit; border-radius: var(--radius-sm); }
+.nx-crumbs button { background: none; border: 0; cursor: pointer; padding: 2px var(--space-1); color: inherit; border-radius: var(--radius-sm); white-space: nowrap; }
+/* A narrow window (a laptop at 125 or 150 % display scaling): the path stays on one line, the current page shortened. */
+.nx-crumb-seg { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; white-space: nowrap; }
+.nx-crumb-seg:last-child { flex: 0 1 auto; overflow: hidden; }
 .nx-crumbs button:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
 .nx-crumbs .nx-crumb-current { color: var(--color-text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nx-top-spacer { flex: 1; }

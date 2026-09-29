@@ -3,7 +3,7 @@ import { termOptions } from "../lib/prefs";
 import { Check, CircleCheck, ExternalLink, Network, Plug, RefreshCw, TriangleAlert, Unplug } from "lucide-react";
 import { fetchNodeCapabilitiesById, fetchHostPreflight, fetchNodeCompatibility, fetchNodeHardware, createHostTerminalTicket, fetchHealth } from "../../api/client";
 import { flattenCapabilities, deriveFeatures, NA } from "../../lib/capabilitiesView";
-import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
+import { ensureXtermLoaded, keepFitted, loadTerminalFont, wsUrl } from "../../utils/loadXterm";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
@@ -197,7 +197,7 @@ export function NodeShellPage({ resource: node }) {
   const cleanup = useCallback(() => {
     try { ws.current?.close(); } catch { /* already closed */ }
     try { term.current?.dispose(); } catch { /* already disposed */ }
-    if (onResize.current) window.removeEventListener("resize", onResize.current);
+    onResize.current?.();
     ws.current = null; term.current = null; onResize.current = null;
     if (screen.current) screen.current.innerHTML = "";
     setStatus("idle");
@@ -211,9 +211,11 @@ export function NodeShellPage({ resource: node }) {
       const ticket = await createHostTerminalTicket();
       setStarted(true);
       screen.current.innerHTML = "";
+      const options = termOptions();
+      await loadTerminalFont(options);
       // xterm is loaded as a UMD global; its theme is the graphite of the navigation column.
       // eslint-disable-next-line no-undef
-      const tm = new Terminal(termOptions());
+      const tm = new Terminal(options);
       // eslint-disable-next-line no-undef
       const fit = new FitAddon.FitAddon();
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;
@@ -225,8 +227,7 @@ export function NodeShellPage({ resource: node }) {
       sock.onerror = () => setError(t("nn.shellError"));
       tm.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(d); });
       tm.onResize(({ cols, rows }) => { if (sock.readyState === WebSocket.OPEN) sock.send("\x00" + JSON.stringify({ cols, rows })); });
-      onResize.current = () => fit.fit();
-      window.addEventListener("resize", onResize.current);
+      onResize.current = keepFitted(screen.current, fit);
     } catch (e) { setError(errorMessage(e)); setStatus("error"); }
   }
 

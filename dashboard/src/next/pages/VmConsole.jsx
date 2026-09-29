@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { termOptions } from "../lib/prefs";
 import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Keyboard, Laptop, Maximize, TriangleAlert, X } from "lucide-react";
 import { createConsoleTicket, createTerminalTicket } from "../../api/client";
-import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
+import { ensureXtermLoaded, keepFitted, loadTerminalFont, wsUrl } from "../../utils/loadXterm";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
@@ -58,7 +58,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
     try { rfb.current?.disconnect(); } catch { /* already closed */ }
     try { ws.current?.close(); } catch { /* already closed */ }
     try { term.current?.dispose(); } catch { /* already disposed */ }
-    if (onResize.current) window.removeEventListener("resize", onResize.current);
+    onResize.current?.();
     rfb.current = null; ws.current = null; term.current = null; onResize.current = null;
     if (screen.current) screen.current.innerHTML = "";
     setStatus("idle");
@@ -89,9 +89,11 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       await ensureXtermLoaded();
       const ticket = await createTerminalTicket(name, node);
       screen.current.innerHTML = "";
+      const options = termOptions();
+      await loadTerminalFont(options);
       // xterm is a UMD global; its theme is the graphite of the navigation column.
       // eslint-disable-next-line no-undef
-      const tm = new Terminal(termOptions());
+      const tm = new Terminal(options);
       // eslint-disable-next-line no-undef
       const fit = new FitAddon.FitAddon();
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;
@@ -103,8 +105,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       sock.onerror = () => setError(t("vc.termError"));
       tm.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(d); });
       tm.onResize(({ cols, rows }) => { if (sock.readyState === WebSocket.OPEN) sock.send("\x00" + JSON.stringify({ cols, rows })); });
-      onResize.current = () => fit.fit();
-      window.addEventListener("resize", onResize.current);
+      onResize.current = keepFitted(screen.current, fit);
     } catch (e) { failed(e); }
   }
 

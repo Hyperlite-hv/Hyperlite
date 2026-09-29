@@ -31,3 +31,29 @@ export function wsUrl(path) {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${window.location.host}${path}`;
 }
+
+// Loads the terminal font before xterm measures its character cell: measured with the fallback font, the cell is
+// the wrong size and the rows and columns sent to the shell do not match what is drawn.
+export async function loadTerminalFont(options) {
+  const family = String(options.fontFamily || "").split(",")[0].trim();
+  if (!family || !document.fonts?.load) return;
+  try {
+    await document.fonts.load(`${options.fontSize || 13}px ${family}`);
+  } catch {
+    // Not a web font (a system one, or the browser refuses the query): xterm measures what the browser draws.
+  }
+}
+
+// Fits the terminal to its box now and whenever the box changes size: window resize, zoom, display scaling
+// change, sidebar folded, panel resized. Returns the function that stops following.
+export function keepFitted(element, fit) {
+  const refit = () => {
+    if (!element.isConnected) return;
+    try { fit.fit(); } catch (e) { console.warn("terminal fit failed", e); }
+  };
+  refit();
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refit);
+  observer?.observe(element);
+  window.addEventListener("resize", refit);
+  return () => { observer?.disconnect(); window.removeEventListener("resize", refit); };
+}

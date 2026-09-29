@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { termOptions } from "../lib/prefs";
 import { Eraser, X } from "lucide-react";
-import { ensureXtermLoaded, wsUrl } from "../../utils/loadXterm";
+import { ensureXtermLoaded, keepFitted, loadTerminalFont, wsUrl } from "../../utils/loadXterm";
 import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 
@@ -27,7 +27,7 @@ export default function LiveTerminal({ getUrl, label, note }) {
   const cleanup = useCallback(() => {
     try { ws.current?.close(); } catch { /* already closed */ }
     try { term.current?.dispose(); } catch { /* already disposed */ }
-    if (onResize.current) window.removeEventListener("resize", onResize.current);
+    onResize.current?.();
     ws.current = null; term.current = null; onResize.current = null;
     if (screen.current) screen.current.innerHTML = "";
   }, []);
@@ -39,9 +39,11 @@ export default function LiveTerminal({ getUrl, label, note }) {
       await ensureXtermLoaded();
       const path = await getUrl();
       cleanup();
+      const options = termOptions();
+      await loadTerminalFont(options);
       // xterm is loaded as a UMD global; its theme is the graphite of the navigation column.
       // eslint-disable-next-line no-undef
-      const tm = new Terminal(termOptions());
+      const tm = new Terminal(options);
       // eslint-disable-next-line no-undef
       const fit = new FitAddon.FitAddon();
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;
@@ -53,8 +55,7 @@ export default function LiveTerminal({ getUrl, label, note }) {
       sock.onerror = () => setError(t("nn.shellError"));
       tm.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(d); });
       tm.onResize(({ cols, rows }) => { if (sock.readyState === WebSocket.OPEN) sock.send("\x00" + JSON.stringify({ cols, rows })); });
-      onResize.current = () => fit.fit();
-      window.addEventListener("resize", onResize.current);
+      onResize.current = keepFitted(screen.current, fit);
       tm.focus();
     } catch (e) {
       setError(errorMessage(e)); setStatus("error");

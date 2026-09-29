@@ -363,9 +363,14 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-details[open] > summary { border-bottom: 1px solid var(--color-border-subtle); }
 .nx-subhead { margin: 0 0 0.5333rem; font-size: var(--fs-13); font-weight: 600; color: var(--color-text-secondary); }
 .nx-termbar { display: flex; align-items: center; gap: 0.5333rem; flex-wrap: wrap; padding: 0.5333rem 0.6667rem; background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-subtle); border-bottom: 0; border-radius: 10px 10px 0 0; }
-.nx-term { min-height: 26rem; background: var(--color-bg-sidebar); border: 1px solid var(--color-border-subtle); border-radius: 0 0 10px 10px; padding: 0.6667rem; overflow: hidden; }
+/* content-box: xterm's fit addon sizes the terminal from this box's computed height and width, which under border-box
+   also count the padding and border — one row too many at the bottom and a column cut on the right. */
+.nx-term { box-sizing: content-box; min-height: 26rem; background: var(--color-bg-sidebar); border: 1px solid var(--color-border-subtle); border-radius: 0 0 10px 10px; padding: 0.6667rem; overflow: hidden; }
 .nx-term-hint { margin: 0; font-family: var(--font-mono); font-size: var(--fs-125); color: var(--color-text-secondary); }
-.nx-term .xterm { height: 26rem; }
+/* The shell uses the height the window has (topbar, object header, tabs, warning and toolbar take about 22.5rem),
+   between 14rem and 48rem, instead of a fixed 26rem that ran off a laptop screen at 150 % and left big screens empty. */
+.nx-term { --term-h: clamp(14rem, calc(100dvh - 22.5rem), 48rem); min-height: var(--term-h); }
+.nx-term .xterm { height: var(--term-h); }
 .nx-termwrap { position: relative; }
 .nx-termwrap .nx-term-hint { position: absolute; left: 1rem; top: 1rem; }
 /* Snapshot timeline */
@@ -379,7 +384,9 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 /* Console screen */
 .nx-screen { background: var(--color-bg-sidebar); border-radius: 0 0 10px 10px; }
 .nx-term--screen { min-height: 0; aspect-ratio: 16 / 10; max-height: 70vh; padding: 0; display: grid; place-items: center; }
-.nx-screen:fullscreen .nx-term--screen { aspect-ratio: auto; height: 100vh; max-height: none; }
+/* In the VM console box (16:10, or the whole window), the terminal takes the box, not the shell's page height. */
+.nx-term--screen .xterm { width: 100%; height: 100%; }
+.nx-screen:fullscreen .nx-term--screen { aspect-ratio: auto; height: 100vh; max-height: none; border: 0; }
 /* VM wizard: steps rail, step body and the "Your VM" summary */
 :root[data-ui="next"] .nx-wizard2[data-slot="dialog-content"] { width: min(65.3333rem, calc(100vw - 2rem)); max-width: min(65.3333rem, calc(100vw - 2rem)); max-height: calc(100vh - 5rem); display: flex; flex-direction: column; border-radius: var(--radius-xl); }
 .nx-wiz3 { display: grid; grid-template-columns: 13.3333rem minmax(0, 1fr) 16rem; min-height: 0; flex: 1; overflow: hidden; }
@@ -447,8 +454,10 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-console-head { display: flex; align-items: center; gap: 0.6667rem; color: var(--color-text-secondary); }
 .nx-console-head h1 { margin: 0; font-size: var(--fs-16); font-weight: 600; color: var(--color-text-primary); }
 .nx-console-standalone { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.nx-console-standalone .nx-screen { flex: 1; display: flex; }
-.nx-console-standalone .nx-term--screen { aspect-ratio: auto; max-height: none; flex: 1; height: auto; min-height: 20rem; }
+/* min-height 0: the window is exactly as tall as the screen (overflow hidden), so the terminal must shrink with it
+   instead of keeping the height of its current rows and running off the bottom. */
+.nx-console-standalone .nx-screen { flex: 1; display: flex; min-height: 0; }
+.nx-console-standalone .nx-term--screen { aspect-ratio: auto; max-height: none; flex: 1; height: auto; min-height: 6rem; }
 .nx-console-standalone .nx-term .xterm { height: 100%; }
 /* Approval of a workstation sign-in (hyperlite login) */
 .nx-cli-code { font-family: var(--font-mono); font-size: var(--fs-26); font-weight: 600; letter-spacing: 0.12em; padding: 0.6667rem 1rem; border-radius: var(--radius-md); background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); text-align: center; }
@@ -598,3 +607,15 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-journal-audit { padding: 0.6667rem 1.0667rem 0.8rem; border-top: 1px solid var(--color-border-subtle); font-size: var(--fs-12); }
 .nx-journal-audit summary { cursor: pointer; color: var(--color-text-secondary); }
 .nx-journal-audit p { margin: 2px 0 0; overflow-wrap: anywhere; }
+
+/* Short windows (a 1080p screen at 150 % display scaling leaves about 630 CSS pixels): a denser navigation, so most
+   of it shows without scrolling; the list still scrolls, with a thin visible bar, when it does not fit. */
+.nx-nav-scroll { scrollbar-width: thin; }
+@media (max-height: 860px) {
+  .nx-nav-item { height: 1.8667rem; }
+  .nx-nav-group-label { padding: 0.6rem 0.6667rem 0.2rem; }
+}
+@media (max-height: 700px) {
+  .nx-nav-item { height: 1.7333rem; }
+  .nx-nav-group-label { padding: 0.4rem 0.6667rem 0.1333rem; }
+}
