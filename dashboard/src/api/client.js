@@ -705,9 +705,6 @@ export function attachVMHostDevice(name, device, confirm = false) {
 export function detachVMHostDevice(name, device) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
 }
-export async function fetchVMMetrics(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/metrics`);
-}
 export async function fetchVMMetricsHistory(name, range = "1h", node = null) {
   const params = new URLSearchParams({ range });
   if (node && node !== "local") params.set("node", node);
@@ -734,9 +731,6 @@ export async function fetchBackupSchedules() {
 export async function fetchAuditCount(filters = {}) {
   const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString();
   return realFetch(`/audit/count${qs ? `?${qs}` : ""}`);
-}
-export async function fetchHostMetricsHistory(range = "1h") {
-  return realFetch(`/host/metrics/history?range=${encodeURIComponent(range)}`);
 }
 export async function fetchProvisioningStatus(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);
@@ -770,6 +764,10 @@ export async function detachInterface(name, mac) {
 }
 export async function createVolume(pool, name, sizeGb) {
   return realFetch(`/storage/${encodeURIComponent(pool)}/volumes`, { method: "POST", ...jsonBody({ name, size_gb: sizeGb }) });
+}
+// Irreversible: the server refuses a volume a VM uses.
+export async function deleteVolume(pool, name) {
+  return realFetch(`/storage/${encodeURIComponent(pool)}/volumes/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
 }
 export async function fetchVolumes(pool) {
   return realFetch(`/storage/${encodeURIComponent(pool)}/volumes`);
@@ -895,9 +893,6 @@ export async function deleteCustomRole(roleId) {
 // ---- LXC containers (real: GET/POST/DELETE /containers) ----
 export async function fetchContainers() {
   return realFetch("/containers");
-}
-export async function fetchContainer(name) {
-  return realFetch(`/containers/${encodeURIComponent(name)}`);
 }
 export async function searchDockerHub(query) {
   return realFetch(`/containers/docker-hub/search?q=${encodeURIComponent(query)}`);
