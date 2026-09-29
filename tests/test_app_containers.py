@@ -77,6 +77,16 @@ def test_a_bare_program_name_is_found_in_the_image_path_only(image, tmp_path):
         resolve_init(rootfs, {"args": ["sh"], "env": {"PATH": "usr/bin"}})
 
 
+def test_the_program_lookup_never_leaves_the_image(image, tmp_path):
+    from app.core.container_builder import resolve_init
+
+    rootfs = image("busybox:latest", {"process": {"args": ["sh"]}}, files=("sh",))
+    (tmp_path / "host-secret").write_text("x")  # exists on the host, outside the rootfs
+    for program, path in (("../../host-secret", "/usr/bin"), ("host-secret", "/../../../.."), ("x/sh", "/usr")):
+        with pytest.raises(ValueError):
+            resolve_init(rootfs, {"args": [program], "env": {"PATH": path}})
+
+
 def test_hostname_and_resolver_never_follow_a_link_out_of_the_container(tmp_path):
     from app.core.container_builder import prepare_app_rootfs
 
