@@ -569,3 +569,30 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-envbadge { display: inline-flex; align-items: center; align-self: center; width: max-content; height: 1.4667rem; padding: 0 0.6rem; border-radius: var(--radius-sm); background: var(--color-warning); color: var(--color-bg-surface); font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
 .nx-top.nx-top--env { box-shadow: inset 0 3px 0 var(--color-warning); }
 .nx-login-l .nx-envbadge { align-self: flex-start; justify-self: start; }
+
+/* Tasks page: the task list, then the log of the selected task in a terminal-like panel under it. */
+.nx-tasks .nx-tasks-name { font-weight: 600; color: var(--color-text-primary); }
+.nx-tasks tbody th { font-weight: 600; }
+.nx-tasks tr.is-selected > th, .nx-tasks tr.is-selected > td { background: var(--color-bg-selected); }
+.nx-tasks tr.is-selected > :first-child { box-shadow: inset 2px 0 0 var(--color-accent); }
+.nx-tasks-state { display: inline-flex; align-items: center; gap: 0.5333rem; }
+.nx-tasks-bar { display: inline-block; width: 5.3333rem; height: 4px; border-radius: 999px; background: var(--color-bg-surface-raised); overflow: hidden; }
+.nx-tasks-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); transition: width 0.4s ease; }
+.nx-journal { margin-top: 0.8rem; display: flex; flex-direction: column; min-height: 16rem; }
+.nx-journal-h { display: flex; align-items: center; gap: 0.6667rem; padding: 0.8rem 1.0667rem; border-bottom: 1px solid var(--color-border-subtle); min-width: 0; }
+.nx-journal-h h2 { margin: 0; font-size: var(--fs-13); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-journal-id { font-size: var(--fs-11); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.nx-tasklog--term { margin: 0; padding: 0.8rem 1.0667rem 1.0667rem; flex: 1; background: var(--color-bg-sidebar); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.nx-tasklog-acts { margin-bottom: 0.6667rem; }
+.nx-tlog { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: var(--fs-125); line-height: 1.65; max-height: 24rem; overflow: auto; }
+.nx-tlog li { display: grid; grid-template-columns: auto 3.6rem 1fr; column-gap: 0.6667rem; }
+.nx-tlog-t { color: var(--color-text-muted); }
+.nx-tlog-l { color: var(--color-info); }
+.nx-tlog-m { color: var(--color-text-primary); overflow-wrap: anywhere; white-space: pre-wrap; }
+.nx-tlog li[data-level="ok"] .nx-tlog-l { color: var(--color-success); }
+.nx-tlog li[data-level="warn"] .nx-tlog-l { color: var(--color-warning); }
+.nx-tlog li[data-level="error"] .nx-tlog-l, .nx-tlog li[data-level="error"] .nx-tlog-m { color: var(--color-danger); }
+.nx-tlog-empty { margin: 0; font-family: var(--font-mono); font-size: var(--fs-125); color: var(--color-text-muted); }
+.nx-journal-audit { padding: 0.6667rem 1.0667rem 0.8rem; border-top: 1px solid var(--color-border-subtle); font-size: var(--fs-12); }
+.nx-journal-audit summary { cursor: pointer; color: var(--color-text-secondary); }
+.nx-journal-audit p { margin: 2px 0 0; overflow-wrap: anywhere; }
