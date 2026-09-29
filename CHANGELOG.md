@@ -103,6 +103,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Pages no longer ask the server again at each render: the translation function changed at every render, so the effects that load data kept running (the Network page called GET /networks hundreds of times a second, each call written to the audit log).
 - A backup schedule's directory is now checked: an absolute path outside the system's own directories (it was written as root wherever it pointed).
 - The NFS permission check writes its probe file only inside a pool mount point Hyperlite created (under `/var/lib/libvirt/hyperlite-pools`); a pool mounted elsewhere is reported as not checkable.
 - An automation job run is no longer reported as started, nor audited as a success, before it exists; invalid steps are refused with HTTP 422 and a crashed run is closed as failed.
