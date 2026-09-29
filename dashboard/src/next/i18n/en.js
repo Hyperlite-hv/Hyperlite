@@ -885,6 +885,7 @@ export default {
   "au.logs": "Run output",
   "au.needTargets": "Targets required",
   "au.needTargetsHelp": "This job has a step on “each target of the run”: enter at least one VM name.",
+  "au.needLbTargetsHelp": "This job needs at least 2 VM names: the first becomes the load balancer, the following ones its backends.",
   "au.stepsUnknown": "(steps could not be loaded)",
   "au.runTitle": "Run ‘{name}’?",
   "au.runMsg": "These commands will be executed ({n} target(s)):",
