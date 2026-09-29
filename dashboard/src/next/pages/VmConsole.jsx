@@ -6,15 +6,22 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
+import { consoleUrl } from "../lib/vmActions";
+import { apiNode, vmKey } from "../lib/vmId";
 import { Empty } from "../components/ui";
 import WorkstationAccess from "../components/WorkstationAccess";
 
 const RETRY_S = 5;
+// About a minute of automatic retries. Past that, or on a refusal (a 4xx: no such VM, no privilege...), retrying
+// cannot help: the console stops and says why, with a Retry button. Each attempt asks for a ticket, which the server
+// audits: an endless loop filled the audit log for as long as the tab stayed open.
+const MAX_ATTEMPTS = 12;
 
 // Console of a VM: the graphical console (VNC through noVNC) or the SSH terminal (xterm, administrators only, like
 // the backend), over the ticket + WebSocket relay. There is no Connect button: it connects by itself as soon as
 // the VM runs, and reconnects every few seconds after an error or a dropped connection (a VM whose IP address is
-// not known yet, a reboot...). Used in the VM page and, with `standalone`, as the separate console window.
+// not known yet, a reboot...), up to MAX_ATTEMPTS. Used in the VM page and, with `standalone`, as the separate
+// console window. The VM's node goes with every ticket: a remote VM's console is relayed through its node.
 export default function VmConsole({ resource: vm, standalone = false, initialMode = "vnc" }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
@@ -24,6 +31,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   const attempts = useRef(0);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
+  const [gaveUp, setGaveUp] = useState(false); // automatic retries stopped: only the Retry button reconnects
   const screen = useRef(null);
   const frame = useRef(null);
   const rfb = useRef(null);
@@ -31,7 +39,10 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   const ws = useRef(null);
   const onResize = useRef(null);
   const name = vm?.nom;
+  const node = apiNode(vm?.node);
   const running = vm?.etat === "actif";
+  // A refusal will not change by asking again every few seconds.
+  const failed = (e) => { setError(errorMessage(e)); setStatus("error"); if (e?.status >= 400 && e.status < 500) setGaveUp(true); };
   const terminal = mode === "terminal";
 
   const cleanup = useCallback(() => {
@@ -47,7 +58,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   const connectVnc = useCallback(async () => {
     setStatus("connecting"); setError(null);
     try {
-      const ticket = await createConsoleTicket(name);
+      const ticket = await createConsoleTicket(name, node);
       const url = wsUrl(`/vms/${encodeURIComponent(name)}/console?ticket=${encodeURIComponent(ticket.ticket)}`);
       // noVNC lives in public/novnc, outside the bundle: loaded as is at runtime.
       const mod = await import(/* @vite-ignore */ new URL("/novnc/core/rfb.js", window.location.origin).href);
@@ -58,14 +69,14 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       r.addEventListener("connect", () => { attempts.current = 0; setStatus("connected"); r.scaleViewport = true; });
       r.addEventListener("disconnect", () => setStatus("idle"));
       r.addEventListener("credentialsrequired", () => { setError(t("vc.credentials")); setStatus("error"); });
-    } catch (e) { setError(errorMessage(e)); setStatus("error"); }
-  }, [name, t]);
+    } catch (e) { failed(e); }
+  }, [name, node, t]); // failed() only calls state setters
 
   async function connectTerminal() {
     setStatus("connecting"); setError(null);
     try {
       await ensureXtermLoaded();
-      const ticket = await createTerminalTicket(name);
+      const ticket = await createTerminalTicket(name, node);
       screen.current.innerHTML = "";
       // xterm is a UMD global; its theme is the graphite of the navigation column.
       // eslint-disable-next-line no-undef
@@ -83,15 +94,17 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       tm.onResize(({ cols, rows }) => { if (sock.readyState === WebSocket.OPEN) sock.send("\x00" + JSON.stringify({ cols, rows })); });
       onResize.current = () => fit.fit();
       window.addEventListener("resize", onResize.current);
-    } catch (e) { setError(errorMessage(e)); setStatus("error"); }
+    } catch (e) { failed(e); }
   }
 
-  useEffect(() => cleanup, [cleanup, name, mode]);
+  useEffect(() => cleanup, [cleanup, name, node, mode]);
+  useEffect(() => { attempts.current = 0; setGaveUp(false); }, [name, node, mode]);
   // Automatic connection: right away the first time, then every RETRY_S seconds while it fails or after a drop,
   // as long as the VM runs and this console is allowed (the terminal is for administrators).
   const allowed = running && !(terminal && !caps.admin);
   useEffect(() => {
-    if (!allowed || (status !== "idle" && status !== "error")) { setRetryIn(null); return undefined; }
+    if (!allowed || gaveUp || (status !== "idle" && status !== "error")) { setRetryIn(null); return undefined; }
+    if (attempts.current >= MAX_ATTEMPTS) { setGaveUp(true); setRetryIn(null); return undefined; }
     const delay = attempts.current === 0 ? 0 : RETRY_S;
     attempts.current += 1;
     setRetryIn(delay || null);
@@ -99,13 +112,14 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
     const tick = delay ? setInterval(() => { left -= 1; setRetryIn(left > 0 ? left : null); }, 1000) : null;
     const go = setTimeout(() => { if (tick) clearInterval(tick); setRetryIn(null); if (terminal) connectTerminal(); else connectVnc(); }, delay * 1000);
     return () => { clearTimeout(go); if (tick) clearInterval(tick); };
-  }, [allowed, status, mode, name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allowed, gaveUp, status, mode, name, node]); // eslint-disable-line react-hooks/exhaustive-deps
+  const retryNow = () => { cleanup(); attempts.current = 0; setError(null); setGaveUp(false); };
 
   if (!vm) return null;
-  const openWindow = () => window.open(`/console/${encodeURIComponent(vm.nom)}?mode=${mode}`, `hyperlite-console-${vm.nom}-${mode}`, "width=1100,height=750,noopener");
+  const openWindow = () => window.open(consoleUrl(vm, mode), `hyperlite-console-${vmKey(vm)}-${mode}`, "width=1100,height=750,noopener");
   const connected = status === "connected";
-  const switchMode = (m) => { if (m !== mode) { cleanup(); attempts.current = 0; setError(null); setMode(m); } };
-  const stateLabel = connected ? t("nn.connected") : status === "connecting" ? t("nn.connecting") : retryIn ? t("vc.retryIn", { s: retryIn }) : t("nn.notConnected");
+  const switchMode = (m) => { if (m !== mode) { cleanup(); attempts.current = 0; setError(null); setGaveUp(false); setMode(m); } };
+  const stateLabel = connected ? t("nn.connected") : status === "connecting" ? t("nn.connecting") : retryIn ? t("vc.retryIn", { s: retryIn }) : gaveUp ? t("vc.stopped") : t("nn.notConnected");
 
   return (
     <>
@@ -118,7 +132,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
           </div>
           <span className="nx-st" data-tone={connected ? undefined : "offline"} style={{ fontSize: "var(--fs-125)" }}><span className="nx-dot" data-tone={connected ? "success" : error ? "warning" : "offline"} aria-hidden="true" /><span role="status">{stateLabel}</span></span>
           <span className="nx-sp" />
-          {!terminal && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => rfb.current?.sendCtrlAltDel()}><Keyboard size={14} aria-hidden="true" />Ctrl+Alt+Suppr</button>}
+          {!terminal && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => rfb.current?.sendCtrlAltDel()}><Keyboard size={14} aria-hidden="true" />{t("vc.ctrlAltDel")}</button>}
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => frame.current?.requestFullscreen?.()}><Maximize size={14} aria-hidden="true" />{t("vc.fullscreen")}</button>
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setWsOpen(true)}><Laptop size={14} aria-hidden="true" />{t("ws.button")}</button>
           {standalone
@@ -134,6 +148,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
           </div>
         )}
         {error && <p className="nx-f-h is-error" role="alert">{error}</p>}
+        {gaveUp && running && <div className="nx-inline" style={{ marginTop: "var(--space-2)" }}><span className="nx-f-h">{t("vc.gaveUp")}</span><button type="button" className="nx-btn nx-btn--sm" onClick={retryNow}>{t("action.retry")}</button></div>}
       </div>
       <WorkstationAccess vm={vm} open={wsOpen} onClose={() => setWsOpen(false)} />
     </>

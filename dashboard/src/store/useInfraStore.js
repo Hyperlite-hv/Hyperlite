@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { toast } from "sonner";
+import { findVm, isRemoteVm, parseVmKey, sameVm } from "../next/lib/vmId";
 import {
   fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks,
   startVM, stopVM, restartVM, deleteVM, updateVM, fetchVM, makeTaskId,
@@ -178,9 +179,14 @@ export const useInfraStore = create((set, get) => ({
   },
 
   // ---- VM actions ----
-  async runVMAction(vmName, action, { force = false } = {}) {
-    const vm = get().vms.find((v) => v.nom === vmName);
-    const node = vm?.node;
+  // `key`: the VM's identity (see next/lib/vmId.js), never its bare name alone: two nodes may each have a VM of
+  // that name, and acting on the first match stopped or deleted the wrong machine.
+  async runVMAction(key, action, { force = false } = {}) {
+    const vm = findVm(get().vms, key);
+    if (!vm) throw new Error(`VM '${parseVmKey(key).nom}' not found`);
+    const vmName = vm.nom;
+    const node = vm.node;
+    const isThis = (v) => sameVm(v, vm);
     const typeMap = { start: "start_vm", stop: "stop_vm", restart: "restart_vm", delete: "delete_vm" };
     const taskType = typeMap[action];
     const taskId = get().addTask({ type: taskType, cible: vmName, node });
@@ -209,8 +215,8 @@ export const useInfraStore = create((set, get) => ({
         ? await apiFn(vmName, force, node)
         : await apiFn(vmName, node);
       set((s) => ({
-        vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: result.etat, ip: result.ip } : v))
-          .filter((v) => !(action === "delete" && v.nom === vmName)),
+        vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: result.etat, ip: result.ip } : v))
+          .filter((v) => !(action === "delete" && isThis(v))),
       }));
       get().completeTask(taskId, "termine");
 
@@ -221,8 +227,8 @@ export const useInfraStore = create((set, get) => ({
       if (action === "stop" && result.etat === "actif") {
         setTimeout(async () => {
           try {
-            const fresh = await fetchVM(vmName);
-            set((s) => ({ vms: s.vms.map((v) => (v.nom === vmName ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
+            const fresh = await fetchVM(vmName, node);
+            set((s) => ({ vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
           } catch { /* the VM may have been deleted in the meantime, no consequence */ }
         }, 4000);
       }
@@ -234,13 +240,18 @@ export const useInfraStore = create((set, get) => ({
     }
   },
 
-  async updateVMResources(vmName, payload) {
-    const vm = get().vms.find((v) => v.nom === vmName);
-    const taskId = get().addTask({ type: "update_vm", cible: vmName, node: vm?.node });
+  // The resources endpoint only manages VMs of the local host: a remote VM is refused here rather than the
+  // local VM of the same name being changed.
+  async updateVMResources(key, payload) {
+    const vm = findVm(get().vms, key);
+    if (!vm) throw new Error(`VM '${parseVmKey(key).nom}' not found`);
+    if (isRemoteVm(vm)) throw new Error("Only the VMs of this host can be reconfigured here");
+    const vmName = vm.nom;
+    const taskId = get().addTask({ type: "update_vm", cible: vmName, node: vm.node });
     try {
       const updated = await updateVM(vmName, payload);
       set((s) => ({
-        vms: s.vms.map((v) => (v.nom === vmName ? { ...v, vcpu: updated.vcpu, memoire_mo: updated.memoire_mo } : v)),
+        vms: s.vms.map((v) => (sameVm(v, vm) ? { ...v, vcpu: updated.vcpu, memoire_mo: updated.memoire_mo } : v)),
       }));
       get().completeTask(taskId, "termine");
     } catch (e) {

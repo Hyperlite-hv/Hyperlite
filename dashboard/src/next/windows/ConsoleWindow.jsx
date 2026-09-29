@@ -8,22 +8,24 @@ import { StatePill, Loading } from "../components/ui";
 import VmConsole from "../pages/VmConsole";
 import StandaloneWindow from "./StandaloneWindow";
 
-// /console/:name?mode=vnc|terminal: the console of a VM in a window of its own, the same one as the VM page,
-// full height and connected by itself.
+// /console/:name?node=<node>&mode=vnc|terminal: the console of a VM in a window of its own, the same one as the VM
+// page, full height and connected by itself. `node` is absent for a VM of the local host.
 export default function ConsoleWindow() {
   const { name } = useParams();
   const [params] = useSearchParams();
   const initialMode = params.get("mode") === "terminal" ? "terminal" : "vnc";
+  const node = params.get("node") || null;
   const status = useAuthStore((s) => s.status);
   const [vm, setVm] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => {
     if (status !== "authenticated") return undefined;
-    const load = () => fetchVM(name).then((v) => { setVm(v); setError(null); }).catch((e) => setError(errorMessage(e)));
+    // The state endpoint answers only the VM's details, it does not carry the node: it is set from the URL.
+    const load = () => fetchVM(name, node).then((v) => { setVm({ ...v, node: node || "local" }); setError(null); }).catch((e) => setError(errorMessage(e)));
     load();
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
-  }, [name, status]);
+  }, [name, node, status]);
   return (
     <StandaloneWindow title={name} icon={Monitor} badge={vm && <StatePill kind="vm" wire={vm.etat} />}>
       {error && <p className="nx-f-h is-error" role="alert">{error}</p>}

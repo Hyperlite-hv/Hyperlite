@@ -32,8 +32,9 @@ def list_vms(node: str | None = None, user: dict = Depends(get_current_user)):
 
 
 @router.get("/{name}")
-def get_vm(name: str, user: dict = Depends(get_current_user)):
-    conn = open_conn()
+def get_vm(name: str, node: str | None = None, user: dict = Depends(get_current_user)):
+    """node: the registered node the VM runs on (the local host by default), as for GET /vms."""
+    conn = open_conn(None if node == "local" else node)
     try:
         domain = conn.lookupByName(name)
     except libvirt.libvirtError:
