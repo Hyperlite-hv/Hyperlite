@@ -29,6 +29,7 @@ import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
 import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage } from "../pages/ContainerPages";
 import VmCloudInitPage from "../pages/VmCloudInit";
 import VmAdvancedPage from "../pages/VmAdvanced";
+import { NodeUpdatesPage } from "../pages/NodeHostSystem";
 import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPermissions";
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
@@ -38,7 +39,7 @@ export const DATACENTER_TABS = {
   nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage,
 };
 export const NODE_TABS = {
-  summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
+  summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
@@ -59,6 +60,7 @@ export const OBJECT_TABS = {
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
     { id: "perf", label: "tab.perf", pages: [page("perf")] },
     { id: "system", label: "tab.system", pages: [page("system")] },
+    { id: "updates", label: "tab.updates", pages: [page("updates")], admin: true },
     { id: "network", label: "tab.network", pages: [page("network")] },
     { id: "disk", label: "tab.disk", pages: [page("disk")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },

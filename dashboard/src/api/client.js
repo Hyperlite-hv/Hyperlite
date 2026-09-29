@@ -67,6 +67,34 @@ async function realFetch(path, opts = {}) {
 // /health answers everyone but reports versions and host details only to a signed-in
 // caller. Plain fetch rather than realFetch: it is polled while the service restarts,
 // where a failure is expected and must not sign the user out.
+// This node's system settings (local node, admin): package updates, DNS, time, remote syslog.
+export async function fetchHostUpdates(refresh = false) {
+  return realFetch(`/host/system/updates${refresh ? "?refresh=true" : ""}`);
+}
+export async function upgradeHostPackages(paquets) {
+  return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
+}
+export async function fetchHostDns() {
+  return realFetch("/host/system/dns");
+}
+export async function setHostDns(payload) {
+  return realFetch("/host/system/dns", { method: "PUT", ...jsonBody(payload) });
+}
+export async function fetchHostTime() {
+  return realFetch("/host/system/time");
+}
+export async function fetchHostTimezones() {
+  return realFetch("/host/system/time/zones");
+}
+export async function setHostTime(payload) {
+  return realFetch("/host/system/time", { method: "PUT", ...jsonBody(payload) });
+}
+export async function fetchHostSyslog() {
+  return realFetch("/host/system/syslog");
+}
+export async function setHostSyslog(payload) {
+  return realFetch("/host/system/syslog", { method: "PUT", ...jsonBody(payload) });
+}
 // This node's HTTPS certificate; every change restarts the service (`redemarrage`).
 export async function fetchCertificate() {
   return realFetch("/host/certificate");

@@ -15,6 +15,7 @@ import { EmptyState, ErrorState, InlineError } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
 import { Card, Chip, Empty, Loading, TableWrap } from "../components/ui";
 import CertificateCard from "../components/CertificateCard";
+import { HostSettingsCards } from "./NodeHostSystem";
 
 const isLocal = (node) => node?.id === "local";
 
@@ -89,6 +90,7 @@ export function NodeSystemPage({ resource: node }) {
       </div>
       {/* Each node serves its own certificate; this API manages the one of the machine answering it. */}
       {local && isAdmin && <CertificateCard />}
+      {local && isAdmin && <HostSettingsCards />}
     </>
   );
 }

@@ -37,6 +37,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.groups import router as groups_router
 from app.routers.ha import router as ha_router
 from app.routers.host import router as host_router
+from app.routers.host_system import router as host_system_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
 from app.routers.kubernetes import router as kubernetes_router
@@ -126,6 +127,7 @@ app.include_router(workstation_router)
 app.include_router(kubernetes_router)
 app.include_router(meta_router)
 app.include_router(certificate_router)
+app.include_router(host_system_router)
 
 if os.path.isdir(DASHBOARD_DIST):
     app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")
