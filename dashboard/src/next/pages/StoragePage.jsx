@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Layers, Plus, Trash2 } from "lucide-react";
-import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchVolumes } from "../../api/client";
+import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchVolumes, checkPoolPermissions } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -47,8 +47,10 @@ function CreatePoolDrawer({ open, onClose }) {
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host, iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user || null, chap_password: form.chap_user ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
-      await createStoragePool(payload, form.node === "local" ? undefined : form.node);
+      const created = await createStoragePool(payload, form.node === "local" ? undefined : form.node);
       pushToast({ kind: "success", title: t("stor.created"), message: form.name });
+      // Mounted is not enough: an export with root_squash leaves QEMU unable to open its disks there.
+      if (created?.avertissement) pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: created.avertissement, duration: Infinity });
       setForm(EMPTY); onClose(); refreshAll();
     } catch (err) { pushToast({ kind: "error", title: t("stor.createFailed"), message: errorMessage(err) }); }
     finally { setBusy(false); }
@@ -118,6 +120,13 @@ export default function StoragePage() {
       catch { setVolumes((x) => ({ ...x, [key]: [] })); }
     }
   }
+  async function checkPerm(p) {
+    try {
+      const r = await checkPoolPermissions(p.nom);
+      if (r.ok) pushToast({ kind: "success", title: t("stor.nfsPermOk"), message: p.nom });
+      else pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: r.message, duration: Infinity });
+    } catch (e) { pushToast({ kind: "error", title: t("stor.nfsPermFailed"), message: errorMessage(e) }); }
+  }
   async function removePool(p) {
     if (p.nom === "default") return;
     const fsBacked = p.type === "dir" || p.type === "netfs";
@@ -176,6 +185,7 @@ export default function StoragePage() {
       <ActionsContextMenu ctx={ctx} label={(p) => t("ctx.menuOf", { name: p.nom })} entries={(p) => [
         { key: "volumes", icon: "volumes", label: t("stor.volumes"), run: () => toggleVolumes(p) },
         p.chemin && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.chemin) },
+        p.type === "netfs" && { key: "perm", icon: "admin", label: t("stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.etat !== "actif", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
         "-",
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => removePool(p),
           disabled: !caps.admin || p.nom === "default", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.defaultPool") },
