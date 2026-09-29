@@ -24,6 +24,10 @@ async function mockApi(page: Page) {
     if (req.method() === "DELETE") { calls.push(`delete ${path.slice(1).split("?")[0]}`); const i = cts.findIndex((c) => c.nom === path.slice(1).split("?")[0]); if (i >= 0) cts.splice(i, 1); return json({ ok: true }); }
     return route.fallback();
   });
+  // A Docker container needs a started NAT or isolated network: give the page one, whatever the test host has.
+  await page.route(/\/networks(\?.*)?$/, (route) => (route.request().method() === "GET" && route.request().resourceType() !== "document"
+    ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ nom: "default", type: "nat", pont: "virbr0", actif: true, reseau: "192.168.122.0/24", autostart: true, dhcp: true, vms: [] }]) })
+    : route.fallback()));
   return { calls, created: () => created };
 }
 
@@ -65,14 +69,30 @@ test("lists containers with state text, gates stop/delete behind confirmations, 
   await main.getByRole("button", { name: "Create a container" }).click();
   const dlg = page.getByRole("dialog", { name: "Create a container" });
   const submit = dlg.getByRole("button", { name: "Create the container", exact: true });
-  await dlg.getByRole("button", { name: /Alpine/ }).click();
-  await expect(dlg.getByRole("button", { name: /Alpine/ })).toHaveAttribute("aria-pressed", "true");
+  // LXC (system): an account is created in it.
+  await dlg.getByRole("button", { name: /^LXC \(system\)/ }).click();
+  await dlg.getByRole("button", { name: /^Alpine/ }).click();
+  await expect(dlg.getByRole("button", { name: /^Alpine/ })).toHaveAttribute("aria-pressed", "true");
   await dlg.getByLabel("Name", { exact: true }).fill("cache1");
   await dlg.getByLabel("User", { exact: true }).fill("ops");
   await dlg.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
   await submit.click();
   await expect(main.getByRole("row", { name: /cache1/ })).toBeVisible({ timeout: 15_000 });
-  expect(api.created()).toMatchObject({ name: "cache1", image: "alpine:3.19", username: "ops", vcpu: 1, memory_mb: 512 });
+  expect(api.created()).toMatchObject({ name: "cache1", mode: "systeme", image: "alpine:3.19", username: "ops", vcpu: 1, memory_mb: 512 });
+
+  // Docker (application), the default: the image's own process, a command and environment, no account.
+  await main.getByRole("button", { name: "Create a container" }).click();
+  await expect(dlg.getByRole("button", { name: /^Docker \(application\)/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(dlg.getByLabel("User", { exact: true })).toHaveCount(0);
+  await dlg.getByRole("button", { name: /^Redis/ }).click();
+  await dlg.getByLabel("Name", { exact: true }).fill("cache2");
+  await dlg.getByLabel(/^Command/).fill(`redis-server --appendonly "yes"`);
+  await dlg.getByLabel(/^Environment variables/).fill("TZ=UTC");
+  await submit.click();
+  await expect(main.getByRole("row", { name: /cache2/ })).toBeVisible({ timeout: 15_000 });
+  const docker = api.created() as Record<string, unknown>;
+  expect(docker).toMatchObject({ name: "cache2", mode: "application", image: "redis:latest", network: "default", command: ["redis-server", "--appendonly", "yes"], env: { TZ: "UTC" } });
+  expect(docker.username).toBeUndefined();
 });
 
 test("French labels and no horizontal overflow at a narrow width", async ({ page }) => {
@@ -111,9 +131,10 @@ test("creation dialog: errors next to fields on submit, a refusal keeps the valu
   await expect(dlg.getByLabel("Name", { exact: true })).toHaveAttribute("aria-invalid", "true");
   expect(posts).toBe(0);
   await dlg.getByLabel("Name", { exact: true }).fill("cache2");
+  await dlg.getByRole("button", { name: /^LXC \(system\)/ }).click();
   await dlg.getByLabel("User", { exact: true }).fill("ops");
   await dlg.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
-  await dlg.getByRole("button", { name: /Alpine/ }).click();
+  await dlg.getByRole("button", { name: /^Alpine/ }).click();
   await dlg.getByRole("button", { name: "Create the container" }).dblclick();
   await expect(dlg.getByRole("alert")).toContainText("registry unreachable");
   expect(posts, "requests for a double click").toBe(1);

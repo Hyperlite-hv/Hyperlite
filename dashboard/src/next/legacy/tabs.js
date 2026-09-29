@@ -8,6 +8,7 @@ import HaPage from "../pages/HaPage";
 import NotificationsPage from "../pages/NotificationsPage";
 import SsoPage from "../pages/SsoPage";
 import ContainersPage from "../pages/ContainersPage";
+import KubernetesPage from "../pages/KubernetesPage";
 import CompatibilityPage from "../pages/CompatibilityPage";
 import NodeSummary from "../pages/NodeSummary";
 import { NodeSystemPage, NodeNetworkPage, NodeDiskPage, NodeShellPage, NodeCompatPage } from "../pages/NodePages";
@@ -29,7 +30,7 @@ import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
-  exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationPage, containers: ContainersPage,
+  exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
   nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage,
 };
 export const NODE_TABS = {

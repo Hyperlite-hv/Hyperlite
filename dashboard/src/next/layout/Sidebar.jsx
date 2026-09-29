@@ -11,10 +11,10 @@ import UpdateModal from "../../components/UpdateModal";
 import AccountSecurityModal from "../../components/AccountSecurityModal";
 import ChangePasswordDrawer from "../components/ChangePasswordDrawer";
 import EnclaveMark from "../../components/EnclaveMark";
-import { Archive, Bell, Box, Camera, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
+import { Archive, Bell, Box, Boxes, Camera, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
 
 const ICONS = {
-  overview: House, nodes: Server, vms: Monitor, containers: Box, storage: Database, network: Network,
+  overview: House, nodes: Server, vms: Monitor, containers: Box, kubernetes: Boxes, storage: Database, network: Network,
   ha: Heart, compat: SquareCheck, backups: Archive, snapshots: Camera, exports: Share, library: Disc3,
   tasks: List, audit: ScrollText, automation: Zap, users: Users, sso: KeyRound, notifications: Bell,
 };
@@ -121,6 +121,7 @@ export default function Sidebar({ collapsed }) {
           <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes") || selection.type === "node"} onClick={() => goto("nodes")} />
           <NavItem icon="vms" label={t("nav.vms")} count={vms.length} tone={problems ? "warning" : undefined} active={selection.type === "vm" || onDatacenterTab("vms")} onClick={() => goto("vms")} />
           <NavItem icon="containers" label={t("nav.containers")} count={containers?.length ?? 0} active={onDatacenterTab("containers")} onClick={() => goto("containers")} />
+          <NavItem icon="kubernetes" label={t("nav.kubernetes")} active={onDatacenterTab("kubernetes")} onClick={() => goto("kubernetes")} />
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
           <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />
         </NavGroup>
