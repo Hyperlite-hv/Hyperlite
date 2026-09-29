@@ -27,14 +27,18 @@ USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 SCSI_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
 
-def validate_name(name):
-    if not NAME_RE.match(name):
-        return "Invalid VM name (letters/digits/dashes, 2-63 characters, must start with a letter or a digit)"
+def validate_name(name, kind="VM"):
+    """Error message when `name` is not a valid resource name, else None (it RETURNS
+    the message, it never raises). `kind` names the resource in the message: this
+    rule is shared by VMs, containers, networks, pools, volumes, templates and snapshots."""
+    # fullmatch, not match: `$` also matches before a trailing newline.
+    if not isinstance(name, str) or not NAME_RE.fullmatch(name):
+        return f"Invalid {kind} name (letters/digits/dashes, 2-63 characters, must start with a letter or a digit)"
     return None
 
 
 def validate_username(username):
-    if not USERNAME_RE.match(username):
+    if not isinstance(username, str) or not USERNAME_RE.fullmatch(username):
         return "Invalid username (lowercase letters/digits/dashes/underscores, must start with a lowercase letter or _, 32 characters max)"
     return None
 

@@ -18,9 +18,16 @@ def test_valid_vm_names(name):
     assert vm_builder.validate_name(name) is None
 
 
-@pytest.mark.parametrize("name", ["", "a", "-leading", "has space", "semi;colon", "../etc", "x" * 64, "vm$(id)"])
+@pytest.mark.parametrize(
+    "name", ["", "a", "-leading", "has space", "semi;colon", "../etc", "x" * 64, "vm$(id)", "web-01\n", None]
+)
 def test_invalid_vm_names_are_rejected(name):
     assert vm_builder.validate_name(name)  # returns a human-readable error message
+
+
+def test_the_error_names_the_resource():
+    assert vm_builder.validate_name("bad name!").startswith("Invalid VM name")
+    assert vm_builder.validate_name("bad name!", "network").startswith("Invalid network name")
 
 
 @pytest.mark.parametrize("name", ["alice", "_svc", "dev-user_1"])
@@ -28,7 +35,7 @@ def test_valid_usernames(name):
     assert vm_builder.validate_username(name) is None
 
 
-@pytest.mark.parametrize("name", ["", "Root", "1abc", "a b", "x;y", "a" * 40])
+@pytest.mark.parametrize("name", ["", "Root", "1abc", "a b", "x;y", "a" * 40, "alice\n"])
 def test_invalid_usernames_are_rejected(name):
     assert vm_builder.validate_username(name)
 

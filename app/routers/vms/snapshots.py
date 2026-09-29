@@ -129,7 +129,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             log_action(user["username"], "create_snapshot", name, "echec", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        name_error = validate_name(payload.name)
+        name_error = validate_name(payload.name, "snapshot")
         if name_error:
             log_action(user["username"], "create_snapshot", payload.name, "echec", name_error)
             raise HTTPException(status_code=422, detail=name_error)

@@ -68,13 +68,12 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         iscsi.refuse_if_iscsi(domain, "Cloning")
 
-        try:
-            validate_name(payload.new_name)
-        except ValueError as exc:
+        name_error = validate_name(payload.new_name)
+        if name_error:
             log_action(
                 user["username"], "clone_vm", name, "echec", f"invalid name: {payload.new_name}", task_id=task_id
             )
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail=name_error)
 
         try:
             conn.lookupByName(payload.new_name)
