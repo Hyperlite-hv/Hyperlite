@@ -78,9 +78,11 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   const { nodes, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, pushToast: s.pushToast, refreshAll: s.refreshAll })));
   const vmActions = useVmActions();
   const [migrate, setMigrate] = useState(false);
-  const [cleanup, setCleanup] = useState(null);
+  // undefined while loading, null when the load failed: an unknown state must never read as "off",
+  // or the HA entry would offer to protect a VM that already is (and the toggle would do the opposite).
+  const [cleanup, setCleanup] = useState(undefined);
   const [cleanupOpen, setCleanupOpen] = useState(false);
-  const [ha, setHa] = useState(null);
+  const [ha, setHa] = useState(undefined);
   const running = vm.etat === "actif";
   const act = (a) => vmActionState(a, vm, caps);
   const admin = (state = { enabled: true }) => (caps.admin ? state : { enabled: false, reason: "menu.reason.admin" });
@@ -90,10 +92,12 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
 
   useEffect(() => {
     if (!open || !caps.admin) return;
+    setHa(undefined); setCleanup(undefined);
     fetchHaProtected().then((r) => setHa((Array.isArray(r) ? r : []).some((x) => x.vm_name === vm.nom))).catch(() => setHa(null));
     fetchVMAutoCleanup(vm.nom).then(setCleanup).catch(() => setCleanup(null));
   }, [open, caps.admin, vm.nom]);
 
+  const known = (value) => (value === undefined ? { enabled: false, reason: "menu.reason.loading" } : value === null ? { enabled: false, reason: "menu.reason.unknown" } : admin());
   const fail = (title, e) => pushToast({ kind: "error", title, message: errorMessage(e) });
 
   async function clone() {
@@ -158,14 +162,14 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       <MenuGroup label={t("vx.g.protection")} />
       {item("snapshot", Camera, t("vx.snapshot"), admin(), snapshot)}
       {item("backup", Archive, t("vb.now"), admin(), backupNow)}
-      {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), admin(), toggleHa)}
+      {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), caps.admin ? known(ha) : admin(), toggleHa)}
       <hr />
       <MenuGroup label={t("vx.g.lifecycle")} />
       {item("clone", CopyPlus, t("vx.cloneMenu"), admin(stopped), clone)}
       {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
       {item("template", LayoutTemplate, t("vx.tplMenu"), admin(stopped), toTemplate)}
       {item("export", Share, t("vx.exportMenu"), admin(), doExport)}
-      {item("cleanup", Eraser, cleanup?.active ? t("vx.cleanupOn", { n: cleanup.inactive_days }) : t("vx.cleanupMenu"), admin(), () => setCleanupOpen(true))}
+      {item("cleanup", Eraser, cleanup?.active ? t("vx.cleanupOn", { n: cleanup.inactive_days }) : t("vx.cleanupMenu"), caps.admin ? known(cleanup) : admin(), () => setCleanupOpen(true))}
       <hr />
       {item("link", Link, t("menu.copyLink"), { enabled: true }, () => navigator.clipboard?.writeText(objectLink("vm", vm.nom)))}
       {vm.ip && item("ip", Copy, t("menu.copyIp"), { enabled: true }, () => navigator.clipboard?.writeText(vm.ip))}
