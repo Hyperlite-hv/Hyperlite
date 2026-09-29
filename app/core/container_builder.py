@@ -608,8 +608,17 @@ def resolve_init(rootfs, spec):
     program = spec["args"][0]
     if program.startswith("/"):
         return program
+    if "/" in program or program in ("", ".", ".."):
+        raise ValueError(f"Command '{program}': give a bare program name or an absolute path")
     for folder in spec["env"].get("PATH", DEFAULT_PATH).split(":"):
-        if folder.startswith("/") and os.path.lexists(Path(rootfs) / folder.lstrip("/") / program):
+        if not folder.startswith("/"):
+            continue
+        try:
+            # safe_child refuses a PATH entry such as /../../etc that would leave the image's filesystem.
+            candidate = safe_child(rootfs, f"{folder.strip('/')}/{program}".lstrip("/"))
+        except ValueError:
+            continue
+        if os.path.lexists(candidate):
             return f"{folder.rstrip('/')}/{program}"
     raise ValueError(f"Command '{program}' not found in the image")
 
