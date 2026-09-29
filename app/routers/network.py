@@ -71,6 +71,10 @@ def _network_summary(net):
     mode = forward.get("mode") if forward is not None else None
     bridge = root.find("bridge")
     bridge_name = bridge.get("name") if bridge is not None else None
+    # A macvtap network has no bridge: it sits on a host interface named under <forward>.
+    macvtap = root.find("forward/interface")
+    if bridge_name is None and macvtap is not None:
+        bridge_name = macvtap.get("dev")
     ip_elem = root.find("ip")
     dhcp = ip_elem is not None and ip_elem.find("dhcp") is not None
     subnet = None
@@ -82,6 +86,7 @@ def _network_summary(net):
         "actif": net.isActive() == 1,
         "autostart": bool(net.autostart()),
         "pont": bridge_name,
+        "macvtap": macvtap is not None,
         "type": FORWARD_MODE_LABELS.get(mode, "isole" if mode is None else mode),
         "reseau": subnet,
         "dhcp": dhcp,
@@ -106,6 +111,14 @@ def list_networks(user: dict = Depends(get_current_user)):
         return result
     finally:
         conn.close()
+
+
+@router.get("/host-interfaces")
+def host_interfaces(user: dict = Depends(require_role("admin"))):
+    """The host's interfaces a bridged network can sit on (app/core/host_interfaces.py), read-only."""
+    from app.core.host_interfaces import list_host_interfaces
+
+    return list_host_interfaces()
 
 
 @router.get("/{name}")
@@ -203,6 +216,98 @@ def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depend
         conn.close()
 
 
+# --- Starting, stopping and autostart of a network. A network defined but not started (libvirt's "default" NAT
+# network is shipped that way on some installations) could not be brought back from the dashboard: its VMs could
+# not start and a Docker container could not be put on it. ---
+
+
+def _running_vms_on(conn, network_name):
+    names = []
+    try:
+        domains = conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE)
+    except libvirt.libvirtError:
+        return names
+    for dom in domains:
+        try:
+            root = ET.fromstring(dom.XMLDesc(0))
+        except (libvirt.libvirtError, ET.ParseError):
+            continue
+        if any(src.get("network") == network_name for src in root.findall(".//devices/interface/source")):
+            names.append(dom.name())
+    return names
+
+
+def _lookup(conn, name):
+    try:
+        return conn.networkLookupByName(name)
+    except libvirt.libvirtError:
+        raise HTTPException(status_code=404, detail=f"Network '{name}' not found") from None
+
+
+@router.post("/{name}/start")
+def start_network(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        net = _lookup(conn, name)
+        if not net.isActive():
+            try:
+                net.create()
+            except libvirt.libvirtError as e:
+                msg = describe_exception(e)
+                log_action(user["username"], "start_network", name, "echec", msg)
+                raise HTTPException(status_code=500, detail=f"The network could not start: {msg}") from e
+            log_action(user["username"], "start_network", name, "succes")
+        return _network_summary(net)
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/stop")
+def stop_network(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+    """Stopping a network disconnects the running VMs plugged into it: they are named, and a confirmation is required."""
+    conn = open_conn()
+    try:
+        net = _lookup(conn, name)
+        if not net.isActive():
+            return _network_summary(net)
+        running = _running_vms_on(conn, name)
+        if not confirm:
+            detail = "Confirmation required (?confirm=true)"
+            if running:
+                detail += f": running VMs will lose this network: {', '.join(running)}"
+            raise HTTPException(status_code=400, detail=detail)
+        try:
+            net.destroy()
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "stop_network", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"The network could not stop: {msg}") from e
+        log_action(user["username"], "stop_network", name, "succes", ", ".join(running) or None)
+        return _network_summary(net)
+    finally:
+        conn.close()
+
+
+class AutostartSetting(BaseModel):
+    autostart: bool
+
+
+@router.put("/{name}/autostart")
+def set_network_autostart(name: str, payload: AutostartSetting, user: dict = Depends(require_role("admin"))):
+    """Whether libvirt starts the network when the host boots."""
+    conn = open_conn()
+    try:
+        net = _lookup(conn, name)
+        try:
+            net.setAutostart(1 if payload.autostart else 0)
+        except libvirt.libvirtError as e:
+            raise HTTPException(status_code=500, detail=describe_exception(e)) from e
+        log_action(user["username"], "network_autostart", name, "succes", "on" if payload.autostart else "off")
+        return _network_summary(net)
+    finally:
+        conn.close()
+
+
 # --- Creation/deletion of virtual networks: a simplified equivalent of vSwitches
 # and Port Groups. A libvirt network is the equivalent of a port group attached
 # to a NAT, isolated or bridged vSwitch. Admin-only (creating a network changes
@@ -213,7 +318,9 @@ class NetworkCreate(BaseModel):
     name: str
     mode: str = Field(description="'nat' | 'isole' | 'bridge'")
     bridge_name: str | None = Field(
-        None, description="Existing host bridge (required if mode='bridge', ignored otherwise)"
+        None,
+        description="Host interface (required if mode='bridge'): an existing bridge, or a NIC/bond/VLAN used through "
+        "macvtap (see GET /networks/host-interfaces)",
     )
     subnet_address: str | None = Field(None, description="Gateway address, e.g. '192.168.150.1' (nat/isolated)")
     subnet_netmask: str = "255.255.255.0"
@@ -246,11 +353,34 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
                     status_code=422,
                     detail="Invalid bridge_name (a Linux interface name is expected: letters/digits/-/_/. , 15 characters max)",
                 )
-            net_xml = f"""
+            from app.core.host_interfaces import find as find_interface
+
+            iface = find_interface(payload.bridge_name)
+            if iface is None:
+                raise HTTPException(status_code=422, detail=f"No interface '{payload.bridge_name}' on this host")
+            if not iface["utilisable"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"'{payload.bridge_name}' is a Wi-Fi card: a Wi-Fi link cannot carry bridged VMs",
+                )
+            if iface["type"] == "pont":
+                # An existing Linux bridge: VMs are plugged into it, and the host reaches them.
+                net_xml = f"""
             <network>
               <name>{payload.name}</name>
               <forward mode='bridge'/>
               <bridge name='{payload.bridge_name}'/>
+            </network>
+            """
+            else:
+                # A NIC, bond or VLAN interface: macvtap puts the VMs straight on it, with no change to the host's
+                # network configuration. The host itself cannot reach them through it (macvtap limitation).
+                net_xml = f"""
+            <network>
+              <name>{payload.name}</name>
+              <forward mode='bridge'>
+                <interface dev='{payload.bridge_name}'/>
+              </forward>
             </network>
             """
         else:
