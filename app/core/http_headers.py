@@ -13,7 +13,7 @@ import hashlib
 import os
 import re
 
-_INLINE_SCRIPT_RE = re.compile(r"<script(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script>", re.IGNORECASE | re.DOTALL)
+_INLINE_SCRIPT_RE = re.compile(r"<script(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\b[^>]*>", re.IGNORECASE | re.DOTALL)
 # What may appear in a Host header that is echoed into the policy (host name, IPv4, [IPv6], port).
 _HOST_RE = re.compile(r"[A-Za-z0-9.\-:\[\]]{1,260}")
 

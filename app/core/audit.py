@@ -134,7 +134,9 @@ def log_action(
     try:
         _AUDIT_QUEUE.put_nowait(entry)
     except queue.Full:
-        logger.error("Audit queue full, entry lost: %s", entry)
+        # Who, what and when only: the free-text message may quote user input (a refused password rule, an
+        # identity provider's answer) and has no place in the service log.
+        logger.error("Audit queue full, entry lost: %s %s %s (%s)", username, action, resource, result)
 
     # Outbound notifications: a single entry point instead of calling notify() at
     # every log_action() call site. It runs in a separate thread rather than in the
