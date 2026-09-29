@@ -27,11 +27,13 @@ ALL_PRIVILEGES = {
     "vm.resize": "Resize (CPU / RAM / disk)",
     "vm.hardware": "Hardware (disks, network interfaces, CD drive)",
     "vm.clone": "Clone the VM (creates a new VM and consumes disk space)",
+    "vm.options": "Options (start at boot, notes and tags)",
     # LXC containers: a catalog distinct from vm.* (a different resource, even
     # though `has_container_privilege` reuses the SAME predefined roles below).
     "container.view": "View (state, IP)",
     "container.power": "Start / stop",
     "container.console": "Terminal SSH web",
+    "container.options": "Options (notes and tags)",
 }
 
 # Predefined, scoped roles that can be assigned through an ACL (distinct from
@@ -58,7 +60,7 @@ ROLES = {
     },
     "gestionnaire": {
         "label": "Manager",
-        "description": "Operator + snapshots, CPU/RAM/disk resizing, hardware (disks/network), without creating or deleting VMs.",
+        "description": "Operator + snapshots, CPU/RAM/disk resizing, hardware (disks/network), options (start at boot, notes, tags), without creating or deleting VMs.",
         "privileges": {
             "vm.view",
             "vm.power",
@@ -67,9 +69,11 @@ ROLES = {
             "vm.snapshot",
             "vm.resize",
             "vm.hardware",
+            "vm.options",
             "container.view",
             "container.power",
             "container.console",
+            "container.options",
         },
     },
 }

@@ -5,7 +5,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cpu_pinning
+from app.core import cloudinit_edit, cpu_pinning, vm_boot
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -13,7 +13,7 @@ from app.core.libvirt_utils import (
 )
 from app.core.security import require_vm_privilege
 from app.core.vm_limits import validate_vm_resources
-from app.core.vm_meta import set_vm_os_label
+from app.core.vm_meta import get_vm_ssh_user, set_vm_os_label, set_vm_ssh_user
 from app.routers.vms._shared import _domain_summary, router
 
 logger = logging.getLogger(__name__)
@@ -259,5 +259,113 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
         # The CPUs move at once; a new NUMA memory placement only applies when the guest's RAM is allocated again.
         result["redemarrage_requis"] = bool(domain.isActive()) and before["numa_cellule"] != how["numa_cellule"]
         return result
+    finally:
+        conn.close()
+
+
+class BootSetting(BaseModel):
+    demarrage_auto: bool
+    # Position in the node's start sequence; none: after the numbered VMs, by name.
+    ordre: int | None = Field(default=None, ge=0, le=vm_boot.MAX_ORDER)
+    # Wait after this VM has started, before the next one (a database before its applications).
+    delai_s: int = Field(default=0, ge=0, le=vm_boot.MAX_DELAY_S)
+
+
+def _lookup(conn, name):
+    try:
+        return conn.lookupByName(name)
+    except libvirt.libvirtError:
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+
+
+@router.get("/{name}/boot")
+def get_vm_boot(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
+    conn = open_conn(node)
+    try:
+        domain = _lookup(conn, name)
+        # A libvirt autostart flag set outside Hyperlite (virsh autostart) starts the VM in no order: say so.
+        return {**vm_boot.get_setting(name, node), "autostart_libvirt": bool(domain.autostart())}
+    finally:
+        conn.close()
+
+
+@router.put("/{name}/boot")
+def set_vm_boot(
+    name: str, payload: BootSetting, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.options"))
+):
+    conn = open_conn(node)
+    try:
+        domain = _lookup(conn, name)
+        vm_boot.set_setting(name, payload.demarrage_auto, payload.ordre, payload.delai_s, node)
+        if payload.demarrage_auto and domain.autostart():
+            # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over.
+            domain.setAutostart(0)
+        detail = (
+            f"on, order {payload.ordre if payload.ordre is not None else '-'}, delay {payload.delai_s} s"
+            if payload.demarrage_auto
+            else "off"
+        )
+        log_action(user["username"], "set_vm_boot", name, "succes", f"Start at boot {detail}")
+        return {**vm_boot.get_setting(name, node), "autostart_libvirt": bool(domain.autostart())}
+    finally:
+        conn.close()
+
+
+class CloudInitUpdate(BaseModel):
+    utilisateur: str = Field(min_length=1, max_length=32)
+    # None: the password is left as it is (Hyperlite never stores it, so it cannot be shown or kept otherwise).
+    mot_de_passe: str | None = Field(default=None, max_length=256)
+    cles_ssh: list[str] = Field(default_factory=list, max_length=50)
+
+
+def _cloudinit_view(name, domain):
+    drive = cloudinit_edit.drive_path(domain, name)
+    state = cloudinit_edit.get_state(name) or {"utilisateur": get_vm_ssh_user(name), "cles_ssh": [], "modifie_le": None}
+    return {"disponible": drive is not None, "en_marche": bool(domain.isActive()), **state}
+
+
+@router.get("/{name}/cloud-init")
+def get_vm_cloudinit(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
+    """Whether the VM has a cloud-init drive Hyperlite can rewrite, and the account and keys last written there."""
+    conn = open_conn()
+    try:
+        return _cloudinit_view(name, _lookup(conn, name))
+    finally:
+        conn.close()
+
+
+@router.put("/{name}/cloud-init")
+def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(require_vm_privilege("vm.options"))):
+    """Rewrite the VM's cloud-init drive; the guest applies it at its next boot."""
+    conn = open_conn()
+    try:
+        domain = _lookup(conn, name)
+        drive = cloudinit_edit.drive_path(domain, name)
+        if drive is None:
+            raise HTTPException(
+                status_code=409,
+                detail="This VM has no cloud-init drive: it was installed from an ISO image, not made from a cloud image",
+            )
+        try:
+            keys = cloudinit_edit.validate(payload.utilisateur, payload.mot_de_passe, payload.cles_ssh)
+            cloudinit_edit.rewrite_drive(name, drive, payload.utilisateur, payload.mot_de_passe, keys)
+        except cloudinit_edit.CloudInitError as e:
+            log_action(user["username"], "update_vm_cloudinit", name, "echec", str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        reloaded = False
+        try:
+            reloaded = cloudinit_edit.reload_media(domain, name)
+        except libvirt.libvirtError as e:
+            # The file is written: the change applies anyway once the VM is powered off and on again.
+            logger.warning("Could not reload the cloud-init drive of %s live: %s", name, e)
+        set_vm_ssh_user(name, payload.utilisateur)
+        log_action(
+            user["username"],
+            "update_vm_cloudinit",
+            name,
+            "succes",
+            f"user {payload.utilisateur}, {len(keys)} key(s), password {'changed' if payload.mot_de_passe else 'kept'}",
+        )
+        return {**_cloudinit_view(name, domain), "recharge_a_chaud": reloaded}
     finally:
         conn.close()

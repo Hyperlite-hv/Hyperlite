@@ -18,7 +18,17 @@ from app.core.host_capabilities import get_remote_capabilities
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import get_node_live
 from app.core.security import get_current_user, require_role
-from app.core.tasks import create_task, finish_task, task_status, update_task_progress
+from app.core.tasks import (
+    cancel_requested,
+    create_task,
+    finish_task,
+    register_cancel,
+    request_cancel,
+    task_log,
+    task_status,
+    update_task_progress,
+)
+from app.core.tasks import requester as _cancel_requester
 from app.routers.vms.migration import _migrate_vm_job
 
 logger = logging.getLogger(__name__)
@@ -281,8 +291,20 @@ def _run_in_background(target, *args):
 
 def _drain_job(parent_id, username, source, target, names):
     failed, not_started = [], []
+    current = {}
+
+    def abort():
+        # Cancelling the drain stops the migration in flight too; the VMs after it are not started.
+        child = current.get("task")
+        if child:
+            request_cancel(child, _cancel_requester(parent_id))
+
+    register_cancel(parent_id, abort)
     try:
         for i, vm_name in enumerate(names):
+            if cancel_requested(parent_id):
+                not_started = names[i:]
+                break
             if not maintenance.get(source):
                 # The admin ended the maintenance: stop moving VMs away.
                 not_started = names[i:]
@@ -294,7 +316,10 @@ def _drain_job(parent_id, username, source, target, names):
             else:
                 with claim:
                     task_id = create_task("migrate_vm", vm_name, node=source, username=username)
+                    current["task"] = task_id
+                    task_log(parent_id, f"Migrating {vm_name} ({i + 1}/{len(names)})")
                     _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
+                    current.pop("task", None)
                 if task_status(task_id) != "termine":
                     failed.append(vm_name)
             update_task_progress(parent_id, int((i + 1) * 100 / len(names)))
@@ -309,7 +334,8 @@ def _drain_job(parent_id, username, source, target, names):
     if failed:
         summary += f"; failed: {', '.join(failed)}"
     if not_started:
-        summary += f"; not started (maintenance ended): {', '.join(not_started)}"
+        why = "drain cancelled" if cancel_requested(parent_id) else "maintenance ended"
+        summary += f"; not started ({why}): {', '.join(not_started)}"
     ok = not failed and not not_started
     finish_task(parent_id, "termine" if ok else "echec", None if ok else summary)
     log_action(username, "drain_node", source, "succes" if ok else "echec", summary)

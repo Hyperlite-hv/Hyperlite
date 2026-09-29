@@ -22,8 +22,17 @@ Errors are returned as JSON `{"detail": "..."}` with an appropriate HTTP status.
 
 ## Long operations
 
-Operations that can take time (creation, snapshots, backups, migration, updates) return a task id; poll `GET /tasks/{id}` for progress.
+Operations that can take time (creation, snapshots, backups, migration, updates) return a task id; poll `GET /tasks/{id}` for progress. `GET /tasks/{id}/log` returns the task's own log, line by line. `POST /tasks/{id}/cancel` asks a running task to stop (`{"resultat": "requested"}`), or closes one that no process runs any more (`"abandoned"`); a task that cannot stop midway answers 409, and an administrator may close its record anyway with `?force=true`. In the task list, `arret_propre`, `orpheline` and `annulable` say which applies; `GET /tasks?objet=<name>&famille=vm|container` is one object's history.
 
 ## Permissions
 
-Each endpoint requires a global role or a scoped privilege (for example `vm.hardware`, `vm.console`, `vm.clone`). See `app/core/permissions.py` for the catalogue.
+Each endpoint requires a global role or a scoped privilege (for example `vm.hardware`, `vm.console`, `vm.clone`). See `app/core/permissions.py` for the catalogue. `vm.options` and `container.options` (part of the Manager role) cover start at boot, notes and tags, and a cloud image VM's account.
+
+## Object settings
+
+| Endpoint | What it does |
+|---|---|
+| `GET`/`PUT /vms/{name}/boot?node=` | Start at boot: `demarrage_auto`, `ordre` (sequence position, none last), `delai_s` (pause before the next VM). Run once per boot of the VM's node. |
+| `GET`/`PUT /vms/{name}/cloud-init` | A cloud image VM's account: `utilisateur`, `cles_ssh`, `mot_de_passe` (write-only, never returned). Applied at the VM's next boot. |
+| `GET /meta?kind=`, `GET`/`PUT /meta/{vm,container,node}/{name}?node=` | Notes (plain text) and tags of an object. The listing gives tags and `a_des_notes`, not the notes. |
+| `GET`/`PATCH /containers/{name}` | A container's details (`interfaces`, `dns`, `demarrage_auto`) and changing `vcpu`, `memory_mb`, `dns`, `demarrage_auto`; `a_redemarrer` says when part of it applies at the next start. |

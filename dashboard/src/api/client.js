@@ -479,6 +479,13 @@ export async function fetchTasks(filters = {}) {
 export async function fetchTaskDetail(id) {
   return realFetch(`/tasks/${encodeURIComponent(id)}`);
 }
+// A task's own log, and asking it to stop (force: close the record of one that cannot stop, administrator only).
+export async function fetchTaskLog(id) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}/log`);
+}
+export async function cancelTask(id, force = false) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}/cancel${force ? "?force=true" : ""}`, { method: "POST" });
+}
 
 // ---- Hyperlite update from Git (real: GET/POST /update/*, see
 // app/routers/update.py) ----
@@ -677,6 +684,35 @@ export async function fetchVM(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}${nodeQuery(node)}`);
 }
 
+// ---- Notes and tags of VMs, containers and nodes (GET /meta, GET/PUT /meta/{kind}/{name}); a VM's node travels
+// with the call, a node is identified by its own name.
+export async function fetchMetaList(kind = null) {
+  return realFetch(`/meta${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`);
+}
+export async function fetchMeta(kind, name, node = null) {
+  const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/meta/${kind}/${encodeURIComponent(name)}${q}`);
+}
+export async function saveMeta(kind, name, payload, node = null) {
+  const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/meta/${kind}/${encodeURIComponent(name)}${q}`, { method: "PUT", ...jsonBody(payload) });
+}
+// ---- Cloud-init after creation (GET/PUT /vms/{name}/cloud-init, VMs of this host made from a cloud image).
+export async function fetchVMCloudInit(name) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`);
+}
+export async function setVMCloudInit(name, payload) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/cloud-init`, { method: "PUT", ...jsonBody(payload) });
+}
+// ---- Start at boot (GET/PUT /vms/{name}/boot): per node, so the VM's node travels with the call.
+export async function fetchVMBoot(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`);
+}
+export async function setVMBoot(name, payload, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`, { method: "PUT", ...jsonBody(payload) });
+}
 // ---- Resource limits/reservations (real: GET/PUT /vms/{name}/limits, cgroups
 // through libvirt schedulerParametersFlags/memoryParameters) ----
 export async function fetchVMLimits(name) {
@@ -897,6 +933,13 @@ export async function deleteCustomRole(roleId) {
 // ---- LXC containers (real: GET/POST/DELETE /containers) ----
 export async function fetchContainers() {
   return realFetch("/containers");
+}
+// One container's details (interfaces, DNS servers, start at boot) and changing them (administrator).
+export async function fetchContainer(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}`);
+}
+export async function updateContainer(name, payload) {
+  return realFetch(`/containers/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
 }
 export async function searchDockerHub(query) {
   return realFetch(`/containers/docker-hub/search?q=${encodeURIComponent(query)}`);
