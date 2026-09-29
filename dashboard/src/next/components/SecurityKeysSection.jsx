@@ -52,23 +52,23 @@ export default function SecurityKeysSection({ open }) {
   }
 
   return (
-    <section className="space-y-3 border-t border-border pt-4" aria-label={t("sk.title")}>
-      <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Fingerprint size={15} aria-hidden="true" /> {t("sk.title")}</h4>
-      <p className="text-xs text-muted-foreground">{t("sk.help", { host: window.location.hostname })}</p>
-      {!supported && <p className="text-xs text-status-warning" role="note">{t("sk.unsupported")}</p>}
-      <form onSubmit={add} className="flex items-end gap-2">
-        <label className="flex-1 text-xs font-medium text-foreground/80">{t("sk.name")}
-          <input className="nx-inp mt-1 w-full" aria-label={t("sk.name")} placeholder={t("sk.namePlaceholder")} maxLength={64} value={name} onChange={(e) => setName(e.target.value)} disabled={!supported} />
+    <section className="nx-sk" aria-label={t("sk.title")}>
+      <h4 className="nx-sk-h"><Fingerprint size={15} aria-hidden="true" /> {t("sk.title")}</h4>
+      <p className="nx-f-h">{t("sk.help", { host: window.location.hostname })}</p>
+      {!supported && <p className="nx-f-h is-warning" role="note">{t("sk.unsupported")}</p>}
+      <form onSubmit={add} className="nx-sk-form">
+        <label className="nx-sk-label">{t("sk.name")}
+          <input className="nx-inp" aria-label={t("sk.name")} placeholder={t("sk.namePlaceholder")} maxLength={64} value={name} onChange={(e) => setName(e.target.value)} disabled={!supported} />
         </label>
         <button type="submit" className="nx-btn" disabled={busy || !supported}><Plus size={14} aria-hidden="true" />{t("sk.add")}</button>
       </form>
-      <div className="divide-y divide-border rounded-md border border-border">
-        {keys && keys.length === 0 && <div className="px-3 py-3 text-xs text-muted-foreground text-center">{t("sk.none")}</div>}
+      <div className="nx-sk-list">
+        {keys && keys.length === 0 && <div className="nx-sk-empty">{t("sk.none")}</div>}
         {keys && keys.map((k) => (
-          <div key={k.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-            <div className="min-w-0 flex-1">
-              <div className="text-foreground truncate">{k.nom}</div>
-              <div className="text-muted-foreground text-xs">{k.rp_id} · {t("sk.added_on", { date: formatDateTime(k.cree_le, lang) })} · {k.utilise_le ? t("sk.used_on", { date: formatDateTime(k.utilise_le, lang) }) : t("sk.never")}</div>
+          <div key={k.id} className="nx-sk-row">
+            <div className="nx-sk-main">
+              <div className="nx-sk-name">{k.nom}</div>
+              <div className="nx-f-h">{k.rp_id} · {t("sk.added_on", { date: formatDateTime(k.cree_le, lang) })} · {k.utilise_le ? t("sk.used_on", { date: formatDateTime(k.utilise_le, lang) }) : t("sk.never")}</div>
             </div>
             <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("sk.removeAria", { name: k.nom })} onClick={() => remove(k)}><Trash2 size={14} aria-hidden="true" /></button>
           </div>
