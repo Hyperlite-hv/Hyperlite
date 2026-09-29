@@ -20,11 +20,17 @@ def test_every_chroot_and_debootstrap_call_uses_it(monkeypatch, tmp_path):
 
     seen = []
     monkeypatch.setattr(container_builder.subprocess, "run", lambda args, **kw: seen.append((args, kw.get("env"))))
-    container_builder._chroot_run(["chroot", str(tmp_path), "true"], check=True)
-    assert seen and seen[0][1] == container_builder.chroot_env()
+    container_builder._chroot_run(tmp_path, "useradd", "-m", "demo", check=True)
+    # chroot is always the program; the command's words are separate arguments, never a shell line
+    assert seen[0] == (["chroot", str(tmp_path), "useradd", "-m", "demo"], container_builder.chroot_env())
+
+    monkeypatch.setattr(container_builder, "BASE_ROOTFS", tmp_path / "base")
+    container_builder.ensure_base_rootfs()
+    assert seen[1][0][0] == "debootstrap" and seen[1][1] == container_builder.chroot_env()
+
     source = Path(container_builder.__file__).read_text()
-    # no call into a container may go through subprocess.run directly (it would inherit the service's environment)
-    assert not re.search(r'subprocess\.run\(\s*\[\s*"(?:chroot|debootstrap)"', source)
+    # the only direct chroot call is _chroot_run's own: any other would inherit the service's environment
+    assert len(re.findall(r'subprocess\.run\(\s*\[\s*"chroot"', source)) == 1
 
 
 def test_a_missing_tmp_is_created_for_package_scripts(tmp_path):
