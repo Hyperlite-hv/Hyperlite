@@ -282,9 +282,12 @@ def timezones():
 
 def set_time(timezone, ntp, ntp_servers):
     if timezone is not None:
-        if not TZ_RE.match(timezone) or timezone not in timezones():
+        # The zone passed to timedatectl is the system's own spelling of it, never the request's string.
+        known = {z: z for z in timezones()} if TZ_RE.match(timezone or "") else {}
+        zone = known.get(timezone)
+        if zone is None:
             raise SettingError(f"Unknown time zone: {timezone}")
-        r = _run(["timedatectl", "set-timezone", timezone])
+        r = _run(["timedatectl", "set-timezone", zone])
         if r.returncode != 0:
             raise SettingError(f"The time zone was not changed: {r.stderr.strip()[-300:]}")
     if ntp_servers is not None:

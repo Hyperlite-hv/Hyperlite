@@ -113,7 +113,7 @@ def test_acme_command_is_validated_and_uses_the_deploy_hook(monkeypatch):
     monkeypatch.setattr(tls_certs.shutil, "which", lambda name: f"/usr/bin/{name}")
     cmd = tls_certs.acme_command("hv1.example.org", "ops@example.org", staging=True)
     assert cmd[:3] == ["/usr/bin/certbot", "certonly", "--standalone"]
-    assert cmd[cmd.index("-d") + 1] == "hv1.example.org" and cmd[-1] == "--test-cert"
+    assert "--domains=hv1.example.org" in cmd and cmd[-1] == "--test-cert"
     assert cmd[cmd.index("--deploy-hook") + 1].endswith("scripts/acme-deploy-hook.sh")
     for domain, email in [
         ("hv1", "a@b.org"),
