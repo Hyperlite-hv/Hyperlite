@@ -34,5 +34,10 @@ Each endpoint requires a global role or a scoped privilege (for example `vm.hard
 |---|---|
 | `GET`/`PUT /vms/{name}/boot?node=` | Start at boot: `demarrage_auto`, `ordre` (sequence position, none last), `delai_s` (pause before the next VM). Run once per boot of the VM's node. |
 | `GET`/`PUT /vms/{name}/cloud-init` | A cloud image VM's account: `utilisateur`, `cles_ssh`, `mot_de_passe` (write-only, never returned). Applied at the VM's next boot. |
+| `GET /vms/{name}/hardware-options` | Disk options, boot order, ballooning and machine type (`disques`, `interfaces`, `ordre_demarrage`, `ballooning`, `machine`, `machines_plus_recentes`, `en_marche`). |
+| `PUT /vms/{name}/disks/{dev}/options` | `cache`, `discard`, `io`, `iothread` (virtio only), `iops`, `mbps` (limits apply live). Returns `a_redemarrer` when the rest waits for the next start. |
+| `PUT /vms/{name}/boot-order` | `ordre`: disk targets and `net:<mac>` in boot order. |
+| `PUT /vms/{name}/balloon` | `actif`, `minimum_mo` (privilege `vm.resize`). |
+| `PUT /vms/{name}/machine` | `machine`: the current version of the same family, on a stopped VM. |
 | `GET /meta?kind=`, `GET`/`PUT /meta/{vm,container,node}/{name}?node=` | Notes (plain text) and tags of an object. The listing gives tags and `a_des_notes`, not the notes. |
 | `GET`/`PATCH /containers/{name}` | A container's details (`interfaces`, `dns`, `demarrage_auto`) and changing `vcpu`, `memory_mb`, `dns`, `demarrage_auto`; `a_redemarrer` says when part of it applies at the next start. |
