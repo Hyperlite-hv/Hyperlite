@@ -104,6 +104,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A dashboard file that fails to download (a network change or drop, or files replaced by an update since the page was opened) no longer leaves a blank page: the page reloads, at most three times a minute.
 - Pages no longer ask the server again at each render: the translation function changed at every render, so the effects that load data kept running (the Network page called GET /networks hundreds of times a second, each call written to the audit log).
 - A backup schedule's directory is now checked: an absolute path outside the system's own directories (it was written as root wherever it pointed).
 - The NFS permission check writes its probe file only inside a pool mount point Hyperlite created (under `/var/lib/libvirt/hyperlite-pools`); a pool mounted elsewhere is reported as not checkable.
