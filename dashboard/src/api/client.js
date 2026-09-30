@@ -953,9 +953,15 @@ export async function createStoragePool(payload, node) {
   const qs = node ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/storage${qs}`, { method: "POST", ...jsonBody(payload) });
 }
-export async function deleteStoragePool(poolName, node, detacher = false) {
+// Storage declared for several nodes (NFS, iSCSI): which pools, and on which nodes.
+export async function fetchSharedPools() {
+  return realFetch("/storage/shared");
+}
+// everywhere: a shared pool is removed from every node that has it, with its definition.
+export async function deleteStoragePool(poolName, node, detacher = false, everywhere = false) {
   const params = new URLSearchParams({ confirm: "true" });
   if (detacher) params.set("detacher", "true");
+  if (everywhere) params.set("partout", "true");
   if (node) params.set("node", node);
   return realFetch(`/storage/${encodeURIComponent(poolName)}?${params.toString()}`, { method: "DELETE" });
 }
