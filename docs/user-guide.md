@@ -206,6 +206,15 @@ a directory or NFS pool never deletes its files.
 
 **My preferences** chooses which pools the **Home** page follows.
 
+
+### Shared storage on several nodes
+
+An NFS share or an iSCSI target is the same storage for every node that reaches it. When creating one, **Nodes**
+offers, as on Proxmox: **Every node** (the default with several nodes; a node registered later gets it too), **One
+node**, or **Choose the nodes**. The pool is created on each of them under the same name and mount point, which live
+migration and HA need; the result says, node by node, whether it was created, already there, or why it failed. Shared
+pools are marked in the list; deleting one removes it from every node that has it.
+
 ## 7. Networks
 
 **Network** lists the virtual networks. **Create → Virtual network**:
