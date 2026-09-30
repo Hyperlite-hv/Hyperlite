@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Play, Square, SquareTerminal, Trash2 } from "lucide-react";
+import { PencilLine, Play, Square, SquareTerminal, TerminalSquare, Trash2 } from "lucide-react";
 import {
   fetchContainer, updateContainer, startContainer, stopContainer, deleteContainer,
   fetchContainerBackups, createContainerBackup, deleteContainerBackup, restoreContainerBackup,
@@ -19,10 +19,10 @@ import NotesCard from "../components/NotesCard";
 import { ErrorState } from "../components/States";
 import { Card, Field, Loading, TableWrap } from "../components/ui";
 import { ContainerLogs } from "./ContainersPage";
+import { openShell, renameContainerFlow } from "../lib/containerActions";
 
 const intIn = (v, min, max) => v !== "" && Number.isInteger(Number(v)) && Number(v) >= min && (max == null || Number(v) <= max);
 const openTerminal = (name) => window.open(`/container-terminal/${encodeURIComponent(name)}`, `hyperlite-ct-terminal-${name}`, "width=1000,height=700,noopener");
-
 function useContainerDetail(name) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState(null);
@@ -33,7 +33,7 @@ function useContainerDetail(name) {
   return { detail, error, load, setDetail };
 }
 
-// Start, stop, terminal and delete in the container's header: the same rules and confirmations as the list.
+// Start, stop, terminal, shell, rename and delete in the container's header: the same rules and confirmations as the list.
 export function ContainerHeaderActions({ ct }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
@@ -54,9 +54,16 @@ export function ContainerHeaderActions({ ct }) {
       {on ? (
         <>
           {ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--primary" onClick={() => openTerminal(ct.nom)}><SquareTerminal size={15} aria-hidden="true" />{t("ct.terminal")}</button>}
+          <button type="button" className={`nx-btn${ct.mode === "application" ? " nx-btn--primary" : ""}`} title={t("ct.shellHelp")} onClick={() => openShell(ct.nom)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>
           <button type="button" className="nx-btn" disabled={busy} onClick={() => run(stopContainer, t("ct.stopRequested"), { title: t("ct.stopTitle", { name: ct.nom }), message: t("ct.stopMsg"), confirmLabel: t("ct.stop") })}><Square size={15} aria-hidden="true" />{t("ct.stop")}</button>
         </>
-      ) : <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={() => run(startContainer, t("ct.started"))}><Play size={15} aria-hidden="true" />{t("ct.start")}</button>}
+      ) : <>
+        <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={() => run(startContainer, t("ct.started"))}><Play size={15} aria-hidden="true" />{t("ct.start")}</button>
+        <button type="button" className="nx-btn" disabled={busy} onClick={async () => {
+          const name = await renameContainerFlow(ct, t, pushToast);
+          if (name) { await refreshExtras(); navigateTo("container", name, "summary"); }
+        }}><PencilLine size={15} aria-hidden="true" />{t("ct.rename")}</button>
+      </>}
       <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" aria-label={t("a11y.delete_container_x", { v: ct.nom })} disabled={busy}
         onClick={async () => {
           const done = await run(deleteContainer, t("ct.deleted"), { title: t("ct.deleteTitle", { name: ct.nom }), message: t("ct.deleteMsg", { name: ct.nom }), confirmLabel: t("menu.delete").replace("…", ""), danger: true });
@@ -149,14 +156,22 @@ export function ContainerConsolePage({ resource: ct }) {
       {ct.mode === "application" ? (
         <>
           <p className="nx-muted" style={{ marginTop: 0 }}>{t("cd.appConsole")}</p>
-          <button type="button" className="nx-btn" onClick={() => setLogs(true)}>{t("ct.logs")}</button>
+          <div className="nx-ra" style={{ justifyContent: "flex-start" }}>
+            <button type="button" className="nx-btn" onClick={() => setLogs(true)}>{t("ct.logs")}</button>
+            {on && caps.admin && <button type="button" className="nx-btn" onClick={() => openShell(ct.nom)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>}
+          </div>
+          {on && caps.admin && <p className="nx-muted" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("ct.shellHelp")}</p>}
           <ContainerLogs name={logs ? ct.nom : null} onClose={() => setLogs(false)} />
         </>
       ) : !on ? <p className="nx-muted" style={{ margin: 0 }}>{t("cd.consoleStopped")}</p>
         : !caps.admin ? <p className="nx-muted" style={{ margin: 0 }}>{t("cd.consoleAdmin")}</p> : (
           <>
             <p className="nx-muted" style={{ marginTop: 0 }}>{t("cd.consoleHelp")}</p>
-            <button type="button" className="nx-btn nx-btn--primary" onClick={() => openTerminal(ct.nom)}><SquareTerminal size={15} aria-hidden="true" />{t("ct.terminal")}</button>
+            <div className="nx-ra" style={{ justifyContent: "flex-start" }}>
+              <button type="button" className="nx-btn nx-btn--primary" onClick={() => openTerminal(ct.nom)}><SquareTerminal size={15} aria-hidden="true" />{t("ct.terminal")}</button>
+              <button type="button" className="nx-btn" onClick={() => openShell(ct.nom)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>
+            </div>
+            <p className="nx-muted" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("ct.shellHelp")}</p>
           </>
         )}
     </Card>

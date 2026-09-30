@@ -9,9 +9,16 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cluster_compat, maintenance, vm_locks
+from app.core import cluster_compat, maintenance, renaming, vm_locks
 from app.core.audit import log_action
-from app.core.cluster import get_cluster_pubkey, node_summary, register_node, remove_node, test_node_connection
+from app.core.cluster import (
+    get_cluster_pubkey,
+    node_summary,
+    register_node,
+    remove_node,
+    rename_reverse_trust,
+    test_node_connection,
+)
 from app.core.database import get_conn
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_remote_capabilities
@@ -224,6 +231,38 @@ def delete_node(name: str, user: dict = Depends(require_role("admin"))):
     remove_node(name, user["username"])
     maintenance.leave(name)
     return {"message": f"Node '{name}' removed"}
+
+
+class RenameNodeRequest(BaseModel):
+    new_name: str
+
+
+@router.post("/{name}/rename")
+def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depends(require_role("admin"))):
+    """The name Hyperlite shows for a registered node; the machine keeps its host name and address. Its VMs'
+    settings, notes, metrics and maintenance state follow (app/core/renaming.py)."""
+    new = payload.new_name
+    if not NAME_RE.match(new) or new == maintenance.LOCAL:
+        raise HTTPException(status_code=422, detail="Invalid node name (letters/digits/-/., 2-63 characters)")
+    if new == name:
+        raise HTTPException(status_code=422, detail="The new name is the current one")
+    with get_conn() as conn:
+        if not conn.execute("SELECT 1 FROM nodes WHERE name = ?", (name,)).fetchone():
+            raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
+        if conn.execute("SELECT 1 FROM nodes WHERE name = ?", (new,)).fetchone():
+            raise HTTPException(status_code=409, detail=f"A node named '{new}' already exists")
+    busy = vm_locks.busy_on_node(name)
+    with _draining_lock:
+        if name in _draining:
+            busy.append("a drain")
+    if busy:
+        raise HTTPException(status_code=409, detail=f"Node '{name}' is busy ({', '.join(busy)}): try again later")
+    renaming.node_records(name, new)
+    rename_reverse_trust(name, new)
+    log_action(user["username"], "rename_node", name, "succes", f"-> {new}")
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM nodes WHERE name = ?", (new,)).fetchone()
+    return {**dict(row), "live": get_node_live().get(new)}
 
 
 # --- Maintenance mode (see app/core/maintenance.py). {name} is "local" for the host running Hyperlite.

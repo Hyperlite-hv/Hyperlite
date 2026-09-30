@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Archive, ArrowUpRight, Copy, CopyPlus, Download, Info, KeyRound, Layers, Play, Rocket, ShieldCheck, ShieldOff, Square, SquareTerminal, Trash2, User,
+  Archive, ArrowUpRight, Copy, CopyPlus, Download, Info, KeyRound, Layers, PencilLine, Play, Rocket, ShieldCheck, ShieldOff, Square, SquareTerminal, Trash2, User,
 } from "lucide-react";
 import Menu, { MenuItem } from "./Menu";
 
@@ -63,7 +63,7 @@ export function useContextTarget() {
 const ICONS = {
   open: ArrowUpRight, delete: Trash2, copy: Copy, clone: CopyPlus, download: Download, details: Info, key: KeyRound,
   volumes: Layers, start: Play, deploy: Rocket, admin: ShieldCheck, unprotect: ShieldOff, stop: Square,
-  terminal: SquareTerminal, backup: Archive, user: User,
+  terminal: SquareTerminal, backup: Archive, user: User, rename: PencilLine,
 };
 
 // A list's right-click menu from plain entries: `entries(object)` returns

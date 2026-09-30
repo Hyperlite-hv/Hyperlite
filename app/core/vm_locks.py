@@ -77,6 +77,12 @@ def running(name, node=None):
         return _held.get(_key(name, node))
 
 
+def busy_on_node(node):
+    """Labels of the operations running on VMs of `node` (the local host for None)."""
+    with _registry_lock:
+        return [what for (n, _vm), what in _held.items() if n == (node or "local")]
+
+
 def claim_or_409(name, what, node=None):
     """claim() for an endpoint: a busy VM becomes an HTTP 409 with the reason."""
     from fastapi import HTTPException

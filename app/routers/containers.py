@@ -7,6 +7,7 @@ ACLs as VMs (app/core/permissions.py)."""
 import asyncio
 import json
 import logging
+import os
 import secrets
 import subprocess
 import threading
@@ -21,7 +22,16 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from app.core import container_config, container_console, maintenance, object_meta
+from app.core import (
+    container_config,
+    container_console,
+    container_shell,
+    image_env,
+    maintenance,
+    object_meta,
+    pty_session,
+    renaming,
+)
 from app.core.audit import log_action
 from app.core.container_builder import (
     app_spec,
@@ -35,6 +45,7 @@ from app.core.container_builder import (
     prepare_app_rootfs,
     resolve_init,
     restore_container_rootfs,
+    set_container_hostname,
     validate_app_overrides,
 )
 from app.core.container_meta import (
@@ -148,6 +159,12 @@ def search_docker_hub(q: str = "", user: dict = Depends(get_current_user)):
         return search_images(q)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.get("/image-env")
+def image_environment(image: str = "", user: dict = Depends(get_current_user)):
+    """The environment variables a well-known image needs to start, and useful ones (app/core/image_env.py)."""
+    return image_env.hints(image)
 
 
 # IMPORTANT: must stay registered BEFORE @router.get("/{name}") below. FastAPI
@@ -314,6 +331,8 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
         if not payload.image:
             errors.append("An application container needs an image")
         errors.extend(validate_app_overrides(payload.command, payload.env))
+        # Before the download: an official postgres image stops at once without its password.
+        errors.extend(image_env.missing(payload.image, payload.env))
     else:
         if payload.command or payload.env:
             errors.append("A command or environment variables apply to application containers only")
@@ -461,6 +480,36 @@ def start_container(name: str, user: dict = Depends(require_container_privilege(
         conn.close()
 
 
+# How long a container gets to stop by itself before it is stopped by force, as `docker stop` does (10 s there).
+# An application container's process gets SIGTERM; a system container's init shuts its services down first.
+STOP_GRACE_S = {"application": 30, "systeme": 90}
+
+
+def _force_stop_later(name, run_id, grace_s):
+    """Stop the container by force when it is still running after grace_s: a process can ignore SIGTERM (a shell
+    script as PID 1, or an image's entrypoint still initializing), and a stop must end with a stopped container.
+    run_id (the domain's ID, the pid of its libvirt controller) tells the run that was asked to stop from a new one
+    started meanwhile, which is left alone."""
+    deadline = time.monotonic() + grace_s
+    conn = open_lxc_conn()
+    try:
+        while time.monotonic() < deadline:
+            time.sleep(1)
+            try:
+                domain = conn.lookupByName(name)
+                if not domain.isActive() or domain.ID() != run_id:
+                    return
+            except libvirt.libvirtError:
+                return  # deleted meanwhile
+        try:
+            domain.destroy()
+            log_action("system", "stop_container", name, "succes", f"stopped by force: still running after {grace_s} s")
+        except libvirt.libvirtError as e:
+            logger.debug("Forced stop of %s not needed or failed: %s", name, e)
+    finally:
+        conn.close()
+
+
 @router.post("/{name}/stop")
 def stop_container(
     name: str, force: bool = False, user: dict = Depends(require_container_privilege("container.power"))
@@ -469,16 +518,25 @@ def stop_container(
     try:
         try:
             domain = conn.lookupByName(name)
+            run_id = domain.ID()
             if force:
                 domain.destroy()
+            elif get_container_app(name):
+                # SIGTERM to the image's process, as `docker stop` does. libvirt's default first looks for an init
+                # control pipe, which an application image does not have, and then sends nothing at all.
+                domain.shutdownFlags(libvirt.VIR_DOMAIN_SHUTDOWN_SIGNAL)
             else:
                 domain.shutdown()
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "stop_container", name, "echec", msg)
             raise HTTPException(status_code=500, detail=msg) from e
-        log_action(user["username"], "stop_container", name, "succes")
-        return {"ok": True}
+        grace = None
+        if not force:
+            grace = STOP_GRACE_S["application" if get_container_app(name) else "systeme"]
+            threading.Thread(target=_force_stop_later, args=(name, run_id, grace), daemon=True).start()
+        log_action(user["username"], "stop_container", name, "succes", "forced" if force else None)
+        return {"ok": True, "arret_force_apres_s": grace}
     finally:
         conn.close()
 
@@ -509,6 +567,78 @@ def delete_container(name: str, user: dict = Depends(require_role("admin"))):
             delete_container_app(name)
         log_action(user["username"], "delete_container", name, "succes")
         return {"ok": True}
+    finally:
+        conn.close()
+
+
+class RenameContainerRequest(BaseModel):
+    new_name: str
+
+
+@router.post("/{name}/rename")
+def rename_container(name: str, payload: RenameContainerRequest, user: dict = Depends(require_role("admin"))):
+    """libvirt's LXC driver cannot rename a domain: the stopped container is redefined under its new name, its
+    filesystem directory is renamed next to the old one, and Hyperlite's records follow (app/core/renaming.py)."""
+    new = payload.new_name
+    error = validate_name(new, "container")
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    if new == name:
+        raise HTTPException(status_code=422, detail="The new name is the current one")
+    conn = open_lxc_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
+        try:
+            conn.lookupByName(new)
+            raise HTTPException(status_code=409, detail=f"A container named '{new}' already exists")
+        except libvirt.libvirtError:
+            logger.debug("No container named %s yet", new)
+        if domain.isActive():
+            raise HTTPException(status_code=409, detail="Stop the container before renaming it")
+        old_root = container_rootfs_path(name)
+        new_root = old_root.parent / new
+        if os.path.lexists(new_root):
+            raise HTTPException(status_code=409, detail=f"A filesystem named '{new}' is already on disk: {new_root}")
+        old_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
+        autostart = bool(domain.autostart())
+        root = ET.fromstring(old_xml)
+        root.find("name").text = new
+        sources = [s for s in root.findall("./devices/filesystem/source") if s.get("dir") == str(old_root)]
+        if not sources:
+            raise HTTPException(
+                status_code=409, detail=f"The container's definition does not use its filesystem {old_root}"
+            )
+        for source in sources:
+            source.set("dir", str(new_root))
+        try:
+            os.rename(old_root, new_root)
+        except OSError as e:
+            log_action(user["username"], "rename_container", name, "echec", str(e))
+            raise HTTPException(status_code=500, detail=f"Could not rename the filesystem: {e}") from e
+        try:
+            domain.undefine()
+            try:
+                new_domain = conn.defineXML(ET.tostring(root, encoding="unicode"))
+            except libvirt.libvirtError:
+                conn.defineXML(old_xml)
+                raise
+        except libvirt.libvirtError as e:
+            os.rename(new_root, old_root)
+            msg = describe_exception(e)
+            log_action(user["username"], "rename_container", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
+        renaming.container_records(name, new)
+        if autostart:
+            new_domain.setAutostart(1)
+        try:
+            set_container_hostname(new_root, new)
+        except OSError as e:
+            logger.warning("Host name of the renamed container %s not updated: %s", new, e)
+        log_action(user["username"], "rename_container", name, "succes", f"-> {new}")
+        return _summary(new_domain)
     finally:
         conn.close()
 
@@ -903,3 +1033,64 @@ async def container_terminal(websocket: WebSocket, name: str):
         await websocket.close()
     except (RuntimeError, WebSocketDisconnect):
         logger.debug("Ignored exception in container_terminal()", exc_info=True)
+
+
+# ---- Root shell inside the container (app/core/container_shell.py), administrators only ----
+
+SHELL_TICKETS = {}
+
+
+@router.post("/{name}/shell-ticket")
+def create_shell_ticket(name: str, user: dict = Depends(require_role("admin"))):
+    conn = open_lxc_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
+        if not domain.isActive() or container_shell.init_pid(domain.ID()) is None:
+            raise HTTPException(status_code=409, detail="The container must be running to open a shell")
+    finally:
+        conn.close()
+    now = time.time()
+    for old_ticket, entry in list(SHELL_TICKETS.items()):
+        if entry[2] < now:
+            SHELL_TICKETS.pop(old_ticket, None)
+    ticket = secrets.token_urlsafe(24)
+    SHELL_TICKETS[ticket] = (name, user["username"], now + TERMINAL_TICKET_TTL)
+    log_action(user["username"], "create_container_shell_ticket", name, "succes")
+    return {"ticket": ticket, "expire_dans_s": TERMINAL_TICKET_TTL}
+
+
+@router.websocket("/{name}/shell")
+async def container_shell_session(websocket: WebSocket, name: str):
+    ticket = websocket.query_params.get("ticket")
+    entry = SHELL_TICKETS.pop(ticket, None) if ticket else None
+    if entry is None or entry[0] != name or time.time() > entry[2]:
+        await websocket.close(code=4401)
+        return
+    username = entry[1]
+    await websocket.accept()
+    conn = open_lxc_conn()
+    try:
+        try:
+            domain = conn.lookupByName(name)
+            pid = container_shell.init_pid(domain.ID()) if domain.isActive() else None
+        except libvirt.libvirtError:
+            pid = None
+    finally:
+        conn.close()
+    if pid is None:
+        await websocket.send_text("\r\n\x1b[31m[hyperlite] The container is not running.\x1b[0m\r\n")
+        await websocket.close(code=1011)
+        return
+    app = get_container_app(name)
+    log_action(username, "container_shell_open", name, "succes")
+    await pty_session.run(
+        websocket, container_shell.command(pid), container_shell.environment(app["spec"] if app else None)
+    )
+    log_action(username, "container_shell_close", name, "succes")
+    try:
+        await websocket.close()
+    except (RuntimeError, WebSocketDisconnect):
+        logger.debug("Ignored exception in container_shell_session()", exc_info=True)
