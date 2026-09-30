@@ -38,7 +38,6 @@ import libvirt
 
 from app.core import backup_integrity, backup_retention, firmware, guest_agent, vm_locks
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
@@ -361,14 +360,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         firmware_kind = firmware.of_domain(ET.fromstring(domain.XMLDesc(0)))
 
         task_id = create_task("backup_vm", vm_name, node=conn.getHostname(), username=username)
-        with get_conn() as db:
-            cur = db.execute(
-                "INSERT INTO backups (vm_name, job_id, chemin, mode, cree_le, statut, task_id) "
-                "VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
-                (vm_name, job_id, str(dest_dir), mode, _now().isoformat(), task_id),
-            )
-            backup_id = cur.lastrowid
-            db.commit()
+        backup_id = _store().create(vm_name, job_id, str(dest_dir), mode, _now().isoformat(), task_id)
 
         try:
             if mode == "froid":
@@ -385,12 +377,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             disk_sums = [f["sha256"] for f in manifest["fichiers"] if f["role"] == "disque"]
             # Kept for the backups listed before manifests existed and for the API's single-disk field.
             checksum = disk_sums[0] if len(disk_sums) == 1 else None
-            with get_conn() as db:
-                db.execute(
-                    "UPDATE backups SET statut = 'termine', taille_octets = ?, checksum_sha256 = ? WHERE id = ?",
-                    (total_size, checksum, backup_id),
-                )
-                db.commit()
+            _store().mark_done(backup_id, total_size, checksum)
             finish_task(task_id, "termine")
             log_action(username, "backup_vm", vm_name, "succes", f"{mode}, {total_size} octets -> {dest_dir}")
             # Retention (retention_count, part of the schema) is applied HERE, in the same
@@ -400,15 +387,12 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             # It does nothing when no backup_jobs row exists for this VM (no configured
             # policy means no imposed limit, so a 100% manual usage without scheduling is
             # unchanged).
-            with get_conn() as db:
-                job_row = db.execute("SELECT * FROM backup_jobs WHERE vm_name = ?", (vm_name,)).fetchone()
+            job_row = _store().get_schedule(vm_name)
             if job_row:
                 _apply_retention(vm_name, backup_retention.policy_of(job_row))
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            with get_conn() as db:
-                db.execute("UPDATE backups SET statut = 'echec', erreur = ? WHERE id = ?", (msg, backup_id))
-                db.commit()
+            _store().mark_failed(backup_id, msg)
             finish_task(task_id, "echec", msg)
             log_action(username, "backup_vm", vm_name, "echec", msg)
             shutil.rmtree(dest_dir, ignore_errors=True)
@@ -465,18 +449,20 @@ def _copy_owner_and_mode(reference, path):
         logger.warning("Could not give %s the owner of %s", path, reference)
 
 
+def _store():
+    # The backup repository's synchronous bridge: backups, restores and the scheduler run in threads.
+    from app.repositories import registry
+
+    return registry.backups().sync
+
+
 def _check_before_restore(row, task_id, username):
     """Verify the backup NOW, whatever an earlier verification said: a restore replaces good data, so it must not
     start from a backup whose files changed or are damaged. The result is recorded like a manual verification."""
     status, problems, _count = backup_integrity.verify(
         row["chemin"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, int(pct * 0.2))
     )
-    with get_conn() as db:
-        db.execute(
-            "UPDATE backups SET verification = ?, verifie_le = ?, verification_detail = ? WHERE id = ?",
-            (status, _now().isoformat(), "; ".join(problems) or None, row["id"]),
-        )
-        db.commit()
+    _store().set_verification(row["id"], status, _now().isoformat(), "; ".join(problems) or None)
     if status != backup_integrity.VERIFIED:
         raise RuntimeError("The backup failed its integrity check, nothing was restored: " + "; ".join(problems[:5]))
 
@@ -544,8 +530,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
 
     `claim`: the vm_locks claim the endpoint took on the VM, released here when the restore ends; without one, the
     restore takes its own."""
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
+    row = _store().get(backup_id)
     if not row:
         raise RuntimeError("Backup not found")
     if row["statut"] != "termine":
@@ -642,8 +627,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
 def verify_backup(backup_id, username="system", task_id=None):
     """Check one backup (checksums of every file, qemu-img check of the images) and record the result. Returns
     {"verification", "problemes"}. A corrupted backup is audited and notified."""
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
+    row = _store().get(backup_id)
     if not row:
         raise RuntimeError("Backup not found")
     if row["statut"] != "termine":
@@ -659,12 +643,7 @@ def verify_backup(backup_id, username="system", task_id=None):
         if own_task:
             finish_task(task_id, "echec", str(e))
         raise
-    with get_conn() as db:
-        db.execute(
-            "UPDATE backups SET verification = ?, verifie_le = ?, verification_detail = ? WHERE id = ?",
-            (status, _now().isoformat(), "; ".join(problems) or None, backup_id),
-        )
-        db.commit()
+    _store().set_verification(backup_id, status, _now().isoformat(), "; ".join(problems) or None)
     if own_task:
         finish_task(task_id, "termine")
     if status == backup_integrity.CORRUPT:
@@ -682,16 +661,11 @@ def _verify_due_backup():
     """The weekly verification: at most one backup per scheduler tick (they can be large), never while a backup
     runs, the one verified longest ago (or never) first."""
     limit = (_now() - timedelta(days=backup_integrity.VERIFY_EVERY_DAYS)).isoformat()
-    with get_conn() as db:
-        row = db.execute(
-            "SELECT id FROM backups WHERE statut = 'termine' AND (verifie_le IS NULL OR verifie_le < ?) "
-            "ORDER BY COALESCE(verifie_le, '') ASC, cree_le ASC LIMIT 1",
-            (limit,),
-        ).fetchone()
-    if row is None or not _backup_lock.acquire(blocking=False):
+    backup_id = _store().next_to_verify(limit)
+    if backup_id is None or not _backup_lock.acquire(blocking=False):
         return None
     try:
-        return verify_backup(row["id"], username="scheduler")
+        return verify_backup(backup_id, username="scheduler")
     finally:
         _backup_lock.release()
 
@@ -699,22 +673,18 @@ def _verify_due_backup():
 def _apply_retention(vm_name, policy):
     """Per VM, not per job_id (see the comment in run_backup): the policy (app/core/backup_retention.py) applies
     to ALL the finished backups of the VM, whether they come from a schedule or from a manual trigger."""
-    with get_conn() as db:
-        rows = db.execute(
-            "SELECT id, chemin, cree_le FROM backups WHERE vm_name = ? AND statut = 'termine'", (vm_name,)
-        ).fetchall()
-        keep = backup_retention.kept(
-            [(r["id"], r["cree_le"]) for r in rows],
-            policy["last"],
-            policy["daily"],
-            policy["weekly"],
-            policy["monthly"],
-        )
-        for row in rows:
-            if row["id"] not in keep:
-                shutil.rmtree(row["chemin"], ignore_errors=True)
-                db.execute("DELETE FROM backups WHERE id = ?", (row["id"],))
-        db.commit()
+    rows = _store().finished_of(vm_name)
+    keep = backup_retention.kept(
+        [(r["id"], r["cree_le"]) for r in rows],
+        policy["last"],
+        policy["daily"],
+        policy["weekly"],
+        policy["monthly"],
+    )
+    for row in rows:
+        if row["id"] not in keep:
+            shutil.rmtree(row["chemin"], ignore_errors=True)
+            _store().delete(row["id"])
 
 
 def _next_run(frequence, heure, from_time=None):
@@ -739,11 +709,7 @@ def _scheduler_loop():
     while True:
         try:
             now = _now()
-            with get_conn() as db:
-                due = db.execute(
-                    "SELECT * FROM backup_jobs WHERE actif = 1 AND prochaine_execution <= ?", (now.isoformat(),)
-                ).fetchall()
-            for job in due:
+            for job in _store().due_schedules(now.isoformat()):
                 try:
                     # Retention is now applied INSIDE run_backup() itself (see its body), which also
                     # covers the manual backups of this VM, not only those of the scheduler.
@@ -753,12 +719,7 @@ def _scheduler_loop():
                 except Exception as e:
                     log_action("scheduler", "backup_job_echec", job["vm_name"], "echec", str(e))
                 next_run = _next_run(job["frequence"], job["heure"], now)
-                with get_conn() as db:
-                    db.execute(
-                        "UPDATE backup_jobs SET derniere_execution = ?, prochaine_execution = ? WHERE id = ?",
-                        (now.isoformat(), next_run.isoformat(), job["id"]),
-                    )
-                    db.commit()
+                _store().record_schedule_run(job["id"], now.isoformat(), next_run.isoformat())
             from app.core import backup_groups
 
             backup_groups.run_due(now)
