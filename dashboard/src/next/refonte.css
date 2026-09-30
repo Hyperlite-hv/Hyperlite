@@ -162,6 +162,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-seg2 { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--radius-md); background: var(--color-bg-surface); border: 1px solid var(--color-border-default); }
 .nx-seg2 button { all: unset; cursor: pointer; height: 1.7333rem; padding: 0 0.6667rem; border-radius: var(--radius-sm); color: var(--color-text-secondary); font-size: var(--fs-125); font-weight: 500; display: inline-flex; align-items: center; gap: 0.4rem; }
 .nx-seg2 button:hover { color: var(--color-text-primary); }
+.nx-seg2 button[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 .nx-seg2 button[aria-pressed="true"] { background: var(--color-bg-surface-raised); color: var(--color-text-primary); box-shadow: 0 0 0 1px var(--color-border-strong) inset; }
 .nx-seg2 button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 1px; }
 .nx-seg2 .nx-n { font-family: var(--font-mono); font-size: var(--fs-11); color: var(--color-text-muted); }
