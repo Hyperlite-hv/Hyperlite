@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   fetchUsers, createUser, updateUser, deleteUser, resetUserPassword,
-  fetchGroups, createGroup, deleteGroup, addGroupMember, removeGroupMember,
+  fetchGroups, createGroup, deleteGroup, addGroupMember, removeGroupMember, renameGroup, renameVmPool, renameCustomRole,
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, createAcl, deleteAcl,
   fetchPrivileges, fetchCustomRoles, createCustomRole, deleteCustomRole, fetchContainers,
@@ -15,7 +15,8 @@ import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
 import { PageHeader, SideDrawer, Field, Chip, Empty, Loading, TableWrap } from "../components/ui";
 import { useIntent } from "../lib/intents";
-import { KeyRound, Layers, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
+import { KeyRound, Layers, PencilLine, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
+import { askNewName } from "../lib/rename";
 import { NewPasswordFields } from "../components/PasswordFields";
 import { passwordAccepted } from "../lib/passwordPolicy";
 
@@ -85,8 +86,13 @@ export default function SecurityPage() {
 SecurityPage.ownHeader = true;
 
 const del = (t) => t("menu.delete").replace("…", "");
-function IconBtn({ label, onClick, disabled, title }) {
-  return <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={label} title={title || label} disabled={disabled} onClick={onClick}><Trash2 size={15} aria-hidden="true" /></button>;
+function IconBtn({ label, onClick, disabled, title, icon: Icon = Trash2 }) {
+  return <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={label} title={title || label} disabled={disabled} onClick={onClick}><Icon size={15} aria-hidden="true" /></button>;
+}
+// Renames a group, a VM pool or a custom role: only the label changes, the members and permissions stay.
+async function renameLabel(t, run, current, save) {
+  const name = await askNewName(t, { title: t("rn.labelTitle", { name: current }), message: t("rn.labelMsg"), current, rule: null });
+  if (name) run(() => save(name), { ok: { title: t("rn.done"), message: `${current} → ${name}` }, fail: t("rn.failed") });
 }
 
 function UsersTab({ t, run, data, drawer, closeDrawer }) {
@@ -208,7 +214,7 @@ function GroupsTab({ t, run, data, drawer, closeDrawer }) {
         <div className="nx-cols2 nx-cols2--even">
           {data.groups.map((g) => (
             <section key={g.id} className="nx-card2" aria-label={g.name}>
-              <div className="nx-card2-h"><h2>{g.name}</h2><div className="nx-card2-acts"><IconBtn label={t("a11y.delete_group_x", { v: g.name })} title={del(t)} onClick={() => removeGroup(g)} /></div></div>
+              <div className="nx-card2-h"><h2>{g.name}</h2><div className="nx-card2-acts"><IconBtn icon={PencilLine} label={t("rn.labelX", { name: g.name })} onClick={() => renameLabel(t, run, g.name, (n) => renameGroup(g.id, n))} /><IconBtn label={t("a11y.delete_group_x", { v: g.name })} title={del(t)} onClick={() => removeGroup(g)} /></div></div>
               <div className="nx-card2-b nx-stack">
                 <Chips t={t} list={g.membres} label={`${t("sec.members")} ${g.name}`} none={t("sec.noMembers")} onRemove={(m) => removeMember(g, m)} />
                 <div className="nx-inline">
@@ -241,7 +247,7 @@ function PoolsTab({ t, run, data, vms, drawer, closeDrawer }) {
             const available = vms.filter((v) => !p.vms.includes(v.nom));
             return (
               <section key={p.id} className="nx-card2" aria-label={p.name}>
-                <div className="nx-card2-h"><h2>{p.name}</h2><div className="nx-card2-acts"><IconBtn label={t("a11y.delete_vmpool_x", { v: p.name })} title={del(t)} onClick={() => removePool(p)} /></div></div>
+                <div className="nx-card2-h"><h2>{p.name}</h2><div className="nx-card2-acts"><IconBtn icon={PencilLine} label={t("rn.labelX", { name: p.name })} onClick={() => renameLabel(t, run, p.name, (n) => renameVmPool(p.id, n))} /><IconBtn label={t("a11y.delete_vmpool_x", { v: p.name })} title={del(t)} onClick={() => removePool(p)} /></div></div>
                 <div className="nx-card2-b nx-stack">
                   <Chips t={t} list={p.vms} label={`VM ${p.name}`} none={t("sec.noVms")} onRemove={(v) => removeVm(p, v)} />
                   {available.length > 0 && (
@@ -289,7 +295,7 @@ function RolesTab({ t, run, data, drawer, closeDrawer }) {
               {Object.entries(data.roles).map(([k, r]) => <tr key={k}><th scope="row">{r.label}</th><td><Chip>{t("sec.scoped")}</Chip></td><td className="nx-wrapcell nx-muted">{r.description}</td><td className="nx-num nx-mono">{countBy(k)}</td><td /></tr>)}
               {data.customRoles.map((r) => (
                 <tr key={r.key}><th scope="row">{r.label}</th><td><Chip tone="info">{t("sec.custom")}</Chip></td><td className="nx-wrapcell nx-muted">{[...r.privileges].map((p) => data.privileges[p] || p).join(", ")}</td><td className="nx-num nx-mono">{countBy(r.key)}</td>
-                  <td><div className="nx-ra"><IconBtn label={t("a11y.delete_role_x", { v: r.label })} title={del(t)} onClick={() => remove(r)} /></div></td></tr>
+                  <td><div className="nx-ra"><IconBtn icon={PencilLine} label={t("rn.labelX", { name: r.label })} onClick={() => renameLabel(t, run, r.label, (n) => renameCustomRole(r.id, n))} /><IconBtn label={t("a11y.delete_role_x", { v: r.label })} title={del(t)} onClick={() => remove(r)} /></div></td></tr>
               ))}
             </tbody>
           </table>

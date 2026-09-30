@@ -149,6 +149,26 @@ def node_records(old, new):
         db.commit()
 
 
+def storage_pool_records(old, new, node_key):
+    """A storage pool renamed on one node: the containers stored in it (this host) and its usage history."""
+    with get_conn() as db:
+        tables = _tables(db)
+        if node_key == LOCAL:
+            _move(db, tables, "container_storage", "pool", old, new)
+        _move(db, tables, "storage_samples", "pool", old, new, " AND node = ?", (node_key,))
+        db.commit()
+
+
+def network_records(old, new):
+    """A network renamed on this host: its firewall rules, the application containers and Kubernetes clusters on it."""
+    with get_conn() as db:
+        tables = _tables(db)
+        _move(db, tables, "network_firewall", "network_name", old, new)
+        _move(db, tables, "container_apps", "network", old, new)
+        _move(db, tables, "k8s_clusters", "reseau", old, new)
+        db.commit()
+
+
 def vm_in_k8s_cluster(name):
     """The Kubernetes cluster a VM belongs to, or None: those VMs are found by their name (app/core/k8s_cluster.py)."""
     with get_conn() as db:
@@ -158,3 +178,40 @@ def vm_in_k8s_cluster(name):
             if name == row["serveur"] or name in json.loads(row["workers"] or "[]"):
                 return row["nom"]
     return None
+
+
+class LabelTaken(ValueError):
+    pass
+
+
+# Objects known by an id, whose name is only a label: renaming them changes nothing else.
+LABELS = {
+    "pool": ("pools", "name"),
+    "group": ("groups", "name"),
+    "custom_role": ("custom_roles", "name"),
+    "job": ("jobs", "name"),
+    "api_token": ("api_tokens", "name"),
+}
+
+
+def rename_label(kind, object_id, new, owner=None):
+    """Rename an object of LABELS; its old name, or None when there is no such object (for `owner`, when given).
+    Raises LabelTaken when another one already has the name (the tables require unique names)."""
+    table, column = LABELS[kind]
+    where, params = "id = ?", [object_id]
+    if owner is not None:
+        where, params = "id = ? AND username = ?", [object_id, owner]
+    # Fixed table and column names from LABELS; every value is a parameter.
+    select = f"SELECT {column} FROM {table} WHERE {where}"  # noqa: S608
+    taken = f"SELECT 1 FROM {table} WHERE {column} = ? AND id != ?"  # noqa: S608
+    update = f"UPDATE {table} SET {column} = ? WHERE id = ?"  # noqa: S608
+    with get_conn() as db:
+        row = db.execute(select, params).fetchone()
+        if not row:
+            return None
+        # API tokens are named per account, and two may share a name.
+        if kind != "api_token" and db.execute(taken, (new, object_id)).fetchone():
+            raise LabelTaken(f"The name '{new}' is already used")
+        db.execute(update, (new, object_id))
+        db.commit()
+    return row[column]
