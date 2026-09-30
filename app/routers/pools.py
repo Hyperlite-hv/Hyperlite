@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core import permissions as perm
+from app.core import renaming
 from app.core.audit import log_action
 from app.core.security import require_role
 
@@ -33,6 +34,26 @@ def create_pool(payload: PoolCreate, user: dict = Depends(require_role("admin"))
         raise HTTPException(status_code=422, detail=f"A pool named '{name}' already exists") from None
     log_action(user["username"], "create_pool", name, "succes")
     return {"id": pool_id, "name": name, "description": payload.description, "vms": []}
+
+
+class PoolRename(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+@router.patch("/{pool_id}")
+def rename_pool(pool_id: int, payload: PoolRename, user: dict = Depends(require_role("admin"))):
+    """Only its name changes: the pool (its members and permissions) is known by its id everywhere else."""
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Name required")
+    try:
+        old = renaming.rename_label("pool", pool_id, name)
+    except renaming.LabelTaken as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    if old is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "rename_pool", old, "succes", f"-> {name}")
+    return {"id": pool_id, "name": name}
 
 
 @router.delete("/{pool_id}")

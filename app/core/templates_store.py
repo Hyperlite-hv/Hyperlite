@@ -65,3 +65,27 @@ def delete_template(name):
     for p in (_meta_path(name), _xml_path(name), _disk_path(name)):
         with contextlib.suppress(FileNotFoundError):
             p.unlink()
+
+
+def rename_template(old, new):
+    """Its three files (description, definition, disk) take the new name. A deployed VM has its own copy of the disk,
+    so nothing else refers to the template's files."""
+    if not exists(old):
+        raise FileNotFoundError(old)
+    if exists(new) or _disk_path(new).exists():
+        raise FileExistsError(new)
+    moved = []
+    try:
+        for path in (_disk_path, _xml_path, _meta_path):
+            if path(old).exists():
+                path(old).rename(path(new))
+                moved.append(path)
+        with open(_meta_path(new)) as f:
+            meta = json.load(f)
+        meta["nom"] = new
+        with open(_meta_path(new), "w") as f:
+            json.dump(meta, f)
+    except OSError:
+        for path in moved:
+            path(new).rename(path(old))
+        raise

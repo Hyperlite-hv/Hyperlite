@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Disc3, HardDrive, Trash2, Upload } from "lucide-react";
-import { fetchClusterIsos, deleteIso, fetchTemplates, fetchVmDisks, deleteVmDisk } from "../../api/client";
+import { fetchClusterIsos, deleteIso, fetchTemplates, fetchVmDisks, deleteVmDisk, renameIso } from "../../api/client";
+import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -58,6 +59,12 @@ export default function LibraryPage() {
   const rows = useMemo(() => [...(isos || [])].sort((a, b) => a.nom.localeCompare(b.nom) || (a.node === "local" ? -1 : b.node === "local" ? 1 : nodeName(a.node).localeCompare(nodeName(b.node)))), [isos, nodeName]);
   const multiNode = nodes.length > 1;
 
+  async function renameIsoFile(iso) {
+    const name = await askNewName(t, { title: t("rn.isoTitle", { name: iso.nom }), message: t("rn.isoMsg"), current: iso.nom, rule: /^[A-Za-z0-9][A-Za-z0-9._+-]{0,200}(\.iso)?$/i, ruleText: t("rn.isoRule") });
+    if (!name) return;
+    try { const r = await renameIso(iso.nom, name); pushToast({ kind: "success", title: t("rn.done"), message: `${iso.nom} → ${r?.nom || name}` }); loadIsos(); }
+    catch (e) { pushToast({ kind: "error", title: t("rn.failed"), message: errorMessage(e) }); }
+  }
   async function removeIso(iso) {
     const where = nodeName(iso.node);
     if (!(await confirmAction({ title: t("lib.isoDeleteTitle", { name: iso.nom }), message: multiNode ? t("iso.deleteOnNode", { node: where }) : t("stor.isoConfirm"), confirmLabel: t("vx.delete"), danger: true }))) return;
@@ -111,6 +118,7 @@ export default function LibraryPage() {
               multiNode && { key: "copy", icon: "clone", label: t("iso.copy"), run: () => setCopying(iso), disabled: !caps.admin, reason: t("menu.reason.admin") },
               { key: "name", icon: "copy", label: t("ctx.copyName"), run: () => navigator.clipboard?.writeText(iso.nom) },
               "-",
+              { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => renameIsoFile(iso), disabled: !caps.admin || iso.node !== "local", reason: !caps.admin ? t("menu.reason.admin") : t("rn.isoLocal") },
               { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => removeIso(iso), disabled: !caps.admin, reason: t("menu.reason.admin") },
             ]} />
             {copying && <CopyIsoDialog iso={copying} nodes={nodes} holders={holders.get(copying.nom) || new Set()} onClose={() => setCopying(null)} />}
