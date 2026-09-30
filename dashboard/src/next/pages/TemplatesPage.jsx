@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchTemplates, deployTemplate, deleteTemplate } from "../../api/client";
+import { fetchTemplates, deployTemplate, deleteTemplate, renameTemplate } from "../../api/client";
+import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -47,6 +48,12 @@ export default function TemplatesPanel() {
     catch (e) { pushToast({ kind: "error", title: t("tp.deployFailed"), message: errorMessage(e) }); }
     finally { setBusy(null); }
   }
+  async function rename(tpl) {
+    const name = await askNewName(t, { title: t("rn.tplTitle", { name: tpl.nom }), message: t("rn.tplMsg"), current: tpl.nom });
+    if (!name) return;
+    try { await renameTemplate(tpl.nom, name); pushToast({ kind: "success", title: t("rn.done"), message: `${tpl.nom} → ${name}` }); await reload(); }
+    catch (e) { pushToast({ kind: "error", title: t("rn.failed"), message: errorMessage(e) }); }
+  }
   async function remove(tpl) {
     if (!(await confirmAction({ title: t("tp.deleteTitle", { name: tpl.nom }), message: t("tp.deleteMsg"), confirmLabel: t("menu.delete").replace("…", ""), danger: true }))) return;
     setBusy(tpl.nom);
@@ -82,6 +89,7 @@ export default function TemplatesPanel() {
           <ActionsContextMenu ctx={ctx} label={(tpl) => t("ctx.menuOf", { name: tpl.nom })} entries={(tpl) => [
             { key: "deploy", icon: "deploy", label: t("tp.deploy"), run: () => deploy(tpl), disabled: !caps.admin || busy === tpl.nom, reason: t("menu.reason.admin") },
             "-",
+            { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => rename(tpl), disabled: !caps.admin || busy === tpl.nom, reason: t("menu.reason.admin") },
             { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(tpl), disabled: !caps.admin || busy === tpl.nom, reason: t("menu.reason.admin") },
           ]} />
         </TableWrap>

@@ -397,6 +397,22 @@ each call has that account's rights and is recorded in the audit log. Swagger is
 chooses on the same page who may open it (nobody, administrators by default, or every signed-in user); the access
 lasts a few hours and ends at once when it is withdrawn.
 
+### What can be renamed
+
+| Object | Where | Conditions |
+|---|---|---|
+| VM, container | Actions menu, right click | stopped; a VM without snapshots |
+| Node | Actions menu | this node: its host name; a registered node: the name shown |
+| Storage pool | right click in Storage | no running VM uses it; a shared pool is renamed on every node |
+| Network | right click in Networks | no running VM or container on it |
+| VM pool, group, custom role | Users and roles | none: only the label changes |
+| Automation job, API token | their page, your account | none |
+| Template, ISO image | Library | an ISO: no VM has it in its drive |
+
+Not renamable, and why: the `default` pool and the system networks (Hyperlite relies on their names), ZFS pools
+(`zpool export/import`), Kubernetes clusters (their VMs are found by name), snapshots (libvirt cannot) and user names
+(the audit log and the sign-in sources refer to them).
+
 ## 15. Sign-in: passwords, 2FA, SSO, LDAP
 
 - **Local accounts** sign in with their password. Repeated failures lock the account for a while (per account and

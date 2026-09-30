@@ -11,7 +11,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import iscsi, nfs_permissions, shared_pools, zfs_storage
+from app.core import iscsi, nfs_permissions, renaming, shared_pools, zfs_storage
 from app.core.audit import log_action
 from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
@@ -482,9 +482,15 @@ def list_shared_pools(user: dict = Depends(get_current_user)):
     return [{k: v for k, v in e.items() if k != "definition"} for e in shared_pools.list_all()]
 
 
-def _delete_chap_secret(conn, pool_name):
+def _chap_usage(pool_root):
+    """The usage id of the CHAP secret a pool's definition refers to: a renamed pool keeps its secret's."""
+    secret = pool_root.find("source/auth/secret")
+    return secret.get("usage") if secret is not None else None
+
+
+def _delete_chap_secret(conn, pool_name, usage=None):
     with contextlib.suppress(libvirt.libvirtError):
-        conn.secretLookupByUsage(libvirt.VIR_SECRET_USAGE_TYPE_ISCSI, iscsi.secret_usage(pool_name)).undefine()
+        conn.secretLookupByUsage(libvirt.VIR_SECRET_USAGE_TYPE_ISCSI, usage or iscsi.secret_usage(pool_name)).undefine()
 
 
 def _vms_using_paths(conn, paths):
@@ -546,6 +552,134 @@ def check_pool_permissions(pool_name: str, user: dict = Depends(require_role("ad
         return {"nom": pool_name, "ok": result["ok"], "message": result["message"]}
     finally:
         conn.close()
+
+
+class PoolRename(BaseModel):
+    new_name: str
+    # A shared pool (app/core/shared_pools.py) is renamed on every node that has it, as it was created.
+    partout: bool = False
+
+
+def _running_users(conn, pool):
+    """Running VMs with a disk in this pool: its files (directory, NFS) or its LUNs (iSCSI)."""
+    root = ET.fromstring(pool.XMLDesc(0))
+    if root.get("type") == "iscsi":
+        with contextlib.suppress(libvirt.libvirtError):
+            pool.refresh(0)
+        paths = {v.path() for v in pool.listAllVolumes()}
+        match = lambda p: p in paths  # noqa: E731
+    else:
+        target = (root.findtext("target/path") or "").rstrip("/")
+        if not target:
+            return []
+        match = lambda p: p.startswith(target + "/")  # noqa: E731
+    names = []
+    for dom in conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE):
+        try:
+            xml = ET.fromstring(dom.XMLDesc(0))
+        except (libvirt.libvirtError, ET.ParseError):
+            continue
+        if any(match(src.get("dev") or src.get("file") or "") for src in xml.findall("devices/disk/source")):
+            names.append(dom.name())
+    return names
+
+
+def _rename_on(pool_name, new, node, user):
+    """libvirt cannot rename a pool: it is stopped, redefined under the new name with the same source and target,
+    and started again. Its files and LUNs do not move, so the VMs' disk paths stay valid; an iSCSI pool keeps its
+    CHAP secret. Refused while a running VM uses it (stopping the pool would pull its disks away)."""
+    conn = open_conn(node)
+    try:
+        try:
+            pool = conn.storagePoolLookupByName(pool_name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
+        try:
+            conn.storagePoolLookupByName(new)
+            raise HTTPException(status_code=409, detail=f"A pool named '{new}' already exists")
+        except libvirt.libvirtError:
+            logger.debug("No pool named %s yet", new)
+        in_use = _running_users(conn, pool)
+        if in_use:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Running VMs use this pool ({', '.join(in_use)}): stop them first, the pool is stopped "
+                "for a moment while it is renamed",
+            )
+        old_xml = pool.XMLDesc(libvirt.VIR_STORAGE_XML_INACTIVE)
+        was_active, autostart = bool(pool.isActive()), bool(pool.autostart())
+        root = ET.fromstring(old_xml)
+        root.find("name").text = new
+        uuid = root.find("uuid")
+        if uuid is not None:
+            root.remove(uuid)  # a new definition: libvirt gives it its own
+        try:
+            if was_active:
+                pool.destroy()
+            pool.undefine()
+            try:
+                renamed = conn.storagePoolDefineXML(ET.tostring(root, encoding="unicode"))
+                if was_active:
+                    renamed.create(0)
+                renamed.setAutostart(autostart)
+            except libvirt.libvirtError:
+                with contextlib.suppress(libvirt.libvirtError):
+                    conn.storagePoolLookupByName(new).undefine()
+                restored = conn.storagePoolDefineXML(old_xml)
+                if was_active:
+                    restored.create(0)
+                restored.setAutostart(autostart)
+                raise
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "rename_storage_pool", pool_name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
+        renaming.storage_pool_records(pool_name, new, node or "local")
+        log_action(user["username"], "rename_storage_pool", pool_name, "succes", f"-> {new} on {node or 'local'}")
+        return _pool_summary(renamed)
+    finally:
+        conn.close()
+
+
+@router.post("/{pool_name}/rename")
+def rename_pool(
+    pool_name: str, payload: PoolRename, node: str | None = None, user: dict = Depends(require_role("admin"))
+):
+    new = payload.new_name
+    error = validate_name(new, "storage pool")
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    if pool_name == "default" or new == "default":
+        raise HTTPException(status_code=400, detail="The 'default' pool keeps its name: Hyperlite relies on it")
+    if new == pool_name:
+        raise HTTPException(status_code=422, detail="The new name is the current one")
+    if (not node or node == "local") and zfs_storage.pool_exists(pool_name):
+        raise HTTPException(
+            status_code=409,
+            detail="A ZFS pool is renamed by exporting and importing it again (zpool export/import), which "
+            "Hyperlite does not do: its zvols are the disks of VMs",
+        )
+    if not payload.partout:
+        return _rename_on(pool_name, new, node, user)
+    results = []
+    for key in ["local", *[n["name"] for n in list_nodes()]]:
+        entry = {"noeud": key, "etat": "renomme", "detail": None}
+        try:
+            if not _exists_on(pool_name, key):
+                continue
+            _rename_on(pool_name, new, None if key == "local" else key, user)
+        except HTTPException as e:
+            entry.update(etat="echec", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
+        except libvirt.libvirtError as e:
+            entry.update(etat="echec", detail=f"Node unreachable: {describe_exception(e)}")
+        results.append(entry)
+    if not any(r["etat"] == "renomme" for r in results):
+        raise HTTPException(
+            status_code=409, detail="; ".join(f"{r['noeud']}: {r['detail']}" for r in results) or "Pool not found"
+        )
+    if not any(r["etat"] == "echec" for r in results):
+        shared_pools.rename(pool_name, new)
+    return {"nom": new, "resultats": results}
 
 
 @router.delete("/{pool_name}")
@@ -652,7 +786,7 @@ def _delete_single(pool_name, node, detacher, user):
                 pool.destroy()
             pool.undefine()
             if pool_root.get("type") == "iscsi":
-                _delete_chap_secret(conn, pool_name)
+                _delete_chap_secret(conn, pool_name, _chap_usage(pool_root))
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_storage_pool", pool_name, "echec", msg)

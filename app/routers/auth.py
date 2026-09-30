@@ -8,7 +8,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jwt import PyJWTError
 from pydantic import BaseModel, Field
 
-from app.core import login_guard, webauthn_keys
+from app.core import login_guard, renaming, webauthn_keys
 from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.client_address import client_address
@@ -524,6 +524,26 @@ def post_api_token(payload: TokenCreate, user: dict = Depends(get_session_user))
     # The plain token is returned only HERE, once: it can never be retrieved again
     # afterwards (only its SHA-256 hash is stored).
     return {"id": token_id, "name": name, "token": token, "expires_at": expires_at}
+
+
+class ApiTokenRename(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+@router.patch("/tokens/{token_id}")
+def rename_api_token(token_id: int, payload: ApiTokenRename, user: dict = Depends(get_current_user)):
+    """Only its name changes: the token (its secret does not change) is known by its id everywhere else."""
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Name required")
+    try:
+        old = renaming.rename_label("api_token", token_id, name, owner=user["username"])
+    except renaming.LabelTaken as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    if old is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "rename_api_token", old, "succes", f"-> {name}")
+    return {"id": token_id, "name": name}
 
 
 @router.delete("/tokens/{token_id}")
