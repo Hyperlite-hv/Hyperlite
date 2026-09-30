@@ -14,11 +14,7 @@ import threading
 import uuid
 from datetime import UTC, datetime
 
-from app.core.database import get_conn
-
 logger = logging.getLogger(__name__)
-
-MAX_LOG_LINES = 500
 
 
 def _now():
@@ -28,27 +24,21 @@ def _now():
 # ---- Task log: what a long task did, step by step, readable from the dashboard while it runs ----
 
 
-def _log_in(conn, task_id, message):
-    count = conn.execute("SELECT COUNT(*) FROM task_logs WHERE task_id = ?", (task_id,)).fetchone()[0]
-    if count >= MAX_LOG_LINES:
-        return  # a runaway loop must not fill the database; the task's end is still recorded in the task itself
-    conn.execute(
-        "INSERT INTO task_logs (task_id, at, message) VALUES (?, ?, ?)", (task_id, _now(), str(message)[:2000])
-    )
+def _store():
+    # The task repository's synchronous bridge: long operations run in threads.
+    from app.repositories import registry
+
+    return registry.tasks().sync
 
 
 def task_log(task_id, message):
     if not task_id:
         return
-    with get_conn() as conn:
-        _log_in(conn, task_id, message)
-        conn.commit()
+    _store().append_log(task_id, message, _now())
 
 
 def get_task_log(task_id):
-    with get_conn() as conn:
-        rows = conn.execute("SELECT at, message FROM task_logs WHERE task_id = ? ORDER BY id", (task_id,)).fetchall()
-    return [dict(r) for r in rows]
+    return _store().logs(task_id)
 
 
 # ---- Cancellation ----
@@ -111,13 +101,7 @@ def is_live(task_id):
 
 
 def _close_by(task_id, username, reason):
-    with get_conn() as conn:
-        _log_in(conn, task_id, f"Closed by {username}: {reason}")
-        conn.execute(
-            "UPDATE tasks SET statut = 'echec', progres = 100, fin_le = ?, erreur = ?, annule_par = ? WHERE id = ?",
-            (_now(), f"Closed by {username}: {reason}", username, task_id),
-        )
-        conn.commit()
+    _store().close(task_id, username, reason, _now())
     with _cancel_lock:
         _live.discard(task_id)
 
@@ -126,11 +110,10 @@ def request_cancel(task_id, username, force=False):
     """'requested' when the running task was asked to stop; 'abandoned' when nobody was running it (or `force`)
     and it was closed here. LookupError: unknown task; ValueError: already over; NotStoppable: it runs and cannot
     stop midway (it ends by itself; `force` only closes the record)."""
-    with get_conn() as conn:
-        row = conn.execute("SELECT statut FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    if not row:
+    statut = _store().status(task_id)
+    if statut is None:
         raise LookupError(task_id)
-    if row["statut"] not in ("en_cours", "en_attente"):
+    if statut not in ("en_cours", "en_attente"):
         raise ValueError("The task is already over")
     with _cancel_lock:
         registered = task_id in _cancellers
@@ -158,72 +141,34 @@ def request_cancel(task_id, username, force=False):
 
 def close_interrupted_tasks():
     """At start-up: a task still 'en_cours' was run by the previous process, which is gone."""
-    with get_conn() as conn:
-        rows = conn.execute("SELECT id FROM tasks WHERE statut IN ('en_cours', 'en_attente')").fetchall()
-        for row in rows:
-            _log_in(conn, row["id"], "Interrupted: the Hyperlite service restarted while it ran")
-        conn.execute(
-            "UPDATE tasks SET statut = 'echec', progres = 100, fin_le = ?, "
-            "erreur = 'Interrupted: the Hyperlite service restarted while it ran' "
-            "WHERE statut IN ('en_cours', 'en_attente')",
-            (_now(),),
-        )
-        conn.commit()
-    return len(rows)
+    return _store().close_interrupted(_now())
 
 
 def create_task(type_, cible=None, node=None, username=None):
     """Create a task and mark it 'en_cours' immediately (see the module
     docstring: there is no real queue yet)."""
     task_id = str(uuid.uuid4())
-    now = _now()
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO tasks (id, type, cible, node, username, statut, progres, cree_le, debut_le) "
-            "VALUES (?, ?, ?, ?, ?, 'en_cours', 0, ?, ?)",
-            (task_id, type_, cible, node, username, now, now),
-        )
-        _log_in(conn, task_id, f"Started by {username or 'the system'}")
-        conn.commit()
+    _store().create(task_id, type_, cible, node, username, _now())
     with _cancel_lock:
         _live.add(task_id)
     return task_id
 
 
 def task_status(task_id):
-    with get_conn() as conn:
-        row = conn.execute("SELECT statut FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    return row["statut"] if row else None
+    return _store().status(task_id)
 
 
 def update_task_progress(task_id, progres):
-    with get_conn() as conn:
-        conn.execute("UPDATE tasks SET progres = ? WHERE id = ?", (progres, task_id))
-        conn.commit()
+    _store().update_progress(task_id, progres)
 
 
-def _finish_task_in(conn, task_id, statut, error_message=None):
-    """Close a task on an already open connection. Used by log_action() so that
-    the audit_log and tasks writes share one commit instead of opening a
-    second SQLite connection per call."""
+def finish_task(task_id, statut, error_message=None):
+    """Close a task: 'termine' or 'echec'. A task someone asked to stop ends as cancelled by them."""
     with _cancel_lock:
         cancelled_by = _requested.get(task_id) if statut == "echec" else None
         _live.discard(task_id)
     if cancelled_by:
         # Keep what the task itself reported (how far it got), after who stopped it.
         error_message = f"Cancelled by {cancelled_by}" + (f": {error_message}" if error_message else "")
-    conn.execute(
-        "UPDATE tasks SET statut = ?, progres = 100, fin_le = ?, erreur = ?, annule_par = ? WHERE id = ?",
-        (statut, _now(), error_message, cancelled_by, task_id),
-    )
-    if statut == "echec":
-        _log_in(conn, task_id, f"Failed: {error_message}" if error_message else "Failed")
-    else:
-        _log_in(conn, task_id, "Finished")
-
-
-def finish_task(task_id, statut, error_message=None):
-    with get_conn() as conn:
-        _finish_task_in(conn, task_id, statut, error_message)
-        conn.commit()
+    _store().finish(task_id, statut, error_message, cancelled_by, _now())
     unregister_cancel(task_id)
