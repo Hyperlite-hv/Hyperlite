@@ -184,6 +184,31 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
         conn.close()
 
 
+class TemplateRename(BaseModel):
+    new_name: str
+
+
+@router.post("/{template_name}/rename")
+def rename_template_endpoint(template_name: str, payload: TemplateRename, user: dict = Depends(require_role("admin"))):
+    new = payload.new_name
+    error = validate_name(new, "template")
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    if new == template_name:
+        raise HTTPException(status_code=422, detail="The new name is the current one")
+    try:
+        templates_store.rename_template(template_name, new)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found") from None
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail=f"A template named '{new}' already exists") from None
+    except OSError as e:
+        log_action(user["username"], "rename_template", template_name, "echec", str(e))
+        raise HTTPException(status_code=500, detail=f"Rename failed: {e}") from e
+    log_action(user["username"], "rename_template", template_name, "succes", f"-> {new}")
+    return templates_store.get_template(new) | {"xml": None}
+
+
 @router.delete("/{template_name}")
 def delete_template_endpoint(template_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     tpl = templates_store.get_template(template_name)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchJobs, fetchJob, createJob, deleteJob, runJob, fetchJobRuns, fetchJobRun } from "../../api/client";
+import { fetchJobs, fetchJob, createJob, deleteJob, runJob, fetchJobRuns, fetchJobRun, renameJob } from "../../api/client";
+import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -9,7 +10,7 @@ import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
 import { PageHeader, Card, Empty, SideDrawer, Field, Chip, Loading } from "../components/ui";
-import { Clock, Play, Plus, Trash2, Zap } from "lucide-react";
+import { Clock, PencilLine, Play, Plus, Trash2, Zap } from "lucide-react";
 
 const newStep = () => ({ cible_type: "host", cible: "", commande: "", condition_type: "exit_code", condition_valeur: "0" });
 const runWire = (s) => (s === "succes" ? "termine" : s === "echec" ? "echec" : "en_cours");
@@ -111,6 +112,12 @@ export default function AutomationPage() {
     } catch (er) { pushToast({ kind: "error", title: t("nt.createFailed"), message: errorMessage(er) }); }
     finally { setBusy(false); }
   }
+  async function rename(job) {
+    const name = await askNewName(t, { title: t("rn.labelTitle", { name: job.name }), message: t("rn.jobMsg"), current: job.name, rule: null });
+    if (!name) return;
+    try { await renameJob(job.id, name); pushToast({ kind: "success", title: t("rn.done"), message: `${job.name} → ${name}` }); await reload(); }
+    catch (e) { pushToast({ kind: "error", title: t("rn.failed"), message: errorMessage(e) }); }
+  }
   async function remove(job) {
     if (!(await confirmAction({ title: t("au.deleteTitle", { name: job.name }), message: t("au.deleteMsg"), confirmLabel: t("menu.delete").replace("…", ""), danger: true }))) return;
     try { await deleteJob(job.id); pushToast({ kind: "success", title: t("au.deleted"), message: job.name }); await reload(); }
@@ -135,6 +142,7 @@ export default function AutomationPage() {
                   <div key={job.id} className={`nx-tile nx-tile--static${open === job.id ? " is-sel" : ""}`}>
                     <div className="nx-inline"><b>{jobName(job, t)}</b>{job.predefined_key && <Chip>{t("au.predefined")}</Chip>}<span className="nx-sp" />
                       <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-pressed={open === job.id} aria-label={t("a11y.show_run_history_of_x", { v: job.name })} onClick={() => toggle(job)}><Clock size={14} aria-hidden="true" />{t("au.history")}</button>
+                      {caps.admin && !job.predefined_key && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("rn.labelX", { name: job.name })} title={t("vx.rename")} onClick={() => rename(job)}><PencilLine size={15} aria-hidden="true" /></button>}
                       {caps.admin && !job.predefined_key && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_job_x", { v: job.name })} title={t("menu.delete").replace("…", "")} onClick={() => remove(job)}><Trash2 size={15} aria-hidden="true" /></button>}
                     </div>
                     {jobDesc(job, t) && <small>{jobDesc(job, t)}</small>}

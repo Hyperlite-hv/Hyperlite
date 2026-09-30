@@ -93,6 +93,21 @@ def add_node(name, node):
             db.commit()
 
 
+def rename(old, new):
+    entry = get(old, with_secret=False)
+    if not entry:
+        return
+    with get_conn() as db:
+        row = db.execute("SELECT definition FROM shared_pools WHERE nom = ?", (old,)).fetchone()
+        definition = json.loads(row["definition"])
+        definition["name"] = new
+        db.execute(
+            "UPDATE OR REPLACE shared_pools SET nom = ?, definition = ? WHERE nom = ?",
+            (new, json.dumps(definition), old),
+        )
+        db.commit()
+
+
 def delete(name):
     with get_conn() as db:
         db.execute("DELETE FROM shared_pools WHERE nom = ?", (name,))

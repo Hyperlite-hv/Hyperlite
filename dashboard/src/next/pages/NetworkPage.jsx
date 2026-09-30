@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork, fetchNetworkFirewall, setNetworkFirewall, fetchHostInterfaces, startNetwork, stopNetwork, setNetworkAutostart } from "../../api/client";
+import { fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork, fetchNetworkFirewall, setNetworkFirewall, fetchHostInterfaces, startNetwork, stopNetwork, setNetworkAutostart, renameNetwork } from "../../api/client";
+import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -103,6 +104,16 @@ export default function NetworkPage() {
     catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
 
+  async function rename(n) {
+    const name = await askNewName(t, { title: t("rn.netTitle", { name: n.nom }), message: t("rn.netMsg"), current: n.nom });
+    if (!name) return;
+    try {
+      const r = await renameNetwork(n.nom, name);
+      pushToast({ kind: "success", title: t("rn.done"), message: `${n.nom} → ${name}${r?.invites_mis_a_jour?.length ? ` · ${t("rn.guestsMoved", { n: r.invites_mis_a_jour.length })}` : ""}` });
+      await reload();
+    } catch (err) { pushToast({ kind: "error", title: t("rn.failed"), message: errorMessage(err) }); }
+  }
+
   async function power(n, on) {
     if (!on && !(await confirmAction({ title: t("net.stopTitle", { name: n.nom }), message: t("net.stopHelp", { n: n.vms ?? 0 }), confirmLabel: t("net.stop"), danger: true }))) return;
     try { await (on ? startNetwork(n.nom) : stopNetwork(n.nom)); pushToast({ kind: "success", title: t(on ? "net.started" : "net.stopped"), message: n.nom }); await reload(); }
@@ -197,6 +208,7 @@ export default function NetworkPage() {
           : { key: "start", icon: "start", label: t("net.start"), run: () => power(n, true), disabled: !caps.admin, reason: t("menu.reason.admin") },
         { key: "autostart", icon: "details", label: t(n.autostart ? "net.autostartOff" : "net.autostartOn"), run: () => autostart(n), disabled: !caps.admin, reason: t("menu.reason.admin") },
         "-",
+        { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => rename(n), disabled: !caps.admin || PROTECTED.includes(n.nom), reason: !caps.admin ? t("menu.reason.admin") : t("rn.systemNet") },
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(n.nom),
           disabled: !caps.admin || PROTECTED.includes(n.nom), reason: !caps.admin ? t("menu.reason.admin") : t("ctx.protectedNet") },
       ]} />
