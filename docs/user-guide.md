@@ -389,6 +389,14 @@ output and can be cancelled.
 The **Permissions** tab of a VM or container shows and edits the assignments of that object, including those a VM
 inherits from its pools.
 
+### The API page
+
+**Administration › API** shows the interactive documentation of Hyperlite's API (Swagger). **Try it out** runs a call
+with your own session: it has your rights and is recorded in the audit log, and calls that change something really
+run. An administrator chooses who may open it: nobody, administrators (the default) or every signed-in user. The
+same page creates and revokes your **API tokens** for scripts (`Authorization: Bearer <token>`); a new token is shown
+once.
+
 ## 15. Sign-in: passwords, 2FA, SSO, LDAP
 
 - **Local accounts** sign in with their password. Repeated failures lock the account for a while (per account and
