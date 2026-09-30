@@ -6,18 +6,19 @@ import { useT, useLangStore, LANGS } from "../i18n";
 import { useThemeStore } from "../tokens/theme";
 import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
+import { fetchApiDocsAccess } from "../../api/client";
 import Menu, { MenuItem } from "../components/Menu";
 import UpdateModal from "../../components/UpdateModal";
 import AccountSecurityModal from "../../components/AccountSecurityModal";
 import ChangePasswordDrawer from "../components/ChangePasswordDrawer";
 import PreferencesDrawer from "../components/PreferencesDrawer";
 import EnclaveMark from "../../components/EnclaveMark";
-import { Activity, Archive, Bell, Box, Boxes, Camera, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
+import { Activity, Archive, Bell, Braces, Box, Boxes, Camera, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
 
 const ICONS = {
   overview: House, nodes: Server, vms: Monitor, containers: Box, kubernetes: Boxes, storage: Database, network: Network,
   ha: Heart, compat: SquareCheck, backups: Archive, snapshots: Camera, exports: Share, library: Disc3,
-  tasks: List, audit: ScrollText, automation: Zap, users: Users, sso: KeyRound, notifications: Bell, metrics: Activity,
+  tasks: List, audit: ScrollText, automation: Zap, users: Users, sso: KeyRound, notifications: Bell, metrics: Activity, api: Braces,
 };
 
 function NavItem({ icon, label, count, tone, active, onClick }) {
@@ -91,6 +92,15 @@ export default function Sidebar({ collapsed }) {
   const userBtn = useRef(null);
   const tab = useInfraStore((s) => s.activeTab);
   const onDatacenterTab = (id) => selection.type === "datacenter" && tab === id;
+  // The API page for accounts other than administrators, when an administrator opened it to every user.
+  const [apiOpen, setApiOpen] = useState(false);
+  useEffect(() => {
+    if (caps.admin) return undefined;
+    const check = () => fetchApiDocsAccess().then((r) => setApiOpen(Boolean(r?.autorise))).catch(() => setApiOpen(false));
+    check();
+    window.addEventListener("nx:api-docs-access", check);
+    return () => window.removeEventListener("nx:api-docs-access", check);
+  }, [caps.admin]);
   // On narrow screens the sidebar is a drawer: close it once a page is chosen.
   const goto = (dcTab) => { navigateTo("datacenter", null, dcTab); window.dispatchEvent(new Event("nx:navigated")); };
 
@@ -132,6 +142,7 @@ export default function Sidebar({ collapsed }) {
           <NavItem icon="tasks" label={t("nav.tasks")} active={onDatacenterTab("activity")} onClick={() => goto("activity")} />
           <NavItem icon="audit" label={t("nav.auditLog")} active={onDatacenterTab("journal")} onClick={() => goto("journal")} />
           <NavItem icon="automation" label={t("nav.automation")} active={onDatacenterTab("automation")} onClick={() => goto("automation")} />
+          {!caps.admin && apiOpen && <NavItem icon="api" label={t("nav.api")} active={onDatacenterTab("api")} onClick={() => goto("api")} />}
         </NavGroup>
         {caps.admin && (
           <NavGroup label={t("nav.group.administration")}>
@@ -139,6 +150,7 @@ export default function Sidebar({ collapsed }) {
             <NavItem icon="sso" label={t("nav.sso")} active={onDatacenterTab("sso")} onClick={() => goto("sso")} />
             <NavItem icon="notifications" label={t("nav.notifications")} active={onDatacenterTab("notifications")} onClick={() => goto("notifications")} />
             <NavItem icon="metrics" label={t("nav.metrics")} active={onDatacenterTab("metrics")} onClick={() => goto("metrics")} />
+            <NavItem icon="api" label={t("nav.api")} active={onDatacenterTab("api")} onClick={() => goto("api")} />
           </NavGroup>
         )}
       </div>
