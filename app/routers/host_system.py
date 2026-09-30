@@ -87,7 +87,7 @@ class HostnameSettings(BaseModel):
 
 @router.put("/hostname")
 def put_hostname(payload: HostnameSettings, user: dict = Depends(require_role("admin"))):
-    """Rename this node: its host name (hostnamectl) and its line in /etc/hosts. The name libvirt reports, and so
+    """Rename this node: its host name (/etc/hostname) and its line in /etc/hosts. The name libvirt reports, and so
     the one shown for this node, follows at once."""
     try:
         result = host_system.set_hostname(payload.nom)

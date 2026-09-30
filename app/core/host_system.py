@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 ETC_HOSTS = Path("/etc/hosts")
+ETC_HOSTNAME = Path("/etc/hostname")
 RESOLV_CONF = Path("/etc/resolv.conf")
 RESOLVED_DROPIN = Path("/etc/systemd/resolved.conf.d/hyperlite.conf")
 TIMESYNCD_DROPIN = Path("/etc/systemd/timesyncd.conf.d/hyperlite.conf")
@@ -302,9 +303,13 @@ def set_hostname(name, current=None):
     fqdn = name if "." in name else None
     old = current or socket.getfqdn()
     old_names = {old, old.split(".")[0], socket.gethostname()}
-    r = _run(["hostnamectl", "set-hostname", short])
-    if r.returncode != 0:
-        raise SettingError(f"hostnamectl failed: {(r.stderr or r.stdout).strip()[-300:]}")
+    # What hostnamectl set-hostname does, without running a command with a name the user typed: the static name
+    # in /etc/hostname (read again by systemd-hostnamed) and the kernel's, which libvirt reports at once.
+    try:
+        socket.sethostname(short)
+    except OSError as e:
+        raise SettingError(f"The host name could not be set: {e.strerror}") from e
+    _write(ETC_HOSTNAME, short + "\n")
     try:
         text = ETC_HOSTS.read_text()
     except OSError:

@@ -20,11 +20,8 @@ def host(tmp_path, monkeypatch):
     hosts.write_text(DEBIAN)
     calls = []
     monkeypatch.setattr(host_system, "ETC_HOSTS", hosts)
-    monkeypatch.setattr(
-        host_system,
-        "_run",
-        lambda argv, **kw: calls.append(argv) or type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})(),
-    )
+    monkeypatch.setattr(host_system, "ETC_HOSTNAME", tmp_path / "hostname")
+    monkeypatch.setattr(host_system.socket, "sethostname", lambda name: calls.append(["sethostname", name]))
     monkeypatch.setattr(host_system.socket, "gethostname", lambda: "hyperlite")
     return host_system, hosts, calls
 
@@ -35,7 +32,8 @@ def test_a_full_name_sets_the_host_name_and_the_hosts_line(host):
         "nom": "pve1.lan",
         "ancien": "hyperlite.home",
     }
-    assert calls == [["hostnamectl", "set-hostname", "pve1"]]
+    assert calls == [["sethostname", "pve1"]]
+    assert (hosts.parent / "hostname").read_text() == "pve1\n"
     text = hosts.read_text()
     assert "127.0.1.1\tpve1.lan\tpve1\n" in text and "hyperlite" not in text
     assert text.startswith("127.0.0.1\tlocalhost\n") and "ip6-localhost" in text  # the rest is kept
@@ -68,14 +66,16 @@ def test_invalid_names_are_refused_before_anything_changes(host, bad):
     assert calls == [] and hosts.read_text() == DEBIAN
 
 
-def test_a_failed_hostnamectl_leaves_the_hosts_file(host, monkeypatch):
+def test_a_refused_host_name_leaves_the_files(host, monkeypatch):
     host_system, hosts, _calls = host
-    monkeypatch.setattr(
-        host_system, "_run", lambda argv, **kw: type("R", (), {"returncode": 1, "stderr": "denied", "stdout": ""})()
-    )
-    with pytest.raises(host_system.SettingError, match="denied"):
+
+    def refuse(name):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(host_system.socket, "sethostname", refuse)
+    with pytest.raises(host_system.SettingError, match="not permitted"):
         host_system.set_hostname("pve1")
-    assert hosts.read_text() == DEBIAN
+    assert hosts.read_text() == DEBIAN and not (hosts.parent / "hostname").exists()
 
 
 def test_renaming_the_node_is_for_administrators(client, auth_headers, host):
