@@ -149,8 +149,12 @@ another node: open that node's own Hyperlite for them.
 - **SSH terminal** (administrators): a terminal on the VM through Hyperlite's key.
 - **From your workstation**: SSH or remote desktop from your own tools ([section 17](#17-access-from-your-workstation)).
 
-### Clone, template, export, migrate
+### Rename, clone, template, export, migrate
 
+- **Rename…** (Actions menu, administrators) gives a stopped VM without snapshots a new name. Its settings, backups
+  and their schedule, pools and permissions, HA protection, start at boot, notes, tags and metrics follow it; its
+  cloud-init drive and UEFI variables are renamed with it, its disk files keep their names. The VMs of a Kubernetes
+  cluster keep theirs.
 - **Clone** makes an independent copy. **Convert to template** turns a stopped VM into a template to deploy from
   (Library).
 - **Export** writes the VM's disk to **Exports** for download, to move it to another hypervisor.
@@ -163,11 +167,20 @@ another node: open that node's own Hyperlite for them.
 
 - **LXC**: a small complete system (Debian base) with a built-in terminal.
 - **Docker image**: any Docker Hub or OCI image (nginx, Redis…) run as a container with a fixed address; no Docker
-  daemon is needed. An image is downloaded once.
+  daemon is needed. An image is downloaded once. Images that do not start without some variables (PostgreSQL's
+  `POSTGRES_PASSWORD`, MySQL's or MariaDB's root password, SQL Server's licence and SA password…) get a field for
+  each, with a generated password to note down; their useful variables are one click away.
 
 **Containers** lists them; a container's page has **Summary** (resources: memory live, CPUs at the next start; network
 interfaces; DNS servers; start at boot; notes and tags), **Console** (terminal, or the program's output for an image),
 **Backups** (cold backups and restore; the container must be stopped), **Tasks** and **Permissions**.
+
+- **Root shell** (administrators, running container): a shell inside the container, like `docker exec -it … sh`,
+  for Docker images too (bash when the image has it, else sh). The **Terminal** of an LXC container connects over SSH
+  with its account.
+- **Stop** asks the container's programs to stop (SIGTERM for a Docker image, as `docker stop` does); a container
+  still running after 30 s (Docker) or 90 s (LXC) is stopped by force.
+- **Rename** (stopped container): its directory, host name, address, backups and notes follow the new name.
 
 ## 5. Kubernetes clusters
 
@@ -274,7 +287,8 @@ A node's page:
 - **Updates** (local node, administrators): see below.
 - **Network**, **Storage**: the host's interfaces and disks.
 - **Tasks**, **Compatibility** (what the host supports and why), **Shell** (a root shell, administrators).
-- **Actions**: create a VM here, open the shell, **maintenance mode**, **Reboot the node…**, **Shut down the node…**,
+- **Actions**: create a VM here, open the shell, **Rename…** (a registered node: the name Hyperlite shows, not its
+  host name; its VMs' settings, notes and metrics follow), **maintenance mode**, **Reboot the node…**, **Shut down the node…**,
   refresh capabilities.
 
 ### Maintenance mode

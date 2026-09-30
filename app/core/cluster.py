@@ -280,6 +280,27 @@ def ensure_reverse_trust(node):
         auth_path.chmod(0o600)
 
 
+def rename_reverse_trust(old_name, new_name):
+    """A renamed node keeps its reverse key (see ensure_reverse_trust): the local key files and the marker of its
+    authorized_keys line take the new name, so removing the node later still finds them. The node's own copy of
+    the private key has a fixed name and does not change."""
+    for suffix in ("_ed25519", "_ed25519.pub"):
+        source, target = REVERSE_KEY_DIR / f"{old_name}{suffix}", REVERSE_KEY_DIR / f"{new_name}{suffix}"
+        if source.exists() and not target.exists():
+            source.rename(target)
+    auth_path = _authorized_keys_path()
+    if not auth_path.exists():
+        return
+    old_marker, new_marker = f" {REVERSE_KEY_TAG}-{old_name}", f" {REVERSE_KEY_TAG}-{new_name}"
+    lines = auth_path.read_text().splitlines(keepends=True)
+    changed = []
+    for line in lines:
+        text = line.rstrip("\n")
+        changed.append(text[: -len(old_marker)] + new_marker + "\n" if text.endswith(old_marker) else line)
+    if changed != lines:
+        auth_path.write_text("".join(changed))
+
+
 def revoke_reverse_trust(node_name):
     """Best-effort cleanup when a node is removed (see remove_node): remove the
     matching authorized_keys entry on the local host (always possible, it is a
