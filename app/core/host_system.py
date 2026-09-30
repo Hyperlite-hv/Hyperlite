@@ -17,10 +17,13 @@ import ipaddress
 import os
 import re
 import shutil
+import socket
 import subprocess
 import time
 from pathlib import Path
 
+ETC_HOSTS = Path("/etc/hosts")
+ETC_HOSTNAME = Path("/etc/hostname")
 RESOLV_CONF = Path("/etc/resolv.conf")
 RESOLVED_DROPIN = Path("/etc/systemd/resolved.conf.d/hyperlite.conf")
 TIMESYNCD_DROPIN = Path("/etc/systemd/timesyncd.conf.d/hyperlite.conf")
@@ -250,6 +253,69 @@ def set_dns(servers, search):
             "set the DNS servers there, otherwise the next lease would replace them"
         )
     return dns()
+
+
+# ---- Host name ----
+# The name Hyperlite shows for this node is the one libvirt reports: the host name, completed by /etc/hosts when it
+# has no domain (Debian keeps "hyperlite" as the host name and "127.0.1.1 hyperlite.home hyperlite" in /etc/hosts).
+# Renaming the node sets both, so the name shown is exactly the one given.
+
+
+def hosts_with_name(text, old_names, fqdn, short):
+    """/etc/hosts with this host's 127.0.1.1 line naming it `fqdn` (None: a name without domain) and `short`, and
+    the old names replaced on the other lines that list them. Comments and other hosts are kept as they are."""
+    own = f"127.0.1.1\t{fqdn}\t{short}\n" if fqdn else f"127.0.1.1\t{short}\n"
+    new_for = {name: (fqdn or short) if "." in name else short for name in old_names if name and name != "localhost"}
+    out, placed = [], False
+    for line in text.splitlines(keepends=True):
+        fields = line.split("#", 1)[0].split()
+        if fields and fields[0] == "127.0.1.1":
+            if not placed:
+                out.append(own)
+                placed = True
+            continue
+        if len(fields) > 1 and any(f in new_for for f in fields[1:]):
+            names = []
+            for f in fields[1:]:
+                f = new_for.get(f, f)
+                if f not in names:
+                    names.append(f)
+            comment = f" #{line.split('#', 1)[1].rstrip()}" if "#" in line else ""
+            out.append(f"{fields[0]}\t{chr(9).join(names)}{comment}\n")
+            continue
+        out.append(line)
+    if not placed:
+        at = next((i + 1 for i, line in enumerate(out) if line.split()[:1] == ["127.0.0.1"]), 0)
+        out.insert(at, own)
+    return "".join(out)
+
+
+def set_hostname(name, current=None):
+    """Rename this host: `name` with a domain ("pve1.lan") is its full name and its first label its host name;
+    without one, both. Returns {"nom", "ancien"}."""
+    name = (name or "").strip().rstrip(".").lower()
+    if not HOST_RE.match(name) or name.split(".")[0] in ("localhost", "local") or name.replace(".", "").isdigit():
+        raise SettingError(
+            "Invalid host name: letters, digits and hyphens, dot-separated parts of 1 to 63 characters "
+            "(for example pve1 or pve1.home)"
+        )
+    short = name.split(".")[0]
+    fqdn = name if "." in name else None
+    old = current or socket.getfqdn()
+    old_names = {old, old.split(".")[0], socket.gethostname()}
+    # What hostnamectl set-hostname does, without running a command with a name the user typed: the static name
+    # in /etc/hostname (read again by systemd-hostnamed) and the kernel's, which libvirt reports at once.
+    try:
+        socket.sethostname(short)
+    except OSError as e:
+        raise SettingError(f"The host name could not be set: {e.strerror}") from e
+    _write(ETC_HOSTNAME, short + "\n")
+    try:
+        text = ETC_HOSTS.read_text()
+    except OSError:
+        text = "127.0.0.1\tlocalhost\n"
+    _write(ETC_HOSTS, hosts_with_name(text, old_names, fqdn, short))
+    return {"nom": name, "ancien": old}
 
 
 # ---- Time ----
