@@ -531,6 +531,10 @@ export async function addRemoteNode(payload) {
 export async function fetchRemoteNodeSummary(name) {
   return realFetch(`/nodes/${encodeURIComponent(name)}/summary`);
 }
+// The name Hyperlite shows for a registered node (its host name and address do not change).
+export async function renameRemoteNode(name, newName) {
+  return realFetch(`/nodes/${encodeURIComponent(name)}/rename`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
 export async function deleteRemoteNode(name) {
   return realFetch(`/nodes/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
@@ -763,6 +767,10 @@ export async function updateVM(name, payload) {
 const nodeQuery = (node) => (node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "");
 export async function fetchVM(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}${nodeQuery(node)}`);
+}
+// A stopped VM without snapshots takes a new name; its settings, backups and history follow it (administrator).
+export async function renameVM(name, newName, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/rename${nodeQuery(node)}`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
 
 // ---- Notes and tags of VMs, containers and nodes (GET /meta, GET/PUT /meta/{kind}/{name}); a VM's node travels
@@ -1081,6 +1089,17 @@ export async function deleteContainer(name) {
 // What a Docker (application) container's process printed: { actif, disponible, lignes }.
 export async function fetchContainerLogs(name, lines = 300) {
   return realFetch(`/containers/${encodeURIComponent(name)}/logs?lines=${lines}`);
+}
+export async function renameContainer(name, newName) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/rename`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
+// Root shell inside a running container, Docker or LXC (administrators): like `docker exec -it … sh`.
+export async function createContainerShellTicket(name) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/shell-ticket`, { method: "POST" });
+}
+// Variables a well-known image needs to start (postgres: POSTGRES_PASSWORD) and useful ones.
+export async function fetchImageEnv(image) {
+  return realFetch(`/containers/image-env?image=${encodeURIComponent(image)}`);
 }
 export async function createContainerTerminalTicket(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
