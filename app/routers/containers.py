@@ -57,7 +57,6 @@ from app.core.container_meta import (
     set_container_app,
     set_container_ssh_user,
 )
-from app.core.database import get_conn
 from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn
@@ -72,6 +71,7 @@ from app.core.vm_builder import (
     validate_username,
 )
 from app.core.vm_limits import compute_limits, validate_vm_resources
+from app.services import backup_service
 
 logger = logging.getLogger(__name__)
 
@@ -173,10 +173,8 @@ def image_environment(image: str = "", user: dict = Depends(get_current_user)):
 # otherwise GET /containers/backups is intercepted by GET /{name} and returns
 # "Container 'backups' not found" instead of the list of backups.
 @router.get("/backups")
-def list_container_backups(user: dict = Depends(get_current_user)):
-    with get_conn() as db:
-        rows = db.execute("SELECT * FROM container_backups ORDER BY cree_le DESC").fetchall()
-    return [dict(r) for r in rows]
+async def list_container_backups(user: dict = Depends(get_current_user)):
+    return await backup_service.list_container_backups()
 
 
 @router.get("/{name}")
@@ -751,34 +749,20 @@ def _run_container_backup_job(task_id, username, container_name):
     CONTAINER_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{container_name}-{now.strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
     dest_path = CONTAINER_BACKUP_DIR / filename
-    with get_conn() as db:
-        cur = db.execute(
-            "INSERT INTO container_backups (container_name, chemin, cree_le, statut, task_id) VALUES (?, ?, ?, 'en_cours', ?)",
-            (container_name, str(dest_path), now.isoformat(), task_id),
-        )
-        db.commit()
-        backup_id = cur.lastrowid
+    store = backup_service.container_store()
+    backup_id = store.create_container_backup(container_name, str(dest_path), now.isoformat(), task_id)
     try:
         with _container_backup_lock:
             update_task_progress(task_id, 10)
             backup_container_rootfs(container_name, dest_path)
             update_task_progress(task_id, 90)
         size = dest_path.stat().st_size
-        with get_conn() as db:
-            db.execute(
-                "UPDATE container_backups SET statut = 'termine', taille_octets = ? WHERE id = ?",
-                (size, backup_id),
-            )
-            db.commit()
+        store.container_backup_done(backup_id, size)
         finish_task(task_id, "termine")
         log_action(username, "backup_container", container_name, "succes")
     except Exception as e:
         dest_path.unlink(missing_ok=True)
-        with get_conn() as db:
-            db.execute(
-                "UPDATE container_backups SET statut = 'echec', erreur = ? WHERE id = ?", (str(e)[:500], backup_id)
-            )
-            db.commit()
+        store.container_backup_failed(backup_id, str(e)[:500])
         finish_task(task_id, "echec", str(e)[:500])
         log_action(username, "backup_container", container_name, "echec", str(e)[:500])
 
@@ -806,13 +790,9 @@ def create_container_backup(name: str, user: dict = Depends(require_role("admin"
 def delete_container_backup(backup_id: int, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     if not confirm:
         raise HTTPException(status_code=400, detail="Add ?confirm=true to confirm the deletion")
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM container_backups WHERE id = ?", (backup_id,)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Backup not found")
-        Path(row["chemin"]).unlink(missing_ok=True)
-        db.execute("DELETE FROM container_backups WHERE id = ?", (backup_id,))
-        db.commit()
+    row = backup_service.delete_container_backup(backup_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Backup not found")
     log_action(user["username"], "delete_container_backup", row["container_name"], "succes")
     return {"message": "Backup deleted"}
 
@@ -826,8 +806,7 @@ def restore_container_backup(
     backup_id: int, payload: RestoreContainerRequest, user: dict = Depends(require_role("admin"))
 ):
     maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM container_backups WHERE id = ?", (backup_id,)).fetchone()
+    row = backup_service.get_container_backup(backup_id)
     if not row or row["statut"] != "termine":
         raise HTTPException(status_code=404, detail="Backup not found or incomplete")
     target_name = payload.new_name or row["container_name"]
