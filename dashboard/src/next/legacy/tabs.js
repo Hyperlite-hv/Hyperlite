@@ -30,6 +30,7 @@ import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage } from "..
 import VmCloudInitPage from "../pages/VmCloudInit";
 import VmAdvancedPage from "../pages/VmAdvanced";
 import MetricsPage from "../pages/MetricsPage";
+import ApiPage from "../pages/ApiPage";
 import { NodeUpdatesPage } from "../pages/NodeHostSystem";
 import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPermissions";
 
@@ -37,7 +38,7 @@ import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPerm
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage, metrics: MetricsPage,
+  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage, metrics: MetricsPage, api: ApiPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,

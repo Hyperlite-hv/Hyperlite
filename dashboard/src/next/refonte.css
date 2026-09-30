@@ -619,3 +619,8 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
   .nx-nav-item { height: 1.7333rem; }
   .nx-nav-group-label { padding: 0.4rem 0.6667rem 0.1333rem; }
 }
+
+/* Swagger UI (Administration › API) keeps its own light theme: a white sheet, whatever the dashboard's theme. */
+.nx-swagger { background: #fff; color: #1b1b1f; border-radius: var(--radius-md); border: 1px solid var(--color-border-subtle); overflow: hidden; }
+.nx-swagger .swagger-ui .scheme-container, .nx-swagger .swagger-ui .auth-wrapper, .nx-swagger .swagger-ui .info .link { display: none; }
+.nx-swagger .swagger-ui .wrapper { padding: 0 var(--space-4); max-width: none; }
