@@ -295,8 +295,11 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
                 status_code=422,
                 detail="Invalid iSCSI target name (expected an IQN such as iqn.2005-10.org.freenas.ctl:vms)",
             )
-        if payload.chap_user and (not iscsi.CHAP_USER_RE.match(payload.chap_user) or not payload.chap_password):
-            raise HTTPException(status_code=422, detail="CHAP needs a valid user name and a password")
+        # CHAP is a user AND a password: a password alone was silently dropped, and the pool created without CHAP.
+        if (payload.chap_user or payload.chap_password) and (
+            not iscsi.CHAP_USER_RE.match(payload.chap_user or "") or not payload.chap_password
+        ):
+            raise HTTPException(status_code=422, detail="CHAP needs both a valid user name and a password")
         # libvirt drives open-iscsi: without it the error ("iscsiadm: not found") hides the real cause.
         if not node and not iscsi.initiator_available():
             raise HTTPException(
