@@ -21,6 +21,7 @@ from app.core.audit import log_action
 from app.core.cluster import _run_ssh, get_node
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
+from app.core.safe_paths import safe_child
 from app.core.security import require_role
 from app.core.vm_builder import validate_name
 from app.routers.vms._shared import _domain_summary, router
@@ -44,13 +45,13 @@ def _own_files(root, old, new):
         path = PurePosixPath(source.get("file"))
         for suffix in GENERATED_ISO_SUFFIXES:
             if path.name == f"{old}{suffix}":
-                items.append((source, "file", path, path.with_name(f"{new}{suffix}")))
+                items.append((source, "file", path, PurePosixPath(safe_child(path.parent, f"{new}{suffix}"))))
     nvram = root.find("./os/nvram")
     if nvram is not None and (nvram.text or "").strip():
         path = PurePosixPath(nvram.text.strip())
         # Named after the VM by libvirt, or after an older name when the VM was renamed outside Hyperlite.
         if str(path.parent) == NVRAM_DIR and path.name.endswith("_VARS.fd") and path.name != f"{new}_VARS.fd":
-            items.append((nvram, None, path, path.with_name(f"{new}_VARS.fd")))
+            items.append((nvram, None, path, PurePosixPath(safe_child(path.parent, f"{new}_VARS.fd"))))
     return items
 
 

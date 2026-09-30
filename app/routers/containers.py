@@ -62,6 +62,7 @@ from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn
 from app.core.network_alloc import allocate_static_ip, generate_mac, network_gateway, release_static_ip
+from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_container_privilege, require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import (
@@ -599,7 +600,7 @@ def rename_container(name: str, payload: RenameContainerRequest, user: dict = De
         if domain.isActive():
             raise HTTPException(status_code=409, detail="Stop the container before renaming it")
         old_root = container_rootfs_path(name)
-        new_root = old_root.parent / new
+        new_root = safe_child(old_root.parent, new)
         if os.path.lexists(new_root):
             raise HTTPException(status_code=409, detail=f"A filesystem named '{new}' is already on disk: {new_root}")
         old_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
