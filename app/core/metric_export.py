@@ -15,7 +15,6 @@ import urllib.request
 from datetime import UTC, datetime
 
 from app.core import secrets_crypto
-from app.core.database import get_conn
 from app.core.http_safety import require_http_url
 
 TIMEOUT_S = 4
@@ -109,15 +108,19 @@ def _public(row):
     return d
 
 
+def _store():
+    # The metrics repository's synchronous bridge: the export runs in the collector thread.
+    from app.repositories import registry
+
+    return registry.metrics().sync
+
+
 def list_servers():
-    with get_conn() as conn:
-        return [_public(r) for r in conn.execute("SELECT * FROM metric_servers ORDER BY nom").fetchall()]
+    return [_public(r) for r in _store().list_servers()]
 
 
 def get_server(server_id):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM metric_servers WHERE id = ?", (server_id,)).fetchone()
-    return dict(row) if row else None
+    return _store().get_server(server_id)
 
 
 def save_server(payload, server_id=None):
@@ -125,40 +128,17 @@ def save_server(payload, server_id=None):
     token = payload.get("jeton")
     if clean["type"] == "influxdb" and not token and server_id is None:
         raise ExportError("InfluxDB needs an API token with write access to the bucket")
-    cols = ["nom", "type", "url", "hote", "port", "org", "bucket", "prefixe", "actif"]
-    values = [clean.get(c) for c in cols]
-    values[cols.index("prefixe")] = clean.get("prefixe") or "hyperlite"
-    values[cols.index("actif")] = 1 if clean["actif"] else 0
-    with get_conn() as conn:
-        clash = conn.execute(
-            "SELECT id FROM metric_servers WHERE nom = ? AND id IS NOT ?", (clean["nom"], server_id)
-        ).fetchone()
-        if clash:
-            raise ExportError(f"A metric server named '{clean['nom']}' already exists")
-        if server_id is None:
-            cur = conn.execute(
-                f"INSERT INTO metric_servers ({', '.join(cols)}, jeton) VALUES ({', '.join('?' * (len(cols) + 1))})",  # noqa: S608
-                [*values, secrets_crypto.encrypt(token) if token else None],
-            )
-            server_id = cur.lastrowid
-        else:
-            conn.execute(
-                f"UPDATE metric_servers SET {', '.join(f'{c} = ?' for c in cols)} WHERE id = ?",  # noqa: S608
-                [*values, server_id],
-            )
-            if token:
-                conn.execute(
-                    "UPDATE metric_servers SET jeton = ? WHERE id = ?", (secrets_crypto.encrypt(token), server_id)
-                )
-        conn.commit()
+    values = {c: clean.get(c) for c in ("nom", "type", "url", "hote", "port", "org", "bucket", "prefixe", "actif")}
+    values["prefixe"] = clean.get("prefixe") or "hyperlite"
+    values["actif"] = 1 if clean["actif"] else 0
+    if _store().name_taken(clean["nom"], server_id):
+        raise ExportError(f"A metric server named '{clean['nom']}' already exists")
+    server_id = _store().save_server(list(values.values()), secrets_crypto.encrypt(token) if token else None, server_id)
     return _public(get_server(server_id))
 
 
 def delete_server(server_id):
-    with get_conn() as conn:
-        cur = conn.execute("DELETE FROM metric_servers WHERE id = ?", (server_id,))
-        conn.commit()
-    return cur.rowcount > 0
+    return _store().delete_server(server_id)
 
 
 # ---- Sending ----
@@ -200,22 +180,15 @@ def send(server, rows, ts):
 
 
 def record_result(server_id, error):
-    with get_conn() as conn:
-        if error is None:
-            conn.execute(
-                "UPDATE metric_servers SET dernier_envoi = ?, derniere_erreur = NULL WHERE id = ?",
-                (datetime.now(UTC).isoformat(timespec="seconds"), server_id),
-            )
-        else:
-            conn.execute("UPDATE metric_servers SET derniere_erreur = ? WHERE id = ?", (str(error)[:300], server_id))
-        conn.commit()
+    if error is None:
+        _store().record_send(server_id, sent_at=datetime.now(UTC).isoformat(timespec="seconds"))
+    else:
+        _store().record_send(server_id, error=str(error)[:300])
 
 
 def push(rows, ts):
     """Called by the collector after each tick: every active server gets the samples; failures are recorded."""
-    with get_conn() as conn:
-        servers = [dict(r) for r in conn.execute("SELECT * FROM metric_servers WHERE actif = 1").fetchall()]
-    for server in servers:
+    for server in _store().list_servers(active_only=True):
         try:
             send(server, rows, ts)
             record_result(server["id"], None)
