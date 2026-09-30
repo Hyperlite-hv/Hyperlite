@@ -28,6 +28,7 @@ from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.routers.acl import router as acl_router
+from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
@@ -138,11 +139,18 @@ app.include_router(backup_groups_router)
 app.include_router(file_restore_router)
 app.include_router(ldap_router)
 app.include_router(api_docs_router)
+if not _API_DOCS:
+    # Swagger for the accounts an administrator chose (app/core/api_docs.py); HYPERLITE_API_DOCS=1 serves FastAPI's
+    # own public pages instead, for development.
+    app.include_router(api_docs_pages)
 
 if os.path.isdir(DASHBOARD_DIST):
     app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")
     app.mount("/novnc", StaticFiles(directory=f"{DASHBOARD_DIST}/novnc"), name="dashboard-novnc")
     app.mount("/xterm", StaticFiles(directory=f"{DASHBOARD_DIST}/xterm"), name="dashboard-xterm")
+    if os.path.isdir(f"{DASHBOARD_DIST}/swagger"):
+        # Swagger UI, copied from swagger-ui-dist by the build (dashboard/vite.config.js): no CDN.
+        app.mount("/swagger", StaticFiles(directory=f"{DASHBOARD_DIST}/swagger"), name="dashboard-swagger")
 
 
 @app.get("/favicon.svg", include_in_schema=False)

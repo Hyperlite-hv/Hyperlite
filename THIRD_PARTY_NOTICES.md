@@ -16,7 +16,7 @@ The exact upstream versions of these vendored copies were not recorded when they
 
 Python packages are listed in `requirements.txt` and JavaScript packages in `dashboard/package.json` and `dashboard/package-lock.json`. Their licenses are those published by their authors on PyPI and npm (mainly MIT, BSD, Apache-2.0 and LGPL for `libvirt-python`).
 
-The dashboard build bundles Swagger UI (`swagger-ui-dist`, Apache-2.0, https://github.com/swagger-api/swagger-ui) for its API page; its license and notice files are in `dashboard/node_modules/swagger-ui-dist/` once installed.
+The dashboard build copies Swagger UI (`swagger-ui-dist`, Apache-2.0, https://github.com/swagger-api/swagger-ui) to `dashboard/dist/swagger/` for `/docs`, with its LICENSE and NOTICE files.
 
 ## Workstation client
 

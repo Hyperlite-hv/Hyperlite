@@ -1195,8 +1195,9 @@ export async function fetchApiDocsAccess() {
 export async function setApiDocsAccess(acces) {
   return realFetch("/api-docs/acces", { method: "PUT", ...jsonBody({ acces }) });
 }
-export async function fetchApiSchema() {
-  return realFetch("/api-docs/schema");
+// A single-use link to Swagger (/docs), for an account allowed to open it: { url }.
+export async function openSwagger() {
+  return realFetch("/api-docs/ticket", { method: "POST" });
 }
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
