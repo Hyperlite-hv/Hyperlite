@@ -391,11 +391,11 @@ inherits from its pools.
 
 ### The API page
 
-**Administration › API** shows the interactive documentation of Hyperlite's API (Swagger). **Try it out** runs a call
-with your own session: it has your rights and is recorded in the audit log, and calls that change something really
-run. An administrator chooses who may open it: nobody, administrators (the default) or every signed-in user. The
-same page creates and revokes your **API tokens** for scripts (`Authorization: Bearer <token>`); a new token is shown
-once.
+**Administration › API › Open Swagger** opens Swagger, the API's interactive documentation, in a new tab. Click
+**Authorize** to sign in there (user name and password, or an API token from **Account security**), then call the API:
+each call has that account's rights and is recorded in the audit log. Swagger is never public: an administrator
+chooses on the same page who may open it (nobody, administrators by default, or every signed-in user); the access
+lasts a few hours and ends at once when it is withdrawn.
 
 ### What can be renamed
 
