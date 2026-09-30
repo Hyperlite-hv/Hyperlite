@@ -1182,6 +1182,16 @@ export async function deleteMetricServer(id) {
 export async function testMetricServer(id) {
   return realFetch(`/metric-servers/${id}/test`, { method: "POST" });
 }
+// The API documentation inside the dashboard (Administration › API): who may read it, and its schema.
+export async function fetchApiDocsAccess() {
+  return realFetch("/api-docs/acces");
+}
+export async function setApiDocsAccess(acces) {
+  return realFetch("/api-docs/acces", { method: "PUT", ...jsonBody({ acces }) });
+}
+export async function fetchApiSchema() {
+  return realFetch("/api-docs/schema");
+}
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
 }
