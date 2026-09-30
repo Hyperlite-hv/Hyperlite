@@ -126,6 +126,48 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
     return {"nom": filename, "taille_mo": round(dest.stat().st_size / (1024 * 1024), 1)}
 
 
+class IsoRename(BaseModel):
+    new_name: str
+
+
+@router.post("/{filename}/rename")
+def rename_iso(filename: str, payload: IsoRename, user: dict = Depends(require_role("admin"))):
+    """An ISO of this host's library. Refused while a VM has it in a CD-ROM drive: its definition names the file."""
+    from app.core.iso_share import isos_dir
+
+    old = Path(filename).name
+    new = Path(payload.new_name.strip()).name
+    if not new.lower().endswith(".iso"):
+        new += ".iso"
+    if not ISO_NAME_RE.fullmatch(new[:-4]):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid ISO file name (letters, digits, dots, dashes, underscores and +, starting with a letter or a digit)",
+        )
+    if new == old:
+        raise HTTPException(status_code=422, detail="The new name is the current one")
+    source, target = safe_child(isos_dir(), old), safe_child(isos_dir(), new)
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail=f"ISO '{old}' not found")
+    if target.exists():
+        raise HTTPException(status_code=409, detail=f"An ISO named '{new}' already exists")
+    conn = open_conn()
+    try:
+        if _iso_in_use(conn, str(source)):
+            raise HTTPException(
+                status_code=409, detail="A VM has this ISO in its CD-ROM drive: eject it first (or rename after)"
+            )
+    finally:
+        conn.close()
+    try:
+        source.rename(target)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Rename failed: {describe_exception(e)}") from e
+    _refresh_iso_pool(target)
+    log_action(user["username"], "rename_iso", old, "succes", f"-> {new}")
+    return {"nom": new, "ancien": old}
+
+
 @router.delete("/{filename}")
 def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: dict = Depends(require_role("admin"))):
     from app.core.iso_share import delete_remote, iso_size, resolve_node, valid_iso_name

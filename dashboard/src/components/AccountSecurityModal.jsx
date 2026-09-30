@@ -2,11 +2,11 @@ import LoadingState from "./LoadingState";
 import { confirmAction } from "../store/useConfirmStore";
 import { promptText } from "../store/usePromptStore";
 import { useEffect, useState } from "react";
-import { ShieldCheck, ShieldOff, KeyRound, Plus, Trash2, Copy, Check } from "lucide-react";
+import { ShieldCheck, ShieldOff, KeyRound, PencilLine, Plus, Trash2, Copy, Check } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useInfraStore } from "../store/useInfraStore";
 import {
-  setup2FA, confirm2FA, disable2FA, fetchApiTokens, createApiToken, deleteApiToken,
+  setup2FA, confirm2FA, disable2FA, fetchApiTokens, createApiToken, deleteApiToken, renameApiToken,
 } from "../api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,13 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
     } finally {
       setBusyToken(false);
     }
+  }
+
+  async function handleRenameToken(t) {
+    const name = await promptText({ title: `Rename the token '${t.name}'`, label: "New name", defaultValue: t.name, confirmLabel: "Rename", validate: (v) => (!v.trim() || v.trim().length > 100 ? "1 to 100 characters" : "") });
+    if (!name || name.trim() === t.name) return;
+    try { await renameApiToken(t.id, name.trim()); reloadTokens(); }
+    catch (e) { pushToast({ kind: "error", title: "Rename failed", message: e.message }); }
   }
 
   async function handleDeleteToken(t) {
@@ -269,6 +276,7 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
                     {t.kind === "cli" ? "Workstation · " : ""}Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}{t.expires_at ? ` · expires on ${new Date(t.expires_at).toLocaleDateString()}` : ""}
                   </div>
                 </div>
+                <Button aria-label={`Rename token ${t.name}`} size="icon" variant="outline" className="size-7" onClick={() => handleRenameToken(t)}><PencilLine size={13} /></Button>
                 <Button aria-label={`Revoke token ${t.name}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></Button>
               </div>
             ))}

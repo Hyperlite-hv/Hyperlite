@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import renaming
 from app.core.audit import log_action
 from app.core.database import get_conn
 from app.core.jobs import JobRunRefused, start_job_run
@@ -82,6 +83,26 @@ def create_job(payload: JobCreate, user: dict = Depends(require_role("admin"))):
         conn.commit()
     log_action(user["username"], "create_job", payload.name, "succes")
     return _job_summary(job_id)
+
+
+class JobRename(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+@router.patch("/{job_id}")
+def rename_job(job_id: int, payload: JobRename, user: dict = Depends(require_role("admin"))):
+    """Only its name changes: the job (its steps and runs) is known by its id everywhere else."""
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Name required")
+    try:
+        old = renaming.rename_label("job", job_id, name)
+    except renaming.LabelTaken as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    if old is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "rename_job", old, "succes", f"-> {name}")
+    return {"id": job_id, "name": name}
 
 
 @router.delete("/{job_id}")
