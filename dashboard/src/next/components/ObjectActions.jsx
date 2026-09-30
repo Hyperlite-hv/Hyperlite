@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   cloneVM, createTemplateFromVM, createBackup, exportVM, fetchHaProtected, enableHa, disableHa,
-  fetchVMAutoCleanup, setVMAutoCleanup, disableVMAutoCleanup, renameVM, renameRemoteNode,
+  fetchVMAutoCleanup, setVMAutoCleanup, disableVMAutoCleanup, renameVM, renameRemoteNode, renameLocalHost,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -27,6 +27,8 @@ import { SideDrawer, Field } from "./ui";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 const NODE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$/;
+// A host name: dot-separated labels of 1 to 63 letters, digits and hyphens (pve1, pve1.home).
+const HOST_NAME_RE = /^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
 function MenuGroup({ label }) { return <div className="nx-menu-group" role="presentation">{label}</div>; }
 
@@ -275,15 +277,17 @@ function useNodeMenu(node, { close, openTab, withOpen = false, onRenamed }) {
   const refreshAll = useInfraStore((s) => s.refreshAll);
   const admin = caps.admin ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
   const power = !caps.admin ? admin : !local ? { enabled: false, reason: "np.localOnly" } : { enabled: true };
-  const renameState = !caps.admin ? admin : local ? { enabled: false, reason: "node.renameLocal" } : { enabled: true };
+  // This host's name is its host name: renaming it changes the machine's host name (hostnamectl and /etc/hosts).
+  const renameState = admin;
   async function rename() {
-    const name = await promptText({ title: t("node.renameTitle", { name: node.nom }), message: t("node.renameMsg"), label: t("node.renameName"), defaultValue: node.nom, confirmLabel: t("vx.rename"), validate: (v) => (!NODE_NAME_RE.test(v) || v === "local" ? t("node.nameRule") : v === node.nom ? t("vx.renameSame") : "") });
+    const valid = (v) => (local ? HOST_NAME_RE.test(v) && !/^(localhost|local)(\.|$)/i.test(v) && !/^[\d.]+$/.test(v) : NODE_NAME_RE.test(v) && v !== "local");
+    const name = await promptText({ title: t("node.renameTitle", { name: node.nom }), message: t(local ? "node.renameLocalMsg" : "node.renameMsg"), label: t("node.renameName"), defaultValue: node.nom, confirmLabel: t("vx.rename"), validate: (v) => (!valid(v) ? t(local ? "node.hostNameRule" : "node.nameRule") : v === node.nom ? t("vx.renameSame") : "") });
     if (!name) return;
     try {
-      await renameRemoteNode(node.id, name.trim());
+      if (local) await renameLocalHost(name.trim()); else await renameRemoteNode(node.id, name.trim());
       pushToast({ kind: "success", title: t("node.renamed"), message: `${node.nom} → ${name.trim()}` });
       await refreshAll?.();
-      onRenamed?.(name.trim());
+      if (!local) onRenamed?.(name.trim()); // the local node keeps its address, /node/local
     } catch (e) { pushToast({ kind: "error", title: t("node.renameFailed"), message: errorMessage(e) }); }
   }
   const item = (key, Icon, label, state, run) => (

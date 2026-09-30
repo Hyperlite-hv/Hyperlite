@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Renaming this node from its Actions menu: it sets the machine's host name (`/etc/hostname`, applied at once) and its `/etc/hosts` line, so the name shown is exactly the one given (`pve1` or `pve1.home`).
 - Renaming a stopped VM (without snapshots), a stopped container and a registered node, from their Actions and right-click menus. Their settings, backups and schedule, pools and permissions, HA protection, start at boot, notes and tags and metrics history follow the new name; a VM's own cloud-init or installation drive and its UEFI variables are renamed with it, a container's directory and host name too.
 - A root shell inside a running container, Docker or LXC, like `docker exec -it … sh` (administrators): bash when the image has it, else sh, with the image's PATH.
 - The creation form asks for the variables some images need to start (PostgreSQL, MySQL, MariaDB, SQL Server, Oracle XE…), with a generated password to note down, and suggests their useful ones; the API refuses such a container without them instead of letting it stop at once.
@@ -111,6 +112,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- The pool creation form: required fields are named and each one says what is wrong instead of a greyed-out button; examples read as examples ("e.g. …"); an NFS share needs its server and exported path, both absolute and checked; CHAP takes a user and a password together (the API no longer drops a password given alone); ZFS can no longer be picked for a remote node, which the API refuses.
 - Stopping a Docker container did nothing (PostgreSQL kept running): its process now receives SIGTERM, as with `docker stop`, and a container still running after 30 s (90 s for LXC) is stopped by force.
 - A Docker container whose command is a link to an absolute path inside the image (`sh` on Alpine, a link to `/bin/busybox`) was refused with "not found in the image".
 - The host shell started without job control ("no job control in this shell").
