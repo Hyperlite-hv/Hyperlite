@@ -124,6 +124,14 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
         node = register_node(payload.name, payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+    # Storage declared for every node (NFS, iSCSI, see app/core/shared_pools.py) is created on the new node too,
+    # as on Proxmox. Best-effort: a pool that fails there is reported, the registration stands.
+    try:
+        from app.routers.storage import apply_shared_pools
+
+        node = {**node, "pools_partages": apply_shared_pools(payload.name, user["username"])}
+    except Exception:
+        logger.warning("Shared storage not applied to the new node %s", payload.name, exc_info=True)
     # Compatibility diagnostic from the local host to the new node: informational, it
     # never cancels the registration.
     try:

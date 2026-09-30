@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Layers, Plus, Trash2 } from "lucide-react";
-import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions } from "../../api/client";
+import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchSharedPools, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -16,7 +16,7 @@ import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "..
 import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
 
-const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
+const EMPTY = { name: "", type: "dir", node: "local", scope: "tous", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
 // The same rules as the API (app/routers/storage.py, app/core/iscsi.py), checked before the request.
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -27,6 +27,7 @@ const typeLabel = (type) => ({ netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI" }[type] 
 // Versions the mount is forced to (never negotiated, see app/routers/storage.py::_build_pool_xml).
 const NFS_VERSIONS = ["4.2", "4.1", "4.0", "4", "3"];
 // An example name per kind of pool (shown as "e.g. …": an empty field must never look filled in).
+const SHARED = ["netfs", "iscsi"];
 const NAME_EXAMPLE = { dir: "local-ssd", netfs: "nas-vms", zfs: "zfs-fast", iscsi: "san-vms" };
 
 // Error key per field for the chosen kind of pool, or none: only the fields that kind uses are checked.
@@ -39,6 +40,8 @@ export function poolFormErrors(form) {
     if (req(form.nfs_host)) e.nfs_host = "stor.e.required"; else if (!HOST_RE.test(form.nfs_host.trim())) e.nfs_host = "stor.e.host";
     if (req(form.nfs_export_path)) e.nfs_export_path = "stor.e.required"; else if (!ABS_PATH_RE.test(form.nfs_export_path.trim())) e.nfs_export_path = "stor.e.absPath";
   }
+  // Shared storage (NFS, iSCSI) can go on several nodes, as on Proxmox: every node, or the ones chosen.
+  if (SHARED.includes(form.type) && form.scope === "choix" && !form.chosen.length) e.chosen = "stor.e.nodes";
   if (form.type === "zfs") {
     if (form.node !== "local") e.type = "stor.e.zfsLocal";
     const n = Number(form.size_gb);
@@ -67,8 +70,11 @@ function CreatePoolDrawer({ open, onClose }) {
   const [support, setSupport] = useState(null);
   useEffect(() => { if (open) fetchStorageSupport().then(setSupport).catch(() => setSupport(null)); }, [open]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const shared = SHARED.includes(form.type) && nodes.length > 1;
+  const scope = shared ? form.scope : "un";
+  const targets = scope === "tous" ? nodes.map((n) => n.id) : scope === "choix" ? form.chosen : [form.node];
   // The local host only: a remote node reports its own error when the pool is created.
-  const local = form.node === "local";
+  const local = targets.includes("local");
   const blocker = !local || !support ? null
     : form.type === "netfs" && support.nfs !== "ok" ? t("stor.nfsNoClient")
     : form.type === "zfs" && support.zfs !== "ok" ? t(`stor.zfs.${support.zfs}`)
@@ -89,11 +95,22 @@ function CreatePoolDrawer({ open, onClose }) {
         : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host.trim(), nfs_export_path: form.nfs_export_path.trim(), nfs_version: form.nfs_version }
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host.trim(), iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user.trim() || null, chap_password: form.chap_user.trim() ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
+      const where = scope === "tous" ? { tous_les_noeuds: true } : scope === "choix" ? { noeuds: form.chosen } : {};
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
-      const created = await createStoragePool(payload, form.node === "local" ? undefined : form.node);
-      pushToast({ kind: "success", title: t("stor.created"), message: form.name });
-      // Mounted is not enough: an export with root_squash leaves QEMU unable to open its disks there.
-      if (created?.avertissement) pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: created.avertissement, duration: Infinity });
+      const created = await createStoragePool({ ...payload, ...where }, scope === "un" && form.node !== "local" ? form.node : undefined);
+      const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
+      if (created?.resultats) {
+        // One line per node: created, already there, or why it failed there (the others went on).
+        const ok = created.resultats.filter((r) => r.etat !== "echec");
+        const failed = created.resultats.filter((r) => r.etat === "echec");
+        pushToast({ kind: "success", title: t("stor.createdOn", { name: form.name, n: ok.length }), message: ok.map((r) => `${nodeName(r.noeud)}${r.etat === "existe" ? ` (${t("stor.alreadyThere")})` : ""}`).join(", ") });
+        if (failed.length) pushToast({ kind: "error", title: t("stor.failedOn", { n: failed.length }), message: failed.map((r) => `${nodeName(r.noeud)} : ${r.detail}`).join("\n"), duration: Infinity });
+        for (const r of created.resultats) if (r.avertissement) pushToast({ kind: "error", title: `${t("stor.nfsPermTitle")} · ${nodeName(r.noeud)}`, message: r.avertissement, duration: Infinity });
+      } else {
+        pushToast({ kind: "success", title: t("stor.created"), message: form.name });
+        // Mounted is not enough: an export with root_squash leaves QEMU unable to open its disks there.
+        if (created?.avertissement) pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: created.avertissement, duration: Infinity });
+      }
       setForm(EMPTY); close(); refreshAll();
     } catch (er) { pushToast({ kind: "error", title: t("stor.createFailed"), message: errorMessage(er) }); }
     finally { setBusy(false); }
@@ -105,17 +122,34 @@ function CreatePoolDrawer({ open, onClose }) {
     </>}>
       <p className="nx-hint" style={{ margin: 0 }}>{t("stor.requiredNote")}</p>
       <Field label={t("stor.poolName")} hint={t("stor.nameHelp")} error={err("name")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.pool_name")} value={form.name} onChange={set("name")} placeholder={ex(NAME_EXAMPLE[form.type])} />}</Field>
-      <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select>}</Field>
       <div className="nx-f">
         <span className="nx-f-label" id="pool-type">{t("stor.poolType")}</span>
         <div className="nx-seg2" role="group" aria-labelledby="pool-type">
           {TYPES.map(([v, label]) => {
-            const off = v === "zfs" && !local; // ZFS is managed on this host only (the API refuses it elsewhere)
+            const off = v === "zfs" && form.node !== "local"; // ZFS is managed on this host only (the API refuses it elsewhere)
             return <button key={v} type="button" aria-pressed={form.type === v} aria-disabled={off || undefined} title={off ? t("stor.e.zfsLocal") : undefined} onClick={() => !off && setForm((f) => ({ ...f, type: v }))}>{label}</button>;
           })}
         </div>
         {err("type") && <span className="nx-f-h is-error" role="alert">{err("type")}</span>}
       </div>
+      {shared ? (
+        <fieldset className="nx-fieldset">
+          <legend>{t("stor.nodes")}</legend>
+          {[["tous", t("stor.scope.all")], ["un", t("stor.scope.one")], ["choix", t("stor.scope.some")]].map(([v, label]) => (
+            <label key={v} className="nx-check"><input type="radio" name="pool-scope" checked={form.scope === v} onChange={() => setForm((f) => ({ ...f, scope: v }))} /> {label}</label>
+          ))}
+          {form.scope === "un" && <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select>}</Field>}
+          {form.scope === "choix" && (
+            <div role="group" aria-label={t("stor.nodes")} style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2) var(--space-4)", paddingInlineStart: "var(--space-5)" }}>
+              {nodes.map((n) => <label key={n.id} className="nx-check"><input type="checkbox" checked={form.chosen.includes(n.id)} onChange={(e) => setForm((f) => ({ ...f, chosen: e.target.checked ? [...f.chosen, n.id] : f.chosen.filter((x) => x !== n.id) }))} /> {n.nom}</label>)}
+            </div>
+          )}
+          {err("chosen") && <span className="nx-f-h is-error" role="alert">{err("chosen")}</span>}
+          <span className="nx-f-h">{t(form.scope === "tous" ? "stor.scope.allHelp" : "stor.scope.help")}</span>
+        </fieldset>
+      ) : (
+        <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select>}</Field>
+      )}
       {blocker && <div className="nx-bn" data-tone="warning" role="status"><span className="nx-bn-t">{blocker}</span></div>}
       {form.type === "dir" && <Field label={t("stor.path")} hint={t("stor.pathHelp")} error={err("path")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.local_path_optional")} value={form.path} onChange={set("path")} placeholder={ex("/var/lib/libvirt/hyperlite-pools/…")} />}</Field>}
       {form.type === "netfs" && <>
@@ -164,6 +198,9 @@ export default function StoragePage() {
   const [volumeErrors, setVolumeErrors] = useState({});
   useIntent("pool", () => caps.admin && setCreating(true));
   const ctx = useContextTarget(); // right click on a pool: its actions
+  // Pools declared for several nodes: marked in the list, and removed from every node together.
+  const [shared, setShared] = useState({});
+  useEffect(() => { fetchSharedPools().then((r) => setShared(Object.fromEntries((Array.isArray(r) ? r : []).map((x) => [x.nom, x])))).catch(() => setShared({})); }, [pools]);
 
   async function loadVolumes(p) {
     const key = `${p.node}:${p.nom}`;
@@ -203,11 +240,18 @@ export default function StoragePage() {
   async function removePool(p) {
     if (p.nom === "default") return;
     const fsBacked = p.type === "dir" || p.type === "netfs";
-    const message = p.type === "iscsi" ? t("stor.confirmIscsi") : fsBacked ? t("stor.confirmFs", { name: p.nom }) : t("stor.confirmEmpty", { name: p.nom });
-    const ok = await confirmAction({ title: t("stor.confirmTitle", { name: p.nom }), message, confirmLabel: t("action.confirm"), danger: true });
+    const everywhere = Boolean(shared[p.nom]);
+    const base = p.type === "iscsi" ? t("stor.confirmIscsi") : fsBacked ? t("stor.confirmFs", { name: p.nom }) : t("stor.confirmEmpty", { name: p.nom });
+    const message = everywhere ? `${t("stor.confirmEverywhere")} ${base}` : base;
+    const ok = await confirmAction({ title: t(everywhere ? "stor.confirmTitleEverywhere" : "stor.confirmTitle", { name: p.nom }), message, confirmLabel: t("action.confirm"), danger: true });
     if (!ok) return;
-    try { await deleteStoragePool(p.nom, p.node === "local" ? undefined : p.node, fsBacked); pushToast({ kind: "success", title: t("stor.removed"), message: p.nom }); refreshAll(); }
-    catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
+    try {
+      const r = await deleteStoragePool(p.nom, p.node === "local" ? undefined : p.node, fsBacked, everywhere);
+      const failed = (r?.resultats || []).filter((x) => x.etat === "echec");
+      if (failed.length) pushToast({ kind: "error", title: t("stor.deleteFailedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.noeud)?.nom || x.noeud} : ${x.detail}`).join("\n"), duration: Infinity });
+      else pushToast({ kind: "success", title: t("stor.removed"), message: everywhere ? t("stor.removedEverywhere", { name: p.nom }) : p.nom });
+      refreshAll();
+    } catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
 
   return (
@@ -230,7 +274,8 @@ export default function StoragePage() {
                         <td><StatusIndicator kind="pool" wire={p.etat} /></td>
                         <th scope="row" className="nx-nm">{p.nom}{p.chemin && <small className="nx-mono">{p.chemin}</small>}</th>
                         <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.nom || p.node}</td>
-                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type)}{p.type === "netfs" && p.nfs_version ? ` v${p.nfs_version}` : ""}</Chip></td>
+                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type)}{p.type === "netfs" && p.nfs_version ? ` v${p.nfs_version}` : ""}</Chip>
+                          {shared[p.nom] && <> <Chip tone="info" title={shared[p.nom].tous_les_noeuds ? t("stor.sharedAllHelp") : t("stor.sharedSomeHelp", { nodes: shared[p.nom].noeuds.map((id) => nodes.find((n) => n.id === id)?.nom || id).join(", ") })}>{shared[p.nom].tous_les_noeuds ? t("stor.sharedAll") : t("stor.shared")}</Chip></>}</td>
                         <td><Meter value={r} label={`${p.nom} ${t("stor.usage")}`} /></td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.capacite_go, lang) ?? "—"}</td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.disponible_go, lang) ?? "—"}</td>

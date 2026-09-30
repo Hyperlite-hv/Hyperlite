@@ -11,8 +11,9 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import iscsi, nfs_permissions, zfs_storage
+from app.core import iscsi, nfs_permissions, shared_pools, zfs_storage
 from app.core.audit import log_action
+from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
 from app.core.security import get_current_user, require_role
@@ -163,6 +164,10 @@ class PoolCreate(BaseModel):
     iscsi_target: str | None = None  # "iscsi" pool: target name (IQN)
     chap_user: str | None = None  # "iscsi" pool: CHAP credentials, when the target requires them
     chap_password: str | None = Field(None, max_length=255)
+    # Shared storage (NFS, iSCSI) declared for several nodes at once, as on Proxmox: every node, including the ones
+    # registered later (tous_les_noeuds), or the nodes listed ("local" is this host). See app/core/shared_pools.py.
+    tous_les_noeuds: bool = False
+    noeuds: list[str] | None = Field(None, max_length=64)
 
 
 def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
@@ -250,6 +255,12 @@ def storage_support(user: dict = Depends(get_current_user)):
 
 @router.post("", status_code=201)
 def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    if payload.tous_les_noeuds or payload.noeuds:
+        return _create_shared(payload, user)
+    return _create_single(payload, node, user)
+
+
+def _create_single(payload, node, user):
     name_error = validate_name(payload.name, "storage pool")
     if name_error:
         log_action(user["username"], "create_storage_pool", payload.name, "echec", name_error)
@@ -324,6 +335,11 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
         # collision with an existing system directory.
         target_path = str(nfs_permissions.POOLS_ROOT / payload.name)
 
+    return _create_on(payload, node, target_path, user)
+
+
+def _create_on(payload, node, target_path, user):
+    """Define, build and start the pool on one node (None: this host). Raises HTTPException on failure."""
     conn = open_conn(node)
     try:
         try:
@@ -379,6 +395,91 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
         return summary
     finally:
         conn.close()
+
+
+def _shared_targets(payload):
+    """The node keys ("local" or registered names) a shared pool is created on."""
+    registered = [n["name"] for n in list_nodes()]
+    if payload.tous_les_noeuds:
+        return ["local", *registered]
+    unknown = [n for n in payload.noeuds if n != "local" and n not in registered]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"Unknown node(s): {', '.join(unknown)}")
+    return list(dict.fromkeys(payload.noeuds))
+
+
+def _exists_on(pool_name, node_key):
+    conn = open_conn(None if node_key == "local" else node_key)
+    try:
+        conn.storagePoolLookupByName(pool_name)
+        return True
+    except libvirt.libvirtError:
+        return False
+    finally:
+        conn.close()
+
+
+def create_on_nodes(payload, targets, user):
+    """Create the pool on each node key; [{"noeud", "etat": cree|existe|echec, "detail", "avertissement"}]. One
+    node failing (unreachable, NFS client missing) does not stop the others."""
+    results = []
+    for key in targets:
+        entry = {"noeud": key, "etat": "cree", "detail": None, "avertissement": None}
+        try:
+            if _exists_on(payload.name, key):
+                entry["etat"] = "existe"
+            else:
+                summary = _create_single(payload, None if key == "local" else key, user)
+                entry["avertissement"] = summary.get("avertissement")
+        except HTTPException as e:
+            entry.update(etat="echec", detail=e.detail if isinstance(e.detail, str) else "; ".join(map(str, e.detail)))
+        except libvirt.libvirtError as e:
+            entry.update(etat="echec", detail=f"Node unreachable: {describe_exception(e)}")
+        results.append(entry)
+    return results
+
+
+def _create_shared(payload, user):
+    """The same NFS export or iSCSI target created on several nodes (see app/core/shared_pools.py)."""
+    if payload.type not in shared_pools.SHARED_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail="Only shared storage (NFS or iSCSI) can be created on several nodes: a local directory or a "
+            "ZFS pool belongs to one host",
+        )
+    name_error = validate_name(payload.name, "storage pool")
+    if name_error:
+        raise HTTPException(status_code=422, detail=name_error)
+    targets = _shared_targets(payload)
+    if not targets:
+        raise HTTPException(status_code=422, detail="Choose at least one node")
+    results = create_on_nodes(payload, targets, user)
+    done = [r["noeud"] for r in results if r["etat"] != "echec"]
+    if not done:
+        details = "; ".join(f"{r['noeud']}: {r['detail']}" for r in results)
+        raise HTTPException(status_code=502, detail=f"The pool could not be created on any node. {details}")
+    shared_pools.save(payload.model_dump(), payload.tous_les_noeuds, done, user["username"])
+    scope = "every node" if payload.tous_les_noeuds else ", ".join(targets)
+    log_action(user["username"], "create_shared_pool", payload.name, "succes", f"{scope}: created on {', '.join(done)}")
+    return {"nom": payload.name, "partage": True, "tous_les_noeuds": payload.tous_les_noeuds, "resultats": results}
+
+
+def apply_shared_pools(node_name, username):
+    """Create the pools declared for every node on a node registered now; the results per pool."""
+    out = []
+    for entry in shared_pools.for_every_node():
+        payload = PoolCreate(**entry["definition"])
+        result = create_on_nodes(payload, [node_name], {"username": username})[0]
+        if result["etat"] != "echec":
+            shared_pools.add_node(entry["nom"], node_name)
+        out.append({"nom": entry["nom"], **result})
+    return out
+
+
+@router.get("/shared")
+def list_shared_pools(user: dict = Depends(get_current_user)):
+    """The pools declared for several nodes, and which ones (no secret)."""
+    return [{k: v for k, v in e.items() if k != "definition"} for e in shared_pools.list_all()]
 
 
 def _delete_chap_secret(conn, pool_name):
@@ -453,12 +554,41 @@ def delete_pool(
     node: str | None = None,
     confirm: bool = False,
     detacher: bool = False,
+    partout: bool = False,
     user: dict = Depends(require_role("admin")),
 ):
+    """partout: a shared pool (app/core/shared_pools.py) is removed from every node that has it, and its
+    definition with it, as on Proxmox; without it, from `node` only."""
     if pool_name == "default":
         raise HTTPException(status_code=400, detail="The 'default' pool cannot be deleted")
     if not confirm:
         raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion")
+    if partout:
+        return _delete_everywhere(pool_name, detacher, user)
+    return _delete_single(pool_name, node, detacher, user)
+
+
+def _delete_everywhere(pool_name, detacher, user):
+    results = []
+    for key in ["local", *[n["name"] for n in list_nodes()]]:
+        entry = {"noeud": key, "etat": "supprime", "detail": None}
+        try:
+            if not _exists_on(pool_name, key):
+                continue
+            _delete_single(pool_name, None if key == "local" else key, detacher, user)
+        except HTTPException as e:
+            entry.update(etat="echec", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
+        except libvirt.libvirtError as e:
+            entry.update(etat="echec", detail=f"Node unreachable: {describe_exception(e)}")
+        results.append(entry)
+    failed = [r for r in results if r["etat"] == "echec"]
+    if not failed:
+        # Kept while a node still has it: the next attempt must find what is left.
+        shared_pools.delete(pool_name)
+    return {"nom": pool_name, "resultats": results, "message": None if failed else f"Pool '{pool_name}' deleted"}
+
+
+def _delete_single(pool_name, node, detacher, user):
 
     # A ZFS pool is NOT a libvirt pool (see zfs_storage.py): it is routed separately
     # before any lookup on the libvirt side, which would simply fail with "not found"

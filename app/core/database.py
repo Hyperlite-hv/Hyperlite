@@ -446,6 +446,18 @@ def init_db():
             )
         """)
         conn.execute("CREATE TABLE IF NOT EXISTS ha_settings (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)")
+        # Storage shared by several nodes (app/core/shared_pools.py): created on each of them, and on the nodes
+        # registered later when declared for every node. definition is JSON, its CHAP password encrypted.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS shared_pools (
+                nom TEXT PRIMARY KEY,
+                definition TEXT NOT NULL,
+                tous_les_noeuds INTEGER NOT NULL DEFAULT 0,
+                noeuds TEXT NOT NULL DEFAULT '[]',
+                cree_par TEXT,
+                cree_le TEXT
+            )
+        """)
         # Nodes in maintenance: "local" (the host running Hyperlite, not a row of `nodes`) or a registered node
         # name. No new VM lands on them and they are never a migration or HA recovery target.
         conn.execute("""
