@@ -24,7 +24,6 @@ from fastapi import HTTPException
 
 from app.core import cluster_compat, iscsi
 from app.core.cluster import get_node
-from app.core.database import get_conn
 
 logger = logging.getLogger(__name__)
 
@@ -50,34 +49,30 @@ def check_node_exists(node_label):
         raise HTTPException(status_code=404, detail=f"Node '{node_label}' not found")
 
 
+def _repo():
+    # The node repository's synchronous bridge: maintenance checks run in synchronous endpoints and threads.
+    from app.repositories import registry
+
+    return registry.nodes().sync
+
+
 def get(node_label):
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM node_maintenance WHERE node = ?", (label(node_label),)).fetchone()
-    return dict(row) if row else None
+    entry = _repo().get_maintenance(label(node_label))
+    return entry.to_wire() if entry else None
 
 
 def list_all():
-    with get_conn() as db:
-        rows = db.execute("SELECT * FROM node_maintenance ORDER BY node").fetchall()
-    return [dict(r) for r in rows]
+    return [m.to_wire() for m in _repo().list_maintenance()]
 
 
 def enter(node_label, username):
     """Mark a node in maintenance. Idempotent: the first start time and author are kept."""
-    with get_conn() as db:
-        db.execute(
-            "INSERT INTO node_maintenance (node, started_by, started_at) VALUES (?, ?, ?) ON CONFLICT(node) DO NOTHING",
-            (label(node_label), username, _now()),
-        )
-        db.commit()
+    _repo().set_maintenance(label(node_label), username, _now())
 
 
 def leave(node_label):
     """True when the node was in maintenance."""
-    with get_conn() as db:
-        cur = db.execute("DELETE FROM node_maintenance WHERE node = ?", (label(node_label),))
-        db.commit()
-    return cur.rowcount > 0
+    return _repo().clear_maintenance(label(node_label))
 
 
 def refuse_if_in_maintenance(node_label, action):
