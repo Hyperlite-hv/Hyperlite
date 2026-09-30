@@ -7,6 +7,7 @@ import threading
 
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from app.core import cluster_compat, maintenance, renaming, vm_locks
@@ -15,15 +16,12 @@ from app.core.cluster import (
     get_cluster_pubkey,
     node_summary,
     register_node,
-    remove_node,
     rename_reverse_trust,
     test_node_connection,
 )
-from app.core.database import get_conn
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_remote_capabilities
 from app.core.libvirt_utils import open_conn
-from app.core.metrics import get_node_live
 from app.core.security import get_current_user, require_role
 from app.core.tasks import (
     cancel_requested,
@@ -37,6 +35,7 @@ from app.core.tasks import (
 )
 from app.core.tasks import requester as _cancel_requester
 from app.routers.vms.migration import _migrate_vm_job
+from app.services import node_service
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +47,18 @@ HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:_-]{0,253}$")
 USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
+async def _require(name):
+    try:
+        await node_service.get(name)
+    except node_service.NodeNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+
 @router.get("")
-def list_nodes(user: dict = Depends(get_current_user)):
+async def list_nodes(user: dict = Depends(get_current_user)):
     """Registered remote nodes, each with its latest live figures ("live", None until the
     metrics collector has reached it once)."""
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM nodes ORDER BY name").fetchall()
-    live = get_node_live()
-    return [{**dict(r), "live": live.get(r["name"])} for r in rows]
+    return await node_service.list_with_live()
 
 
 class NodeTest(BaseModel):
@@ -160,13 +163,10 @@ def config_copy_now(user: dict = Depends(require_role("admin"))):
 
 
 @router.get("/{name}/summary")
-def get_node_summary(name: str, user: dict = Depends(get_current_user)):
-    with get_conn() as conn:
-        node = conn.execute("SELECT id FROM nodes WHERE name = ?", (name,)).fetchone()
-    if not node:
-        raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
+async def get_node_summary(name: str, user: dict = Depends(get_current_user)):
+    await _require(name)
     try:
-        return {**node_summary(name), "live": get_node_live(name)}
+        return {**await run_in_threadpool(node_summary, name), "live": await node_service.live(name)}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Node unreachable: {e}") from e
 
@@ -181,14 +181,12 @@ def _compat_with_local(name):
 
 
 @router.get("/{name}/compatibility")
-def get_node_compatibility(name: str, user: dict = Depends(require_role("admin"))):
+async def get_node_compatibility(name: str, user: dict = Depends(require_role("admin"))):
     """Compatibility from the LOCAL host (source) to this node (destination). See
     app/core/cluster_compat.py."""
-    with get_conn() as conn:
-        if not conn.execute("SELECT id FROM nodes WHERE name = ?", (name,)).fetchone():
-            raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
+    await _require(name)
     try:
-        return _compat_with_local(name)
+        return await run_in_threadpool(_compat_with_local, name)
     except HTTPException:
         raise
     except Exception as e:
@@ -196,18 +194,15 @@ def get_node_compatibility(name: str, user: dict = Depends(require_role("admin")
 
 
 @router.get("/{name}/capabilities")
-def get_node_capabilities(name: str, user: dict = Depends(get_current_user)):
+async def get_node_capabilities(name: str, user: dict = Depends(get_current_user)):
     """Capability profile of a registered REMOTE node: the equivalent of GET
     /host/capabilities for the local host. See
     app/core/host_capabilities.py::get_remote_capabilities for the known limits
     (some OS information needs the cluster SSH trust to be already established,
     and is degraded to `null` otherwise rather than failing)."""
-    with get_conn() as conn:
-        node = conn.execute("SELECT id FROM nodes WHERE name = ?", (name,)).fetchone()
-    if not node:
-        raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
+    await _require(name)
     try:
-        return get_remote_capabilities(name)
+        return await run_in_threadpool(get_remote_capabilities, name)
     except Exception as e:
         msg = describe_exception(e)
         raise HTTPException(status_code=502, detail=f"Node unreachable: {msg}") from e
@@ -231,13 +226,11 @@ def get_node_hardware(name: str, user: dict = Depends(get_current_user)):
 
 
 @router.delete("/{name}")
-def delete_node(name: str, user: dict = Depends(require_role("admin"))):
-    with get_conn() as conn:
-        node = conn.execute("SELECT id FROM nodes WHERE name = ?", (name,)).fetchone()
-    if not node:
-        raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
-    remove_node(name, user["username"])
-    maintenance.leave(name)
+async def delete_node(name: str, user: dict = Depends(require_role("admin"))):
+    try:
+        await node_service.remove(name, user["username"])
+    except node_service.NodeNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
     return {"message": f"Node '{name}' removed"}
 
 
@@ -246,7 +239,7 @@ class RenameNodeRequest(BaseModel):
 
 
 @router.post("/{name}/rename")
-def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depends(require_role("admin"))):
+async def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depends(require_role("admin"))):
     """The name Hyperlite shows for a registered node; the machine keeps its host name and address. Its VMs'
     settings, notes, metrics and maintenance state follow (app/core/renaming.py)."""
     new = payload.new_name
@@ -254,23 +247,22 @@ def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depends(requ
         raise HTTPException(status_code=422, detail="Invalid node name (letters/digits/-/., 2-63 characters)")
     if new == name:
         raise HTTPException(status_code=422, detail="The new name is the current one")
-    with get_conn() as conn:
-        if not conn.execute("SELECT 1 FROM nodes WHERE name = ?", (name,)).fetchone():
-            raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
-        if conn.execute("SELECT 1 FROM nodes WHERE name = ?", (new,)).fetchone():
-            raise HTTPException(status_code=409, detail=f"A node named '{new}' already exists")
+    try:
+        await node_service.check_rename(name, new)
+    except node_service.NodeNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except node_service.NodeNameTaken as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
     busy = vm_locks.busy_on_node(name)
     with _draining_lock:
         if name in _draining:
             busy.append("a drain")
     if busy:
         raise HTTPException(status_code=409, detail=f"Node '{name}' is busy ({', '.join(busy)}): try again later")
-    renaming.node_records(name, new)
-    rename_reverse_trust(name, new)
+    await run_in_threadpool(renaming.node_records, name, new)
+    await run_in_threadpool(rename_reverse_trust, name, new)
     log_action(user["username"], "rename_node", name, "succes", f"-> {new}")
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM nodes WHERE name = ?", (new,)).fetchone()
-    return {**dict(row), "live": get_node_live().get(new)}
+    return await node_service.wire_with_live(new)
 
 
 # --- Maintenance mode (see app/core/maintenance.py). {name} is "local" for the host running Hyperlite.
