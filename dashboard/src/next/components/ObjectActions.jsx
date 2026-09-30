@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-  ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Heart, LayoutTemplate, Link, MoveHorizontal, Play, Plus, Power, RefreshCw,
+  ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Heart, LayoutTemplate, Link, MoveHorizontal, PencilLine, Play, Plus, Power, RefreshCw,
   RotateCcw, RotateCw, Share, Square, SquareTerminal, Trash2, Wrench,
 } from "lucide-react";
 import {
   cloneVM, createTemplateFromVM, createBackup, exportVM, fetchHaProtected, enableHa, disableHa,
-  fetchVMAutoCleanup, setVMAutoCleanup, disableVMAutoCleanup,
+  fetchVMAutoCleanup, setVMAutoCleanup, disableVMAutoCleanup, renameVM, renameRemoteNode,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -26,6 +26,7 @@ import { leaveMaintenance } from "./MaintenanceDialog";
 import { SideDrawer, Field } from "./ui";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
+const NODE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$/;
 
 function MenuGroup({ label }) { return <div className="nx-menu-group" role="presentation">{label}</div>; }
 
@@ -72,8 +73,8 @@ const objectLink = (type, id) => `${window.location.origin}${selectionToPath({ t
 //   openTab(tab): show one of the VM's tabs;
 //   withPower: also Open, Console, Start and Stop at the top (the header has them as buttons);
 //   followBackup: open the Backups tab once a backup starts (from the header, not from a list);
-//   onDialogClose / onDeleted: the caller's follow-up.
-export function useVmMenu(vm, { open, close, openTab, withPower = false, followBackup = true, onDialogClose, onDeleted }) {
+//   onDialogClose / onDeleted / onRenamed(newKey): the caller's follow-up.
+export function useVmMenu(vm, { open, close, openTab, withPower = false, followBackup = true, onDialogClose, onDeleted, onRenamed }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
   const { nodes, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, pushToast: s.pushToast, refreshAll: s.refreshAll })));
@@ -110,6 +111,16 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
     if (!name) return;
     try { await cloneVM(vm.nom, name.trim()); pushToast({ kind: "success", title: t("vx.cloned"), message: `${vm.nom} → ${name.trim()}` }); refreshAll?.(); }
     catch (e) { fail(t("vx.cloneFailed"), e); }
+  }
+  async function rename() {
+    const name = await promptText({ title: t("vx.renameTitle", { name: vm.nom }), message: t("vx.renameMsg"), label: t("vx.renameName"), defaultValue: vm.nom, confirmLabel: t("vx.rename"), validate: (v) => (!NAME_RE.test(v) ? t("vx.nameRule") : v === vm.nom ? t("vx.renameSame") : "") });
+    if (!name) return;
+    try {
+      await renameVM(vm.nom, name.trim(), vm.node);
+      pushToast({ kind: "success", title: t("vx.renamed"), message: `${vm.nom} → ${name.trim()}` });
+      await refreshAll?.();
+      onRenamed?.(vmKey({ ...vm, nom: name.trim() }));
+    } catch (e) { fail(t("vx.renameFailed"), e); }
   }
   async function toTemplate() {
     const name = await promptText({ title: t("vx.tplTitle", { name: vm.nom }), message: t("vx.tplMsg"), label: t("vx.tplName"), defaultValue: vm.nom, confirmLabel: t("vx.tpl"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
@@ -170,6 +181,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), localOnly(caps.admin ? known(ha) : admin()), toggleHa)}
       <hr />
       <MenuGroup label={t("vx.g.lifecycle")} />
+      {item("rename", PencilLine, t("vx.renameMenu"), admin(stopped), rename)}
       {item("clone", CopyPlus, t("vx.cloneMenu"), localOnly(admin(stopped)), clone)}
       {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
       {item("template", LayoutTemplate, t("vx.tplMenu"), localOnly(admin(stopped)), toTemplate)}
@@ -205,6 +217,7 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
     open, close,
     openTab: (tab) => { if (currentTab !== tab) setTab(tab); },
     onDeleted: () => navigateTo("datacenter", null, "vms"),
+    onRenamed: (key) => navigateTo("vm", key, currentTab || "summary"),
   });
   const running = vm.etat === "actif";
   const act = (a) => vmActionState(a, vm, caps);
@@ -252,7 +265,7 @@ export function VmContextMenu({ vm, at, returnFocus, onDone }) {
 }
 
 // Every action on a node (see useVmMenu for the pattern): create a VM there, its shell, its link.
-function useNodeMenu(node, { close, openTab, withOpen = false }) {
+function useNodeMenu(node, { close, openTab, withOpen = false, onRenamed }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
   const local = node.id === "local";
@@ -262,6 +275,17 @@ function useNodeMenu(node, { close, openTab, withOpen = false }) {
   const refreshAll = useInfraStore((s) => s.refreshAll);
   const admin = caps.admin ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
   const power = !caps.admin ? admin : !local ? { enabled: false, reason: "np.localOnly" } : { enabled: true };
+  const renameState = !caps.admin ? admin : local ? { enabled: false, reason: "node.renameLocal" } : { enabled: true };
+  async function rename() {
+    const name = await promptText({ title: t("node.renameTitle", { name: node.nom }), message: t("node.renameMsg"), label: t("node.renameName"), defaultValue: node.nom, confirmLabel: t("vx.rename"), validate: (v) => (!NODE_NAME_RE.test(v) || v === "local" ? t("node.nameRule") : v === node.nom ? t("vx.renameSame") : "") });
+    if (!name) return;
+    try {
+      await renameRemoteNode(node.id, name.trim());
+      pushToast({ kind: "success", title: t("node.renamed"), message: `${node.nom} → ${name.trim()}` });
+      await refreshAll?.();
+      onRenamed?.(name.trim());
+    } catch (e) { pushToast({ kind: "error", title: t("node.renameFailed"), message: errorMessage(e) }); }
+  }
   const item = (key, Icon, label, state, run) => (
     <MenuItem key={key} disabled={!state.enabled} reason={state.reason ? t(state.reason) : undefined} onSelect={() => { close(); run(); }}>
       <Icon size={16} aria-hidden="true" />{label}{!state.enabled && state.reason ? <span className="nx-menu-k" aria-hidden="true">{t(state.reason)}</span> : null}
@@ -272,6 +296,7 @@ function useNodeMenu(node, { close, openTab, withOpen = false }) {
       {withOpen && <>{item("open", ArrowUpRight, t("ctx.open"), { enabled: true }, () => openTab("summary"))}<hr /></>}
       {item("vm", Plus, t("node.createVm"), create, () => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" })))}
       {item("shell", SquareTerminal, t("node.openShell"), shell, () => openTab("shell"))}
+      {item("rename", PencilLine, t("node.renameMenu"), renameState, rename)}
       {node.maintenance
         ? item("maint", Wrench, t("mt.leave"), admin, () => leaveMaintenance(node, t, pushToast, refreshAll))
         : item("maint", Wrench, t("mt.enter"), admin, () => window.dispatchEvent(new CustomEvent("nx:node-maintenance", { detail: node.id })))}
@@ -291,7 +316,8 @@ export function NodeHeaderActions({ node, setTab }) {
   const [open, setOpen] = useState(false);
   const btn = useRef(null);
   const close = () => setOpen(false);
-  const items = useNodeMenu(node, { close, openTab: setTab });
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const items = useNodeMenu(node, { close, openTab: setTab, onRenamed: (name) => navigateTo("node", name, "summary") });
   return (
     <div className="nx-oh-acts">
       <span className="nx-relative">

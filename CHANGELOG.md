@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- Renaming a stopped VM (without snapshots), a stopped container and a registered node, from their Actions and right-click menus. Their settings, backups and schedule, pools and permissions, HA protection, start at boot, notes and tags and metrics history follow the new name; a VM's own cloud-init or installation drive and its UEFI variables are renamed with it, a container's directory and host name too.
+- A root shell inside a running container, Docker or LXC, like `docker exec -it … sh` (administrators): bash when the image has it, else sh, with the image's PATH.
+- The creation form asks for the variables some images need to start (PostgreSQL, MySQL, MariaDB, SQL Server, Oracle XE…), with a generated password to note down, and suggests their useful ones; the API refuses such a container without them instead of letting it stop at once.
+
 - A user guide (`docs/user-guide.md`) that walks through every feature of the web interface: VMs, containers, storage, networks, backups and file restore, nodes, HA, users and sign-in, preferences and troubleshooting.
 
 - Bulk actions on the VM list: select VMs (or every VM shown) and start, stop, force stop, restart, migrate or delete them together; the confirmation names them and the ones left as they are, and each failure is reported by name.
@@ -106,6 +110,10 @@ All notable changes to this project are documented here. The format is based on 
 - The local host is always labelled `local`; rows still using a legacy label are migrated at start-up.
 
 ### Fixed
+
+- Stopping a Docker container did nothing (PostgreSQL kept running): its process now receives SIGTERM, as with `docker stop`, and a container still running after 30 s (90 s for LXC) is stopped by force.
+- A Docker container whose command is a link to an absolute path inside the image (`sh` on Alpine, a link to `/bin/busybox`) was refused with "not found in the image".
+- The host shell started without job control ("no job control in this shell").
 
 - Terminals (node shell, VM SSH console, container terminal and their windows) fit what they draw: the size sent to the shell counted the box's padding and border (the last row and a column were cut), the VM console's terminal kept a fixed height inside its 16:10 box (three rows cut), a separate window did not shrink with the window, and the size now follows any change of the box (zoom, display scaling, sidebar) and is measured once the terminal font is loaded. The node shell uses the height of the window instead of a fixed 26rem.
 - Narrow and short windows (laptops at 125 or 150 % display scaling): the path in the top bar stays on one line, and the navigation is denser on short screens.
