@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createContainer, searchDockerHub } from "../../api/client";
+import { createContainer, fetchImageEnv, searchDockerHub } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -31,6 +31,14 @@ export function splitArgs(line) {
   if (started) out.push(cur);
   return out;
 }
+// A password for a variable the image needs (POSTGRES_PASSWORD...): letters and digits only, so that no image's
+// entrypoint script or connection string has to quote it.
+export function generatePassword(length = 20) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}
 const parseEnv = (text) => Object.fromEntries(text.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 const int = (v, min, max) => v !== "" && Number.isInteger(Number(v)) && Number(v) >= min && Number(v) <= max;
 
@@ -52,6 +60,9 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  // What the chosen image needs (GET /containers/image-env) and the values typed or generated for it.
+  const [needs, setNeeds] = useState({ requises: [], utiles: [] });
+  const [req, setReq] = useState({});
 
   useEffect(() => {
     setForm((f) => {
@@ -66,6 +77,20 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
     return () => clearTimeout(id);
   }, [query]);
 
+  useEffect(() => {
+    if (form.kind !== "docker" || !form.image.trim()) { setNeeds({ requises: [], utiles: [] }); return undefined; }
+    let alive = true;
+    const id = setTimeout(() => {
+      fetchImageEnv(form.image.trim()).then((r) => {
+        if (!alive || !r) return;
+        setNeeds({ requises: r.requises || [], utiles: r.utiles || [] });
+        // A password the image needs is generated at once; it stays visible so it can be noted, and can be changed.
+        setReq((cur) => Object.fromEntries((r.requises || []).map((g) => g[0]).map((v) => [v.nom, cur[v.nom] ?? (v.generer ? generatePassword() : "")])));
+      }).catch(() => alive && setNeeds({ requises: [], utiles: [] }));
+    }, 300);
+    return () => { alive = false; clearTimeout(id); };
+  }, [form.image, form.kind]);
+
   const patch = (f) => setForm((x) => ({ ...x, ...f }));
   const pick = (image) => { patch({ image }); setQuery(""); setResults([]); };
   const taken = containersTaken.some((v) => v.nom === form.name);
@@ -75,6 +100,10 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
   const usableNetworks = docker ? started.filter(hasSubnet) : started;
   const envLines = form.env.split("\n").map((l) => l.trim()).filter(Boolean);
   const args = form.command.trim() ? splitArgs(form.command.trim()) : [];
+  const typedEnv = envLines.every((l) => ENV_LINE.test(l)) ? parseEnv(form.env) : {};
+  // A requirement is met by its field, or by one of its variables typed in the environment box (which then wins).
+  const inBox = (group) => group.some((v) => (typedEnv[v.nom] ?? "").trim() !== "");
+  const unmet = docker ? needs.requises.filter((g) => !inBox(g) && !(req[g[0].nom] ?? "").trim()) : [];
   const errors = {
     name: !NAME_RE.test(form.name) ? "wz.e.name" : taken ? "wz.e.taken" : "",
     vcpu: int(form.vcpu, 1, 16) ? "" : "cw.e.vcpu",
@@ -85,18 +114,26 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
     image: docker && !form.image.trim() ? "cw.e.dockerImage" : "",
     command: docker && args === null ? "cw.e.command" : "",
     env: docker && envLines.some((l) => !ENV_LINE.test(l)) ? "cw.e.env" : "",
+    required: unmet.length ? "cw.e.required" : "",
   };
   const bad = Object.values(errors).some(Boolean);
   const dirty = Boolean(form.name || form.username || form.password || form.command || form.env);
   const fe = (k) => attempted && errors[k] && <span className="nx-hint nx-hint--error" id={`cw-${k}`}>{t(errors[k])}</span>;
   const inv = (k) => ({ "aria-invalid": attempted && errors[k] ? true : undefined, "aria-describedby": attempted && errors[k] ? `cw-${k}` : undefined });
 
-  const reset = () => { setForm({ ...initial(networks), image: "nginx:latest" }); setAttempted(false); setError(null); setQuery(""); setResults([]); };
+  const reset = () => { setForm({ ...initial(networks), image: "nginx:latest" }); setAttempted(false); setError(null); setQuery(""); setResults([]); setReq({}); };
   async function requestClose() {
     if (busy) return;
     if (dirty && !(await confirmAction({ title: t("wz.discardTitle"), message: t("wz.discardMsg"), confirmLabel: t("wz.discard") }))) return;
     onClose(); reset();
   }
+  function dockerEnv() {
+    const fromFields = Object.fromEntries(needs.requises.filter((g) => !inBox(g)).map((g) => [g[0].nom, (req[g[0].nom] ?? "").trim()]).filter(([, v]) => v));
+    const env = { ...fromFields, ...(envLines.length ? parseEnv(form.env) : {}) };
+    return Object.keys(env).length ? env : null;
+  }
+  const addUseful = (name) => patch({ env: `${form.env.replace(/\s*$/, "")}${form.env.trim() ? "\n" : ""}${name}=` });
+  const describe = (v) => (t(`envv.${v.nom}`) !== `envv.${v.nom}` ? t(`envv.${v.nom}`) : v.description);
   async function create(e) {
     e.preventDefault();
     if (busy) return;
@@ -106,7 +143,7 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
     try {
       const common = { name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), network: form.network, image: form.image.trim() || null, storage_pool: form.storage || null };
       const created = await createContainer(docker
-        ? { ...common, mode: "application", command: args.length ? args : null, env: envLines.length ? parseEnv(form.env) : null }
+        ? { ...common, mode: "application", command: args.length ? args : null, env: dockerEnv() }
         : { ...common, mode: "systeme", username: form.username, password: form.password });
       completeTask(taskId, "termine");
       pushToast({ kind: "success", title: t("ct.created"), message: docker ? t("ct.dockerRunning", { name: form.name, ip: created?.ip || "—" }) : `${form.name}: ${t("ct.building")}` });
@@ -159,7 +196,31 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
             </div>
             {docker ? (<>
               <label>{t("cw.command")}<input className="nx-input nx-mono" autoComplete="off" spellCheck={false} value={form.command} placeholder={t("cw.commandPh")} onChange={(e) => patch({ command: e.target.value })} {...inv("command")} />{fe("command")}<span className="nx-hint">{t("cw.commandHelp")}</span></label>
-              <label>{t("cw.env")}<textarea className="nx-input nx-mono" rows={3} spellCheck={false} value={form.env} placeholder={"POSTGRES_PASSWORD=...\nTZ=Europe/Paris"} onChange={(e) => patch({ env: e.target.value })} {...inv("env")} />{fe("env")}<span className="nx-hint">{t("cw.envHelp")}</span></label>
+              {needs.requises.length > 0 && (
+                <fieldset className="nx-fieldset">
+                  <legend>{t("cw.required")}</legend>
+                  <span className="nx-hint">{t("cw.requiredHelp", { image: form.image.trim() })}</span>
+                  {needs.requises.map((group) => {
+                    const v = group[0];
+                    const others = group.slice(1).map((o) => o.nom).join(", ");
+                    return inBox(group)
+                      ? <span key={v.nom} className="nx-hint">{t("cw.requiredInBox", { name: v.nom })}</span>
+                      : (
+                        <label key={v.nom}><span className="nx-mono">{v.nom}</span>
+                          <span style={{ display: "flex", gap: "var(--space-2)" }}>
+                            <input className="nx-input nx-mono" autoComplete="off" spellCheck={false} value={req[v.nom] ?? ""} onChange={(e) => setReq((r) => ({ ...r, [v.nom]: e.target.value }))} aria-invalid={attempted && unmet.includes(group) ? true : undefined} aria-describedby={`cw-req-${v.nom}`} style={{ flex: 1 }} />
+                            {v.secret && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => setReq((r) => ({ ...r, [v.nom]: generatePassword() }))}>{t("cw.generate")}</button>}
+                          </span>
+                          <span className="nx-hint" id={`cw-req-${v.nom}`}>{describe(v)}{v.secret ? ` ${t("cw.noteIt")}` : ""}{others ? ` ${t("cw.orInBox", { names: others })}` : ""}</span>
+                          {attempted && unmet.includes(group) && <span className="nx-hint nx-hint--error">{t("cw.e.required")}</span>}
+                        </label>
+                      );
+                  })}
+                </fieldset>
+              )}
+              <label>{t("cw.env")}<textarea className="nx-input nx-mono" rows={3} spellCheck={false} value={form.env} placeholder={"TZ=Europe/Paris"} onChange={(e) => patch({ env: e.target.value })} {...inv("env")} />{fe("env")}<span className="nx-hint">{t("cw.envHelp")}</span>
+                {needs.utiles.length > 0 && <span className="nx-hint">{t("cw.useful")}{" "}{needs.utiles.map((v) => <button key={v.nom} type="button" className="nx-link nx-mono" title={describe(v)} onClick={() => addUseful(v.nom)} style={{ marginInlineEnd: "var(--space-2)" }}>+{v.nom}</button>)}</span>}
+              </label>
             </>) : (
             <div className="nx-formgrid nx-fg">
               <label>{t("ct.user")}<input className="nx-input" aria-label={t("a11y.user")} autoComplete="off" value={form.username} onChange={(e) => patch({ username: e.target.value })} {...inv("username")} />{fe("username")}</label>
