@@ -6,10 +6,10 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import network_edit
+from app.core import network_edit, renaming
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_isolated_network, open_conn
+from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
@@ -524,6 +524,100 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
         return _network_summary(net)
     finally:
         conn.close()
+
+
+class NetworkRename(BaseModel):
+    new_name: str
+
+
+def _guests_on(conns, network_name):
+    """(running, stopped) guests of these connections (VMs, containers) with an interface on the network."""
+    running, stopped = [], []
+    for conn in conns:
+        for dom in conn.listAllDomains():
+            try:
+                root = ET.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+            except (libvirt.libvirtError, ET.ParseError):
+                continue
+            if any(
+                s.get("network") == network_name for s in root.findall(".//devices/interface[@type='network']/source")
+            ):
+                (running if dom.isActive() else stopped).append((conn, dom, root))
+    return running, stopped
+
+
+@router.post("/{name}/rename")
+def rename_network(name: str, payload: NetworkRename, user: dict = Depends(require_role("admin"))):
+    """libvirt cannot rename a network: it is redefined under the new name (same bridge, subnet, DHCP range and
+    reservations), and the VMs and containers attached to it point at the new name. Refused while one of them runs:
+    its running interface would stay on a network that no longer exists."""
+    new = payload.new_name
+    error = validate_name(new, "network")
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    if name in ("default", "hyperlite-isolated"):
+        raise HTTPException(
+            status_code=403, detail=f"Network '{name}' is a system network: Hyperlite relies on its name"
+        )
+    if new == name:
+        raise HTTPException(status_code=422, detail="The new name is the current one")
+    conn = open_conn()
+    lxc = open_lxc_conn()
+    try:
+        net = _lookup(conn, name)
+        try:
+            conn.networkLookupByName(new)
+            raise HTTPException(status_code=409, detail=f"A network named '{new}' already exists")
+        except libvirt.libvirtError:
+            pass
+        running, stopped = _guests_on([conn, lxc], name)
+        if running:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Running guests use this network ({', '.join(d.name() for _c, d, _r in running)}): stop "
+                "them first",
+            )
+        old_xml = net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE)
+        was_active, autostart = bool(net.isActive()), bool(net.autostart())
+        root = ET.fromstring(old_xml)
+        root.find("name").text = new
+        firewall = get_network_firewall(name)
+        try:
+            remove_network_firewall(conn, name)
+            if was_active:
+                net.destroy()
+            net.undefine()
+            try:
+                renamed = conn.networkDefineXML(ET.tostring(root, encoding="unicode"))
+                if was_active:
+                    renamed.create()
+                renamed.setAutostart(1 if autostart else 0)
+            except libvirt.libvirtError:
+                restored = conn.networkDefineXML(old_xml)
+                if was_active:
+                    restored.create()
+                restored.setAutostart(1 if autostart else 0)
+                raise
+            for guest_conn, _dom, guest_root in stopped:
+                for source in guest_root.findall(".//devices/interface[@type='network']/source"):
+                    if source.get("network") == name:
+                        source.set("network", new)
+                guest_conn.defineXML(ET.tostring(guest_root, encoding="unicode"))
+        except libvirt.libvirtError as e:
+            msg = describe_exception(e)
+            log_action(user["username"], "rename_network", name, "echec", msg)
+            raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
+        renaming.network_records(name, new)
+        if firewall["rules"] or firewall["default_policy"] != "accept":
+            try:
+                apply_network_firewall(conn, new, firewall)
+            except (ValueError, RuntimeError) as e:
+                log_action(user["username"], "rename_network", new, "echec", f"firewall not reapplied: {e}")
+        log_action(user["username"], "rename_network", name, "succes", f"-> {new} ({len(stopped)} guest(s) moved over)")
+        return {**_network_summary(renamed), "invites_mis_a_jour": sorted(d.name() for _c, d, _r in stopped)}
+    finally:
+        conn.close()
+        lxc.close()
 
 
 @router.delete("/{name}")

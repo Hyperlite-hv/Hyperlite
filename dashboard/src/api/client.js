@@ -1195,8 +1195,9 @@ export async function fetchApiDocsAccess() {
 export async function setApiDocsAccess(acces) {
   return realFetch("/api-docs/acces", { method: "PUT", ...jsonBody({ acces }) });
 }
-export async function fetchApiSchema() {
-  return realFetch("/api-docs/schema");
+// A single-use link to Swagger (/docs), for an account allowed to open it: { url }.
+export async function openSwagger() {
+  return realFetch("/api-docs/ticket", { method: "POST" });
 }
 export async function fetchApiTokens() {
   return realFetch("/auth/tokens");
@@ -1216,4 +1217,35 @@ export async function fetchNodeCapabilitiesById(nodeId) {
 }
 export async function fetchHostPreflight() {
   return realFetch("/host/preflight");
+}
+
+// ---- Renaming (administrators): storage pools, networks, VM pools, groups, custom roles, jobs, templates, ISOs ----
+// everywhere: a shared storage pool is renamed on every node that has it.
+export async function renameStoragePool(name, newName, node, everywhere = false) {
+  const qs = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/storage/${encodeURIComponent(name)}/rename${qs}`, { method: "POST", ...jsonBody({ new_name: newName, partout: everywhere }) });
+}
+export async function renameNetwork(name, newName) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/rename`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
+export async function renameVmPool(id, name) {
+  return realFetch(`/pools/${id}`, { method: "PATCH", ...jsonBody({ name }) });
+}
+export async function renameGroup(id, name) {
+  return realFetch(`/groups/${id}`, { method: "PATCH", ...jsonBody({ name }) });
+}
+export async function renameCustomRole(id, name) {
+  return realFetch(`/acl/custom-roles/${id}`, { method: "PATCH", ...jsonBody({ name }) });
+}
+export async function renameJob(id, name) {
+  return realFetch(`/jobs/${id}`, { method: "PATCH", ...jsonBody({ name }) });
+}
+export async function renameApiToken(id, name) {
+  return realFetch(`/auth/tokens/${id}`, { method: "PATCH", ...jsonBody({ name }) });
+}
+export async function renameTemplate(name, newName) {
+  return realFetch(`/templates/${encodeURIComponent(name)}/rename`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
+export async function renameIso(filename, newName) {
+  return realFetch(`/isos/${encodeURIComponent(filename)}/rename`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }

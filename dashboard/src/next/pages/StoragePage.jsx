@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Layers, Plus, Trash2 } from "lucide-react";
-import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchSharedPools, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions } from "../../api/client";
+import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchSharedPools, renameStoragePool, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -15,6 +15,7 @@ import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu"
 import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "../components/ui";
 import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
+import { askNewName } from "../lib/rename";
 
 const EMPTY = { name: "", type: "dir", node: "local", scope: "tous", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
@@ -237,6 +238,18 @@ export default function StoragePage() {
       else pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: r.message, duration: Infinity });
     } catch (e) { pushToast({ kind: "error", title: t("stor.nfsPermFailed"), message: errorMessage(e) }); }
   }
+  async function renamePool(p) {
+    const everywhere = Boolean(shared[p.nom]);
+    const name = await askNewName(t, { title: t("rn.poolTitle", { name: p.nom }), message: t(everywhere ? "rn.poolSharedMsg" : "rn.poolMsg"), current: p.nom });
+    if (!name) return;
+    try {
+      const r = await renameStoragePool(p.nom, name, p.node, everywhere);
+      const failed = (r?.resultats || []).filter((x) => x.etat === "echec");
+      if (failed.length) pushToast({ kind: "error", title: t("rn.failedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.noeud)?.nom || x.noeud} : ${x.detail}`).join("\n"), duration: Infinity });
+      else pushToast({ kind: "success", title: t("rn.done"), message: `${p.nom} → ${name}` });
+      refreshAll();
+    } catch (err) { pushToast({ kind: "error", title: t("rn.failed"), message: errorMessage(err) }); }
+  }
   async function removePool(p) {
     if (p.nom === "default") return;
     const fsBacked = p.type === "dir" || p.type === "netfs";
@@ -314,6 +327,8 @@ export default function StoragePage() {
         p.chemin && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.chemin) },
         p.type === "netfs" && { key: "perm", icon: "admin", label: t("stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.etat !== "actif", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
         "-",
+        { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => renamePool(p), disabled: !caps.admin || p.nom === "default" || p.type === "zfs",
+          reason: !caps.admin ? t("menu.reason.admin") : p.type === "zfs" ? t("rn.zfsNo") : t("rn.defaultNo") },
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => removePool(p),
           disabled: !caps.admin || p.nom === "default", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.defaultPool") },
       ]} />
