@@ -21,4 +21,3 @@ def test_an_administrator_opens_it_to_everyone_or_closes_it(client, auth_headers
     client.put("/api-docs/acces", json={"acces": "desactive"}, headers=admin)
     assert client.get("/api-docs/schema", headers=admin).status_code == 403
     assert client.put("/api-docs/acces", json={"acces": "public"}, headers=admin).status_code == 422
-
