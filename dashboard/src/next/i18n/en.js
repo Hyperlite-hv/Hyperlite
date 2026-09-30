@@ -2773,7 +2773,6 @@ export default {
   "node.nameRule": "Letters, digits, dots and hyphens, 2 to 63 characters (not “local”).",
   "node.renamed": "Node renamed",
   "node.renameFailed": "Rename failed",
-  "node.renameLocal": "Local host: its name is its host name",
   "ct.rename": "Rename",
   "ct.renameTitle": "Rename {name}",
   "ct.renameMsg": "The container must be stopped. Its directory, host name, address, backups and notes follow the new name.",
@@ -2836,4 +2835,6 @@ export default {
   "stor.e.port": "A port from 1 to 65535.",
   "stor.e.chapUser": "Letters, digits and . _ @ : -, 64 characters at most.",
   "stor.e.chapBoth": "CHAP needs the user and the password together.",
+  "node.renameLocalMsg": "Changes this server's host name (/etc/hostname, applied at once, and its /etc/hosts line): a name with a domain (pve1.home) is its full name, its first part its host name. VMs, containers and settings do not change. If other machines reach it by this name through your network's DNS, update it there too.",
+  "node.hostNameRule": "Letters, digits and hyphens, in dot-separated parts of 1 to 63 characters (for example pve1 or pve1.home).",
 };

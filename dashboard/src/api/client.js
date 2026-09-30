@@ -93,6 +93,10 @@ export async function fetchHostTimezones() {
 export async function setHostTime(payload) {
   return realFetch("/host/system/time", { method: "PUT", ...jsonBody(payload) });
 }
+// Rename this node: its host name and its /etc/hosts line (administrators). { nom, ancien }.
+export async function renameLocalHost(name) {
+  return realFetch("/host/system/hostname", { method: "PUT", ...jsonBody({ nom: name }) });
+}
 export async function fetchHostSyslog() {
   return realFetch("/host/system/syslog");
 }
