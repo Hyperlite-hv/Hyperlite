@@ -99,20 +99,9 @@ def _latest_by_cible():
 
 
 def _task_stats():
-    with get_conn() as conn:
-        running = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'en_cours'").fetchone()["n"]
-        total = conn.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"]
-        failed = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'echec'").fetchone()["n"]
-        avg_row = conn.execute(
-            "SELECT AVG((julianday(fin_le) - julianday(debut_le)) * 86400) AS avg_s "
-            "FROM tasks WHERE statut = 'termine' AND fin_le IS NOT NULL"
-        ).fetchone()
-    return {
-        "running": running,
-        "total": total,
-        "failed": failed,
-        "avg_duration_s": round(avg_row["avg_s"], 2) if avg_row["avg_s"] is not None else 0,
-    }
+    from app.repositories import registry
+
+    return registry.tasks().sync.stats()
 
 
 @router.get("/metrics")
