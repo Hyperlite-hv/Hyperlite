@@ -2805,7 +2805,6 @@ export default {
   "node.nameRule": "Lettres, chiffres, points et tirets, de 2 à 63 caractères (pas « local »).",
   "node.renamed": "Nœud renommé",
   "node.renameFailed": "Renommage impossible",
-  "node.renameLocal": "Hôte local : son nom est son nom d’hôte",
   "ct.rename": "Renommer",
   "ct.renameTitle": "Renommer {name}",
   "ct.renameMsg": "Le conteneur doit être arrêté. Son dossier, son nom d’hôte, son adresse, ses sauvegardes et ses notes suivent le nouveau nom.",
@@ -2853,4 +2852,6 @@ export default {
   "envv.NEXTCLOUD_ADMIN_USER": "Administrateur créé au premier démarrage.",
   "envv.NEXTCLOUD_ADMIN_PASSWORD": "Mot de passe de cet administrateur.",
   "envv.TZ": "Fuseau horaire, par exemple Europe/Paris.",
+  "node.renameLocalMsg": "Change le nom d’hôte de ce serveur (/etc/hostname, appliqué tout de suite, et sa ligne de /etc/hosts) : un nom avec domaine (pve1.home) est son nom complet, sa première partie son nom d’hôte. Les VM, conteneurs et réglages ne changent pas. Si d’autres machines le joignent par ce nom via le DNS de votre réseau, mettez-le à jour aussi.",
+  "node.hostNameRule": "Lettres, chiffres et tirets, en parties de 1 à 63 caractères séparées par des points (par exemple pve1 ou pve1.home).",
 };
