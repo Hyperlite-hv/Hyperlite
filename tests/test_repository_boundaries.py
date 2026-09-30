@@ -6,7 +6,6 @@ import re
 
 # Routers that still run SQL directly, until their domain moves behind a repository.
 STILL_ALLOWED = {
-    "audit.py",
     "auth.py",
     "backups.py",
     "containers.py",
@@ -14,8 +13,6 @@ STILL_ALLOWED = {
     "metric_servers.py",
     "metrics.py",
     "sso.py",
-    "tasks.py",
-    "update.py",
 }
 
 ROUTERS = pathlib.Path(__file__).resolve().parent.parent / "app" / "routers"
