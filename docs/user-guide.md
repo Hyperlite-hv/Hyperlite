@@ -287,8 +287,8 @@ A node's page:
 - **Updates** (local node, administrators): see below.
 - **Network**, **Storage**: the host's interfaces and disks.
 - **Tasks**, **Compatibility** (what the host supports and why), **Shell** (a root shell, administrators).
-- **Actions**: create a VM here, open the shell, **Rename…** (a registered node: the name Hyperlite shows, not its
-  host name; its VMs' settings, notes and metrics follow), **maintenance mode**, **Reboot the node…**, **Shut down the node…**,
+- **Actions**: create a VM here, open the shell, **Rename…** (this node: its host name and `/etc/hosts` line; a
+  registered node: the name Hyperlite shows, not its host name; its VMs' settings, notes and metrics follow), **maintenance mode**, **Reboot the node…**, **Shut down the node…**,
   refresh capabilities.
 
 ### Maintenance mode

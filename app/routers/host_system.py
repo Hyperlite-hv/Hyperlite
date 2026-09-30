@@ -1,4 +1,4 @@
-"""System settings of this node (app/core/host_system.py): package updates, DNS, time, remote syslog.
+"""System settings of this node (app/core/host_system.py): package updates, host name, DNS, time, remote syslog.
 Administrators only: they change the host itself."""
 
 import socket
@@ -78,6 +78,22 @@ def put_dns(payload: DnsSettings, user: dict = Depends(require_role("admin"))):
     except host_system.SettingError as e:
         raise _refused(user, "host_dns", e) from e
     log_action(user["username"], "host_dns", "host", "succes", " ".join(payload.serveurs))
+    return result
+
+
+class HostnameSettings(BaseModel):
+    nom: str
+
+
+@router.put("/hostname")
+def put_hostname(payload: HostnameSettings, user: dict = Depends(require_role("admin"))):
+    """Rename this node: its host name (hostnamectl) and its line in /etc/hosts. The name libvirt reports, and so
+    the one shown for this node, follows at once."""
+    try:
+        result = host_system.set_hostname(payload.nom)
+    except host_system.SettingError as e:
+        raise _refused(user, "host_hostname", e) from e
+    log_action(user["username"], "host_hostname", result["ancien"], "succes", f"-> {result['nom']}")
     return result
 
 
