@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 from app.core import metric_export
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.security import require_role
 
 router = APIRouter(prefix="/metric-servers", tags=["metrics"])
@@ -63,13 +62,9 @@ def delete_metric_server(server_id: int, user: dict = Depends(require_role("admi
 
 
 def _latest_rows():
-    fields = ", ".join(metric_export.FIELDS)
-    with get_conn() as conn:
-        rows = conn.execute(
-            f"SELECT scope, cible, {fields} FROM metrics_samples WHERE tier = 'raw' AND ts = "  # noqa: S608
-            "(SELECT MAX(ts) FROM metrics_samples WHERE tier = 'raw')"
-        ).fetchall()
-    return [tuple(r) for r in rows]
+    from app.services import metrics_service
+
+    return metrics_service.latest_tick()
 
 
 @router.post("/{server_id}/test")

@@ -29,7 +29,6 @@ from datetime import UTC, datetime, timedelta
 
 import libvirt
 
-from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
 
 logger = logging.getLogger(__name__)
@@ -353,17 +352,7 @@ def _collect_tick():
         pool_rows += p
         live_rows.append(live)
 
-    with get_conn() as db:
-        db.executemany(
-            "INSERT INTO metrics_samples (ts, tier, scope, cible, cpu_pct, mem_used_mb, mem_total_mb, "
-            "disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps) VALUES (?, 'raw', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [(ts, scope, cible, *vals) for scope, cible, *vals in rows],
-        )
-        db.executemany(
-            "INSERT INTO storage_samples (ts, tier, node, pool, capacity_b, allocation_b) VALUES (?, 'raw', ?, ?, ?, ?)",
-            [(ts, *p) for p in pool_rows],
-        )
-        db.commit()
+    registry.metrics().sync.write_samples(ts, rows, pool_rows)
     registry.nodes().sync.write_live(live_rows)
 
     from app.core import metric_export
@@ -380,40 +369,9 @@ def _rollup_and_prune():
     raw_cutoff = (now - timedelta(hours=RAW_RETENTION_H)).isoformat()
     hourly_cutoff = (now - timedelta(days=HOURLY_RETENTION_DAYS)).isoformat()
 
-    with get_conn() as db:
-        cibles = db.execute(
-            "SELECT DISTINCT cible, scope FROM metrics_samples WHERE tier='raw' AND ts >= ?", (hour_ago,)
-        ).fetchall()
-        for row in cibles:
-            avg = db.execute(
-                "SELECT AVG(cpu_pct), AVG(mem_used_mb), AVG(mem_total_mb), AVG(disk_read_bps), "
-                "AVG(disk_write_bps), AVG(net_rx_bps), AVG(net_tx_bps) "
-                "FROM metrics_samples WHERE tier='raw' AND cible=? AND ts >= ?",
-                (row["cible"], hour_ago),
-            ).fetchone()
-            db.execute(
-                "INSERT INTO metrics_samples (ts, tier, scope, cible, cpu_pct, mem_used_mb, mem_total_mb, "
-                "disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps) VALUES (?, 'hourly', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (now.isoformat(), row["scope"], row["cible"], *avg),
-            )
-        pools = db.execute(
-            "SELECT DISTINCT node, pool FROM storage_samples WHERE tier='raw' AND ts >= ?", (hour_ago,)
-        ).fetchall()
-        for row in pools:
-            avg = db.execute(
-                "SELECT AVG(capacity_b), AVG(allocation_b) FROM storage_samples "
-                "WHERE tier='raw' AND node=? AND pool=? AND ts >= ?",
-                (row["node"], row["pool"], hour_ago),
-            ).fetchone()
-            db.execute(
-                "INSERT INTO storage_samples (ts, tier, node, pool, capacity_b, allocation_b) VALUES (?, 'hourly', ?, ?, ?, ?)",
-                (now.isoformat(), row["node"], row["pool"], *avg),
-            )
-        db.execute("DELETE FROM storage_samples WHERE tier='raw' AND ts < ?", (raw_cutoff,))
-        db.execute("DELETE FROM storage_samples WHERE tier='hourly' AND ts < ?", (hourly_cutoff,))
-        db.execute("DELETE FROM metrics_samples WHERE tier='raw' AND ts < ?", (raw_cutoff,))
-        db.execute("DELETE FROM metrics_samples WHERE tier='hourly' AND ts < ?", (hourly_cutoff,))
-        db.commit()
+    from app.repositories import registry
+
+    registry.metrics().sync.rollup_and_prune(now.isoformat(), hour_ago, raw_cutoff, hourly_cutoff)
 
 
 def get_node_live(name=None):
