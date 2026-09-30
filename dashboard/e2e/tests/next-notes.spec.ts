@@ -39,25 +39,26 @@ test("tags in the VM list: shown under the name, a click or the menu filters by 
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm("e2e-tag-db"), vm("e2e-tag-web"), vm("e2e-tag-lab")])) : r.fallback()));
   await page.route(/\/meta(\?.*)?$/, (r) => (api(r) ? r.fulfill(json([
-    { kind: "vm", node: "local", nom: "e2e-tag-db", tags: ["prod", "db"], a_des_notes: true },
+    { kind: "vm", node: "local", nom: "e2e-tag-db", tags: ["prod", "database"], a_des_notes: true },
     { kind: "vm", node: "local", nom: "e2e-tag-web", tags: ["prod"], a_des_notes: false },
   ])) : r.fallback()));
   await page.goto("/datacenter?tab=vms");
   const table = page.getByRole("table");
-  await expect(table.getByRole("button", { name: "db", exact: true })).toBeVisible();
+  await expect(table.getByRole("button", { name: "database", exact: true })).toBeVisible();
 
-  await table.getByRole("button", { name: "db", exact: true }).click();
+  await table.getByRole("button", { name: "database", exact: true }).click();
   await expect(table.getByRole("button", { name: "e2e-tag-db", exact: true })).toBeVisible();
   await expect(table.getByRole("button", { name: "e2e-tag-web", exact: true })).toHaveCount(0);
 
   const filter = page.getByLabel("Filter by tag");
-  await expect(filter).toHaveValue("db");
+  await expect(filter).toHaveValue("database");
   await filter.selectOption("prod");
   await expect(table.getByRole("button", { name: "e2e-tag-web", exact: true })).toBeVisible();
   await expect(table.getByRole("button", { name: "e2e-tag-lab", exact: true })).toHaveCount(0);
 
   await filter.selectOption("");
-  await page.getByLabel("Filter VMs").fill("db");
+  // The search also looks at the node's name, here the test host's own random name: a word it cannot contain.
+  await page.getByLabel("Filter VMs").fill("database");
   await expect(table.getByRole("button", { name: "e2e-tag-db", exact: true })).toBeVisible();
   await expect(table.getByRole("button", { name: "e2e-tag-lab", exact: true })).toHaveCount(0);
 });
