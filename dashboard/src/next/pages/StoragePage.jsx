@@ -18,15 +18,52 @@ import { promptText } from "../../store/usePromptStore";
 
 const EMPTY = { name: "", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
+// The same rules as the API (app/routers/storage.py, app/core/iscsi.py), checked before the request.
+const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
+const HOST_RE = /^[A-Za-z0-9][A-Za-z0-9.:_-]{0,253}$/;
+const ABS_PATH_RE = /^\/[A-Za-z0-9/_.-]{0,255}$/;
+const CHAP_USER_RE = /^[A-Za-z0-9._@:-]{1,64}$/;
 const typeLabel = (type) => ({ netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI" }[type] || type);
 // Versions the mount is forced to (never negotiated, see app/routers/storage.py::_build_pool_xml).
 const NFS_VERSIONS = ["4.2", "4.1", "4.0", "4", "3"];
+// An example name per kind of pool (shown as "e.g. …": an empty field must never look filled in).
+const NAME_EXAMPLE = { dir: "local-ssd", netfs: "nas-vms", zfs: "zfs-fast", iscsi: "san-vms" };
+
+// Error key per field for the chosen kind of pool, or none: only the fields that kind uses are checked.
+export function poolFormErrors(form) {
+  const e = {};
+  const req = (v) => !String(v ?? "").trim();
+  if (!NAME_RE.test(form.name)) e.name = req(form.name) ? "stor.e.required" : "stor.e.name";
+  if (form.type === "dir" && form.path.trim() && !ABS_PATH_RE.test(form.path.trim())) e.path = "stor.e.absPath";
+  if (form.type === "netfs") {
+    if (req(form.nfs_host)) e.nfs_host = "stor.e.required"; else if (!HOST_RE.test(form.nfs_host.trim())) e.nfs_host = "stor.e.host";
+    if (req(form.nfs_export_path)) e.nfs_export_path = "stor.e.required"; else if (!ABS_PATH_RE.test(form.nfs_export_path.trim())) e.nfs_export_path = "stor.e.absPath";
+  }
+  if (form.type === "zfs") {
+    if (form.node !== "local") e.type = "stor.e.zfsLocal";
+    const n = Number(form.size_gb);
+    if (!Number.isInteger(n) || n < 1 || n > 4096) e.size_gb = "stor.e.size";
+  }
+  if (form.type === "iscsi") {
+    if (req(form.iscsi_host)) e.iscsi_host = "stor.e.required"; else if (!HOST_RE.test(form.iscsi_host.trim())) e.iscsi_host = "stor.e.host";
+    const port = Number(form.iscsi_port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) e.iscsi_port = "stor.e.port";
+    if (req(form.iscsi_target)) e.iscsi_target = "stor.e.required"; else if (!IQN_RE.test(form.iscsi_target.trim())) e.iscsi_target = "stor.iscsiTargetBad";
+    // CHAP is a user AND a password, or neither.
+    const user = form.chap_user.trim();
+    if (user && !CHAP_USER_RE.test(user)) e.chap_user = "stor.e.chapUser";
+    else if (user && !form.chap_password) e.chap_password = "stor.e.chapBoth";
+    else if (!user && form.chap_password) e.chap_user = "stor.e.chapBoth";
+  }
+  return e;
+}
 
 function CreatePoolDrawer({ open, onClose }) {
   const t = useT();
   const { nodes, refreshAll, pushToast } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, refreshAll: s.refreshAll, pushToast: s.pushToast })));
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const [support, setSupport] = useState(null);
   useEffect(() => { if (open) fetchStorageSupport().then(setSupport).catch(() => setSupport(null)); }, [open]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -38,43 +75,52 @@ function CreatePoolDrawer({ open, onClose }) {
     : form.type === "iscsi" && support.iscsi !== "ok" ? t("stor.iscsiNoInitiator")
     : null;
   const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["zfs", "ZFS"], ["iscsi", "iSCSI"]];
-  const iscsiValid = form.iscsi_host && IQN_RE.test(form.iscsi_target) && Number(form.iscsi_port) >= 1 && (!form.chap_user || form.chap_password);
-  const valid = form.name && (form.type !== "netfs" || (form.nfs_host && form.nfs_export_path)) && (form.type !== "zfs" || Number(form.size_gb) >= 1) && (form.type !== "iscsi" || iscsiValid);
+  const errors = poolFormErrors(form);
+  // Shown after a first attempt; a value already typed in the wrong format is flagged at once.
+  const err = (k) => (errors[k] && (attempted || (errors[k] !== "stor.e.required" && errors[k] !== "stor.e.chapBoth" && String(form[k] ?? "").trim())) ? t(errors[k]) : null);
+  const ex = (v) => t("stor.example", { v });
+  const close = () => { setAttempted(false); onClose(); };
 
   async function create() {
+    if (Object.keys(errors).length) { setAttempted(true); return; }
     setBusy(true);
     try {
-      const payload = form.type === "dir" ? { name: form.name, type: "dir", path: form.path || null }
-        : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host, nfs_export_path: form.nfs_export_path, nfs_version: form.nfs_version }
-        : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host, iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user || null, chap_password: form.chap_user ? form.chap_password : null }
+      const payload = form.type === "dir" ? { name: form.name, type: "dir", path: form.path.trim() || null }
+        : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host.trim(), nfs_export_path: form.nfs_export_path.trim(), nfs_version: form.nfs_version }
+        : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host.trim(), iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user.trim() || null, chap_password: form.chap_user.trim() ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
       const created = await createStoragePool(payload, form.node === "local" ? undefined : form.node);
       pushToast({ kind: "success", title: t("stor.created"), message: form.name });
       // Mounted is not enough: an export with root_squash leaves QEMU unable to open its disks there.
       if (created?.avertissement) pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: created.avertissement, duration: Infinity });
-      setForm(EMPTY); onClose(); refreshAll();
-    } catch (err) { pushToast({ kind: "error", title: t("stor.createFailed"), message: errorMessage(err) }); }
+      setForm(EMPTY); close(); refreshAll();
+    } catch (er) { pushToast({ kind: "error", title: t("stor.createFailed"), message: errorMessage(er) }); }
     finally { setBusy(false); }
   }
   return (
-    <SideDrawer open={open} title={t("stor.createPool")} onClose={onClose} busy={busy} footer={<>
-      <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
-      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !valid || !!blocker} onClick={create}>{busy ? t("stor.creating") : t("stor.createPool")}</button>
+    <SideDrawer open={open} title={t("stor.createPool")} onClose={close} busy={busy} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={close} disabled={busy}>{t("action.cancel")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !!blocker} onClick={create}>{busy ? t("stor.creating") : t("stor.createPool")}</button>
     </>}>
-      <Field label={t("stor.poolName")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.pool_name")} value={form.name} onChange={set("name")} placeholder="nfs-shared" />}</Field>
+      <p className="nx-hint" style={{ margin: 0 }}>{t("stor.requiredNote")}</p>
+      <Field label={t("stor.poolName")} hint={t("stor.nameHelp")} error={err("name")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.pool_name")} value={form.name} onChange={set("name")} placeholder={ex(NAME_EXAMPLE[form.type])} />}</Field>
       <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select>}</Field>
       <div className="nx-f">
         <span className="nx-f-label" id="pool-type">{t("stor.poolType")}</span>
         <div className="nx-seg2" role="group" aria-labelledby="pool-type">
-          {TYPES.map(([v, label]) => <button key={v} type="button" aria-pressed={form.type === v} onClick={() => setForm((f) => ({ ...f, type: v }))}>{label}</button>)}
+          {TYPES.map(([v, label]) => {
+            const off = v === "zfs" && !local; // ZFS is managed on this host only (the API refuses it elsewhere)
+            return <button key={v} type="button" aria-pressed={form.type === v} aria-disabled={off || undefined} title={off ? t("stor.e.zfsLocal") : undefined} onClick={() => !off && setForm((f) => ({ ...f, type: v }))}>{label}</button>;
+          })}
         </div>
+        {err("type") && <span className="nx-f-h is-error" role="alert">{err("type")}</span>}
       </div>
       {blocker && <div className="nx-bn" data-tone="warning" role="status"><span className="nx-bn-t">{blocker}</span></div>}
-      {form.type === "dir" && <Field label={t("stor.path")} hint={t("stor.pathHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.local_path_optional")} value={form.path} onChange={set("path")} placeholder="/var/lib/libvirt/hyperlite-pools/…" />}</Field>}
+      {form.type === "dir" && <Field label={t("stor.path")} hint={t("stor.pathHelp")} error={err("path")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.local_path_optional")} value={form.path} onChange={set("path")} placeholder={ex("/var/lib/libvirt/hyperlite-pools/…")} />}</Field>}
       {form.type === "netfs" && <>
-        <Field label={t("stor.nfsHost")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.nfs_server_host")} value={form.nfs_host} onChange={set("nfs_host")} placeholder="192.168.1.10" />}</Field>
-        <Field label={t("stor.nfsPath")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.exported_path")} value={form.nfs_export_path} onChange={set("nfs_export_path")} placeholder="/srv/share" />}</Field>
+        <Field label={t("stor.nfsHost")} error={err("nfs_host")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.nfs_server_host")} value={form.nfs_host} onChange={set("nfs_host")} placeholder={ex("192.168.1.10")} />}</Field>
+        <Field label={t("stor.nfsPath")} hint={t("stor.nfsPathHelp")} error={err("nfs_export_path")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.exported_path")} value={form.nfs_export_path} onChange={set("nfs_export_path")} placeholder={ex("/srv/share")} />}</Field>
         <Field label={t("stor.nfsVersion")} hint={t("stor.nfsVersionHelp")}>{(p) => (
           <select {...p} className="nx-inp" value={form.nfs_version} onChange={set("nfs_version")}>
             {NFS_VERSIONS.map((v) => <option key={v} value={v}>{`NFSv${v}`}{v === "4.2" ? ` (${t("stor.nfsDefault")})` : ""}</option>)}
@@ -86,17 +132,21 @@ function CreatePoolDrawer({ open, onClose }) {
           <div className="nx-bn" data-tone="info" role="note"><span className="nx-bn-t">{t("stor.iscsiInitiator")}<br /><code className="nx-mono" style={{ userSelect: "all" }}>{support.iscsi_initiator}</code></span></div>
         )}
         <div className="nx-formgrid">
-          <Field label={t("stor.iscsiHost")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.iscsi_host} onChange={set("iscsi_host")} placeholder="192.168.1.20" />}</Field>
-          <Field label={t("stor.iscsiPort")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min="1" max="65535" value={form.iscsi_port} onChange={set("iscsi_port")} />}</Field>
+          <Field label={t("stor.iscsiHost")} error={err("iscsi_host")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.iscsi_host} onChange={set("iscsi_host")} placeholder={ex("192.168.1.20")} />}</Field>
+          <Field label={t("stor.iscsiPort")} error={err("iscsi_port")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min="1" max="65535" value={form.iscsi_port} onChange={set("iscsi_port")} />}</Field>
         </div>
-        <Field label={t("stor.iscsiTarget")} hint={t("stor.iscsiTargetHelp")} error={form.iscsi_target && !IQN_RE.test(form.iscsi_target.trim()) ? t("stor.iscsiTargetBad") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.iscsi_target} onChange={set("iscsi_target")} placeholder="iqn.2005-10.org.freenas.ctl:vms" />}</Field>
-        <div className="nx-formgrid">
-          <Field label={t("stor.chapUser")}>{(p) => <input {...p} className="nx-inp nx-mono" autoComplete="off" value={form.chap_user} onChange={set("chap_user")} />}</Field>
-          <Field label={t("stor.chapPassword")}>{(p) => <input {...p} className="nx-inp" type="password" autoComplete="new-password" disabled={!form.chap_user} value={form.chap_password} onChange={set("chap_password")} />}</Field>
-        </div>
+        <Field label={t("stor.iscsiTarget")} hint={t("stor.iscsiTargetHelp")} error={err("iscsi_target")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.iscsi_target} onChange={set("iscsi_target")} placeholder={ex("iqn.2005-10.org.freenas.ctl:vms")} />}</Field>
+        <fieldset className="nx-fieldset">
+          <legend>{t("stor.chap")}</legend>
+          <p className="nx-hint" style={{ margin: 0 }}>{t("stor.chapHelp")}</p>
+          <div className="nx-formgrid">
+            <Field label={t("stor.chapUser")} error={err("chap_user")}>{(p) => <input {...p} className="nx-inp nx-mono" autoComplete="off" value={form.chap_user} onChange={set("chap_user")} />}</Field>
+            <Field label={t("stor.chapPassword")} error={err("chap_password")}>{(p) => <input {...p} className="nx-inp" type="password" autoComplete="new-password" value={form.chap_password} onChange={set("chap_password")} />}</Field>
+          </div>
+        </fieldset>
         <p className="nx-hint">{t("stor.iscsiHelp")}</p>
       </>}
-      {form.type === "zfs" && <Field label={t("stor.zfsSize")} hint={t("stor.zfsHelp")} unit="Go">{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.size_gb_loopback_file")} type="number" min="1" max="4096" value={form.size_gb} onChange={set("size_gb")} />}</Field>}
+      {form.type === "zfs" && <Field label={t("stor.zfsSize")} hint={t("stor.zfsHelp")} error={err("size_gb")} unit="Go">{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.size_gb_loopback_file")} type="number" min="1" max="4096" value={form.size_gb} onChange={set("size_gb")} />}</Field>}
     </SideDrawer>
   );
 }
