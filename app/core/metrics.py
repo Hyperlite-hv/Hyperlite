@@ -344,8 +344,9 @@ def _collect_tick():
     finally:
         conn.close()
 
-    with get_conn() as db:
-        nodes = [dict(r) for r in db.execute("SELECT * FROM nodes WHERE statut = 'en_ligne'").fetchall()]
+    from app.repositories import registry
+
+    nodes = [n.to_wire() for n in registry.nodes().sync.list_online()]
     for node in nodes:
         r, p, live = _sample_remote_node(node, ts, now)
         rows += r
@@ -362,13 +363,8 @@ def _collect_tick():
             "INSERT INTO storage_samples (ts, tier, node, pool, capacity_b, allocation_b) VALUES (?, 'raw', ?, ?, ?, ?)",
             [(ts, *p) for p in pool_rows],
         )
-        db.executemany(
-            "INSERT OR REPLACE INTO node_live (name, ts, joignable, cpu_pct, mem_used_mb, mem_total_mb, uptime_s, "
-            "cores, cpu_model, kernel, os, address, version_hyperviseur, version_libvirt) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            live_rows,
-        )
         db.commit()
+    registry.nodes().sync.write_live(live_rows)
 
     from app.core import metric_export
 
@@ -423,19 +419,9 @@ def _rollup_and_prune():
 def get_node_live(name=None):
     """Latest live figures recorded by the collector: one node ('local' = this host)
     as a dict (or None), or every node as {name: dict} when name is None."""
-    with get_conn() as db:
-        if name is not None:
-            row = db.execute("SELECT * FROM node_live WHERE name = ?", (name,)).fetchone()
-            return _live_dict(row) if row else None
-        return {r["name"]: _live_dict(r) for r in db.execute("SELECT * FROM node_live").fetchall()}
+    from app.repositories import registry
 
-
-def _live_dict(row):
-    d = dict(row)
-    d["joignable"] = bool(d["joignable"])
-    d["mesure_le"] = d.pop("ts")
-    d.pop("name", None)
-    return d
+    return registry.nodes().sync.live(name)
 
 
 def _collector_loop():
