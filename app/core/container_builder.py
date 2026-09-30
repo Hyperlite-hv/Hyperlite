@@ -456,11 +456,17 @@ def _reset_container_identity(rootfs, new_hostname):
 def set_container_hostname(rootfs, hostname):
     """A renamed container answers to its new name: /etc/hostname and the 127.0.1.1 line of /etc/hosts. A link is
     left alone (resolved on the host, it could point anywhere)."""
-    etc = Path(rootfs) / "etc"
-    hostname_path, hosts_path = etc / "hostname", etc / "hosts"
-    if etc.is_dir() and not etc.is_symlink() and not hostname_path.is_symlink():
+
+    def inside(*parts):
+        try:
+            return safe_child(rootfs, "/".join(parts))
+        except ValueError:  # a link leading out of the container
+            return None
+
+    etc, hostname_path, hosts_path = inside("etc"), inside("etc", "hostname"), inside("etc", "hosts")
+    if etc and hostname_path and etc.is_dir() and not etc.is_symlink() and not hostname_path.is_symlink():
         hostname_path.write_text(hostname + "\n")
-    if hosts_path.is_file() and not hosts_path.is_symlink():
+    if hosts_path and hosts_path.is_file() and not hosts_path.is_symlink():
         lines = [line for line in hosts_path.read_text().splitlines(keepends=True) if not line.startswith("127.0.1.1")]
         hosts_path.write_text(f"127.0.1.1\t{hostname}\n" + "".join(lines))
 
@@ -700,6 +706,7 @@ def exists_in_root(rootfs, path, _depth=0):
     step stays inside rootfs ('..' stops at its root), so a link cannot make the check look at the host."""
     if _depth > 40:  # a loop of links
         return False
+    base = os.path.normpath(os.fspath(rootfs))
     parts = [p for p in path.split("/") if p not in ("", ".")]
     current = "/"
     for i, part in enumerate(parts):
@@ -707,7 +714,9 @@ def exists_in_root(rootfs, path, _depth=0):
             current = posixpath.dirname(current)
             continue
         candidate = posixpath.join(current, part)
-        on_host = os.path.join(rootfs, candidate.lstrip("/"))
+        on_host = os.path.normpath(os.path.join(base, candidate.lstrip("/")))
+        if not on_host.startswith(base + os.sep):  # `current` never leaves "/", this states it for the checkers
+            return False
         if os.path.islink(on_host):
             if i == len(parts) - 1:
                 return True  # the program itself may be a link: the container resolves it when it starts
