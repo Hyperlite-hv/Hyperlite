@@ -131,6 +131,12 @@ def node_records(old, new):
         # The node's own notes and tags, then the VMs and containers it holds.
         _move(db, tables, "object_meta", "name", old, new, " AND kind = 'node'")
         _move(db, tables, "object_meta", "node", old, new, " AND kind != 'node'")
+        if "shared_pools" in tables:  # the nodes a shared storage pool was created on
+            for row in db.execute("SELECT nom, noeuds FROM shared_pools").fetchall():
+                nodes = json.loads(row["noeuds"] or "[]")
+                if old in nodes:
+                    renamed = sorted({new if n == old else n for n in nodes})
+                    db.execute("UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (json.dumps(renamed), row["nom"]))
         if "metrics_samples" in tables:
             db.execute(
                 "UPDATE metrics_samples SET cible = ? WHERE scope = 'host' AND cible = ?",
