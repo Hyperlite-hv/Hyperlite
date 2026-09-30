@@ -143,6 +143,9 @@ def test_pool_creation_checks_before_calling_libvirt(client, auth_headers, monke
     assert bad.status_code == 422 and "IQN" in bad.json()["detail"]
     chap = client.post("/storage", headers=headers, json={**base, "iscsi_target": TARGET, "chap_user": "hyper"})
     assert chap.status_code == 422 and "CHAP" in chap.json()["detail"]
+    # A password without a user was dropped, and the pool created without CHAP.
+    alone = client.post("/storage", headers=headers, json={**base, "iscsi_target": TARGET, "chap_password": "s3cret"})
+    assert alone.status_code == 422 and "both" in alone.json()["detail"]
     monkeypatch.setattr(iscsi.shutil, "which", lambda name: None)
     missing = client.post("/storage", headers=headers, json={**base, "iscsi_target": TARGET})
     assert missing.status_code == 422 and "open-iscsi" in missing.json()["detail"]
