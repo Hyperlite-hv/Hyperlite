@@ -21,6 +21,7 @@ The principle mirrors app/core/vm_builder.py for VMs:
 
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -452,6 +453,24 @@ def _reset_container_identity(rootfs, new_hostname):
         machine_id.write_text("")
 
 
+def set_container_hostname(rootfs, hostname):
+    """A renamed container answers to its new name: /etc/hostname and the 127.0.1.1 line of /etc/hosts. A link is
+    left alone (resolved on the host, it could point anywhere)."""
+
+    def inside(*parts):
+        try:
+            return safe_child(rootfs, "/".join(parts))
+        except ValueError:  # a link leading out of the container
+            return None
+
+    etc, hostname_path, hosts_path = inside("etc"), inside("etc", "hostname"), inside("etc", "hosts")
+    if etc and hostname_path and etc.is_dir() and not etc.is_symlink() and not hostname_path.is_symlink():
+        hostname_path.write_text(hostname + "\n")
+    if hosts_path and hosts_path.is_file() and not hosts_path.is_symlink():
+        lines = [line for line in hosts_path.read_text().splitlines(keepends=True) if not line.startswith("127.0.1.1")]
+        hosts_path.write_text(f"127.0.1.1\t{hostname}\n" + "".join(lines))
+
+
 def backup_container_rootfs(name, dest_tar_path):
     """Complete tar archive of the rootfs: the equivalent of VM backups but file by
     file (there is no qcow2 disk to copy for a container). The container must be
@@ -669,24 +688,45 @@ def app_spec(image_ref, command=None, env=None):
 
 
 def resolve_init(rootfs, spec):
-    """libvirt needs an absolute program path: look a bare name up in the image's PATH, inside its filesystem.
-    Links are not followed here, so an absolute link cannot point the check outside the container."""
+    """libvirt needs an absolute program path: look a bare name up in the image's PATH, inside its filesystem."""
     program = spec["args"][0]
     if program.startswith("/"):
         return program
     if "/" in program or program in ("", ".", ".."):
         raise ValueError(f"Command '{program}': give a bare program name or an absolute path")
     for folder in spec["env"].get("PATH", DEFAULT_PATH).split(":"):
-        if not folder.startswith("/"):
-            continue
-        try:
-            # safe_child refuses a PATH entry such as /../../etc that would leave the image's filesystem.
-            candidate = safe_child(rootfs, f"{folder.strip('/')}/{program}".lstrip("/"))
-        except ValueError:
-            continue
-        if os.path.lexists(candidate):
+        if folder.startswith("/") and exists_in_root(rootfs, f"{folder.rstrip('/')}/{program}"):
             return f"{folder.rstrip('/')}/{program}"
     raise ValueError(f"Command '{program}' not found in the image")
+
+
+def exists_in_root(rootfs, path, _depth=0):
+    """Whether `path` exists inside the image's filesystem, with its links resolved as the container sees them:
+    alpine's /bin/sh is a link to /bin/busybox, which means rootfs/bin/busybox, never the host's /bin/busybox. Every
+    step stays inside rootfs ('..' stops at its root), so a link cannot make the check look at the host."""
+    if _depth > 40:  # a loop of links
+        return False
+    base = os.path.normpath(os.fspath(rootfs))
+    parts = [p for p in path.split("/") if p not in ("", ".")]
+    current = "/"
+    for i, part in enumerate(parts):
+        if part == "..":
+            current = posixpath.dirname(current)
+            continue
+        candidate = posixpath.join(current, part)
+        on_host = os.path.normpath(os.path.join(base, candidate.lstrip("/")))
+        if not on_host.startswith(base + os.sep):  # `current` never leaves "/", this states it for the checkers
+            return False
+        if os.path.islink(on_host):
+            if i == len(parts) - 1:
+                return True  # the program itself may be a link: the container resolves it when it starts
+            target = os.readlink(on_host)
+            resolved = target if target.startswith("/") else posixpath.join(current, target)
+            return exists_in_root(rootfs, posixpath.join(resolved, *parts[i + 1 :]), _depth + 1)
+        if not os.path.lexists(on_host):
+            return False
+        current = candidate
+    return True
 
 
 def prepare_app_rootfs(rootfs, hostname, dns):

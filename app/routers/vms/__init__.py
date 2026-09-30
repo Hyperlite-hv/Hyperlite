@@ -16,6 +16,7 @@ from app.routers.vms import hardware_opts  # noqa: F401
 from app.routers.vms import firewall  # noqa: F401
 from app.routers.vms import snapshots  # noqa: F401
 from app.routers.vms import clone  # noqa: F401
+from app.routers.vms import rename  # noqa: F401
 from app.routers.vms import migration  # noqa: F401
 from app.routers.vms import runtime  # noqa: F401
 from app.routers.vms import console  # noqa: F401

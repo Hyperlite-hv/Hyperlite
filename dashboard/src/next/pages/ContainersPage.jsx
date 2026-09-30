@@ -16,6 +16,7 @@ import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState } from "../components/States";
 import { NAME_RE } from "../lib/containerImages";
+import { openShell, renameContainerFlow } from "../lib/containerActions";
 import { PageHeader, Card, Empty, Loading, TableWrap, Chip, SideDrawer } from "../components/ui";
 import { Box, Plus, Trash2 } from "lucide-react";
 
@@ -87,6 +88,7 @@ export default function ContainersPage() {
   }
   const [logsOf, setLogsOf] = useState(null);
   const openTerminal = (ct) => window.open(`/container-terminal/${encodeURIComponent(ct.nom)}`, `hyperlite-ct-terminal-${ct.nom}`, "width=1000,height=700,noopener");
+  async function rename(ct) { if (await renameContainerFlow(ct, t, pushToast)) await reload(); }
 
   const list = containers || [];
   const del = t("menu.delete").replace("…", "");
@@ -120,6 +122,7 @@ export default function ContainersPage() {
                         <td><div className="nx-ra">
                           {ct.mode === "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("ct.logsX", { name: ct.nom })} onClick={() => setLogsOf(ct.nom)}>{t("ct.logs")}</button>}
                           {caps.admin && on && ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.terminal_x", { v: ct.nom })} onClick={() => openTerminal(ct)}>{t("ct.terminal")}</button>}
+                          {caps.admin && on && ct.mode === "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("ct.shellX", { name: ct.nom })} onClick={() => openShell(ct.nom)}>{t("ct.shell")}</button>}
                           {caps.admin && !on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.start_x", { v: ct.nom })} onClick={() => act(startContainer, ct, t("ct.started"))}>{t("ct.start")}</button>}
                           {caps.admin && on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.stop_x", { v: ct.nom })} onClick={() => stop(ct)}>{t("ct.stop")}</button>}
                           {caps.admin && !on && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.clone_x", { v: ct.nom })} onClick={() => clone(ct)}>{t("ct.clone")}</button>}
@@ -168,9 +171,11 @@ export default function ContainersPage() {
         return [
           on ? { key: "terminal", icon: "terminal", label: t("ct.terminal"), run: () => openTerminal(ct), ...(ct.mode === "application" ? { disabled: true, reason: t("ct.noTerminalApp") } : admin) }
             : { key: "start", icon: "start", label: t("ct.start"), run: () => act(startContainer, ct, t("ct.started")), ...admin },
+          on && { key: "shell", icon: "terminal", label: t("ct.shell"), run: () => openShell(ct.nom), ...admin },
           on && { key: "stop", icon: "stop", label: t("ct.stop"), run: () => stop(ct), ...admin },
           ct.mode === "application" && { key: "logs", icon: "details", label: t("ct.logs"), run: () => setLogsOf(ct.nom) },
           "-",
+          { key: "rename", icon: "rename", label: t("ct.rename"), run: () => rename(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
           { key: "clone", icon: "clone", label: t("ct.clone"), run: () => clone(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
           { key: "backup", icon: "backup", label: t("ct.backup"), run: () => backup(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
           "-",
