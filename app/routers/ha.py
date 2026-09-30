@@ -3,27 +3,21 @@ fencing settings, status test only) and ha_watch.py (the dry-run watcher). Recov
 says what automatic HA would have done (see docs/design/ha-automatic.md)."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from app.core import ha, ha_fencing, ha_watch, maintenance
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.security import get_current_user, require_role
+from app.services import node_service
 
 router = APIRouter(prefix="/ha", tags=["ha"])
 
 
-def _node_statut(node_label):
-    if node_label == "local":
-        return "en_ligne"  # the local host, which runs Hyperlite itself, is reachable by definition
-    with get_conn() as conn:
-        row = conn.execute("SELECT statut FROM nodes WHERE name = ?", (node_label,)).fetchone()
-    return row["statut"] if row else "inconnu"
-
-
 @router.get("")
-def list_protected(user: dict = Depends(get_current_user)):
-    return [{**row, "statut_noeud": _node_statut(row["node"])} for row in ha.list_protected()]
+async def list_protected(user: dict = Depends(get_current_user)):
+    rows = await run_in_threadpool(ha.list_protected)
+    return [{**row, "statut_noeud": await node_service.statut(row["node"])} for row in rows]
 
 
 class EnableRequest(BaseModel):

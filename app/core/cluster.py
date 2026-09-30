@@ -46,7 +46,6 @@ from pathlib import Path
 import libvirt
 
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.vm_builder import PROJDIR
 
 logger = logging.getLogger(__name__)
@@ -153,16 +152,20 @@ def build_libvirt_uri(node):
     )
 
 
+def _nodes():
+    # The node repository's synchronous bridge: this module runs in threads (poller, libvirt helpers).
+    from app.repositories import registry
+
+    return registry.nodes().sync
+
+
 def get_node(name):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM nodes WHERE name = ?", (name,)).fetchone()
-    return dict(row) if row else None
+    node = _nodes().get(name)
+    return node.to_wire() if node else None
 
 
 def list_nodes():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM nodes ORDER BY name").fetchall()
-    return [dict(r) for r in rows]
+    return [n.to_wire() for n in _nodes().list()]
 
 
 def test_node_connection(hostname, ssh_user, ssh_port):
@@ -334,17 +337,14 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
             f"installed in ~{ssh_user}/.ssh/authorized_keys on {hostname} (GET /nodes/cluster-pubkey "
             f"to retrieve it) and that libvirtd is running there."
         )
+    from app.domain.common import AlreadyExists
+    from app.domain.node import NodeSpec
+
     now = datetime.now(UTC).isoformat()
-    with get_conn() as conn:
-        try:
-            conn.execute(
-                "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, derniere_verification, added_at) "
-                "VALUES (?, ?, ?, ?, 'en_ligne', ?, ?)",
-                (name, hostname, ssh_user, ssh_port, now, now),
-            )
-            conn.commit()
-        except Exception:
-            raise RuntimeError(f"A node '{name}' already exists") from None
+    try:
+        _nodes().create(NodeSpec(name=name, hostname=hostname, ssh_user=ssh_user, ssh_port=ssh_port), now, "en_ligne")
+    except AlreadyExists:
+        raise RuntimeError(f"A node '{name}' already exists") from None
     log_action(username, "register_node", name, "succes", f"{ssh_user}@{hostname}:{ssh_port}")
     node = get_node(name)
     # Best-effort (see the ensure_reverse_trust docstring): migration from a remote
@@ -365,9 +365,7 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
 
 def remove_node(name, username):
     node = get_node(name)
-    with get_conn() as conn:
-        conn.execute("DELETE FROM nodes WHERE name = ?", (name,))
-        conn.commit()
+    _nodes().delete(name)
     if node:
         forget_known_host(node)
     revoke_reverse_trust(name)
@@ -431,21 +429,13 @@ def _check_node_boot(node_row):
 def _poll_nodes():
     while True:
         try:
-            with get_conn() as conn:
-                nodes = conn.execute("SELECT * FROM nodes").fetchall()
-            for node in nodes:
+            for node in list_nodes():
                 ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
                 new_statut = "en_ligne" if ok else "hors_ligne"
-                with get_conn() as conn:
-                    prev = conn.execute("SELECT statut FROM nodes WHERE id = ?", (node["id"],)).fetchone()
-                    conn.execute(
-                        "UPDATE nodes SET statut = ?, derniere_verification = ? WHERE id = ?",
-                        (new_statut, datetime.now(UTC).isoformat(), node["id"]),
-                    )
-                    conn.commit()
+                prev = _nodes().update_status(node["id"], new_statut, datetime.now(UTC).isoformat())
                 if ok:
-                    _check_node_boot(dict(node))
-                if prev and prev["statut"] != new_statut:
+                    _check_node_boot(node)
+                if prev and prev != new_statut:
                     log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
                     if new_statut == "hors_ligne":
                         # HA: report the protected VMs of this node as soon as it is detected as down.

@@ -140,3 +140,9 @@ agent on nodes" model, which is one of Hyperlite's simplifications.
 - Not decided yet: which node is the preferred standby (every registered node receives the copy, so any can be
   promoted), and whether the UI address moves with the controller (for now each node keeps its own URL; the
   promote command prints it).
+
+## 9. Superseded direction (2026-09-30)
+
+The maintainer decided to move to a distributed control plane built on etcd, with one agent per node (option (c)
+here, with etcd instead of dqlite/rqlite). See `docs/design/control-plane-v2-migration.md`. Option (a) stays what
+production runs until phase 6 of that plan.
