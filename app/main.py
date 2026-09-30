@@ -28,6 +28,7 @@ from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.routers.acl import router as acl_router
+from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
 from app.routers.backup_groups import router as backup_groups_router
@@ -136,6 +137,7 @@ app.include_router(metric_servers_router)
 app.include_router(backup_groups_router)
 app.include_router(file_restore_router)
 app.include_router(ldap_router)
+app.include_router(api_docs_router)
 
 if os.path.isdir(DASHBOARD_DIST):
     app.mount("/assets", StaticFiles(directory=f"{DASHBOARD_DIST}/assets"), name="dashboard-assets")

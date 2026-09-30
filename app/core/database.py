@@ -446,6 +446,8 @@ def init_db():
             )
         """)
         conn.execute("CREATE TABLE IF NOT EXISTS ha_settings (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)")
+        # Settings of the application itself, one value per key (app/core/api_docs.py...).
+        conn.execute("CREATE TABLE IF NOT EXISTS app_settings (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)")
         # Nodes in maintenance: "local" (the host running Hyperlite, not a row of `nodes`) or a registered node
         # name. No new VM lands on them and they are never a migration or HA recovery target.
         conn.execute("""
