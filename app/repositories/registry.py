@@ -3,6 +3,7 @@
 from functools import cache
 
 from app.repositories.sqlite.audit import SqliteAuditRepository
+from app.repositories.sqlite.automation import SqliteAutomationRepository
 from app.repositories.sqlite.metrics import SqliteMetricsRepository
 from app.repositories.sqlite.nodes import SqliteNodeRepository
 from app.repositories.sqlite.tasks import SqliteTaskRepository
@@ -26,3 +27,8 @@ def audit():
 @cache
 def metrics():
     return SqliteMetricsRepository()
+
+
+@cache
+def automation():
+    return SqliteAutomationRepository()
