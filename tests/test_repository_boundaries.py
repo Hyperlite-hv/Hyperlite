@@ -7,8 +7,6 @@ import re
 # Routers that still run SQL directly, until their domain moves behind a repository.
 STILL_ALLOWED = {
     "auth.py",
-    "backups.py",
-    "containers.py",
     "sso.py",
 }
 

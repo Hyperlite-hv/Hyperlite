@@ -24,7 +24,6 @@ import time
 from pathlib import Path, PurePosixPath
 
 from app.core import backup_integrity
-from app.core.database import get_conn
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +76,9 @@ def status():
 
 
 def backup_disks(backup_id):
-    with get_conn() as conn:
-        row = conn.execute("SELECT id, vm_name, chemin, statut FROM backups WHERE id = ?", (backup_id,)).fetchone()
+    from app.repositories import registry
+
+    row = registry.backups().sync.get(backup_id)
     if not row:
         raise RestoreError("Backup not found")
     if row["statut"] != "termine":

@@ -18,10 +18,10 @@ from app.core.backups import (
     run_backup,
     verify_backup,
 )
-from app.core.database import get_conn
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task
 from app.core.vm_builder import validate_name
+from app.services import backup_service
 
 logger = logging.getLogger(__name__)
 
@@ -29,25 +29,19 @@ router = APIRouter(tags=["backups"])
 
 
 @router.get("/backups")
-def list_all_backups(user: dict = Depends(get_current_user)):
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM backups ORDER BY cree_le DESC LIMIT 500").fetchall()
-    return [dict(r) for r in rows]
+async def list_all_backups(user: dict = Depends(get_current_user)):
+    return await backup_service.list_all()
 
 
 @router.get("/backup-schedules")
-def list_backup_schedules(user: dict = Depends(get_current_user)):
+async def list_backup_schedules(user: dict = Depends(get_current_user)):
     """Every scheduled backup, so a list page can tell which VMs have none."""
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM backup_jobs ORDER BY vm_name").fetchall()
-    return [dict(r) for r in rows]
+    return await backup_service.list_schedules()
 
 
 @router.get("/vms/{name}/backups")
-def list_vm_backups(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM backups WHERE vm_name = ? ORDER BY cree_le DESC", (name,)).fetchall()
-    return [dict(r) for r in rows]
+async def list_vm_backups(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
+    return await backup_service.list_for_vm(name)
 
 
 class BackupRequest(BaseModel):
@@ -83,17 +77,14 @@ def create_backup(name: str, payload: BackupRequest, user: dict = Depends(requir
 
 @router.delete("/backups/{backup_id}")
 def delete_backup(backup_id: int, confirm: bool = False, user: dict = Depends(require_role("admin"))):
-    import shutil
-
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM backups WHERE id = ?", (backup_id,)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Backup not found")
-        if not confirm:
-            raise HTTPException(status_code=400, detail="Add ?confirm=true to confirm the deletion")
-        shutil.rmtree(row["chemin"], ignore_errors=True)
-        conn.execute("DELETE FROM backups WHERE id = ?", (backup_id,))
-        conn.commit()
+    if not backup_service.find(backup_id):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Add ?confirm=true to confirm the deletion")
+    try:
+        row = backup_service.delete(backup_id)
+    except backup_service.BackupNotFound:
+        raise HTTPException(status_code=404, detail="Backup not found") from None
     log_action(user["username"], "delete_backup", row["vm_name"], "succes", f"backup #{backup_id}")
     return {"message": "Backup deleted"}
 
@@ -101,8 +92,7 @@ def delete_backup(backup_id: int, confirm: bool = False, user: dict = Depends(re
 @router.post("/backups/{backup_id}/verify", status_code=202)
 def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("admin"))):
     """Recompute every checksum and check the images now, as a task (a large backup takes a while to read)."""
-    with get_conn() as conn:
-        row = conn.execute("SELECT vm_name, statut FROM backups WHERE id = ?", (backup_id,)).fetchone()
+    row = backup_service.find(backup_id)
     if not row:
         raise HTTPException(status_code=404, detail="Backup not found")
     if row["statut"] != "termine":
@@ -129,8 +119,7 @@ class RestoreRequest(BaseModel):
 @router.post("/backups/{backup_id}/restore", status_code=202)
 def restore_backup_endpoint(backup_id: int, payload: RestoreRequest, user: dict = Depends(require_role("admin"))):
     maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
-    with get_conn() as conn:
-        row = conn.execute("SELECT vm_name, statut FROM backups WHERE id = ?", (backup_id,)).fetchone()
+    row = backup_service.find(backup_id)
     if not row:
         raise HTTPException(status_code=404, detail="Backup not found")
     # What can be refused at once is refused here, so a request that cannot run never reads as started.
@@ -174,10 +163,8 @@ class ScheduleRequest(BaseModel):
 
 
 @router.get("/vms/{name}/backup-schedule")
-def get_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM backup_jobs WHERE vm_name = ?", (name,)).fetchone()
-    return dict(row) if row else None
+async def get_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
+    return await backup_service.get_schedule(name)
 
 
 @router.put("/vms/{name}/backup-schedule")
@@ -199,35 +186,23 @@ def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depend
     except GroupError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     next_run = _next_run(payload.frequence, payload.heure)
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, garder_jours, "
-            "garder_semaines, garder_mois, actif, prochaine_execution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET frequence=excluded.frequence, heure=excluded.heure, "
-            "cible_dir=excluded.cible_dir, retention_count=excluded.retention_count, garder_jours=excluded.garder_jours, "
-            "garder_semaines=excluded.garder_semaines, garder_mois=excluded.garder_mois, actif=1, "
-            "prochaine_execution=excluded.prochaine_execution",
-            (
-                name,
-                payload.frequence,
-                payload.heure,
-                target,
-                payload.retention_count,
-                payload.garder_jours,
-                payload.garder_semaines,
-                payload.garder_mois,
-                next_run.isoformat(),
-            ),
-        )
-        conn.commit()
+    backup_service.set_schedule(
+        name,
+        payload.frequence,
+        payload.heure,
+        target,
+        payload.retention_count,
+        payload.garder_jours,
+        payload.garder_semaines,
+        payload.garder_mois,
+        next_run.isoformat(),
+    )
     log_action(user["username"], "set_backup_schedule", name, "succes", f"{payload.frequence} at {payload.heure}")
-    return get_backup_schedule(name, user=user)
+    return backup_service.schedule_of(name)
 
 
 @router.delete("/vms/{name}/backup-schedule")
 def delete_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM backup_jobs WHERE vm_name = ?", (name,))
-        conn.commit()
+    backup_service.delete_schedule(name)
     log_action(user["username"], "delete_backup_schedule", name, "succes")
     return {"message": "Schedule deleted"}
