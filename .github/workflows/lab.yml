@@ -1,0 +1,50 @@
+name: VM lab
+
+# Three Debian VMs under KVM on the runner (lab/vm.sh): what the namespaces of the CI's cfs job cannot show, real
+# kernels and real network stacks between the nodes, and later the HA tests (each VM has a watchdog device). It runs on
+# changes to cfs/ or the lab, every night, and on demand.
+on:
+  pull_request:
+    paths: ["cfs/**", "lab/**", ".github/workflows/lab.yml"]
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cfs-on-vms:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm  # without KVM the VMs would crawl: fail clearly instead
+      - name: Install libvirt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvirt-daemon-system qemu-system-x86 qemu-utils virtinst \
+            cloud-image-utils openssh-client
+          sudo systemctl start libvirtd
+          pip install pytest
+      - name: Cache the Debian image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/hyperlite-lab-cache
+          key: debian-13-genericcloud-v1  # bump to take a newer image
+      - name: hyperlite-cfs on three VMs
+        run: |
+          sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_LAB="$PWD/lab/vm.sh" HYPERLITE_LAB_CACHE=/tmp/hyperlite-lab-cache \
+            "$(which python)" -m pytest -q -s -p no:cacheprovider cfs/tests/cluster
+          sudo chmod -R a+rX /tmp/hyperlite-lab-cache

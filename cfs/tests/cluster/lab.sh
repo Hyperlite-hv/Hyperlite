@@ -6,7 +6,7 @@
 #   lab.sh up BIN DIR    start the cluster; sockets are DIR/n1/cfs.sock ... DIR/n3/cfs.sock
 #   lab.sh cut N         disconnect node N from the others
 #   lab.sh heal N        reconnect it
-#   lab.sh down DIR      stop everything and remove the namespaces
+#   lab.sh down [DIR]    stop everything and remove the namespaces (the logs stay in DIR)
 #
 # Needs root, iproute2, util-linux (unshare) and corosync. Used by test_cluster.py.
 set -euo pipefail
