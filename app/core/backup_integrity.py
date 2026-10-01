@@ -127,8 +127,10 @@ def restore_firmware_state(src_dir, domain):
 # --- Manifest ---------------------------------------------------------------------------------------------------
 
 
-def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks):
-    """disks: [(target dev, Path of the copied image)]. Every other file of the backup is listed by its role."""
+def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks, replication=None):
+    """disks: [(target dev, Path of the copied image)]. Every other file of the backup is listed by its role.
+    `replication`: for a point of a replication chain (app/core/replication.py), {"type": "complet" | "incremental",
+    "chaine": the chain's first point, "parent": the previous point or None}."""
     dest_dir = Path(dest_dir)
     files = []
     for dev, path in disks:
@@ -151,6 +153,8 @@ def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks):
         "firmware": firmware_kind,
         "fichiers": files,
     }
+    if replication:
+        manifest["replication"] = replication
     (dest_dir / MANIFEST).write_text(json.dumps(manifest, indent=2))
     return manifest
 
@@ -176,9 +180,46 @@ def _qemu_img_check(path):
     return (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()[:300]
 
 
+MAX_CHAIN = 1000
+
+
+def parent_of(src_dir, manifest):
+    """The previous point of a replication chain, a sibling directory, or None for a full copy. A name that is not
+    a plain directory name is refused: the manifest is read from a share another site writes to."""
+    parent = ((manifest or {}).get("replication") or {}).get("parent")
+    if not parent:
+        return None
+    if Path(str(parent)).name != parent or parent in (".", ".."):
+        raise ValueError("invalid parent in the manifest")
+    return Path(src_dir).parent / parent
+
+
 def verify(src_dir, single_checksum=None, progress=lambda pct: None):
-    """Check a backup directory. Returns (status, problems, checked): status VERIFIED or CORRUPT, problems a list
-    of sentences, checked the number of files checked."""
+    """Check a backup directory, and for a point of a replication chain every point it depends on. Returns (status,
+    problems, checked): status VERIFIED or CORRUPT, problems a list of sentences, checked the number of files."""
+    _status, problems, checked = _verify_one(src_dir, single_checksum, progress)
+    seen = {Path(src_dir).name}
+    current = Path(src_dir)
+    while True:
+        try:
+            parent = parent_of(current, read_manifest(current))
+        except ValueError as e:
+            problems.append(str(e))
+            break
+        if parent is None:
+            break
+        if parent.name in seen or len(seen) >= MAX_CHAIN:
+            problems.append("the chain of copies loops or is too long")
+            break
+        seen.add(parent.name)
+        _status, more, count = _verify_one(parent, None, lambda pct: None)
+        problems.extend(f"{parent.name}: {p}" for p in more)
+        checked += count
+        current = parent
+    return (CORRUPT if problems else VERIFIED), problems, checked
+
+
+def _verify_one(src_dir, single_checksum=None, progress=lambda pct: None):
     src_dir = Path(src_dir)
     problems = []
     manifest = read_manifest(src_dir)

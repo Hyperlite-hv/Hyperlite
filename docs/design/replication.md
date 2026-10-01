@@ -1,7 +1,7 @@
 # Decision: storage replication between nodes
 
 Status: **reopened on 2026-10-01 for replication between two sites (section 5), accepted with the decisions of
-section 5.6.** Sections 1 to 4 record the earlier decision about replication between nodes of one site.
+section 5.6, built in `app/core/replication.py`.** Sections 1 to 4 record the earlier decision about replication between nodes of one site.
 
 ## 1. The need
 

@@ -16,7 +16,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import renaming, vm_locks
+from app.core import checkpoints, renaming, replication, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import _run_ssh, get_node
 from app.core.error_messages import describe_exception
@@ -138,6 +138,9 @@ def rename_vm(name: str, payload: RenameRequest, node: str | None = None, user: 
                     status_code=409, detail="libvirt cannot rename a VM that has snapshots: delete them first"
                 )
             try:
+                # The replication chain follows the name of the VM's directory on the other site: start a new one.
+                checkpoints.release(domain, name)
+                replication.forget(name)
                 domain.rename(new, 0)
                 domain = conn.lookupByName(new)
                 _rename_own_files(conn, domain, name, new, node)

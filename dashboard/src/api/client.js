@@ -379,6 +379,25 @@ export async function scanSiteBackups(chemin) {
 export async function startSiteRecovery(elements, reseau) {
   return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, reseau: reseau || null }) });
 }
+// Replication to another site (app/core/replication.py): jobs and each VM's last copy.
+export async function fetchReplicationJobs() {
+  return realFetch("/replication/jobs");
+}
+export async function createReplicationJob(payload) {
+  return realFetch("/replication/jobs", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateReplicationJob(id, payload) {
+  return realFetch(`/replication/jobs/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteReplicationJob(id) {
+  return realFetch(`/replication/jobs/${id}`, { method: "DELETE" });
+}
+export async function runReplicationJob(id) {
+  return realFetch(`/replication/jobs/${id}/run`, { method: "POST" });
+}
+export async function fetchReplicationStatus() {
+  return realFetch("/replication/status");
+}
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
 }
