@@ -11,108 +11,56 @@ Two facades over the same data (see app/core/metrics.py for collection):
 
 """
 
-from datetime import UTC, datetime, timedelta
-
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.database import get_conn
 from app.core.security import get_current_user
+from app.services import metrics_service
 
 router = APIRouter(tags=["metrics"])
 
-_RANGES = {
-    "1h": (timedelta(hours=1), "raw"),
-    "24h": (timedelta(hours=24), "hourly"),
-    "7j": (timedelta(days=7), "hourly"),
-    "30j": (timedelta(days=30), "hourly"),
-}
 
-
-def _history(cible, range_key):
-    if range_key not in _RANGES:
-        raise HTTPException(status_code=422, detail=f"Invalid range, expected one of {list(_RANGES)}")
-    delta, tier = _RANGES[range_key]
-    since = (datetime.now(UTC) - delta).isoformat()
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT ts, cpu_pct, mem_used_mb, mem_total_mb, disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps "
-            "FROM metrics_samples WHERE cible = ? AND tier = ? AND ts >= ? ORDER BY ts ASC",
-            (cible, tier, since),
-        ).fetchall()
-    return [dict(r) for r in rows]
+async def _history(cible, range_key):
+    try:
+        return await metrics_service.history(cible, range_key)
+    except metrics_service.BadRange as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
 
 
 @router.get("/vms/{name}/metrics/history")
-def get_vm_metrics_history(
+async def get_vm_metrics_history(
     name: str, range: str = "1h", node: str | None = None, user: dict = Depends(get_current_user)
 ):
     """node: the VM's node, the same convention as GET /vms (omitted or 'local' = this host).
     VMs of a remote node are sampled under '<node>:<vm>' so equal names on two nodes never mix."""
-    return _history(name if not node or node == "local" else f"{node}:{name}", range)
+    return await _history(name if not node or node == "local" else f"{node}:{name}", range)
 
 
 @router.get("/host/metrics/history")
-def get_host_metrics_history(range: str = "1h", user: dict = Depends(get_current_user)):
-    return _history("host", range)
+async def get_host_metrics_history(range: str = "1h", user: dict = Depends(get_current_user)):
+    return await _history("host", range)
 
 
 @router.get("/nodes/{name}/metrics/history")
-def get_node_metrics_history(name: str, range: str = "1h", user: dict = Depends(get_current_user)):
+async def get_node_metrics_history(name: str, range: str = "1h", user: dict = Depends(get_current_user)):
     """History of one node: 'local' is this host, any other name a registered remote node."""
-    return _history("host" if name == "local" else f"node:{name}", range)
+    return await _history("host" if name == "local" else f"node:{name}", range)
 
 
 @router.get("/storage/history")
-def get_storage_history(range: str = "24h", node: str | None = None, user: dict = Depends(get_current_user)):
+async def get_storage_history(range: str = "24h", node: str | None = None, user: dict = Depends(get_current_user)):
     """Usage of every storage pool over time, grouped by node and pool."""
-    if range not in _RANGES:
-        raise HTTPException(status_code=422, detail=f"Invalid range, expected one of {list(_RANGES)}")
-    delta, tier = _RANGES[range]
-    since = (datetime.now(UTC) - delta).isoformat()
-    clauses, params = ["tier = ?", "ts >= ?"], [tier, since]
-    if node:
-        clauses.append("node = ?")
-        params.append(node)
-    with get_conn() as conn:
-        rows = conn.execute(
-            f"SELECT ts, node, pool, capacity_b, allocation_b FROM storage_samples WHERE {' AND '.join(clauses)} "  # noqa: S608 -- fixed fragments only
-            "ORDER BY node, pool, ts ASC",
-            params,
-        ).fetchall()
-    grouped = {}
-    for r in rows:
-        key = (r["node"], r["pool"])
-        grouped.setdefault(key, {"node": r["node"], "pool": r["pool"], "points": []})["points"].append(
-            {"ts": r["ts"], "capacity_b": r["capacity_b"], "allocation_b": r["allocation_b"]}
-        )
-    return list(grouped.values())
+    try:
+        return await metrics_service.storage_history(range, node)
+    except metrics_service.BadRange as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
 
 
 def _latest_by_cible():
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT m.* FROM metrics_samples m "
-            "INNER JOIN (SELECT cible, MAX(ts) AS max_ts FROM metrics_samples WHERE tier='raw' GROUP BY cible) latest "
-            "ON m.cible = latest.cible AND m.ts = latest.max_ts WHERE m.tier='raw'"
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return metrics_service.latest_by_cible()
 
 
 def _task_stats():
-    with get_conn() as conn:
-        running = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'en_cours'").fetchone()["n"]
-        total = conn.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"]
-        failed = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'echec'").fetchone()["n"]
-        avg_row = conn.execute(
-            "SELECT AVG((julianday(fin_le) - julianday(debut_le)) * 86400) AS avg_s "
-            "FROM tasks WHERE statut = 'termine' AND fin_le IS NOT NULL"
-        ).fetchone()
-    return {
-        "running": running,
-        "total": total,
-        "failed": failed,
-        "avg_duration_s": round(avg_row["avg_s"], 2) if avg_row["avg_s"] is not None else 0,
-    }
+    return metrics_service.task_stats()
 
 
 @router.get("/metrics")

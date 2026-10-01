@@ -40,8 +40,14 @@ from datetime import UTC, datetime
 import libvirt
 
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn, uses_shared_storage
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.ha().sync
+
 
 logger = logging.getLogger(__name__)
 
@@ -93,15 +99,11 @@ def _conn_key(node_label):
 
 
 def list_protected():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM ha_protected_vms ORDER BY vm_name").fetchall()
-    return [dict(r) for r in rows]
+    return _store().protected()
 
 
 def get_protected(vm_name):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM ha_protected_vms WHERE vm_name = ?", (vm_name,)).fetchone()
-    return dict(row) if row else None
+    return _store().protected_vm(vm_name)
 
 
 def enable_protection(vm_name, node, username):
@@ -122,24 +124,14 @@ def enable_protection(vm_name, node, username):
                 "(NFS). Move its disk to a shared pool first."
             )
 
-        now = _now()
-        with get_conn() as db:
-            db.execute(
-                "INSERT INTO ha_protected_vms (vm_name, node, domain_xml, enabled_by, enabled_at, last_synced_at) "
-                "VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(vm_name) DO UPDATE SET node=excluded.node, domain_xml=excluded.domain_xml, last_synced_at=excluded.last_synced_at",
-                (vm_name, node_label, _portable_xml(domain.XMLDesc(0)), username, now, now),
-            )
-            db.commit()
+        _store().protect(vm_name, node_label, _portable_xml(domain.XMLDesc(0)), username, _now())
         log_action(username, "ha_enable", vm_name, "succes", f"node {node_label}")
     finally:
         conn.close()
 
 
 def disable_protection(vm_name, username):
-    with get_conn() as db:
-        db.execute("DELETE FROM ha_protected_vms WHERE vm_name = ?", (vm_name,))
-        db.commit()
+    _store().unprotect(vm_name)
     log_action(username, "ha_disable", vm_name, "succes")
 
 
@@ -169,12 +161,7 @@ def sync_protected_vms():
                 disable_protection(row["vm_name"], "system")
                 log_action("system", "ha_auto_disable", row["vm_name"], "echec", "storage no longer shared")
                 continue
-            with get_conn() as db:
-                db.execute(
-                    "UPDATE ha_protected_vms SET domain_xml = ?, last_synced_at = ? WHERE vm_name = ?",
-                    (_portable_xml(domain.XMLDesc(0)), _now(), row["vm_name"]),
-                )
-                db.commit()
+            _store().sync_definition(row["vm_name"], _portable_xml(domain.XMLDesc(0)), _now())
         finally:
             conn.close()
 
@@ -182,10 +169,7 @@ def sync_protected_vms():
 def follow_migration(vm_name, target_node):
     """Move a protected VM's record to the node it was live-migrated to. Without it, the next sync looks for the VM
     on its old node, does not find it, and disables the protection."""
-    with get_conn() as db:
-        cur = db.execute("UPDATE ha_protected_vms SET node = ? WHERE vm_name = ?", (target_node or "local", vm_name))
-        db.commit()
-    return cur.rowcount > 0
+    return _store().move_protected(vm_name, target_node or "local")
 
 
 def alert_for_down_node(node_name):
@@ -314,12 +298,7 @@ def recover(vm_name, target_node, username):
         except libvirt.libvirtError as e:
             raise RuntimeError(f"Recovery failed: {e}") from e
 
-        with get_conn() as db:
-            db.execute(
-                "UPDATE ha_protected_vms SET node = ?, domain_xml = ?, last_synced_at = ? WHERE vm_name = ?",
-                (target_node, _portable_xml(new_domain.XMLDesc(0)), _now(), vm_name),
-            )
-            db.commit()
+        _store().sync_definition(vm_name, _portable_xml(new_domain.XMLDesc(0)), _now(), node=target_node)
         log_action(username, "ha_recover", vm_name, "succes", f"{row['node']} -> {target_node}")
     finally:
         conn.close()

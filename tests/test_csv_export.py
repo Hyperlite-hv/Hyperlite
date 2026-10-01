@@ -5,7 +5,7 @@ import io
 
 import pytest
 
-from app.core import csv_export
+from app.repositories.sqlite import export as csv_export  # where the batched reads live now
 
 
 def _rows(text):

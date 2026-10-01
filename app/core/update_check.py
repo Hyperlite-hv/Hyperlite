@@ -23,7 +23,13 @@ import time
 from datetime import UTC, datetime
 
 from app.core.audit import log_action
-from app.core.database import get_conn
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.settings().sync
+
 
 CHECK_INTERVAL_S = (
     3600  # same cadence as vm_cleanup.py: version drift is counted in hours or days, no need to check more often
@@ -34,38 +40,15 @@ SOURCE_PROBLEM_MARKER = "apt-source-problem"
 
 
 def _get_last_notified():
-    with get_conn() as db:
-        row = db.execute("SELECT last_notified_version FROM update_check_state WHERE id = 1").fetchone()
-        return row["last_notified_version"] if row else None
+    return _store().last_notified_version()
 
 
 def _mark_notified(version):
-    now = datetime.now(UTC).isoformat()
-    with get_conn() as db:
-        db.execute(
-            """
-            INSERT INTO update_check_state (id, last_notified_version, last_checked_at)
-            VALUES (1, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET last_notified_version = excluded.last_notified_version,
-                                           last_checked_at = excluded.last_checked_at
-            """,
-            (version, now),
-        )
-        db.commit()
+    _store().mark_update_notified(version, datetime.now(UTC).isoformat())
 
 
 def _touch_checked_at():
-    now = datetime.now(UTC).isoformat()
-    with get_conn() as db:
-        db.execute(
-            """
-            INSERT INTO update_check_state (id, last_checked_at)
-            VALUES (1, ?)
-            ON CONFLICT(id) DO UPDATE SET last_checked_at = excluded.last_checked_at
-            """,
-            (now,),
-        )
-        db.commit()
+    _store().touch_update_checked(datetime.now(UTC).isoformat())
 
 
 def check_once():

@@ -8,8 +8,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 
-from app.core.database import get_conn
-from app.core.tasks import _finish_task_in
+from app.core.tasks import finish_task
 
 # Design note: log_action() is called by almost every endpoint, even plain
 # read-only GETs, so nearly every HTTP request also performs a SQLite write.
@@ -56,13 +55,13 @@ def purge_old_entries(now=None):
     days = retention_days()
     if days <= 0:
         return 0
+    from app.repositories import registry
+
     limit = ((now or datetime.now(UTC)) - timedelta(days=days)).isoformat()
-    with get_conn() as conn:
-        cur = conn.execute("DELETE FROM audit_log WHERE timestamp < ?", (limit,))
-        # Task log lines follow the same retention (the tasks themselves stay listed).
-        conn.execute("DELETE FROM task_logs WHERE at < ?", (limit,))
-        conn.commit()
-    return cur.rowcount
+    deleted = registry.audit().sync.purge_before(limit)
+    # Task log lines follow the same retention (the tasks themselves stay listed).
+    registry.tasks().sync.purge_logs_before(limit)
+    return deleted
 
 
 def _purge_if_due():
@@ -90,19 +89,17 @@ def _writer_loop():
     while True:
         username, action, resource, result, error_message, ts, ip = _AUDIT_QUEUE.get()
         try:
-            with get_conn() as conn:
-                conn.execute(
-                    "INSERT INTO audit_log (timestamp, username, action, resource, result, error_message, ip) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (ts, username, action, resource, result, error_message, ip),
-                )
-                conn.commit()
+            from app.repositories import registry
+
+            registry.audit().sync.append(ts, username, action, resource, result, error_message, ip)
         except Exception:
             logger.exception("Audit write failed, entry lost: %s %s %s", action, resource, result)
         finally:
+            # The single writer also trims the table, at most once a day: nothing else writes audit rows.
+            _purge_if_due()
+            # Last, so that _AUDIT_QUEUE.join() also waits for the purge: it opens its own connection, and one still
+            # open after join() returned raced whoever came next (a test's fresh database: "database is locked").
             _AUDIT_QUEUE.task_done()
-        # The single writer also trims the table, at most once a day: nothing else writes audit rows.
-        _purge_if_due()
 
 
 def _ensure_writer_started():
@@ -125,9 +122,7 @@ def log_action(
     log_action(..., "succes") or (..., "echec") call already marks the end of
     the task for every current synchronous endpoint."""
     if task_id:
-        with get_conn() as conn:
-            _finish_task_in(conn, task_id, "termine" if result == "succes" else "echec", error_message)
-            conn.commit()
+        finish_task(task_id, "termine" if result == "succes" else "echec", error_message)
 
     if result == "succes" and action.startswith(READ_ACTION_PREFIXES):
         return

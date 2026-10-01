@@ -1,30 +1,22 @@
 import json
 
-from app.core.database import get_conn
+
+def _store():
+    from app.repositories import registry
+
+    return registry.objects().sync
 
 
 def set_container_ssh_user(container_name, username):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO container_ssh_users (container_name, username) VALUES (?, ?) "
-            "ON CONFLICT(container_name) DO UPDATE SET username = excluded.username",
-            (container_name, username),
-        )
-        conn.commit()
+    _store().set_container_ssh_user(container_name, username)
 
 
 def get_container_ssh_user(container_name):
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT username FROM container_ssh_users WHERE container_name = ?", (container_name,)
-        ).fetchone()
-        return row["username"] if row else None
+    return _store().container_ssh_user(container_name)
 
 
 def delete_container_ssh_user(container_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM container_ssh_users WHERE container_name = ?", (container_name,))
-        conn.commit()
+    _store().delete_container_ssh_user(container_name)
 
 
 # Application containers (see container_builder.read_image_config): the image, the process settings and the
@@ -32,47 +24,31 @@ def delete_container_ssh_user(container_name):
 
 
 def set_container_app(container_name, image, spec, ip, network):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO container_apps (container_name, image, spec, ip, network) VALUES (?, ?, ?, ?, ?)",
-            (container_name, image, json.dumps(spec), ip, network),
-        )
-        conn.commit()
+    _store().set_container_app(container_name, image, json.dumps(spec), ip, network)
 
 
 def get_container_app(container_name):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM container_apps WHERE container_name = ?", (container_name,)).fetchone()
+    row = _store().container_app(container_name)
     if not row:
         return None
     return {"image": row["image"], "spec": json.loads(row["spec"]), "ip": row["ip"], "network": row["network"]}
 
 
 def delete_container_app(container_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM container_apps WHERE container_name = ?", (container_name,))
-        conn.commit()
+    _store().delete_container_app(container_name)
 
 
 # Storage pool holding a container's filesystem, when not the default location.
 
 
 def set_container_storage(container_name, pool, base_dir):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO container_storage (container_name, pool, base_dir) VALUES (?, ?, ?)",
-            (container_name, pool, str(base_dir)),
-        )
-        conn.commit()
+    _store().set_container_storage(container_name, pool, str(base_dir))
 
 
 def get_container_storage(container_name):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM container_storage WHERE container_name = ?", (container_name,)).fetchone()
+    row = _store().container_storage(container_name)
     return {"pool": row["pool"], "base_dir": row["base_dir"]} if row else None
 
 
 def delete_container_storage(container_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM container_storage WHERE container_name = ?", (container_name,))
-        conn.commit()
+    _store().delete_container_storage(container_name)
