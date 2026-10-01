@@ -270,7 +270,7 @@ infrastructure. Every phase ships behind a switch until its exit criterion is me
   are served from a watch-fed cache in each API instance and agent, writes go to etcd.
 - **Tailscale links between nodes** (production today): etcd needs a stable, low-latency network; members across a
   WAN VPN will see leader elections. The control plane network requirements must be written down (Q2).
-- **Fencing hardware**: superseded by section 15.2 (point 5): fencing is done by a watchdog, as on Proxmox, so a node
+- **Fencing hardware**: superseded by section 15.2 (rule 5): fencing is done by a watchdog, as on Proxmox, so a node
   without a BMC can still be part of automatic HA. A BMC only makes the recovery faster.
 
 ## 9. Tests to write before each phase
@@ -377,54 +377,83 @@ current rhythm this is several months of work, not weeks; the order above keeps 
   quorum, leases and ownership build on.
 - Q2, Q4 to Q10 are open; none blocks phase 1.
 
-### 15.2 Decisions (second maintainer, 2026-10-01): follow Proxmox VE's cluster model
+### 15.2 Decisions (second maintainer, 2026-10-01): Proxmox VE's architecture, Proxmox VE's stack
 
-The second maintainer confirms **Q1** and asks that the cluster behave like Proxmox VE's. The rules below are taken
-from the Proxmox VE documentation (`pmxcfs.adoc`, `pvecm.adoc` and `ha-manager.adoc` in the `pve-docs` repository);
-each one says what Proxmox does and what Hyperlite does in its place. etcd replaces what Proxmox builds from
-Corosync and its SQLite-backed `pmxcfs`; the behaviour around it is Proxmox's.
+The second maintainer confirms the move to a distributed control plane and asks for **the same architecture as
+Proxmox VE, built on the same foundations**: Corosync and a replicated configuration file system of our own, in the
+place of etcd. Every rule below comes from the Proxmox VE documentation (`pmxcfs.adoc`, `pvecm.adoc`,
+`ha-manager.adoc`, `pvestatd.adoc`, `pveproxy.adoc`, `pvedaemon.adoc` and `pvescheduler.adoc` in the
+`proxmox/pve-docs` repository).
 
-1. **One vote per node; no writes without quorum.** Proxmox's configuration file system is "read-only when a node
-   loses quorum". Hyperlite: every node is an etcd member with one vote; a node that is not part of the majority
-   refuses every configuration change and every action that needs one (create, start, migrate, change a setting)
-   with a clear message. A quorum loss alone does not stop running VMs; only the watchdog of point 5 does, and only
-   on a node that runs HA-managed VMs.
-2. **The same code path at every size (Q10).** Proxmox runs `pmxcfs` on a single node too. Hyperlite always
-   installs etcd: one member on a single node, one member per node in a cluster. No YAML-only standalone backend;
-   phase 3 keeps only the export, diff, validate and doctor commands.
-3. **Two nodes are allowed, with Proxmox's limits (Q2).** On two nodes, losing either one leaves the other without
-   quorum, so it turns read-only, exactly as on Proxmox. Two things go with it:
-   - a documented recovery command for the survivor, the equivalent of Proxmox's `pvecm expected 1`: it rebuilds a
-     one-member etcd from the survivor's data (etcd's `--force-new-cluster`), refuses while the other node answers,
-     and asks for a typed confirmation;
-   - an optional **witness**, Proxmox's QDevice for two-node clusters ("For smaller 2-node clusters, the QDevice
-     can be used to provide a 3rd vote"). **Difference with Proxmox, stated:** a QDevice is "almost configuration
-     and state free", while an etcd voter holds a full copy of the data. Hyperlite's witness is therefore a
-     `hyperlite-witness` package that runs one etcd member and nothing else (no libvirt, no API, no VM), on any
-     small Debian machine (a Raspberry Pi, a small VM). Secrets stay unreadable there thanks to the envelope
-     encryption of section 2.2, as long as the cluster key is not installed on the witness.
-   - A third etcd member is never required to install Hyperlite. Proxmox recommends a dedicated network for cluster
-     traffic; Hyperlite documents the latency etcd needs and warns when members are linked over a VPN such as
-     Tailscale.
-4. **Automatic HA needs three votes and shared storage.** Proxmox's HA requirements are "at least three cluster
-   nodes (to get reliable quorum)" and "shared storage for VMs and containers". Hyperlite: automatic HA can be
-   turned on only with three votes (three nodes, or two nodes and a witness) and for VMs whose disks are on shared
-   storage; otherwise the UI says why it is off. The current dry run stays until phase 8.
-5. **Fencing by watchdog, without a BMC.** Proxmox fences by self-fencing with watchdog timers, a hardware watchdog
-   when configured and the kernel's `softdog` otherwise; a node without quorum "cannot reset the watchdog" and is
-   reset "after the watchdog has timed out (this happens after 60 seconds)". Hyperlite's agent does the same: while
-   it runs HA-managed VMs it holds the watchdog and feeds it only while its node is in the quorum and its lease is
-   renewed. The surviving majority restarts a failed node's VMs only after its lease has expired **and** the
-   watchdog timeout has passed. This replaces the risk line "without BMCs, HA stays manual": HA no longer needs a
-   BMC. The IPMI, Redfish and AMT profiles (`ha_fencing.py`) stay as an optional extra that Proxmox does not have
-   (power the node off before the timeout, for a faster recovery); they are never required.
-6. **Every node serves the API and the dashboard.** As on Proxmox, an administrator can sign in on any node. The
-   "controller" of option (a) disappears at phase 6; option (a) stays in production until then.
-7. **Numeric VM ids (Q4): proposed, to be confirmed.** Proxmox identifies guests by a cluster-wide numeric VMID that
-   the backend allocates. Following it means ids from phase 2, with the name as a label. This changes URLs, ACLs and
-   every side table, so it needs an explicit confirmation from both maintainers before phase 2 starts.
+**This supersedes etcd everywhere in this document** (sections 2, 4, 7 phases 5 and 6, 10, and the etcd answers of
+Q2, Q6 and Q10). Those sections must be rewritten before phase 5; phase 1 (repositories) is unaffected and
+continues: the repositories become the seam where the new store plugs in.
 
-Still open: Q5 to Q9.
+#### 15.2.1 Service map
+
+| Proxmox VE | What it does (Proxmox documentation) | Hyperlite |
+|---|---|---|
+| Corosync | "reliable group communication"; one vote per node; quorum | **Corosync itself**, the Debian package, configured by Hyperlite |
+| `pmxcfs` | "a database-driven file system for storing configuration files, replicated in real time to all cluster nodes using corosync"; SQLite on each node; "Read-only when a node loses quorum"; 128 MiB limit | **`hyperlite-cfs`**, written by us: a SQLite database on every node, every write delivered in the same order to all nodes through Corosync, state transfer when a node joins, writes refused without quorum |
+| `pvestatd` | "queries the status of VMs, storages and containers at regular intervals. The result is sent to all nodes in the cluster" | **`hyperlite-statd`**: one bulk libvirt query per node (`getAllDomainStats`), broadcast over Corosync; the API answers from this table and never queries every VM on a request |
+| `pveproxy` | the whole API over HTTPS, unprivileged user; "Requests targeted for other nodes are automatically forwarded to those nodes" | **`hyperlite-proxy`**: today's FastAPI app without root rights, on every node, forwarding a request for another node to that node |
+| `pvedaemon` | the API's privileged operations, as root, on a local address only | **`hyperlite-daemon`**: the libvirt, ZFS, storage and network actions, root, local socket only |
+| `pve-ha-crm` / `pve-ha-lrm` | cluster and local resource managers; self-fencing with a watchdog | **`hyperlite-ha-crm`** / **`hyperlite-ha-lrm`**, watchdog through `softdog` or a hardware watchdog, 60 s |
+| `pvescheduler` | starts scheduled jobs (backups, replication) | **`hyperlite-scheduler`** |
+| QDevice (`corosync-qnetd`) | a third vote for two-node clusters, "almost configuration and state free" | **`corosync-qnetd` itself**, unchanged |
+
+#### 15.2.2 Rules
+
+1. **One vote per node; no writes without quorum.** A node outside the majority refuses every configuration change
+   and every action that needs one (create, start, migrate, change a setting) with a clear message. A quorum loss
+   alone does not stop running VMs; only the watchdog of rule 5 does, and only on a node running HA-managed VMs.
+2. **The same stack at every size (Q10).** A single node runs `hyperlite-cfs` too, in local mode, as `pmxcfs` does.
+3. **Two nodes, as on Proxmox (Q2).** Losing either node leaves the other read-only. The survivor can be made
+   writable with a command equivalent to `pvecm expected 1`, which refuses while the other node answers and asks for
+   a typed confirmation. For real availability, a QDevice on any third machine: Proxmox "recommend[s] it for 2 node
+   clusters". As a QDevice holds no data, nothing secret ever sits on the witness.
+4. **Network.** Proxmox: "a reliable network with latencies under 5 milliseconds (LAN performance) between all
+   nodes"; above about 10 ms with more than three nodes, stability "gets rather unlikely". The installer measures the
+   latency between nodes and refuses to form a cluster above 10 ms. **Nodes linked over the Internet through a VPN
+   (Tailscale, WireGuard) cannot form a cluster**; they stay separately managed. A QDevice may sit further away: it
+   "isn't limited to the low latencies requirements of corosync".
+5. **Automatic HA needs three votes and shared storage; fencing by watchdog.** Proxmox requires "at least three
+   cluster nodes" and "shared storage for VMs and containers", and fences by self-fencing: a node without quorum
+   "cannot reset the watchdog" and is reset "after the watchdog has timed out (this happens after 60 seconds)". The
+   survivors restart its VMs only after that. No BMC is needed; the IPMI, Redfish and AMT profiles of
+   `ha_fencing.py` stay an optional extra.
+6. **Any node manages the whole cluster.** Signing in on any node gives the whole cluster, as with `pveproxy`. The
+   single controller of option (a) disappears; option (a) stays in production until `hyperlite-cfs` replaces it.
+7. **Numeric VM ids (Q4): accepted.** Cluster-wide numeric ids allocated by the backend (`100`, `101`...), with the
+   name as a label, from phase 2. URLs, ACLs, backups and every side table move to the id.
+
+#### 15.2.3 Scale target: what Proxmox handles
+
+Proxmox has "no explicit limit for the number of nodes" and reports clusters "with over 50 nodes in production".
+The target is the same order: **dozens of nodes and thousands of guests**, with every list page answered from the
+status table of `hyperlite-statd`, in under 200 ms for 1,000 VMs.
+
+Baseline measured on 2026-10-01 on one node with 1,000 stopped VMs: `GET /vms` takes **3.5 to 4.2 s**. Every VM costs
+three XML reads (`XMLDesc`), `info()`, `isActive()` and two SQLite queries that each open a connection. A running VM
+adds the guest agent and DHCP lease queries. On a remote node every libvirt call is an SSH round trip. The fixes that
+do not wait for the new stack (one bulk `getAllDomainStats`, one XML parse per VM, one SQLite query per table instead
+of per VM) can ship before phase 1 ends.
+
+#### 15.2.4 What `hyperlite-cfs` means for the rules of the brief, stated
+
+The brief says "no consensus, no distributed storage of our own". Corosync provides the membership, the quorum and
+the totally ordered delivery (the consensus part); `hyperlite-cfs` is the replicated database on top of it, the part
+Proxmox wrote as `pmxcfs`. That part is ours to write and to prove: ordered apply, state transfer on join, a node
+coming back after a partition, a write during a membership change. `pmxcfs` is AGPL-3.0 and cannot be copied into
+Hyperlite (PolyForm Noncommercial); only its documented behaviour is reused. Debian ships Corosync's C libraries
+(`libcpg`, `libquorum`, `libvotequorum`) but no Python binding for them, so `hyperlite-cfs` is a small C or Rust
+daemon; this choice is open (Q11). Its test plan (partitions, node restarts, concurrent writes, a 1,000-VM configuration) is a gate before any
+production use.
+
+- **Q11. Language of `hyperlite-cfs`.** C (like `pmxcfs`, direct use of Corosync's libraries) or Rust (memory safety,
+  bindings to write)?
+
+Still open: Q5 to Q9 (Q6 now applies to secrets in `hyperlite-cfs`), Q11.
 
 ## 16. Lot 1: the Node domain
 
