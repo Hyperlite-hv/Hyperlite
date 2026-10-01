@@ -10,6 +10,8 @@ from app.repositories.sqlite.backups import SqliteBackupRepository
 from app.repositories.sqlite.identity import SqliteIdentityRepository
 from app.repositories.sqlite.metrics import SqliteMetricsRepository
 from app.repositories.sqlite.nodes import SqliteNodeRepository
+from app.repositories.sqlite.objects import SqliteObjectRepository
+from app.repositories.sqlite.renames import SqliteRenameRepository
 from app.repositories.sqlite.tasks import SqliteTaskRepository
 
 
@@ -56,3 +58,13 @@ def identity():
 @cache
 def access():
     return SqliteAccessRepository()
+
+
+@cache
+def objects():
+    return SqliteObjectRepository()
+
+
+@cache
+def renames():
+    return SqliteRenameRepository()

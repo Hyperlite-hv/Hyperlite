@@ -12,9 +12,7 @@ STILL_ALLOWED = set()  # phase 1 done for the routers: none reaches SQLite any m
 # Core modules not migrated yet (database.py itself defines get_conn and the schema).
 CORE_STILL_ALLOWED = {
     "api_docs.py",
-    "cloudinit_edit.py",
     "config_copy.py",
-    "container_meta.py",
     "database.py",
     "ha.py",
     "ha_fencing.py",
@@ -22,13 +20,8 @@ CORE_STILL_ALLOWED = {
     "k8s_cluster.py",
     "network_firewall.py",
     "notifications.py",
-    "object_meta.py",
-    "renaming.py",
     "shared_pools.py",
     "update_check.py",
-    "vm_boot.py",
-    "vm_cleanup.py",
-    "vm_meta.py",
 }
 
 

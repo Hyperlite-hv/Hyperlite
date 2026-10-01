@@ -21,9 +21,15 @@ from pathlib import Path
 
 import libvirt
 
-from app.core.database import get_conn
 from app.core.safe_paths import safe_child
 from app.core.vm_builder import IMAGES_DIR, get_or_create_automation_pubkey
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.objects().sync
+
 
 USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 KEY_RE = re.compile(
@@ -68,10 +74,7 @@ def reload_media(domain, vm_name):
 
 def get_state(vm_name):
     """What Hyperlite last wrote: {"utilisateur", "cles_ssh", "modifie_le"} (no password: never stored)."""
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT username, ssh_keys, updated_at FROM vm_cloudinit WHERE vm_name = ?", (vm_name,)
-        ).fetchone()
+    row = _store().cloudinit(vm_name)
     if not row:
         return None
     return {
@@ -82,20 +85,11 @@ def get_state(vm_name):
 
 
 def _save_state(vm_name, username, keys):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO vm_cloudinit (vm_name, username, ssh_keys, updated_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET username = excluded.username, ssh_keys = excluded.ssh_keys, "
-            "updated_at = excluded.updated_at",
-            (vm_name, username, json.dumps(keys), datetime.now(UTC).isoformat()),
-        )
-        conn.commit()
+    _store().save_cloudinit(vm_name, username, json.dumps(keys), datetime.now(UTC).isoformat())
 
 
 def delete_state(vm_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM vm_cloudinit WHERE vm_name = ?", (vm_name,))
-        conn.commit()
+    _store().delete_cloudinit(vm_name)
 
 
 def validate(username, password, keys):
