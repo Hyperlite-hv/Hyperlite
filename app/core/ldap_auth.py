@@ -22,7 +22,13 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import parse_dn
 
 from app.core import secrets_crypto
-from app.core.database import get_conn
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.identity().sync
+
 
 TIMEOUT_S = 8
 USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$")
@@ -51,11 +57,9 @@ class LocalAccountConflict(Exception):
 
 
 def get_config():
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM ldap_config WHERE id = 1").fetchone()
-    if not row:
+    d = _store().ldap_config()
+    if not d:
         return None
-    d = dict(row)
     if d.get("bind_password"):
         try:
             d["bind_password"] = secrets_crypto.decrypt(d["bind_password"])
@@ -124,17 +128,7 @@ def set_config(fields):
     if password:
         clean["bind_password"] = secrets_crypto.encrypt(password)
     cols = [c for c in CONFIG_COLUMNS if c in clean]
-    with get_conn() as db:
-        if db.execute("SELECT id FROM ldap_config WHERE id = 1").fetchone():
-            sets = ", ".join(f"{c} = ?" for c in cols)
-            # Column names come from CONFIG_COLUMNS only; the values are bound.
-            db.execute(f"UPDATE ldap_config SET {sets} WHERE id = 1", [clean[c] for c in cols])  # noqa: S608
-        else:
-            db.execute(
-                f"INSERT INTO ldap_config (id, {', '.join(cols)}) VALUES (1, {', '.join('?' * len(cols))})",  # noqa: S608
-                [clean[c] for c in cols],
-            )
-        db.commit()
+    _store().save_ldap_config({c: clean[c] for c in cols})
     return public_config()
 
 
@@ -230,20 +224,12 @@ def role_for(cfg, groups):
 
 def provision(username, dn, role):
     from app.core.security import hash_password  # security imports this module for the sign-in
+    from app.repositories.sqlite import identity
 
-    with get_conn() as db:
-        row = db.execute("SELECT username, auth_source FROM users WHERE username = ?", (username,)).fetchone()
-        if row is not None and row["auth_source"] != "ldap":
-            raise LocalAccountConflict(username)
-        if row is None:
-            db.execute(
-                "INSERT INTO users (username, hashed_password, role, auth_source, ldap_dn) VALUES (?, ?, ?, 'ldap', ?)",
-                (username, hash_password(secrets.token_hex(32)), role, dn),
-            )
-        else:
-            db.execute("UPDATE users SET role = ?, ldap_dn = ? WHERE username = ?", (role, dn, username))
-        db.commit()
-        return dict(db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone())
+    outcome, row = _store().provision_ldap_user(username, dn, role, lambda: hash_password(secrets.token_hex(32)))
+    if outcome == identity.LOCAL_ACCOUNT:
+        raise LocalAccountConflict(row["username"])
+    return row
 
 
 def authenticate(username, password):
