@@ -8,13 +8,18 @@ import hashlib
 import secrets
 from datetime import UTC, datetime
 
-from app.core.database import get_conn
-
 TOKEN_PREFIX = "hlt_"  # noqa: S105 -- public token prefix, not a credential
 
 
 def generate_token() -> str:
     return TOKEN_PREFIX + secrets.token_urlsafe(32)
+
+
+def _accounts():
+    # The account repository's synchronous bridge: signing in runs in FastAPI dependencies and sync endpoints.
+    from app.repositories import registry
+
+    return registry.accounts().sync
 
 
 def _hash(token: str) -> str:
@@ -26,41 +31,24 @@ def create_token(username: str, name: str, expires_at: str | None = None, kind: 
     function has returned. kind: "api" (created by hand, no expiry by default) or
     "cli" (a workstation signed in with `hyperlite login`, always expiring)."""
     token = generate_token()
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO api_tokens (username, name, token_hash, created_at, expires_at, kind) VALUES (?, ?, ?, ?, ?, ?)",
-            (username, name, _hash(token), datetime.now(UTC).isoformat(), expires_at, kind),
-        )
-        conn.commit()
-        token_id = cur.lastrowid
+    token_id = _accounts().create_token(username, name, _hash(token), datetime.now(UTC).isoformat(), expires_at, kind)
     return token_id, token
 
 
 def list_tokens(username: str):
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, name, created_at, last_used_at, expires_at, kind FROM api_tokens WHERE username = ? ORDER BY created_at DESC",
-            (username,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return _accounts().list_tokens(username)
 
 
 def revoke_token(username: str, token_id: int) -> bool:
     """Scoped to a username: a user can only revoke their own tokens, and
     guessing another account's token ID does nothing."""
-    with get_conn() as conn:
-        cur = conn.execute("DELETE FROM api_tokens WHERE id = ? AND username = ?", (token_id, username))
-        conn.commit()
-    return cur.rowcount > 0
+    return _accounts().revoke_token(username, token_id)
 
 
 def revoke_all_tokens(username: str) -> int:
     """Every token of the account, API and workstation ("cli") alike: used when an administrator resets the
     password, i.e. when the account may be in the wrong hands. Returns how many were revoked."""
-    with get_conn() as conn:
-        cur = conn.execute("DELETE FROM api_tokens WHERE username = ?", (username,))
-        conn.commit()
-    return cur.rowcount
+    return _accounts().revoke_all_tokens(username)
 
 
 def verify_token(token: str):
@@ -70,21 +58,14 @@ def verify_token(token: str):
     if not token or not token.startswith(TOKEN_PREFIX):
         return None
     token_hash = _hash(token)
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT id, username, expires_at FROM api_tokens WHERE token_hash = ?", (token_hash,)
-        ).fetchone()
-        if not row:
-            return None
-        if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= datetime.now(UTC):
-            return None
-        conn.execute(
-            "UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?",
-            (datetime.now(UTC).isoformat(), token_hash),
-        )
-        conn.commit()
-        user = conn.execute("SELECT * FROM users WHERE username = ?", (row["username"],)).fetchone()
+    row = _accounts().token_by_hash(token_hash)
+    if not row:
+        return None
+    if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= datetime.now(UTC):
+        return None
+    _accounts().touch_token(token_hash, datetime.now(UTC).isoformat())
+    user = _accounts().get(row["username"])
     if not user:
         return None
     # Which token authenticated the request: a token may revoke itself, never create or revoke others.
-    return {**dict(user), "api_token_id": row["id"]}
+    return {**user, "api_token_id": row["id"]}
