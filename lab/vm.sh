@@ -10,8 +10,9 @@
 #   vm.sh heal N       let it through again
 #   vm.sh down [DIR]   keep each node's logs in DIR/nN/cfs.log, then destroy everything
 #
-# Needs root, libvirt with KVM, dnsmasq, virt-install, cloud-image-utils (cloud-localds), openssh-client and Internet access
-# for the Debian image and packages. Same interface as cfs/tests/cluster/lab.sh, so the same tests drive both.
+# Needs root, libvirt with KVM, dnsmasq, virt-install, qemu-img, losetup, cloud-image-utils (cloud-localds),
+# openssh-client and Internet access for the Debian image and packages. Same interface as cfs/tests/cluster/lab.sh, so
+# the same tests drive both.
 set -euo pipefail
 
 NODES=3
@@ -103,6 +104,7 @@ EOF
         --disk "path=$POOL/${P}$i.qcow2,bus=virtio" \
         --disk "path=$POOL/${P}$i-seed.iso,device=disk,bus=virtio,format=raw,readonly=on" \
         --network network=$NET,mac="$(mac_of "$i")",model=virtio --watchdog i6300esb,action=reset \
+        --boot "kernel=$POOL/${P}-vmlinuz,initrd=$POOL/${P}-initrd,kernel_args=\"$KERNEL_ARGS\"" \
         --osinfo detect=on,require=off --graphics none --noautoconsole \
         --serial file,path=/var/log/libvirt/qemu/${P}$i-console.log > /dev/null
 }
@@ -142,23 +144,38 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     chmod 0666 "$dir/n$i/cfs.sock"
 }
 
-# Under nested KVM some CPU models make the Debian kernel reset before printing anything (GRUB, then a reboot, in a
-# loop): la57 (5-level paging) advertised by the outer hypervisor but not usable is the usual culprit. The lab tries
-# these models in order and keeps the first that boots.
-CPUS=("host-passthrough,disable=la57" "qemu64" "host-model")
+# The VMs boot straight into the image's kernel (no GRUB), with early messages on the serial console: a kernel that
+# dies at once says why. Under nested KVM (a GitHub runner is a Hyper-V VM) a guest can still reset in a loop; the lab
+# then tries the next CPU model, and last turns off nested paging in kvm_amd, the known way around Hyper-V's.
+CPUS=("host-passthrough" "host-model")
+KERNEL_ARGS="root=/dev/vda1 ro console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 ignore_loglevel"
 
-booting() { # booting N: how many times GRUB started a kernel on node N's console
+extract_kernel() { # the image's kernel and initrd, next to the base image, read from a raw copy of its first partition
+    local mnt raw=$POOL/${P}-base.raw start
+    mnt=$(mktemp -d)
+    qemu-img convert -O raw "$POOL/${P}-base.qcow2" "$raw"
+    # By offset rather than through partition devices, which need udev to appear.
+    start=$(partx --show --noheadings --output START --nr 1 "$raw" | tr -d ' ')
+    mount -o ro,loop,offset=$((start * 512)) "$raw" "$mnt"
+    cp "$(ls "$mnt"/boot/vmlinuz-* | sort -V | tail -n 1)" "$POOL/${P}-vmlinuz"
+    cp "$(ls "$mnt"/boot/initrd.img-* | sort -V | tail -n 1)" "$POOL/${P}-initrd"
+    umount "$mnt"
+    rm -f "$raw"
+    rmdir "$mnt"
+}
+
+booting() { # booting N: how many times a kernel started on node N's console
     local n
-    n=$(grep -c "Booting" "/var/log/libvirt/qemu/${P}$1-console.log" 2> /dev/null) || n=0
+    n=$(grep -cE "Booting|Linux version" "/var/log/libvirt/qemu/${P}$1-console.log" 2> /dev/null) || n=0
     echo "$n"
 }
 
-boots() { # boots: 0 once every kernel printed on its console (or 90 s passed without a reboot loop), 1 on a loop
+boots() { # boots: 0 once every VM reached userspace (or 90 s passed without a reboot loop), 1 on a loop
     for _ in $(seq 1 45); do
         local up=0
         for i in $(seq 1 $NODES); do
-            [ "$(booting "$i")" -le 3 ] || return 1
-            grep -qE "Linux version|login:" "/var/log/libvirt/qemu/${P}$i-console.log" 2> /dev/null && up=$((up + 1))
+            [ "$(booting "$i")" -le 2 ] || return 1
+            grep -qE "login:|Reached target" "/var/log/libvirt/qemu/${P}$i-console.log" 2> /dev/null && up=$((up + 1))
         done
         [ $up -lt $NODES ] || return 0
         sleep 2
@@ -192,11 +209,19 @@ up() {
     [ -s "$CACHE/debian.qcow2" ] || curl -fsSL -o "$CACHE/debian.qcow2" "$IMAGE_URL"
     # The base image sits in libvirt's own directory, where QEMU and AppArmor allow reading a backing file.
     cp "$CACHE/debian.qcow2" "$POOL/${P}-base.qcow2"
+    extract_kernel
     ssh-keygen -q -t ed25519 -N '' -f "$(key_of "$dir")"
     network
     for i in $(seq 1 $NODES); do mkdir -p "$dir/n$i"; done
-    local booted=0
-    for cpu in "${CPUS[@]}"; do
+    local booted=0 attempts=("${CPUS[@]}")
+    # Last resort, AMD hosts only: the same CPU with nested paging off in kvm_amd.
+    grep -q AuthenticAMD /proc/cpuinfo && attempts+=("npt=0")
+    for cpu in "${attempts[@]}"; do
+        if [ "$cpu" = "npt=0" ]; then
+            echo "lab: reloading kvm_amd with nested paging off"
+            modprobe -r kvm_amd && modprobe kvm_amd npt=0
+            cpu=host-passthrough
+        fi
         echo "lab: starting the VMs with CPU $cpu"
         local created=1
         for i in $(seq 1 $NODES); do
@@ -243,7 +268,7 @@ down() {
         virsh undefine ${P}$i > /dev/null 2>&1 || true
         rm -f "$POOL/${P}$i.qcow2" "$POOL/${P}$i-seed.iso"
     done
-    rm -f "$POOL/${P}-base.qcow2"
+    rm -f "$POOL/${P}-base.qcow2" "$POOL/${P}-vmlinuz" "$POOL/${P}-initrd"
     pkill -f "ssh .*-L .*/n[0-9]/cfs.sock" 2> /dev/null || true
     virsh net-destroy $NET > /dev/null 2>&1 || true
     virsh net-undefine $NET > /dev/null 2>&1 || true
