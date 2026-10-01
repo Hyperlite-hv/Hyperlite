@@ -12,11 +12,17 @@ import qrcode
 import qrcode.image.svg
 
 from app.core import secrets_crypto
-from app.core.database import get_conn
 
 logger = logging.getLogger(__name__)
 
 ISSUER = "Hyperlite"
+
+
+def _accounts():
+    # The account repository's synchronous bridge: signing in runs in FastAPI dependencies and sync endpoints.
+    from app.repositories import registry
+
+    return registry.accounts().sync
 
 
 def generate_secret() -> str:
@@ -69,28 +75,16 @@ def verify_code(username: str, stored_secret: str, code: str) -> bool:
         return False
     if step is None:
         return False
-    with get_conn() as conn:
-        # One conditional write: of two concurrent uses of the same code, only one updates the row.
-        cur = conn.execute(
-            "UPDATE users SET totp_last_step = ? WHERE username = ? AND (totp_last_step IS NULL OR totp_last_step < ?)",
-            (step, username, step),
-        )
-        conn.commit()
-    return cur.rowcount == 1
+    # One conditional write: of two concurrent uses of the same code, only one updates the row.
+    return _accounts().claim_totp_step(username, step)
 
 
 def encrypt_stored_secrets():
     """Encrypt the TOTP secrets stored in clear by earlier versions (run at start-up, idempotent)."""
-    with get_conn() as conn:
-        rows = conn.execute("SELECT username, totp_secret FROM users WHERE totp_secret IS NOT NULL").fetchall()
-        changed = 0
-        for row in rows:
-            if row["totp_secret"] and not secrets_crypto.is_encrypted(row["totp_secret"]):
-                conn.execute(
-                    "UPDATE users SET totp_secret = ? WHERE username = ?",
-                    (seal_secret(row["totp_secret"]), row["username"]),
-                )
-                changed += 1
-        conn.commit()
+    changed = 0
+    for row in _accounts().totp_secrets():
+        if row["totp_secret"] and not secrets_crypto.is_encrypted(row["totp_secret"]):
+            _accounts().replace_totp_secret(row["username"], seal_secret(row["totp_secret"]))
+            changed += 1
     if changed:
         logger.info("Encrypted %d TOTP secret(s) stored in clear", changed)

@@ -4,11 +4,7 @@ themselves. This list only shrinks: a router that no longer needs get_conn must 
 import pathlib
 import re
 
-# Routers that still run SQL directly, until their domain moves behind a repository.
-STILL_ALLOWED = {
-    "auth.py",
-    "sso.py",
-}
+STILL_ALLOWED = set()  # phase 1 done for the routers: none reaches SQLite any more
 
 ROUTERS = pathlib.Path(__file__).resolve().parent.parent / "app" / "routers"
 

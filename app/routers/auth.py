@@ -1,5 +1,4 @@
 import re
-import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -12,7 +11,6 @@ from app.core import login_guard, renaming, webauthn_keys
 from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.client_address import client_address
-from app.core.database import get_conn
 from app.core.password_policy import password_problem
 from app.core.permissions import get_user_groups, remove_group_member
 from app.core.security import (
@@ -36,6 +34,7 @@ from app.core.security import (
     verify_password,
 )
 from app.core.twofa import generate_secret, provisioning_uri, qr_code_svg, seal_secret, verify_code
+from app.services import account_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -210,9 +209,7 @@ def _session_response(token, user):
 
 
 def _record_login(username):
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET last_login_at = ? WHERE username = ?", (datetime.now(UTC).isoformat(), username))
-        conn.commit()
+    account_service.record_login(username)
 
 
 @router.post("/login")
@@ -399,12 +396,7 @@ def setup_2fa(payload: PasswordConfirm, user: dict = Depends(get_session_user)):
     _check_current_password(user, payload.password, "enable_2fa")
     _reauth_clear_failures(user["username"])
     secret = generate_secret()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE users SET totp_secret = ?, totp_last_step = NULL WHERE username = ?",
-            (seal_secret(secret), user["username"]),
-        )
-        conn.commit()
+    account_service.start_totp(user["username"], seal_secret(secret))
     uri = provisioning_uri(secret, user["username"])
     return {"secret": secret, "otpauth_uri": uri, "qr_code_svg": qr_code_svg(uri)}
 
@@ -418,9 +410,7 @@ def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_session_user)):
         # 400, not 401: the session itself is valid, only the submitted code is wrong (a 401 makes
         # the dashboard treat the session as expired and sign the user out).
         raise HTTPException(status_code=400, detail="Invalid code")
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET totp_enabled = 1 WHERE username = ?", (user["username"],))
-        conn.commit()
+    account_service.enable_totp(user["username"])
     log_action(user["username"], "enable_2fa", user["username"], "succes")
     return {"message": "2FA enabled"}
 
@@ -442,9 +432,7 @@ def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(ge
         log_action(username, "disable_2fa", username, "echec", "Invalid 2FA code")
         raise HTTPException(status_code=400, detail="Invalid 2FA code (a code is accepted once: wait for the next one)")
     _reauth_clear_failures(username)
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE username = ?", (user["username"],))
-        conn.commit()
+    account_service.disable_totp(user["username"])
     log_action(user["username"], "disable_2fa", user["username"], "succes")
     return {"message": "2FA disabled"}
 
@@ -592,9 +580,7 @@ def change_my_password(
     problem = password_problem(payload.new_password, username)
     if problem:
         raise HTTPException(status_code=422, detail=problem)
-    with get_conn() as conn:
-        set_password(conn, username, payload.new_password)
-        conn.commit()
+    set_password(username, payload.new_password)
     _reauth_clear_failures(username)
     # A password is changed when the account may be compromised: its API and workstation tokens go too, as on a
     # reset by an administrator. Otherwise a stolen script token kept full, permanent access.
@@ -618,12 +604,8 @@ def logout(token: str = Depends(oauth2_scheme), user: dict = Depends(get_current
 
 
 @router.get("/users")
-def list_users(user: dict = Depends(require_role("admin"))):
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT username, role, auth_source, totp_enabled, last_login_at FROM users ORDER BY username"
-        ).fetchall()
-    return [{**dict(r), "totp_enabled": bool(r["totp_enabled"])} for r in rows]
+async def list_users(user: dict = Depends(require_role("admin"))):
+    return await account_service.list_users()
 
 
 @router.post("/users", status_code=201)
@@ -636,52 +618,45 @@ def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))
     if payload.role not in ("admin", "observateur"):
         raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
     try:
-        with get_conn() as conn:
-            conn.execute(
-                "INSERT INTO users (username, hashed_password, role) VALUES (?, ?, ?)",
-                (payload.username, hash_password(payload.password), payload.role),
-            )
-            conn.commit()
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=422, detail=f"User '{payload.username}' already exists") from None
+        account_service.create(payload.username, hash_password(payload.password), payload.role)
+    except account_service.UserExists as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     log_action(user["username"], "create_user", payload.username, "succes")
     return {"username": payload.username, "role": payload.role}
 
 
 @router.patch("/users/{username}")
 def update_user(username: str, payload: UserUpdate, user: dict = Depends(require_role("admin"))):
-    with get_conn() as conn:
-        existing = conn.execute(
-            "SELECT username, role, auth_source FROM users WHERE username = ?", (username,)
-        ).fetchone()
-        if not existing:
-            raise HTTPException(status_code=404, detail=f"User '{username}' not found")
-        # SSO: the local password of an SSO account is a random secret that is never
-        # disclosed (see sso.py::provision_user). "Changing" it here would give the
-        # misleading impression that a local login would then work, whereas the role
-        # itself is overwritten at the next SSO login anyway. The role remains editable
-        # by hand (useful as a fallback when the IdP is down).
-        if payload.password is not None and existing["auth_source"] == "sso":
-            raise HTTPException(status_code=400, detail="SSO account: the password cannot be changed locally")
-        if payload.password is not None and existing["auth_source"] == "ldap":
-            raise HTTPException(status_code=400, detail="Directory account: the password is changed in the directory")
-        if payload.password is not None:
-            # An administrator changes their own password through /auth/me/password, which asks for the
-            # current one (and the 2FA code): a stolen admin session must not be enough to lock the owner out.
-            if username == user["username"]:
-                raise HTTPException(status_code=400, detail="Use 'Change my password' to change your own password")
-            problem = password_problem(payload.password, username)
-            if problem:
-                raise HTTPException(status_code=422, detail=problem)
-        if payload.role is not None:
-            if payload.role not in ("admin", "observateur"):
-                raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
-            if existing["role"] == "admin" and payload.role != "admin" and username == user["username"]:
-                raise HTTPException(status_code=400, detail="You cannot remove your own admin rights")
-            conn.execute("UPDATE users SET role = ? WHERE username = ?", (payload.role, username))
-        if payload.password is not None:
-            set_password(conn, username, payload.password)
-        conn.commit()
+    existing = account_service.get(username)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+    # SSO: the local password of an SSO account is a random secret that is never
+    # disclosed (see sso.py::provision_user). "Changing" it here would give the
+    # misleading impression that a local login would then work, whereas the role
+    # itself is overwritten at the next SSO login anyway. The role remains editable
+    # by hand (useful as a fallback when the IdP is down).
+    if payload.password is not None and existing["auth_source"] == "sso":
+        raise HTTPException(status_code=400, detail="SSO account: the password cannot be changed locally")
+    if payload.password is not None and existing["auth_source"] == "ldap":
+        raise HTTPException(status_code=400, detail="Directory account: the password is changed in the directory")
+    if payload.password is not None:
+        # An administrator changes their own password through /auth/me/password, which asks for the
+        # current one (and the 2FA code): a stolen admin session must not be enough to lock the owner out.
+        if username == user["username"]:
+            raise HTTPException(status_code=400, detail="Use 'Change my password' to change your own password")
+        problem = password_problem(payload.password, username)
+        if problem:
+            raise HTTPException(status_code=422, detail=problem)
+    if payload.role is not None:
+        if payload.role not in ("admin", "observateur"):
+            raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
+        if existing["role"] == "admin" and payload.role != "admin" and username == user["username"]:
+            raise HTTPException(status_code=400, detail="You cannot remove your own admin rights")
+    # Role and password in one transaction (set_password), or the role alone.
+    if payload.password is not None:
+        set_password(username, payload.password, role=payload.role)
+    elif payload.role is not None:
+        account_service.set_role(username, payload.role)
     result = {"message": "User updated"}
     if payload.password is not None:
         # A reset means the account may be in the wrong hands: its sessions are already signed out
@@ -700,18 +675,12 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
 def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     if username == user["username"]:
         raise HTTPException(status_code=400, detail="You cannot delete yourself")
-    with get_conn() as conn:
-        row = conn.execute("SELECT role FROM users WHERE username = ?", (username,)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail=f"User '{username}' not found")
-        if row["role"] == "admin":
-            remaining_admins = conn.execute(
-                "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND username != ?", (username,)
-            ).fetchone()["n"]
-            if remaining_admins == 0:
-                raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
-        conn.execute("DELETE FROM users WHERE username = ?", (username,))
-        conn.commit()
+    row = account_service.get(username)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+    if row["role"] == "admin" and account_service.other_admins(username) == 0:
+        raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
+    account_service.delete(username)
     webauthn_keys.delete_all_keys(username)
     for group_id in get_user_groups(username):
         remove_group_member(group_id, username)
