@@ -37,6 +37,13 @@ from pathlib import Path
 
 from app.core import database
 
+
+def _store():
+    from app.repositories import registry
+
+    return registry.settings().sync
+
+
 logger = logging.getLogger(__name__)
 
 REMOTE_DIR = "/var/lib/hyperlite/config-copy"
@@ -189,20 +196,11 @@ def push(node, bundle):
 
 
 def _record(node, statut, taille=None, empreinte=None, erreur=None):
-    with database.get_conn() as db:
-        db.execute(
-            "INSERT INTO config_copies (node, copie_le, statut, taille, empreinte, erreur) VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(node) DO UPDATE SET copie_le = excluded.copie_le, statut = excluded.statut, "
-            "taille = COALESCE(excluded.taille, config_copies.taille), "
-            "empreinte = COALESCE(excluded.empreinte, config_copies.empreinte), erreur = excluded.erreur",
-            (node, _now().isoformat(), statut, taille, empreinte, erreur),
-        )
-        db.commit()
+    _store().record_config_copy(node, _now().isoformat(), statut, taille, empreinte, erreur)
 
 
 def status():
-    with database.get_conn() as db:
-        return [dict(r) for r in db.execute("SELECT * FROM config_copies ORDER BY node")]
+    return _store().config_copies()
 
 
 def copy_now(force=False, username="system"):

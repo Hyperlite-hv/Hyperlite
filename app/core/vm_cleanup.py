@@ -30,9 +30,15 @@ import libvirt
 
 from app.core import vm_locks
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
 from app.core.vm_meta import delete_vm_auto_cleanup, list_all_auto_cleanup
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.objects().sync
+
 
 CHECK_INTERVAL_S = 3600  # a threshold is counted in DAYS, hourly is frequent enough
 WARNING_HOURS_BEFORE = 24
@@ -46,12 +52,7 @@ def _age_hours(iso_ts):
 
 
 def _mark_warned(vm_name):
-    with get_conn() as db:
-        db.execute(
-            "UPDATE vm_auto_cleanup SET warned_at = ? WHERE vm_name = ?",
-            (datetime.now(UTC).isoformat(), vm_name),
-        )
-        db.commit()
+    _store().mark_cleanup_warned(vm_name, datetime.now(UTC).isoformat())
 
 
 def check_once():

@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core import version
 from app.core.audit import log_action
-from app.core.database import DB_PATH, get_conn
+from app.core.database import DB_PATH
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 
@@ -570,14 +570,11 @@ def _update_in_progress():
 
     Only tasks started recently count: a task left 'en_cours' by a crash must not block
     updates forever."""
+    from app.repositories import registry
+
     cutoff = (datetime.now(UTC) - UPDATE_IN_PROGRESS_WINDOW).isoformat()
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT username FROM tasks WHERE type = 'hyperlite_update' AND statut = 'en_cours' "
-            "AND cree_le > ? ORDER BY cree_le DESC LIMIT 1",
-            (cutoff,),
-        ).fetchone()
-    return (row["username"] or "another administrator") if row else None
+    username = registry.tasks().sync.latest_running("hyperlite_update", cutoff)
+    return (username or "another administrator") if username is not None else None
 
 
 @router.post("/apply", status_code=202)

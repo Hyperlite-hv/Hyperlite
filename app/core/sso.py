@@ -34,13 +34,18 @@ from urllib.parse import urlencode
 import jwt
 
 from app.core import secrets_crypto
-from app.core.database import get_conn
 from app.core.http_safety import require_http_url
 from app.core.security import hash_password
 
 STATE_TTL_S = 600  # 10 min: enough time to authenticate at the IdP, no more
 HANDOFF_TTL_S = 60  # from the callback to the dashboard asking for its session: a redirect, a page load
 HTTP_TIMEOUT_S = 10
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.identity().sync
 
 
 class LocalAccountConflict(Exception):
@@ -55,18 +60,16 @@ def get_config():
     exchange_code() below). app/routers/sso.py NEVER returns this field as is
     to a client (see GET /config, which replaces it with
     client_secret_set: bool)."""
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM sso_config WHERE id = 1").fetchone()
-        if not row:
-            return None
-        d = dict(row)
-        if d.get("client_secret"):
-            try:
-                d["client_secret"] = secrets_crypto.decrypt(d["client_secret"])
-            except secrets_crypto.SecretUnreadable:
-                d["client_secret"] = None
-                d["client_secret_unreadable"] = True
-        return d
+    d = _store().sso_config()
+    if not d:
+        return None
+    if d.get("client_secret"):
+        try:
+            d["client_secret"] = secrets_crypto.decrypt(d["client_secret"])
+        except secrets_crypto.SecretUnreadable:
+            d["client_secret"] = None
+            d["client_secret_unreadable"] = True
+    return d
 
 
 # Columns that set_config() may write. Column names are interpolated into the
@@ -94,20 +97,7 @@ def set_config(**fields):
         raise ValueError(f"Unknown SSO configuration field(s): {', '.join(sorted(unknown))}")
     if fields.get("client_secret"):
         fields["client_secret"] = secrets_crypto.encrypt(fields["client_secret"])
-    with get_conn() as db:
-        existing = db.execute("SELECT id FROM sso_config WHERE id = 1").fetchone()
-        if existing:
-            sets = ", ".join(f"{k} = ?" for k in fields)
-            db.execute(f"UPDATE sso_config SET {sets} WHERE id = 1", list(fields.values()))  # noqa: S608 -- only fixed fragments/allowlisted column names are interpolated; values are bound parameters
-        else:
-            cols = ["id", *list(fields.keys())]
-            placeholders = ", ".join("?" for _ in cols)
-            # Only allowlisted column names are interpolated; values are bound parameters.
-            db.execute(
-                f"INSERT INTO sso_config ({', '.join(cols)}) VALUES ({placeholders})",  # noqa: S608
-                [1, *list(fields.values())],
-            )
-        db.commit()
+    _store().save_sso_config(fields)
 
 
 def _http_get_json(url):
@@ -148,15 +138,7 @@ def create_state():
     nonce = secrets.token_urlsafe(24)
     binding = secrets.token_urlsafe(32)
     now = time.time()
-    with get_conn() as db:
-        # Purge expired states along the way: such a short-lived table (10 minute
-        # lifetime) does not justify a dedicated scheduler.
-        db.execute("DELETE FROM sso_login_state WHERE created_at < ?", (now - STATE_TTL_S,))
-        db.execute(
-            "INSERT INTO sso_login_state (state, nonce, created_at, binding) VALUES (?, ?, ?, ?)",
-            (state, nonce, now, _digest(binding)),
-        )
-        db.commit()
+    _store().put_sso_state(state, nonce, now, _digest(binding), now - STATE_TTL_S)
     return state, nonce, binding
 
 
@@ -164,12 +146,9 @@ def consume_state(state, binding):
     """The nonce of `state` if it is valid and comes back to the browser that started it, else None. SINGLE USE:
     the row is deleted as soon as it is read (standard replay protection of the Authorization Code flow: a
     `state` must never be usable twice)."""
-    with get_conn() as db:
-        row = db.execute("SELECT nonce, created_at, binding FROM sso_login_state WHERE state = ?", (state,)).fetchone()
-        if not row:
-            return None
-        db.execute("DELETE FROM sso_login_state WHERE state = ?", (state,))
-        db.commit()
+    row = _store().take_sso_state(state)
+    if not row:
+        return None
     if time.time() - row["created_at"] > STATE_TTL_S:
         return None
     if not binding or not row["binding"] or not hmac.compare_digest(row["binding"], _digest(binding)):
@@ -183,12 +162,7 @@ def create_handoff(username):
     and of any proxy."""
     code = secrets.token_urlsafe(32)
     now = time.time()
-    with get_conn() as db:
-        db.execute("DELETE FROM sso_handoffs WHERE created_at < ?", (now - HANDOFF_TTL_S,))
-        db.execute(
-            "INSERT INTO sso_handoffs (code, username, created_at) VALUES (?, ?, ?)", (_digest(code), username, now)
-        )
-        db.commit()
+    _store().put_handoff(_digest(code), username, now, now - HANDOFF_TTL_S)
     return code
 
 
@@ -196,12 +170,9 @@ def consume_handoff(code):
     """The username a handoff code was issued for, once, within HANDOFF_TTL_S; else None."""
     if not code:
         return None
-    with get_conn() as db:
-        row = db.execute("SELECT username, created_at FROM sso_handoffs WHERE code = ?", (_digest(code),)).fetchone()
-        if not row:
-            return None
-        db.execute("DELETE FROM sso_handoffs WHERE code = ?", (_digest(code),))
-        db.commit()
+    row = _store().take_handoff(_digest(code))
+    if not row:
+        return None
     if time.time() - row["created_at"] > HANDOFF_TTL_S:
         return None
     return row["username"]
@@ -297,30 +268,11 @@ def provision_user(username, role, subject=None):
     email can be changed, or reused by another person). The account is found by it first, and a username already
     bound to another subject is refused instead of letting a second identity into that account. Accounts created
     before this was recorded are bound to the first subject that signs in to them."""
-    with get_conn() as db:
-        if subject:
-            bound = db.execute(
-                "SELECT username FROM users WHERE auth_source = 'sso' AND sso_subject = ?", (subject,)
-            ).fetchone()
-            if bound is not None:
-                username = bound["username"]
-        existing = db.execute(
-            "SELECT username, role, auth_source, sso_subject FROM users WHERE username = ?", (username,)
-        ).fetchone()
-        if existing is not None and existing["auth_source"] != "sso":
-            raise LocalAccountConflict(username)
-        if existing is not None and subject and existing["sso_subject"] and existing["sso_subject"] != subject:
-            raise SubjectConflict(username)
-        if existing is None:
-            db.execute(
-                "INSERT INTO users (username, hashed_password, role, auth_source, sso_subject) VALUES (?, ?, ?, 'sso', ?)",
-                (username, hash_password(secrets.token_hex(32)), role, subject),
-            )
-        else:
-            db.execute(
-                "UPDATE users SET role = ?, sso_subject = COALESCE(sso_subject, ?) WHERE username = ?",
-                (role, subject, username),
-            )
-        db.commit()
-        row = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        return dict(row)
+    from app.repositories.sqlite import identity
+
+    outcome, row = _store().provision_sso_user(username, role, subject, lambda: hash_password(secrets.token_hex(32)))
+    if outcome == identity.LOCAL_ACCOUNT:
+        raise LocalAccountConflict(row["username"])
+    if outcome == identity.OTHER_SUBJECT:
+        raise SubjectConflict(row["username"])
+    return row

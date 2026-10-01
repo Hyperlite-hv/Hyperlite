@@ -16,8 +16,14 @@ from pathlib import Path
 import libvirt
 
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.objects().sync
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,67 +39,40 @@ def _node_key(node):
 
 def get_setting(vm_name, node=None):
     """{"demarrage_auto": bool, "ordre": int|None, "delai_s": int} of a VM."""
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT autostart, boot_order, delay_s FROM vm_boot WHERE node = ? AND vm_name = ?",
-            (_node_key(node), vm_name),
-        ).fetchone()
+    row = _store().boot_setting(_node_key(node), vm_name)
     if not row:
         return {"demarrage_auto": False, "ordre": None, "delai_s": 0}
     return {"demarrage_auto": bool(row["autostart"]), "ordre": row["boot_order"], "delai_s": row["delay_s"]}
 
 
 def set_setting(vm_name, autostart, order, delay_s, node=None):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO vm_boot (node, vm_name, autostart, boot_order, delay_s) VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(node, vm_name) DO UPDATE SET autostart = excluded.autostart, "
-            "boot_order = excluded.boot_order, delay_s = excluded.delay_s",
-            (_node_key(node), vm_name, 1 if autostart else 0, order, delay_s),
-        )
-        conn.commit()
+    _store().set_boot_setting(_node_key(node), vm_name, 1 if autostart else 0, order, delay_s)
 
 
 def delete_setting(vm_name, node=None):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM vm_boot WHERE node = ? AND vm_name = ?", (_node_key(node), vm_name))
-        conn.commit()
+    _store().delete_boot_setting(_node_key(node), vm_name)
 
 
 def follow_migration(vm_name, source_node, target_node):
     """Move a VM's setting to the node it was live-migrated to; without it, the VM would not start with its new
     node and the old node would look for it in vain. True when there was a setting to move."""
-    with get_conn() as conn:
-        cur = conn.execute(
-            "UPDATE OR REPLACE vm_boot SET node = ? WHERE node = ? AND vm_name = ?",
-            (_node_key(target_node), _node_key(source_node), vm_name),
-        )
-        conn.commit()
-    return cur.rowcount > 0
+    return _store().move_boot_setting(vm_name, _node_key(source_node), _node_key(target_node))
 
 
 def sequence(node=None):
     """The VMs of a node to start at boot, in order: by their order number (none last), then by name."""
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT vm_name, boot_order, delay_s FROM vm_boot WHERE node = ? AND autostart = 1", (_node_key(node),)
-        ).fetchall()
     return sorted(
-        ({"nom": r["vm_name"], "ordre": r["boot_order"], "delai_s": r["delay_s"]} for r in rows),
+        (
+            {"nom": r["vm_name"], "ordre": r["boot_order"], "delai_s": r["delay_s"]}
+            for r in _store().autostart_vms(_node_key(node))
+        ),
         key=lambda v: (v["ordre"] is None, v["ordre"] or 0, v["nom"]),
     )
 
 
 def claim_boot(node, boot_id):
     """True the first time this boot of the node is seen, recording it; False afterwards."""
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO vm_boot_state (node, boot_id) VALUES (?, ?) "
-            "ON CONFLICT(node) DO UPDATE SET boot_id = excluded.boot_id WHERE vm_boot_state.boot_id <> excluded.boot_id",
-            (_node_key(node), boot_id),
-        )
-        conn.commit()
-    return cur.rowcount == 1
+    return _store().claim_boot(_node_key(node), boot_id)
 
 
 def run_sequence(node=None, sleep=time.sleep):

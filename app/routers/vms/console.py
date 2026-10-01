@@ -167,7 +167,8 @@ async def vm_console(websocket: WebSocket, name: str):
         node_ssh.close()
     try:
         await websocket.close()
-    except RuntimeError:
+    except (RuntimeError, WebSocketDisconnect):
+        # The browser may have closed the console first: there is nothing left to close.
         logger.debug("Ignored exception in vm_console()", exc_info=True)
 
 

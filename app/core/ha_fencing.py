@@ -22,7 +22,13 @@ import subprocess
 from datetime import UTC, datetime
 
 from app.core import secrets_crypto
-from app.core.database import get_conn
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.ha().sync
+
 
 logger = logging.getLogger(__name__)
 
@@ -67,20 +73,16 @@ def validate(methode, adresse, port, utilisateur):
 
 def get(node):
     """The settings of a node without the password ("secret_defini" says whether one is stored), or None."""
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM node_fencing WHERE node = ?", (node,)).fetchone()
-    if not row:
+    out = _store().fencing(node)
+    if not out:
         return None
-    out = dict(row)
     out["secret_defini"] = bool(out.pop("secret", None))
     out["tls_non_verifie"] = bool(out["tls_non_verifie"])
     return out
 
 
 def list_all():
-    with get_conn() as db:
-        nodes = [r["node"] for r in db.execute("SELECT node FROM node_fencing ORDER BY node")]
-    return [get(n) for n in nodes]
+    return [get(n) for n in _store().fenced_nodes()]
 
 
 def save(
@@ -91,29 +93,18 @@ def save(
     if error:
         raise FencingError(error)
     now = datetime.now(UTC).isoformat()
-    with get_conn() as db:
-        existing = db.execute("SELECT secret FROM node_fencing WHERE node = ?", (node,)).fetchone()
-        stored = secrets_crypto.encrypt(secret) if secret else (existing["secret"] if existing else None)
-        if methode == "lease_only":
-            adresse = port = utilisateur = stored = None
-        elif not stored:
-            raise FencingError("A password is needed for this method")
-        db.execute(
-            "INSERT INTO node_fencing (node, methode, adresse, port, utilisateur, secret, tls_non_verifie, modifie_par, modifie_le) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(node) DO UPDATE SET methode=excluded.methode, "
-            "adresse=excluded.adresse, port=excluded.port, utilisateur=excluded.utilisateur, secret=excluded.secret, "
-            "tls_non_verifie=excluded.tls_non_verifie, modifie_par=excluded.modifie_par, modifie_le=excluded.modifie_le",
-            (node, methode, adresse, port, utilisateur, stored, int(bool(tls_non_verifie)), username, now),
-        )
-        db.commit()
+    existing = _store().fencing(node)
+    stored = secrets_crypto.encrypt(secret) if secret else (existing["secret"] if existing else None)
+    if methode == "lease_only":
+        adresse = port = utilisateur = stored = None
+    elif not stored:
+        raise FencingError("A password is needed for this method")
+    _store().save_fencing(node, methode, adresse, port, utilisateur, stored, int(bool(tls_non_verifie)), username, now)
     return get(node)
 
 
 def delete(node):
-    with get_conn() as db:
-        cur = db.execute("DELETE FROM node_fencing WHERE node = ?", (node,))
-        db.commit()
-    return cur.rowcount > 0
+    return _store().delete_fencing(node)
 
 
 def _agent_input(row, action):
@@ -137,8 +128,7 @@ def _agent_input(row, action):
 def test(node):
     """Query the power state through the fence agent. Never powers anything off.
     Returns {"ok", "alimentation": "on"|"off"|None, "detail"}."""
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM node_fencing WHERE node = ?", (node,)).fetchone()
+    row = _store().fencing(node)
     if row is None:
         raise FencingError("No fencing is set for this node", 404)
     if row["methode"] == "lease_only":

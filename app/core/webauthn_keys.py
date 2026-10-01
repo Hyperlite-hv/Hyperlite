@@ -30,8 +30,6 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from app.core.database import get_conn
-
 logger = logging.getLogger(__name__)
 
 RP_NAME = "Hyperlite"
@@ -75,66 +73,44 @@ def relying_party(origin):
 # --- Storage ----------------------------------------------------------------------------------------------------
 
 
+def _store():
+    from app.repositories import registry
+
+    return registry.identity().sync
+
+
 def list_keys(username):
-    with get_conn() as db:
-        rows = db.execute(
-            "SELECT id, nom, rp_id, cree_le, utilise_le FROM webauthn_credentials WHERE username = ? ORDER BY cree_le",
-            (username,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+    return _store().list_keys(username)
 
 
 def has_keys(username):
-    with get_conn() as db:
-        return (
-            db.execute("SELECT 1 FROM webauthn_credentials WHERE username = ? LIMIT 1", (username,)).fetchone()
-            is not None
-        )
+    return _store().has_keys(username)
 
 
 def delete_key(username, key_id):
-    with get_conn() as db:
-        cur = db.execute("DELETE FROM webauthn_credentials WHERE id = ? AND username = ?", (key_id, username))
-        db.commit()
-        return cur.rowcount > 0
+    return _store().delete_key(username, key_id)
 
 
 def delete_all_keys(username):
-    with get_conn() as db:
-        db.execute("DELETE FROM webauthn_credentials WHERE username = ?", (username,))
-        db.commit()
+    _store().delete_all_keys(username)
 
 
 def _store_challenge(username, purpose, challenge, rp_id, origin):
-    with get_conn() as db:
-        db.execute("DELETE FROM webauthn_challenges WHERE expire_le < ?", (_now().isoformat(),))
-        db.execute(
-            "INSERT INTO webauthn_challenges (username, but, challenge, rp_id, origin, expire_le) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                username,
-                purpose,
-                bytes_to_base64url(challenge),
-                rp_id,
-                origin,
-                (_now() + timedelta(seconds=CHALLENGE_TTL_S)).isoformat(),
-            ),
-        )
-        db.commit()
+    _store().store_challenge(
+        username,
+        purpose,
+        bytes_to_base64url(challenge),
+        rp_id,
+        origin,
+        (_now() + timedelta(seconds=CHALLENGE_TTL_S)).isoformat(),
+        _now().isoformat(),
+    )
 
 
 def _take_challenge(username, purpose, rp_id, origin, client_data_challenge):
     """The stored challenge the browser signed, consumed (single use). None when unknown or expired."""
-    with get_conn() as db:
-        row = db.execute(
-            "SELECT id, expire_le FROM webauthn_challenges WHERE username = ? AND but = ? AND challenge = ? "
-            "AND rp_id = ? AND origin = ?",
-            (username, purpose, client_data_challenge, rp_id, origin),
-        ).fetchone()
-        if row is None:
-            return None
-        db.execute("DELETE FROM webauthn_challenges WHERE id = ?", (row["id"],))
-        db.commit()
-    if row["expire_le"] < _now().isoformat():
+    expires_at = _store().take_challenge(username, purpose, client_data_challenge, rp_id, origin)
+    if expires_at is None or expires_at < _now().isoformat():
         return None
     return webauthn.base64url_to_bytes(client_data_challenge)
 
@@ -156,13 +132,10 @@ def registration_options(username, origin):
     existing = list_keys(username)
     if len(existing) >= MAX_KEYS_PER_USER:
         raise WebAuthnError(f"At most {MAX_KEYS_PER_USER} security keys per account")
-    with get_conn() as db:
-        exclude = [
-            PublicKeyCredentialDescriptor(id=webauthn.base64url_to_bytes(r["credential_id"]))
-            for r in db.execute(
-                "SELECT credential_id FROM webauthn_credentials WHERE username = ? AND rp_id = ?", (username, rp_id)
-            )
-        ]
+    exclude = [
+        PublicKeyCredentialDescriptor(id=webauthn.base64url_to_bytes(c))
+        for c in _store().credential_ids(username, rp_id)
+    ]
     challenge = secrets.token_bytes(32)
     options = webauthn.generate_registration_options(
         rp_id=rp_id,
@@ -191,25 +164,18 @@ def register(username, origin, credential, name):
         )
     except (InvalidRegistrationResponse, ValueError, KeyError, TypeError) as e:
         raise WebAuthnError(f"The security key answer was refused: {e}") from None
-    credential_id = bytes_to_base64url(verified.credential_id)
-    with get_conn() as db:
-        if db.execute("SELECT 1 FROM webauthn_credentials WHERE credential_id = ?", (credential_id,)).fetchone():
-            raise WebAuthnError("This security key is already registered", 409)
-        cur = db.execute(
-            "INSERT INTO webauthn_credentials (username, nom, credential_id, public_key, sign_count, rp_id, cree_le) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                username,
-                name,
-                credential_id,
-                bytes_to_base64url(verified.credential_public_key),
-                verified.sign_count,
-                rp_id,
-                _now().isoformat(),
-            ),
-        )
-        db.commit()
-        return cur.lastrowid
+    key_id = _store().add_credential(
+        username,
+        name,
+        bytes_to_base64url(verified.credential_id),
+        bytes_to_base64url(verified.credential_public_key),
+        verified.sign_count,
+        rp_id,
+        _now().isoformat(),
+    )
+    if key_id is None:
+        raise WebAuthnError("This security key is already registered", 409)
+    return key_id
 
 
 # --- Sign-in ----------------------------------------------------------------------------------------------------
@@ -217,11 +183,8 @@ def register(username, origin, credential, name):
 
 def authentication_options(username, origin):
     rp_id, origin = relying_party(origin)
-    with get_conn() as db:
-        rows = db.execute(
-            "SELECT credential_id FROM webauthn_credentials WHERE username = ? AND rp_id = ?", (username, rp_id)
-        ).fetchall()
-    if not rows:
+    credential_ids = _store().credential_ids(username, rp_id)
+    if not credential_ids:
         raise WebAuthnError(
             f"No security key of this account is registered for {rp_id}: use the code, or the address the key was added with"
         )
@@ -229,9 +192,7 @@ def authentication_options(username, origin):
     options = webauthn.generate_authentication_options(
         rp_id=rp_id,
         challenge=challenge,
-        allow_credentials=[
-            PublicKeyCredentialDescriptor(id=webauthn.base64url_to_bytes(r["credential_id"])) for r in rows
-        ],
+        allow_credentials=[PublicKeyCredentialDescriptor(id=webauthn.base64url_to_bytes(c)) for c in credential_ids],
         user_verification=UserVerificationRequirement.PREFERRED,
     )
     _store_challenge(username, LOGIN, challenge, rp_id, origin)
@@ -245,11 +206,7 @@ def authenticate(username, origin, credential):
     if challenge is None:
         return False
     credential_id = str(credential.get("id") or "")
-    with get_conn() as db:
-        row = db.execute(
-            "SELECT id, public_key, sign_count FROM webauthn_credentials WHERE username = ? AND credential_id = ? AND rp_id = ?",
-            (username, credential_id, rp_id),
-        ).fetchone()
+    row = _store().credential(username, credential_id, rp_id)
     if row is None:
         return False
     try:
@@ -264,10 +221,5 @@ def authenticate(username, origin, credential):
     except (InvalidAuthenticationResponse, ValueError, KeyError, TypeError):
         logger.info("Security key sign-in refused for %s", username, exc_info=True)
         return False
-    with get_conn() as db:
-        db.execute(
-            "UPDATE webauthn_credentials SET sign_count = ?, utilise_le = ? WHERE id = ?",
-            (verified.new_sign_count, _now().isoformat(), row["id"]),
-        )
-        db.commit()
+    _store().record_key_use(row["id"], verified.new_sign_count, _now().isoformat())
     return True
