@@ -98,7 +98,9 @@ EOF
     cloud-localds "$POOL/${P}$i-seed.iso" "$dir/n$i/user-data" "$dir/n$i/meta-data"
     # virtio everywhere, said explicitly: without an OS virt-install knows, it falls back to emulated SATA and NICs. The
     # cloud-init seed is a plain virtio disk too (cloud-init finds it by its "cidata" label).
-    virt-install --name ${P}$i --memory 1536 --vcpus 2 --import \
+    # The runner's own CPU: the model virt-install picks for an unknown OS makes the Debian kernel reset at once under
+    # nested KVM (GRUB, then a reboot, in a loop).
+    virt-install --name ${P}$i --memory 1536 --vcpus 2 --cpu host-passthrough --import \
         --disk "path=$POOL/${P}$i.qcow2,bus=virtio" \
         --disk "path=$POOL/${P}$i-seed.iso,device=disk,bus=virtio,format=raw,readonly=on" \
         --network network=$NET,mac="$(mac_of "$i")",model=virtio --watchdog i6300esb,action=reset \
@@ -108,11 +110,16 @@ EOF
 
 provision() { # provision DIR N: build hyperlite-cfs from this checkout and start it with Corosync
     local dir=$1 i=$2
-    local reached=0
+    local reached=0 console=/var/log/libvirt/qemu/${P}$i-console.log
     for _ in $(seq 1 90); do
         if on "$dir" "$i" true 2> /dev/null; then
             reached=1
             break
+        fi
+        # A kernel that resets at once shows as GRUB again and again on the console: say so now, not in minutes.
+        if [ "$(grep -c "Booting" "$console" 2> /dev/null || echo 0)" -gt 3 ]; then
+            echo "node $i reboots in a loop right after GRUB: its kernel does not start (see its console)" >&2
+            return 1
         fi
         sleep 2
     done
