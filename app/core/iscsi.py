@@ -63,7 +63,11 @@ def is_iscsi_device(path):
 
 def iscsi_disks_of_domain(domain):
     """Block device paths of a domain's disks that are iSCSI LUNs."""
-    root = ET.fromstring(domain.XMLDesc())
+    return iscsi_disks_of_xml(ET.fromstring(domain.XMLDesc()))
+
+
+def iscsi_disks_of_xml(root):
+    """The same, from a domain XML already parsed (the VM list parses each XML once)."""
     paths = []
     for disk_el in root.findall(".//devices/disk"):
         if disk_el.get("type") != "block" or disk_el.get("device") != "disk":

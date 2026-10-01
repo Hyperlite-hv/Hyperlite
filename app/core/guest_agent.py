@@ -41,6 +41,11 @@ def state(domain):
     except libvirt.libvirtError:
         logger.debug("Cannot read the agent channel", exc_info=True)
         return None
+    return state_of_xml(root)
+
+
+def state_of_xml(root):
+    """state() for a running VM whose live XML is already parsed."""
     for target in root.findall("./devices/channel/target"):
         if target.get("name") == CHANNEL:
             return CONNECTED if target.get("state") == "connected" else NOT_RUNNING
@@ -55,6 +60,11 @@ def ipv4(domain):
     """The guest's first routable IPv4 address as the agent reports it, or None."""
     if not connected(domain):
         return None
+    return ipv4_of_connected(domain)
+
+
+def ipv4_of_connected(domain):
+    """ipv4() for a VM already known to have its agent connected (the VM list read it from the XML it holds)."""
     try:
         ifaces = domain.interfaceAddresses(libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT)
     except libvirt.libvirtError:
