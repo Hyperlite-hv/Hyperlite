@@ -72,6 +72,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- The VM list is about nine times faster on a large host: 1,000 VMs are listed in 0.4 s instead of 3.6 s. Each VM's XML is read once instead of three times, the states come in one call, the DHCP leases once per network and the SSH users and OS labels in one query each; on a remote node this also removes most of the SSH round trips.
 - The Tasks page is laid out as a task list with status tabs (All, Running, Failed, with their counts) and, under it, the log of the selected task in a terminal-style panel, coloured by level. Columns: task, target, node, status with a progress bar, start, duration.
 - The sidebar no longer shows the host name and node count box under the logo; the search stays in the top bar and on Ctrl+K.
 - The interactive API documentation (`/docs`, `/redoc`, `/openapi.json`) is off by default; `HYPERLITE_API_DOCS=1` turns it back on.
