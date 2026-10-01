@@ -28,6 +28,9 @@ DISKS = {
 
 
 class FakeDomain:
+    def listAllCheckpoints(self):
+        return []  # no replication checkpoint (app/core/checkpoints.py)
+
     def __init__(self, active=False, size_gb=10, job=None):
         self.active = active
         self.size = size_gb * GIB

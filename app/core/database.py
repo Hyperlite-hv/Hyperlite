@@ -207,6 +207,40 @@ def init_db():
             )
         """)
 
+        # ---- Replication to another site (app/core/replication.py): incremental copies every few minutes ----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS replication_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nom TEXT NOT NULL UNIQUE,
+                selection TEXT NOT NULL CHECK(selection IN ('toutes', 'etiquette', 'pool')),
+                valeur TEXT,
+                exclues TEXT NOT NULL DEFAULT '[]',
+                cible_dir TEXT NOT NULL,
+                intervalle_minutes INTEGER NOT NULL DEFAULT 15,
+                actif INTEGER NOT NULL DEFAULT 1,
+                derniere_execution TEXT,
+                prochaine_execution TEXT NOT NULL
+            )
+        """)
+        # One row per replicated VM: where its current chain is and how its last copy went.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS replication_state (
+                vm_name TEXT PRIMARY KEY,
+                cible_dir TEXT NOT NULL,
+                chaine TEXT,
+                dernier_point TEXT,
+                checkpoint TEXT,
+                points INTEGER NOT NULL DEFAULT 0,
+                dernier_ok_le TEXT,
+                -- The disks' newest modification time right after the last copy of a stopped VM: the same value at
+                -- the next run proves nothing started it since (QEMU rewrites the file at least when it stops).
+                mtime_disques REAL,
+                statut TEXT NOT NULL DEFAULT 'jamais',
+                erreur TEXT,
+                maj_le TEXT
+            )
+        """)
+
         # ---- Automation: job engine ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
