@@ -1,6 +1,7 @@
 # Design: control plane v2, from one SQLite file to a distributed control plane
 
-Status: **phase 0 (analysis) done; decisions recorded in section 15.1.** Phase 1 starts with lot 1 (section 16).
+Status: **phase 0 (analysis) done; decisions recorded in sections 15.1 and 15.2.** Phase 1 starts with lot 1
+(section 16).
 
 This document answers the "control plane v2" brief: a Proxmox-like cluster (consistent replicated configuration,
 quorum, distributed locks, node agents, a scheduler, HA with confirmed fencing) built on etcd, without cloning
@@ -269,8 +270,8 @@ infrastructure. Every phase ships behind a switch until its exit criterion is me
   are served from a watch-fed cache in each API instance and agent, writes go to etcd.
 - **Tailscale links between nodes** (production today): etcd needs a stable, low-latency network; members across a
   WAN VPN will see leader elections. The control plane network requirements must be written down (Q2).
-- **Fencing hardware**: without BMCs (homelab machines), HA stays manual by design; that is correct but must be said
-  in the UI.
+- **Fencing hardware**: superseded by section 15.2 (point 5): fencing is done by a watchdog, as on Proxmox, so a node
+  without a BMC can still be part of automatic HA. A BMC only makes the recovery faster.
 
 ## 9. Tests to write before each phase
 
@@ -375,6 +376,55 @@ current rhythm this is several months of work, not weeks; the order above keeps 
 - **Lot 1 domain**: **Node**, following Proxmox's architecture, where cluster membership is the foundation that
   quorum, leases and ownership build on.
 - Q2, Q4 to Q10 are open; none blocks phase 1.
+
+### 15.2 Decisions (second maintainer, 2026-10-01): follow Proxmox VE's cluster model
+
+The second maintainer confirms **Q1** and asks that the cluster behave like Proxmox VE's. The rules below are taken
+from the Proxmox VE documentation (`pmxcfs.adoc`, `pvecm.adoc` and `ha-manager.adoc` in the `pve-docs` repository);
+each one says what Proxmox does and what Hyperlite does in its place. etcd replaces what Proxmox builds from
+Corosync and its SQLite-backed `pmxcfs`; the behaviour around it is Proxmox's.
+
+1. **One vote per node; no writes without quorum.** Proxmox's configuration file system is "read-only when a node
+   loses quorum". Hyperlite: every node is an etcd member with one vote; a node that is not part of the majority
+   refuses every configuration change and every action that needs one (create, start, migrate, change a setting)
+   with a clear message. A quorum loss alone does not stop running VMs; only the watchdog of point 5 does, and only
+   on a node that runs HA-managed VMs.
+2. **The same code path at every size (Q10).** Proxmox runs `pmxcfs` on a single node too. Hyperlite always
+   installs etcd: one member on a single node, one member per node in a cluster. No YAML-only standalone backend;
+   phase 3 keeps only the export, diff, validate and doctor commands.
+3. **Two nodes are allowed, with Proxmox's limits (Q2).** On two nodes, losing either one leaves the other without
+   quorum, so it turns read-only, exactly as on Proxmox. Two things go with it:
+   - a documented recovery command for the survivor, the equivalent of Proxmox's `pvecm expected 1`: it rebuilds a
+     one-member etcd from the survivor's data (etcd's `--force-new-cluster`), refuses while the other node answers,
+     and asks for a typed confirmation;
+   - an optional **witness**, Proxmox's QDevice for two-node clusters ("For smaller 2-node clusters, the QDevice
+     can be used to provide a 3rd vote"). **Difference with Proxmox, stated:** a QDevice is "almost configuration
+     and state free", while an etcd voter holds a full copy of the data. Hyperlite's witness is therefore a
+     `hyperlite-witness` package that runs one etcd member and nothing else (no libvirt, no API, no VM), on any
+     small Debian machine (a Raspberry Pi, a small VM). Secrets stay unreadable there thanks to the envelope
+     encryption of section 2.2, as long as the cluster key is not installed on the witness.
+   - A third etcd member is never required to install Hyperlite. Proxmox recommends a dedicated network for cluster
+     traffic; Hyperlite documents the latency etcd needs and warns when members are linked over a VPN such as
+     Tailscale.
+4. **Automatic HA needs three votes and shared storage.** Proxmox's HA requirements are "at least three cluster
+   nodes (to get reliable quorum)" and "shared storage for VMs and containers". Hyperlite: automatic HA can be
+   turned on only with three votes (three nodes, or two nodes and a witness) and for VMs whose disks are on shared
+   storage; otherwise the UI says why it is off. The current dry run stays until phase 8.
+5. **Fencing by watchdog, without a BMC.** Proxmox fences by self-fencing with watchdog timers, a hardware watchdog
+   when configured and the kernel's `softdog` otherwise; a node without quorum "cannot reset the watchdog" and is
+   reset "after the watchdog has timed out (this happens after 60 seconds)". Hyperlite's agent does the same: while
+   it runs HA-managed VMs it holds the watchdog and feeds it only while its node is in the quorum and its lease is
+   renewed. The surviving majority restarts a failed node's VMs only after its lease has expired **and** the
+   watchdog timeout has passed. This replaces the risk line "without BMCs, HA stays manual": HA no longer needs a
+   BMC. The IPMI, Redfish and AMT profiles (`ha_fencing.py`) stay as an optional extra that Proxmox does not have
+   (power the node off before the timeout, for a faster recovery); they are never required.
+6. **Every node serves the API and the dashboard.** As on Proxmox, an administrator can sign in on any node. The
+   "controller" of option (a) disappears at phase 6; option (a) stays in production until then.
+7. **Numeric VM ids (Q4): proposed, to be confirmed.** Proxmox identifies guests by a cluster-wide numeric VMID that
+   the backend allocates. Following it means ids from phase 2, with the name as a label. This changes URLs, ACLs and
+   every side table, so it needs an explicit confirmation from both maintainers before phase 2 starts.
+
+Still open: Q5 to Q9.
 
 ## 16. Lot 1: the Node domain
 
