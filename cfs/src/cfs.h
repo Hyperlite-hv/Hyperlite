@@ -47,6 +47,8 @@ enum cfs_op {
 #define CFS_FRAME_MAX (CFS_FILE_MAX + 4096u) /* one request or answer */
 #define CFS_FIRST_ID 100                 /* guest ids start where Proxmox's do */
 #define CFS_LOCK_TTL_MAX 3600u           /* seconds */
+#define CFS_LOCKS_MAX 1024               /* locks held at once */
+#define CFS_MEMBERS_MAX 64               /* nodes in one cluster (Proxmox reports clusters of over 50) */
 #define CFS_CHECKSUM_LEN 32              /* SHA-256 */
 
 const char *cfs_status_name(int status);

@@ -1,13 +1,16 @@
 /* hyperlite-cfs: Hyperlite's replicated cluster configuration (design: docs/design/hyperlite-cfs.md).
  *
- * This build is phase A, local mode: one node, no Corosync, always writable. The socket protocol, the versions, the
- * compare-and-set, the locks and the id allocation are the ones cluster mode will keep. */
+ * Local mode (the default) is a cluster of one node: the same node code, with a loopback in place of Corosync, always
+ * quorate. Cluster mode (--cluster) joins the local Corosync's process group: changes are applied by every member in
+ * the order Corosync agreed, and refused without quorum. */
 
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "corosync.h"
 #include "server.h"
 
 #define DEFAULT_DB "/var/lib/hyperlite-cfs/config.db"
@@ -21,9 +24,18 @@ static void on_signal(int sig)
     stop_requested = 1;
 }
 
+/* Local mode: a change is "delivered" to this node as soon as it is sent. */
+static int loop_send(void *arg, const uint8_t *msg, size_t len)
+{
+    cfs_node *node = arg;
+    cfs_node_deliver(node, node->self, msg, len);
+    return 0;
+}
+
 static void usage(FILE *f)
 {
-    fprintf(f, "usage: hyperlite-cfs [--db PATH] [--socket PATH] [--socket-mode OCTAL]\n"
+    fprintf(f, "usage: hyperlite-cfs [--cluster] [--db PATH] [--socket PATH] [--socket-mode OCTAL]\n"
+               "  --cluster      replicate through the local Corosync (default: local mode, one node)\n"
                "  --db           database file (default " DEFAULT_DB ")\n"
                "  --socket       Unix socket (default " DEFAULT_SOCKET ")\n"
                "  --socket-mode  permissions of the socket (default 0600: root only)\n");
@@ -34,8 +46,11 @@ int main(int argc, char **argv)
     const char *db = DEFAULT_DB;
     const char *sock = DEFAULT_SOCKET;
     unsigned mode = 0600;
+    bool cluster = false;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--db") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--cluster") == 0) {
+            cluster = true;
+        } else if (strcmp(argv[i], "--db") == 0 && i + 1 < argc) {
             db = argv[++i];
         } else if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) {
             sock = argv[++i];
@@ -63,15 +78,41 @@ int main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
 
     char err[512];
-    cfs_ctx ctx;
-    ctx.store = cfs_store_open(db, err, sizeof(err));
-    if (!ctx.store) {
+    cfs_store *store = cfs_store_open(db, err, sizeof(err));
+    if (!store) {
         fprintf(stderr, "hyperlite-cfs: %s\n", err);
         return 1;
     }
-    cfs_locks_init(&ctx.locks);
-    fprintf(stderr, "hyperlite-cfs: local mode, database %s, socket %s\n", db, sock);
-    int rc = cfs_serve(&ctx, sock, mode, &stop_requested);
-    cfs_store_close(ctx.store);
+    static cfs_node node;
+    cfs_corosync *cs = NULL;
+    cfs_source sources[2];
+    size_t nsources = 0;
+    int rc = 0;
+    if (cluster) {
+        cs = cfs_corosync_open(err, sizeof(err));
+        if (!cs) {
+            fprintf(stderr, "hyperlite-cfs: %s\n", err);
+            cfs_store_close(store);
+            return 1;
+        }
+        cfs_node_init(&node, store, CFS_MODE_CLUSTER, cfs_corosync_nodeid(cs), cfs_corosync_transport(cs));
+        if (cfs_corosync_start(cs, &node, sources, err, sizeof(err)) != 0) {
+            fprintf(stderr, "hyperlite-cfs: %s\n", err);
+            rc = -1;
+        }
+        nsources = 2;
+        fprintf(stderr, "hyperlite-cfs: cluster mode, node %u, database %s, socket %s\n", node.self, db, sock);
+    } else {
+        cfs_node_init(&node, store, CFS_MODE_LOCAL, 1, (cfs_transport){.send = loop_send, .arg = &node});
+        cfs_node_quorum(&node, true);
+        uint32_t self = 1;
+        cfs_node_membership(&node, &self, 1);
+        fprintf(stderr, "hyperlite-cfs: local mode, database %s, socket %s\n", db, sock);
+    }
+    if (rc == 0)
+        rc = cfs_serve(&node, sock, mode, sources, nsources, &stop_requested);
+    cfs_corosync_close(cs);
+    cfs_node_free(&node);
+    cfs_store_close(store);
     return rc == 0 ? 0 : 1;
 }

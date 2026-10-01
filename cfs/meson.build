@@ -33,14 +33,17 @@ endif
 sqlite = dependency('sqlite3')
 crypto = dependency('libcrypto')
 deps = [sqlite, crypto]
+# Corosync's client libraries (Debian: libcpg-dev, libquorum-dev): only the daemon links them, the node logic and its
+# tests run without Corosync.
+corosync = [dependency('libcpg'), dependency('libquorum')]
 
 core = static_library(
   'cfscore',
   'src/path.c',
   'src/proto.c',
   'src/store.c',
-  'src/locks.c',
   'src/handler.c',
+  'src/node.c',
   dependencies: deps,
 )
 
@@ -48,13 +51,14 @@ executable(
   'hyperlite-cfs',
   'src/main.c',
   'src/server.c',
+  'src/corosync.c',
   link_with: core,
-  dependencies: deps,
+  dependencies: deps + corosync,
   install: true,
   install_dir: get_option('sbindir'),
 )
 
-foreach t : ['path', 'proto', 'store', 'locks', 'handler']
+foreach t : ['path', 'proto', 'store', 'handler', 'node']
   test(
     t,
     executable('test_' + t, 'tests/test_' + t + '.c', link_with: core, dependencies: deps,
@@ -62,15 +66,17 @@ foreach t : ['path', 'proto', 'store', 'locks', 'handler']
   )
 endforeach
 
-# Fuzzing the request decoder and the whole handler needs clang's libFuzzer: meson setup -Dfuzz=true with CC=clang.
+# Fuzzing the request decoder and handler, and the messages from other nodes, needs clang's libFuzzer: meson setup -Dfuzz=true with CC=clang.
 if get_option('fuzz')
-  executable(
-    'fuzz_request',
-    'fuzz/fuzz_request.c',
-    link_with: core,
-    dependencies: deps,
-    include_directories: include_directories('src'),
-    c_args: ['-fsanitize=fuzzer'],
-    link_args: ['-fsanitize=fuzzer'],
-  )
+  foreach f : ['request', 'message']
+    executable(
+      'fuzz_' + f,
+      'fuzz/fuzz_' + f + '.c',
+      link_with: core,
+      dependencies: deps,
+      include_directories: include_directories('src'),
+      c_args: ['-fsanitize=fuzzer'],
+      link_args: ['-fsanitize=fuzzer'],
+    )
+  endforeach
 endif

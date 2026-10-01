@@ -1,6 +1,7 @@
 # Design: `hyperlite-cfs`, the replicated cluster configuration
 
-Status: **accepted (2026-10-01).** Phase A (local mode) is in `cfs/`; phases B to E are to come.
+Status: **accepted (2026-10-01).** Phase A (local mode) and step B1 of phase B (Corosync, quorum, agreement on one
+state) are in `cfs/`; B2 to E are to come.
 
 Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose Proxmox VE's architecture
 on Proxmox VE's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
@@ -180,6 +181,39 @@ Two consequences, both deliberate:
 | C | **Shadow mode** in Hyperlite: the repositories write to SQLite **and** `hyperlite-cfs`, a divergence report | no divergence over two weeks on the dev cluster |
 | D | **Source of truth**: reads from `hyperlite-cfs`, SQLite kept read-only one release for rollback | a rollback drill done once |
 | E | `hyperlite-statd` over the same channel, list pages from the status table | 1,000 VMs listed in under 200 ms |
+
+### 8.1 Phase B, step by step
+
+| Step | Content | State |
+|---|---|---|
+| B1 | Corosync transport (CPG agreed order, quorum service); changes applied by every member in delivery order; refused without quorum; after each membership change, every member sends its state and changes resume only when all states are equal and quorate; a three-node test on a real Corosync in network namespaces | done |
+| B2 | State transfer: a member that differs receives the source's tree (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | to do |
+| B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | to do |
+| B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | to do |
+
+### 8.2 Decisions taken while building B1
+
+Found by reading phase A against what cluster mode needs:
+
+- **A change must give the same result on every node.** Phase A stamped `mtime` and judged lock expiry with the local
+  clock at apply time; across nodes that differs. A change now carries its sender's time stamp and every node applies
+  it with that time. Clocks out of step only shift `mtime` and lock expiry by the skew, the same on every node (as
+  Proxmox, the cluster relies on NTP).
+- **Locks are part of the replicated state.** They were a table in RAM, so a node that restarted or joined held other
+  locks than its peers. They are now rows of the same SQLite database, covered by the checksum and copied by the state
+  transfer. Each lock records the node it was taken from; when a node leaves the membership, every member releases its
+  locks at the same point of the delivery order. Each lock change bumps the cluster version.
+- **A node that cannot apply a change leaves.** If SQLite fails on one node (disk full, I/O error) while the others
+  applied the change, that node would silently diverge. It now leaves the CPG group, refuses changes, and logs why;
+  restarting it brings it back through the state agreement.
+- **One code path at every size.** Local mode is a cluster of one node: the same node code with a loopback in place of
+  Corosync, always quorate. What runs on one node is what runs on fifty.
+- **The quorum view travels with the state.** The quorum service and CPG are separate streams, so a node of a minority
+  could send a change before it learns it lost the quorum. Every member therefore drops changes from a membership
+  change until all members sent a state, and a member sends its quorum view with its state (read from the quorum
+  service when CPG reports the membership, after Corosync finished its synchronisation). A minority never agrees,
+  so it never applies anything.
+- **Messages from other nodes are untrusted input**, like the local socket: they have their own fuzz target.
 
 ## 9. Tests
 

@@ -6,25 +6,32 @@
 
 #include "path.h"
 
-static void begin_answer(cfs_writer *out, size_t *frame_at, uint32_t id, uint8_t status)
+void cfs_answer(cfs_writer *out, uint32_t id, int status, const cfs_writer *payload, const char *reason)
 {
-    *frame_at = out->len;
-    cfs_write_u32(out, 0); /* frame length, patched by end_answer */
+    size_t at = out->len;
+    cfs_write_u32(out, 0); /* frame length, patched below */
     cfs_write_u32(out, id);
-    cfs_write_u8(out, status);
+    cfs_write_u8(out, (uint8_t)status);
+    if (status == CFS_OK)
+        cfs_write_raw(out, payload->p, payload->len);
+    else
+        cfs_write_string(out, reason);
+    cfs_patch_u32(out, at, (uint32_t)(out->len - at - 4));
 }
 
-static void end_answer(cfs_writer *out, size_t frame_at)
+bool cfs_op_changes(uint8_t op)
 {
-    cfs_patch_u32(out, frame_at, (uint32_t)(out->len - frame_at - 4));
-}
-
-static void answer_error(cfs_writer *out, uint32_t id, int status, const char *reason)
-{
-    size_t at;
-    begin_answer(out, &at, id, (uint8_t)status);
-    cfs_write_string(out, reason);
-    end_answer(out, at);
+    switch (op) {
+    case CFS_OP_PUT:
+    case CFS_OP_DELETE:
+    case CFS_OP_RENAME:
+    case CFS_OP_LOCK:
+    case CFS_OP_UNLOCK:
+    case CFS_OP_NEXT_ID:
+        return true;
+    default:
+        return false;
+    }
 }
 
 static int check_path(const char *path, bool allow_root, uid_t uid, char *reason, size_t cap)
@@ -38,6 +45,52 @@ static int check_path(const char *path, bool allow_root, uid_t uid, char *reason
         return CFS_FORBIDDEN;
     }
     return CFS_OK;
+}
+
+int cfs_check(const cfs_request *req, uid_t uid, char *reason, size_t cap)
+{
+    switch (req->op) {
+    case CFS_OP_GET:
+    case CFS_OP_PUT:
+    case CFS_OP_DELETE:
+        return check_path(req->path, false, uid, reason, cap);
+    case CFS_OP_LIST:
+        return check_path(req->path, true, uid, reason, cap);
+    case CFS_OP_RENAME: {
+        int rc = check_path(req->path, false, uid, reason, cap);
+        return rc != CFS_OK ? rc : check_path(req->path2, false, uid, reason, cap);
+    }
+    case CFS_OP_LOCK:
+    case CFS_OP_UNLOCK:
+        if (!cfs_name_valid(req->name) || !cfs_name_valid(req->owner)) {
+            snprintf(reason, cap, "invalid lock name or owner");
+            return CFS_INVALID;
+        }
+        return CFS_OK;
+    case CFS_OP_NEXT_ID:
+    case CFS_OP_STATUS:
+        return CFS_OK;
+    default:
+        snprintf(reason, cap, "unknown operation");
+        return CFS_INVALID;
+    }
+}
+
+/* Turn a store status into the reason sent to the client, when none was set yet. */
+static int explain(cfs_store *store, int rc, char *reason, size_t cap)
+{
+    if (rc == CFS_INTERNAL) {
+        /* The details go to the daemon's log, not to the client. */
+        fprintf(stderr, "hyperlite-cfs: %s\n", cfs_store_error(store));
+        snprintf(reason, cap, "internal error, see the hyperlite-cfs log");
+    } else if (rc != CFS_OK && reason[0] == '\0') {
+        const char *detail = cfs_store_error(store);
+        if (rc == CFS_INVALID && detail[0])
+            snprintf(reason, cap, "%s", detail);
+        else
+            snprintf(reason, cap, "%s", cfs_status_name(rc));
+    }
+    return rc;
 }
 
 typedef struct {
@@ -56,17 +109,13 @@ static int list_entry(void *p, const char *name, size_t name_len, bool is_dir, i
     return l->out->err ? -1 : 0;
 }
 
-/* Fills `reason` when the status is not CFS_OK; writes the payload into `body` when it is. */
-static int apply(cfs_ctx *ctx, const cfs_request *req, uid_t uid, time_t now, cfs_writer *body, char *reason,
-                 size_t cap)
+int cfs_read(cfs_ctx *ctx, const cfs_request *req, cfs_writer *body, char *reason, size_t cap)
 {
     int rc = CFS_OK;
     int64_t version = 0, mtime = 0;
     cfs_store_clear_error(ctx->store);
     switch (req->op) {
     case CFS_OP_GET: {
-        if ((rc = check_path(req->path, false, uid, reason, cap)) != CFS_OK)
-            return rc;
         uint8_t *data;
         size_t len;
         rc = cfs_store_get(ctx->store, req->path, &version, &mtime, &data, &len);
@@ -78,21 +127,7 @@ static int apply(cfs_ctx *ctx, const cfs_request *req, uid_t uid, time_t now, cf
         }
         break;
     }
-    case CFS_OP_PUT:
-        if ((rc = check_path(req->path, false, uid, reason, cap)) != CFS_OK)
-            return rc;
-        rc = cfs_store_put(ctx->store, req->path, req->data, req->data_len, req->expected, &version);
-        if (rc == CFS_OK)
-            cfs_write_i64(body, version);
-        break;
-    case CFS_OP_DELETE:
-        if ((rc = check_path(req->path, false, uid, reason, cap)) != CFS_OK)
-            return rc;
-        rc = cfs_store_delete(ctx->store, req->path, req->expected);
-        break;
     case CFS_OP_LIST: {
-        if ((rc = check_path(req->path, true, uid, reason, cap)) != CFS_OK)
-            return rc;
         size_t count_at = body->len;
         cfs_write_u32(body, 0);
         list_ctx l = {body, 0};
@@ -105,43 +140,6 @@ static int apply(cfs_ctx *ctx, const cfs_request *req, uid_t uid, time_t now, cf
         }
         break;
     }
-    case CFS_OP_RENAME:
-        if ((rc = check_path(req->path, false, uid, reason, cap)) != CFS_OK ||
-            (rc = check_path(req->path2, false, uid, reason, cap)) != CFS_OK)
-            return rc;
-        rc = cfs_store_rename(ctx->store, req->path, req->path2, req->expected, &version);
-        if (rc == CFS_OK)
-            cfs_write_i64(body, version);
-        break;
-    case CFS_OP_LOCK: {
-        if (!cfs_name_valid(req->name) || !cfs_name_valid(req->owner)) {
-            snprintf(reason, cap, "invalid lock name or owner");
-            return CFS_INVALID;
-        }
-        char holder[CFS_NAME_MAX + 1];
-        rc = cfs_lock_acquire(&ctx->locks, req->name, req->owner, req->ttl, now, holder);
-        if (rc == CFS_LOCKED)
-            snprintf(reason, cap, "%s", holder);
-        else if (rc == CFS_INVALID)
-            snprintf(reason, cap, "the time to live must be 1 to %u seconds", CFS_LOCK_TTL_MAX);
-        else if (rc == CFS_TOO_LARGE)
-            snprintf(reason, cap, "too many locks held");
-        return rc;
-    }
-    case CFS_OP_UNLOCK:
-        if (!cfs_name_valid(req->name) || !cfs_name_valid(req->owner)) {
-            snprintf(reason, cap, "invalid lock name or owner");
-            return CFS_INVALID;
-        }
-        rc = cfs_lock_release(&ctx->locks, req->name, req->owner, now);
-        if (rc == CFS_FORBIDDEN)
-            snprintf(reason, cap, "the lock is held by another owner");
-        return rc;
-    case CFS_OP_NEXT_ID:
-        rc = cfs_store_next_id(ctx->store, &version);
-        if (rc == CFS_OK)
-            cfs_write_i64(body, version);
-        break;
     case CFS_OP_STATUS: {
         uint8_t sum[CFS_CHECKSUM_LEN];
         int64_t entries = 0, bytes = 0;
@@ -149,54 +147,86 @@ static int apply(cfs_ctx *ctx, const cfs_request *req, uid_t uid, time_t now, cf
         if (rc == CFS_OK) {
             cfs_write_i64(body, version);
             cfs_write_blob(body, sum, sizeof(sum));
-            cfs_write_u8(body, 1); /* local mode is always quorate */
-            cfs_write_u8(body, 0); /* mode: local */
+            cfs_write_u8(body, ctx->quorate ? 1 : 0);
+            cfs_write_u8(body, ctx->mode);
             cfs_write_i64(body, entries);
             cfs_write_i64(body, bytes);
         }
         break;
     }
     default:
-        snprintf(reason, cap, "unknown operation");
+        snprintf(reason, cap, "not a read");
         return CFS_INVALID;
     }
-
-    if (rc == CFS_INTERNAL) {
-        /* The details go to the daemon's log, not to the client. */
-        fprintf(stderr, "hyperlite-cfs: %s\n", cfs_store_error(ctx->store));
-        snprintf(reason, cap, "internal error, see the hyperlite-cfs log");
-    } else if (rc != CFS_OK && reason[0] == '\0') {
-        const char *detail = cfs_store_error(ctx->store);
-        if (rc == CFS_INVALID && detail[0])
-            snprintf(reason, cap, "%s", detail);
-        else
-            snprintf(reason, cap, "%s", cfs_status_name(rc));
-    }
-    return rc;
+    return explain(ctx->store, rc, reason, cap);
 }
 
-void cfs_handle(cfs_ctx *ctx, const uint8_t *body, size_t len, uid_t peer_uid, time_t now, cfs_writer *out)
+int cfs_apply(cfs_store *store, const cfs_request *req, uint32_t node, int64_t now, cfs_writer *body, char *reason,
+              size_t cap)
+{
+    int rc;
+    int64_t version = 0;
+    cfs_store_clear_error(store);
+    switch (req->op) {
+    case CFS_OP_PUT:
+        rc = cfs_store_put(store, req->path, req->data, req->data_len, req->expected, now, &version);
+        if (rc == CFS_OK)
+            cfs_write_i64(body, version);
+        break;
+    case CFS_OP_DELETE:
+        rc = cfs_store_delete(store, req->path, req->expected);
+        break;
+    case CFS_OP_RENAME:
+        rc = cfs_store_rename(store, req->path, req->path2, req->expected, now, &version);
+        if (rc == CFS_OK)
+            cfs_write_i64(body, version);
+        break;
+    case CFS_OP_LOCK: {
+        char holder[CFS_NAME_MAX + 1];
+        rc = cfs_store_lock(store, req->name, req->owner, node, req->ttl, now, holder);
+        if (rc == CFS_LOCKED)
+            snprintf(reason, cap, "%s", holder);
+        else if (rc == CFS_INVALID)
+            snprintf(reason, cap, "the time to live must be 1 to %u seconds", CFS_LOCK_TTL_MAX);
+        else if (rc == CFS_TOO_LARGE)
+            snprintf(reason, cap, "too many locks held");
+        break;
+    }
+    case CFS_OP_UNLOCK:
+        rc = cfs_store_unlock(store, req->name, req->owner, now);
+        if (rc == CFS_FORBIDDEN)
+            snprintf(reason, cap, "the lock is held by another owner");
+        break;
+    case CFS_OP_NEXT_ID:
+        rc = cfs_store_next_id(store, &version);
+        if (rc == CFS_OK)
+            cfs_write_i64(body, version);
+        break;
+    default:
+        snprintf(reason, cap, "not a change");
+        return CFS_INVALID;
+    }
+    return explain(store, rc, reason, cap);
+}
+
+void cfs_handle(cfs_ctx *ctx, const uint8_t *body, size_t len, uid_t peer_uid, int64_t now, cfs_writer *out)
 {
     cfs_request req;
-    if (cfs_decode_request(body, len, &req) != CFS_OK) {
-        answer_error(out, req.id, CFS_INVALID, "malformed request");
-        return;
-    }
     char reason[512] = "";
     cfs_writer payload;
     cfs_writer_init(&payload);
-    int rc = apply(ctx, &req, peer_uid, now, &payload, reason, sizeof(reason));
+    int rc = cfs_decode_request(body, len, &req);
+    if (rc != CFS_OK)
+        snprintf(reason, sizeof(reason), "malformed request");
+    if (rc == CFS_OK)
+        rc = cfs_check(&req, peer_uid, reason, sizeof(reason));
+    if (rc == CFS_OK)
+        rc = cfs_op_changes(req.op) ? cfs_apply(ctx->store, &req, 1, now, &payload, reason, sizeof(reason))
+                                    : cfs_read(ctx, &req, &payload, reason, sizeof(reason));
     if (rc == CFS_OK && payload.err) {
         rc = CFS_INTERNAL;
         snprintf(reason, sizeof(reason), "the answer could not be built");
     }
-    if (rc != CFS_OK) {
-        answer_error(out, req.id, rc, reason);
-    } else {
-        size_t at;
-        begin_answer(out, &at, req.id, CFS_OK);
-        cfs_write_raw(out, payload.p, payload.len);
-        end_answer(out, at);
-    }
+    cfs_answer(out, req.id, rc, &payload, reason);
     cfs_writer_free(&payload);
 }

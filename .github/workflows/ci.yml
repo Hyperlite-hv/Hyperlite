@@ -95,7 +95,9 @@ jobs:
 
   cfs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
-    # and UndefinedBehaviorSanitizer, its C tests, the Python client against the real daemon, and one minute of fuzzing.
+    # and UndefinedBehaviorSanitizer, its C tests (a simulated cluster included), the Python client against the real
+    # daemon, a three-node cluster on a real Corosync in network namespaces, and fuzzing of the requests and of the
+    # messages between nodes.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -107,22 +109,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc clang libclang-rt-dev \
-            libsqlite3-dev libssl-dev
+            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev iproute2
+          # The package starts a Corosync of its own; the cluster test runs its own three, in namespaces.
+          sudo systemctl stop corosync || true
       - name: Build and test (GCC, sanitizers)
         run: |
           meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
+          ninja -C build-gcc  # meson test builds only what the C tests need, not the daemon the next steps run
           meson test -C build-gcc --print-errorlogs
       - name: Python client against the daemon
         run: |
           pip install pytest
           HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs python -m pytest -q cfs/tests/python
-      - name: Fuzz the request handler (clang, libFuzzer, 60 s)
+      - name: Three nodes on a real Corosync
+        run: |
+          sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs "$(which python)" -m pytest -q \
+            -p no:cacheprovider cfs/tests/cluster
+      - name: Fuzz the request handler and the peer messages (clang, libFuzzer, 2 x 45 s)
         run: |
           CC=clang meson setup build-fuzz cfs -Dfuzz=true -Db_sanitize=address,undefined -Db_lundef=false -Dbuildtype=debug
           ninja -C build-fuzz  # meson test builds only the tests, not the fuzz target
           meson test -C build-fuzz --print-errorlogs
-          mkdir -p fuzz-work
-          build-fuzz/fuzz_request -max_total_time=60 -max_len=4096 fuzz-work cfs/fuzz/corpus
+          mkdir -p fuzz-work fuzz-work-message
+          build-fuzz/fuzz_request -max_total_time=45 -max_len=4096 fuzz-work cfs/fuzz/corpus
+          build-fuzz/fuzz_message -max_total_time=45 -max_len=4096 fuzz-work-message cfs/fuzz/corpus-message
 
   e2e:
     # End-to-end suite against a real backend and a real libvirt/QEMU.

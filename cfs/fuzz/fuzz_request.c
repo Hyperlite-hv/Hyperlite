@@ -21,7 +21,7 @@ static void setup(void)
         fprintf(stderr, "%s\n", err);
         abort();
     }
-    cfs_locks_init(&ctx.locks);
+    ctx.quorate = true;
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
