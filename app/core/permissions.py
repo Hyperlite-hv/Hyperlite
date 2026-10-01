@@ -9,7 +9,12 @@ rights. There is no "deny" in this model.
 
 """
 
-from app.core.database import get_conn
+
+def _store():
+    from app.repositories import registry
+
+    return registry.access().sync
+
 
 # Full catalog of the privileges available to build a custom role (see
 # custom_roles below). Adding a privilege here exposes it in the role builder of
@@ -90,8 +95,6 @@ def _custom_role_key(row):
 
 
 def list_custom_roles():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT id, name, privileges FROM custom_roles ORDER BY name").fetchall()
     return [
         {
             "key": _custom_role_key(r),
@@ -100,7 +103,7 @@ def list_custom_roles():
             "description": "Custom role.",
             "privileges": set(r["privileges"].split(",")) if r["privileges"] else set(),
         }
-        for r in rows
+        for r in _store().custom_roles()
     ]
 
 
@@ -110,17 +113,11 @@ def create_custom_role(name, privileges):
         raise ValueError(f"Unknown privileges: {', '.join(sorted(invalid))}")
     if not privileges:
         raise ValueError("Choose at least one privilege")
-    with get_conn() as conn:
-        cur = conn.execute("INSERT INTO custom_roles (name, privileges) VALUES (?, ?)", (name, ",".join(privileges)))
-        conn.commit()
-        return cur.lastrowid
+    return _store().create_custom_role(name, ",".join(privileges))
 
 
 def delete_custom_role(role_id):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM acl WHERE role = ?", (f"custom:{role_id}",))
-        conn.execute("DELETE FROM custom_roles WHERE id = ?", (role_id,))
-        conn.commit()
+    _store().delete_custom_role(f"custom:{role_id}", role_id)
 
 
 def get_role_privileges(role_key):
@@ -134,8 +131,7 @@ def get_role_privileges(role_key):
             role_id = int(role_key.split(":", 1)[1])
         except ValueError:
             return set()
-        with get_conn() as conn:
-            row = conn.execute("SELECT privileges FROM custom_roles WHERE id = ?", (role_id,)).fetchone()
+        row = _store().custom_role(role_id)
         return set(row["privileges"].split(",")) if row and row["privileges"] else set()
     return set()
 
@@ -148,141 +144,91 @@ def role_exists(role_key):
     tail = role_key.split(":", 1)[1]
     if not tail.isdigit():
         return False
-    with get_conn() as conn:
-        return conn.execute("SELECT 1 FROM custom_roles WHERE id = ?", (int(tail),)).fetchone() is not None
+    return _store().custom_role(int(tail)) is not None
 
 
 # ---- Groups ----
 
 
 def list_groups():
-    with get_conn() as conn:
-        groups = [dict(r) for r in conn.execute("SELECT id, name FROM groups ORDER BY name").fetchall()]
-        for g in groups:
-            rows = conn.execute(
-                "SELECT username FROM group_members WHERE group_id = ? ORDER BY username", (g["id"],)
-            ).fetchall()
-            g["membres"] = [r["username"] for r in rows]
-        return groups
+    return _store().groups()
 
 
 def create_group(name):
-    with get_conn() as conn:
-        cur = conn.execute("INSERT INTO groups (name) VALUES (?)", (name,))
-        conn.commit()
-        return cur.lastrowid
+    return _store().create_group(name)
 
 
 def delete_group(group_id):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM group_members WHERE group_id = ?", (group_id,))
-        conn.execute("DELETE FROM acl WHERE subject_type = 'group' AND subject_id = ?", (str(group_id),))
-        conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
-        conn.commit()
+    _store().delete_group(group_id)
 
 
 def add_group_member(group_id, username):
-    with get_conn() as conn:
-        conn.execute("INSERT OR IGNORE INTO group_members (group_id, username) VALUES (?, ?)", (group_id, username))
-        conn.commit()
+    _store().add_group_member(group_id, username)
 
 
 def remove_group_member(group_id, username):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM group_members WHERE group_id = ? AND username = ?", (group_id, username))
-        conn.commit()
+    _store().remove_group_member(group_id, username)
 
 
 def get_user_groups(username):
-    with get_conn() as conn:
-        rows = conn.execute("SELECT group_id FROM group_members WHERE username = ?", (username,)).fetchall()
-        return [r["group_id"] for r in rows]
+    return _store().groups_of(username)
 
 
 # ---- Pools ----
 
 
 def list_pools():
-    with get_conn() as conn:
-        pools = [dict(r) for r in conn.execute("SELECT id, name, description FROM pools ORDER BY name").fetchall()]
-        for p in pools:
-            rows = conn.execute(
-                "SELECT vm_name FROM pool_members WHERE pool_id = ? ORDER BY vm_name", (p["id"],)
-            ).fetchall()
-            p["vms"] = [r["vm_name"] for r in rows]
-        return pools
+    return _store().pools()
 
 
 def create_pool(name, description=""):
-    with get_conn() as conn:
-        cur = conn.execute("INSERT INTO pools (name, description) VALUES (?, ?)", (name, description))
-        conn.commit()
-        return cur.lastrowid
+    return _store().create_pool(name, description)
 
 
 def delete_pool(pool_id):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM pool_members WHERE pool_id = ?", (pool_id,))
-        conn.execute("DELETE FROM acl WHERE resource_type = 'pool' AND resource_id = ?", (str(pool_id),))
-        conn.execute("DELETE FROM pools WHERE id = ?", (pool_id,))
-        conn.commit()
+    _store().delete_pool(pool_id)
 
 
 def add_pool_member(pool_id, vm_name):
-    with get_conn() as conn:
-        conn.execute("INSERT OR IGNORE INTO pool_members (pool_id, vm_name) VALUES (?, ?)", (pool_id, vm_name))
-        conn.commit()
+    _store().add_pool_member(pool_id, vm_name)
 
 
 def remove_pool_member(pool_id, vm_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM pool_members WHERE pool_id = ? AND vm_name = ?", (pool_id, vm_name))
-        conn.commit()
+    _store().remove_pool_member(pool_id, vm_name)
 
 
 def rename_pool_member(old_vm_name, new_vm_name):
     """VM cloned/renamed: keep its pool membership under the new name."""
-    with get_conn() as conn:
-        conn.execute("UPDATE pool_members SET vm_name = ? WHERE vm_name = ?", (new_vm_name, old_vm_name))
-        conn.execute("DELETE FROM acl WHERE resource_type = 'vm' AND resource_id = ?", (old_vm_name,))
-        conn.commit()
+    _store().rename_pool_member(old_vm_name, new_vm_name)
 
 
 def get_vm_pools(vm_name):
-    with get_conn() as conn:
-        rows = conn.execute("SELECT pool_id FROM pool_members WHERE vm_name = ?", (vm_name,)).fetchall()
-        return [r["pool_id"] for r in rows]
+    return _store().pools_of(vm_name)
 
 
 def remove_vm_from_all_pools(vm_name):
     """VM deleted: remove its pool membership (avoids orphaned entries pointing to a
     VM that no longer exists)."""
-    with get_conn() as conn:
-        conn.execute("DELETE FROM pool_members WHERE vm_name = ?", (vm_name,))
-        conn.commit()
+    _store().remove_vm_from_all_pools(vm_name)
 
 
 # ---- ACL ----
 
 
 def list_acl():
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, subject_type, subject_id, role, resource_type, resource_id FROM acl ORDER BY id"
-        ).fetchall()
-        acl = [dict(r) for r in rows]
-        groups = {g["id"]: g["name"] for g in list_groups()}
-        pools = {p["id"]: p["name"] for p in list_pools()}
-        for a in acl:
-            if a["subject_type"] == "group":
-                a["subject_label"] = groups.get(int(a["subject_id"]), f"groupe#{a['subject_id']}")
-            else:
-                a["subject_label"] = a["subject_id"]
-            if a["resource_type"] == "pool":
-                a["resource_label"] = pools.get(int(a["resource_id"]), f"pool#{a['resource_id']}")
-            else:
-                a["resource_label"] = a["resource_id"]
-        return acl
+    acl = _store().acl()
+    groups = {g["id"]: g["name"] for g in list_groups()}
+    pools = {p["id"]: p["name"] for p in list_pools()}
+    for a in acl:
+        if a["subject_type"] == "group":
+            a["subject_label"] = groups.get(int(a["subject_id"]), f"groupe#{a['subject_id']}")
+        else:
+            a["subject_label"] = a["subject_id"]
+        if a["resource_type"] == "pool":
+            a["resource_label"] = pools.get(int(a["resource_id"]), f"pool#{a['resource_id']}")
+        else:
+            a["resource_label"] = a["resource_id"]
+    return acl
 
 
 def acl_for_object(resource_type, resource_id):
@@ -304,25 +250,15 @@ def acl_for_object(resource_type, resource_id):
 def create_acl(subject_type, subject_id, role, resource_type, resource_id):
     if not role_exists(role):
         raise ValueError(f"Unknown role: {role}")
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO acl (subject_type, subject_id, role, resource_type, resource_id) VALUES (?, ?, ?, ?, ?)",
-            (subject_type, subject_id, role, resource_type, resource_id),
-        )
-        conn.commit()
-        return cur.lastrowid
+    return _store().create_acl(subject_type, subject_id, role, resource_type, resource_id)
 
 
 def delete_acl(acl_id):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM acl WHERE id = ?", (acl_id,))
-        conn.commit()
+    _store().delete_acl(acl_id)
 
 
 def delete_acl_for_vm(vm_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM acl WHERE resource_type = 'vm' AND resource_id = ?", (vm_name,))
-        conn.commit()
+    _store().delete_acl_for_vm(vm_name)
 
 
 # ---- Effective permission check ----
@@ -340,8 +276,7 @@ def has_privilege(user, vm_name, privilege):
     group_ids = set(get_user_groups(user["username"]))
     pool_ids = set(get_vm_pools(vm_name))
 
-    with get_conn() as conn:
-        rows = conn.execute("SELECT role, resource_type, resource_id, subject_type, subject_id FROM acl").fetchall()
+    rows = _store().acl()
 
     for row in rows:
         subject_ok = (row["subject_type"] == "user" and row["subject_id"] == user["username"]) or (
@@ -373,10 +308,7 @@ def has_container_privilege(user, container_name, privilege):
 
     group_ids = set(get_user_groups(user["username"]))
 
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT role, resource_type, resource_id, subject_type, subject_id FROM acl WHERE resource_type = 'container'"
-        ).fetchall()
+    rows = _store().acl("container")
 
     for row in rows:
         subject_ok = (row["subject_type"] == "user" and row["subject_id"] == user["username"]) or (
