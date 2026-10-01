@@ -115,6 +115,7 @@ jobs:
       - name: Build and test (GCC, sanitizers)
         run: |
           meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
+          ninja -C build-gcc  # meson test builds only what the C tests need, not the daemon the next steps run
           meson test -C build-gcc --print-errorlogs
       - name: Python client against the daemon
         run: |

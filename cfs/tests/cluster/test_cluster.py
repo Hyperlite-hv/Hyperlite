@@ -57,6 +57,7 @@ def show_logs(work):
 def nodes(tmp_path_factory):
     work = tmp_path_factory.mktemp("lab")
     lab("down")
+    assert Path(BIN).is_file(), f"HYPERLITE_CFS_BIN names {BIN}, which does not exist"
     clients = []
     try:
         lab("up", BIN, work)

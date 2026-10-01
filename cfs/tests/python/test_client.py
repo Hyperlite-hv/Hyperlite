@@ -16,7 +16,12 @@ from app.core.cfs_client import CfsClient, CfsError, Conflict, Locked, NotFound
 
 BIN = os.environ.get("HYPERLITE_CFS_BIN", "")
 
-pytestmark = pytest.mark.skipif(not BIN or not Path(BIN).is_file(), reason="HYPERLITE_CFS_BIN is not built")
+# Skipped when no daemon is named; a daemon named but missing is a broken build, not a reason to skip.
+pytestmark = pytest.mark.skipif(not BIN, reason="HYPERLITE_CFS_BIN is not set")
+
+
+def test_the_daemon_named_exists():
+    assert Path(BIN).is_file(), f"HYPERLITE_CFS_BIN names {BIN}, which does not exist"
 
 
 def start(tmp_path, db=None):
