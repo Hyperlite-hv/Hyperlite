@@ -7,6 +7,7 @@ from app.repositories.sqlite.accounts import SqliteAccountRepository
 from app.repositories.sqlite.audit import SqliteAuditRepository
 from app.repositories.sqlite.automation import SqliteAutomationRepository
 from app.repositories.sqlite.backups import SqliteBackupRepository
+from app.repositories.sqlite.ha import SqliteHaRepository
 from app.repositories.sqlite.identity import SqliteIdentityRepository
 from app.repositories.sqlite.metrics import SqliteMetricsRepository
 from app.repositories.sqlite.nodes import SqliteNodeRepository
@@ -68,3 +69,8 @@ def objects():
 @cache
 def renames():
     return SqliteRenameRepository()
+
+
+@cache
+def ha():
+    return SqliteHaRepository()
