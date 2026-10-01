@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import checkpoints, disk_move, disk_resize, passthrough, vm_locks
+from app.core import checkpoints, disk_move, disk_resize, network_edit, passthrough, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import lookup_volume, open_conn, pool_for_path
@@ -361,13 +361,26 @@ def get_vm_network(name: str, node: str | None = None, user: dict = Depends(get_
         conn.close()
 
 
+def _lookup_network(conn, username, action, name, network, vlan_tag):
+    """The network a VM interface is moved to or added on; 404 when missing, 422 when it cannot take the VLAN tag."""
+    try:
+        net = conn.networkLookupByName(network)
+    except libvirt.libvirtError:
+        log_action(username, action, name, "echec", "Network not found")
+        raise HTTPException(status_code=404, detail=f"Network '{network}' not found") from None
+    if vlan_tag is not None and not network_edit.carries_vlan_tags(ET.fromstring(net.XMLDesc(0))):
+        log_action(username, action, name, "echec", "VLAN tag unsupported by the network")
+        raise HTTPException(status_code=422, detail=network_edit.VLAN_UNSUPPORTED.format(name=network))
+    return net
+
+
 class NetworkUpdate(BaseModel):
     network: str
     vlan_tag: int | None = Field(
         None,
         ge=1,
         le=4094,
-        description="802.1Q tag: only effective if the underlying network/bridge handles trunking (Open vSwitch); silently ignored on a standard Linux bridge",
+        description="802.1Q tag, only on a network that carries tags (Open vSwitch or SR-IOV, `vlan` in GET /networks)",
     )
 
 
@@ -381,11 +394,7 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
             log_action(user["username"], "set_vm_network", name, "echec", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        try:
-            conn.networkLookupByName(payload.network)
-        except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_network", name, "echec", "Network not found")
-            raise HTTPException(status_code=404, detail=f"Network '{payload.network}' not found") from None
+        _lookup_network(conn, user["username"], "set_vm_network", name, payload.network, payload.vlan_tag)
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
@@ -443,11 +452,7 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
             log_action(user["username"], "attach_interface", name, "echec", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        try:
-            conn.networkLookupByName(payload.network)
-        except libvirt.libvirtError:
-            log_action(user["username"], "attach_interface", name, "echec", "Network not found")
-            raise HTTPException(status_code=404, detail=f"Network '{payload.network}' not found") from None
+        _lookup_network(conn, user["username"], "attach_interface", name, payload.network, payload.vlan_tag)
 
         vlan_xml = f"<vlan><tag id='{payload.vlan_tag}'/></vlan>" if payload.vlan_tag is not None else ""
         root = ET.fromstring(domain.XMLDesc(0))
