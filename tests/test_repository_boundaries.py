@@ -10,8 +10,6 @@ STILL_ALLOWED = {
     "backups.py",
     "containers.py",
     "jobs.py",
-    "metric_servers.py",
-    "metrics.py",
     "sso.py",
 }
 

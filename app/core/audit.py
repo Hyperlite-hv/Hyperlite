@@ -95,9 +95,11 @@ def _writer_loop():
         except Exception:
             logger.exception("Audit write failed, entry lost: %s %s %s", action, resource, result)
         finally:
+            # The single writer also trims the table, at most once a day: nothing else writes audit rows.
+            _purge_if_due()
+            # Last, so that _AUDIT_QUEUE.join() also waits for the purge: it opens its own connection, and one still
+            # open after join() returned raced whoever came next (a test's fresh database: "database is locked").
             _AUDIT_QUEUE.task_done()
-        # The single writer also trims the table, at most once a day: nothing else writes audit rows.
-        _purge_if_due()
 
 
 def _ensure_writer_started():
