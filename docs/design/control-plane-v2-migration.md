@@ -456,6 +456,10 @@ production use.
   `/etc/pve/nodes/${NAME}/priv/`, "only accessible by root". `hyperlite-cfs` has the same two root-only trees,
   replicated to every node; the values stay encrypted with Hyperlite's key as they are today.
 
+- **Production (decided 2026-10-01)**: the two production nodes sit on two distant sites linked by Tailscale, above
+  Corosync's latency limit (rule 4). **Each site becomes its own cluster**, as it would with Proxmox, and VMs can still
+  be migrated from one site to the other.
+
 Still open: Q5, Q7 to Q9.
 
 ## 16. Lot 1: the Node domain
