@@ -1,11 +1,13 @@
 /* Several nodes in one process over a simulated Corosync: one agreed order per partition, membership changes at the
  * same point of that order for every member, quorum = a strict majority of the configured nodes. Each scenario checks
  * what the design promises: identical states, one answer per change and the same on every node, no change applied
- * without quorum or around a membership change, and a node that cannot apply a change leaving instead of diverging. */
+ * without quorum or around a membership change, a node that cannot apply a change leaving instead of diverging, and a
+ * node that was away taking the state of the most advanced member. */
 
 #include "node.h"
 
 #include <sqlite3.h>
+#include <stdint.h>
 
 #include "check.h"
 
@@ -63,10 +65,12 @@ static sim_node *by_id(uint32_t id)
     return &sim[id - 1];
 }
 
-/* Deliver everything queued, in order, to the members of the sender's partition. */
-static void pump(void)
+/* Deliver the first `limit` messages queued (what they cause to be sent stays queued), in order, to the members of
+ * the sender's partition. */
+static void pump_n(size_t limit)
 {
-    for (size_t i = 0; i < queued; i++) {
+    size_t i = 0;
+    for (; i < queued && i < limit; i++) {
         sim_node *from = by_id(queue[i].sender);
         for (int k = 0; k < NODES; k++)
             if (from->group >= 0 && sim[k].group == from->group)
@@ -74,7 +78,14 @@ static void pump(void)
         free(queue[i].msg);
         queue[i].msg = NULL;
     }
-    queued = 0;
+    memmove(queue, queue + i, (queued - i) * sizeof(*queue));
+    queued -= i;
+}
+
+/* Deliver everything, including what the deliveries cause to be sent. */
+static void pump(void)
+{
+    pump_n(SIZE_MAX);
 }
 
 /* Messages not delivered when the membership changes are lost by everyone: allowed by virtual synchrony, and the
@@ -237,14 +248,16 @@ static void test_no_change_without_quorum(void)
     CHECK(same_state(0, 1));
     CHECK(!same_state(0, 2));
 
-    /* Back together, the members hold different states: until the state transfer exists (step B2) changes stay
-     * refused rather than applied on top of different trees. */
+    /* Back together: node 3 is behind, takes the majority's state, and the cluster is writable again. */
     int all[NODES] = {0, 0, 0};
     partition(all);
     for (int k = 0; k < NODES; k++)
-        CHECK(sim[k].node.diverged && !sim[k].node.synced);
-    put(0, "/y", "1", CFS_ANY_VERSION);
-    CHECK_EQ(sim[0].status, CFS_SYNCHRONISING);
+        CHECK(sim[k].node.synced && !sim[k].node.diverged);
+    CHECK(same_state(0, 2));
+    put(2, "/y", "1", CFS_ANY_VERSION);
+    pump();
+    CHECK_EQ(sim[2].status, CFS_OK);
+    CHECK(same_state(0, 1) && same_state(1, 2));
     teardown();
 }
 
@@ -370,6 +383,93 @@ static void test_reads_are_answered_at_once(void)
     teardown();
 }
 
+static void test_a_node_back_after_many_changes_takes_the_whole_state(void)
+{
+    setup();
+    int split[NODES] = {0, 0, 1};
+    partition(split);
+    /* Enough data for several transfer messages, one file of the largest size, deletions and locks. */
+    char path[64];
+    static char big[CFS_FILE_MAX + 1];
+    memset(big, 'x', CFS_FILE_MAX);
+    for (int i = 0; i < 1500; i++) {
+        snprintf(path, sizeof(path), "/vms/%d.json", i);
+        put(i % 2, path, "{\"config\": \"............................................\"}", CFS_ANY_VERSION);
+        if (i % 50 == 0)
+            pump();
+    }
+    put(0, "/big", big, CFS_ANY_VERSION);
+    lock(1, "vm:7", "backup@node2");
+    pump();
+    /* Node 3 had its own old entry, which must disappear. */
+    CHECK(same_state(0, 1));
+    int all[NODES] = {0, 0, 0};
+    partition(all);
+    CHECK(same_state(0, 2));
+    for (int k = 0; k < NODES; k++)
+        CHECK(sim[k].node.synced);
+    lock(2, "vm:7", "other@node3");
+    pump();
+    CHECK_EQ(sim[2].status, CFS_LOCKED); /* the lock came with the state */
+    int64_t id_before, id_after;
+    CHECK_EQ(cfs_store_next_id(sim[0].store, &id_before), CFS_OK); /* (directly: only to compare the counters) */
+    CHECK_EQ(cfs_store_next_id(sim[2].store, &id_after), CFS_OK);
+    CHECK_EQ(id_before, id_after);
+    teardown();
+}
+
+static void test_a_membership_change_during_a_transfer_starts_over(void)
+{
+    setup();
+    int split[NODES] = {0, 0, 1};
+    partition(split);
+    put(0, "/a", "1", CFS_ANY_VERSION);
+    pump();
+    /* The members merge, exchange their states and the source starts sending; the merge is cut before the data
+     * arrives (partition() drops what is queued), then made again. */
+    for (int k = 0; k < NODES; k++)
+        sim[k].group = 0;
+    uint32_t members[NODES] = {1, 2, 3};
+    for (int k = 0; k < NODES; k++) {
+        cfs_node_quorum(&sim[k].node, true);
+        cfs_node_membership(&sim[k].node, members, NODES);
+    }
+    /* Deliver only the states (node 3 sends one more, when it regains the quorum): the transfer begins but nothing of
+     * it arrives. */
+    pump_n(queued);
+    CHECK(queued > 0); /* the source's state, still in flight */
+    for (int k = 0; k < NODES; k++)
+        CHECK(!sim[k].node.synced);
+    CHECK(sim[2].node.transferring);
+    int all[NODES] = {0, 0, 0};
+    partition(all); /* drops the half-sent transfer: node 3 keeps its old state, then gets the whole one */
+    CHECK(same_state(0, 2));
+    for (int k = 0; k < NODES; k++)
+        CHECK(sim[k].node.synced && !sim[k].node.transferring);
+    teardown();
+}
+
+static void test_two_states_at_the_same_version_resolve_to_the_lowest_node(void)
+{
+    setup();
+    /* Only two writable partitions can do this (an expected-votes override on both sides); it is resolved the same
+     * way on every node, and logged loudly. */
+    int64_t v;
+    CHECK_EQ(cfs_store_put(sim[0].store, "/side", (const uint8_t *)"one", 3, CFS_ANY_VERSION, 1000, &v), CFS_OK);
+    CHECK_EQ(cfs_store_put(sim[2].store, "/side", (const uint8_t *)"three", 5, CFS_ANY_VERSION, 1000, &v), CFS_OK);
+    CHECK_EQ(cfs_store_put(sim[1].store, "/side", (const uint8_t *)"one", 3, CFS_ANY_VERSION, 1000, &v), CFS_OK);
+    int all[NODES] = {0, 0, 0};
+    partition(all);
+    CHECK(same_state(0, 1) && same_state(0, 2));
+    int64_t ver, mtime;
+    uint8_t *data;
+    size_t len;
+    CHECK_EQ(cfs_store_get(sim[2].store, "/side", &ver, &mtime, &data, &len), CFS_OK);
+    CHECK(len == 3 && memcmp(data, "one", 3) == 0);
+    free(data);
+    teardown();
+}
+
 int main(void)
 {
     test_changes_are_applied_alike_everywhere();
@@ -379,5 +479,8 @@ int main(void)
     test_a_node_that_cannot_apply_a_change_leaves();
     test_losing_the_quorum_without_a_membership_change();
     test_reads_are_answered_at_once();
+    test_a_node_back_after_many_changes_takes_the_whole_state();
+    test_a_membership_change_during_a_transfer_starts_over();
+    test_two_states_at_the_same_version_resolve_to_the_lowest_node();
     return check_failures;
 }
