@@ -52,9 +52,9 @@ def allowed(user, value=None):
 
 
 def _role_of(username):
-    with get_conn() as db:
-        row = db.execute("SELECT role FROM users WHERE username = ?", (username,)).fetchone()
-    return row["role"] if row else None
+    from app.repositories import registry
+
+    return registry.accounts().sync.role_of(username)
 
 
 def _purge(store, now):
