@@ -62,7 +62,7 @@ int main(void)
         fprintf(stderr, "%s\n", err);
         return 1;
     }
-    cfs_locks_init(&ctx.locks);
+    ctx.quorate = true;
 
     CHECK_EQ(put("/cluster/settings.json", "{}", 1000), CFS_OK);
     CHECK_EQ(get("/cluster/settings.json", 1000, NULL, 0), CFS_OK);

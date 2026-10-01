@@ -16,7 +16,12 @@ from app.core.cfs_client import CfsClient, CfsError, Conflict, Locked, NotFound
 
 BIN = os.environ.get("HYPERLITE_CFS_BIN", "")
 
-pytestmark = pytest.mark.skipif(not BIN or not Path(BIN).is_file(), reason="HYPERLITE_CFS_BIN is not built")
+# Skipped when no daemon is named; a daemon named but missing is a broken build, not a reason to skip.
+pytestmark = pytest.mark.skipif(not BIN, reason="HYPERLITE_CFS_BIN is not set")
+
+
+def test_the_daemon_named_exists():
+    assert Path(BIN).is_file(), f"HYPERLITE_CFS_BIN names {BIN}, which does not exist"
 
 
 def start(tmp_path, db=None):
@@ -79,7 +84,8 @@ def test_ids_locks_and_status(daemon):
 
         status = c.status()
         assert status.mode == "local" and status.quorate and len(status.checksum) == 64
-        assert status.entries == 0 and status.version == 2
+        # Two ids and three lock changes: locks are replicated state, so each one is a change of the version.
+        assert status.entries == 0 and status.version == 5
 
 
 def test_refusals_carry_a_reason(daemon):

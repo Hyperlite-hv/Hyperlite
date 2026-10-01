@@ -19,7 +19,7 @@ static cfs_store *open_store(const char *path)
 static int put(cfs_store *s, const char *path, const char *text, int64_t expected, int64_t *version)
 {
     int64_t v = 0;
-    int rc = cfs_store_put(s, path, (const uint8_t *)text, strlen(text), expected, &v);
+    int rc = cfs_store_put(s, path, (const uint8_t *)text, strlen(text), expected, 1000, &v);
     if (version)
         *version = v;
     return rc;
@@ -64,7 +64,7 @@ static void test_versions_and_compare_and_set(cfs_store *s)
     CHECK_EQ(cfs_store_get(s, "/cluster/a.json", &version, &mtime, &data, &len), CFS_OK);
     CHECK_EQ(version, 2);
     CHECK(len == 7 && memcmp(data, "{\"x\":1}", 7) == 0);
-    CHECK(mtime > 0);
+    CHECK_EQ(mtime, 1000); /* the time the change carried, not this machine's clock */
     free(data);
     CHECK_EQ(cfs_store_get(s, "/nope", &version, &mtime, &data, &len), CFS_NOT_FOUND);
 
@@ -114,20 +114,20 @@ static void test_rename(cfs_store *s)
     size_t len;
     CHECK_EQ(put(s, "/r/one", "payload", CFS_ANY_VERSION, &v), CFS_OK);
     CHECK_EQ(put(s, "/r/two", "taken", CFS_ANY_VERSION, NULL), CFS_OK);
-    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/two", CFS_ANY_VERSION, &nv), CFS_CONFLICT);
-    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/three", v + 100, &nv), CFS_CONFLICT);
-    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/one", CFS_ANY_VERSION, &nv), CFS_INVALID);
-    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/two/below", CFS_ANY_VERSION, &nv), CFS_INVALID);
+    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/two", CFS_ANY_VERSION, 1000, &nv), CFS_CONFLICT);
+    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/three", v + 100, 1000, &nv), CFS_CONFLICT);
+    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/one", CFS_ANY_VERSION, 1000, &nv), CFS_INVALID);
+    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/two/below", CFS_ANY_VERSION, 1000, &nv), CFS_INVALID);
     /* A refused rename leaves the source in place (the transaction rolled back). */
     CHECK_EQ(cfs_store_get(s, "/r/one", &version, &mtime, &data, &len), CFS_OK);
     free(data);
-    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/moved/one", v, &nv), CFS_OK);
+    CHECK_EQ(cfs_store_rename(s, "/r/one", "/r/moved/one", v, 1000, &nv), CFS_OK);
     CHECK(nv > v);
     CHECK_EQ(cfs_store_get(s, "/r/one", &version, &mtime, &data, &len), CFS_NOT_FOUND);
     CHECK_EQ(cfs_store_get(s, "/r/moved/one", &version, &mtime, &data, &len), CFS_OK);
     CHECK(len == 7 && memcmp(data, "payload", 7) == 0 && version == nv);
     free(data);
-    CHECK_EQ(cfs_store_rename(s, "/r/ghost", "/r/x", CFS_ANY_VERSION, &nv), CFS_NOT_FOUND);
+    CHECK_EQ(cfs_store_rename(s, "/r/ghost", "/r/x", CFS_ANY_VERSION, 1000, &nv), CFS_NOT_FOUND);
 }
 
 static void test_limits(cfs_store *s)
@@ -135,8 +135,8 @@ static void test_limits(cfs_store *s)
     size_t big = CFS_FILE_MAX + 1;
     uint8_t *buf = calloc(1, big);
     int64_t v;
-    CHECK_EQ(cfs_store_put(s, "/big", buf, big, CFS_ANY_VERSION, &v), CFS_TOO_LARGE);
-    CHECK_EQ(cfs_store_put(s, "/big", buf, CFS_FILE_MAX, CFS_ANY_VERSION, &v), CFS_OK);
+    CHECK_EQ(cfs_store_put(s, "/big", buf, big, CFS_ANY_VERSION, 1000, &v), CFS_TOO_LARGE);
+    CHECK_EQ(cfs_store_put(s, "/big", buf, CFS_FILE_MAX, CFS_ANY_VERSION, 1000, &v), CFS_OK);
     CHECK_EQ(cfs_store_delete(s, "/big", CFS_ANY_VERSION), CFS_OK);
     free(buf);
 }
@@ -170,6 +170,55 @@ static void test_ids_status_and_persistence(const char *db)
     cfs_store_close(s);
 }
 
+static void test_locks(cfs_store *s)
+{
+    char holder[CFS_NAME_MAX + 1];
+    int64_t before, after, entries, bytes;
+    uint8_t sum1[CFS_CHECKSUM_LEN], sum2[CFS_CHECKSUM_LEN];
+    CHECK_EQ(cfs_store_status(s, &before, sum1, &entries, &bytes), CFS_OK);
+    CHECK_EQ(cfs_store_lock(s, "vm:100", "migrate@pve1", 1, 30, 1000, holder), CFS_OK);
+    CHECK_EQ(cfs_store_status(s, &after, sum2, &entries, &bytes), CFS_OK);
+    CHECK_EQ(after, before + 1);                          /* a lock is a change like any other */
+    CHECK(memcmp(sum1, sum2, CFS_CHECKSUM_LEN) != 0);       /* and part of the state the nodes compare */
+    CHECK_EQ(cfs_store_lock(s, "vm:100", "backup@pve2", 2, 30, 1001, holder), CFS_LOCKED);
+    CHECK(strcmp(holder, "migrate@pve1") == 0);
+    CHECK_EQ(cfs_store_lock(s, "vm:100", "migrate@pve1", 1, 30, 1010, holder), CFS_OK); /* renewal */
+    CHECK_EQ(cfs_store_unlock(s, "vm:100", "backup@pve2", 1011), CFS_FORBIDDEN);
+    CHECK_EQ(cfs_store_unlock(s, "vm:100", "migrate@pve1", 1012), CFS_OK);
+    CHECK_EQ(cfs_store_unlock(s, "vm:100", "migrate@pve1", 1013), CFS_NOT_FOUND);
+
+    /* A holder that hangs loses the lock when its time to live ends. */
+    CHECK_EQ(cfs_store_lock(s, "vm:101", "a", 1, 10, 2000, holder), CFS_OK);
+    CHECK_EQ(cfs_store_lock(s, "vm:101", "b", 2, 10, 2009, holder), CFS_LOCKED);
+    CHECK_EQ(cfs_store_lock(s, "vm:101", "b", 2, 10, 2010, holder), CFS_OK);
+    CHECK_EQ(cfs_store_lock(s, "x", "a", 1, 0, 3000, holder), CFS_INVALID);
+    CHECK_EQ(cfs_store_lock(s, "x", "a", 1, CFS_LOCK_TTL_MAX + 1, 3000, holder), CFS_INVALID);
+
+    /* The locks taken from a node that left are released; the others stay. */
+    CHECK_EQ(cfs_store_lock(s, "vm:200", "ha@node3", 3, 600, 4000, holder), CFS_OK);
+    CHECK_EQ(cfs_store_lock(s, "vm:201", "ha@node1", 1, 600, 4000, holder), CFS_OK);
+    uint32_t members[] = {1, 2};
+    CHECK_EQ(cfs_store_drop_locks(s, members, 2), CFS_OK);
+    CHECK_EQ(cfs_store_lock(s, "vm:200", "other", 1, 60, 4001, holder), CFS_OK);
+    CHECK_EQ(cfs_store_lock(s, "vm:201", "other", 2, 60, 4001, holder), CFS_LOCKED);
+    CHECK_EQ(cfs_store_status(s, &before, sum1, &entries, &bytes), CFS_OK);
+    CHECK_EQ(cfs_store_drop_locks(s, members, 2), CFS_OK); /* nothing to release: no change */
+    CHECK_EQ(cfs_store_status(s, &after, sum2, &entries, &bytes), CFS_OK);
+    CHECK_EQ(after, before);
+
+    /* The table is bounded. */
+    char name[32];
+    int taken = 0;
+    for (int i = 0; i < CFS_LOCKS_MAX + 5; i++) {
+        snprintf(name, sizeof(name), "l%d", i);
+        if (cfs_store_lock(s, name, "o", 1, 60, 5000, holder) == CFS_OK)
+            taken++;
+    }
+    CHECK(taken < CFS_LOCKS_MAX + 5);
+    CHECK_EQ(cfs_store_lock(s, "one-more", "o", 1, 60, 5000, holder), CFS_TOO_LARGE);
+    CHECK_EQ(cfs_store_lock(s, "one-more", "o", 1, 60, 5060, holder), CFS_OK); /* the others expired */
+}
+
 int main(void)
 {
     char db[256];
@@ -179,6 +228,7 @@ int main(void)
     test_files_and_directories_do_not_overlap(s);
     test_rename(s);
     test_limits(s);
+    test_locks(s);
     cfs_store_close(s);
     temp_db_remove(db);
 
