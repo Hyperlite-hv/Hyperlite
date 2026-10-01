@@ -2,6 +2,7 @@
 
 from functools import cache
 
+from app.repositories.sqlite.access import SqliteAccessRepository
 from app.repositories.sqlite.accounts import SqliteAccountRepository
 from app.repositories.sqlite.audit import SqliteAuditRepository
 from app.repositories.sqlite.automation import SqliteAutomationRepository
@@ -50,3 +51,8 @@ def accounts():
 @cache
 def identity():
     return SqliteIdentityRepository()
+
+
+@cache
+def access():
+    return SqliteAccessRepository()
