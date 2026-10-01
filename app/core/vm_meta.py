@@ -1,28 +1,22 @@
 from datetime import UTC, datetime
 
-from app.core.database import get_conn
+
+def _store():
+    from app.repositories import registry
+
+    return registry.objects().sync
 
 
 def set_vm_ssh_user(vm_name, username):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO vm_ssh_users (vm_name, username) VALUES (?, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET username = excluded.username",
-            (vm_name, username),
-        )
-        conn.commit()
+    _store().set_vm_ssh_user(vm_name, username)
 
 
 def get_vm_ssh_user(vm_name):
-    with get_conn() as conn:
-        row = conn.execute("SELECT username FROM vm_ssh_users WHERE vm_name = ?", (vm_name,)).fetchone()
-        return row["username"] if row else None
+    return _store().vm_ssh_user(vm_name)
 
 
 def delete_vm_ssh_user(vm_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM vm_ssh_users WHERE vm_name = ?", (vm_name,))
-        conn.commit()
+    _store().delete_vm_ssh_user(vm_name)
 
 
 def rename_vm_ssh_user(old_name, new_name):
@@ -37,25 +31,15 @@ def rename_vm_ssh_user(old_name, new_name):
 
 
 def set_vm_os_label(vm_name, os_label):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO vm_os_label (vm_name, os_label) VALUES (?, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET os_label = excluded.os_label",
-            (vm_name, os_label),
-        )
-        conn.commit()
+    _store().set_vm_os_label(vm_name, os_label)
 
 
 def get_vm_os_label(vm_name):
-    with get_conn() as conn:
-        row = conn.execute("SELECT os_label FROM vm_os_label WHERE vm_name = ?", (vm_name,)).fetchone()
-        return row["os_label"] if row else None
+    return _store().vm_os_label(vm_name)
 
 
 def delete_vm_os_label(vm_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM vm_os_label WHERE vm_name = ?", (vm_name,))
-        conn.commit()
+    _store().delete_vm_os_label(vm_name)
 
 
 def rename_vm_os_label(old_name, new_name):
@@ -68,27 +52,15 @@ def rename_vm_os_label(old_name, new_name):
 
 
 def mark_provisioning(vm_name, os_family, task_id=None):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO vm_provisioning (vm_name, os_family, started_at, task_id) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET os_family = excluded.os_family, started_at = excluded.started_at, task_id = excluded.task_id",
-            (vm_name, os_family, datetime.now(UTC).isoformat(), task_id),
-        )
-        conn.commit()
+    _store().mark_provisioning(vm_name, os_family, datetime.now(UTC).isoformat(), task_id)
 
 
 def get_provisioning(vm_name):
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT os_family, started_at, task_id FROM vm_provisioning WHERE vm_name = ?", (vm_name,)
-        ).fetchone()
-        return dict(row) if row else None
+    return _store().provisioning(vm_name)
 
 
 def clear_provisioning(vm_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM vm_provisioning WHERE vm_name = ?", (vm_name,))
-        conn.commit()
+    _store().clear_provisioning(vm_name)
 
 
 # ---- Automatic deletion of inactive VMs ----
@@ -98,30 +70,15 @@ def set_vm_auto_cleanup(vm_name, inactive_days):
     """Enable or reconfigure. Also resets the counter (last_active_at = now):
     changing the threshold restarts from zero, which is more intuitive than
     letting an old counter run under a new threshold."""
-    now = datetime.now(UTC).isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO vm_auto_cleanup (vm_name, inactive_days, last_active_at, warned_at, created_at) "
-            "VALUES (?, ?, ?, NULL, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET inactive_days = excluded.inactive_days, last_active_at = excluded.last_active_at, warned_at = NULL",
-            (vm_name, inactive_days, now, now),
-        )
-        conn.commit()
+    _store().set_auto_cleanup(vm_name, inactive_days, datetime.now(UTC).isoformat())
 
 
 def get_vm_auto_cleanup(vm_name):
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT inactive_days, last_active_at, warned_at, created_at FROM vm_auto_cleanup WHERE vm_name = ?",
-            (vm_name,),
-        ).fetchone()
-        return dict(row) if row else None
+    return _store().auto_cleanup(vm_name)
 
 
 def delete_vm_auto_cleanup(vm_name):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM vm_auto_cleanup WHERE vm_name = ?", (vm_name,))
-        conn.commit()
+    _store().delete_auto_cleanup(vm_name)
 
 
 def touch_vm_activity(vm_name):
@@ -129,17 +86,8 @@ def touch_vm_activity(vm_name):
     inactivity counter AND the warning already sent (a VM that was just
     restarted is no longer "about to be deleted"). Does nothing when no policy
     is configured for this VM (an unmatched WHERE modifies 0 rows, silently)."""
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE vm_auto_cleanup SET last_active_at = ?, warned_at = NULL WHERE vm_name = ?",
-            (datetime.now(UTC).isoformat(), vm_name),
-        )
-        conn.commit()
+    _store().touch_activity(vm_name, datetime.now(UTC).isoformat())
 
 
 def list_all_auto_cleanup():
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT vm_name, inactive_days, last_active_at, warned_at, created_at FROM vm_auto_cleanup"
-        ).fetchall()
-        return [dict(r) for r in rows]
+    return _store().all_auto_cleanup()
