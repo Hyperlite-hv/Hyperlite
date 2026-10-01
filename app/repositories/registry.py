@@ -6,6 +6,7 @@ from app.repositories.sqlite.accounts import SqliteAccountRepository
 from app.repositories.sqlite.audit import SqliteAuditRepository
 from app.repositories.sqlite.automation import SqliteAutomationRepository
 from app.repositories.sqlite.backups import SqliteBackupRepository
+from app.repositories.sqlite.identity import SqliteIdentityRepository
 from app.repositories.sqlite.metrics import SqliteMetricsRepository
 from app.repositories.sqlite.nodes import SqliteNodeRepository
 from app.repositories.sqlite.tasks import SqliteTaskRepository
@@ -44,3 +45,8 @@ def backups():
 @cache
 def accounts():
     return SqliteAccountRepository()
+
+
+@cache
+def identity():
+    return SqliteIdentityRepository()
