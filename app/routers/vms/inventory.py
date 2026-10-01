@@ -8,7 +8,7 @@ from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.security import get_current_user
-from app.routers.vms._shared import _domain_summary, router
+from app.routers.vms._shared import _domain_summaries, _domain_summary, router
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,7 @@ def list_vms(node: str | None = None, user: dict = Depends(get_current_user)):
     when testing with a real second physical node."""
     conn = open_conn(node)
     try:
-        domains = conn.listAllDomains()
-        result = [_domain_summary(d) for d in domains]
+        result = _domain_summaries(conn)
         log_action(user["username"], "list_vms", "vms", "succes")
         return result
     finally:
