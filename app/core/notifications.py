@@ -19,8 +19,14 @@ from datetime import UTC, datetime
 from email.message import EmailMessage
 
 from app.core import secrets_crypto
-from app.core.database import get_conn
 from app.core.http_safety import require_http_url
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.settings().sync
+
 
 NOTIFY_EVENTS = {
     "node_statut_change": "Node state change",
@@ -49,11 +55,8 @@ def list_channels():
     send_to_channel/notify). NEVER expose this result as is through the API
     (see app/routers/notifications.py, which redacts the password before
     answering the client)."""
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM notification_channels ORDER BY id").fetchall()
     result = []
-    for r in rows:
-        d = dict(r)
+    for d in _store().channels():
         d["config"] = json.loads(d["config"])
         if d["type"] == "email" and d["config"].get("smtp_password"):
             try:
@@ -72,28 +75,16 @@ def create_channel(type_, name, config, events, username):
     config = dict(config)
     if type_ == "email" and config.get("smtp_password"):
         config["smtp_password"] = secrets_crypto.encrypt(config["smtp_password"])
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO notification_channels (type, name, config, events, enabled, created_by, created_at) "
-            "VALUES (?, ?, ?, ?, 1, ?, ?)",
-            (type_, name, json.dumps(config), json.dumps(events or []), username, now),
-        )
-        conn.commit()
-        channel_id = cur.lastrowid
-    return channel_id
+    return _store().create_channel(type_, name, json.dumps(config), json.dumps(events or []), username, now)
 
 
 def delete_channel(channel_id):
     """False when there is no such channel."""
-    with get_conn() as conn:
-        cur = conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
-        conn.commit()
-    return cur.rowcount > 0
+    return _store().delete_channel(channel_id)
 
 
 def get_channel_type(channel_id):
-    with get_conn() as conn:
-        row = conn.execute("SELECT type FROM notification_channels WHERE id = ?", (channel_id,)).fetchone()
+    row = _store().channel(channel_id)
     return row["type"] if row else None
 
 
@@ -104,41 +95,33 @@ def update_channel(channel_id, name=None, config=None, events=None, enabled=None
     `config` replaces the whole configuration, except the SMTP password: the API never
     hands it back, so an edit form cannot resend it, and an empty or missing one keeps
     the stored password unless `clear_smtp_password` is set."""
-    with get_conn() as conn:
-        row = conn.execute("SELECT type, config FROM notification_channels WHERE id = ?", (channel_id,)).fetchone()
-        if row is None:
-            return False
-        sets, params = [], []
-        if name is not None:
-            sets.append("name = ?")
-            params.append(name)
-        if events is not None:
-            sets.append("events = ?")
-            params.append(json.dumps(events))
-        if enabled is not None:
-            sets.append("enabled = ?")
-            params.append(1 if enabled else 0)
-        if config is not None or clear_smtp_password:
-            stored = json.loads(row["config"])
-            new_config = dict(config) if config is not None else dict(stored)
-            # Markers the API adds when it lists channels, never settings.
-            for marker in ("smtp_password_set", "smtp_password_unreadable", "redacted"):
-                new_config.pop(marker, None)
-            if row["type"] == "email":
-                if clear_smtp_password:
-                    new_config.pop("smtp_password", None)
-                elif new_config.get("smtp_password"):
-                    new_config["smtp_password"] = secrets_crypto.encrypt(new_config["smtp_password"])
-                elif stored.get("smtp_password"):
-                    new_config["smtp_password"] = stored["smtp_password"]  # still encrypted
-                else:
-                    new_config.pop("smtp_password", None)
-            sets.append("config = ?")
-            params.append(json.dumps(new_config))
-        if sets:
-            # Only fixed column fragments are interpolated; values are bound parameters.
-            conn.execute(f"UPDATE notification_channels SET {', '.join(sets)} WHERE id = ?", (*params, channel_id))  # noqa: S608
-            conn.commit()
+    row = _store().channel(channel_id)
+    if row is None:
+        return False
+    fields = {}
+    if name is not None:
+        fields["name"] = name
+    if events is not None:
+        fields["events"] = json.dumps(events)
+    if enabled is not None:
+        fields["enabled"] = 1 if enabled else 0
+    if config is not None or clear_smtp_password:
+        stored = json.loads(row["config"])
+        new_config = dict(config) if config is not None else dict(stored)
+        # Markers the API adds when it lists channels, never settings.
+        for marker in ("smtp_password_set", "smtp_password_unreadable", "redacted"):
+            new_config.pop(marker, None)
+        if row["type"] == "email":
+            if clear_smtp_password:
+                new_config.pop("smtp_password", None)
+            elif new_config.get("smtp_password"):
+                new_config["smtp_password"] = secrets_crypto.encrypt(new_config["smtp_password"])
+            elif stored.get("smtp_password"):
+                new_config["smtp_password"] = stored["smtp_password"]  # still encrypted
+            else:
+                new_config.pop("smtp_password", None)
+        fields["config"] = json.dumps(new_config)
+    _store().update_channel(channel_id, fields)
     return True
 
 

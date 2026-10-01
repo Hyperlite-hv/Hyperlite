@@ -29,11 +29,17 @@ import urllib.request
 from datetime import UTC, datetime
 
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.error_messages import describe_exception
 from app.core.secrets_crypto import SecretUnreadable, decrypt, encrypt
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import PROJDIR
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.settings().sync
+
 
 logger = logging.getLogger(__name__)
 
@@ -87,27 +93,20 @@ def _row(r):
 
 
 def list_clusters():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM k8s_clusters ORDER BY nom").fetchall()
-    return [_row(r) for r in rows]
+    return [_row(r) for r in _store().k8s_clusters()]
 
 
 def get_cluster(name):
-    with get_conn() as conn:
-        r = conn.execute("SELECT * FROM k8s_clusters WHERE nom = ?", (name,)).fetchone()
+    r = _store().k8s_cluster(name)
     return _row(r) if r else None
 
 
 def _update(name, **fields):
-    cols = ", ".join(f"{k} = ?" for k in fields)
-    with get_conn() as conn:
-        conn.execute(f"UPDATE k8s_clusters SET {cols} WHERE nom = ?", (*fields.values(), name))  # noqa: S608 - fixed column names
-        conn.commit()
+    _store().update_k8s_cluster(name, fields)
 
 
 def get_kubeconfig(name):
-    with get_conn() as conn:
-        r = conn.execute("SELECT kubeconfig FROM k8s_clusters WHERE nom = ?", (name,)).fetchone()
+    r = _store().k8s_cluster(name)
     if not r:
         raise ClusterError(f"Cluster '{name}' not found", 404)
     if not r["kubeconfig"]:
@@ -120,12 +119,7 @@ def get_kubeconfig(name):
 
 def recover_interrupted():
     """At start-up: a cluster left 'creation' or 'suppression' by a restart will never finish; say so."""
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE k8s_clusters SET statut = 'echec', erreur = 'Interrupted by a restart of Hyperlite' "
-            "WHERE statut IN ('creation', 'suppression')"
-        )
-        conn.commit()
+    _store().fail_interrupted_k8s_clusters("Interrupted by a restart of Hyperlite")
 
 
 def vm_names(name, workers):
@@ -417,13 +411,9 @@ def start_create(name, workers, vcpu, memory_mb, disk_gb, network, username):
         _busy.add(name)
     server, agents = vm_names(name, workers)
     task_id = create_task("create_k8s_cluster", name, username=username)
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO k8s_clusters (nom, reseau, serveur, workers, vcpu, memoire_mo, disque_go, statut, task_id, "
-            "cree_par, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, 'creation', ?, ?, ?)",
-            (name, network, server, json.dumps(agents), vcpu, memory_mb, disk_gb, task_id, username, _now()),
-        )
-        conn.commit()
+    _store().create_k8s_cluster(
+        name, network, server, json.dumps(agents), vcpu, memory_mb, disk_gb, task_id, username, _now()
+    )
     threading.Thread(
         target=_provision,
         args=(name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id),
@@ -510,9 +500,7 @@ def delete_cluster(name, username):
                 delete_vm(vm, confirm=True, node=None, user={"username": username})
         finally:
             conn.close()
-        with get_conn() as db:
-            db.execute("DELETE FROM k8s_clusters WHERE nom = ?", (name,))
-            db.commit()
+        _store().delete_k8s_cluster(name)
         finish_task(task_id, "termine")
         log_action(username, "delete_k8s_cluster", name, "succes", task_id=task_id)
     except Exception as e:
