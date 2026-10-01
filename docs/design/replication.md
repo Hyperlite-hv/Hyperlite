@@ -108,3 +108,37 @@ The same approach fits Hyperlite and reuses what exists:
 - **R2: unknown.** Prudent defaults: two copies at once at most, a full copy at most once a day per VM, and a per-VM
   delay indicator, so a link that cannot keep up shows which VMs fall behind instead of failing silently.
 - **R3: incremental backups**, as proposed in 5.3. ZFS replication stays a later option.
+
+### 5.7 Verified on libvirt 10 and QEMU 8.2 (2026-10-01)
+
+Tried on a real QEMU VM, with the libvirt Python binding Hyperlite uses:
+
+- **A full backup, then an incremental one into a qcow2 whose backing file is the full one, gives the exact disk.**
+  `backupBegin` in push mode with a new checkpoint, then `<incremental>` from that checkpoint with
+  `VIR_DOMAIN_BACKUP_BEGIN_REUSE_EXTERNAL` into a target created beforehand with `qemu-img create -b`.
+  `qemu-img compare` of the chain against the live disk reports identical images. The incremental only holds the
+  changed clusters.
+- **Writes made while the VM is stopped are tracked too.** The bitmaps live in the qcow2 file, and any QEMU block
+  layer user (qemu-io, qemu-img) marks them. The next incremental, once the VM runs, includes those writes.
+- **Constraints, all checked:**
+  - `backupBegin` needs a running VM. A stopped VM whose disks did not change since its last copy is skipped. If they
+    changed, a full cold copy starts a new chain.
+  - While a checkpoint exists, libvirt refuses **"block operations"** ("cannot perform block operations while
+    checkpoint exists"). That covers the transient external snapshot of today's hot backups, offline snapshots, and,
+    by the same rule, disk moves and live migrations that copy the disk. Snapshots of a running VM still work.
+  - A checkpoint **cannot be deleted while the VM is stopped**. When the VM runs, `checkpoint.delete()` removes it
+    and its bitmap.
+  - Removing a VM's checkpoint metadata leaves its bitmaps in the qcow2 file, and a later checkpoint of the same name
+    then fails ("Bitmap already exists"). Checkpoint names must therefore be unique (a timestamp), and dropping a
+    chain must also remove the bitmaps (`qemu-img bitmap --remove` when the VM is stopped).
+
+Consequences for the implementation:
+
+1. A VM under replication is backed up with `backupBegin` only, never with the external snapshot of today's hot
+   backups.
+2. Before an operation libvirt refuses while checkpoints exist (disk move, migration copying the disk, offline
+   snapshot, disk resize), Hyperlite **drops the replication chain**: `checkpoint.delete()` on a running VM, or the
+   metadata plus the bitmaps with `qemu-img` on a stopped VM. The next run then starts a new full copy. The operation
+   tells the user that it will do so.
+3. Only one checkpoint per disk is kept, the last one: each incremental creates the next checkpoint and deletes the
+   previous one, so the qcow2 file never accumulates bitmaps.
