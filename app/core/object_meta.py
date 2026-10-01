@@ -8,7 +8,12 @@ short lowercase words, so the same tag typed twice is the same tag.
 import json
 import re
 
-from app.core.database import get_conn
+
+def _store():
+    from app.repositories import registry
+
+    return registry.objects().sync
+
 
 KINDS = ("vm", "container", "node")
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,31}$")
@@ -49,10 +54,7 @@ def _key(kind, name, node):
 
 def get(kind, name, node=None):
     k, n, nm = _key(kind, name, node)
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT notes, tags FROM object_meta WHERE kind = ? AND node = ? AND name = ?", (k, n, nm)
-        ).fetchone()
+    row = _store().meta(k, n, nm)
     if not row:
         return {"notes": "", "tags": []}
     return {"notes": row["notes"] or "", "tags": json.loads(row["tags"] or "[]")}
@@ -64,28 +66,15 @@ def put(kind, name, notes, tags, node=None):
     if len(notes) > MAX_NOTES:
         raise MetaError(f"Notes are limited to {MAX_NOTES} characters")
     tags = normalize_tags(tags)
-    with get_conn() as conn:
-        if not notes.strip() and not tags:
-            conn.execute("DELETE FROM object_meta WHERE kind = ? AND node = ? AND name = ?", (k, n, nm))
-        else:
-            conn.execute(
-                "INSERT INTO object_meta (kind, node, name, notes, tags) VALUES (?, ?, ?, ?, ?) "
-                "ON CONFLICT(kind, node, name) DO UPDATE SET notes = excluded.notes, tags = excluded.tags",
-                (k, n, nm, notes, json.dumps(tags)),
-            )
-        conn.commit()
+    if not notes.strip() and not tags:
+        _store().delete_meta(k, n, nm)
+    else:
+        _store().put_meta(k, n, nm, notes, json.dumps(tags))
     return {"notes": notes, "tags": tags}
 
 
 def list_all(kind=None):
     """Every object's tags and whether it has notes (not the notes themselves: the lists stay light)."""
-    sql = "SELECT kind, node, name, notes, tags FROM object_meta"
-    params = ()
-    if kind:
-        sql += " WHERE kind = ?"
-        params = (kind,)
-    with get_conn() as conn:
-        rows = conn.execute(sql + " ORDER BY kind, node, name", params).fetchall()
     return [
         {
             "kind": r["kind"],
@@ -94,23 +83,14 @@ def list_all(kind=None):
             "tags": json.loads(r["tags"] or "[]"),
             "a_des_notes": bool((r["notes"] or "").strip()),
         }
-        for r in rows
+        for r in _store().all_meta(kind)
     ]
 
 
 def delete(kind, name, node=None):
-    k, n, nm = _key(kind, name, node)
-    with get_conn() as conn:
-        conn.execute("DELETE FROM object_meta WHERE kind = ? AND node = ? AND name = ?", (k, n, nm))
-        conn.commit()
+    _store().delete_meta(*_key(kind, name, node))
 
 
 def follow_migration(vm_name, source_node, target_node):
     """A VM's notes and tags move with it to the node it was live-migrated to."""
-    with get_conn() as conn:
-        cur = conn.execute(
-            "UPDATE OR REPLACE object_meta SET node = ? WHERE kind = 'vm' AND node = ? AND name = ?",
-            (target_node or LOCAL, source_node or LOCAL, vm_name),
-        )
-        conn.commit()
-    return cur.rowcount > 0
+    return _store().move_vm_meta(vm_name, source_node or LOCAL, target_node or LOCAL)
