@@ -48,7 +48,8 @@ EOF
 }
 
 up() {
-    local bin=$1 dir=$2
+    local bin dir=$2
+    bin=$(realpath "$1")
     ip link add ${P}br type bridge
     ip link set ${P}br up
     for i in $(seq 1 $NODES); do
@@ -61,12 +62,13 @@ up() {
         ip -n ${P}$i link set lo up
         mkdir -p /etc/netns/${P}$i/corosync "$dir/n$i/lib" "$dir/n$i/run"
         conf > /etc/netns/${P}$i/corosync/corosync.conf
-        # Corosync first; hyperlite-cfs once Corosync answers. Both stay in the node's namespaces.
+        # Corosync first; hyperlite-cfs once Corosync answers on its local socket (cmap answers without the other
+        # nodes, unlike the link status). Both stay in the node's namespaces.
         ip netns exec ${P}$i unshare -m sh -c "
             mount --bind '$dir/n$i/lib' /var/lib/corosync
             mount --bind '$dir/n$i/run' /run
             corosync -f > '$dir/n$i/corosync.log' 2>&1 &
-            until corosync-cfgtool -s > /dev/null 2>&1; do sleep 0.2; done
+            for _ in \$(seq 1 150); do corosync-cmapctl totem.cluster_name > /dev/null 2>&1 && break; sleep 0.2; done
             exec '$bin' --cluster --db '$dir/n$i/config.db' --socket '$dir/n$i/cfs.sock' --socket-mode 0666
         " > "$dir/n$i/cfs.log" 2>&1 &
     done

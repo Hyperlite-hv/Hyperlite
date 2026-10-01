@@ -45,15 +45,24 @@ def until(check, timeout=90, what="the cluster"):
     raise AssertionError(f"{what} did not settle: {last}")
 
 
+def show_logs(work):
+    for i in (1, 2, 3):
+        for name in ("cfs.log", "corosync.log"):
+            log = work / f"n{i}" / name
+            if log.exists():
+                print(f"--- node {i}, {name}\n{log.read_text()[-3000:]}")
+
+
 @pytest.fixture(scope="module")
 def nodes(tmp_path_factory):
     work = tmp_path_factory.mktemp("lab")
     lab("down")
-    lab("up", BIN, work)
-    socks = [work / f"n{i}" / "cfs.sock" for i in (1, 2, 3)]
-    until(lambda: all(s.exists() for s in socks), what="the daemons")
-    clients = [CfsClient(str(s)) for s in socks]
+    clients = []
     try:
+        lab("up", BIN, work)
+        socks = [work / f"n{i}" / "cfs.sock" for i in (1, 2, 3)]
+        until(lambda: all(s.exists() for s in socks), what="the daemons")
+        clients = [CfsClient(str(s)) for s in socks]
         # Writable once the three members agree: a probe write from each node succeeds.
         for i, c in enumerate(clients):
             until(lambda c=c, i=i: c.put(f"/probe/{i}", b"x") > 0, what="the first agreement")
@@ -61,11 +70,8 @@ def nodes(tmp_path_factory):
     finally:
         for c in clients:
             c.close()
-        for i in (1, 2, 3):
-            log = work / f"n{i}" / "cfs.log"
-            if log.exists():
-                print(f"--- node {i}\n{log.read_text()[-3000:]}")
         lab("down")
+        show_logs(work)
 
 
 def same_everywhere(clients):
