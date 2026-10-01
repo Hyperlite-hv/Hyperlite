@@ -1,7 +1,7 @@
 # Decision: storage replication between nodes
 
-Status: **decided: not built for now.** This page records why, what covers the need today, and what would reopen
-the question.
+Status: **reopened on 2026-10-01 for replication between two sites (section 5), proposal waiting for the
+maintainer.** Sections 1 to 4 record the earlier decision about replication between nodes of one site.
 
 ## 1. The need
 
@@ -44,3 +44,60 @@ When it is built, the outline is: a replication job per VM (target node, interva
 a task; `zfs snapshot` then `zfs send -i` over the cluster's SSH link into `zfs receive -F` on the target; the VM's
 definition copied along; recovery started only by an administrator or by HA after fencing, never on a plain
 connection loss.
+
+## 5. Reopened: replication between two sites (proposal, 2026-10-01)
+
+### 5.1 The need
+
+The production runs on two distant sites, each its own Hyperlite (a Corosync cluster needs a LAN). When a whole site
+is lost, the other one restarts its VMs from what it holds of them (`docs/site-recovery.md`). With daily backups, a
+day of data is lost. The maintainer asked for less: copies every few minutes.
+
+### 5.2 How Proxmox does it, and what follows for Hyperlite
+
+Proxmox's storage replication (`zfs send`) works only between nodes of one cluster and only on ZFS. Between sites,
+Proxmox relies on Proxmox Backup Server: incremental backups (QEMU dirty bitmaps) that only read the changed blocks,
+synchronised to a second server on the other site. The surviving site restores from there.
+
+The same approach fits Hyperlite and reuses what exists:
+
+| Piece | Today | To build |
+|---|---|---|
+| Copy to the other site | backups to an NFS pool of the other site | nothing |
+| Restore on the surviving site | site recovery (`app/core/site_recovery.py`) | restore through an incremental chain |
+| Small copies every few minutes | full backups only (a whole disk read and written each time) | **incremental backups**, step 3 of `docs/design/backups-pro.md` |
+
+### 5.3 Proposal
+
+1. **Incremental backups with libvirt checkpoints** (backups-pro section 3.1, option A). libvirt keeps a persistent
+   dirty bitmap per qcow2 disk, and `backupBegin` writes only the blocks changed since the previous checkpoint into a
+   qcow2 whose backing file is the previous backup. It works on any storage that holds qcow2 files (local directory,
+   NFS) and needs no ZFS.
+   - The chain is: one full backup, then incrementals. Every *K* incrementals (for example every day), a new full one
+     starts a new chain, so a damaged link never costs more than a day.
+   - Retention never deletes a backup another one depends on.
+   - qcow2 v2 disks, which have no bitmaps, fall back to full backups, with the reason shown.
+2. **A "replication" schedule**: a grouped backup job with an interval in minutes (15 by default) instead of a time of
+   day, targeting the other site's storage, and a cap on how many run at once so the inter-site link is not
+   saturated.
+3. **Site recovery restores the newest point of a chain**: `qemu-img convert` of the newest incremental reads through
+   its backing chain into one independent disk.
+4. **A dashboard indicator per VM**: the age of its last copy on the other site, warned about past twice the interval.
+5. **ZFS `send -i` stays a later option** for VMs on real ZFS pools, which Hyperlite does not create yet (section 2).
+
+### 5.4 What it cannot promise
+
+- Data loss is bounded by the interval (15 minutes by default), not zero: synchronous replication between distant
+  sites would slow every write of every VM down to the link's latency.
+- The first full copy of each VM crosses the link in full; on a slow link, it is better seeded by a backup carried on
+  a disk.
+- It cannot be verified in CI: QEMU's bitmaps need a real VM writing to its disk. The test plan is a real VM on two
+  hosts, with an incremental chain restored on the second one, and the content compared.
+
+### 5.5 Questions for the maintainer
+
+- **R1.** The accepted data loss: 15 minutes, 1 hour, or 4 hours?
+- **R2.** The bandwidth between the sites, and the number and size of the VMs: this decides whether every VM can
+  follow the interval.
+- **R3.** Approach: incremental backups (works on the current storage, no ZFS), or ZFS replication only (needs real ZFS
+  pools on disks first)?
