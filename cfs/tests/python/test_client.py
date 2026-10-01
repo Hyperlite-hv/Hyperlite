@@ -79,7 +79,8 @@ def test_ids_locks_and_status(daemon):
 
         status = c.status()
         assert status.mode == "local" and status.quorate and len(status.checksum) == 64
-        assert status.entries == 0 and status.version == 2
+        # Two ids and three lock changes: locks are replicated state, so each one is a change of the version.
+        assert status.entries == 0 and status.version == 5
 
 
 def test_refusals_carry_a_reason(daemon):

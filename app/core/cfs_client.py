@@ -48,7 +48,8 @@ class ReadOnly(CfsError):
 
 
 class Synchronising(CfsError):
-    """A membership change is in progress: retry shortly (cluster mode)."""
+    """The members are agreeing on one state after a membership change: retry shortly (cluster mode). The reason says
+    when they hold different states, which only a state transfer resolves."""
 
 
 _ERRORS = {NOT_FOUND: NotFound, CONFLICT: Conflict, LOCKED: Locked, READ_ONLY: ReadOnly, SYNCHRONISING: Synchronising}

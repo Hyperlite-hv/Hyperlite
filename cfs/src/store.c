@@ -1,11 +1,11 @@
 #include "store.h"
 
 #include <openssl/evp.h>
+#include <stdbool.h>
 #include <sqlite3.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 struct cfs_store {
     sqlite3 *db;
@@ -21,6 +21,11 @@ static const char SCHEMA[] =
     " mtime INTEGER NOT NULL,"
     " data BLOB NOT NULL) WITHOUT ROWID;"
     "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL) WITHOUT ROWID;"
+    "CREATE TABLE IF NOT EXISTS locks ("
+    " name TEXT PRIMARY KEY NOT NULL,"
+    " owner TEXT NOT NULL,"
+    " node INTEGER NOT NULL,"
+    " expires INTEGER NOT NULL) WITHOUT ROWID;"
     "INSERT OR IGNORE INTO meta (key, value) VALUES ('version', 0), ('next_id', 100);";
 
 static void set_error(cfs_store *s, const char *what)
@@ -230,7 +235,7 @@ static int commit_version(cfs_store *s, int64_t version)
     return CFS_OK;
 }
 
-static int write_row(cfs_store *s, const char *path, int64_t version, const uint8_t *data, size_t len)
+static int write_row(cfs_store *s, const char *path, int64_t version, int64_t mtime, const uint8_t *data, size_t len)
 {
     sqlite3_stmt *st;
     if (sqlite3_prepare_v2(s->db,
@@ -243,7 +248,7 @@ static int write_row(cfs_store *s, const char *path, int64_t version, const uint
     }
     sqlite3_bind_text(st, 1, path, -1, SQLITE_STATIC);
     sqlite3_bind_int64(st, 2, version);
-    sqlite3_bind_int64(st, 3, (int64_t)time(NULL));
+    sqlite3_bind_int64(st, 3, mtime);
     sqlite3_bind_blob(st, 4, len ? (const void *)data : "", (int)len, SQLITE_STATIC);
     int rc = sqlite3_step(st);
     sqlite3_finalize(st);
@@ -271,7 +276,7 @@ static int delete_row(cfs_store *s, const char *path)
     return CFS_OK;
 }
 
-int cfs_store_put(cfs_store *s, const char *path, const uint8_t *data, size_t len, int64_t expected,
+int cfs_store_put(cfs_store *s, const char *path, const uint8_t *data, size_t len, int64_t expected, int64_t now,
                   int64_t *new_version)
 {
     if (len > CFS_FILE_MAX)
@@ -288,7 +293,7 @@ int cfs_store_put(cfs_store *s, const char *path, const uint8_t *data, size_t le
         rc = CFS_TOO_LARGE;
     int64_t version = s->version + 1;
     if (rc == CFS_OK)
-        rc = write_row(s, path, version, data, len);
+        rc = write_row(s, path, version, now, data, len);
     if (rc == CFS_OK)
         rc = commit_version(s, version);
     if (rc != CFS_OK) {
@@ -320,7 +325,8 @@ int cfs_store_delete(cfs_store *s, const char *path, int64_t expected)
     return CFS_OK;
 }
 
-int cfs_store_rename(cfs_store *s, const char *from, const char *to, int64_t expected, int64_t *new_version)
+int cfs_store_rename(cfs_store *s, const char *from, const char *to, int64_t expected, int64_t now,
+                     int64_t *new_version)
 {
     if (strcmp(from, to) == 0) {
         snprintf(s->error, sizeof(s->error), "the source and the target are the same");
@@ -348,7 +354,7 @@ int cfs_store_rename(cfs_store *s, const char *from, const char *to, int64_t exp
         rc = check_shape(s, to);
     int64_t version = s->version + 1;
     if (rc == CFS_OK)
-        rc = write_row(s, to, version, data, len);
+        rc = write_row(s, to, version, now, data, len);
     free(data);
     if (rc == CFS_OK)
         rc = commit_version(s, version);
@@ -390,6 +396,147 @@ int cfs_store_next_id(cfs_store *s, int64_t *id)
     }
     *id = next;
     return CFS_OK;
+}
+
+/* ---- Locks: rows of the same database, so they are replicated, checksummed and copied with the tree ----------- */
+
+/* Run one statement with up to two text and two integer parameters bound in order (texts first). Returns the
+ * sqlite3_step result, or -1 when it cannot be prepared. */
+static int run(cfs_store *s, const char *sql, const char *t1, const char *t2, int64_t i1, int64_t i2, int nint)
+{
+    sqlite3_stmt *st;
+    if (sqlite3_prepare_v2(s->db, sql, -1, &st, NULL) != SQLITE_OK) {
+        set_error(s, "lock");
+        return -1;
+    }
+    int k = 1;
+    if (t1)
+        sqlite3_bind_text(st, k++, t1, -1, SQLITE_STATIC);
+    if (t2)
+        sqlite3_bind_text(st, k++, t2, -1, SQLITE_STATIC);
+    if (nint > 0)
+        sqlite3_bind_int64(st, k++, i1);
+    if (nint > 1)
+        sqlite3_bind_int64(st, k++, i2);
+    int rc = sqlite3_step(st);
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE)
+        set_error(s, "lock");
+    sqlite3_finalize(st);
+    return rc;
+}
+
+/* The current holder of `name` among unexpired locks: CFS_OK with the owner copied, CFS_NOT_FOUND, CFS_INTERNAL. */
+static int lock_holder(cfs_store *s, const char *name, char owner[CFS_NAME_MAX + 1])
+{
+    sqlite3_stmt *st;
+    if (sqlite3_prepare_v2(s->db, "SELECT owner FROM locks WHERE name = ?", -1, &st, NULL) != SQLITE_OK) {
+        set_error(s, "lock");
+        return CFS_INTERNAL;
+    }
+    sqlite3_bind_text(st, 1, name, -1, SQLITE_STATIC);
+    int rc = sqlite3_step(st), result;
+    if (rc == SQLITE_ROW) {
+        snprintf(owner, CFS_NAME_MAX + 1, "%s", (const char *)sqlite3_column_text(st, 0));
+        result = CFS_OK;
+    } else if (rc == SQLITE_DONE) {
+        result = CFS_NOT_FOUND;
+    } else {
+        set_error(s, "lock");
+        result = CFS_INTERNAL;
+    }
+    sqlite3_finalize(st);
+    return result;
+}
+
+int cfs_store_lock(cfs_store *s, const char *name, const char *owner, uint32_t node, uint32_t ttl, int64_t now,
+                   char holder[CFS_NAME_MAX + 1])
+{
+    holder[0] = '\0';
+    if (ttl == 0 || ttl > CFS_LOCK_TTL_MAX)
+        return CFS_INVALID;
+    if (begin(s) != CFS_OK)
+        return CFS_INTERNAL;
+    int rc = run(s, "DELETE FROM locks WHERE expires <= ?", NULL, NULL, now, 0, 1) == SQLITE_DONE ? CFS_OK
+                                                                                                  : CFS_INTERNAL;
+    char current[CFS_NAME_MAX + 1];
+    int held = rc == CFS_OK ? lock_holder(s, name, current) : rc;
+    if (held == CFS_INTERNAL)
+        rc = CFS_INTERNAL;
+    else if (held == CFS_OK && strcmp(current, owner) != 0) {
+        snprintf(holder, CFS_NAME_MAX + 1, "%s", current);
+        rc = CFS_LOCKED;
+    } else if (held == CFS_NOT_FOUND && query_i64(s, "SELECT COUNT(*) FROM locks", 0) >= CFS_LOCKS_MAX)
+        rc = CFS_TOO_LARGE;
+    /* A new lock, or a renewal by its owner (from any node: the owner names the holder, the node only says where to
+     * release it when that node leaves). */
+    if (rc == CFS_OK &&
+        run(s, "INSERT INTO locks (name, owner, node, expires) VALUES (?, ?, ?, ?) "
+               "ON CONFLICT(name) DO UPDATE SET node = excluded.node, expires = excluded.expires",
+            name, owner, node, now + (int64_t)ttl, 2) != SQLITE_DONE)
+        rc = CFS_INTERNAL;
+    if (rc == CFS_OK)
+        rc = commit_version(s, s->version + 1);
+    if (rc != CFS_OK)
+        rollback(s);
+    return rc;
+}
+
+int cfs_store_unlock(cfs_store *s, const char *name, const char *owner, int64_t now)
+{
+    if (begin(s) != CFS_OK)
+        return CFS_INTERNAL;
+    int rc = run(s, "DELETE FROM locks WHERE expires <= ?", NULL, NULL, now, 0, 1) == SQLITE_DONE ? CFS_OK
+                                                                                                  : CFS_INTERNAL;
+    char current[CFS_NAME_MAX + 1];
+    if (rc == CFS_OK)
+        rc = lock_holder(s, name, current);
+    if (rc == CFS_OK && strcmp(current, owner) != 0)
+        rc = CFS_FORBIDDEN;
+    if (rc == CFS_OK && run(s, "DELETE FROM locks WHERE name = ?", name, NULL, 0, 0, 0) != SQLITE_DONE)
+        rc = CFS_INTERNAL;
+    if (rc == CFS_OK)
+        rc = commit_version(s, s->version + 1);
+    if (rc != CFS_OK)
+        rollback(s);
+    return rc;
+}
+
+int cfs_store_drop_locks(cfs_store *s, const uint32_t *members, size_t count)
+{
+    sqlite3_stmt *st;
+    if (sqlite3_prepare_v2(s->db, "SELECT DISTINCT node FROM locks ORDER BY node", -1, &st, NULL) != SQLITE_OK) {
+        set_error(s, "drop locks");
+        return CFS_INTERNAL;
+    }
+    uint32_t gone[CFS_MEMBERS_MAX];
+    size_t ngone = 0;
+    int rc;
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW && ngone < CFS_MEMBERS_MAX) {
+        uint32_t node = (uint32_t)sqlite3_column_int64(st, 0);
+        bool member = false;
+        for (size_t i = 0; i < count; i++)
+            member = member || members[i] == node;
+        if (!member)
+            gone[ngone++] = node;
+    }
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+        set_error(s, "drop locks");
+        return CFS_INTERNAL;
+    }
+    if (ngone == 0)
+        return CFS_OK;
+    if (begin(s) != CFS_OK)
+        return CFS_INTERNAL;
+    rc = CFS_OK;
+    for (size_t i = 0; i < ngone && rc == CFS_OK; i++)
+        if (run(s, "DELETE FROM locks WHERE node = ?", NULL, NULL, gone[i], 0, 1) != SQLITE_DONE)
+            rc = CFS_INTERNAL;
+    if (rc == CFS_OK)
+        rc = commit_version(s, s->version + 1);
+    if (rc != CFS_OK)
+        rollback(s);
+    return rc;
 }
 
 /* ---- Reads ------------------------------------------------------------------------------------------------------- */
@@ -523,6 +670,28 @@ int cfs_store_status(cfs_store *s, int64_t *version, uint8_t checksum[CFS_CHECKS
         count++;
     }
     sqlite3_finalize(st);
+    /* The locks after the tree, so two nodes agree only if they hold the same locks too. */
+    if (rc == SQLITE_DONE &&
+        sqlite3_prepare_v2(s->db, "SELECT name, owner, node, expires FROM locks ORDER BY name", -1, &st, NULL) ==
+            SQLITE_OK) {
+        EVP_DigestUpdate(md, "\0locks", 7);
+        while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 0), *owner = sqlite3_column_text(st, 1);
+            uint8_t num[12];
+            uint32_t node = (uint32_t)sqlite3_column_int64(st, 2);
+            uint64_t expires = (uint64_t)sqlite3_column_int64(st, 3);
+            for (int i = 0; i < 4; i++)
+                num[i] = (uint8_t)(node >> (8 * i));
+            for (int i = 0; i < 8; i++)
+                num[4 + i] = (uint8_t)(expires >> (8 * i));
+            EVP_DigestUpdate(md, name, strlen((const char *)name) + 1);
+            EVP_DigestUpdate(md, owner, strlen((const char *)owner) + 1);
+            EVP_DigestUpdate(md, num, sizeof(num));
+        }
+        sqlite3_finalize(st);
+    } else if (rc == SQLITE_DONE) {
+        rc = SQLITE_ERROR;
+    }
     unsigned int out_len = 0;
     int ok = rc == SQLITE_DONE && EVP_DigestFinal_ex(md, checksum, &out_len) == 1 && out_len == CFS_CHECKSUM_LEN;
     EVP_MD_CTX_free(md);
