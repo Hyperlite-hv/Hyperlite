@@ -10,7 +10,13 @@ import json
 from datetime import UTC, datetime
 
 from app.core import secrets_crypto
-from app.core.database import get_conn
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.settings().sync
+
 
 SHARED_TYPES = ("netfs", "iscsi")
 # The fields of a pool definition kept for later nodes (PoolCreate, app/routers/storage.py).
@@ -32,21 +38,14 @@ def save(definition, all_nodes, nodes, username):
     stored = {k: definition.get(k) for k in FIELDS}
     if definition.get("chap_password"):
         stored["chap_password"] = secrets_crypto.encrypt(definition["chap_password"])
-    with get_conn() as db:
-        db.execute(
-            "INSERT INTO shared_pools (nom, definition, tous_les_noeuds, noeuds, cree_par, cree_le) VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(nom) DO UPDATE SET definition = excluded.definition, tous_les_noeuds = excluded.tous_les_noeuds, "
-            "noeuds = excluded.noeuds",
-            (
-                stored["name"],
-                json.dumps(stored),
-                1 if all_nodes else 0,
-                json.dumps(sorted(set(nodes))),
-                username,
-                datetime.now(UTC).isoformat(),
-            ),
-        )
-        db.commit()
+    _store().save_shared_pool(
+        stored["name"],
+        json.dumps(stored),
+        1 if all_nodes else 0,
+        json.dumps(sorted(set(nodes))),
+        username,
+        datetime.now(UTC).isoformat(),
+    )
 
 
 def _row(row, with_secret=False):
@@ -65,50 +64,34 @@ def _row(row, with_secret=False):
 
 def list_all():
     """Every shared definition, without any secret."""
-    with get_conn() as db:
-        return [_row(r) for r in db.execute("SELECT * FROM shared_pools ORDER BY nom").fetchall()]
+    return [_row(r) for r in _store().shared_pools()]
 
 
 def get(name, with_secret=False):
-    with get_conn() as db:
-        row = db.execute("SELECT * FROM shared_pools WHERE nom = ?", (name,)).fetchone()
+    row = _store().shared_pool(name)
     return _row(row, with_secret) if row else None
 
 
 def for_every_node(with_secret=True):
     """The definitions to create on a node registered now."""
-    with get_conn() as db:
-        rows = db.execute("SELECT * FROM shared_pools WHERE tous_les_noeuds = 1 ORDER BY nom").fetchall()
-    return [_row(r, with_secret) for r in rows]
+    return [_row(r, with_secret) for r in _store().shared_pools(every_node_only=True)]
 
 
 def add_node(name, node):
     """Record that the pool now also exists on `node`."""
     entry = get(name)
     if entry and node not in entry["noeuds"]:
-        with get_conn() as db:
-            db.execute(
-                "UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (json.dumps(sorted([*entry["noeuds"], node])), name)
-            )
-            db.commit()
+        _store().set_shared_pool_nodes(name, json.dumps(sorted([*entry["noeuds"], node])))
 
 
 def rename(old, new):
     entry = get(old, with_secret=False)
     if not entry:
         return
-    with get_conn() as db:
-        row = db.execute("SELECT definition FROM shared_pools WHERE nom = ?", (old,)).fetchone()
-        definition = json.loads(row["definition"])
-        definition["name"] = new
-        db.execute(
-            "UPDATE OR REPLACE shared_pools SET nom = ?, definition = ? WHERE nom = ?",
-            (new, json.dumps(definition), old),
-        )
-        db.commit()
+    definition = json.loads(_store().shared_pool(old)["definition"])
+    definition["name"] = new
+    _store().rename_shared_pool(old, new, json.dumps(definition))
 
 
 def delete(name):
-    with get_conn() as db:
-        db.execute("DELETE FROM shared_pools WHERE nom = ?", (name,))
-        db.commit()
+    _store().delete_shared_pool(name)
