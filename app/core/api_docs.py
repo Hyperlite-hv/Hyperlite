@@ -12,7 +12,12 @@ import secrets
 import threading
 import time
 
-from app.core.database import get_conn
+
+def _store():
+    from app.repositories import registry
+
+    return registry.settings().sync
+
 
 ACCESS = ("desactive", "admins", "tous")
 DEFAULT = "admins"
@@ -28,21 +33,14 @@ _sessions = {}  # cookie value -> (username, expiry)
 
 
 def access():
-    with get_conn() as db:
-        row = db.execute("SELECT valeur FROM app_settings WHERE cle = ?", (_KEY,)).fetchone()
-    value = row["valeur"] if row else DEFAULT
+    value = _store().app_setting(_KEY) or DEFAULT
     return value if value in ACCESS else DEFAULT
 
 
 def set_access(value):
     if value not in ACCESS:
         raise ValueError(f"Access must be one of {', '.join(ACCESS)}")
-    with get_conn() as db:
-        db.execute(
-            "INSERT INTO app_settings (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
-            (_KEY, value),
-        )
-        db.commit()
+    _store().set_app_setting(_KEY, value)
     return value
 
 

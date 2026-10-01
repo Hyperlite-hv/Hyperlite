@@ -25,7 +25,12 @@ import xml.etree.ElementTree as ET
 
 import libvirt
 
-from app.core.database import get_conn
+
+def _store():
+    from app.repositories import registry
+
+    return registry.settings().sync
+
 
 UMBRELLA_CHAIN = "HYPERLITENETFW"
 
@@ -140,22 +145,13 @@ def apply_network_firewall(conn, network_name: str, config: dict):
             raise RuntimeError(f"iptables refused a rule ({' '.join(spec)}): {result.stderr.strip()}")
     _ensure_network_jump(bridge, chain)
 
-    with get_conn() as db:
-        db.execute(
-            "INSERT INTO network_firewall (network_name, default_policy, rules_json) VALUES (?, ?, ?) "
-            "ON CONFLICT(network_name) DO UPDATE SET default_policy = excluded.default_policy, rules_json = excluded.rules_json",
-            (network_name, config["default_policy"], json.dumps(config["rules"])),
-        )
-        db.commit()
+    _store().save_network_firewall(network_name, config["default_policy"], json.dumps(config["rules"]))
 
     return {"pont": bridge, "regles_appliquees": len(config["rules"])}
 
 
 def get_network_firewall(network_name: str) -> dict:
-    with get_conn() as db:
-        row = db.execute(
-            "SELECT default_policy, rules_json FROM network_firewall WHERE network_name = ?", (network_name,)
-        ).fetchone()
+    row = _store().network_firewall(network_name)
     if not row:
         return {
             "default_policy": "accept",
@@ -177,9 +173,7 @@ def remove_network_firewall(conn, network_name: str):
     if _chain_exists(chain):
         _run("-F", chain)
         _run("-X", chain)
-    with get_conn() as db:
-        db.execute("DELETE FROM network_firewall WHERE network_name = ?", (network_name,))
-        db.commit()
+    _store().delete_network_firewall(network_name)
 
 
 def reapply_all(conn):
@@ -189,9 +183,7 @@ def reapply_all(conn):
     network firewall configured before a server reboot would silently
     disappear afterwards with nothing indicating it in the UI (the network still
     looks "active", just without any filtering)."""
-    with get_conn() as db:
-        rows = db.execute("SELECT network_name, default_policy, rules_json FROM network_firewall").fetchall()
-    for row in rows:
+    for row in _store().network_firewalls():
         config = {"default_policy": row["default_policy"], "rules": json.loads(row["rules_json"])}
         try:
             apply_network_firewall(conn, row["network_name"], config)
