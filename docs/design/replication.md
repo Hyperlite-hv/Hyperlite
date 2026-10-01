@@ -1,7 +1,7 @@
 # Decision: storage replication between nodes
 
-Status: **reopened on 2026-10-01 for replication between two sites (section 5), proposal waiting for the
-maintainer.** Sections 1 to 4 record the earlier decision about replication between nodes of one site.
+Status: **reopened on 2026-10-01 for replication between two sites (section 5), accepted with the decisions of
+section 5.6.** Sections 1 to 4 record the earlier decision about replication between nodes of one site.
 
 ## 1. The need
 
@@ -101,3 +101,10 @@ The same approach fits Hyperlite and reuses what exists:
   follow the interval.
 - **R3.** Approach: incremental backups (works on the current storage, no ZFS), or ZFS replication only (needs real ZFS
   pools on disks first)?
+
+### 5.6 Decisions (maintainer, 2026-10-01)
+
+- **R1: 15 minutes** of data at most: the replication interval defaults to 15 minutes.
+- **R2: unknown.** Prudent defaults: two copies at once at most, a full copy at most once a day per VM, and a per-VM
+  delay indicator, so a link that cannot keep up shows which VMs fall behind instead of failing silently.
+- **R3: incremental backups**, as proposed in 5.3. ZFS replication stays a later option.
