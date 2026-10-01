@@ -153,7 +153,12 @@ test("hardware: host devices — the real inventory protects the host, a USB key
   await expect(card.getByRole("rowheader", { name: /Ultra Flair/ })).toHaveCount(0);
 });
 
-test("hardware and network: attach and detach a disk with confirmation, VLAN is validated, interface list is shown", async ({ page, request }) => {
+test("hardware and network: attach and detach a disk with confirmation, VLAN only where it applies, interface list is shown", async ({ page, request }) => {
+  // The real networks (NAT, isolated) cannot carry a tag; an Open vSwitch one is added to the list to check the range.
+  await page.route(/\/networks$/, async (route) => {
+    const real = (await (await route.fetch()).json()) as Record<string, unknown>[];
+    await route.fulfill({ json: [...real, { nom: "e2e-ovs", type: "pont", actif: true, autostart: true, pont: "ovsbr0", macvtap: false, reseau: null, dhcp: false, vlan: true }] });
+  });
   await open(page, "hardware");
   const main = page.getByRole("main");
   const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length;
@@ -182,9 +187,17 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN is 
   await expect(main.getByRole("tab", { name: "Network", exact: true })).toHaveAttribute("aria-selected", "true");
   await main.getByRole("button", { name: "Add an interface" }).click();
   const ifDrawer = page.getByRole("dialog", { name: "Add an interface" });
+  await ifDrawer.getByLabel("Network to attach").selectOption("hyperlite-isolated");
+  await expect(ifDrawer.getByLabel("VLAN (optional)")).toBeDisabled();
+  await expect(ifDrawer.getByText(/Network hyperlite-isolated cannot carry a VLAN tag/)).toBeVisible();
+  await ifDrawer.getByLabel("Network to attach").selectOption("e2e-ovs");
   await ifDrawer.getByLabel("VLAN (optional)").fill("5000");
   await expect(ifDrawer.getByRole("button", { name: "Add the interface" })).toBeDisabled();
   await expect(ifDrawer.getByText("VLAN from 1 to 4094.")).toBeVisible();
+  // The backend refuses a tag the network cannot carry, before touching the VM: libvirt would refuse to start it.
+  const refused = await request.post(`/vms/${NAME}/interfaces`, { headers: auth(), data: { network: "hyperlite-isolated", vlan_tag: 20 } });
+  expect(refused.status()).toBe(422);
+  expect(await refused.text()).toContain("cannot carry a VLAN tag");
   await page.keyboard.press("Escape");
   await expect(main.getByRole("heading", { level: 2, name: /^Network interfaces/ })).toBeVisible();
 });

@@ -91,6 +91,7 @@ def _network_summary(net):
         "type": FORWARD_MODE_LABELS.get(mode, "isole" if mode is None else mode),
         "reseau": subnet,
         "dhcp": dhcp,
+        "vlan": network_edit.carries_vlan_tags(root),
     }
 
 

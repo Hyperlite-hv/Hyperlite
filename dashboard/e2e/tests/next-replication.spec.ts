@@ -48,8 +48,9 @@ test("a replication job is created with its checks, shows the late VMs and can b
   await drawer.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/cannot be written in \/etc/).first()).toBeVisible({ timeout: 20_000 });
 
+  // The refusal's toast can sit over the drawer's footer: the button is pressed from the keyboard, as a user could.
   await drawer.getByLabel("Storage of the other site").fill("/var/lib/libvirt/hyperlite-pools/e2e-site-b");
-  await drawer.getByRole("button", { name: "Save" }).click();
+  await drawer.getByRole("button", { name: "Save" }).press("Enter");
   const row = card.getByRole("row", { name: /e2e to site B/ });
   await expect(row).toContainText("every 15 min", { timeout: 20_000 });
   await expect(row).toContainText("/var/lib/libvirt/hyperlite-pools/e2e-site-b");
@@ -69,7 +70,7 @@ test("a replication job is created with its checks, shows the late VMs and can b
   await row.getByRole("button", { name: "Edit e2e to site B" }).click();
   const edit = page.getByRole("dialog", { name: "Edit the replication" });
   await edit.getByLabel("Every").fill("60");
-  await edit.getByRole("button", { name: "Save" }).click();
+  await edit.getByRole("button", { name: "Save" }).press("Enter");
   await expect(row).toContainText("every 60 min", { timeout: 20_000 });
 
   await row.getByRole("button", { name: "Delete e2e to site B" }).click();
