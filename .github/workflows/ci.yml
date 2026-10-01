@@ -93,6 +93,36 @@ jobs:
             bash -n "$f"
           done
 
+  cfs:
+    # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
+    # and UndefinedBehaviorSanitizer, its C tests, the Python client against the real daemon, and one minute of fuzzing.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc clang libclang-rt-dev \
+            libsqlite3-dev libssl-dev
+      - name: Build and test (GCC, sanitizers)
+        run: |
+          meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
+          meson test -C build-gcc --print-errorlogs
+      - name: Python client against the daemon
+        run: |
+          pip install pytest
+          HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs python -m pytest -q cfs/tests/python
+      - name: Fuzz the request handler (clang, libFuzzer, 60 s)
+        run: |
+          CC=clang meson setup build-fuzz cfs -Dfuzz=true -Db_sanitize=address,undefined -Db_lundef=false -Dbuildtype=debug
+          meson test -C build-fuzz --print-errorlogs
+          mkdir -p fuzz-work
+          build-fuzz/fuzz_request -max_total_time=60 -max_len=4096 fuzz-work cfs/fuzz/corpus
+
   e2e:
     # End-to-end suite against a real backend and a real libvirt/QEMU.
     runs-on: ubuntu-24.04

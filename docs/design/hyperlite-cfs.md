@@ -1,6 +1,6 @@
 # Design: `hyperlite-cfs`, the replicated cluster configuration
 
-Status: **proposal, waiting for both maintainers.** No code is written before it is accepted.
+Status: **accepted (2026-10-01).** Phase A (local mode) is in `cfs/`; phases B to E are to come.
 
 Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose Proxmox VE's architecture
 on Proxmox VE's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
@@ -212,8 +212,7 @@ Two consequences, both deliberate:
 - **C1. A file view, as `/etc/pve`.** The tree is mounted read-only with FUSE at `/etc/hyperlite/cluster`, for
   troubleshooting and scripts (`cat`, `ls`). Writes go only through the socket. It comes last (section 7).
 - **C2. Status every 10 s, and at once on a libvirt lifecycle event** (a guest started, stopped, migrated).
-- **C3. Meson.** The maintainer builds the daemon himself and asked for a recommendation. Meson is the choice
-  because:
+- **C3. Meson.** The maintainer asked for a recommendation. Meson is the choice because:
   - it has a test runner (`meson test`);
   - the sanitizers of section 6 are one option away (`-Db_sanitize=address,undefined`);
   - it finds Corosync's and SQLite's libraries through `pkg-config`;
