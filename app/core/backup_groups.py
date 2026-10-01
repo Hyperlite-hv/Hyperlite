@@ -17,7 +17,6 @@ import threading
 from pathlib import PurePosixPath
 
 from app.core import backup_retention, object_meta, permissions, vm_locks
-from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
 
 logger = logging.getLogger(__name__)
@@ -122,16 +121,21 @@ def _row(row):
     return d
 
 
+def _store():
+    # The backup repository's synchronous bridge: grouped jobs run in the scheduler thread.
+    from app.repositories import registry
+
+    return registry.backups().sync
+
+
 def list_jobs():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM backup_group_jobs ORDER BY nom").fetchall()
+    rows = _store().list_group_jobs()
     local = _local_vm_names()
     return [{**_row(r), "vms": resolve(_row(r), local)} for r in rows]
 
 
 def get_job(job_id):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM backup_group_jobs WHERE id = ?", (job_id,)).fetchone()
+    row = _store().get_group_job(job_id)
     return _row(row) if row else None
 
 
@@ -155,37 +159,15 @@ def save_job(payload, job_id=None):
     from app.core.backups import _next_run
 
     clean = validate(payload)
-    values = [
-        json.dumps(clean[c]) if c == "exclues" else (1 if clean[c] else 0) if c == "actif" else clean[c] for c in COLS
-    ]
     next_run = _next_run(clean["frequence"], clean["heure"]).isoformat()
-    with get_conn() as conn:
-        clash = conn.execute(
-            "SELECT id FROM backup_group_jobs WHERE nom = ? AND id IS NOT ?", (clean["nom"], job_id)
-        ).fetchone()
-        if clash:
-            raise GroupError(f"A backup job named '{clean['nom']}' already exists")
-        if job_id is None:
-            cur = conn.execute(
-                f"INSERT INTO backup_group_jobs ({', '.join(COLS)}, prochaine_execution) "  # noqa: S608
-                f"VALUES ({', '.join('?' * (len(COLS) + 1))})",
-                [*values, next_run],
-            )
-            job_id = cur.lastrowid
-        else:
-            conn.execute(
-                f"UPDATE backup_group_jobs SET {', '.join(f'{c} = ?' for c in COLS)}, prochaine_execution = ? WHERE id = ?",  # noqa: S608
-                [*values, next_run, job_id],
-            )
-        conn.commit()
+    if _store().group_name_taken(clean["nom"], job_id):
+        raise GroupError(f"A backup job named '{clean['nom']}' already exists")
+    job_id = _store().save_group_job([clean[c] for c in COLS], next_run, job_id)
     return get_job(job_id)
 
 
 def delete_job(job_id):
-    with get_conn() as conn:
-        cur = conn.execute("DELETE FROM backup_group_jobs WHERE id = ?", (job_id,))
-        conn.commit()
-    return cur.rowcount > 0
+    return _store().delete_group_job(job_id)
 
 
 def _local_vm_names():
@@ -233,10 +215,8 @@ def run_job(job, username="scheduler"):
             except Exception as e:
                 results[vm] = str(e) or type(e).__name__
                 continue
-            with get_conn() as conn:
-                conn.execute("UPDATE backups SET groupe_id = ? WHERE id = ?", (job["id"], backup_id))
-                own = conn.execute("SELECT 1 FROM backup_jobs WHERE vm_name = ?", (vm,)).fetchone()
-                conn.commit()
+            _store().set_group(backup_id, job["id"])
+            own = _store().get_schedule(vm)
             if not own:
                 _apply_retention(vm, policy)
             results[vm] = "ok"
@@ -251,11 +231,7 @@ def run_due(now):
     from app.core.audit import log_action
     from app.core.backups import _next_run
 
-    with get_conn() as conn:
-        due = conn.execute(
-            "SELECT * FROM backup_group_jobs WHERE actif = 1 AND prochaine_execution <= ?", (now.isoformat(),)
-        ).fetchall()
-    for row in due:
+    for row in _store().due_group_jobs(now.isoformat()):
         job = _row(row)
         results = run_job(job)
         failed = {vm: r for vm, r in results.items() if r != "ok"}
@@ -266,9 +242,6 @@ def run_due(now):
             "echec" if failed else "succes",
             "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VMs",
         )
-        with get_conn() as conn:
-            conn.execute(
-                "UPDATE backup_group_jobs SET derniere_execution = ?, prochaine_execution = ? WHERE id = ?",
-                (now.isoformat(), _next_run(job["frequence"], job["heure"], now).isoformat(), job["id"]),
-            )
-            conn.commit()
+        _store().record_group_run(
+            job["id"], now.isoformat(), _next_run(job["frequence"], job["heure"], now).isoformat()
+        )
