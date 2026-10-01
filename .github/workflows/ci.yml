@@ -119,6 +119,7 @@ jobs:
       - name: Fuzz the request handler (clang, libFuzzer, 60 s)
         run: |
           CC=clang meson setup build-fuzz cfs -Dfuzz=true -Db_sanitize=address,undefined -Db_lundef=false -Dbuildtype=debug
+          ninja -C build-fuzz  # meson test builds only the tests, not the fuzz target
           meson test -C build-fuzz --print-errorlogs
           mkdir -p fuzz-work
           build-fuzz/fuzz_request -max_total_time=60 -max_len=4096 fuzz-work cfs/fuzz/corpus
