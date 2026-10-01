@@ -371,6 +371,14 @@ export async function restoreBackup(id, mode, newName = null) {
 export async function verifyBackup(id) {
   return realFetch(`/backups/${id}/verify`, { method: "POST" });
 }
+// Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
+// then restored here as new VMs.
+export async function scanSiteBackups(chemin) {
+  return realFetch(`/backups/site-recovery/scan?chemin=${encodeURIComponent(chemin)}`);
+}
+export async function startSiteRecovery(elements, reseau) {
+  return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, reseau: reseau || null }) });
+}
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
 }
