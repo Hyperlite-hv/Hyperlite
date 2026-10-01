@@ -97,7 +97,8 @@ EOF
     virt-install --name ${P}$i --memory 1536 --vcpus 2 --import \
         --disk "$POOL/${P}$i.qcow2" --disk "$POOL/${P}$i-seed.iso,device=cdrom" \
         --network network=$NET,mac="$(mac_of "$i")" --watchdog i6300esb,action=reset \
-        --osinfo detect=on,require=off --graphics none --noautoconsole > /dev/null
+        --osinfo detect=on,require=off --graphics none --noautoconsole \
+        --serial file,path="$dir/n$i/console.log" > /dev/null
 }
 
 provision() { # provision DIR N: build hyperlite-cfs from this checkout and start it with Corosync
@@ -142,6 +143,13 @@ up() {
     for p in "${pids[@]}"; do wait "$p" || failed=1; done
     if [ $failed -ne 0 ]; then
         tail -n 30 "$dir"/n*/provision.log >&2
+        # What the VMs and the network say, to tell a VM that did not boot from one without an address.
+        virsh list --all >&2 || true
+        virsh net-dhcp-leases $NET >&2 || true
+        for i in $(seq 1 $NODES); do
+            echo "--- console of node $i" >&2
+            tail -n 40 "$dir/n$i/console.log" >&2 2> /dev/null || true
+        done
         return 1
     fi
 }
