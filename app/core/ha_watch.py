@@ -27,7 +27,13 @@ from pathlib import Path
 
 from app.core import ha_fencing, maintenance
 from app.core.audit import log_action
-from app.core.database import get_conn
+
+
+def _store():
+    from app.repositories import registry
+
+    return registry.ha().sync
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +57,7 @@ def _now():
 
 
 def settings():
-    with get_conn() as db:
-        rows = {r["cle"]: r["valeur"] for r in db.execute("SELECT cle, valeur FROM ha_settings")}
-    merged = {**DEFAULTS, **rows}
+    merged = {**DEFAULTS, **_store().settings()}
     return {
         "temoin": merged["temoin"],
         "seuil_suspect": int(merged["seuil_suspect"]),
@@ -68,17 +72,7 @@ def save_settings(temoin, seuil_suspect, seuil_panne):
         raise ValueError("The witness must be a host name or an IP address, optionally with :port")
     if not 1 <= seuil_suspect < seuil_panne <= 60:
         raise ValueError("Thresholds: 1 <= suspect < failed <= 60 rounds (one round every 10 s)")
-    with get_conn() as db:
-        for key, value in (
-            ("temoin", temoin),
-            ("seuil_suspect", str(seuil_suspect)),
-            ("seuil_panne", str(seuil_panne)),
-        ):
-            db.execute(
-                "INSERT INTO ha_settings (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
-                (key, value),
-            )
-        db.commit()
+    _store().save_settings({"temoin": temoin, "seuil_suspect": str(seuil_suspect), "seuil_panne": str(seuil_panne)})
     return settings()
 
 
@@ -179,12 +173,7 @@ def decide(failed_node, all_nodes, temoin, isolated):
 
 
 def _record(vm_name, etat, action):
-    with get_conn() as db:
-        db.execute(
-            "UPDATE ha_protected_vms SET etat_ha = ?, derniere_action = ?, derniere_action_le = ? WHERE vm_name = ?",
-            (etat, action, _now(), vm_name),
-        )
-        db.commit()
+    _store().record_watch(vm_name, etat, action, _now())
 
 
 def tick():
