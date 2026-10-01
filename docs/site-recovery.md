@@ -24,8 +24,9 @@ On each site, say A whose backups go to B:
 1. **On site B**, export a directory over NFS to site A's address (a NAS or a node of B).
 2. **On site A**, create an NFS storage pool on that export (*Storage › Add*, type NFS; choose the NFS version the
    server offers). Its mount point is `/var/lib/libvirt/hyperlite-pools/<pool name>`.
-3. **On site A**, schedule backups to that directory: per VM (*VM › Backup › Schedule*, target directory), or for all
-   of them at once with a grouped job (*Backups › Grouped jobs*, target directory).
+3. **On site A**, schedule backups to that directory with a grouped job (*Backups › Grouped jobs*, all the VMs of
+   the node or those of a tag or a pool, target directory = the pool's mount point). A per-VM schedule can target it
+   too, through the API (`PUT /vms/{name}/backup-schedule` with `cible_dir`).
 4. **On site B**, make the same export readable: as a local directory when the NAS is on site B, or as an NFS pool.
 5. Do the same in the other direction (B's backups on site A).
 6. **Test it**: on site B, open *Backups › Recovery of another site*, enter the directory and press *Look for
