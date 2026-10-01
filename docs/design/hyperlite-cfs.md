@@ -207,8 +207,14 @@ Two consequences, both deliberate:
 - **Risk: the network.** Proxmox requires "latencies under 5 milliseconds (LAN performance)". Nodes linked over a
   WAN VPN cannot form a cluster. The installer measures latency and refuses above 10 ms.
 
-## 11. Questions
+## 11. Decisions (maintainer, 2026-10-01)
 
-- **C1.** FUSE view at `/etc/hyperlite/cluster` (as `/etc/pve`), or socket only?
-- **C2.** Status broadcast interval: 10 s as proposed, 15 s like the current metrics collector, or shorter?
-- **C3.** Build system for the daemon: Meson or plain Make? Packaging is a separate `hyperlite-cfs` `.deb` either way.
+- **C1. A file view, as `/etc/pve`.** The tree is mounted read-only with FUSE at `/etc/hyperlite/cluster`, for
+  troubleshooting and scripts (`cat`, `ls`). Writes go only through the socket. It comes last (section 7).
+- **C2. Status every 10 s, and at once on a libvirt lifecycle event** (a guest started, stopped, migrated).
+- **C3. Meson.** The maintainer builds the daemon himself and asked for a recommendation. Meson is the choice
+  because:
+  - it has a test runner (`meson test`);
+  - the sanitizers of section 6 are one option away (`-Db_sanitize=address,undefined`);
+  - it finds Corosync's and SQLite's libraries through `pkg-config`;
+  - Debian's `debhelper` builds Meson projects without extra rules.
