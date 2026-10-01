@@ -104,7 +104,7 @@ EOF
         --disk "path=$POOL/${P}$i.qcow2,bus=virtio" \
         --disk "path=$POOL/${P}$i-seed.iso,device=disk,bus=virtio,format=raw,readonly=on" \
         --network network=$NET,mac="$(mac_of "$i")",model=virtio --watchdog i6300esb,action=reset \
-        --boot "kernel=$POOL/${P}-vmlinuz,initrd=$POOL/${P}-initrd,kernel_args=\"$KERNEL_ARGS\"" \
+        --boot "kernel=$POOL/${P}-vmlinuz,initrd=$POOL/${P}-initrd,kernel_args=\"$(cat "$POOL/${P}-root") $KERNEL_ARGS\"" \
         --osinfo detect=on,require=off --graphics none --noautoconsole \
         --serial file,path=/var/log/libvirt/qemu/${P}$i-console.log > /dev/null
 }
@@ -144,11 +144,11 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     chmod 0666 "$dir/n$i/cfs.sock"
 }
 
-# The VMs boot straight into the image's kernel (no GRUB), with early messages on the serial console: a kernel that
-# dies at once says why. Under nested KVM (a GitHub runner is a Hyper-V VM) a guest can still reset in a loop; the lab
+# The VMs boot straight into the image's kernel (no GRUB), its messages on the serial console: a kernel that dies says
+# why. Under nested KVM (a GitHub runner is a Hyper-V VM) a guest can still reset in a loop; the lab
 # then tries the next CPU model, and last turns off nested paging in kvm_amd, the known way around Hyper-V's.
 CPUS=("host-passthrough" "host-model")
-KERNEL_ARGS="root=/dev/vda1 ro console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 ignore_loglevel"
+KERNEL_ARGS="ro console=ttyS0,115200" # plus the image's own root=, read from its grub.cfg by extract_kernel
 
 extract_kernel() { # the image's kernel and initrd, next to the base image, read from a raw copy of its first partition
     local mnt raw=$POOL/${P}-base.raw start
@@ -159,14 +159,18 @@ extract_kernel() { # the image's kernel and initrd, next to the base image, read
     mount -o ro,loop,offset=$((start * 512)) "$raw" "$mnt"
     cp "$(ls "$mnt"/boot/vmlinuz-* | sort -V | tail -n 1)" "$POOL/${P}-vmlinuz"
     cp "$(ls "$mnt"/boot/initrd.img-* | sort -V | tail -n 1)" "$POOL/${P}-initrd"
+    # The root the image's own boot loader names (a PARTUUID or a label), so the kernel finds it as GRUB would.
+    local root
+    root=$(grep -oE 'root=[^ ]+' "$mnt/boot/grub/grub.cfg" 2> /dev/null | head -n 1) || root=""
+    echo "${root:-root=/dev/vda1}" > "$POOL/${P}-root"
     umount "$mnt"
     rm -f "$raw"
     rmdir "$mnt"
 }
 
-booting() { # booting N: how many times a kernel started on node N's console
+booting() { # booting N: how many times a kernel started on node N's console (its first line, at time 0, once a boot)
     local n
-    n=$(grep -cE "Booting|Linux version" "/var/log/libvirt/qemu/${P}$1-console.log" 2> /dev/null) || n=0
+    n=$(grep -cE '^\[ +0\.000000\] Linux version' "/var/log/libvirt/qemu/${P}$1-console.log" 2> /dev/null) || n=0
     echo "$n"
 }
 
@@ -174,7 +178,7 @@ boots() { # boots: 0 once every VM reached userspace (or 90 s passed without a r
     for _ in $(seq 1 45); do
         local up=0
         for i in $(seq 1 $NODES); do
-            [ "$(booting "$i")" -le 2 ] || return 1
+            [ "$(booting "$i")" -le 1 ] || return 1
             grep -qE "login:|Reached target" "/var/log/libvirt/qemu/${P}$i-console.log" 2> /dev/null && up=$((up + 1))
         done
         [ $up -lt $NODES ] || return 0
@@ -268,7 +272,7 @@ down() {
         virsh undefine ${P}$i > /dev/null 2>&1 || true
         rm -f "$POOL/${P}$i.qcow2" "$POOL/${P}$i-seed.iso"
     done
-    rm -f "$POOL/${P}-base.qcow2" "$POOL/${P}-vmlinuz" "$POOL/${P}-initrd"
+    rm -f "$POOL/${P}-base.qcow2" "$POOL/${P}-vmlinuz" "$POOL/${P}-initrd" "$POOL/${P}-root"
     pkill -f "ssh .*-L .*/n[0-9]/cfs.sock" 2> /dev/null || true
     virsh net-destroy $NET > /dev/null 2>&1 || true
     virsh net-undefine $NET > /dev/null 2>&1 || true
