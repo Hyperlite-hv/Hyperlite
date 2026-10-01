@@ -42,9 +42,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/hyperlite-lab-cache
-          key: debian-13-genericcloud-v1  # bump to take a newer image
+          key: debian-13-generic-v1  # bump to take a newer image
       - name: hyperlite-cfs on three VMs
         run: |
+          # Docker on the runner sets the FORWARD policy to DROP, which would leave the VMs without Internet for apt.
+          sudo iptables -P FORWARD ACCEPT
+          sudo sysctl -qw net.ipv4.ip_forward=1
           sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_LAB="$PWD/lab/vm.sh" HYPERLITE_LAB_CACHE=/tmp/hyperlite-lab-cache \
             "$(which python)" -m pytest -q -s -p no:cacheprovider cfs/tests/cluster
           sudo chmod -R a+rX /tmp/hyperlite-lab-cache

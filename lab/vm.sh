@@ -18,7 +18,9 @@ NODES=3
 P=hlcfs
 NET=${P}lab
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-IMAGE_URL=${HYPERLITE_LAB_IMAGE:-https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2}
+# The "generic" image, not "genericcloud": the latter's kernel carries only the drivers of some clouds, and a VM whose
+# disk or network card it lacks boots blind.
+IMAGE_URL=${HYPERLITE_LAB_IMAGE:-https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2}
 CACHE=${HYPERLITE_LAB_CACHE:-/var/cache/hyperlite-lab}
 POOL=/var/lib/libvirt/images
 
@@ -81,7 +83,7 @@ EOF
 
 vm() { # vm DIR N: a VM from the cached image, with cloud-init giving it our key
     local dir=$1 i=$2
-    qemu-img create -q -f qcow2 -F qcow2 -b "$CACHE/debian.qcow2" "$POOL/${P}$i.qcow2" 10G
+    qemu-img create -q -f qcow2 -F qcow2 -b "$POOL/${P}-base.qcow2" "$POOL/${P}$i.qcow2" 10G
     cat > "$dir/n$i/user-data" <<EOF
 #cloud-config
 hostname: ${P}$i
@@ -94,23 +96,38 @@ users:
 EOF
     echo "instance-id: ${P}$i" > "$dir/n$i/meta-data"
     cloud-localds "$POOL/${P}$i-seed.iso" "$dir/n$i/user-data" "$dir/n$i/meta-data"
+    # virtio everywhere, said explicitly: without an OS virt-install knows, it falls back to emulated SATA and NICs. The
+    # cloud-init seed is a plain virtio disk too (cloud-init finds it by its "cidata" label).
     virt-install --name ${P}$i --memory 1536 --vcpus 2 --import \
-        --disk "$POOL/${P}$i.qcow2" --disk "$POOL/${P}$i-seed.iso,device=cdrom" \
-        --network network=$NET,mac="$(mac_of "$i")" --watchdog i6300esb,action=reset \
+        --disk "path=$POOL/${P}$i.qcow2,bus=virtio" \
+        --disk "path=$POOL/${P}$i-seed.iso,device=disk,bus=virtio,format=raw,readonly=on" \
+        --network network=$NET,mac="$(mac_of "$i")",model=virtio --watchdog i6300esb,action=reset \
         --osinfo detect=on,require=off --graphics none --noautoconsole \
         --serial file,path=/var/log/libvirt/qemu/${P}$i-console.log > /dev/null
 }
 
 provision() { # provision DIR N: build hyperlite-cfs from this checkout and start it with Corosync
     local dir=$1 i=$2
-    for _ in $(seq 1 120); do on "$dir" "$i" true 2> /dev/null && break || sleep 2; done
-    on "$dir" "$i" cloud-init status --wait > /dev/null || true
-    on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q > /dev/null
+    local reached=0
+    for _ in $(seq 1 90); do
+        if on "$dir" "$i" true 2> /dev/null; then
+            reached=1
+            break
+        fi
+        sleep 2
+    done
+    if [ $reached -eq 0 ]; then
+        echo "node $i never answered on SSH" >&2
+        return 1
+    fi
+    echo "node $i: up, provisioning"
+    on "$dir" "$i" cloud-init status --wait || true
+    on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        corosync libcpg-dev libquorum-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables \
-        > /dev/null
+        corosync libcpg-dev libquorum-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables
     tar -C "$REPO" -cz cfs | on "$dir" "$i" sh -c 'rm -rf /opt/cfs && mkdir -p /opt && tar -C /opt -xz'
-    on "$dir" "$i" sh -c 'meson setup /opt/cfs/build /opt/cfs > /dev/null && ninja -C /opt/cfs/build > /dev/null'
+    # Warnings stay warnings here: a newer compiler than the CI's must not stop the lab (the CI keeps -Werror).
+    on "$dir" "$i" sh -c 'meson setup -Dwerror=false /opt/cfs/build /opt/cfs && ninja -C /opt/cfs/build'
     corosync_conf | on "$dir" "$i" tee /etc/corosync/corosync.conf > /dev/null
     on "$dir" "$i" systemctl restart corosync
     on "$dir" "$i" mkdir -p /var/lib/hyperlite-cfs /run/hyperlite-cfs
@@ -128,6 +145,8 @@ up() {
     local dir=$1
     mkdir -p "$CACHE" "$POOL"
     [ -s "$CACHE/debian.qcow2" ] || curl -fsSL -o "$CACHE/debian.qcow2" "$IMAGE_URL"
+    # The base image sits in libvirt's own directory, where QEMU and AppArmor allow reading a backing file.
+    cp "$CACHE/debian.qcow2" "$POOL/${P}-base.qcow2"
     ssh-keygen -q -t ed25519 -N '' -f "$(key_of "$dir")"
     network
     for i in $(seq 1 $NODES); do
@@ -165,6 +184,7 @@ down() {
         virsh undefine ${P}$i > /dev/null 2>&1 || true
         rm -f "$POOL/${P}$i.qcow2" "$POOL/${P}$i-seed.iso"
     done
+    rm -f "$POOL/${P}-base.qcow2"
     pkill -f "ssh .*-L .*/n[0-9]/cfs.sock" 2> /dev/null || true
     virsh net-destroy $NET > /dev/null 2>&1 || true
     virsh net-undefine $NET > /dev/null 2>&1 || true
