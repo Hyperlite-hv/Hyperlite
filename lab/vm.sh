@@ -81,8 +81,9 @@ EOF
     virsh net-start $NET > /dev/null
 }
 
-vm() { # vm DIR N: a VM from the cached image, with cloud-init giving it our key
-    local dir=$1 i=$2
+vm() { # vm DIR N CPU: a VM from the cached image, with cloud-init giving it our key
+    local dir=$1 i=$2 cpu=$3
+    rm -f "$POOL/${P}$i.qcow2" "/var/log/libvirt/qemu/${P}$i-console.log"
     qemu-img create -q -f qcow2 -F qcow2 -b "$POOL/${P}-base.qcow2" "$POOL/${P}$i.qcow2" 10G
     cat > "$dir/n$i/user-data" <<EOF
 #cloud-config
@@ -98,9 +99,7 @@ EOF
     cloud-localds "$POOL/${P}$i-seed.iso" "$dir/n$i/user-data" "$dir/n$i/meta-data"
     # virtio everywhere, said explicitly: without an OS virt-install knows, it falls back to emulated SATA and NICs. The
     # cloud-init seed is a plain virtio disk too (cloud-init finds it by its "cidata" label).
-    # The runner's own CPU: the model virt-install picks for an unknown OS makes the Debian kernel reset at once under
-    # nested KVM (GRUB, then a reboot, in a loop).
-    virt-install --name ${P}$i --memory 1536 --vcpus 2 --cpu host-passthrough --import \
+    virt-install --name ${P}$i --memory 1536 --vcpus 2 --cpu "$cpu" --import \
         --disk "path=$POOL/${P}$i.qcow2,bus=virtio" \
         --disk "path=$POOL/${P}$i-seed.iso,device=disk,bus=virtio,format=raw,readonly=on" \
         --network network=$NET,mac="$(mac_of "$i")",model=virtio --watchdog i6300esb,action=reset \
@@ -110,16 +109,11 @@ EOF
 
 provision() { # provision DIR N: build hyperlite-cfs from this checkout and start it with Corosync
     local dir=$1 i=$2
-    local reached=0 console=/var/log/libvirt/qemu/${P}$i-console.log
+    local reached=0
     for _ in $(seq 1 90); do
         if on "$dir" "$i" true 2> /dev/null; then
             reached=1
             break
-        fi
-        # A kernel that resets at once shows as GRUB again and again on the console: say so now, not in minutes.
-        if [ "$(grep -c "Booting" "$console" 2> /dev/null || echo 0)" -gt 3 ]; then
-            echo "node $i reboots in a loop right after GRUB: its kernel does not start (see its console)" >&2
-            return 1
         fi
         sleep 2
     done
@@ -148,6 +142,50 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     chmod 0666 "$dir/n$i/cfs.sock"
 }
 
+# Under nested KVM some CPU models make the Debian kernel reset before printing anything (GRUB, then a reboot, in a
+# loop): la57 (5-level paging) advertised by the outer hypervisor but not usable is the usual culprit. The lab tries
+# these models in order and keeps the first that boots.
+CPUS=("host-passthrough,disable=la57" "qemu64" "host-model")
+
+booting() { # booting N: how many times GRUB started a kernel on node N's console
+    local n
+    n=$(grep -c "Booting" "/var/log/libvirt/qemu/${P}$1-console.log" 2> /dev/null) || n=0
+    echo "$n"
+}
+
+boots() { # boots: 0 once every kernel printed on its console (or 90 s passed without a reboot loop), 1 on a loop
+    for _ in $(seq 1 45); do
+        local up=0
+        for i in $(seq 1 $NODES); do
+            [ "$(booting "$i")" -le 3 ] || return 1
+            grep -qE "Linux version|login:" "/var/log/libvirt/qemu/${P}$i-console.log" 2> /dev/null && up=$((up + 1))
+        done
+        [ $up -lt $NODES ] || return 0
+        sleep 2
+    done
+}
+
+remove_vms() {
+    for i in $(seq 1 $NODES); do
+        virsh destroy ${P}$i > /dev/null 2>&1 || true
+        virsh undefine ${P}$i > /dev/null 2>&1 || true
+    done
+}
+
+diagnose() { # what the VMs, the network and the runner say, when the lab fails
+    virsh list --all >&2 || true
+    virsh net-dhcp-leases $NET >&2 || true
+    for i in $(seq 1 $NODES); do
+        echo "--- console of node $i" >&2
+        tail -n 40 /var/log/libvirt/qemu/${P}$i-console.log >&2 2> /dev/null || true
+        echo "--- QEMU log of node $i" >&2
+        tail -n 15 /var/log/libvirt/qemu/${P}$i.log >&2 2> /dev/null || true
+    done
+    echo "--- runner CPU and KVM" >&2
+    lscpu | grep -iE "model name|vendor|hypervisor|virtualization" >&2 || true
+    dmesg 2> /dev/null | grep -iE "kvm|svm|vmx" | tail -n 20 >&2 || true
+}
+
 up() {
     local dir=$1
     mkdir -p "$CACHE" "$POOL"
@@ -156,10 +194,30 @@ up() {
     cp "$CACHE/debian.qcow2" "$POOL/${P}-base.qcow2"
     ssh-keygen -q -t ed25519 -N '' -f "$(key_of "$dir")"
     network
-    for i in $(seq 1 $NODES); do
-        mkdir -p "$dir/n$i"
-        vm "$dir" "$i"
+    for i in $(seq 1 $NODES); do mkdir -p "$dir/n$i"; done
+    local booted=0
+    for cpu in "${CPUS[@]}"; do
+        echo "lab: starting the VMs with CPU $cpu"
+        local created=1
+        for i in $(seq 1 $NODES); do
+            if ! vm "$dir" "$i" "$cpu"; then
+                created=0
+                break
+            fi
+        done
+        if [ $created -eq 1 ] && boots; then
+            booted=1
+            echo "lab: the VMs boot with CPU $cpu"
+            break
+        fi
+        echo "lab: a VM reboots in a loop with CPU $cpu, trying the next model" >&2
+        remove_vms
     done
+    if [ $booted -eq 0 ]; then
+        echo "lab: no CPU model lets the VMs boot" >&2
+        diagnose
+        return 1
+    fi
     local pids=()
     for i in $(seq 1 $NODES); do
         provision "$dir" "$i" > "$dir/n$i/provision.log" 2>&1 &
@@ -169,13 +227,7 @@ up() {
     for p in "${pids[@]}"; do wait "$p" || failed=1; done
     if [ $failed -ne 0 ]; then
         tail -n 30 "$dir"/n*/provision.log >&2
-        # What the VMs and the network say, to tell a VM that did not boot from one without an address.
-        virsh list --all >&2 || true
-        virsh net-dhcp-leases $NET >&2 || true
-        for i in $(seq 1 $NODES); do
-            echo "--- console of node $i" >&2
-            tail -n 40 /var/log/libvirt/qemu/${P}$i-console.log >&2 2> /dev/null || true
-        done
+        diagnose
         return 1
     fi
 }
