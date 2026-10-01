@@ -450,10 +450,13 @@ Hyperlite (PolyForm Noncommercial); only its documented behaviour is reused. Deb
 daemon; this choice is open (Q11). Its test plan (partitions, node restarts, concurrent writes, a 1,000-VM configuration) is a gate before any
 production use.
 
-- **Q11. Language of `hyperlite-cfs`.** C (like `pmxcfs`, direct use of Corosync's libraries) or Rust (memory safety,
-  bindings to write)?
+- **Q11. Language of `hyperlite-cfs`: C**, like `pmxcfs`, using Corosync's libraries directly (decided 2026-10-01).
+  Its design is `docs/design/hyperlite-cfs.md`.
+- **Q6. Secrets: as Proxmox** (decided 2026-10-01). Proxmox keeps them under `/etc/pve/priv/` and
+  `/etc/pve/nodes/${NAME}/priv/`, "only accessible by root". `hyperlite-cfs` has the same two root-only trees,
+  replicated to every node; the values stay encrypted with Hyperlite's key as they are today.
 
-Still open: Q5 to Q9 (Q6 now applies to secrets in `hyperlite-cfs`), Q11.
+Still open: Q5, Q7 to Q9.
 
 ## 16. Lot 1: the Node domain
 
