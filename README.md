@@ -6,14 +6,14 @@ Hyperlite is a self-hosted virtualization manager: a FastAPI backend that drives
 
 ## Features
 
-- **Virtual machines**: create, start/stop, delete, clone, snapshots, resource limits (cgroups), unattended installation of Debian/Ubuntu/RHEL-family ISOs, disk import/export.
-- **Containers**: LXC containers built from a Debian base or from any Docker Hub / OCI image (no Docker daemon needed), with a web SSH terminal.
-- **Storage**: local directory pools, shared NFS pools, ZFS pools (VMs on zvols, native ZFS snapshots).
-- **Networking**: virtual networks (NAT, isolated, bridge, VLAN tags), per-VM firewall (libvirt nwfilter) and per-network firewall (iptables on the bridge).
-- **Cluster**: several hosts managed through `qemu+ssh://` (no agent to install), live migration, basic high availability (failure detection and alert; recovery is always started by a human).
-- **Backups**: hot and cold VM backups, schedules, retention.
-- **Operations**: metrics history (Prometheus format available), audit journal, task tracking, job engine, outgoing notifications (webhook, email).
-- **Security**: local accounts, optional TOTP two-factor authentication, API tokens, optional OpenID Connect single sign-on, fine-grained permissions (roles, groups, pools, per-resource ACL).
+- **Virtual machines**: create, start/stop, delete, clone, snapshots, templates, cloud-init, resource limits (cgroups), unattended installation of Debian/Ubuntu/RHEL-family ISOs, disk import/export, UEFI with Secure Boot and TPM 2.0, USB and PCI passthrough, CPU pinning.
+- **Containers**: LXC containers built from a Debian base or from any Docker Hub / OCI image (no Docker daemon needed), with a web SSH terminal; Kubernetes (k3s) clusters on Hyperlite VMs.
+- **Storage**: local directory pools, shared NFS pools (with the NFS version chosen at creation), ZFS pools (VMs on zvols, native ZFS snapshots), iSCSI targets.
+- **Networking**: virtual networks (NAT, isolated, bridge on a host bridge, NIC, bond or VLAN interface), per-VM firewall (libvirt nwfilter) and per-network firewall (iptables on the bridge). A VLAN tag on a VM interface is accepted only on a network that can carry it (Open vSwitch, SR-IOV).
+- **Cluster**: several hosts managed from one controller through `qemu+ssh://` (no agent to install), live migration with a compatibility check, node maintenance mode, a copy of the configuration on every node with a manual takeover (`hyperlite-promote`), and high availability that detects a failed node and shows what automatic recovery would do (dry run; recovery is started by a human).
+- **Backups**: hot and cold VM backups with a checksummed manifest and automatic verification, UEFI NVRAM and TPM state included, schedules per VM or per group, retention by count or daily/weekly/monthly, file-level restore, replication to another site every few minutes (incremental), and recovery of a lost site.
+- **Operations**: metrics history (Prometheus format, export to InfluxDB and Graphite), audit journal, task tracking, job engine, outgoing notifications (webhook, email).
+- **Security**: local accounts, LDAP / Active Directory, optional OpenID Connect single sign-on, two-factor authentication (TOTP or WebAuthn security keys and passkeys), API tokens, fine-grained permissions (roles, groups, pools, per-resource ACL).
 - **Web console**: VNC console and SSH terminals in the browser, host shell for administrators.
 - **Workstation access**: the `hyperlite` client opens SSH or remote desktop from the user's own computer through a tunnel over the server's HTTPS port, with sign-in through the web interface (SSO and 2FA apply), per-VM permission and audit.
 
@@ -75,10 +75,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 - Early-stage software; no stability promise for the API, the database schema or the packaging.
 - The service and the host shell run as root. Do not expose port 8000 to untrusted networks.
 - The appliance installer asks for the `root` password; the initial Hyperlite `admin` password is random and shown on the console banner. Change it after the first sign-in.
-- The TLS certificate is self-signed; browsers will warn.
-- High availability has no fencing (no STONITH): a failed node is detected and reported, but VM recovery on another node is a manual, human decision.
+- The TLS certificate is self-signed by default (browsers will warn); a certificate can be imported or obtained through ACME (Let's Encrypt).
+- One controller drives the cluster. Its configuration is copied to every node every 15 minutes, and taking over after its loss is a manual command. A Proxmox-like replicated configuration (Corosync and `hyperlite-cfs`) is being built, see [docs/design/hyperlite-cfs.md](docs/design/hyperlite-cfs.md).
+- Automatic high availability runs as a dry run only: a failed node is detected and reported with what would be done, but VM recovery on another node is a manual, human decision (no fencing yet).
 - ZFS pools are created on loopback files by the web interface (single node); Ceph is not supported.
-- The automated test suite covers the backend logic and API (unit and API tests); the dashboard has lint and build checks but no automated UI tests in CI yet. Hypervisor operations (libvirt, ZFS, NFS, migration) are mostly verified by hand on real machines.
+- CI runs the backend unit and API tests, the dashboard lint and build, a Playwright end-to-end suite against a real backend and libvirt (QEMU without KVM), and the `hyperlite-cfs` tests with sanitizers and fuzzing. Multi-node operations (NFS, ZFS, migration, HA) are still mostly verified by hand on real machines.
 - The API and the database use French identifiers and values (see [docs/api.md](docs/api.md)).
 
 ## License
