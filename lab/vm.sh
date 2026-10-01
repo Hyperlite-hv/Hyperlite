@@ -10,7 +10,7 @@
 #   vm.sh heal N       let it through again
 #   vm.sh down [DIR]   keep each node's logs in DIR/nN/cfs.log, then destroy everything
 #
-# Needs root, libvirt with KVM, virt-install, cloud-image-utils (cloud-localds), openssh-client and Internet access
+# Needs root, libvirt with KVM, dnsmasq, virt-install, cloud-image-utils (cloud-localds), openssh-client and Internet access
 # for the Debian image and packages. Same interface as cfs/tests/cluster/lab.sh, so the same tests drive both.
 set -euo pipefail
 
@@ -150,6 +150,7 @@ down() {
     local dir=${1:-}
     for i in $(seq 1 $NODES); do
         if [ -n "$dir" ] && [ -f "$(key_of "$dir")" ]; then
+            mkdir -p "$dir/n$i"
             on "$dir" "$i" journalctl -u corosync -u hyperlite-cfs --no-pager > "$dir/n$i/cfs.log" 2>&1 || true
         fi
         virsh destroy ${P}$i > /dev/null 2>&1 || true

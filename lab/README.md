@@ -9,7 +9,7 @@ so the lab needs no access to anyone's machines. It runs the same way on any Deb
 KVM:
 
 ```bash
-sudo apt-get install libvirt-daemon-system qemu-system-x86 qemu-utils virtinst cloud-image-utils
+sudo apt-get install libvirt-daemon-system qemu-system-x86 qemu-utils virtinst dnsmasq-base cloud-image-utils
 sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_LAB="$PWD/lab/vm.sh" venv/bin/python -m pytest -q -s cfs/tests/cluster
 ```
 
