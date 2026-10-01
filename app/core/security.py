@@ -10,7 +10,6 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import PyJWTError
 
-from app.core.database import get_conn
 from app.core.passwords import bcrypt_hash, bcrypt_verify
 
 logger = logging.getLogger(__name__)
@@ -64,6 +63,13 @@ def create_access_token(data: dict, remember: bool = False):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def _accounts():
+    # The account repository's synchronous bridge: signing in runs in FastAPI dependencies and sync endpoints.
+    from app.repositories import registry
+
+    return registry.accounts().sync
+
+
 def revoke_session(token: str) -> bool:
     """Sign a session token out before it expires (POST /auth/logout). A JWT is valid on its own until its expiry:
     without this, "Sign out" only forgot it in the browser, and a copy (another tab, a stolen token) kept working."""
@@ -71,21 +77,14 @@ def revoke_session(token: str) -> bool:
     if not payload or not payload.get("jti"):
         return False
     now = int(time.time())
-    with get_conn() as conn:
-        conn.execute("DELETE FROM revoked_sessions WHERE expires_at < ?", (now,))
-        conn.execute(
-            "INSERT OR IGNORE INTO revoked_sessions (jti, expires_at) VALUES (?, ?)",
-            (payload["jti"], int(payload.get("exp") or now)),
-        )
-        conn.commit()
+    _accounts().revoke_session(payload["jti"], int(payload.get("exp") or now), now)
     return True
 
 
 def _session_revoked(jti) -> bool:
     if not jti:
         return False
-    with get_conn() as conn:
-        return conn.execute("SELECT 1 FROM revoked_sessions WHERE jti = ?", (jti,)).fetchone() is not None
+    return _accounts().session_revoked(jti)
 
 
 def session_remembered(token: str) -> bool:
@@ -96,21 +95,16 @@ def session_remembered(token: str) -> bool:
     return bool(exp and iat) and exp - iat > ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
 
-def set_password(conn, username: str, plain: str):
-    """Store a new password for the account and sign out its existing sessions: every session token issued
-    before this second is refused from now on. The caller commits."""
-    conn.execute(
-        "UPDATE users SET hashed_password = ?, password_changed_at = ?, must_change_password = 0 WHERE username = ?",
-        (hash_password(plain), int(time.time()), username),
-    )
+def set_password(username: str, plain: str, role: str | None = None):
+    """Store a new password for the account (and a new role, in the same transaction) and sign out its existing
+    sessions: every session token issued before this second is refused from now on."""
+    _accounts().update(username, role=role, hashed_password=hash_password(plain), changed_at=int(time.time()))
 
 
 def flag_weak_password(username: str):
     """The password just typed at sign-in no longer meets the policy: until it is changed, the account's sessions
     can only read who they are and change the password (see _session_user)."""
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET must_change_password = 1 WHERE username = ?", (username,))
-        conn.commit()
+    _accounts().flag_must_change(username)
 
 
 def create_preauth_token(username: str, remember: bool = False):
@@ -127,9 +121,7 @@ def create_preauth_token(username: str, remember: bool = False):
 
 
 def get_user(username: str):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        return dict(row) if row else None
+    return _accounts().get(username)
 
 
 _dummy_hash = None

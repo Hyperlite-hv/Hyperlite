@@ -2,6 +2,7 @@
 
 from functools import cache
 
+from app.repositories.sqlite.accounts import SqliteAccountRepository
 from app.repositories.sqlite.audit import SqliteAuditRepository
 from app.repositories.sqlite.automation import SqliteAutomationRepository
 from app.repositories.sqlite.backups import SqliteBackupRepository
@@ -38,3 +39,8 @@ def automation():
 @cache
 def backups():
     return SqliteBackupRepository()
+
+
+@cache
+def accounts():
+    return SqliteAccountRepository()

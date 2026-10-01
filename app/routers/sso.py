@@ -7,7 +7,6 @@ frontend)."""
 
 import json
 import urllib.error
-from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,9 +16,9 @@ from pydantic import BaseModel
 
 from app.core import sso, webauthn_keys
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.error_messages import describe_exception
 from app.core.security import create_access_token, create_preauth_token, get_user, require_role
+from app.services import account_service
 
 router = APIRouter(prefix="/auth/sso", tags=["sso"])
 
@@ -227,11 +226,7 @@ def sso_exchange(request: Request):
         log_action(username, "login", "auth", "succes", "SSO validated, second factor required")
     else:
         token = create_access_token({"sub": username, "role": user["role"]})
-        with get_conn() as conn:
-            conn.execute(
-                "UPDATE users SET last_login_at = ? WHERE username = ?", (datetime.now(UTC).isoformat(), username)
-            )
-            conn.commit()
+        account_service.record_login(username)
         log_action(username, "login", "auth", "succes", "SSO login")
         body = {
             "access_token": token,
