@@ -36,7 +36,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import backup_integrity, backup_retention, firmware, guest_agent, vm_locks
+from app.core import backup_integrity, backup_retention, checkpoints, firmware, guest_agent, replication, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
@@ -206,6 +206,14 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
         raise RuntimeError("No disk found on this VM")
     disks = disks if disks is not None else all_disks
     target_devs = {dev for dev, _ in disks}
+    if checkpoints.names(domain):
+        # A replicated VM (app/core/replication.py): libvirt refuses the external snapshot below while its checkpoint
+        # exists, so the copy goes through libvirt's backup API instead, which leaves the replication chain intact.
+        logger.info("Hot backup of %s through the backup API (it is replicated)", vm_name)
+        update_task_progress(task_id, 10)
+        paths = replication.copy_running(domain, disks, [dev for dev, _ in all_disks], dest_dir)
+        update_task_progress(task_id, 85)
+        return paths
 
     overlay_paths = {}
     disk_xml_parts = []
@@ -476,6 +484,8 @@ def _restore_overwrite(conn, domain, images, task_id):
     half-written disk."""
     existing = domain_disk_paths(domain)
     by_dev = dict(images)
+    # The restored disks replace the ones the replication bitmap described.
+    checkpoints.release(domain)
     missing = [dev for dev, _ in existing if dev not in by_dev]
     extra = [dev for dev in by_dev if dev not in {d for d, _ in existing}]
     if missing or extra:

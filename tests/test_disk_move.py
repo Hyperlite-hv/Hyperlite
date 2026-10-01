@@ -41,6 +41,9 @@ class FakeVol:
 
 
 class FakeDomain:
+    def listAllCheckpoints(self):
+        return []  # no replication checkpoint (app/core/checkpoints.py)
+
     def __init__(self, snapshots=0, disk_type="file", fmt="qcow2", device="disk"):
         self.snapshots = snapshots
         source = (

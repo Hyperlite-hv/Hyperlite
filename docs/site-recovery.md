@@ -33,6 +33,30 @@ On each site, say A whose backups go to B:
    backups*. Every VM of site A must be listed with its latest backup. Restore one under another name (`web-test`)
    on an isolated network (the network choice of the card), start it, check it, delete it.
 
+## Replication: losing 15 minutes instead of a day
+
+Backups lose what changed since the last one. **Backups › Replication to another site** copies VMs to the same kind
+of storage every few minutes (15 by default):
+
+- each copy only holds what changed since the previous one (QEMU's dirty bitmaps, as Proxmox Backup Server uses);
+  a full copy starts a new chain once a day, and the two newest chains are kept;
+- the copies are laid out like backups, so the other site restores them with *Recovery of another site*: it reads
+  the newest copy through its chain into an independent disk;
+- a stopped VM is not copied again until it runs; when it ran since its last copy, it is started **paused** for the
+  copy (the guest never runs) and stopped again, as Proxmox does for backups of stopped VMs;
+- the card lists each VM's last copy and warns about the ones without a copy within twice the interval.
+
+Limits:
+
+- disks must be **qcow2 files** (version 3). ZFS, iSCSI and raw disks are listed with the reason and not copied;
+- a VM with a passed-through device is never started paused: when it is stopped, it gets a full copy instead;
+- while a VM is replicated, libvirt keeps a checkpoint on its disks. Moving or resizing a disk, reverting a snapshot,
+  taking a snapshot of the stopped VM, renaming it or migrating it drop that checkpoint first, and the next copy is
+  a full one. Hot backups of a replicated VM go through libvirt's backup API and keep the chain;
+- the storage must let the host's root user and QEMU write: an NFS export with `root_squash` refuses QEMU's writes,
+  use `no_root_squash` for this export, restricted to the other site's address;
+- the first full copy of each VM crosses the link in full. On a slow link, start with one VM.
+
 ## The day a site is lost
 
 1. **Make sure it is really down.** From site B, a dead site A and a cut link between the sites look the same. If

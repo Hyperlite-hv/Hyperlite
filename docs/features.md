@@ -44,7 +44,7 @@ Hot (transient external snapshot) and cold backups of VMs, schedules (daily, wee
 
 Every backup has a manifest (`manifest.json`: each file with its role, size and SHA-256). **Verify** recomputes every checksum and runs `qemu-img check` on the images; every backup is also verified automatically within a week (one at a time, never during a backup). A corrupted backup is shown as such, with what is wrong, audited and notified (`verify_backup` event). UEFI VMs keep their firmware state: the NVRAM (boot entries, Secure Boot keys) and the TPM state (BitLocker keys) are saved with the disks and put back on restore, in place or as a new VM. See the [design](design/backups-pro.md) for the next steps (block disks, incremental backups, GFS retention).
 
-Two sites: each site backs its VMs up to a storage of the other one, and **Backups › Recovery of another site** restores a lost site's VMs as new VMs on the surviving site, from their latest backup, after an integrity check. See [site recovery](site-recovery.md).
+Two sites: each site backs its VMs up to a storage of the other one, and **Backups › Recovery of another site** restores a lost site's VMs as new VMs on the surviving site, from their latest backup, after an integrity check. See [site recovery](site-recovery.md). **Replication to another site** copies VMs to the other site every few minutes (incremental, QEMU dirty bitmaps, a full copy each day), so the surviving site loses at most one interval of changes.
 
 ## Observability and automation
 
