@@ -2,7 +2,7 @@
 VMs (NVRAM and TPM) saved and put back with the disks.
 
 Manifest (`manifest.json` next to the files of a backup):
-  {"version": 1, "vm": ..., "mode": "chaud"|"froid", "cree_le": ..., "firmware": "bios"|"uefi"|"uefi_secure",
+  {"version": 1, "vm": ..., "source": host name, "mode": "chaud"|"froid", "cree_le": ..., "firmware": "bios"|"uefi"|"uefi_secure",
    "fichiers": [{"nom": "sda.qcow2", "role": "disque", "cible": "sda", "taille": ..., "sha256": ...},
                 {"nom": "nvram.fd", "role": "nvram", ...}, {"nom": "tpm.tar", "role": "tpm", ...},
                 {"nom": "vm-config.json", "role": "config", ...}]}
@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import shutil
+import socket
 import subprocess
 import tarfile
 import xml.etree.ElementTree as ET
@@ -142,6 +143,9 @@ def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks):
     manifest = {
         "version": MANIFEST_VERSION,
         "vm": vm_name,
+        # The host that made it: another site restoring this backup (app/core/site_recovery.py) shows where it
+        # comes from.
+        "source": socket.gethostname(),
         "mode": mode,
         "cree_le": _now(),
         "firmware": firmware_kind,

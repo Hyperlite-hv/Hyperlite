@@ -524,9 +524,10 @@ def _restore_overwrite(conn, domain, images, task_id):
     return [str(dest) for dest, _ in staged]
 
 
-def restore_backup(backup_id, mode, new_name=None, username="system", claim=None):
+def restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None):
     """mode='overwrite': replace the disks of the original VM (it must be stopped). mode='new': define a new VM from
-    the backup, with a new UUID/MAC (the same logic as cloning).
+    the backup, with a new UUID/MAC (the same logic as cloning). `network` (mode 'new' only) replaces the network
+    recorded in the backup: a backup made on another site may name a network this node does not have.
 
     `claim`: the vm_locks claim the endpoint took on the VM, released here when the restore ends; without one, the
     restore takes its own."""
@@ -583,6 +584,17 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
                 raise RuntimeError(f"A VM '{new_name}' already exists")
             except libvirt.libvirtError:
                 pass
+            # Checked before any copy: a missing network would only fail at the first start.
+            config = _read_vm_config(src_dir)
+            if network:
+                config["network"] = network
+            try:
+                conn.networkLookupByName(config["network"])
+            except libvirt.libvirtError:
+                raise RuntimeError(
+                    f"The network '{config['network']}' recorded in the backup does not exist on this node: "
+                    "choose another network"
+                ) from None
             _check_before_restore(row, task_id, username)
 
             span = 60 / len(images)
@@ -594,7 +606,6 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
                 new_disk_paths.append(dest)
                 _convert(src, dest, "qcow2", task_id, 20 + i * span, span)
 
-            config = _read_vm_config(src_dir)
             xml = build_domain_xml(
                 new_name,
                 config["vcpu"],

@@ -179,6 +179,9 @@ def init_db():
             "ALTER TABLE backup_jobs ADD COLUMN garder_mois INTEGER",
             # A backup made by a grouped job (backup_group_jobs), NULL otherwise.
             "ALTER TABLE backups ADD COLUMN groupe_id INTEGER",
+            # A backup made by another Hyperlite (another site) and registered here to be restored: the host that
+            # made it, from its manifest. NULL for this node's own backups.
+            "ALTER TABLE backups ADD COLUMN importe_de TEXT",
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
