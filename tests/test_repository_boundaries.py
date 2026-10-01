@@ -23,7 +23,6 @@ CORE_STILL_ALLOWED = {
     "network_firewall.py",
     "notifications.py",
     "object_meta.py",
-    "permissions.py",
     "renaming.py",
     "shared_pools.py",
     "update_check.py",
