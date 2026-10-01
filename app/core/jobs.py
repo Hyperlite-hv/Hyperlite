@@ -46,7 +46,6 @@ from datetime import UTC, datetime
 import libvirt
 
 from app.core.audit import log_action
-from app.core.database import get_conn
 from app.core.libvirt_utils import open_conn
 from app.core.tasks import create_task, finish_task, raise_if_cancelled, register_cancel, task_log, update_task_progress
 from app.core.vm_meta import get_vm_ssh_user
@@ -149,14 +148,15 @@ def _step_succeeded(condition_type, condition_valeur, stdout, exit_code):
     return exit_code == 0
 
 
+def _store():
+    # The automation repository's synchronous bridge: runs execute in threads.
+    from app.repositories import registry
+
+    return registry.automation().sync
+
+
 def _log_step(run_id, step_ordre, cible, commande, stdout, stderr, exit_code, reussi):
-    with get_conn() as db:
-        db.execute(
-            "INSERT INTO job_run_logs (run_id, step_ordre, cible, commande, stdout, stderr, exit_code, reussi, horodatage) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (run_id, step_ordre, cible, commande, stdout[-8000:], stderr[-4000:], exit_code, int(reussi), _now()),
-        )
-        db.commit()
+    _store().log_step(run_id, step_ordre, cible, commande, stdout[-8000:], stderr[-4000:], exit_code, reussi, _now())
 
 
 def _expand_steps(steps, targets):
@@ -222,13 +222,10 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
     never reported (nor audited) as started. Once this returns, the run exists and
     always ends in 'succes' or 'echec', whatever happens in the thread."""
     targets = list(targets or [])
-    with get_conn() as db:
-        job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        if not job:
-            raise LookupError("Job not found")
-        steps = [
-            dict(s) for s in db.execute("SELECT * FROM job_steps WHERE job_id = ? ORDER BY ordre", (job_id,)).fetchall()
-        ]
+    job = _store().get_job(job_id)
+    if not job:
+        raise LookupError("Job not found")
+    steps = job.pop("steps")
     _check_targets(job, steps, targets)
 
     if job["predefined_key"] == LB_PREDEFINED_KEY:
@@ -244,13 +241,7 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
     run_id = str(uuid.uuid4())
     task_id = create_task("run_job", job["name"], node=_local_node(), username=username)
     try:
-        with get_conn() as db:
-            db.execute(
-                "INSERT INTO job_runs (id, job_id, task_id, dry_run, targets, statut, started_at) "
-                "VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
-                (run_id, job_id, task_id, int(dry_run), json.dumps(targets), _now()),
-            )
-            db.commit()
+        _store().create_run(run_id, job_id, task_id, dry_run, json.dumps(targets), _now())
     except Exception as e:
         finish_task(task_id, "echec", f"Could not record the run: {e}")
         raise
@@ -301,12 +292,7 @@ def _close_run(run_id, task_id, job_name, username, ok, error=None):
     log_action(username, "run_job", job_name, "succes" if ok else "echec", resultat)
     # The run row is what the dashboard polls: written last, a run shown as finished never has its task still
     # running nor its outcome missing from the audit log.
-    with get_conn() as db:
-        db.execute(
-            "UPDATE job_runs SET statut = ?, finished_at = ?, resultat = ? WHERE id = ?",
-            ("succes" if ok else "echec", _now(), resultat, run_id),
-        )
-        db.commit()
+    _store().close_run(run_id, "succes" if ok else "echec", _now(), resultat)
 
 
 def _execute_run(run_id, task_id, job_name, build_steps, dry_run, username):
@@ -342,24 +328,9 @@ LB_JOB_DESCRIPTION = (
 def ensure_lb_job_exists():
     """Create the predefined job once (idempotent). Called at application start,
     like ensure_isolated_network for the network."""
-    with get_conn() as db:
-        existing = db.execute("SELECT id FROM jobs WHERE predefined_key = ?", (LB_PREDEFINED_KEY,)).fetchone()
-        if existing:
-            # Installations created before the English translation still hold the legacy
-            # (French) name and description: bring them up to date. The job is found by
-            # its predefined key, never by name, so renaming is safe.
-            db.execute(
-                "UPDATE jobs SET name = ?, description = ? WHERE id = ?",
-                (LB_JOB_NAME, LB_JOB_DESCRIPTION, existing["id"]),
-            )
-            db.commit()
-            return existing["id"]
-        cur = db.execute(
-            "INSERT INTO jobs (name, description, predefined_key, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
-            (LB_JOB_NAME, LB_JOB_DESCRIPTION, LB_PREDEFINED_KEY, "system", _now()),
-        )
-        db.commit()
-        return cur.lastrowid
+    # Installations created before the English translation still hold the legacy (French) name and description:
+    # they are brought up to date. The job is found by its predefined key, never by name, so renaming is safe.
+    return _store().ensure_predefined(LB_PREDEFINED_KEY, LB_JOB_NAME, LB_JOB_DESCRIPTION, _now())
 
 
 def _lb_steps(targets, dry_run):
