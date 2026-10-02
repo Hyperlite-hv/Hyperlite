@@ -12,9 +12,12 @@ import os
 import threading
 
 import pytest
-from harness import get, lab, same_everywhere, until
+from harness import NODES, get, lab, same_everywhere, until
 
 from app.core.cfs_client import ANY_VERSION, MUST_NOT_EXIST, Conflict, ReadOnly
+
+# Written for three nodes; test_two_nodes.py covers the two-node lab.
+pytestmark = pytest.mark.skipif(len(NODES) != 3, reason="needs the three-node lab")
 
 
 def test_a_change_made_on_one_node_is_on_every_node(nodes):
