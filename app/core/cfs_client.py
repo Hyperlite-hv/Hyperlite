@@ -1,8 +1,8 @@
 """Client of hyperlite-cfs, the replicated cluster configuration (docs/design/hyperlite-cfs.md).
 
 The daemon listens on a Unix socket and speaks the framed binary protocol described in cfs/src/proto.h. This module is
-its only Python speaker; the repositories (app/repositories/) will use it once the daemon becomes the source of truth
-(phases C and D of the design). Nothing in the application calls it yet.
+its only Python speaker. Shadow mode (app/repositories/cfs/shadow.py, phase C of the design) uses it to copy writes
+into the daemon; the repositories will read from it once the daemon becomes the source of truth (phase D).
 """
 
 import socket
