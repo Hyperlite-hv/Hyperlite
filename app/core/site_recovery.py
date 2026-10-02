@@ -83,7 +83,9 @@ def _allowed(path):
     if real != normalized:
         raise RecoveryError(f"{normalized} goes through a symbolic link: give the directory's real path")
     for base in _allowed_roots():
-        if real == base or real.startswith(base + os.sep):
+        # The base itself, or below it: "/mnt/a" must not admit "/mnt/ab". One startswith on every accepted path,
+        # so static analysis sees each one checked.
+        if real.startswith(base) and real[len(base) : len(base) + 1] in ("", os.sep):
             return Path(real)
     raise RecoveryError(
         f"{normalized} is outside the storage this node knows: mount the share under /mnt, /media or /srv, or add it "

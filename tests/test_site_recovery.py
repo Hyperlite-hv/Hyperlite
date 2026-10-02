@@ -116,6 +116,7 @@ def test_only_storage_this_node_knows_can_be_scanned(tmp_path, database, monkeyp
     pool = tmp_path / "pool"
     pool.mkdir()
     (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "pool-sibling").mkdir()  # starts with the pool's path, but is not under it
 
     class Pool:
         def XMLDesc(self, flags):
@@ -131,6 +132,8 @@ def test_only_storage_this_node_knows_can_be_scanned(tmp_path, database, monkeyp
     assert site_recovery.scan(str(pool)) == []
     with pytest.raises(site_recovery.RecoveryError, match="outside the storage this node knows"):
         site_recovery.scan(str(tmp_path / "elsewhere"))
+    with pytest.raises(site_recovery.RecoveryError, match="outside the storage this node knows"):
+        site_recovery.scan(str(tmp_path / "pool-sibling"))
 
 
 @pytest.mark.parametrize("bad", ["relative/path", "/etc", "/var/../etc", "/nonexistent-dir"])
