@@ -175,6 +175,10 @@ extract_kernel() { # the image's kernel and initrd, next to the base image, read
     rmdir "$mnt"
 }
 
+group_members() { # the members of the hyperlite-cfs group in corosync-cpgtool's output, read on stdin
+    awk '/^hyperlite-cfs/ { g = 1; next } /^[^[:space:]]/ { g = 0 } g && NF { n++ } END { print n + 0 }'
+}
+
 booting() { # booting N: how many times a kernel started on node N's console (its first line, at time 0, once a boot)
     local n
     n=$(grep -cE '^\[ +0\.000000\] Linux version' "/var/log/libvirt/qemu/${P}$1-console.log" 2> /dev/null) || n=0
@@ -266,6 +270,15 @@ up() {
         diagnose
         return 1
     fi
+    # Hand the cluster over only once the three daemons are members of one process group: a change made while some
+    # are still joining is legitimate, but the tests expect to start from a formed cluster.
+    for _ in $(seq 1 120); do
+        [ "$(on "$dir" 1 corosync-cpgtool 2> /dev/null | group_members)" -eq $NODES ] && return 0
+        sleep 1
+    done
+    echo "lab: the three daemons never formed one group" >&2
+    on "$dir" 1 corosync-cpgtool >&2 || true
+    return 1
 }
 
 down() {

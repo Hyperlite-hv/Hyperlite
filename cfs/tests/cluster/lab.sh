@@ -72,6 +72,16 @@ up() {
             exec '$bin' --cluster --db '$dir/n$i/config.db' --socket '$dir/n$i/cfs.sock' --socket-mode 0666
         " > "$dir/n$i/cfs.log" 2>&1 &
     done
+    # Hand the cluster over only once the three daemons are members of one process group.
+    for _ in $(seq 1 120); do
+        local n
+        n=$(ip netns exec ${P}1 unshare -m sh -c "mount --bind '$dir/n1/run' /run; corosync-cpgtool" 2> /dev/null |
+            awk '/^hyperlite-cfs/ { g = 1; next } /^[^[:space:]]/ { g = 0 } g && NF { n++ } END { print n + 0 }') || n=0
+        [ "$n" -eq $NODES ] && return 0
+        sleep 1
+    done
+    echo "lab: the three daemons never formed one group" >&2
+    return 1
 }
 
 down() {
