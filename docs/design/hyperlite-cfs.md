@@ -279,6 +279,14 @@ against B2's code before it was fixed.
   so a two-node cluster with a QDevice keeps writing on one node; the risk that node then carries alone is B4's to
   handle (Corosync's `wait_for_all`).
 
+- **A state sent after an agreement starts a new round** (found by the first thousand-round soak). A member sends
+  its state again when its view changes: a late quorum notification, a new ring. The others' states were as old as
+  the agreement, and changes had been applied since, so the states compared as different. With a transfer already
+  run in that membership, every member then stayed read-only until the next membership change. Now each state carries
+  the number of the round it was sent in: 0 at each membership change, one more at the end of a transfer and when a
+  state arrives after an agreement, at the same point of the order on every member. A member counts only the states
+  of the current round, and every member sends its state again when a round starts.
+
 The term is not part of the checksum, and agreement compares the data alone (version and checksum): a state sent
 just before an agreement can carry the previous term, and the agreement brings every member to the same term. If
 Corosync's ring ever falls below a stored term (its state directory wiped), the term stays and the node logs a
