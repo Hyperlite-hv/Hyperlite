@@ -130,7 +130,7 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     on "$dir" "$i" cloud-init status --wait || true
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        corosync libcpg-dev libquorum-dev libvotequorum-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables
+        corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables
     tar -C "$REPO" -cz cfs | on "$dir" "$i" sh -c 'rm -rf /opt/cfs && mkdir -p /opt && tar -C /opt -xz'
     # Warnings stay warnings here: a newer compiler than the CI's must not stop the lab (the CI keeps -Werror).
     on "$dir" "$i" sh -c 'meson setup -Dwerror=false /opt/cfs/build /opt/cfs && ninja -C /opt/cfs/build'

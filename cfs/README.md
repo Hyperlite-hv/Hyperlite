@@ -13,7 +13,7 @@ member confirmed it, so no answered change is lost while a quorum remains. Nothi
 
 ## Build and test
 
-Debian or Ubuntu packages: `meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev`,
+Debian or Ubuntu packages: `meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev`,
 plus `clang libclang-rt-dev` for fuzzing and `corosync iproute2` for the cluster test.
 
 ```bash

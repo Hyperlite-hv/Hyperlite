@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "corosync.h"
+#include "expected.h"
 #include "server.h"
 
 #define DEFAULT_DB "/var/lib/hyperlite-cfs/config.db"
@@ -35,10 +36,12 @@ static int loop_send(void *arg, const uint8_t *msg, size_t len)
 static void usage(FILE *f)
 {
     fprintf(f, "usage: hyperlite-cfs [--cluster] [--db PATH] [--socket PATH] [--socket-mode OCTAL]\n"
+               "       hyperlite-cfs expected-votes VOTES [--confirm CLUSTER_NAME]\n"
                "  --cluster      replicate through the local Corosync (default: local mode, one node)\n"
                "  --db           database file (default " DEFAULT_DB ")\n"
                "  --socket       Unix socket (default " DEFAULT_SOCKET ")\n"
-               "  --socket-mode  permissions of the socket (default 0600: root only)\n");
+               "  --socket-mode  permissions of the socket (default 0600: root only)\n"
+               "  expected-votes make a partition that lost the quorum writable again (see --help after it)\n");
 }
 
 int main(int argc, char **argv)
@@ -47,6 +50,8 @@ int main(int argc, char **argv)
     const char *sock = DEFAULT_SOCKET;
     unsigned mode = 0600;
     bool cluster = false;
+    if (argc > 1 && strcmp(argv[1], "expected-votes") == 0)
+        return cfs_expected_main(argc - 1, argv + 1);
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--cluster") == 0) {
             cluster = true;

@@ -41,6 +41,10 @@ def whole(nodes):
     yield
 
 
+# Written for three nodes; test_two_nodes.py covers the two-node lab.
+pytestmark = pytest.mark.skipif(len(NODES) != 3, reason="needs the three-node lab")
+
+
 def test_the_sender_killed_mid_write_loses_no_answered_write(nodes, socks):
     writers = writers_on(socks, NODES, "/b3/sender")
     time.sleep(1)

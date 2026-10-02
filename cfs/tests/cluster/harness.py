@@ -26,11 +26,18 @@ BIN = os.environ.get("HYPERLITE_CFS_BIN", "")
 # their own (lab/vm.sh, set HYPERLITE_CFS_LAB to its path). Both scripts take the same commands.
 LAB = Path(os.environ.get("HYPERLITE_CFS_LAB") or Path(__file__).with_name("lab.sh"))
 VMS = LAB.name == "vm.sh"
-NODES = (1, 2, 3)
+# The namespaces lab takes its size and its QDevice arbiter from the environment (lab.sh); the VMs are always three.
+NODES = tuple(range(1, int(os.environ.get("HYPERLITE_LAB_NODES") or 3) + 1))
+QDEVICE = os.environ.get("HYPERLITE_LAB_QDEVICE") == "1"
 
 
 def lab(*args):
     subprocess.run(["bash", str(LAB), *map(str, args)], check=True)
+
+
+def tool(node, *args):
+    """`hyperlite-cfs ARGS...` on a node of the lab; the completed process, whatever its exit status."""
+    return subprocess.run(["bash", str(LAB), "tool", str(node), *args], capture_output=True, text=True)
 
 
 def until(check, timeout=120, what="the cluster"):

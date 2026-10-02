@@ -33,9 +33,9 @@ endif
 sqlite = dependency('sqlite3')
 crypto = dependency('libcrypto')
 deps = [sqlite, crypto]
-# Corosync's client libraries (Debian: libcpg-dev, libquorum-dev, libvotequorum-dev): only the daemon links them, the
-# node logic and its tests run without Corosync.
-corosync = [dependency('libcpg'), dependency('libquorum'), dependency('libvotequorum')]
+# Corosync's client libraries (Debian: libcpg-dev, libquorum-dev, libvotequorum-dev, libcmap-dev): only the daemon
+# links them, the node logic and its tests run without Corosync.
+corosync = [dependency('libcpg'), dependency('libquorum'), dependency('libvotequorum'), dependency('libcmap')]
 
 core = static_library(
   'cfscore',
@@ -52,6 +52,7 @@ executable(
   'src/main.c',
   'src/server.c',
   'src/corosync.c',
+  'src/expected.c',
   link_with: core,
   dependencies: deps + corosync,
   install: true,

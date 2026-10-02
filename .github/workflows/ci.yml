@@ -110,7 +110,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc clang libclang-rt-dev \
-            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev libvotequorum-dev iproute2
+            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2
           # The package starts a Corosync of its own; the cluster test runs its own three, in namespaces.
           sudo systemctl stop corosync || true
       - name: Build and test (GCC, sanitizers)
