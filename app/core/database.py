@@ -206,6 +206,18 @@ def init_db():
                 prochaine_execution TEXT NOT NULL
             )
         """)
+        # In a cluster, this node's own next run of the jobs every node runs for its VMs (grouped backups,
+        # replication), against the shared value it was computed from: app/repositories/sqlite/schedule_state.py.
+        # Each node keeps its own (not in app/repositories/cfs/tables.py).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS schedule_state (
+                kind TEXT NOT NULL,
+                job_id INTEGER NOT NULL,
+                base TEXT NOT NULL,
+                prochaine_execution TEXT NOT NULL,
+                PRIMARY KEY (kind, job_id)
+            )
+        """)
 
         # ---- Replication to another site (app/core/replication.py): incremental copies every few minutes ----
         conn.execute("""
