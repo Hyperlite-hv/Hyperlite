@@ -1216,6 +1216,13 @@ export async function testMetricServer(id) {
   return realFetch(`/metric-servers/${id}/test`, { method: "POST" });
 }
 // The API documentation inside the dashboard (Administration › API): who may read it, and its schema.
+// Shadow mode of hyperlite-cfs (admin): its report, and the copy of SQLite into the daemon.
+export async function fetchCfsShadow() {
+  return realFetch("/cfs/shadow");
+}
+export async function seedCfsShadow() {
+  return realFetch("/cfs/shadow/seed", { method: "POST" });
+}
 export async function fetchApiDocsAccess() {
   return realFetch("/api-docs/acces");
 }
