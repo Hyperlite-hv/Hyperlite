@@ -8,7 +8,8 @@ on a real cluster is the phase's exit criterion, before the daemon becomes the s
 A copy re-reads the row from SQLite rather than taking the value the caller wrote, so what is copied is what SQLite
 holds. A write path that forgets to call the mirror shows up in the report as a difference.
 
-Mirrored so far: the notes and tags of VMs, containers and nodes (table object_meta), at /meta/<kind>/<node>/<name>.
+Mirrored so far (DOMAINS): the notes and tags of VMs, containers and nodes (table object_meta) and the start at boot
+settings of VMs (table vm_boot).
 """
 
 import contextlib
@@ -58,32 +59,66 @@ def _encode(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-class _Meta:
-    """Notes and tags (app/core/object_meta.py)."""
+def _objects():
+    from app.repositories.sqlite.objects import SqliteObjectStore
+
+    return SqliteObjectStore()
+
+
+class _Domain:
+    """One mirrored table: where each row goes in the daemon, and what is written there."""
+
+    prefix = ""
+
+    def path(self, *key):
+        return "/".join([self.prefix, *(component(k) for k in key)])
+
+    def entry(self, *key):
+        """(path, data) of one row as SQLite now holds it; data is None when the row is gone."""
+        row = self.row(*key)
+        return self.path(*key), (_encode(self.value(row)) if row else None)
+
+    def all(self):
+        return {self.path(*self.key(r)): _encode(self.value(r)) for r in self.rows()}
+
+
+class _Meta(_Domain):
+    """Notes and tags (app/core/object_meta.py): /meta/<kind>/<node>/<name>."""
 
     prefix = "/meta"
 
-    def _store(self):
-        from app.repositories.sqlite.objects import SqliteObjectStore
+    def row(self, kind, node, name):
+        return _objects().meta(kind, node, name)
 
-        return SqliteObjectStore()
+    def rows(self):
+        return _objects().all_meta()
 
-    def path(self, kind, node, name):
-        return f"{self.prefix}/{component(kind)}/{component(node)}/{component(name)}"
+    def key(self, row):
+        return row["kind"], row["node"], row["name"]
 
-    def _value(self, row):
-        return _encode({"notes": row["notes"], "tags": json.loads(row["tags"] or "[]")})
-
-    def entry(self, kind, node, name):
-        row = self._store().meta(kind, node, name)
-        return self.path(kind, node, name), (self._value(row) if row else None)
-
-    def all(self):
-        return {self.path(r["kind"], r["node"], r["name"]): self._value(r) for r in self._store().all_meta()}
+    def value(self, row):
+        return {"notes": row["notes"], "tags": json.loads(row["tags"] or "[]")}
 
 
-META = _Meta()
-DOMAINS = {"meta": META}
+class _Boot(_Domain):
+    """Start at boot (app/core/vm_boot.py): /boot/<node>/<vm>."""
+
+    prefix = "/boot"
+
+    def row(self, node, vm_name):
+        return _objects().boot_setting(node, vm_name)
+
+    def rows(self):
+        return _objects().all_boot_settings()
+
+    def key(self, row):
+        return row["node"], row["vm_name"]
+
+    def value(self, row):
+        return {"autostart": bool(row["autostart"]), "boot_order": row["boot_order"], "delay_s": row["delay_s"]}
+
+
+DOMAINS = {"meta": _Meta(), "boot": _Boot()}
 
 
 class _Stats:
@@ -152,20 +187,21 @@ def _copy(path, data):
         _stats.copies += 1
 
 
-def mirror_meta(kind, node, name):
-    """Copy one object's notes and tags, as SQLite now holds them (deleted when SQLite has no row)."""
+def mirror(domain, *key):
+    """Copy one row of a domain as SQLite now holds it (deleted in the daemon when SQLite has no such row)."""
     if enabled():
-        _copy(*META.entry(kind, node, name))
+        _copy(*DOMAINS[domain].entry(*key))
 
 
-def refresh(domain):
-    """Copy a whole domain after a write that touched many rows at once (a rename)."""
+def refresh(*domains):
+    """Copy whole domains after a write that touched many rows at once (a rename)."""
     if not enabled():
         return
-    try:
-        _sync(_get_client(), DOMAINS[domain])
-    except (CfsError, OSError) as e:
-        _failed(DOMAINS[domain].prefix, e)
+    for name in domains:
+        try:
+            _sync(_get_client(), DOMAINS[name])
+        except (CfsError, OSError) as e:
+            _failed(DOMAINS[name].prefix, e)
 
 
 def _read_tree(client, prefix):

@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from app.core import object_meta
+from app.core import object_meta, vm_boot
 from app.core.cfs_client import Child, Entry, NotFound, Status
 from app.repositories.cfs import shadow
 from app.repositories.sqlite.renames import SqliteRenameStore
@@ -114,6 +114,20 @@ def test_a_migration_and_a_rename_move_the_copy(cfs):
     SqliteRenameStore().node_records("pve-b", "pve-c")
     assert sorted(cfs.files) == ["/meta/node/_/pve-c", "/meta/vm/pve-c/shop"]
     assert shadow.report()["ecarts"] == 0
+
+
+def test_start_at_boot_settings_are_copied_and_follow_the_vm(cfs):
+    vm_boot.set_setting("web", True, 2, 30)
+    assert json.loads(cfs.files["/boot/local/web"]) == {"autostart": True, "boot_order": 2, "delay_s": 30}
+    vm_boot.follow_migration("web", "local", "pve-b")
+    assert list(cfs.files) == ["/boot/pve-b/web"]
+    SqliteRenameStore().vm_records("web", "shop", "pve-b", "pve-b:", lambda xml, new: xml)
+    SqliteRenameStore().node_records("pve-b", "pve-c")
+    assert list(cfs.files) == ["/boot/pve-c/shop"]
+    vm_boot.delete_setting("shop", "pve-c")
+    assert cfs.files == {}
+    state = shadow.report()
+    assert state["ecarts"] == 0 and set(state["domaines"]) == {"meta", "boot"}
 
 
 def test_names_the_daemon_refuses_are_encoded_without_colliding():

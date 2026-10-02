@@ -2856,6 +2856,7 @@ export default {
   "cfs.kind.en_trop": "Only in hyperlite-cfs",
   "cfs.kind.differents": "Different",
   "cfs.domainName.meta": "Notes and tags",
+  "cfs.domainName.boot": "Start at boot",
   "cfs.examples": "Entries that differ: {domain}",
   "cfs.gapsHelp": "A difference appears when a copy failed (hyperlite-cfs stopped or without quorum) or when a change was not copied. Copy the database again to remove it; a difference that comes back is a bug to report.",
   "cfs.noGap": "hyperlite-cfs holds exactly what the database holds.",
