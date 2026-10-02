@@ -8,6 +8,7 @@ Rows only: validation, defaults and libvirt stay in the app/core modules that ow
 import asyncio
 
 from app.core.database import get_conn
+from app.repositories.cfs import shadow
 
 
 def _one(sql, params=()):
@@ -219,9 +220,11 @@ class SqliteObjectStore:
             "ON CONFLICT(kind, node, name) DO UPDATE SET notes = excluded.notes, tags = excluded.tags",
             (kind, node, name, notes, tags),
         )
+        shadow.mirror_meta(kind, node, name)
 
     def delete_meta(self, kind, node, name):
         _write("DELETE FROM object_meta WHERE kind = ? AND node = ? AND name = ?", (kind, node, name))
+        shadow.mirror_meta(kind, node, name)
 
     def all_meta(self, kind=None):
         if kind:
@@ -232,13 +235,16 @@ class SqliteObjectStore:
         return _rows("SELECT kind, node, name, notes, tags FROM object_meta ORDER BY kind, node, name")
 
     def move_vm_meta(self, vm_name, source_node, target_node):
-        return (
+        moved = (
             _write(
                 "UPDATE OR REPLACE object_meta SET node = ? WHERE kind = 'vm' AND node = ? AND name = ?",
                 (target_node, source_node, vm_name),
             ).rowcount
             > 0
         )
+        shadow.mirror_meta("vm", source_node, vm_name)
+        shadow.mirror_meta("vm", target_node, vm_name)
+        return moved
 
 
 class SqliteObjectRepository:

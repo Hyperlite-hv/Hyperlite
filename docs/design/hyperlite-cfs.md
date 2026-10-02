@@ -191,6 +191,10 @@ Between B and C, the `hyperlite` package builds the daemon on each node and inst
 (`scripts/build-cfs.sh`, `installer/hyperlite-cfs.service`): every node has it before any phase uses it, and an upgrade
 changes nothing on a node that has no cluster.
 
+Phase C started with the notes and tags of VMs, containers and nodes (`app/repositories/cfs/shadow.py`): a copy after
+each SQLite write that re-reads the row, a refresh of the domain after a rename, a report of the differences
+(`GET /cfs/shadow`) and an explicit seed. Other tables follow one domain per pull request.
+
 ### 8.1 Phase B, step by step
 
 | Step | Content | State |
