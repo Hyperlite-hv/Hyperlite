@@ -86,6 +86,10 @@ the version last applied here (reset or replaced), an empty tree while this node
 refuses (a unique name) applies nothing and shows a problem on the page until an administrator copies the right
 database again. In local mode nothing is applied: there is no other writer.
 
+The shared rows that name a node store its real name, so they mean the same machine on every node
+(`app/core/self_node.py`). The name is `HYPERLITE_NODE_NAME` when set, else the one recorded at the first start, else
+the host name (recorded then: renaming the host later changes nothing); a node cannot be registered under it.
+
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
 

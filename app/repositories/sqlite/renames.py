@@ -7,6 +7,7 @@ The rules about what follows an object live in app/core/renaming.py; this module
 import asyncio
 import json
 
+from app.core import self_node
 from app.core.database import get_conn
 
 # (table, column) holding a VM's name, whatever its node. UPDATE OR REPLACE: a row left behind under the new name by
@@ -78,8 +79,9 @@ class SqliteRenameStore:
             for table, column in _VM_COLUMNS:
                 _move(db, tables, table, column, old, new)
             _move(db, tables, "acl", "resource_id", old, new, " AND resource_type = 'vm'")
-            _move(db, tables, "vm_boot", "vm_name", old, new, " AND node = ?", (node_key,))
-            _move(db, tables, "object_meta", "name", old, new, " AND kind = 'vm' AND node = ?", (node_key,))
+            shared_key = self_node.to_db(node_key)  # shared tables name the node (app/core/self_node.py)
+            _move(db, tables, "vm_boot", "vm_name", old, new, " AND node = ?", (shared_key,))
+            _move(db, tables, "object_meta", "name", old, new, " AND kind = 'vm' AND node = ?", (shared_key,))
             _move(db, tables, "job_steps", "cible", old, new, " AND cible_type = 'vm'")
             _move(
                 db, tables, "metrics_samples", "cible", metrics_prefix + old, metrics_prefix + new, " AND scope = 'vm'"

@@ -20,6 +20,7 @@ Hyperlite is configured through environment variables, normally set in `/root/hy
 | `HYPERLITE_CLI_TOKEN_DAYS` | Lifetime of the token of a workstation signed in with `hyperlite login`. | `30` |
 | `HYPERLITE_CFS_SHADOW` | `1` forces shadow mode on: every change of the mirrored tables is copied into the local `hyperlite-cfs` daemon and the differences are reported (`GET /cfs/shadow`); SQLite stays the source of truth. Without it, shadow mode is turned on and off from Administration › Replicated configuration. See `cfs/README.md`, shadow mode. | off |
 | `HYPERLITE_CFS_SOCKET` | Socket of the `hyperlite-cfs` daemon used by shadow mode. | `/run/hyperlite-cfs/socket` |
+| `HYPERLITE_NODE_NAME` | This node's name in the configuration every node of a cluster shares (lowercase letters, digits, `.` and `-`, not `local`). Without it, the name recorded at the first start, taken from the host name. See `cfs/README.md`. | the host name |
 
 Installer and build-time variables:
 

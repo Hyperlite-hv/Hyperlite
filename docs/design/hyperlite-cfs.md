@@ -200,7 +200,12 @@ SQLite as each node's working copy, as `pmxcfs` keeps its own database on every 
 
 Phase D reads the tree back (`app/repositories/cfs/inbound.py`): in cluster mode, each node applies the tree's changes to
 its SQLite in one transaction when the daemon's version moves, after its own changes went out, and holds back on a
-daemon older than what it applied, an empty tree, or a change its schema refuses. What is left for several nodes to run
+daemon older than what it applied, an empty tree, or a change its schema refuses. Every node is equal, as on Proxmox:
+the shared rows that name a node (start at boot, notes and tags, maintenance, fencing, HA protection, the nodes of a
+shared pool) store its name, never "local", which would mean another machine on every other node
+(`app/core/self_node.py`: `HYPERLITE_NODE_NAME`, else the name recorded at the first start, else the host name; the API
+keeps saying "local" for the node that answers, and a start renames older "local" rows). The `nodes` table lists every
+member, and each node leaves its own row out of its list of remote nodes. What is left for several nodes to run
 Hyperlite at once: one node runs the cluster-wide schedulers (a cfs lock), integer ids allocated without collision, and
 the encryption and signing keys shared when a node joins.
 
