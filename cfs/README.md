@@ -4,7 +4,7 @@ Hyperlite's replicated cluster configuration, the counterpart of Proxmox VE's `p
 [`docs/design/hyperlite-cfs.md`](../docs/design/hyperlite-cfs.md) and the architecture around it is section 15.2 of
 [`docs/design/control-plane-v2-migration.md`](../docs/design/control-plane-v2-migration.md).
 
-**State: phase B, step B3a.** The daemon keeps the configuration tree in SQLite and serves it on a Unix socket, with
+**State: phase B, step B3.** The daemon keeps the configuration tree in SQLite and serves it on a Unix socket, with
 versions, compare-and-set, locks, guest id allocation and a checksum of the state. In cluster mode (`--cluster`) it
 joins Corosync: every change is applied by every node in the order Corosync agreed, refused without quorum, and
 refused while the members do not hold the same state; a member that differs (a node that was away) receives the state
@@ -13,7 +13,7 @@ member confirmed it, so no answered change is lost while a quorum remains. Nothi
 
 ## Build and test
 
-Debian or Ubuntu packages: `meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev libcpg-dev libquorum-dev`,
+Debian or Ubuntu packages: `meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev`,
 plus `clang libclang-rt-dev` for fuzzing and `corosync iproute2` for the cluster test.
 
 ```bash
@@ -21,7 +21,9 @@ meson setup build cfs -Db_sanitize=address,undefined   # debug build with the me
 meson test -C build --print-errorlogs                  # C tests
 HYPERLITE_CFS_BIN=build/hyperlite-cfs venv/bin/python -m pytest -q cfs/tests/python   # Python client
 
-# Three nodes on a real Corosync, in network namespaces (root; it creates and removes the hlcfs* namespaces).
+# Three nodes on a real Corosync, in network namespaces (root; it creates and removes the hlcfs* namespaces): the
+# scenarios, the fault tests and a short soak. HYPERLITE_CFS_ROUNDS sets the soak's rounds (5; 1,000 every night, as ten parallel shards of 100),
+# HYPERLITE_CFS_SEED replays a soak whose seed a failure printed.
 sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build/hyperlite-cfs venv/bin/python -m pytest -q cfs/tests/cluster
 
 # Fuzzing of the request handler and of the messages between nodes (clang only).
@@ -55,7 +57,7 @@ component (`/priv/...`, `/nodes/<name>/priv/...`) are refused to every client th
 | `src/corosync.c` | the Corosync transport: CPG with agreed ordering, the ring number, and the quorum service of the current ring |
 | `src/server.c` | the socket: one thread, `poll()`, peer credentials, answers when the cluster applied the change |
 | `src/main.c` | arguments, signals, local mode (a loopback in place of Corosync) or cluster mode |
-| `tests/` | C tests (`test_*.c`, `test_node.c` simulates a cluster), the Python client against the daemon (`python/`), three nodes on a real Corosync (`cluster/`) |
+| `tests/` | C tests (`test_*.c`, `test_node.c` simulates a cluster), the Python client against the daemon (`python/`), three nodes on a real Corosync (`cluster/`: scenarios, fault tests and soak, with the checker in `harness.py`) |
 | `fuzz/` | the libFuzzer targets (requests, messages between nodes) and their seed corpora |
 
 C rules for this directory: C11, `-Wall -Wextra -Wpedantic -Wconversion -Werror`, every SQL statement bound, every
