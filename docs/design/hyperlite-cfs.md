@@ -193,7 +193,8 @@ changes nothing on a node that has no cluster.
 
 Phase C started with the notes and tags of VMs, containers and nodes (`app/repositories/cfs/shadow.py`): a copy after
 each SQLite write that re-reads the row, a refresh of the domain after a rename, a report of the differences
-(`GET /cfs/shadow`) and an explicit seed. Other tables follow one domain per pull request.
+(`GET /cfs/shadow`) and an explicit seed; the start at boot settings of VMs followed. Other tables follow one domain
+per pull request.
 
 ### 8.1 Phase B, step by step
 

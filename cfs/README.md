@@ -61,7 +61,7 @@ build fails, the installation carries on with a warning: SQLite remains Hyperlit
 Hyperlite copies every change of a mirrored table into the daemon right after SQLite saved it, and reports any
 difference; SQLite stays the source of truth, and a copy that fails never fails the change
 (`app/repositories/cfs/shadow.py`). Mirrored so far: the notes and tags of VMs, containers and nodes, at
-`/meta/<kind>/<node>/<name>`. To turn it on, on the node that runs Hyperlite:
+`/meta/<kind>/<node>/<name>`, and the start at boot settings of VMs, at `/boot/<node>/<vm>`. To turn it on, on the node that runs Hyperlite:
 
 ```bash
 systemctl enable --now hyperlite-cfs                               # local mode

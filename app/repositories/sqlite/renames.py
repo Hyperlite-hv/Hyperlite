@@ -101,7 +101,7 @@ class SqliteRenameStore:
                             "UPDATE backup_group_jobs SET exclues = ? WHERE id = ?", (json.dumps(excluded), row["id"])
                         )
             db.commit()
-        shadow.refresh("meta")  # notes and tags moved with the object
+        shadow.refresh("meta", "boot")  # notes, tags and start at boot moved with the object
 
     def container_records(self, old, new):
         with get_conn() as db:
@@ -140,7 +140,7 @@ class SqliteRenameStore:
                     (f"{new}:", len(old) + 2, len(old) + 1, f"{old}:"),
                 )
             db.commit()
-        shadow.refresh("meta")  # notes and tags moved with the object
+        shadow.refresh("meta", "boot")  # notes, tags and start at boot moved with the object
 
     def storage_pool_records(self, old, new, node_key):
         """A storage pool renamed on one node: the containers stored in it (this host) and its usage history."""
