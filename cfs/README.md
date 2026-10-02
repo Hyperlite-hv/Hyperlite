@@ -9,7 +9,7 @@ versions, compare-and-set, locks, guest id allocation and a checksum of the stat
 joins Corosync: every change is applied by every node in the order Corosync agreed, refused without quorum, and
 refused while the members do not hold the same state; a member that differs (a node that was away) receives the state
 of the most advanced member (latest term, then highest version) before changes resume. A change is answered once every
-member confirmed it, so no answered change is lost while a quorum remains. Nothing in Hyperlite uses the daemon yet.
+member confirmed it, so no answered change is lost while a quorum remains. Nothing in Hyperlite uses the daemon yet; the package builds and installs it, disabled (see below).
 
 ## Build and test
 
@@ -46,6 +46,17 @@ build/hyperlite-cfs --cluster --db /var/lib/hyperlite-cfs/config.db --socket /ru
 ```
 
 Cluster mode needs a running Corosync with `quorum { provider: corosync_votequorum }`; every node runs one daemon.
+
+## On an installed system
+
+The `hyperlite` package builds the daemon on every installation and upgrade (`scripts/build-cfs.sh`, against the
+distribution's own Corosync and SQLite libraries) and installs it as `/usr/local/sbin/hyperlite-cfs`. It also installs
+`hyperlite-cfs.service`, **disabled**: the package installs neither Corosync nor its configuration, so nothing runs and
+nothing changes on a node until a cluster is set up. An upgrade restarts the daemon only where it was already running.
+If the build fails, the installation carries on with a warning: Hyperlite does not use the daemon yet.
+
+`installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
+the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
 
 When the nodes a partition misses are down for good (a two-node cluster without a QDevice, after one node died), the
 partition is read-only. `build/hyperlite-cfs expected-votes 1` makes it writable again, the counterpart of Proxmox's
