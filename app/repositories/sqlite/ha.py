@@ -7,6 +7,7 @@ decrypts it.
 
 import asyncio
 
+from app.core import self_node
 from app.core.database import get_conn
 
 
@@ -28,14 +29,19 @@ def _write(sql, params=()):
     return cur
 
 
+def _protected(row):
+    return {**row, "node": self_node.from_db(row["node"])}
+
+
 class SqliteHaStore:
     # ---- Protected VMs ----
 
     def protected(self):
-        return _rows("SELECT * FROM ha_protected_vms ORDER BY vm_name")
+        return [_protected(r) for r in _rows("SELECT * FROM ha_protected_vms ORDER BY vm_name")]
 
     def protected_vm(self, vm_name):
-        return _one("SELECT * FROM ha_protected_vms WHERE vm_name = ?", (vm_name,))
+        row = _one("SELECT * FROM ha_protected_vms WHERE vm_name = ?", (vm_name,))
+        return _protected(row) if row else None
 
     def protect(self, vm_name, node, domain_xml, username, now):
         _write(
@@ -43,7 +49,7 @@ class SqliteHaStore:
             "VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(vm_name) DO UPDATE SET node=excluded.node, domain_xml=excluded.domain_xml, "
             "last_synced_at=excluded.last_synced_at",
-            (vm_name, node, domain_xml, username, now, now),
+            (vm_name, self_node.to_db(node), domain_xml, username, now, now),
         )
 
     def unprotect(self, vm_name):
@@ -59,11 +65,14 @@ class SqliteHaStore:
         else:
             _write(
                 "UPDATE ha_protected_vms SET node = ?, domain_xml = ?, last_synced_at = ? WHERE vm_name = ?",
-                (node, domain_xml, now, vm_name),
+                (self_node.to_db(node), domain_xml, now, vm_name),
             )
 
     def move_protected(self, vm_name, node):
-        return _write("UPDATE ha_protected_vms SET node = ? WHERE vm_name = ?", (node, vm_name)).rowcount > 0
+        return (
+            _write("UPDATE ha_protected_vms SET node = ? WHERE vm_name = ?", (self_node.to_db(node), vm_name)).rowcount
+            > 0
+        )
 
     def record_watch(self, vm_name, etat, action, now):
         _write(
@@ -90,10 +99,11 @@ class SqliteHaStore:
 
     def fencing(self, node):
         """The node's row, sealed secret included, or None."""
-        return _one("SELECT * FROM node_fencing WHERE node = ?", (node,))
+        row = _one("SELECT * FROM node_fencing WHERE node = ?", (self_node.to_db(node),))
+        return {**row, "node": self_node.from_db(row["node"])} if row else None
 
     def fenced_nodes(self):
-        return [r["node"] for r in _rows("SELECT node FROM node_fencing ORDER BY node")]
+        return [self_node.from_db(r["node"]) for r in _rows("SELECT node FROM node_fencing ORDER BY node")]
 
     def save_fencing(self, node, methode, adresse, port, utilisateur, secret, tls_non_verifie, username, now):
         _write(
@@ -102,11 +112,11 @@ class SqliteHaStore:
             "methode=excluded.methode, adresse=excluded.adresse, port=excluded.port, utilisateur=excluded.utilisateur, "
             "secret=excluded.secret, tls_non_verifie=excluded.tls_non_verifie, modifie_par=excluded.modifie_par, "
             "modifie_le=excluded.modifie_le",
-            (node, methode, adresse, port, utilisateur, secret, tls_non_verifie, username, now),
+            (self_node.to_db(node), methode, adresse, port, utilisateur, secret, tls_non_verifie, username, now),
         )
 
     def delete_fencing(self, node):
-        return _write("DELETE FROM node_fencing WHERE node = ?", (node,)).rowcount > 0
+        return _write("DELETE FROM node_fencing WHERE node = ?", (self_node.to_db(node),)).rowcount > 0
 
 
 class SqliteHaRepository:

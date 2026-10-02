@@ -158,6 +158,10 @@ def tables():
         return {name: _Table(name, TABLES[name], cols, pk) for name, (cols, pk) in _schema(db).items()}
 
 
+def _quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def install_triggers(db):
     """Create the outbox and, on each listed table, the triggers that record every inserted, updated (configuration
     columns only) and deleted row in it. Run by init_db in its transaction; existing cfs_ triggers are replaced, so a
@@ -174,8 +178,15 @@ def install_triggers(db):
 
         def record(alias, table=table, name=name):
             keys = ", ".join(f'{alias}."{c}"' for c in table.pk)
+            # Rows that stay on each node (tables.py, local_rows) are not recorded at all.
+            local = " AND ".join(
+                f'{alias}."{c}" NOT IN ({", ".join(_quote(v) for v in values)})'
+                for c, values in table.local_rows.items()
+            )
             # Table and column names come from tables.py and the schema, never from a request.
-            return f"INSERT INTO cfs_outbox (tbl, pk) VALUES ('{name}', json_array({keys}));"  # noqa: S608
+            return f"INSERT INTO cfs_outbox (tbl, pk) SELECT '{name}', json_array({keys})" + (
+                f" WHERE {local};" if local else ";"
+            )
 
         tracked = ", ".join(f'"{c}"' for c in table.columns)
         db.execute(f'CREATE TRIGGER "cfs_{name}_ins" AFTER INSERT ON "{name}" BEGIN {record("NEW")} END')
