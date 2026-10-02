@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import cluster_compat, maintenance, renaming, vm_locks
+from app.core import cluster_compat, maintenance, renaming, self_node, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import (
     get_cluster_pubkey,
@@ -119,10 +119,18 @@ class NodeCreate(BaseModel):
     ssh_port: int = Field(22, ge=1, le=65535)
 
 
+def _refuse_own_name(name):
+    # The shared tables store this node's rows under its own name (app/core/self_node.py): a registered node of the
+    # same name would read as this one.
+    if name.lower() in (maintenance.LOCAL, self_node.name()):
+        raise HTTPException(status_code=422, detail=f"'{name}' is this node's own name: choose another one")
+
+
 @router.post("", status_code=201)
 def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     if not NAME_RE.match(payload.name):
         raise HTTPException(status_code=422, detail="Invalid node name (letters/digits/-/., 2-63 characters)")
+    _refuse_own_name(payload.name)
     try:
         node = register_node(payload.name, payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     except RuntimeError as e:
@@ -247,6 +255,7 @@ async def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depend
         raise HTTPException(status_code=422, detail="Invalid node name (letters/digits/-/., 2-63 characters)")
     if new == name:
         raise HTTPException(status_code=422, detail="The new name is the current one")
+    _refuse_own_name(new)
     try:
         await node_service.check_rename(name, new)
     except node_service.NodeNotFound as e:

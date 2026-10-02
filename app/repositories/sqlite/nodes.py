@@ -8,6 +8,7 @@ directly through `.sync`: a transitional bridge, removed as those callers become
 import asyncio
 import sqlite3
 
+from app.core import self_node
 from app.core.database import get_conn
 from app.domain.common import AlreadyExists
 from app.domain.node import Maintenance, Node, NodeSpec, NodeStatus
@@ -24,6 +25,10 @@ def _node(row):
     )
 
 
+def _maintenance(row):
+    return Maintenance(**{**dict(row), "node": self_node.from_db(row["node"])})
+
+
 def _live(row):
     d = dict(row)
     d["joignable"] = bool(d["joignable"])
@@ -35,18 +40,25 @@ def _live(row):
 class SqliteNodeStore:
     """The synchronous queries."""
 
+    # In a cluster the nodes table lists every member, this node included (it is shared); this node is "local" to
+    # itself, never a remote node to reach over SSH, so its own row is left out here.
+
     def get(self, name):
+        if self_node.is_self(name):
+            return None
         with get_conn() as db:
             row = db.execute("SELECT * FROM nodes WHERE name = ?", (name,)).fetchone()
         return _node(row) if row else None
 
     def list(self):
         with get_conn() as db:
-            return [_node(r) for r in db.execute("SELECT * FROM nodes ORDER BY name").fetchall()]
+            rows = db.execute("SELECT * FROM nodes ORDER BY name").fetchall()
+        return [_node(r) for r in rows if not self_node.is_self(r["name"])]
 
     def list_online(self):
         with get_conn() as db:
-            return [_node(r) for r in db.execute("SELECT * FROM nodes WHERE statut = ? ORDER BY name", (ONLINE,))]
+            rows = db.execute("SELECT * FROM nodes WHERE statut = ? ORDER BY name", (ONLINE,)).fetchall()
+        return [_node(r) for r in rows if not self_node.is_self(r["name"])]
 
     def create(self, spec, added_at, statut):
         with get_conn() as db:
@@ -95,24 +107,24 @@ class SqliteNodeStore:
 
     def get_maintenance(self, node):
         with get_conn() as db:
-            row = db.execute("SELECT * FROM node_maintenance WHERE node = ?", (node,)).fetchone()
-        return Maintenance(**dict(row)) if row else None
+            row = db.execute("SELECT * FROM node_maintenance WHERE node = ?", (self_node.to_db(node),)).fetchone()
+        return _maintenance(row) if row else None
 
     def list_maintenance(self):
         with get_conn() as db:
-            return [Maintenance(**dict(r)) for r in db.execute("SELECT * FROM node_maintenance ORDER BY node")]
+            return [_maintenance(r) for r in db.execute("SELECT * FROM node_maintenance ORDER BY node")]
 
     def set_maintenance(self, node, username, started_at):
         with get_conn() as db:
             db.execute(
                 "INSERT INTO node_maintenance (node, started_by, started_at) VALUES (?, ?, ?) ON CONFLICT(node) DO NOTHING",
-                (node, username, started_at),
+                (self_node.to_db(node), username, started_at),
             )
             db.commit()
 
     def clear_maintenance(self, node):
         with get_conn() as db:
-            cur = db.execute("DELETE FROM node_maintenance WHERE node = ?", (node,))
+            cur = db.execute("DELETE FROM node_maintenance WHERE node = ?", (self_node.to_db(node),))
             db.commit()
         return cur.rowcount > 0
 

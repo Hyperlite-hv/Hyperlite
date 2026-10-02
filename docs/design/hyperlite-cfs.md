@@ -191,10 +191,32 @@ Between B and C, the `hyperlite` package builds the daemon on each node and inst
 (`scripts/build-cfs.sh`, `installer/hyperlite-cfs.service`): every node has it before any phase uses it, and an upgrade
 changes nothing on a node that has no cluster.
 
-Phase C started with the notes and tags of VMs, containers and nodes (`app/repositories/cfs/shadow.py`): a copy after
-each SQLite write that re-reads the row, a refresh of the domain after a rename, a report of the differences
-(`GET /cfs/shadow`) and an explicit seed; the start at boot settings of VMs followed. Other tables follow one domain
-per pull request.
+Phase C started with the notes and tags of VMs, containers and nodes, copied by a call in each write method. That missed
+writes made with raw SQL (renames move rows directly), so the copy moved into SQLite itself: triggers on every
+configuration table record each change in an outbox table, in the same transaction, and a background thread copies it
+to the daemon (`app/repositories/cfs/shadow.py`, `tables.py`). Rows are JSON at `/db/<table>/<primary key>`, secrets under
+`/priv/db/`; state and history stay per node. Phase D can then read the same tree back into SQLite (cfs to SQLite), with
+SQLite as each node's working copy, as `pmxcfs` keeps its own database on every node.
+
+Phase D reads the tree back (`app/repositories/cfs/inbound.py`): in cluster mode, each node applies the tree's changes to
+its SQLite in one transaction when the daemon's version moves, after its own changes went out, and holds back on a
+daemon older than what it applied, an empty tree, or a change its schema refuses. Every node is equal, as on Proxmox:
+the shared rows that name a node (start at boot, notes and tags, maintenance, fencing, HA protection, the nodes of a
+shared pool) store its name, never "local", which would mean another machine on every other node
+(`app/core/self_node.py`: `HYPERLITE_NODE_NAME`, else the name recorded at the first start, else the host name; the API
+keeps saying "local" for the node that answers, and a start renames older "local" rows). The `nodes` table lists every
+member, and each node leaves its own row out of its list of remote nodes. Each node runs the jobs of the guests it
+hosts: a VM's own backup job on the node that has the VM, grouped backups and replication for each node's VMs on that
+node's own schedule (`schedule_state`, a table each node keeps, holds its next runs), the automatic deletion and the
+start at boot of its own VMs. What concerns the whole cluster (the HA watcher, the alert about a node gone down) runs
+on the node that holds the cfs lock `hyperlite-lead` (`app/core/cluster_lead.py`), renewed every 15 s, released when
+its holder leaves the membership. In a cluster the configuration copy to standby nodes stops: the tree replaces it.
+A new row of a replicated table gets an id no other node hands out (`app/repositories/cfs/ids.py`): right before the
+insert, under SQLite's write lock, the connection sets `sqlite_sequence` from the daemon's cluster-wide counter (4.3),
+lifted once above the first node's ids (`/cluster/id-offset`); without the daemon, a cluster node refuses new rows
+(503). Clusters are created, joined and left from the dashboard (`app/core/cluster_setup.py`, `cfs/README.md`): the
+members, Corosync's key and the members' SSH keys live in the tree, and a joining node receives the encryption and
+signing keys of `.env` from the member that lets it in, over HTTPS pinned to that member's certificate.
 
 ### 8.1 Phase B, step by step
 

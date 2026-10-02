@@ -4,6 +4,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.repositories.cfs import ids as _ids
+
 DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or Path(__file__).resolve().parent.parent.parent / "hyperlite.db")
 
 
@@ -15,7 +17,8 @@ def get_conn():
     # every 15 s). WAL lets readers continue while a writer is active (unlike the
     # default rollback-journal mode, which locks the whole file). The PRAGMA is a
     # no-op when already applied, so repeating it on every connection costs nothing.
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    # ids.Connection: in a cluster, a new row of a replicated table gets an id no other node hands out.
+    conn = sqlite3.connect(DB_PATH, timeout=30, factory=_ids.Connection)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     try:
@@ -204,6 +207,18 @@ def init_db():
                 actif INTEGER NOT NULL DEFAULT 1,
                 derniere_execution TEXT,
                 prochaine_execution TEXT NOT NULL
+            )
+        """)
+        # In a cluster, this node's own next run of the jobs every node runs for its VMs (grouped backups,
+        # replication), against the shared value it was computed from: app/repositories/sqlite/schedule_state.py.
+        # Each node keeps its own (not in app/repositories/cfs/tables.py).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS schedule_state (
+                kind TEXT NOT NULL,
+                job_id INTEGER NOT NULL,
+                base TEXT NOT NULL,
+                prochaine_execution TEXT NOT NULL,
+                PRIMARY KEY (kind, job_id)
             )
         """)
 
@@ -817,4 +832,13 @@ def init_db():
         # The local host used to be stored under a machine-specific label; it is now always "local".
         for table in ("ha_protected_vms", "tasks"):
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608
+        # Last, once every table exists: the triggers that record configuration changes for hyperlite-cfs, then the
+        # node's own name in the tables every node of a cluster shares (the triggers record that rewrite).
+        from app.core import cluster_setup, self_node
+        from app.repositories.cfs.shadow import install_triggers
+
+        install_triggers(conn)
+        _ids.forget()  # the numbered tables are known once they all exist
+        self_node.migrate(conn)
+        cluster_setup.finish_join(conn)
         conn.commit()
