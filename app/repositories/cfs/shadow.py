@@ -20,7 +20,16 @@ import threading
 import time
 from datetime import UTC, datetime
 
-from app.core.cfs_client import DEFAULT_SOCKET, CfsClient, CfsError, NotFound, ReadOnly, Synchronising, Uncertain
+from app.core.cfs_client import (
+    DEFAULT_SOCKET,
+    FORBIDDEN,
+    CfsClient,
+    CfsError,
+    NotFound,
+    ReadOnly,
+    Synchronising,
+    Uncertain,
+)
 from app.repositories.cfs.tables import TABLES
 
 logger = logging.getLogger(__name__)
@@ -416,6 +425,18 @@ def _compare(expected, actual):
     }
 
 
+def _compare_table(client, table):
+    try:
+        return _compare(table.all(), _read_tree(client, table.prefix))
+    except CfsError as e:
+        if e.status != FORBIDDEN:
+            raise
+        # /priv is served to root only: a Hyperlite not running as root (a development checkout) cannot compare it.
+        out = _compare({}, {})
+        out.update(entrees=len(table.all()), illisible=True)
+        return out
+
+
 def report():
     """Shadow mode's state and, when the daemon answers, the differences between SQLite and the daemon per domain."""
     from app.repositories.cfs import inbound  # imports this module
@@ -435,7 +456,7 @@ def report():
     try:
         client = _get_client()
         status = client.status()
-        domains = {name: _compare(t.all(), _read_tree(client, t.prefix)) for name, t in tables().items()}
+        domains = {name: _compare_table(client, t) for name, t in tables().items()}
     except (CfsError, OSError) as e:
         logger.warning("hyperlite-cfs shadow report: %s", e)
         out.update(joignable=False, erreur=describe(e))

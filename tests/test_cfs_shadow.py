@@ -285,6 +285,8 @@ def test_against_the_real_daemon(database, tmp_path, monkeypatch):
         state = shadow.report()
         assert state["joignable"] and state["demon"]["mode"] == "local"
         assert state["domaines"]["object_meta"]["entrees"] == 2 and state["ecarts"] == 0
+        # /priv is served to root only: run as another user (the CI), those tables are marked, not failed.
+        assert state["domaines"]["users"].get("illisible", False) is (os.geteuid() != 0)
     finally:
         _stop(proc)
 

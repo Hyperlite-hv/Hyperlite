@@ -2905,6 +2905,7 @@ export default {
   "cfs.domainName.k8s_clusters": "Kubernetes clusters",
   "cfs.pending": "Waiting to be copied",
   "cfs.pendingSub": "changes, retried until the daemon takes them",
+  "cfs.unreadable": "not compared: readable by root only",
   "cfs.examples": "Entries that differ: {domain}",
   "cfs.gapsHelp": "A difference appears when a copy failed (hyperlite-cfs stopped or without quorum) or when a change was not copied. Copy the database again to remove it; a difference that comes back is a bug to report.",
   "cfs.noGap": "hyperlite-cfs holds exactly what the database holds.",

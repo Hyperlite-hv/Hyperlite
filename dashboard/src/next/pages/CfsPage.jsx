@@ -112,7 +112,7 @@ export default function CfsPage() {
                   <tbody>
                     {sortedDomains(state.domaines, t).map(([name, d]) => (
                       <tr key={name}>
-                        <th scope="row">{t(`cfs.domainName.${name}`)}</th>
+                        <th scope="row">{t(`cfs.domainName.${name}`)}{d.illisible && <span className="nx-f-h"> — {t("cfs.unreadable")}</span>}</th>
                         <td>{d.entrees}</td>
                         {KINDS.map((k) => <td key={k}>{d[k]}</td>)}
                       </tr>
