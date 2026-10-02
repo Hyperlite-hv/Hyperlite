@@ -13,12 +13,12 @@ import AccountSecurityModal from "../../components/AccountSecurityModal";
 import ChangePasswordDrawer from "../components/ChangePasswordDrawer";
 import PreferencesDrawer from "../components/PreferencesDrawer";
 import EnclaveMark from "../../components/EnclaveMark";
-import { Activity, Archive, Bell, Braces, Box, Boxes, Camera, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
+import { Activity, Archive, Bell, Braces, Box, Boxes, Camera, Copy, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
 
 const ICONS = {
   overview: House, nodes: Server, vms: Monitor, containers: Box, kubernetes: Boxes, storage: Database, network: Network,
   ha: Heart, compat: SquareCheck, backups: Archive, snapshots: Camera, exports: Share, library: Disc3,
-  tasks: List, audit: ScrollText, automation: Zap, users: Users, sso: KeyRound, notifications: Bell, metrics: Activity, api: Braces,
+  tasks: List, audit: ScrollText, automation: Zap, users: Users, sso: KeyRound, notifications: Bell, metrics: Activity, api: Braces, cfs: Copy,
 };
 
 function NavItem({ icon, label, count, tone, active, onClick }) {
@@ -151,6 +151,7 @@ export default function Sidebar({ collapsed }) {
             <NavItem icon="notifications" label={t("nav.notifications")} active={onDatacenterTab("notifications")} onClick={() => goto("notifications")} />
             <NavItem icon="metrics" label={t("nav.metrics")} active={onDatacenterTab("metrics")} onClick={() => goto("metrics")} />
             <NavItem icon="api" label={t("nav.api")} active={onDatacenterTab("api")} onClick={() => goto("api")} />
+            <NavItem icon="cfs" label={t("nav.cfs")} active={onDatacenterTab("cfs")} onClick={() => goto("cfs")} />
           </NavGroup>
         )}
       </div>

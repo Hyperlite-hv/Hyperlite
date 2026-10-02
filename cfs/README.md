@@ -9,7 +9,7 @@ versions, compare-and-set, locks, guest id allocation and a checksum of the stat
 joins Corosync: every change is applied by every node in the order Corosync agreed, refused without quorum, and
 refused while the members do not hold the same state; a member that differs (a node that was away) receives the state
 of the most advanced member (latest term, then highest version) before changes resume. A change is answered once every
-member confirmed it, so no answered change is lost while a quorum remains. Nothing in Hyperlite uses the daemon yet.
+member confirmed it, so no answered change is lost while a quorum remains. Hyperlite can copy its writes into the daemon (shadow mode, off by default); the package builds and installs the daemon, disabled (see below).
 
 ## Build and test
 
@@ -46,6 +46,44 @@ build/hyperlite-cfs --cluster --db /var/lib/hyperlite-cfs/config.db --socket /ru
 ```
 
 Cluster mode needs a running Corosync with `quorum { provider: corosync_votequorum }`; every node runs one daemon.
+
+## On an installed system
+
+The `hyperlite` package builds the daemon on every installation and upgrade (`scripts/build-cfs.sh`, against the
+distribution's own Corosync and SQLite libraries) and installs it as `/usr/local/sbin/hyperlite-cfs`. It also installs
+`hyperlite-cfs.service`, **disabled**: nothing runs and nothing changes on a node until an administrator enables it.
+The unit runs the daemon in local mode; `HYPERLITE_CFS_MODE=--cluster` in `/etc/default/hyperlite-cfs` makes it join
+Corosync, which the package does not install. An upgrade restarts the daemon only where it was already running. If the
+build fails, the installation carries on with a warning: SQLite remains Hyperlite's source of truth.
+
+### Shadow mode (phase C)
+
+Hyperlite copies every change of a mirrored table into the daemon right after SQLite saved it, and reports any
+difference; SQLite stays the source of truth, and a copy that fails never fails the change
+(`app/repositories/cfs/shadow.py`). Mirrored so far: the notes and tags of VMs, containers and nodes, at
+`/meta/<kind>/<node>/<name>`, and the start at boot settings of VMs, at `/boot/<node>/<vm>`. To turn it on, on the node that runs Hyperlite:
+
+```bash
+systemctl enable --now hyperlite-cfs                               # local mode
+echo HYPERLITE_CFS_SHADOW=1 >> /root/hyperlite/.env && systemctl restart hyperlite
+```
+
+Then, in the dashboard, **Administration › Replicated configuration** copies the database once (**Copy the database
+again**) and shows the report; the same through the API:
+
+```bash
+curl -k -X POST -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow/seed   # the first copy
+curl -k -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow                # "ecarts": 0
+```
+
+`GET /cfs/shadow` gives the copies made, the failures and the last one, the daemon's state and, per domain, the entries
+missing from the daemon (`manquants`), those it holds that SQLite no longer has (`en_trop`) and those that differ
+(`differents`), with up to 20 paths of each. A failure while the daemon was down shows there until
+`POST /cfs/shadow/seed` copies SQLite again. To turn it off: remove the line from `.env`, restart Hyperlite, then
+`systemctl disable --now hyperlite-cfs`.
+
+`installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
+the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
 
 When the nodes a partition misses are down for good (a two-node cluster without a QDevice, after one node died), the
 partition is read-only. `build/hyperlite-cfs expected-votes 1` makes it writable again, the counterpart of Proxmox's

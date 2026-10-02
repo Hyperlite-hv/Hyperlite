@@ -25,15 +25,20 @@ jobs:
             requirements.txt
             requirements-dev.txt
       - name: Install system packages
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
+            meson ninja-build libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Lint
         run: ruff check .
       - name: Format check
         run: ruff format --check .
+      # The shadow mode's tests run against the real hyperlite-cfs too (tests/test_cfs_shadow.py).
+      - name: Build hyperlite-cfs
+        run: meson setup build-cfs cfs --buildtype=release && ninja -C build-cfs hyperlite-cfs
       - name: Tests
-        run: python -m pytest -q
+        run: HYPERLITE_CFS_BIN=build-cfs/hyperlite-cfs python -m pytest -q
       - name: Dependency audit
         run: pip install pip-audit && pip-audit -r requirements.txt
 
@@ -92,6 +97,19 @@ jobs:
           for f in installer/*.sh installer/deb/postinst scripts/*.sh lab/*.sh cfs/tests/cluster/*.sh; do
             bash -n "$f"
           done
+
+  package:
+    # The package's system side on each distribution it is installed on: its dependencies resolve there, the postinst's
+    # build of hyperlite-cfs works against that distribution's libraries, and the daemon's unit is valid.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:12", "debian:13", "ubuntu:24.04"]
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash installer/test-package.sh "${{ matrix.image }}"
 
   cfs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer

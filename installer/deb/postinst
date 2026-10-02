@@ -73,9 +73,25 @@ else
     log "upgrade: existing secrets/config kept as is"
 fi
 
+# hyperlite-cfs, the replicated configuration (cfs/): built here against this system's Corosync and SQLite libraries,
+# its unit installed but left disabled until a cluster is set up. Hyperlite does not use it yet, so a failed build
+# is reported and the installation goes on.
+log "hyperlite-cfs (replicated configuration, not used by Hyperlite yet)"
+CFS_BUILT=0
+if bash "$APP_DIR/scripts/build-cfs.sh" "$APP_DIR"; then
+    CFS_BUILT=1
+else
+    log "WARNING: hyperlite-cfs could not be built (output above); Hyperlite runs as before without it."
+fi
+
 log "systemd service"
 cp "$APP_DIR/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
+cp "$APP_DIR/installer/hyperlite-cfs.service" /etc/systemd/system/hyperlite-cfs.service
 systemctl daemon-reload
+# Only a daemon an administrator started (a cluster) is restarted onto the new binary; a disabled one stays stopped.
+if [ "$CFS_BUILT" = "1" ] && ! systemctl try-restart hyperlite-cfs.service; then
+    log "WARNING: hyperlite-cfs did not restart: systemctl status hyperlite-cfs"
+fi
 systemctl enable hyperlite.service
 if [ "$FRESH_INSTALL" = "1" ]; then
     systemctl start hyperlite.service
