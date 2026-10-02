@@ -11,10 +11,10 @@ on:
   workflow_dispatch:
     inputs:
       rounds:
-        description: "Soak rounds (cfs-soak job)"
-        default: "1000"
+        description: "Soak rounds per shard (10 shards run in parallel)"
+        default: "100"
       seed:
-        description: "Soak seed, to replay a failed night (empty: a new one)"
+        description: "Soak seed, to replay a failed shard (empty: a new one per shard)"
         default: ""
 
 permissions:
@@ -60,12 +60,20 @@ jobs:
           sudo chmod -R a+rX /tmp/hyperlite-lab-cache
 
   # Phase B's exit criterion (docs/design/hyperlite-cfs.md, section 8): random faults on three nodes, a thousand
-  # rounds in a row, every answered write checked after each. Namespaces, not VMs: a round takes seconds instead of a
-  # minute. Every night and on demand only; the pull requests run five rounds in ci.yml.
+  # rounds, every answered write checked after each. A round takes about 15 s, mostly Corosync noticing a lost node
+  # (token and consensus timeouts, kept at their real values), so the thousand rounds run as ten shards of a hundred
+  # in parallel, each on its own runner and its own random seed: about 30 minutes instead of four hours. Namespaces,
+  # not VMs: a round takes seconds instead of a minute. Every night and on demand only; the pull requests run five
+  # rounds in ci.yml.
   cfs-soak:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 340
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false  # every shard reports, so a night's failures come with all their seeds
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    name: cfs-soak (shard ${{ matrix.shard }})
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -84,7 +92,7 @@ jobs:
           ninja -C build
       - name: Soak
         env:
-          ROUNDS: ${{ inputs.rounds || '1000' }}
+          ROUNDS: ${{ inputs.rounds || '100' }}
           SEED: ${{ inputs.seed }}
         run: |
           sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build/hyperlite-cfs HYPERLITE_CFS_ROUNDS="$ROUNDS" \

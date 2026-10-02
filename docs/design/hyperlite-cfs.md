@@ -193,7 +193,7 @@ Two consequences, both deliberate:
 | B1 | Corosync transport (CPG agreed order, quorum service); changes applied by every member in delivery order; refused without quorum; after each membership change, every member sends its state and changes resume only when all states are equal and quorate; a three-node test on a real Corosync in network namespaces | done |
 | B2 | State transfer: a member that differs receives the source's tree and locks (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | done |
 | B3a | What the fault tests need the protocol to guarantee, found while writing them (section 8.4): terms, answers confirmed by every member, the quorum of the current ring | done |
-| B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | in place: `cfs/tests/cluster/test_faults.py` on both labs for every pull request (five soak rounds), and a thousand soak rounds every night (`lab.yml`, job `cfs-soak`); phase B's exit criterion is met once a night passes |
+| B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | in place: `cfs/tests/cluster/test_faults.py` on both labs for every pull request (five soak rounds), and a thousand soak rounds every night (`lab.yml`, job `cfs-soak`: ten shards of a hundred in parallel, about 30 minutes); phase B's exit criterion is met once a night passes |
 | B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | to do |
 
 ### 8.2 Decisions taken while building B1

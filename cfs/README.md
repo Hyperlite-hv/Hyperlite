@@ -22,7 +22,7 @@ meson test -C build --print-errorlogs                  # C tests
 HYPERLITE_CFS_BIN=build/hyperlite-cfs venv/bin/python -m pytest -q cfs/tests/python   # Python client
 
 # Three nodes on a real Corosync, in network namespaces (root; it creates and removes the hlcfs* namespaces): the
-# scenarios, the fault tests and a short soak. HYPERLITE_CFS_ROUNDS sets the soak's rounds (5; 1,000 every night),
+# scenarios, the fault tests and a short soak. HYPERLITE_CFS_ROUNDS sets the soak's rounds (5; 1,000 every night, as ten parallel shards of 100),
 # HYPERLITE_CFS_SEED replays a soak whose seed a failure printed.
 sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build/hyperlite-cfs venv/bin/python -m pytest -q cfs/tests/cluster
 
