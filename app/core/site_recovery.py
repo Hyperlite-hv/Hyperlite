@@ -42,13 +42,16 @@ def _store():
 
 
 def _directory(path):
-    """The directory to scan: absolute, outside the system's own directories, an existing directory."""
+    """The directory to scan: absolute, outside the system's own directories, without a symbolic link anywhere (a link
+    would lead past that check, to /etc say), an existing directory."""
     try:
         normalized = validate_target(path)
     except GroupError as e:
         raise RecoveryError(str(e)) from None
     if not normalized:
         raise RecoveryError("Choose the directory that holds the other site's backups")
+    if os.path.realpath(normalized) != normalized:
+        raise RecoveryError(f"{normalized} goes through a symbolic link: give the directory's real path")
     root = Path(normalized)
     if not root.is_dir():
         raise RecoveryError(f"{normalized} is not a directory this node can read")
