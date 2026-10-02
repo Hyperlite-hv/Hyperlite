@@ -19,7 +19,7 @@ import re
 import threading
 from datetime import UTC, datetime
 
-from app.core.cfs_client import DEFAULT_SOCKET, CfsClient, CfsError, NotFound
+from app.core.cfs_client import DEFAULT_SOCKET, CfsClient, CfsError, NotFound, ReadOnly, Synchronising, Uncertain
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,9 @@ TIMEOUT_S = 2.0
 EXAMPLES = 20  # paths listed per kind of difference in the report
 
 _PLAIN = re.compile(r"^[A-Za-z0-9-][A-Za-z0-9._-]*$")
+
+
+DISABLED = "Shadow mode is off: set HYPERLITE_CFS_SHADOW=1 in .env and restart Hyperlite"
 
 
 class ShadowDisabled(Exception):
@@ -105,10 +108,28 @@ def _get_client():
         return _client
 
 
+def describe(error):
+    """A fixed sentence per kind of failure. The report and the API answers reach the browser; the exception's own text
+    stays in the service log."""
+    if isinstance(error, ReadOnly):
+        return "hyperlite-cfs has no quorum: it is read-only"
+    if isinstance(error, Synchronising):
+        return "hyperlite-cfs is synchronising with the other nodes"
+    if isinstance(error, Uncertain):
+        return "hyperlite-cfs did not confirm the change (a member left meanwhile)"
+    if isinstance(error, CfsError):
+        return "hyperlite-cfs refused the change (details in the service log)"
+    if isinstance(error, (FileNotFoundError, ConnectionRefusedError)):
+        return "hyperlite-cfs is not running: nothing answers on its socket"
+    if isinstance(error, TimeoutError):
+        return f"hyperlite-cfs did not answer within {TIMEOUT_S:g} s"
+    return "hyperlite-cfs could not be reached (details in the service log)"
+
+
 def _failed(what, error):
     with _stats.lock:
         _stats.failures += 1
-        _stats.last_error = f"{what}: {error}"
+        _stats.last_error = f"{what}: {describe(error)}"
         _stats.last_error_at = datetime.now(UTC).isoformat()
     logger.warning("hyperlite-cfs shadow: %s not copied: %s", what, error)
 
@@ -184,7 +205,7 @@ def seed():
     """Make the daemon hold exactly what SQLite holds, for every mirrored domain: the first copy when shadow mode is
     turned on, or a repair after the daemon was down. Raises ShadowDisabled, CfsError or OSError."""
     if not enabled():
-        raise ShadowDisabled("Shadow mode is off: set HYPERLITE_CFS_SHADOW=1 in .env and restart Hyperlite")
+        raise ShadowDisabled(DISABLED)
     client = _get_client()
     written = deleted = 0
     for domain in DOMAINS.values():
@@ -223,7 +244,8 @@ def report():
         status = client.status()
         domains = {name: _compare(d.all(), _read_tree(client, d.prefix)) for name, d in DOMAINS.items()}
     except (CfsError, OSError) as e:
-        out.update(joignable=False, erreur=str(e))
+        logger.warning("hyperlite-cfs shadow report: %s", e)
+        out.update(joignable=False, erreur=describe(e))
         return out
     out.update(
         joignable=True,

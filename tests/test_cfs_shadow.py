@@ -147,6 +147,18 @@ def test_a_daemon_that_is_down_never_fails_the_write_and_the_report_shows_the_ga
     assert shadow.report()["ecarts"] == 0
 
 
+def test_errors_reach_the_client_as_fixed_sentences_not_exception_text(cfs, monkeypatch):
+    def broken():
+        raise ConnectionRefusedError("[Errno 111] internal detail /run/secret")
+
+    monkeypatch.setattr(shadow, "_get_client", broken)
+    object_meta.put("vm", "web", "Front", [])
+    state = shadow.report()
+    assert "internal detail" not in json.dumps(state)
+    assert state["erreur"] == "hyperlite-cfs is not running: nothing answers on its socket"
+    assert state["derniere_erreur"] == "/meta/vm/local/web: hyperlite-cfs is not running: nothing answers on its socket"
+
+
 def test_a_copy_that_differs_is_reported(cfs):
     object_meta.put("vm", "web", "Front", ["prod"])
     cfs.files["/meta/vm/local/web"] = b'{"notes":"Front","tags":[]}'
