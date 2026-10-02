@@ -2888,6 +2888,7 @@ export default {
   "cfs.kind.en_trop": "Seulement dans hyperlite-cfs",
   "cfs.kind.differents": "Différentes",
   "cfs.domainName.meta": "Notes et tags",
+  "cfs.domainName.boot": "Démarrage automatique",
   "cfs.examples": "Entrées en écart : {domain}",
   "cfs.gapsHelp": "Un écart apparaît quand une copie a échoué (hyperlite-cfs arrêté ou sans quorum) ou qu’une modification n’a pas été recopiée. Recopiez la base pour le supprimer ; un écart qui revient est un bug à signaler.",
   "cfs.noGap": "hyperlite-cfs contient exactement ce que contient la base.",
