@@ -91,6 +91,13 @@ def test_links_planted_on_the_share_are_not_followed(tmp_path, database, conn):
         site_recovery.register(str(share / "secret" / "20261001T0000001"))
 
 
+def test_the_scan_refuses_a_directory_reached_through_a_link(tmp_path, database, conn):
+    # A link would lead past the check of system directories: /srv/share -> /etc, say.
+    os.symlink("/etc", tmp_path / "share")
+    with pytest.raises(site_recovery.RecoveryError, match="symbolic link"):
+        site_recovery.scan(str(tmp_path / "share"))
+
+
 @pytest.mark.parametrize("bad", ["relative/path", "/etc", "/var/../etc", "/nonexistent-dir"])
 def test_the_scan_refuses_system_and_invalid_directories(bad, database, conn):
     with pytest.raises(site_recovery.RecoveryError):
