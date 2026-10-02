@@ -97,8 +97,8 @@ jobs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
     # and UndefinedBehaviorSanitizer, its C tests (a simulated cluster included), the Python client against the real
     # daemon, a three-node cluster on a real Corosync in network namespaces (its fault tests and five soak rounds
-    # included; the thousand rounds run every night in lab.yml), and fuzzing of the requests and of the messages
-    # between nodes.
+    # included; the thousand rounds run every night in lab.yml), two-node clusters with and without a QDevice, and
+    # fuzzing of the requests and of the messages between nodes.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -110,9 +110,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc clang libclang-rt-dev \
-            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2
-          # The package starts a Corosync of its own; the cluster test runs its own three, in namespaces.
-          sudo systemctl stop corosync || true
+            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2 \
+            corosync-qnetd corosync-qdevice
+          # The packages start daemons of their own; the cluster tests run their own, in namespaces.
+          sudo systemctl stop corosync corosync-qnetd corosync-qdevice || true
       - name: Build and test (GCC, sanitizers)
         run: |
           meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
@@ -126,6 +127,13 @@ jobs:
         run: |
           sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs "$(which python)" -m pytest -q \
             -p no:cacheprovider cfs/tests/cluster
+      - name: Two nodes, without then with a QDevice
+        run: |
+          for qdevice in 0 1; do
+            sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs HYPERLITE_LAB_NODES=2 \
+              HYPERLITE_LAB_QDEVICE=$qdevice "$(which python)" -m pytest -q -p no:cacheprovider \
+              cfs/tests/cluster/test_two_nodes.py
+          done
       - name: Fuzz the request handler and the peer messages (clang, libFuzzer, 2 x 45 s)
         env:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1  # undefined behaviour stops the run, as a crash does
