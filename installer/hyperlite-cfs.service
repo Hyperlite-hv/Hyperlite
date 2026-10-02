@@ -1,0 +1,21 @@
+[Unit]
+Description=Hyperlite replicated cluster configuration (hyperlite-cfs)
+Documentation=file:///root/hyperlite/cfs/README.md
+# Cluster mode joins the local Corosync's process group. The package installs this unit disabled and installs neither
+# Corosync nor its configuration: setting up a cluster does both, then enables the unit.
+Requires=corosync.service
+After=corosync.service
+ConditionPathExists=/etc/corosync/corosync.conf
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/hyperlite-cfs --cluster --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket
+StateDirectory=hyperlite-cfs
+StateDirectoryMode=0700
+RuntimeDirectory=hyperlite-cfs
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

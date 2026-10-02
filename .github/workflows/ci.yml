@@ -93,6 +93,19 @@ jobs:
             bash -n "$f"
           done
 
+  package:
+    # The package's system side on each distribution it is installed on: its dependencies resolve there, the postinst's
+    # build of hyperlite-cfs works against that distribution's libraries, and the daemon's unit is valid.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:12", "debian:13", "ubuntu:24.04"]
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash installer/test-package.sh "${{ matrix.image }}"
+
   cfs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
     # and UndefinedBehaviorSanitizer, its C tests (a simulated cluster included), the Python client against the real
