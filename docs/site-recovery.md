@@ -27,7 +27,10 @@ On each site, say A whose backups go to B:
 3. **On site A**, schedule backups to that directory with a grouped job (*Backups › Grouped jobs*, all the VMs of
    the node or those of a tag or a pool, target directory = the pool's mount point). A per-VM schedule can target it
    too, through the API (`PUT /vms/{name}/backup-schedule` with `cible_dir`).
-4. **On site B**, make the same export readable: as a local directory when the NAS is on site B, or as an NFS pool.
+4. **On site B**, make the same export readable: as an NFS pool, or mounted under `/mnt`, `/media` or `/srv`. The
+   recovery reads only storage this node knows: those mount points, its storage pools, its backup directory and the
+   directories of its backup and replication jobs. A directory elsewhere, or a path through a symbolic link, is
+   refused with the reason.
 5. Do the same in the other direction (B's backups on site A).
 6. **Test it**: on site B, open *Backups › Recovery of another site*, enter the directory and press *Look for
    backups*. Every VM of site A must be listed with its latest backup. Restore one under another name (`web-test`)
@@ -82,4 +85,5 @@ ran on site B since the loss), and move it back with a backup and restore or a l
   step (`docs/design/replication.md`).
 - A backup that names a network missing on site B needs the network choice of step 4.
 - The scan reads up to 2,000 VMs and their 500 most recent backups each, and never follows a symbolic link found on
-  the share.
+  the share. The directory given must itself be a real path (no symbolic link) under the storage this node knows
+  (step 4).
