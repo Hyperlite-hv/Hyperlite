@@ -252,9 +252,12 @@ def status():
 
 
 def _loop():
+    from app.core import cluster_lead
+
     while True:
         try:
-            tick()
+            if cluster_lead.is_leader():  # in a cluster, one node watches for all of them
+                tick()
         except Exception:
             logger.exception("HA watcher round failed")
         time.sleep(WATCH_INTERVAL_S)

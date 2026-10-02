@@ -1,3 +1,5 @@
+import sqlite3
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -29,7 +31,7 @@ def create_group(payload: GroupCreate, user: dict = Depends(require_role("admin"
         raise HTTPException(status_code=422, detail="Group name required")
     try:
         group_id = perm.create_group(name)
-    except Exception:
+    except sqlite3.IntegrityError:
         raise HTTPException(status_code=422, detail=f"A group named '{name}' already exists") from None
     log_action(user["username"], "create_group", name, "succes")
     return {"id": group_id, "name": name, "membres": []}

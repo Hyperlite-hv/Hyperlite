@@ -1,26 +1,37 @@
 """Shadow mode of hyperlite-cfs (docs/design/hyperlite-cfs.md, section 8, phase C).
 
-With HYPERLITE_CFS_SHADOW=1, each write to a mirrored table is copied into the local hyperlite-cfs daemon right after
-SQLite committed it. SQLite stays the source of truth: a copy that fails is logged and counted, never raised, so the
-request that wrote succeeds as it did before. report() compares the two entry by entry; no difference over two weeks
-on a real cluster is the phase's exit criterion, before the daemon becomes the source of truth (phase D).
+Every write to a configuration table (tables.py) is recorded by SQLite triggers in the cfs_outbox table, in the same
+transaction as the write, whatever code made it. A background thread copies what the outbox lists into the local
+hyperlite-cfs daemon, re-reading each row from SQLite, so what is copied is what SQLite holds; an entry leaves the
+outbox only once the daemon took it, so a daemon that was down is caught up on as soon as it answers again.
 
-A copy re-reads the row from SQLite rather than taking the value the caller wrote, so what is copied is what SQLite
-holds. A write path that forgets to call the mirror shows up in the report as a difference.
-
-Mirrored so far (DOMAINS): the notes and tags of VMs, containers and nodes (table object_meta) and the start at boot
-settings of VMs (table vm_boot).
+SQLite stays the source of truth: a copy never fails or slows the write that caused it. report() compares the two
+entry by entry. Rows are stored as JSON at /db/<table>/<primary key...>, or /priv/db/... for tables holding secrets.
 """
 
+import base64
 import contextlib
 import json
 import logging
 import os
 import re
+import subprocess
 import threading
+import time
 from datetime import UTC, datetime
 
-from app.core.cfs_client import DEFAULT_SOCKET, CfsClient, CfsError, NotFound, ReadOnly, Synchronising, Uncertain
+from app.core.cfs_client import (
+    DEFAULT_SOCKET,
+    FORBIDDEN,
+    CfsClient,
+    CfsError,
+    NotFound,
+    ReadOnly,
+    Synchronising,
+    Uncertain,
+)
+from app.repositories.cfs import ids
+from app.repositories.cfs.tables import TABLES
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +42,36 @@ EXAMPLES = 20  # paths listed per kind of difference in the report
 _PLAIN = re.compile(r"^[A-Za-z0-9-][A-Za-z0-9._-]*$")
 
 
-DISABLED = "Shadow mode is off: set HYPERLITE_CFS_SHADOW=1 in .env and restart Hyperlite"
+DISABLED = "Shadow mode is off: turn it on in Administration > Replicated configuration"
 
 
 class ShadowDisabled(Exception):
     pass
 
 
-def enabled():
+# Turned on from Administration > Replicated configuration (app_settings), or forced by HYPERLITE_CFS_SHADOW=1.
+SETTING = "cfs_shadow"
+SERVICE = "hyperlite-cfs.service"
+BINARY = "/usr/local/sbin/hyperlite-cfs"  # installed by the package (scripts/build-cfs.sh)
+START_WAIT_S = 10
+
+
+class ShadowError(Exception):
+    """A switch that could not be made; the message is a fixed sentence, safe to show."""
+
+
+def _settings():
+    from app.repositories.sqlite.settings import SqliteSettingsStore
+
+    return SqliteSettingsStore()
+
+
+def forced():
     return os.environ.get("HYPERLITE_CFS_SHADOW", "") == "1"
+
+
+def enabled():
+    return forced() or _settings().app_setting(SETTING) == "1"
 
 
 def socket_path():
@@ -59,66 +91,111 @@ def _encode(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def _objects():
-    from app.repositories.sqlite.objects import SqliteObjectStore
+def _db():
+    from app.core.database import get_conn
 
-    return SqliteObjectStore()
+    return get_conn()
 
 
-class _Domain:
-    """One mirrored table: where each row goes in the daemon, and what is written there."""
+def _value(v):
+    # JSON has no bytes; a BLOB column (a security key's public key) is kept as base64 under a marker key.
+    return {"$b64": base64.b64encode(v).decode()} if isinstance(v, bytes) else v
 
-    prefix = ""
 
-    def path(self, *key):
+class _Table:
+    """One mirrored table: its rows at <prefix>/<primary key...>, as JSON of the columns that are configuration."""
+
+    def __init__(self, name, spec, columns, pk):
+        self.name = name
+        self.prefix = ("/priv/db/" if spec.get("priv") else "/db/") + name
+        self.pk = pk
+        volatile = spec.get("volatile", set())
+        self.columns = [c for c in columns if c not in volatile]
+        self.local_rows = spec.get("local_rows", {})
+        self.fill = spec.get("fill", {})
+
+    def path(self, key):
         return "/".join([self.prefix, *(component(k) for k in key)])
 
-    def entry(self, *key):
-        """(path, data) of one row as SQLite now holds it; data is None when the row is gone."""
-        row = self.row(*key)
-        return self.path(*key), (_encode(self.value(row)) if row else None)
+    def _select(self):
+        return "SELECT " + ", ".join(f'"{c}"' for c in self.columns) + f' FROM "{self.name}"'  # noqa: S608
 
-    def all(self):
-        return {self.path(*self.key(r)): _encode(self.value(r)) for r in self.rows()}
+    def _local(self, row):
+        return any(row[c] in values for c, values in self.local_rows.items())
 
+    def _data(self, row):
+        return _encode({c: _value(row[c]) for c in self.columns})
 
-class _Meta(_Domain):
-    """Notes and tags (app/core/object_meta.py): /meta/<kind>/<node>/<name>."""
+    def entry(self, key):
+        """(path, data) of one row as SQLite now holds it; data is None when the row is gone or stays local."""
+        where = " AND ".join(f'"{c}" = ?' for c in self.pk)
+        with _db() as db:
+            row = db.execute(f"{self._select()} WHERE {where}", tuple(key)).fetchone()
+        return self.path(key), (self._data(row) if row and not self._local(row) else None)
 
-    prefix = "/meta"
-
-    def row(self, kind, node, name):
-        return _objects().meta(kind, node, name)
-
-    def rows(self):
-        return _objects().all_meta()
-
-    def key(self, row):
-        return row["kind"], row["node"], row["name"]
-
-    def value(self, row):
-        return {"notes": row["notes"], "tags": json.loads(row["tags"] or "[]")}
+    def all(self, db=None):
+        if db is None:
+            with _db() as own:
+                rows = own.execute(self._select()).fetchall()
+        else:
+            rows = db.execute(self._select()).fetchall()
+        return {self.path([r[c] for c in self.pk]): self._data(r) for r in rows if not self._local(r)}
 
 
-class _Boot(_Domain):
-    """Start at boot (app/core/vm_boot.py): /boot/<node>/<vm>."""
-
-    prefix = "/boot"
-
-    def row(self, node, vm_name):
-        return _objects().boot_setting(node, vm_name)
-
-    def rows(self):
-        return _objects().all_boot_settings()
-
-    def key(self, row):
-        return row["node"], row["vm_name"]
-
-    def value(self, row):
-        return {"autostart": bool(row["autostart"]), "boot_order": row["boot_order"], "delay_s": row["delay_s"]}
+def _schema(db):
+    """{table: (columns, primary key)} of the listed tables this database has."""
+    out = {}
+    for name in TABLES:
+        info = db.execute(f'PRAGMA table_info("{name}")').fetchall()
+        if info:
+            pk = [r[1] for r in sorted(info, key=lambda r: r[5]) if r[5]]
+            out[name] = ([r[1] for r in info], pk)
+    return out
 
 
-DOMAINS = {"meta": _Meta(), "boot": _Boot()}
+def tables():
+    """{name: _Table} of the mirrored tables, from the live schema (a column added by a migration is included)."""
+    with _db() as db:
+        return {name: _Table(name, TABLES[name], cols, pk) for name, (cols, pk) in _schema(db).items()}
+
+
+def _quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def install_triggers(db):
+    """Create the outbox and, on each listed table, the triggers that record every inserted, updated (configuration
+    columns only) and deleted row in it. Run by init_db in its transaction; existing cfs_ triggers are replaced, so a
+    change of tables.py or of a table's columns takes effect at the next start."""
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS cfs_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, pk TEXT NOT NULL)"
+    )
+    for (name,) in db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'cfs!_%' ESCAPE '!'"
+    ):
+        db.execute(f'DROP TRIGGER "{name}"')
+    for name, (columns, pk) in _schema(db).items():
+        table = _Table(name, TABLES[name], columns, pk)
+
+        def record(alias, table=table, name=name):
+            keys = ", ".join(f'{alias}."{c}"' for c in table.pk)
+            # Rows that stay on each node (tables.py, local_rows) are not recorded at all.
+            local = " AND ".join(
+                f'{alias}."{c}" NOT IN ({", ".join(_quote(v) for v in values)})'
+                for c, values in table.local_rows.items()
+            )
+            # Table and column names come from tables.py and the schema, never from a request.
+            return f"INSERT INTO cfs_outbox (tbl, pk) SELECT '{name}', json_array({keys})" + (
+                f" WHERE {local};" if local else ";"
+            )
+
+        tracked = ", ".join(f'"{c}"' for c in table.columns)
+        db.execute(f'CREATE TRIGGER "cfs_{name}_ins" AFTER INSERT ON "{name}" BEGIN {record("NEW")} END')
+        db.execute(
+            f'CREATE TRIGGER "cfs_{name}_upd" AFTER UPDATE OF {tracked} ON "{name}" '
+            f"BEGIN {record('OLD')} {record('NEW')} END"
+        )
+        db.execute(f'CREATE TRIGGER "cfs_{name}_del" AFTER DELETE ON "{name}" BEGIN {record("OLD")} END')
 
 
 class _Stats:
@@ -177,31 +254,71 @@ def _write(client, path, data):
         client.put(path, data)
 
 
-def _copy(path, data):
-    try:
-        _write(_get_client(), path, data)
-    except (CfsError, OSError) as e:
-        _failed(path, e)
-        return
-    with _stats.lock:
-        _stats.copies += 1
+def pending():
+    with _db() as db:
+        return db.execute("SELECT COUNT(*) FROM cfs_outbox").fetchone()[0]
 
 
-def mirror(domain, *key):
-    """Copy one row of a domain as SQLite now holds it (deleted in the daemon when SQLite has no such row)."""
-    if enabled():
-        _copy(*DOMAINS[domain].entry(*key))
-
-
-def refresh(*domains):
-    """Copy whole domains after a write that touched many rows at once (a rename)."""
+def drain(limit=500):
+    """Copy what the outbox lists, oldest first; returns how many entries were copied. Stops at the first failure and
+    keeps the rest for the next call, so the daemon receives the changes in the order SQLite made them."""
     if not enabled():
-        return
-    for name in domains:
+        with _db() as db:  # shadow mode off: nothing is owed to the daemon
+            db.execute("DELETE FROM cfs_outbox")
+            db.commit()
+        return 0
+    with _db() as db:
+        rows = db.execute("SELECT id, tbl, pk FROM cfs_outbox ORDER BY id LIMIT ?", (limit,)).fetchall()
+    if not rows:
+        return 0
+    known = tables()
+    # A row changed several times is copied once, in the place of its last change.
+    last = {}
+    for r in rows:
+        last.pop((r["tbl"], r["pk"]), None)
+        last[(r["tbl"], r["pk"])] = r["id"]
+    done = []
+    copied = 0
+    try:
+        client = _get_client()
+    except (CfsError, OSError) as e:
+        _failed("hyperlite-cfs", e)
+        return 0
+    for (tbl, pk), _ in last.items():
+        table = known.get(tbl)
+        if table is not None:
+            path, data = table.entry(json.loads(pk))
+            try:
+                _write(client, path, data)
+            except (CfsError, OSError) as e:
+                _failed(path, e)
+                break
+            copied += 1
+        done += [r["id"] for r in rows if (r["tbl"], r["pk"]) == (tbl, pk)]
+    if done:
+        with _db() as db:
+            db.executemany("DELETE FROM cfs_outbox WHERE id = ?", [(i,) for i in done])
+            db.commit()
+    with _stats.lock:
+        _stats.copies += copied
+    return copied
+
+
+def _loop():
+    delay = 1.0
+    while True:
+        time.sleep(delay)
         try:
-            _sync(_get_client(), DOMAINS[name])
-        except (CfsError, OSError) as e:
-            _failed(DOMAINS[name].prefix, e)
+            before = _stats.failures
+            drain()
+            delay = 1.0 if _stats.failures == before else min(delay * 2, 30.0)
+        except Exception:  # the thread must survive anything a database or daemon can throw at it
+            logger.exception("hyperlite-cfs shadow: the copy loop failed; retrying")
+            delay = 30.0
+
+
+def start_shadow_copy():
+    threading.Thread(target=_loop, daemon=True, name="cfs-shadow").start()
 
 
 def _read_tree(client, prefix):
@@ -244,11 +361,71 @@ def seed():
         raise ShadowDisabled(DISABLED)
     client = _get_client()
     written = deleted = 0
-    for domain in DOMAINS.values():
-        w, d = _sync(client, domain)
+    for table in tables().values():
+        w, d = _sync(client, table)
         written += w
         deleted += d
+    if client.status().mode == "cluster":
+        # The tree now holds this node's rows: ids handed out from now on start above them (ids.py).
+        with _db() as db:
+            ids.set_offset(db, client)
+    from app.repositories.cfs import inbound  # imports this module
+
+    inbound.mark_applied()
     return {"ecrits": written, "supprimes": deleted}
+
+
+def _systemctl(*args):
+    try:
+        done = subprocess.run(["systemctl", *args, SERVICE], capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning("systemctl %s %s: %s", " ".join(args), SERVICE, e)
+        return False
+    if done.returncode:
+        logger.warning("systemctl %s %s failed: %s", " ".join(args), SERVICE, done.stderr.strip())
+    return done.returncode == 0
+
+
+def turn_on():
+    """Start the daemon (local mode unless /etc/default/hyperlite-cfs says otherwise), remember that shadow mode is on,
+    and make the first copy. Raises ShadowError with a sentence that says what to do."""
+    if not os.path.exists(BINARY):
+        raise ShadowError(
+            "hyperlite-cfs is not installed on this node: its build failed at the last upgrade (see the upgrade log)"
+        )
+    if not _systemctl("enable", "--now"):
+        raise ShadowError("The hyperlite-cfs service did not start: see systemctl status hyperlite-cfs")
+    deadline = time.monotonic() + START_WAIT_S
+    while True:
+        try:
+            _get_client().status()
+            break
+        except (CfsError, OSError) as e:
+            if time.monotonic() > deadline:
+                logger.warning("hyperlite-cfs started but does not answer: %s", e)
+                raise ShadowError(
+                    "hyperlite-cfs started but does not answer: see journalctl -u hyperlite-cfs"
+                ) from None
+            time.sleep(0.2)
+    _settings().set_app_setting(SETTING, "1")
+    try:
+        return seed()
+    except (CfsError, OSError) as e:
+        logger.warning("hyperlite-cfs shadow: first copy failed: %s", e)
+        raise ShadowError(f"Shadow mode is on, but the first copy did not complete: {describe(e)}") from None
+
+
+def turn_off():
+    """Stop copying and stop the daemon. Its database stays in /var/lib/hyperlite-cfs for the next time."""
+    if forced():
+        raise ShadowError(
+            "Shadow mode is forced by HYPERLITE_CFS_SHADOW=1 in .env: remove that line and restart Hyperlite"
+        )
+    _settings().set_app_setting(SETTING, "0")
+    if not _systemctl("disable", "--now"):
+        raise ShadowError(
+            "Shadow mode is off, but the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
+        )
 
 
 def _compare(expected, actual):
@@ -264,21 +441,38 @@ def _compare(expected, actual):
     }
 
 
+def _compare_table(client, table):
+    try:
+        return _compare(table.all(), _read_tree(client, table.prefix))
+    except CfsError as e:
+        if e.status != FORBIDDEN:
+            raise
+        # /priv is served to root only: a Hyperlite not running as root (a development checkout) cannot compare it.
+        out = _compare({}, {})
+        out.update(entrees=len(table.all()), illisible=True)
+        return out
+
+
 def report():
     """Shadow mode's state and, when the daemon answers, the differences between SQLite and the daemon per domain."""
+    from app.repositories.cfs import inbound  # imports this module
+
     with _stats.lock:
         out = {
             "actif": enabled(),
+            "force": forced(),
+            "installe": os.path.exists(BINARY),
             "socket": socket_path(),
             "copies": _stats.copies,
             "echecs": _stats.failures,
             "derniere_erreur": _stats.last_error,
             "derniere_erreur_le": _stats.last_error_at,
+            "en_attente": pending(),
         }
     try:
         client = _get_client()
         status = client.status()
-        domains = {name: _compare(d.all(), _read_tree(client, d.prefix)) for name, d in DOMAINS.items()}
+        domains = {name: _compare_table(client, t) for name, t in tables().items()}
     except (CfsError, OSError) as e:
         logger.warning("hyperlite-cfs shadow report: %s", e)
         out.update(joignable=False, erreur=describe(e))
@@ -288,5 +482,6 @@ def report():
         demon={"mode": status.mode, "quorum": status.quorate, "version": status.version, "entrees": status.entries},
         domaines=domains,
         ecarts=sum(d["manquants"] + d["en_trop"] + d["differents"] for d in domains.values()),
+        reception=inbound.report(),
     )
     return out

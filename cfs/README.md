@@ -58,29 +58,64 @@ build fails, the installation carries on with a warning: SQLite remains Hyperlit
 
 ### Shadow mode (phase C)
 
-Hyperlite copies every change of a mirrored table into the daemon right after SQLite saved it, and reports any
-difference; SQLite stays the source of truth, and a copy that fails never fails the change
-(`app/repositories/cfs/shadow.py`). Mirrored so far: the notes and tags of VMs, containers and nodes, at
-`/meta/<kind>/<node>/<name>`, and the start at boot settings of VMs, at `/boot/<node>/<vm>`. To turn it on, on the node that runs Hyperlite:
-
-```bash
-systemctl enable --now hyperlite-cfs                               # local mode
-echo HYPERLITE_CFS_SHADOW=1 >> /root/hyperlite/.env && systemctl restart hyperlite
-```
-
-Then, in the dashboard, **Administration › Replicated configuration** copies the database once (**Copy the database
-again**) and shows the report; the same through the API:
-
-```bash
-curl -k -X POST -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow/seed   # the first copy
-curl -k -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow                # "ecarts": 0
-```
+Every configuration table (`app/repositories/cfs/tables.py`: accounts, permissions, nodes, HA, guests' settings,
+storage, network, backup, replication and automation jobs, integrations) is copied into the daemon, row by row, as JSON
+at `/db/<table>/<primary key>`; tables holding secrets go under `/priv/db/`, which the daemon serves to root only.
+State and history (audit log, tasks, metrics, backup records, sessions) stay in each node's SQLite. SQLite triggers
+record every change in a `cfs_outbox` table, in the same transaction, whatever code made it; a background thread copies
+the outbox to the daemon and keeps an entry until the daemon took it, so a daemon that was down is caught up on as soon
+as it answers. SQLite stays the source of truth, and a copy never fails or slows a change
+(`app/repositories/cfs/shadow.py`). To turn it on: **Administration › Replicated configuration › Turn
+shadow mode on**. That starts `hyperlite-cfs.service` (local mode), records the choice in the database and copies the
+database once; **Turn off** stops copying and stops the service (the daemon's database is kept). The same through the
+API, as an administrator: `POST /cfs/shadow/activer` and `POST /cfs/shadow/desactiver`. `HYPERLITE_CFS_SHADOW=1` in
+`.env` forces it on, for a node managed by scripts.
 
 `GET /cfs/shadow` gives the copies made, the failures and the last one, the daemon's state and, per domain, the entries
 missing from the daemon (`manquants`), those it holds that SQLite no longer has (`en_trop`) and those that differ
-(`differents`), with up to 20 paths of each. A failure while the daemon was down shows there until
-`POST /cfs/shadow/seed` copies SQLite again. To turn it off: remove the line from `.env`, restart Hyperlite, then
-`systemctl disable --now hyperlite-cfs`.
+(`differents`), with up to 20 paths of each. A failure while the daemon was down shows there until **Copy the database
+again** (`POST /cfs/shadow/seed`) copies SQLite again.
+
+### In a cluster (phase D)
+
+When the daemon runs in cluster mode, the tree is the source of truth and the other way works too
+(`app/repositories/cfs/inbound.py`): whenever the daemon's version moves, the changes other nodes made are written into
+this node's SQLite, and rows the tree no longer has are deleted, in one transaction. SQLite stays each node's working
+copy, as `pmxcfs` keeps a database on every node. Safeguards: this node's own changes go out first; a daemon older than
+the version last applied here (reset or replaced), an empty tree while this node has configuration, or a change SQLite
+refuses (a unique name) applies nothing and shows a problem on the page until an administrator copies the right
+database again. In local mode nothing is applied: there is no other writer.
+
+The shared rows that name a node store its real name, so they mean the same machine on every node
+(`app/core/self_node.py`). The name is `HYPERLITE_NODE_NAME` when set, else the one recorded at the first start, else
+the host name (recorded then: renaming the host later changes nothing); a node cannot be registered under it.
+
+Every node runs the jobs of the VMs it hosts (backups, grouped backups and replication on its own schedule, automatic
+deletion, start at boot); the cluster-wide work (the HA watcher) runs on the node holding the lock `hyperlite-lead`
+(`app/core/cluster_lead.py`), and another node takes it over when that one leaves. A new row of a replicated table
+takes its id from the daemon's cluster-wide counter (`app/repositories/cfs/ids.py`), so two nodes never number two
+rows alike; while the daemon does not answer, a node of a cluster creates nothing new (the API answers 503).
+
+### Creating and joining a cluster
+
+From Administration › Replicated configuration (`app/core/cluster_setup.py`), as Proxmox's "Create cluster" and "Join
+cluster"; every node needs Corosync (`apt install corosync`) and an address on a network the members share.
+
+- **Create** on a first node: Corosync gets a new key (`/etc/corosync/authkey`) and a configuration with this node
+  alone (knet, `aes256`/`sha256`), hyperlite-cfs restarts in cluster mode, and this node's configuration becomes the
+  cluster's. The members, Corosync's key and the members' SSH keys are kept in hyperlite-cfs (`/cluster/...`), so any
+  member can let a node in, and every node rewrites its `corosync.conf` and its `authorized_keys` when they change.
+- **Join information** on a member: the member's address, the fingerprint of its HTTPS certificate and a one-time
+  ticket valid 30 minutes. It lets one node in and gives it the cluster's keys: it is a secret.
+- **Join** on the new node, with that information and the cluster's name typed back: the new node checks the member's
+  certificate against the fingerprint before sending anything, the member adds it and sends the cluster's
+  configuration and keys. The new node's configuration (accounts, groups, jobs, settings) is replaced by the
+  cluster's: its hyperlite-cfs database is moved aside (`config.db.before-join-*`), its pending changes are dropped,
+  the cluster's tree is applied, and Hyperlite restarts with the cluster's `.env` keys. Its guests are not touched.
+- **Remove** a member from another member, once it is off.
+
+Adding a member raises the votes the cluster needs: if the new node never comes up, the others lose the quorum until
+it does, or until `hyperlite-cfs expected-votes` lowers the votes (above) so the member can be removed.
 
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.

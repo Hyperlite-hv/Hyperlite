@@ -12,6 +12,7 @@ from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
 from app.core.cluster import start_node_poller
+from app.core.cluster_lead import start_lead_loop
 from app.core.config_copy import start_config_copy
 from app.core.ha_watch import start_ha_watch
 from app.core.http_headers import api_docs_enabled, inline_script_hashes, security_headers
@@ -28,6 +29,9 @@ from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
+from app.repositories.cfs.ids import NoId
+from app.repositories.cfs.inbound import start_apply_loop
+from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
@@ -37,6 +41,7 @@ from app.routers.backup_groups import router as backup_groups_router
 from app.routers.backups import router as backups_router
 from app.routers.certificate import router as certificate_router
 from app.routers.cfs import router as cfs_router
+from app.routers.cluster_setup import router as cluster_setup_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.file_restore import router as file_restore_router
@@ -136,6 +141,7 @@ app.include_router(workstation_router)
 app.include_router(kubernetes_router)
 app.include_router(meta_router)
 app.include_router(cfs_router)
+app.include_router(cluster_setup_router)
 app.include_router(certificate_router)
 app.include_router(host_system_router)
 app.include_router(metric_servers_router)
@@ -260,6 +266,15 @@ def serve_ui(path: str = ""):
     )
 
 
+@app.exception_handler(NoId)
+async def no_id_handler(request: Request, exc: NoId):
+    # In a cluster whose hyperlite-cfs does not answer, a new object cannot get a safe id (app/repositories/cfs/ids.py).
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The cluster configuration service does not answer: nothing new can be created right now"},
+    )
+
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     print(f"UNHANDLED ERROR on {request.method} {request.url.path}: {exc!r}", flush=True)
@@ -288,6 +303,9 @@ def on_startup():
     start_replication_scheduler()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
+    start_shadow_copy()
+    start_apply_loop()
+    start_lead_loop()
     recover_interrupted_k8s_clusters()
     start_boot_sequence()
 

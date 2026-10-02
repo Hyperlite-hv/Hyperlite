@@ -38,3 +38,27 @@ def shadow_seed(user: dict = Depends(require_role("admin"))):
         f"{done['ecrits']} written, {done['supprimes']} deleted",
     )
     return done
+
+
+@router.post("/shadow/activer")
+def shadow_turn_on(user: dict = Depends(require_role("admin"))):
+    """Start hyperlite-cfs, turn shadow mode on and make the first copy."""
+    try:
+        done = shadow.turn_on()
+    except shadow.ShadowError as e:
+        log_action(user["username"], "cfs_shadow_on", "hyperlite-cfs", "echec", str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    log_action(user["username"], "cfs_shadow_on", "hyperlite-cfs", "succes", f"{done['ecrits']} written")
+    return done
+
+
+@router.post("/shadow/desactiver")
+def shadow_turn_off(user: dict = Depends(require_role("admin"))):
+    """Stop copying and stop hyperlite-cfs; SQLite was the source of truth throughout, so nothing else changes."""
+    try:
+        shadow.turn_off()
+    except shadow.ShadowError as e:
+        log_action(user["username"], "cfs_shadow_off", "hyperlite-cfs", "echec", str(e))
+        raise HTTPException(status_code=409 if shadow.forced() else 503, detail=str(e)) from e
+    log_action(user["username"], "cfs_shadow_off", "hyperlite-cfs", "succes", "")
+    return {"actif": False}

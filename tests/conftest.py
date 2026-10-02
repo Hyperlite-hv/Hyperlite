@@ -14,6 +14,9 @@ from cryptography.fernet import Fernet
 
 os.environ.setdefault("HYPERLITE_SECRET_KEY", "test-only-secret-key-0123456789abcdef0123456789abcdef")
 os.environ.setdefault("HYPERLITE_ENCRYPTION_KEY", Fernet.generate_key().decode())
+# The name shared tables store for this node (app/core/self_node.py): fixed, so rows and cfs paths do not depend on the
+# host the suite runs on. Tests of the name itself remove it.
+os.environ.setdefault("HYPERLITE_NODE_NAME", "hv-test")
 
 import pytest
 
@@ -21,10 +24,14 @@ import pytest
 @pytest.fixture()
 def database(tmp_path, monkeypatch):
     """A fresh, isolated SQLite database with the application schema."""
-    from app.core import audit
+    from app.core import audit, cluster_lead, self_node
     from app.core import database as db_module
+    from app.repositories.cfs import ids
 
     monkeypatch.setattr(db_module, "DB_PATH", tmp_path / "test.db")
+    self_node.forget()
+    cluster_lead.forget()  # what a previous test's daemon said
+    ids.forget()
     db_module.init_db()
     yield db_module
     audit._AUDIT_QUEUE.join()  # let the background audit writer finish before the database disappears
