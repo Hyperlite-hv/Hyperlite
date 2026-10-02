@@ -2855,6 +2855,8 @@ export default {
   "cfs.quorate": "Writable",
   "cfs.readOnly": "Read-only (no quorum)",
   "cfs.gaps": "Differences",
+  "cfs.received": "Received from other nodes",
+  "cfs.receivedSub": "changes applied to this node since Hyperlite started",
   "cfs.copies": "Copies",
   "cfs.failures": "Failed copies",
   "cfs.sinceStart": "since Hyperlite started",

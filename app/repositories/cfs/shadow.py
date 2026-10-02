@@ -102,6 +102,7 @@ class _Table:
         volatile = spec.get("volatile", set())
         self.columns = [c for c in columns if c not in volatile]
         self.local_rows = spec.get("local_rows", {})
+        self.fill = spec.get("fill", {})
 
     def path(self, key):
         return "/".join([self.prefix, *(component(k) for k in key)])
@@ -122,8 +123,11 @@ class _Table:
             row = db.execute(f"{self._select()} WHERE {where}", tuple(key)).fetchone()
         return self.path(key), (self._data(row) if row and not self._local(row) else None)
 
-    def all(self):
-        with _db() as db:
+    def all(self, db=None):
+        if db is None:
+            with _db() as own:
+                rows = own.execute(self._select()).fetchall()
+        else:
             rows = db.execute(self._select()).fetchall()
         return {self.path([r[c] for c in self.pk]): self._data(r) for r in rows if not self._local(r)}
 
@@ -340,6 +344,9 @@ def seed():
         w, d = _sync(client, table)
         written += w
         deleted += d
+    from app.repositories.cfs import inbound  # imports this module
+
+    inbound.mark_applied()
     return {"ecrits": written, "supprimes": deleted}
 
 
@@ -411,6 +418,8 @@ def _compare(expected, actual):
 
 def report():
     """Shadow mode's state and, when the daemon answers, the differences between SQLite and the daemon per domain."""
+    from app.repositories.cfs import inbound  # imports this module
+
     with _stats.lock:
         out = {
             "actif": enabled(),
@@ -436,5 +445,6 @@ def report():
         demon={"mode": status.mode, "quorum": status.quorate, "version": status.version, "entrees": status.entries},
         domaines=domains,
         ecarts=sum(d["manquants"] + d["en_trop"] + d["differents"] for d in domains.values()),
+        reception=inbound.report(),
     )
     return out

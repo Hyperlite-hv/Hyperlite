@@ -76,6 +76,16 @@ missing from the daemon (`manquants`), those it holds that SQLite no longer has 
 (`differents`), with up to 20 paths of each. A failure while the daemon was down shows there until **Copy the database
 again** (`POST /cfs/shadow/seed`) copies SQLite again.
 
+### In a cluster (phase D)
+
+When the daemon runs in cluster mode, the tree is the source of truth and the other way works too
+(`app/repositories/cfs/inbound.py`): whenever the daemon's version moves, the changes other nodes made are written into
+this node's SQLite, and rows the tree no longer has are deleted, in one transaction. SQLite stays each node's working
+copy, as `pmxcfs` keeps a database on every node. Safeguards: this node's own changes go out first; a daemon older than
+the version last applied here (reset or replaced), an empty tree while this node has configuration, or a change SQLite
+refuses (a unique name) applies nothing and shows a problem on the page until an administrator copies the right
+database again. In local mode nothing is applied: there is no other writer.
+
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
 

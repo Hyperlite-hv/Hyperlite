@@ -92,10 +92,12 @@ export default function CfsPage() {
             { id: "gaps", label: t("cfs.gaps"), dot: state.joignable ? (state.ecarts ? "warning" : "success") : undefined, value: state.joignable ? state.ecarts : null },
             { id: "pending", label: t("cfs.pending"), dot: state.en_attente ? "warning" : undefined, value: state.en_attente, sub: t("cfs.pendingSub") },
             { id: "copies", label: t("cfs.copies"), value: state.copies, sub: t("cfs.sinceStart") },
+            ...(state.joignable && state.demon.mode === "cluster" ? [{ id: "received", label: t("cfs.received"), value: state.reception?.appliques ?? 0, sub: t("cfs.receivedSub") }] : []),
             { id: "failures", label: t("cfs.failures"), dot: state.echecs ? "warning" : undefined, value: state.echecs, sub: t("cfs.sinceStart") },
           ]} />
           {state.force && <p className="nx-f-h">{t("cfs.forced")}</p>}
           {!state.joignable && <div className="nx-bn" data-tone="danger" role="alert">{state.erreur}</div>}
+          {state.reception?.probleme && <div className="nx-bn" data-tone="danger" role="alert">{state.reception.probleme}</div>}
           {state.derniere_erreur && (
             <p className="nx-f-h" role="status">{t("cfs.lastError", { when: formatDateTime(state.derniere_erreur_le, lang), error: state.derniere_erreur })}</p>
           )}

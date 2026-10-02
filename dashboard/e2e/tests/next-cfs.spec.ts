@@ -106,3 +106,18 @@ test("the button turns shadow mode on, and off after a confirmation", async ({ p
   await expect(main.getByRole("heading", { name: "Shadow mode is off" })).toBeVisible();
   expect(calls).toEqual(["on", "off"]);
 });
+
+test("in a cluster, changes received from other nodes are counted and a held-back apply is shown", async ({ page }) => {
+  const problem = "hyperlite-cfs holds version 3, older than the 40 this node applied: its database was reset or replaced.";
+  await page.route(/\/cfs\/shadow$/, (route) => route.fulfill({ json: {
+    ...report(0), force: false, installe: true, demon: { mode: "cluster", quorum: true, version: 3, entrees: 3 },
+    reception: { appliques: 7, derniere_application: "2026-10-02T12:00:00+00:00", probleme: problem },
+  } }));
+  await uiLogin(page);
+  await goTo(page, "Replicated configuration");
+  const main = page.getByRole("main");
+  const strip = main.getByRole("group", { name: "State of shadow mode" });
+  await expect(strip).toContainText("Cluster mode");
+  await expect(strip.locator(".nx-kpi", { hasText: "Received from other nodes" })).toContainText("7");
+  await expect(main.getByRole("alert").filter({ hasText: "older than the 40" })).toBeVisible();
+});

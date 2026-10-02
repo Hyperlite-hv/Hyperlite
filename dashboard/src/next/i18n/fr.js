@@ -2887,6 +2887,8 @@ export default {
   "cfs.quorate": "Accessible en écriture",
   "cfs.readOnly": "Lecture seule (pas de quorum)",
   "cfs.gaps": "Écarts",
+  "cfs.received": "Reçues des autres nœuds",
+  "cfs.receivedSub": "modifications appliquées à ce nœud depuis le démarrage de Hyperlite",
   "cfs.copies": "Copies",
   "cfs.failures": "Copies échouées",
   "cfs.sinceStart": "depuis le démarrage de Hyperlite",

@@ -198,6 +198,12 @@ to the daemon (`app/repositories/cfs/shadow.py`, `tables.py`). Rows are JSON at 
 `/priv/db/`; state and history stay per node. Phase D can then read the same tree back into SQLite (cfs to SQLite), with
 SQLite as each node's working copy, as `pmxcfs` keeps its own database on every node.
 
+Phase D reads the tree back (`app/repositories/cfs/inbound.py`): in cluster mode, each node applies the tree's changes to
+its SQLite in one transaction when the daemon's version moves, after its own changes went out, and holds back on a
+daemon older than what it applied, an empty tree, or a change its schema refuses. What is left for several nodes to run
+Hyperlite at once: one node runs the cluster-wide schedulers (a cfs lock), integer ids allocated without collision, and
+the encryption and signing keys shared when a node joins.
+
 ### 8.1 Phase B, step by step
 
 | Step | Content | State |
