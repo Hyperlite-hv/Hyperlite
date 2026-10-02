@@ -20,19 +20,19 @@ test("with shadow mode off and no daemon installed, the page says so, in English
   await expect(page.getByRole("navigation", { name: /./ }).getByRole("button", { name: "Configuration répliquée" })).toBeVisible();
 });
 
-const PATHS = { manquants: ["/meta/vm/local/e2e-web"], en_trop: ["/meta/vm/local/e2e-gone"], differents: [] };
+const PATHS = { manquants: ["/db/object_meta/vm/local/e2e-web"], en_trop: ["/db/object_meta/vm/local/e2e-gone"], differents: [] };
 
 function report(gaps: number) {
   return {
     actif: true, socket: "/run/hyperlite-cfs/socket", copies: 12, echecs: gaps ? 1 : 0, joignable: true,
-    derniere_erreur: gaps ? "/meta/vm/local/e2e-web: hyperlite-cfs is not running: nothing answers on its socket" : null,
+    derniere_erreur: gaps ? "/db/object_meta/vm/local/e2e-web: hyperlite-cfs is not running: nothing answers on its socket" : null,
     derniere_erreur_le: gaps ? "2026-10-02T12:00:00+00:00" : null,
     demon: { mode: "local", quorum: true, version: 40, entrees: 3 },
-    domaines: { meta: {
+    domaines: { object_meta: {
       entrees: 3, manquants: gaps ? 1 : 0, en_trop: gaps ? 1 : 0, differents: 0,
       exemples: gaps ? PATHS : { manquants: [], en_trop: [], differents: [] },
     } },
-    ecarts: gaps,
+    ecarts: gaps, en_attente: 0,
   };
 }
 
@@ -53,8 +53,8 @@ test("differences are listed, and copying the database again after a confirmatio
   const row = main.getByRole("row", { name: /Notes and tags/ });
   await expect(row).toContainText("3");
   await main.getByText("Entries that differ: Notes and tags").click();
-  await expect(main.getByRole("listitem").filter({ hasText: "/meta/vm/local/e2e-web" })).toBeVisible();
-  await expect(main.getByRole("listitem").filter({ hasText: "/meta/vm/local/e2e-gone" })).toBeVisible();
+  await expect(main.getByRole("listitem").filter({ hasText: "/db/object_meta/vm/local/e2e-web" })).toBeVisible();
+  await expect(main.getByRole("listitem").filter({ hasText: "/db/object_meta/vm/local/e2e-gone" })).toBeVisible();
 
   // Cancelling the confirmation sends nothing.
   await main.getByRole("button", { name: "Copy the database again" }).click();

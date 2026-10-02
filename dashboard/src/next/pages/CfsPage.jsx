@@ -10,6 +10,12 @@ import { ErrorState } from "../components/States";
 import { PageHeader, Card, KpiStrip, Loading, TableWrap } from "../components/ui";
 
 const KINDS = ["manquants", "en_trop", "differents"];
+const gaps = (d) => d.manquants + d.en_trop + d.differents;
+
+// Kinds of data with differences first, then by name in the reader's language.
+function sortedDomains(domains, t) {
+  return Object.entries(domains).sort(([a, da], [b, db]) => gaps(db) - gaps(da) || t(`cfs.domainName.${a}`).localeCompare(t(`cfs.domainName.${b}`)));
+}
 
 // Administration › Replicated configuration: shadow mode of hyperlite-cfs (app/repositories/cfs/shadow.py). Hyperlite
 // copies its writes into the daemon after SQLite saved them; this page shows the copies, the failures and every
@@ -84,6 +90,7 @@ export default function CfsPage() {
             { id: "daemon", label: t("cfs.daemon"), dot: state.joignable ? "success" : "danger", value: state.joignable ? t(`cfs.mode.${state.demon.mode}`) : t("cfs.unreachable"),
               sub: state.joignable ? (state.demon.quorum ? t("cfs.quorate") : t("cfs.readOnly")) : null, subTone: state.joignable && !state.demon.quorum ? "warning" : undefined },
             { id: "gaps", label: t("cfs.gaps"), dot: state.joignable ? (state.ecarts ? "warning" : "success") : undefined, value: state.joignable ? state.ecarts : null },
+            { id: "pending", label: t("cfs.pending"), dot: state.en_attente ? "warning" : undefined, value: state.en_attente, sub: t("cfs.pendingSub") },
             { id: "copies", label: t("cfs.copies"), value: state.copies, sub: t("cfs.sinceStart") },
             { id: "failures", label: t("cfs.failures"), dot: state.echecs ? "warning" : undefined, value: state.echecs, sub: t("cfs.sinceStart") },
           ]} />
@@ -101,7 +108,7 @@ export default function CfsPage() {
                     {KINDS.map((k) => <th key={k} scope="col">{t(`cfs.kind.${k}`)}</th>)}
                   </tr></thead>
                   <tbody>
-                    {Object.entries(state.domaines).map(([name, d]) => (
+                    {sortedDomains(state.domaines, t).map(([name, d]) => (
                       <tr key={name}>
                         <th scope="row">{t(`cfs.domainName.${name}`)}</th>
                         <td>{d.entrees}</td>

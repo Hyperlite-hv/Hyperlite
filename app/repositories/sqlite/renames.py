@@ -8,7 +8,6 @@ import asyncio
 import json
 
 from app.core.database import get_conn
-from app.repositories.cfs import shadow
 
 # (table, column) holding a VM's name, whatever its node. UPDATE OR REPLACE: a row left behind under the new name by
 # an object deleted long ago must not block the rename (the renamed VM's own settings win).
@@ -101,7 +100,6 @@ class SqliteRenameStore:
                             "UPDATE backup_group_jobs SET exclues = ? WHERE id = ?", (json.dumps(excluded), row["id"])
                         )
             db.commit()
-        shadow.refresh("meta", "boot")  # notes, tags and start at boot moved with the object
 
     def container_records(self, old, new):
         with get_conn() as db:
@@ -111,7 +109,6 @@ class SqliteRenameStore:
             _move(db, tables, "acl", "resource_id", old, new, " AND resource_type = 'container'")
             _move(db, tables, "object_meta", "name", old, new, " AND kind = 'container'")
             db.commit()
-        shadow.refresh("meta")  # notes and tags moved with the object
 
     def node_records(self, old, new):
         with get_conn() as db:
@@ -140,7 +137,6 @@ class SqliteRenameStore:
                     (f"{new}:", len(old) + 2, len(old) + 1, f"{old}:"),
                 )
             db.commit()
-        shadow.refresh("meta", "boot")  # notes, tags and start at boot moved with the object
 
     def storage_pool_records(self, old, new, node_key):
         """A storage pool renamed on one node: the containers stored in it (this host) and its usage history."""

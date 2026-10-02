@@ -58,10 +58,14 @@ build fails, the installation carries on with a warning: SQLite remains Hyperlit
 
 ### Shadow mode (phase C)
 
-Hyperlite copies every change of a mirrored table into the daemon right after SQLite saved it, and reports any
-difference; SQLite stays the source of truth, and a copy that fails never fails the change
-(`app/repositories/cfs/shadow.py`). Mirrored so far: the notes and tags of VMs, containers and nodes, at
-`/meta/<kind>/<node>/<name>`, and the start at boot settings of VMs, at `/boot/<node>/<vm>`. To turn it on: **Administration › Replicated configuration › Turn
+Every configuration table (`app/repositories/cfs/tables.py`: accounts, permissions, nodes, HA, guests' settings,
+storage, network, backup, replication and automation jobs, integrations) is copied into the daemon, row by row, as JSON
+at `/db/<table>/<primary key>`; tables holding secrets go under `/priv/db/`, which the daemon serves to root only.
+State and history (audit log, tasks, metrics, backup records, sessions) stay in each node's SQLite. SQLite triggers
+record every change in a `cfs_outbox` table, in the same transaction, whatever code made it; a background thread copies
+the outbox to the daemon and keeps an entry until the daemon took it, so a daemon that was down is caught up on as soon
+as it answers. SQLite stays the source of truth, and a copy never fails or slows a change
+(`app/repositories/cfs/shadow.py`). To turn it on: **Administration › Replicated configuration › Turn
 shadow mode on**. That starts `hyperlite-cfs.service` (local mode), records the choice in the database and copies the
 database once; **Turn off** stops copying and stops the service (the daemon's database is kept). The same through the
 API, as an administrator: `POST /cfs/shadow/activer` and `POST /cfs/shadow/desactiver`. `HYPERLITE_CFS_SHADOW=1` in

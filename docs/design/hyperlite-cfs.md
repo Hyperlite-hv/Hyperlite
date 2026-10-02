@@ -191,10 +191,12 @@ Between B and C, the `hyperlite` package builds the daemon on each node and inst
 (`scripts/build-cfs.sh`, `installer/hyperlite-cfs.service`): every node has it before any phase uses it, and an upgrade
 changes nothing on a node that has no cluster.
 
-Phase C started with the notes and tags of VMs, containers and nodes (`app/repositories/cfs/shadow.py`): a copy after
-each SQLite write that re-reads the row, a refresh of the domain after a rename, a report of the differences
-(`GET /cfs/shadow`) and an explicit seed; the start at boot settings of VMs followed. Other tables follow one domain
-per pull request.
+Phase C started with the notes and tags of VMs, containers and nodes, copied by a call in each write method. That missed
+writes made with raw SQL (renames move rows directly), so the copy moved into SQLite itself: triggers on every
+configuration table record each change in an outbox table, in the same transaction, and a background thread copies it
+to the daemon (`app/repositories/cfs/shadow.py`, `tables.py`). Rows are JSON at `/db/<table>/<primary key>`, secrets under
+`/priv/db/`; state and history stay per node. Phase D can then read the same tree back into SQLite (cfs to SQLite), with
+SQLite as each node's working copy, as `pmxcfs` keeps its own database on every node.
 
 ### 8.1 Phase B, step by step
 
