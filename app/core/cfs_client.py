@@ -17,6 +17,7 @@ MUST_NOT_EXIST = 0
 
 # Wire values; they mirror enum cfs_status and enum cfs_op in cfs/src/cfs.h.
 OK, NOT_FOUND, CONFLICT, INVALID, TOO_LARGE, FORBIDDEN, LOCKED, READ_ONLY, SYNCHRONISING, INTERNAL = range(10)
+UNCERTAIN = 10
 _GET, _PUT, _DELETE, _LIST, _RENAME, _LOCK, _UNLOCK, _NEXT_ID, _STATUS = range(1, 10)
 
 FRAME_MAX = 1024 * 1024 + 4096
@@ -52,7 +53,19 @@ class Synchronising(CfsError):
     when they hold different states, which only a state transfer resolves."""
 
 
-_ERRORS = {NOT_FOUND: NotFound, CONFLICT: Conflict, LOCKED: Locked, READ_ONLY: ReadOnly, SYNCHRONISING: Synchronising}
+class Uncertain(CfsError):
+    """The membership changed before every member confirmed the change: it may or may not have been applied. Read the
+    entry back before retrying; never retry blindly (cluster mode)."""
+
+
+_ERRORS = {
+    NOT_FOUND: NotFound,
+    CONFLICT: Conflict,
+    LOCKED: Locked,
+    READ_ONLY: ReadOnly,
+    SYNCHRONISING: Synchronising,
+    UNCERTAIN: Uncertain,
+}
 
 
 @dataclass(frozen=True)

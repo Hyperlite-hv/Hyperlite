@@ -21,6 +21,8 @@ enum cfs_status {
     CFS_READ_ONLY = 7,     /* no quorum (cluster mode) */
     CFS_SYNCHRONISING = 8, /* membership change in progress (cluster mode): retry */
     CFS_INTERNAL = 9,      /* the database failed; the daemon logs why */
+    CFS_UNCERTAIN = 10,    /* the membership changed before every member confirmed the change: it may or may not
+                              have been applied; read the entry back before retrying (cluster mode) */
 };
 
 enum cfs_op {
