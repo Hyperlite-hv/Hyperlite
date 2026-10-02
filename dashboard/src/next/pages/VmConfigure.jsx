@@ -447,11 +447,13 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
     }).catch((e) => { setNetworks([]); setNetworksError(errorMessage(e)); });
   }, []);
   useEffect(() => { if (open) loadNetworks(); }, [open, loadNetworks]);
-  const vlanBad = vlan !== "" && (!Number.isInteger(Number(vlan)) || Number(vlan) < 1 || Number(vlan) > 4094);
+  // Only an Open vSwitch or SR-IOV network carries a tag: libvirt refuses to start a VM with a tag on any other one.
+  const tagged = networks.find((n) => n.nom === net)?.vlan === true;
+  const vlanBad = tagged && vlan !== "" && (!Number.isInteger(Number(vlan)) || Number(vlan) < 1 || Number(vlan) > 4094);
   async function add() {
     if (!net || vlanBad) return;
     setBusy(true);
-    try { await attachInterface(vmName, net, vlan ? Number(vlan) : null); pushToast({ kind: "success", title: t("vh.ifAdded"), message: net }); setVlan(""); onDone(); onClose(); }
+    try { await attachInterface(vmName, net, tagged && vlan ? Number(vlan) : null); pushToast({ kind: "success", title: t("vh.ifAdded"), message: net }); setVlan(""); onDone(); onClose(); }
     catch (er) { pushToast({ kind: "error", title: t("sec.addFailed"), message: errorMessage(er) }); } finally { setBusy(false); }
   }
   return (
@@ -461,7 +463,7 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
     </>}>
       <Field label={t("vh.network")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.network_to_attach")} value={net} onChange={(e) => setNet(e.target.value)}>{networks.map((n) => <option key={n.nom} value={n.nom}>{n.nom} ({t(`net.mode.${n.type}`)}{n.actif === false ? ` · ${t("wz.netStopped")}` : ""})</option>)}</select>}</Field>
       {networksError && <InlineError message={networksError} onRetry={loadNetworks} />}
-      <Field label="VLAN" error={vlanBad ? t("vh.vlanRule") : null} hint={t("vh.vlanHint")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vlan_optional")} type="number" min={1} max={4094} value={vlan} placeholder={t("vh.optional")} onChange={(e) => setVlan(e.target.value)} />}</Field>
+      <Field label="VLAN" error={vlanBad ? t("vh.vlanRule") : null} hint={tagged ? t("vh.vlanHint") : t("vh.vlanNone", { name: net })}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vlan_optional")} type="number" min={1} max={4094} value={tagged ? vlan : ""} disabled={!tagged} placeholder={t("vh.optional")} onChange={(e) => setVlan(e.target.value)} />}</Field>
     </SideDrawer>
   );
 }

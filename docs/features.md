@@ -21,13 +21,15 @@ This is a reference of what Hyperlite does today and where its scope stops. For 
 
 LXC containers through libvirt's native driver. The root file system comes from a debootstrapped Debian 12 base or from any Docker Hub / OCI registry image (`skopeo` and `umoci`, no Docker daemon). Clone, backup and restore are supported; there is no instantaneous snapshot because libvirt's LXC driver does not provide one.
 
+Kubernetes clusters: one k3s server VM and worker VMs, built from Hyperlite's Debian cloud image (k3s binaries checked against the release checksums, no Internet access needed to bootstrap), handed over as an encrypted kubeconfig.
+
 ## Storage
 
-Directory pools, NFS pools (shared storage, prerequisite for HA and live migration) and ZFS pools (VM disks as zvols). Pool creation and removal from the interface; removing a directory or NFS pool can detach it without deleting its files.
+Directory pools, NFS pools (shared storage, prerequisite for HA and live migration; the NFS version is chosen at creation, never negotiated), ZFS pools (VM disks as zvols) and iSCSI targets (whole LUNs created on the storage side). Pool creation and removal from the interface; removing a directory or NFS pool can detach it without deleting its files.
 
 ## Networking
 
-Virtual networks in NAT, isolated or bridge mode, DHCP ranges, VLAN tags on VM interfaces, a per-VM firewall (libvirt nwfilter) and a per-network firewall (dedicated iptables chain on the bridge, re-applied at start-up).
+Virtual networks in NAT, isolated or bridge mode (on a host bridge, or on a NIC, bond or VLAN interface through macvtap), DHCP ranges and reservations, VLAN tags on VM interfaces where the network can carry them (Open vSwitch or SR-IOV; refused elsewhere, since libvirt would not start the VM), a per-VM firewall (libvirt nwfilter) and a per-network firewall (dedicated iptables chain on the bridge, re-applied at start-up).
 
 ## Cluster, migration and high availability
 
@@ -40,9 +42,11 @@ Virtual networks in NAT, isolated or bridge mode, DHCP ranges, VLAN tags on VM i
 
 ## Backups
 
-Hot (transient external snapshot) and cold backups of VMs, schedules (daily, weekly, monthly), retention by count, restore in place or to a new VM.
+Hot (transient external snapshot) and cold backups of VMs, schedules (daily, weekly, monthly) per VM or per group of VMs (all, a tag or a pool), retention by count or by days, weeks and months, restore in place or to a new VM, and file-level restore (browse a backup's disks and download files without restoring the VM).
 
-Every backup has a manifest (`manifest.json`: each file with its role, size and SHA-256). **Verify** recomputes every checksum and runs `qemu-img check` on the images; every backup is also verified automatically within a week (one at a time, never during a backup). A corrupted backup is shown as such, with what is wrong, audited and notified (`verify_backup` event). UEFI VMs keep their firmware state: the NVRAM (boot entries, Secure Boot keys) and the TPM state (BitLocker keys) are saved with the disks and put back on restore, in place or as a new VM. See the [design](design/backups-pro.md) for the next steps (block disks, incremental backups, GFS retention).
+Every backup has a manifest (`manifest.json`: each file with its role, size and SHA-256). **Verify** recomputes every checksum and runs `qemu-img check` on the images; every backup is also verified automatically within a week (one at a time, never during a backup). A corrupted backup is shown as such, with what is wrong, audited and notified (`verify_backup` event). UEFI VMs keep their firmware state: the NVRAM (boot entries, Secure Boot keys) and the TPM state (BitLocker keys) are saved with the disks and put back on restore, in place or as a new VM. See the [design](design/backups-pro.md) for the next steps (block disks, deduplication, encryption).
+
+Two sites: each site backs its VMs up to a storage of the other one, and **Backups › Recovery of another site** restores a lost site's VMs as new VMs on the surviving site, from their latest backup, after an integrity check. See [site recovery](site-recovery.md). **Replication to another site** copies VMs to the other site every few minutes (incremental, QEMU dirty bitmaps, a full copy each day), so the surviving site loses at most one interval of changes.
 
 ## Observability and automation
 
@@ -60,7 +64,10 @@ At start-up and on demand Hyperlite detects the capabilities of the host (CPU, R
 
 ## Known scope limits
 
-- No fencing / STONITH; HA recovery is manual.
+- One controller: the configuration is copied to the nodes and a takeover is manual. The replicated configuration (Corosync and `hyperlite-cfs`, as Proxmox VE does with `pmxcfs`) is in progress.
+- No fencing yet; automatic HA is a dry run and recovery is manual.
+- VLAN tags only on Open vSwitch or SR-IOV networks; VLAN-aware Linux bridges are the next step (`docs/design/network.md`).
+- Backups of ZFS and iSCSI disks are refused; there is no deduplication or encryption of backups yet.
 - VMs on ZFS pools are not live-migratable.
 - ZFS pools created from the interface use loopback files and are local to one node.
 - Ceph is not supported.

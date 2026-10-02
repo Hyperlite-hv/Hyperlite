@@ -29,6 +29,7 @@ hyperlite.db-wal
 hyperlite.db-shm
 hyperlite.db
 data/tmp/
+data/backups/
 .publish.env
 CLAUDE.local.md
 dashboard/e2e-report/
@@ -36,3 +37,7 @@ dashboard/e2e-results/
 
 # Written by the application on first start; never commit or ship it.
 data/initial-admin-password.txt
+
+# hyperlite-cfs build directories (meson setup <dir> cfs)
+build-*/
+cfs/build*/

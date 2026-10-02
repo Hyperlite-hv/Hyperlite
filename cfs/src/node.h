@@ -1,0 +1,137 @@
+/* One node of the replicated configuration (design: docs/design/hyperlite-cfs.md, sections 4 and 5).
+ *
+ * The node sits between the clients and a transport that delivers messages to every member of the group in one
+ * agreed order (Corosync CPG with CPG_TYPE_AGREED, or a loopback for local mode). It does not know which transport it
+ * runs on, so the tests drive several nodes through a simulated one.
+ *
+ *   - A read is answered at once from this node's store.
+ *   - A change is checked here, refused at once without quorum or while the members do not agree on one state, and
+ *     otherwise multicast. Every member applies it when it is delivered, in delivery order, with the sender's node id
+ *     and time stamp, and confirms what it applied. The sender answers its client only once every member confirmed
+ *     the change: an answered change is held by a quorum, so no later quorate membership can lose it. If the
+ *     membership changes first, the answer is "uncertain", never "not applied" (design, section 8.4).
+ *   - On a membership change every member stops applying changes and multicasts its state (term, cluster version,
+ *     SHA-256 of tree and locks, its view of the quorum and of the Corosync ring). Changes are applied again once
+ *     every member has sent a state, all of them quorate, in the same ring and identical; the term then becomes that
+ *     ring. A change delivered before that is dropped by every member alike. When they differ, every member picks the
+ *     same source (the highest term, then the highest version, then the lowest node id); the source multicasts its
+ *     whole state, the members that differ replace theirs with it in one transaction and check its checksum, then
+ *     every member sends its state again. One transfer per membership: members that still differ after it stay
+ *     read-only and say so.
+ *   - A change that fails here with an internal error (disk full, database error) while the other members applied
+ *     it would make this node diverge silently: the node leaves the group instead and refuses every change. */
+
+#ifndef CFS_NODE_H
+#define CFS_NODE_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include "handler.h"
+
+typedef struct {
+    /* Multicast `msg` to the group, in agreed order: 0 sent, 1 try again later (flow control), -1 failed. */
+    int (*send)(void *arg, const uint8_t *msg, size_t len);
+    /* Leave the group for good. */
+    void (*leave)(void *arg);
+    void *arg;
+} cfs_transport;
+
+/* Hand a framed answer to the client identified by `token`. */
+typedef void (*cfs_reply_fn)(void *arg, uint64_t token, const uint8_t *frame, size_t len);
+
+typedef struct {
+    uint64_t seq;   /* the sender's message number */
+    uint64_t token; /* the client waiting for it */
+    uint32_t id;    /* the client's request id */
+} cfs_pending;
+
+typedef struct {
+    uint8_t *p;
+    size_t len;
+} cfs_outgoing;
+
+/* A change this node applied, whose answer waits until every member confirmed it. */
+typedef struct {
+    uint64_t pos;   /* its place among the changes delivered since the agreement */
+    uint64_t token; /* the client waiting for it */
+    uint32_t id;    /* the client's request id */
+    uint8_t *frame; /* the answer, ready */
+    size_t len;
+} cfs_awaiting;
+
+typedef struct {
+    bool seen;
+    bool quorate;
+    uint64_t ring; /* the Corosync ring the member was in when it sent its state */
+    int64_t term;
+    int64_t version;
+    uint8_t sum[CFS_CHECKSUM_LEN];
+} cfs_member_state;
+
+typedef struct {
+    cfs_ctx ctx;
+    uint32_t self;
+    cfs_transport tr;
+    cfs_reply_fn reply;
+    void *reply_arg;
+
+    bool quorate;  /* the quorum service's view of this node */
+    bool synced;   /* every member sent the same state: changes are applied */
+    bool diverged; /* every member sent a state, and they differ */
+    bool failed;   /* a change failed here: the node left the group */
+
+    uint64_t ring; /* the current Corosync ring (totem membership), 0 in local mode */
+    uint32_t round; /* agreement round: 0 at each membership, one more at the same points of the order on every member */
+
+    uint32_t members[CFS_MEMBERS_MAX];
+    cfs_member_state states[CFS_MEMBERS_MAX];
+    size_t nmembers;
+
+    /* Confirmations, counted in changes delivered since the agreement (the same count on every member). */
+    uint64_t pos;                        /* changes delivered here */
+    uint64_t confirmed[CFS_MEMBERS_MAX]; /* what each member said it applied */
+    uint64_t reported;                   /* what this node last said */
+    bool confirming;                     /* this node's confirmation is in flight */
+    cfs_awaiting *awaiting;
+    size_t nawaiting, cap_awaiting;
+
+    /* State transfer, at most one per membership. */
+    bool transferring;     /* waiting for the source's state */
+    bool transferred;      /* a transfer already ran in this membership */
+    bool xfer_needed;      /* this node's state differs from the source's */
+    uint32_t xfer_source;
+    int64_t xfer_version, xfer_next_id, xfer_term;
+    uint8_t xfer_sum[CFS_CHECKSUM_LEN];
+    uint8_t *xfer_buf; /* the records received so far */
+    size_t xfer_len, xfer_cap;
+    uint32_t xfer_records;
+
+    uint64_t next_seq;
+    cfs_pending *pending;
+    size_t npending, cap_pending;
+    cfs_outgoing *queue; /* messages the transport asked to retry, in order */
+    size_t nqueue, cap_queue;
+} cfs_node;
+
+void cfs_node_init(cfs_node *n, cfs_store *store, uint8_t mode, uint32_t self, cfs_transport tr);
+void cfs_node_free(cfs_node *n);
+
+/* The client side. `now` is this node's clock (seconds); it travels with a change. */
+void cfs_node_request(cfs_node *n, const uint8_t *body, size_t len, uid_t uid, uint64_t token, int64_t now);
+/* The client behind `token` went away: its answers are no longer wanted. */
+void cfs_node_forget(cfs_node *n, uint64_t token);
+
+/* The transport side, in delivery order. `members` need not be sorted. */
+void cfs_node_deliver(cfs_node *n, uint32_t sender, const uint8_t *msg, size_t len);
+void cfs_node_membership(cfs_node *n, const uint32_t *members, size_t count);
+void cfs_node_quorum(cfs_node *n, bool quorate);
+/* Corosync formed a new ring (sequence number `seq`, which only grows); called before the membership it brings. */
+void cfs_node_ring(cfs_node *n, uint64_t seq);
+
+/* Send again what the transport refused for flow control; true while something is still waiting. */
+bool cfs_node_flush(cfs_node *n);
+
+#endif

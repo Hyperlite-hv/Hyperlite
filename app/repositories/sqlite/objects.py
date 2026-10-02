@@ -42,6 +42,10 @@ class SqliteObjectStore:
         row = _one("SELECT username FROM vm_ssh_users WHERE vm_name = ?", (vm_name,))
         return row["username"] if row else None
 
+    def vm_ssh_users(self):
+        """{vm_name: username} for every VM: one query for the VM list instead of one per VM."""
+        return {r["vm_name"]: r["username"] for r in _rows("SELECT vm_name, username FROM vm_ssh_users")}
+
     def delete_vm_ssh_user(self, vm_name):
         _write("DELETE FROM vm_ssh_users WHERE vm_name = ?", (vm_name,))
 
@@ -55,6 +59,10 @@ class SqliteObjectStore:
     def vm_os_label(self, vm_name):
         row = _one("SELECT os_label FROM vm_os_label WHERE vm_name = ?", (vm_name,))
         return row["os_label"] if row else None
+
+    def vm_os_labels(self):
+        """{vm_name: os_label} for every VM."""
+        return {r["vm_name"]: r["os_label"] for r in _rows("SELECT vm_name, os_label FROM vm_os_label")}
 
     def delete_vm_os_label(self, vm_name):
         _write("DELETE FROM vm_os_label WHERE vm_name = ?", (vm_name,))

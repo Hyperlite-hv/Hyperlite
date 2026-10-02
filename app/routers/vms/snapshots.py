@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import firmware, iscsi, vm_locks, zfs_storage
+from app.core import checkpoints, firmware, iscsi, vm_locks, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -102,6 +102,9 @@ def _create_snapshot_job(task_id, username, vm_name, snap_name, snap_xml):
     conn = open_conn()
     try:
         domain = conn.lookupByName(vm_name)
+        if not domain.isActive():
+            # libvirt refuses an offline snapshot while a replication checkpoint exists.
+            checkpoints.release(domain, vm_name)
         domain.snapshotCreateXML(snap_xml, 0)
         finish_task(task_id, "termine")
         log_action(username, "create_snapshot", snap_name, "succes")
@@ -210,6 +213,8 @@ def _restore_snapshot_job(task_id, username, vm_name, snapshot_name):
     try:
         domain = conn.lookupByName(vm_name)
         snap = domain.snapshotLookupByName(snapshot_name)
+        # A revert rewrites the disk without marking the replication bitmap: the next copy must be a full one.
+        checkpoints.release(domain, vm_name)
         domain.revertToSnapshot(snap, 0)
         finish_task(task_id, "termine")
         log_action(username, "restore_snapshot", snapshot_name, "succes")

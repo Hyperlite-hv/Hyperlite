@@ -7,10 +7,12 @@ Status: **proposal, waiting for the maintainer's decision.** No code is written 
 - Virtual networks are libvirt networks: NAT, isolated, or bridge onto an existing host bridge
   (`app/routers/network.py`). The host's own network (interfaces, bridges, bonds, addresses) is set up by hand or by
   the installer, outside Hyperlite.
-- A VM interface can carry a `vlan_tag` (`PUT /vms/{name}/network`). libvirt honours `<vlan><tag>` only on Open
-  vSwitch bridges and a few direct modes. **On a standard Linux bridge the tag is accepted and silently ignored**: the
-  VM lands on the untagged network while the UI says VLAN 20. That breaks the "no fake success" rule and is the first
-  thing to fix.
+- A VM interface can carry a `vlan_tag` (`PUT /vms/{name}/network`, `POST /vms/{name}/interfaces`). libvirt honours
+  `<vlan><tag>` only on Open vSwitch bridges and SR-IOV networks (forward mode `hostdev` or `passthrough`). On a NAT,
+  isolated, Linux bridge or macvtap network it refuses the tag when the VM starts ("vlan tag not supported for this
+  connection type", verified on libvirt 10): a tag written to a stopped VM kept it from starting again. **Step 1 is
+  done**: the API refuses a tag on a network that cannot carry it, before writing anything, and the network list says
+  which networks can (`vlan`).
 - A per-network firewall exists (an iptables chain per bridge, `app/core/network_firewall.py`) and a per-VM firewall
   (libvirt nwfilter). There is no host firewall (the ports of the host itself).
 
@@ -35,7 +37,7 @@ Non-goals here: overlay networks between sites (VXLAN/EVPN, Proxmox SDN zones), 
 
 **Recommended: A, with C as the fallback the UI can already offer.** The tag becomes real on a VLAN-aware bridge;
 on a bridge without `vlan_filtering`, setting a tag is **refused** with "this bridge does not filter VLANs: create a
-VLAN network (C) or make the bridge VLAN-aware". The silent case disappears in step 1, before anything else.
+VLAN network (C) or make the bridge VLAN-aware". Step 1 (the refusal) is done.
 
 ### 3.2 Host interfaces (bonds, VLAN interfaces, bridges)
 

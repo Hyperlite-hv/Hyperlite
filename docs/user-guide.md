@@ -224,6 +224,10 @@ pools are marked in the list; deleting one removes it from every node that has i
 - **Bridge**: VMs sit on the host's network (an existing bridge, or a network card, bond or VLAN interface through
   macvtap).
 
+A VM interface takes a **VLAN tag** only on a network that can carry one (an Open vSwitch bridge or an SR-IOV
+network); libvirt refuses to start a VM with a tag on any other network, so the field is disabled there. To put a VM on
+a VLAN today, create a **Bridge** network on the VLAN interface (`bond0.20`, `eno1.20`) or on a bridge over it.
+
 A network's **Details**:
 
 - **Subnet and DHCP** (NAT and isolated networks, administrators): change the mode, gateway, mask and DHCP range. The
