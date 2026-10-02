@@ -126,6 +126,8 @@ jobs:
           sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs "$(which python)" -m pytest -q \
             -p no:cacheprovider cfs/tests/cluster
       - name: Fuzz the request handler and the peer messages (clang, libFuzzer, 2 x 45 s)
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1  # undefined behaviour stops the run, as a crash does
         run: |
           CC=clang meson setup build-fuzz cfs -Dfuzz=true -Db_sanitize=address,undefined -Db_lundef=false -Dbuildtype=debug
           ninja -C build-fuzz  # meson test builds only the tests, not the fuzz target

@@ -25,6 +25,7 @@ typedef struct {
     cfs_store *store;
     char db[256];
     int group;   /* partition: nodes with the same group see each other; -1 once it left */
+    uint64_t ring; /* the last Corosync ring this node was in */
     int status;  /* last answer's status, -1 when none arrived */
     uint8_t answer[64];
     size_t answer_len;
@@ -97,14 +98,35 @@ static void drop_queue(void)
     queued = 0;
 }
 
-/* New partitions (group per node, -1 for a node that stays out), then the quorum and membership callbacks in the
- * order corosync.c calls them. */
+/* Deliver the first message queued to its sender only, and lose it for the others: what a node cut off right after
+ * sending sees under extended virtual synchrony, since it delivers its own message in its transitional membership. */
+static void deliver_to_sender_only(void)
+{
+    sim_msg m = queue[0];
+    memmove(queue, queue + 1, (queued - 1) * sizeof(*queue));
+    queued--;
+    if (by_id(m.sender)->group >= 0)
+        cfs_node_deliver(&by_id(m.sender)->node, m.sender, m.msg, m.len);
+    free(m.msg);
+}
+
+/* New partitions (group per node, -1 for a node that stays out), then the callbacks in the order Corosync makes them:
+ * the quorum, the process group membership, then the ring, numbered like Corosync's (the highest its members knew,
+ * plus 4; two partitions can get the same number). */
 static void partition(const int groups[NODES])
 {
     drop_queue();
     for (int k = 0; k < NODES; k++)
         if (sim[k].group != -1 || groups[k] != -1)
             sim[k].group = groups[k];
+    uint64_t ring[NODES];
+    for (int k = 0; k < NODES; k++) {
+        ring[k] = 0;
+        for (int j = 0; j < NODES; j++)
+            if (sim[k].group >= 0 && sim[j].group == sim[k].group && sim[j].ring > ring[k])
+                ring[k] = sim[j].ring;
+        ring[k] += 4;
+    }
     for (int k = 0; k < NODES; k++) {
         if (sim[k].group < 0)
             continue;
@@ -113,8 +135,10 @@ static void partition(const int groups[NODES])
         for (int j = 0; j < NODES; j++)
             if (sim[j].group == sim[k].group)
                 members[n++] = sim[j].node.self;
+        sim[k].ring = ring[k];
         cfs_node_quorum(&sim[k].node, n * 2 > NODES);
         cfs_node_membership(&sim[k].node, members, n);
+        cfs_node_ring(&sim[k].node, ring[k]);
     }
     pump();
 }
@@ -134,6 +158,7 @@ static void setup(void)
         sim[k].node.reply = on_reply;
         sim[k].node.reply_arg = &sim[k];
         sim[k].group = 0;
+        sim[k].ring = 0;
     }
     int all[NODES] = {0, 0, 0};
     partition(all);
@@ -191,6 +216,16 @@ static bool same_state(int a, int b)
     state(a, &va, sa);
     state(b, &vb, sb);
     return va == vb && memcmp(sa, sb, CFS_CHECKSUM_LEN) == 0;
+}
+
+static bool has(int k, const char *path)
+{
+    int64_t version, mtime;
+    uint8_t *data = NULL;
+    size_t len;
+    int rc = cfs_store_get(sim[k].store, path, &version, &mtime, &data, &len);
+    free(data);
+    return rc == CFS_OK;
 }
 
 static void test_changes_are_applied_alike_everywhere(void)
@@ -270,7 +305,7 @@ static void test_a_change_in_flight_at_a_membership_change_is_applied_nowhere(vo
     put(0, "/z", "lost", CFS_ANY_VERSION);
     int split[NODES] = {0, 0, 1};
     partition(split); /* the change was not delivered before the new membership */
-    CHECK_EQ(sim[0].status, CFS_SYNCHRONISING);
+    CHECK_EQ(sim[0].status, CFS_UNCERTAIN); /* a member that left could have applied it: never "not applied" */
     for (int k = 0; k < NODES; k++) {
         int64_t v;
         state(k, &v, sum);
@@ -289,7 +324,7 @@ static void test_a_change_in_flight_at_a_membership_change_is_applied_nowhere(vo
     CHECK(sim[0].node.synced); /* node 1 still believes the old membership agreed */
     put(0, "/z", "early", CFS_ANY_VERSION);
     cfs_node_membership(&sim[0].node, members, NODES);
-    CHECK_EQ(sim[0].status, CFS_SYNCHRONISING);
+    CHECK_EQ(sim[0].status, CFS_UNCERTAIN);
     pump();
     for (int k = 0; k < NODES; k++) {
         int64_t v;
@@ -326,7 +361,7 @@ static void test_a_node_that_cannot_apply_a_change_leaves(void)
     CHECK_EQ(sqlite3_exec(other, "BEGIN EXCLUSIVE", NULL, NULL, NULL), SQLITE_OK);
     put(0, "/a", "1", CFS_ANY_VERSION);
     pump();
-    CHECK_EQ(sim[0].status, CFS_OK);
+    CHECK_EQ(sim[0].status, -1); /* node 2 never confirms it */
     CHECK(sim[1].node.failed);
     CHECK_EQ(sim[1].group, -1); /* it left the group */
     sqlite3_exec(other, "ROLLBACK", NULL, NULL, NULL);
@@ -337,6 +372,8 @@ static void test_a_node_that_cannot_apply_a_change_leaves(void)
     /* The others carry on, as a majority. */
     int rest[NODES] = {0, -1, 0};
     partition(rest);
+    CHECK_EQ(sim[0].status, CFS_UNCERTAIN); /* applied by nodes 1 and 3 in fact, but not confirmed by node 2 */
+    CHECK(has(0, "/a") && has(2, "/a"));
     put(2, "/c", "1", CFS_ANY_VERSION);
     pump();
     CHECK_EQ(sim[2].status, CFS_OK);
@@ -470,6 +507,70 @@ static void test_two_states_at_the_same_version_resolve_to_the_lowest_node(void)
     teardown();
 }
 
+/* A node cut off right after sending delivers its own changes alone. Answered at once, they would be lost when the
+ * cluster merges; ordered by version alone, its longer history would even replace the majority's. */
+static void test_a_change_held_by_a_minority_is_never_answered_nor_kept(void)
+{
+    setup();
+    put(2, "/minority/1", "x", CFS_ANY_VERSION);
+    put(2, "/minority/2", "x", CFS_ANY_VERSION);
+    put(2, "/minority/3", "x", CFS_ANY_VERSION);
+    for (int i = 0; i < 3; i++)
+        deliver_to_sender_only();
+    CHECK(has(2, "/minority/3"));
+    CHECK_EQ(sim[2].status, -1); /* applied on node 3, but nobody else confirmed it */
+    int split[NODES] = {0, 0, 1};
+    partition(split);
+    CHECK_EQ(sim[2].status, CFS_UNCERTAIN);
+
+    /* The majority answers its change, with a lower version than node 3's three. */
+    put(0, "/majority", "kept", CFS_ANY_VERSION);
+    pump();
+    CHECK_EQ(sim[0].status, CFS_OK);
+    int64_t v_minority, v_majority;
+    uint8_t sum[CFS_CHECKSUM_LEN];
+    state(2, &v_minority, sum);
+    state(0, &v_majority, sum);
+    CHECK(v_minority > v_majority);
+
+    /* Merged: the majority's state wins because its term is later, and its answered change survives. */
+    int all[NODES] = {0, 0, 0};
+    partition(all);
+    CHECK(same_state(0, 2) && same_state(1, 2));
+    CHECK(has(2, "/majority"));
+    CHECK(!has(2, "/minority/1") && !has(0, "/minority/1"));
+    for (int k = 0; k < NODES; k++)
+        CHECK(sim[k].node.synced);
+    teardown();
+}
+
+/* A change is answered only once every member confirmed it, and the confirmations of a busy cluster stay few. */
+static void test_answers_wait_for_every_member(void)
+{
+    setup();
+    put(0, "/c", "1", CFS_ANY_VERSION);
+    pump_n(1); /* the change itself, delivered everywhere */
+    CHECK_EQ(sim[0].status, -1);
+    pump();
+    CHECK_EQ(sim[0].status, CFS_OK);
+
+    size_t before = queued;
+    CHECK_EQ(before, 0);
+    char path[32];
+    for (int i = 0; i < 200; i++) {
+        snprintf(path, sizeof(path), "/load/%d", i);
+        put(i % NODES, path, "x", CFS_ANY_VERSION);
+    }
+    size_t sent = 0;
+    while (queued) { /* count every message the round trips cause */
+        sent += queued;
+        pump_n(queued);
+    }
+    CHECK(sent < 200 + 3 * 20); /* 200 changes and a handful of confirmations, not one per change and member */
+    CHECK(same_state(0, 1) && same_state(1, 2));
+    teardown();
+}
+
 int main(void)
 {
     test_changes_are_applied_alike_everywhere();
@@ -482,5 +583,7 @@ int main(void)
     test_a_node_back_after_many_changes_takes_the_whole_state();
     test_a_membership_change_during_a_transfer_starts_over();
     test_two_states_at_the_same_version_resolve_to_the_lowest_node();
+    test_a_change_held_by_a_minority_is_never_answered_nor_kept();
+    test_answers_wait_for_every_member();
     return check_failures;
 }

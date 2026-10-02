@@ -8,17 +8,19 @@
 
 /* Messages between nodes, little-endian like the socket protocol:
  *   u32 magic, u8 format version, u8 kind, then
- *   CHANGE: i64 sender's message number, i64 sender's time (seconds), then a request body as a client sent it;
- *   STATE:  u8 quorate, i64 cluster version, blob SHA-256 of tree and locks.
+ *   CHANGE:  i64 sender's message number, i64 sender's time (seconds), then a request body as a client sent it;
+ *   STATE:   u8 quorate, u64 ring, i64 term, i64 cluster version, blob SHA-256 of tree and locks;
+ *   APPLIED: u64 changes delivered by the sender since the agreement (its confirmation).
  * The sender's node id comes from the transport (Corosync names it), never from the message. */
 #define MSG_MAGIC 0x53464348u /* "HCFS" */
-#define MSG_FORMAT 1
+#define MSG_FORMAT 2
 #define MSG_CHANGE 1
 #define MSG_STATE 2
-#define MSG_XFER_BEGIN 3 /* i64 version, i64 next id, blob checksum */
+#define MSG_XFER_BEGIN 3 /* i64 version, i64 term, blob checksum */
 #define MSG_XFER_DATA 4  /* u32 count, then records: u8 1 + string path, i64 version, i64 mtime, blob data, or
                             u8 2 + string name, string owner, u32 node, i64 expires */
-#define MSG_XFER_END 5   /* u32 records sent */
+#define MSG_XFER_END 5   /* u32 records sent, i64 next id */
+#define MSG_APPLIED 6
 #define XFER_CHUNK (512u * 1024u) /* a data message is sent once it holds this much */
 #define XFER_BUF_MAX (2 * CFS_TREE_MAX) /* the records of a full tree, with room for their framing */
 #define MSG_HEADER 6
@@ -53,6 +55,11 @@ static void xfer_reset(cfs_node *n)
 void cfs_node_free(cfs_node *n)
 {
     xfer_reset(n);
+    for (size_t i = 0; i < n->nawaiting; i++)
+        free(n->awaiting[i].frame);
+    free(n->awaiting);
+    n->awaiting = NULL;
+    n->nawaiting = 0;
     for (size_t i = 0; i < n->nqueue; i++)
         free(n->queue[i].p);
     free(n->queue);
@@ -74,6 +81,62 @@ static void reply(cfs_node *n, uint64_t token, uint32_t id, int status, const cf
     if (!out.err && n->reply)
         n->reply(n->reply_arg, token, out.p, out.len);
     cfs_writer_free(&out);
+}
+
+static const char UNCERTAIN_REASON[] =
+    "the cluster membership changed before every member confirmed this change: it may or may not have been "
+    "applied; read the entry back before retrying";
+
+/* Answer the changes applied here that every member has confirmed since (all of them, on a single member). */
+static void confirm(cfs_node *n)
+{
+    uint64_t lowest = n->pos;
+    for (size_t i = 0; i < n->nmembers; i++)
+        if (n->members[i] != n->self && n->confirmed[i] < lowest)
+            lowest = n->confirmed[i];
+    size_t done = 0;
+    while (done < n->nawaiting && n->awaiting[done].pos <= lowest) {
+        cfs_awaiting *a = &n->awaiting[done++];
+        if (n->reply)
+            n->reply(n->reply_arg, a->token, a->frame, a->len);
+        free(a->frame);
+    }
+    if (done) {
+        memmove(n->awaiting, n->awaiting + done, (n->nawaiting - done) * sizeof(*n->awaiting));
+        n->nawaiting -= done;
+    }
+}
+
+/* The membership changed, or the members stopped agreeing, before the changes still waiting were confirmed. */
+static void fail_awaiting(cfs_node *n)
+{
+    for (size_t i = 0; i < n->nawaiting; i++) {
+        reply(n, n->awaiting[i].token, n->awaiting[i].id, CFS_UNCERTAIN, NULL, UNCERTAIN_REASON);
+        free(n->awaiting[i].frame);
+    }
+    n->nawaiting = 0;
+}
+
+static bool await_confirmation(cfs_node *n, const cfs_pending *p, int status, const cfs_writer *payload,
+                               const char *reason)
+{
+    if (n->nawaiting == n->cap_awaiting) {
+        size_t cap = n->cap_awaiting ? n->cap_awaiting * 2 : 16;
+        cfs_awaiting *a = realloc(n->awaiting, cap * sizeof(*a));
+        if (!a)
+            return false;
+        n->awaiting = a;
+        n->cap_awaiting = cap;
+    }
+    cfs_writer out;
+    cfs_writer_init(&out);
+    cfs_answer(&out, p->id, status, payload, reason);
+    if (out.err) {
+        cfs_writer_free(&out);
+        return false;
+    }
+    n->awaiting[n->nawaiting++] = (cfs_awaiting){n->pos, p->token, p->id, out.p, out.len};
+    return true;
 }
 
 /* Answer every change still in flight: none of them will be applied any more. */
@@ -117,6 +180,9 @@ void cfs_node_forget(cfs_node *n, uint64_t token)
     for (size_t i = 0; i < n->npending; i++)
         if (n->pending[i].token == token)
             n->pending[i].token = UINT64_MAX;
+    for (size_t i = 0; i < n->nawaiting; i++)
+        if (n->awaiting[i].token == token)
+            n->awaiting[i].token = UINT64_MAX;
 }
 
 /* ---- Sending ------------------------------------------------------------------------------------------------------ */
@@ -178,6 +244,8 @@ static void send_state(cfs_node *n)
     cfs_write_u8(&w, MSG_FORMAT);
     cfs_write_u8(&w, MSG_STATE);
     cfs_write_u8(&w, n->quorate ? 1 : 0);
+    cfs_write_i64(&w, (int64_t)n->ring);
+    cfs_write_i64(&w, cfs_store_term(n->ctx.store));
     cfs_write_i64(&w, version);
     cfs_write_blob(&w, sum, sizeof(sum));
     if (w.err) {
@@ -189,6 +257,30 @@ static void send_state(cfs_node *n)
         fprintf(stderr, "hyperlite-cfs: cannot send this node's state\n");
     w.p = NULL; /* send_or_queue owns it now */
     cfs_writer_free(&w);
+}
+
+/* Tell the members how many changes this node applied; at most one confirmation in flight, so a busy cluster sends
+ * about one per member per round trip, not one per change. */
+static void send_confirmation(cfs_node *n)
+{
+    if (n->confirming || n->pos == n->reported || n->nmembers < 2 || n->failed)
+        return;
+    cfs_writer w;
+    cfs_writer_init(&w);
+    cfs_write_u32(&w, MSG_MAGIC);
+    cfs_write_u8(&w, MSG_FORMAT);
+    cfs_write_u8(&w, MSG_APPLIED);
+    cfs_write_i64(&w, (int64_t)n->pos);
+    if (w.err) {
+        cfs_writer_free(&w);
+        return;
+    }
+    if (send_or_queue(n, w.p, w.len)) {
+        n->confirming = true;
+        n->reported = n->pos;
+    } else {
+        fprintf(stderr, "hyperlite-cfs: cannot send this node's confirmation\n");
+    }
 }
 
 /* ---- Client requests ---------------------------------------------------------------------------------------------- */
@@ -347,6 +439,7 @@ static void send_dump(cfs_node *n)
     cfs_write_u8(&w, MSG_FORMAT);
     cfs_write_u8(&w, MSG_XFER_BEGIN);
     cfs_write_i64(&w, version);
+    cfs_write_i64(&w, cfs_store_term(n->ctx.store));
     cfs_write_blob(&w, sum, sizeof(sum));
     bool ok = !w.err && send_or_queue(n, w.p, w.len);
     if (w.err)
@@ -381,21 +474,25 @@ static long member_index(const cfs_node *n, uint32_t node);
 static void start_transfer(cfs_node *n)
 {
     size_t src = 0;
-    for (size_t i = 1; i < n->nmembers; i++) /* members are sorted: on a tie the lowest node id stays */
-        if (n->states[i].version > n->states[src].version)
+    for (size_t i = 1; i < n->nmembers; i++) { /* members are sorted: on a tie the lowest node id stays */
+        const cfs_member_state *a = &n->states[i], *b = &n->states[src];
+        if (a->term > b->term || (a->term == b->term && a->version > b->version))
             src = i;
+    }
     long me = member_index(n, n->self);
     n->transferring = true;
     n->transferred = true;
     n->xfer_source = n->members[src];
     n->xfer_needed = me >= 0 && (n->states[me].version != n->states[src].version ||
                                  memcmp(n->states[me].sum, n->states[src].sum, CFS_CHECKSUM_LEN) != 0);
-    fprintf(stderr, "hyperlite-cfs: the members differ; node %u sends its state (version %lld)%s\n", n->xfer_source,
-            (long long)n->states[src].version, n->xfer_needed ? " and this node takes it" : "");
-    if (n->xfer_needed && me >= 0 && n->states[me].version == n->states[src].version)
-        fprintf(stderr, "hyperlite-cfs: WARNING: this node holds a different state at the same version, which only "
-                        "two writable partitions can produce (an expected-votes override on both sides?): its "
-                        "changes since then are replaced by node %u's\n",
+    fprintf(stderr, "hyperlite-cfs: the members differ; node %u sends its state (term %lld, version %lld)%s\n",
+            n->xfer_source, (long long)n->states[src].term, (long long)n->states[src].version,
+            n->xfer_needed ? " and this node takes it" : "");
+    if (n->xfer_needed && me >= 0 && n->states[me].term == n->states[src].term &&
+        n->states[me].version == n->states[src].version)
+        fprintf(stderr, "hyperlite-cfs: WARNING: this node holds a different state at the same term and version, "
+                        "which only two writable partitions can produce (an expected-votes override on both "
+                        "sides?): its changes since then are replaced by node %u's\n",
                 n->xfer_source);
     if (n->xfer_source == n->self)
         send_dump(n);
@@ -404,6 +501,7 @@ static void start_transfer(cfs_node *n)
 static void deliver_xfer_begin(cfs_node *n, cfs_reader *r)
 {
     n->xfer_version = cfs_read_i64(r);
+    n->xfer_term = cfs_read_i64(r);
     uint32_t len;
     const uint8_t *sum = cfs_read_blob(r, CFS_CHECKSUM_LEN, &len);
     if (r->err || len != CFS_CHECKSUM_LEN) {
@@ -439,7 +537,8 @@ static void deliver_xfer_data(cfs_node *n, cfs_reader *r)
         n->xfer_buf = p;
         n->xfer_cap = cap;
     }
-    memcpy(n->xfer_buf + n->xfer_len, r->p + r->off, len);
+    if (len)
+        memcpy(n->xfer_buf + n->xfer_len, r->p + r->off, len); /* an empty message leaves the buffer unallocated */
     n->xfer_len += len;
     n->xfer_records += count;
 }
@@ -480,12 +579,12 @@ static bool apply_transfer(cfs_node *n, uint32_t total, int64_t next_id)
         cfs_store_replace_abort(st);
         return false;
     }
-    if (cfs_store_replace_commit(st, n->xfer_version, next_id) != CFS_OK)
+    if (cfs_store_replace_commit(st, n->xfer_version, next_id, n->xfer_term) != CFS_OK)
         return false;
     int64_t version, entries, bytes;
     uint8_t sum[CFS_CHECKSUM_LEN];
     return cfs_store_status(st, &version, sum, &entries, &bytes) == CFS_OK && version == n->xfer_version &&
-           memcmp(sum, n->xfer_sum, CFS_CHECKSUM_LEN) == 0;
+           cfs_store_term(st) == n->xfer_term && memcmp(sum, n->xfer_sum, CFS_CHECKSUM_LEN) == 0;
 }
 
 static void deliver_xfer_end(cfs_node *n, cfs_reader *r)
@@ -519,6 +618,7 @@ static void fail_node(cfs_node *n, const char *why)
     n->failed = true;
     n->synced = false;
     fail_pending(n, CFS_INTERNAL, "this node failed to apply the change and left the cluster");
+    fail_awaiting(n);
     if (n->tr.leave)
         n->tr.leave(n->tr.arg);
 }
@@ -532,13 +632,13 @@ static void deliver_change(cfs_node *n, uint32_t sender, cfs_reader *r, const ui
     cfs_pending mine;
     bool own = sender == n->self && take_pending(n, seq, &mine);
     if (!n->synced || n->failed) {
-        /* Every member drops it alike: it was sent around a membership change. */
+        /* Every member here drops it alike: it was sent around a membership change. A member that left before the
+         * change may still have applied it, hence "uncertain". */
         if (own)
-            reply(n, mine.token, mine.id, CFS_SYNCHRONISING, NULL,
-                  "the cluster membership changed while this change was in flight, and it was not applied: read the "
-                  "entry back before retrying");
+            reply(n, mine.token, mine.id, CFS_UNCERTAIN, NULL, UNCERTAIN_REASON);
         return;
     }
+    n->pos++;
     cfs_request req;
     char reason[512] = "";
     cfs_writer payload;
@@ -562,9 +662,31 @@ static void deliver_change(cfs_node *n, uint32_t sender, cfs_reader *r, const ui
             rc = CFS_INTERNAL;
             snprintf(reason, sizeof(reason), "the answer could not be built");
         }
-        reply(n, mine.token, mine.id, rc, &payload, reason);
+        /* Answered once every member confirmed it: before that, a partition could leave it only on a minority. */
+        if (!await_confirmation(n, &mine, rc, &payload, reason))
+            reply(n, mine.token, mine.id, CFS_UNCERTAIN, NULL,
+                  "out of memory while waiting for the members to confirm this change: read the entry back");
+        confirm(n);
     }
     cfs_writer_free(&payload);
+    send_confirmation(n);
+}
+
+static void deliver_applied(cfs_node *n, uint32_t sender, cfs_reader *r)
+{
+    uint64_t pos = (uint64_t)cfs_read_i64(r);
+    long i = member_index(n, sender);
+    if (r->err || r->off != r->len || i < 0 || !n->synced || n->failed)
+        return; /* one sent around a membership change counts for nothing: the agreement starts the count over */
+    if (pos > n->pos)
+        pos = n->pos; /* a member cannot have applied more than was delivered; never trust a peer beyond that */
+    if (pos > n->confirmed[i])
+        n->confirmed[i] = pos;
+    if (sender == n->self) {
+        n->confirming = false;
+        send_confirmation(n);
+    }
+    confirm(n);
 }
 
 static long member_index(const cfs_node *n, uint32_t node)
@@ -578,25 +700,52 @@ static long member_index(const cfs_node *n, uint32_t node)
 /* Every member decides from the same states, delivered in the same order, so they decide alike. */
 static void evaluate_states(cfs_node *n)
 {
-    bool all = n->nmembers > 0, quorate = true, same = true;
+    bool all = n->nmembers > 0, quorate = true, same = true, one_ring = true;
     for (size_t i = 0; i < n->nmembers; i++) {
         const cfs_member_state *s = &n->states[i];
         all = all && s->seen;
         quorate = quorate && s->quorate;
+        /* A state counts only if sent in this node's current ring. Corosync reports a new membership before the
+         * ring that brings it (cpg_sync_activate), so the first state of each member names the old ring; the ring
+         * arrives before any message of the new one is delivered, so every member judges each state alike, and each
+         * member sends its state again once it knows the ring (cfs_node_ring). */
+        one_ring = one_ring && s->ring == n->ring;
+        /* The data alone: a state sent just before an agreement can name the term before it, and the agreement
+         * brings every member to the same term anyway. */
         same = same && s->version == n->states[0].version &&
                memcmp(s->sum, n->states[0].sum, CFS_CHECKSUM_LEN) == 0;
     }
+    all = all && one_ring;
     bool was = n->synced;
     n->synced = all && quorate && same && !n->failed && !n->transferring;
     n->diverged = all && !same && n->transferred && !n->transferring;
+    if (was && !n->synced)
+        fail_awaiting(n);
     if (all && quorate && !same && !n->transferred && !n->failed) {
         start_transfer(n);
         return;
     }
-    if (n->synced && !was)
-        fprintf(stderr, "hyperlite-cfs: %zu member(s) agree on version %lld, changes are applied\n", n->nmembers,
-                (long long)n->states[0].version);
-    else if (n->diverged)
+    if (n->synced && !was) {
+        /* The agreement: the state is now the one of this ring, which only grows, so a later quorate membership
+         * always outranks a minority that never agreed since (design, section 8.4). */
+        int64_t ring = (int64_t)n->states[0].ring, term = 0;
+        for (size_t i = 0; i < n->nmembers; i++)
+            if (n->states[i].term > term)
+                term = n->states[i].term;
+        if (cfs_store_set_term(n->ctx.store, ring > term ? ring : term) != CFS_OK) {
+            fail_node(n, cfs_store_error(n->ctx.store));
+            return;
+        }
+        if (ring < term)
+            fprintf(stderr, "hyperlite-cfs: WARNING: Corosync's ring %lld is behind this state's term %lld; was "
+                            "/var/lib/corosync wiped? The term stays\n",
+                    (long long)ring, (long long)term);
+        n->pos = n->reported = 0;
+        n->confirming = false;
+        memset(n->confirmed, 0, sizeof(n->confirmed));
+        fprintf(stderr, "hyperlite-cfs: %zu member(s) agree on version %lld (term %lld), changes are applied\n",
+                n->nmembers, (long long)n->states[0].version, (long long)cfs_store_term(n->ctx.store));
+    } else if (n->diverged)
         fprintf(stderr, "hyperlite-cfs: the members still hold different states after a state transfer, changes "
                         "stay refused\n");
 }
@@ -605,6 +754,8 @@ static void deliver_state(cfs_node *n, uint32_t sender, cfs_reader *r)
 {
     cfs_member_state s = {.seen = true};
     s.quorate = cfs_read_u8(r) != 0;
+    s.ring = (uint64_t)cfs_read_i64(r);
+    s.term = cfs_read_i64(r);
     s.version = cfs_read_i64(r);
     uint32_t sum_len;
     const uint8_t *sum = cfs_read_blob(r, CFS_CHECKSUM_LEN, &sum_len);
@@ -630,6 +781,8 @@ void cfs_node_deliver(cfs_node *n, uint32_t sender, const uint8_t *msg, size_t l
         deliver_change(n, sender, &r, msg, len);
     else if (kind == MSG_STATE)
         deliver_state(n, sender, &r);
+    else if (kind == MSG_APPLIED)
+        deliver_applied(n, sender, &r);
     else if (n->transferring && sender == n->xfer_source && !n->failed) {
         if (kind == MSG_XFER_BEGIN)
             deliver_xfer_begin(n, &r);
@@ -659,10 +812,10 @@ void cfs_node_membership(cfs_node *n, const uint32_t *members, size_t count)
     n->transferred = false;
     xfer_reset(n); /* a transfer cut by the membership change is dropped; the next agreement starts over */
     fprintf(stderr, "hyperlite-cfs: membership changed, %zu member(s)\n", count);
-    /* Changes sent before this point and not delivered yet are dropped by every member (deliver_change). */
-    fail_pending(n, CFS_SYNCHRONISING,
-                 "the cluster membership changed while this change was in flight: read the entry back before "
-                 "retrying");
+    /* Changes sent before this point and not delivered yet are dropped by every member still here (deliver_change),
+     * but one that left may have applied them; those applied here were not confirmed by every member. */
+    fail_pending(n, CFS_UNCERTAIN, UNCERTAIN_REASON);
+    fail_awaiting(n);
     if (n->failed)
         return;
     /* Locks taken from a node that left are released, by every member at the same point of the stream. */
@@ -673,12 +826,26 @@ void cfs_node_membership(cfs_node *n, const uint32_t *members, size_t count)
     send_state(n);
 }
 
+void cfs_node_ring(cfs_node *n, uint64_t seq)
+{
+    if (n->ring == seq)
+        return;
+    n->ring = seq;
+    /* Agreement needs every member in the same ring: a member that heard of this one after sending its state says
+     * so again. */
+    if (n->nmembers && !n->failed)
+        send_state(n);
+}
+
 void cfs_node_quorum(cfs_node *n, bool quorate)
 {
     if (n->quorate == quorate)
         return;
     n->quorate = quorate;
-    fprintf(stderr, "hyperlite-cfs: %s\n", quorate ? "quorate" : "quorum lost, changes are refused");
+    fprintf(stderr, "hyperlite-cfs: %s\n",
+            quorate ? "quorate"
+                    : "not quorate (no quorum, or the quorum service has not spoken for this ring yet): changes are "
+                      "refused");
     /* The other members learn it the same way as a state: a member without quorum holds every member back. */
     if (n->nmembers && !n->failed)
         send_state(n);

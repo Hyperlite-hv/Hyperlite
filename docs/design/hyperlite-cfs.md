@@ -1,7 +1,8 @@
 # Design: `hyperlite-cfs`, the replicated cluster configuration
 
-Status: **accepted (2026-10-01).** Phase A (local mode) and steps B1 and B2 of phase B (Corosync, quorum, agreement
-on one state, state transfer) are in `cfs/`; B3 to E are to come.
+Status: **accepted (2026-10-01).** Phase A (local mode), steps B1 and B2 of phase B (Corosync, quorum, agreement
+on one state, state transfer) and the first part of B3 (terms, answers confirmed by every member) are in `cfs/`; the
+rest of B3, then B4 to E, are to come.
 
 Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose Proxmox VE's architecture
 on Proxmox VE's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
@@ -90,8 +91,10 @@ What follows for the design:
 4. **Every** node, the sender included, applies messages **in delivery order**, each in one SQLite transaction:
    - check `expected_version`, if given; a mismatch is a conflict and nothing changes, on every node alike;
    - apply, increment the cluster version, commit.
-5. The sender answers its client only when **its own copy** of the message has been delivered and applied. A reader
-   on the same node therefore sees its own write, and the result (applied or conflict) is the same on every node.
+5. Every member confirms what it applied, and the sender answers its client only when **every member** confirmed
+   the change (section 8.4). A reader on the same node sees its own write, the result (applied or conflict) is the
+   same on every node, and an answered change is held by a quorum. If the membership changes first, the answer is
+   "uncertain": the client reads the entry back before retrying.
 
 `expected_version` is compare-and-set: two administrators changing the same VM at the same time get one success and
 one clear conflict, never a silent overwrite.
@@ -115,9 +118,9 @@ Proxmox's interface "will ask the backend for a free VMID" in the same spirit.
 On every configuration change delivered by CPG:
 
 1. Every node stops applying writes and answers clients "synchronising, retry". The window is short.
-2. Every member multicasts `(node id, cluster version, checksum of the tree)`.
+2. Every member multicasts `(node id, term, cluster version, checksum of the tree, quorate, Corosync ring)`.
 3. When all of them are delivered, every member computes the same choice from the same data: the **source** is the
-   member with the highest version, ties broken by the lowest node id.
+   member with the highest term, then the highest version, ties broken by the lowest node id (section 8.4).
 4. Members whose `(version, checksum)` differs from the source's receive the source's tree:
    - entries newer than their own are sent as a diff when possible;
    - a full copy is sent otherwise, for example when the checksums differ at the same version, which means
@@ -127,11 +130,10 @@ On every configuration change delivered by CPG:
 Two consequences, both deliberate:
 - A partition that was **not quorate** has written nothing, since writes are refused without quorum. On merge, the
   quorate side's tree wins without conflict.
-- A write applied on some nodes just before a crash, and lost by the others, is either kept, if the node that
-  applied it becomes the source, or reverted. The only client that could have received a success answer is the one
-  on the node that applied it. The daemon therefore answers only after delivery (4.1, step 5), and a client that got
-  no answer must read back before retrying. The test plan has to prove that **no acknowledged write is lost while a
-  quorum remains**.
+- A write applied on some nodes just before a crash, and lost by the others, is either kept, if a node that applied
+  it becomes the source, or reverted. No client was told it succeeded: the daemon answers only once every member
+  confirmed the write (4.1, step 5), and a client that got no answer, or "uncertain", must read back before
+  retrying. The test plan has to prove that **no acknowledged write is lost while a quorum remains**.
 
 ### 4.5 Ephemeral status (`hyperlite-statd`)
 
@@ -143,8 +145,9 @@ Two consequences, both deliberate:
 
 ## 5. Quorum
 
-- `votequorum`, every node configured with one vote (`quorum_votes: 1`). Writes are allowed only while
-  `quorum_getquorate()` reports quorate.
+- `votequorum`, every node configured with one vote (`quorum_votes: 1`). Writes are allowed only while the quorum
+  service reports quorate **for the current ring**: its notifications carry the ring they are for, and a view of an
+  earlier ring counts as not quorate (section 8.4).
 - **Two nodes**: Hyperlite does **not** enable `two_node: 1`. That option sets quorum "artificially to 1", so both
   halves of a split could write. Two-node clusters follow Proxmox's recommendation of a QDevice (`corosync-qnetd` on
   a third machine). Without one, the survivor of a failure is read-only until the administrator runs the equivalent
@@ -168,7 +171,8 @@ Two consequences, both deliberate:
 - `app/repositories/cfs/`: a repository implementation per domain over the socket, next to `sqlite/`. The
   repositories written in phase 1 are the only callers, so the routers do not change.
 - A small client (`app/core/cfs_client.py`) with a length-prefixed binary protocol, timeouts, and the exceptions
-  `ReadOnly` (no quorum), `Conflict` (version), `Synchronising` (retry) and `TooLarge`.
+  `ReadOnly` (no quorum), `Conflict` (version), `Synchronising` (retry), `Uncertain` (read back, then retry) and
+  `TooLarge`.
 - A **FUSE view** of the tree, mounted read-only at `/etc/hyperlite/cluster` for administrators and scripts, is
   optional and comes last.
 
@@ -188,6 +192,7 @@ Two consequences, both deliberate:
 |---|---|---|
 | B1 | Corosync transport (CPG agreed order, quorum service); changes applied by every member in delivery order; refused without quorum; after each membership change, every member sends its state and changes resume only when all states are equal and quorate; a three-node test on a real Corosync in network namespaces | done |
 | B2 | State transfer: a member that differs receives the source's tree and locks (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | done |
+| B3a | What the fault tests need the protocol to guarantee, found while writing them (section 8.4): terms, answers confirmed by every member, the quorum of the current ring | done |
 | B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | to do |
 | B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | to do |
 
@@ -218,8 +223,9 @@ Found by reading phase A against what cluster mode needs:
 ### 8.3 How B2 transfers a state
 
 - Every member decides from the same states, delivered in the same order: when all members sent theirs, all are
-  quorate and they differ, they pick the same **source**, the highest version and, on a tie, the lowest node id. A
-  minority never gets there, since its members are not quorate, so it can never become a source.
+  quorate and they differ, they pick the same **source**, the highest version and, on a tie, the lowest node id (since
+  B3a the term comes first, section 8.4). A minority never gets there, since its members are not quorate, so it can
+  never become a source.
 - The source multicasts its whole state: a begin message (version, checksum), data messages of at most 512 KiB
   (entries in path order, then locks), an end message (record count, id counter). The members that differ keep the
   records in memory and, at the end, replace their state **in one SQLite transaction**, then check that the result has
@@ -229,11 +235,46 @@ Found by reading phase A against what cluster mode needs:
   instead of looping.
 - A membership change during a transfer drops it: the next agreement starts over, and a node half-way through
   keeps its old state, since nothing is written before the end message.
-- Two states at the **same version** with different checksums can only come from two writable partitions (an
+- Two states at the **same term and version** with different checksums can only come from two writable partitions (an
   expected-votes override on both sides). They are resolved like any other difference, to the lowest node id, and the
   node that loses its changes logs a warning.
 - It is a full copy, not a diff: a tree is at most 128 MiB, and copying it whole keeps the code small. A diff is an
   optimisation for later if transfers prove slow.
+
+### 8.4 What B3 needs the protocol to guarantee
+
+Writing the checker of section 9 ("every acknowledged write is present on every node") showed three ways B2 could
+break it. Each now has a test in the simulated cluster (`cfs/tests/test_node.c`), and the first was reproduced there
+against B2's code before it was fixed.
+
+- **A cut-off node delivers its own changes alone.** Under extended virtual synchrony, a node cut off right after
+  sending delivers its own messages in its transitional membership; the others never see them. B2 answered the
+  client then, and on the merge the highest version won: a minority with a few such changes could replace the
+  majority's state, answered writes included. Two changes close it:
+  - **A change is answered once every member confirmed it.** Every member multicasts how many changes it applied
+    since the agreement, at most one such confirmation in flight per member, so a busy cluster sends about one per
+    member per round trip. An answered change is held by every member of a quorate membership, so by a quorum,
+    which any later quorate membership meets. A membership change before that answers `UNCERTAIN` (status 10), never
+    "not applied": a member that left may have applied it.
+  - **States are ordered by term, then by version.** The term is the Corosync ring of the last agreement the state
+    took part in: every member records it at the agreement, and a state transfer copies it. Corosync numbers each
+    ring above every ring its members were in, and keeps the number across restarts (`/var/lib/corosync`). A minority
+    never agrees, so its term stays the one before the split, below the majority's. Within one ring, the members'
+    histories are prefixes of one agreed order, so the version orders them. Two partitions can get the same ring
+    number; only one of them is quorate, so only one can agree.
+- **A quorum view can be the previous ring's.** The quorum service and CPG are separate connections, and the view
+  read when CPG reports a membership could still be the old one: a node left alone briefly agreed with itself in the
+  three-node test. Votequorum sends a notification at every ring, with the ring's number (`votequorum_sync_activate`);
+  the node counts as quorate only when the last one is for the ring CPG reports now.
+- **States must be judged in the same ring by every member.** Corosync reports a new membership, then the ring that
+  brings it, both before any message of the new ring (`cpg_sync_activate`). A member's first state therefore names
+  the old ring. A state counts only if it names the receiver's current ring; every member resends its state once it
+  knows the ring, so they agree on the new ring's number, never on the old one.
+
+The term is not part of the checksum, and agreement compares the data alone (version and checksum): a state sent
+just before an agreement can carry the previous term, and the agreement brings every member to the same term. If
+Corosync's ring ever falls below a stored term (its state directory wiped), the term stays and the node logs a
+warning.
 
 ## 9. Tests
 

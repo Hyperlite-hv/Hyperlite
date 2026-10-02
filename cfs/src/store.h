@@ -67,8 +67,13 @@ int cfs_store_replace_begin(cfs_store *s);
 int cfs_store_replace_entry(cfs_store *s, const char *path, int64_t version, int64_t mtime, const uint8_t *data,
                             size_t len);
 int cfs_store_replace_lock(cfs_store *s, const char *name, const char *owner, uint32_t node, int64_t expires);
-int cfs_store_replace_commit(cfs_store *s, int64_t version, int64_t next_id);
+int cfs_store_replace_commit(cfs_store *s, int64_t version, int64_t next_id, int64_t term);
 void cfs_store_replace_abort(cfs_store *s);
+
+/* The term: the Corosync ring of the last agreement this state took part in. States are ordered by term, then by
+ * version (design, section 8.4); it is not part of the checksum. Setting it is its own small transaction. */
+int64_t cfs_store_term(const cfs_store *s);
+int cfs_store_set_term(cfs_store *s, int64_t term);
 
 /* The cluster version, and the SHA-256 of the whole state (tree and locks): two nodes hold the same state iff both
  * are equal. */

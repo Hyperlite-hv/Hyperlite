@@ -10,6 +10,7 @@
 struct cfs_store {
     sqlite3 *db;
     int64_t version; /* cluster version: the number of the last applied change */
+    int64_t term;    /* Corosync ring of the last agreement this state took part in (design, section 8.4) */
     int64_t bytes;   /* total size of the entries' data, kept against CFS_TREE_MAX */
     char error[CFS_PATH_MAX + 512];
 };
@@ -26,7 +27,7 @@ static const char SCHEMA[] =
     " owner TEXT NOT NULL,"
     " node INTEGER NOT NULL,"
     " expires INTEGER NOT NULL) WITHOUT ROWID;"
-    "INSERT OR IGNORE INTO meta (key, value) VALUES ('version', 0), ('next_id', 100);";
+    "INSERT OR IGNORE INTO meta (key, value) VALUES ('version', 0), ('next_id', 100), ('term', 0);";
 
 static void set_error(cfs_store *s, const char *what)
 {
@@ -88,6 +89,7 @@ cfs_store *cfs_store_open(const char *db_path, char *err, size_t errlen)
         return NULL;
     }
     s->version = query_i64(s, "SELECT value FROM meta WHERE key = 'version'", 0);
+    s->term = query_i64(s, "SELECT value FROM meta WHERE key = 'term'", 0);
     s->bytes = query_i64(s, "SELECT COALESCE(SUM(length(data)), 0) FROM tree", 0);
     return s;
 }
@@ -612,21 +614,29 @@ int cfs_store_replace_lock(cfs_store *s, const char *name, const char *owner, ui
                : CFS_INTERNAL;
 }
 
-int cfs_store_replace_commit(cfs_store *s, int64_t version, int64_t next_id)
+static int set_meta(cfs_store *s, const char *key, int64_t value)
 {
     sqlite3_stmt *st;
-    int rc = CFS_OK;
-    if (sqlite3_prepare_v2(s->db, "UPDATE meta SET value = ? WHERE key = 'next_id'", -1, &st, NULL) != SQLITE_OK) {
-        set_error(s, "replace");
-        rc = CFS_INTERNAL;
-    } else {
-        sqlite3_bind_int64(st, 1, next_id);
-        if (sqlite3_step(st) != SQLITE_DONE) {
-            set_error(s, "replace");
-            rc = CFS_INTERNAL;
-        }
-        sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(s->db, "UPDATE meta SET value = ? WHERE key = ?", -1, &st, NULL) != SQLITE_OK) {
+        set_error(s, key);
+        return CFS_INTERNAL;
     }
+    sqlite3_bind_int64(st, 1, value);
+    sqlite3_bind_text(st, 2, key, -1, SQLITE_STATIC);
+    int rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) {
+        set_error(s, key);
+        return CFS_INTERNAL;
+    }
+    return CFS_OK;
+}
+
+int cfs_store_replace_commit(cfs_store *s, int64_t version, int64_t next_id, int64_t term)
+{
+    int rc = set_meta(s, "next_id", next_id);
+    if (rc == CFS_OK)
+        rc = set_meta(s, "term", term);
     int64_t bytes = query_i64(s, "SELECT COALESCE(SUM(length(data)), 0) FROM tree", -1);
     if (rc == CFS_OK && (bytes < 0 || (uint64_t)bytes > CFS_TREE_MAX)) {
         snprintf(s->error, sizeof(s->error), "the received tree is larger than the limit");
@@ -639,12 +649,28 @@ int cfs_store_replace_commit(cfs_store *s, int64_t version, int64_t next_id)
         return rc;
     }
     s->bytes = bytes;
+    s->term = term;
     return CFS_OK;
 }
 
 void cfs_store_replace_abort(cfs_store *s)
 {
     rollback(s);
+}
+
+int64_t cfs_store_term(const cfs_store *s)
+{
+    return s->term;
+}
+
+int cfs_store_set_term(cfs_store *s, int64_t term)
+{
+    if (term == s->term)
+        return CFS_OK;
+    int rc = set_meta(s, "term", term);
+    if (rc == CFS_OK)
+        s->term = term;
+    return rc;
 }
 
 /* ---- Reads ------------------------------------------------------------------------------------------------------- */
