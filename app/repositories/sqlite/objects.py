@@ -8,7 +8,6 @@ Rows only: validation, defaults and libvirt stay in the app/core modules that ow
 import asyncio
 
 from app.core.database import get_conn
-from app.repositories.cfs import shadow
 
 
 def _one(sql, params=()):
@@ -141,26 +140,18 @@ class SqliteObjectStore:
             "boot_order = excluded.boot_order, delay_s = excluded.delay_s",
             (node, vm_name, autostart, order, delay_s),
         )
-        shadow.mirror("boot", node, vm_name)
 
     def delete_boot_setting(self, node, vm_name):
         _write("DELETE FROM vm_boot WHERE node = ? AND vm_name = ?", (node, vm_name))
-        shadow.mirror("boot", node, vm_name)
 
     def move_boot_setting(self, vm_name, source_node, target_node):
-        moved = (
+        return (
             _write(
                 "UPDATE OR REPLACE vm_boot SET node = ? WHERE node = ? AND vm_name = ?",
                 (target_node, source_node, vm_name),
             ).rowcount
             > 0
         )
-        shadow.mirror("boot", source_node, vm_name)
-        shadow.mirror("boot", target_node, vm_name)
-        return moved
-
-    def all_boot_settings(self):
-        return _rows("SELECT node, vm_name, autostart, boot_order, delay_s FROM vm_boot ORDER BY node, vm_name")
 
     def autostart_vms(self, node):
         return _rows("SELECT vm_name, boot_order, delay_s FROM vm_boot WHERE node = ? AND autostart = 1", (node,))
@@ -228,11 +219,9 @@ class SqliteObjectStore:
             "ON CONFLICT(kind, node, name) DO UPDATE SET notes = excluded.notes, tags = excluded.tags",
             (kind, node, name, notes, tags),
         )
-        shadow.mirror("meta", kind, node, name)
 
     def delete_meta(self, kind, node, name):
         _write("DELETE FROM object_meta WHERE kind = ? AND node = ? AND name = ?", (kind, node, name))
-        shadow.mirror("meta", kind, node, name)
 
     def all_meta(self, kind=None):
         if kind:
@@ -243,16 +232,13 @@ class SqliteObjectStore:
         return _rows("SELECT kind, node, name, notes, tags FROM object_meta ORDER BY kind, node, name")
 
     def move_vm_meta(self, vm_name, source_node, target_node):
-        moved = (
+        return (
             _write(
                 "UPDATE OR REPLACE object_meta SET node = ? WHERE kind = 'vm' AND node = ? AND name = ?",
                 (target_node, source_node, vm_name),
             ).rowcount
             > 0
         )
-        shadow.mirror("meta", "vm", source_node, vm_name)
-        shadow.mirror("meta", "vm", target_node, vm_name)
-        return moved
 
 
 class SqliteObjectRepository:

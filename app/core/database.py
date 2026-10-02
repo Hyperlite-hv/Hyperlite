@@ -817,4 +817,8 @@ def init_db():
         # The local host used to be stored under a machine-specific label; it is now always "local".
         for table in ("ha_protected_vms", "tasks"):
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608
+        # Last, once every table exists: the triggers that record configuration changes for hyperlite-cfs.
+        from app.repositories.cfs.shadow import install_triggers
+
+        install_triggers(conn)
         conn.commit()

@@ -58,10 +58,14 @@ build fails, the installation carries on with a warning: SQLite remains Hyperlit
 
 ### Shadow mode (phase C)
 
-Hyperlite copies every change of a mirrored table into the daemon right after SQLite saved it, and reports any
-difference; SQLite stays the source of truth, and a copy that fails never fails the change
-(`app/repositories/cfs/shadow.py`). Mirrored so far: the notes and tags of VMs, containers and nodes, at
-`/meta/<kind>/<node>/<name>`, and the start at boot settings of VMs, at `/boot/<node>/<vm>`. To turn it on: **Administration › Replicated configuration › Turn
+Every configuration table (`app/repositories/cfs/tables.py`: accounts, permissions, nodes, HA, guests' settings,
+storage, network, backup, replication and automation jobs, integrations) is copied into the daemon, row by row, as JSON
+at `/db/<table>/<primary key>`; tables holding secrets go under `/priv/db/`, which the daemon serves to root only.
+State and history (audit log, tasks, metrics, backup records, sessions) stay in each node's SQLite. SQLite triggers
+record every change in a `cfs_outbox` table, in the same transaction, whatever code made it; a background thread copies
+the outbox to the daemon and keeps an entry until the daemon took it, so a daemon that was down is caught up on as soon
+as it answers. SQLite stays the source of truth, and a copy never fails or slows a change
+(`app/repositories/cfs/shadow.py`). To turn it on: **Administration › Replicated configuration › Turn
 shadow mode on**. That starts `hyperlite-cfs.service` (local mode), records the choice in the database and copies the
 database once; **Turn off** stops copying and stops the service (the daemon's database is kept). The same through the
 API, as an administrator: `POST /cfs/shadow/activer` and `POST /cfs/shadow/desactiver`. `HYPERLITE_CFS_SHADOW=1` in
@@ -71,6 +75,16 @@ API, as an administrator: `POST /cfs/shadow/activer` and `POST /cfs/shadow/desac
 missing from the daemon (`manquants`), those it holds that SQLite no longer has (`en_trop`) and those that differ
 (`differents`), with up to 20 paths of each. A failure while the daemon was down shows there until **Copy the database
 again** (`POST /cfs/shadow/seed`) copies SQLite again.
+
+### In a cluster (phase D)
+
+When the daemon runs in cluster mode, the tree is the source of truth and the other way works too
+(`app/repositories/cfs/inbound.py`): whenever the daemon's version moves, the changes other nodes made are written into
+this node's SQLite, and rows the tree no longer has are deleted, in one transaction. SQLite stays each node's working
+copy, as `pmxcfs` keeps a database on every node. Safeguards: this node's own changes go out first; a daemon older than
+the version last applied here (reset or replaced), an empty tree while this node has configuration, or a change SQLite
+refuses (a unique name) applies nothing and shows a problem on the page until an administrator copies the right
+database again. In local mode nothing is applied: there is no other writer.
 
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
