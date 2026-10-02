@@ -29,6 +29,7 @@ from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
+from app.repositories.cfs.ids import NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
@@ -260,6 +261,15 @@ def serve_ui(path: str = ""):
     return JSONResponse(
         status_code=503,
         content={"detail": "The web interface is not built (run npm run build in dashboard/)."},
+    )
+
+
+@app.exception_handler(NoId)
+async def no_id_handler(request: Request, exc: NoId):
+    # In a cluster whose hyperlite-cfs does not answer, a new object cannot get a safe id (app/repositories/cfs/ids.py).
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The cluster configuration service does not answer: nothing new can be created right now"},
     )
 
 

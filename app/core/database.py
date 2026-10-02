@@ -4,6 +4,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.repositories.cfs import ids as _ids
+
 DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or Path(__file__).resolve().parent.parent.parent / "hyperlite.db")
 
 
@@ -15,7 +17,8 @@ def get_conn():
     # every 15 s). WAL lets readers continue while a writer is active (unlike the
     # default rollback-journal mode, which locks the whole file). The PRAGMA is a
     # no-op when already applied, so repeating it on every connection costs nothing.
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    # ids.Connection: in a cluster, a new row of a replicated table gets an id no other node hands out.
+    conn = sqlite3.connect(DB_PATH, timeout=30, factory=_ids.Connection)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     try:
@@ -835,5 +838,6 @@ def init_db():
         from app.repositories.cfs.shadow import install_triggers
 
         install_triggers(conn)
+        _ids.forget()  # the numbered tables are known once they all exist
         self_node.migrate(conn)
         conn.commit()

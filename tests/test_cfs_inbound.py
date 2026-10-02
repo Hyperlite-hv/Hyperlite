@@ -5,10 +5,10 @@ import json
 
 import pytest
 
-from app.core import object_meta
-from app.core.cfs_client import Child, Entry, NotFound, Status
+from app.core import cluster_lead, object_meta
+from app.core.cfs_client import Child, Conflict, Entry, NotFound, Status
 from app.core.database import get_conn
-from app.repositories.cfs import inbound, shadow
+from app.repositories.cfs import ids, inbound, shadow
 
 
 class Cluster:
@@ -20,8 +20,11 @@ class Cluster:
         self.files = {}
         self.version = 0
         self.mode = "cluster"
+        self.counter = 100  # the daemon's id counter (app/repositories/cfs/ids.py)
 
     def put(self, path, data, expected=-1):
+        if expected == 0 and path in self.files:
+            raise Conflict(4, "the entry exists")
         self.files[path] = bytes(data)
         self.version += 1
         return self.version
@@ -50,6 +53,11 @@ class Cluster:
     def status(self):
         return Status(version=self.version, checksum="00", quorate=True, mode=self.mode, entries=0, bytes=0)
 
+    def next_id(self):
+        self.counter += 1
+        self.version += 1
+        return self.counter - 1
+
     def remote(self, path, row):
         """Another node's change."""
         self.put(path, json.dumps(row, sort_keys=True, separators=(",", ":")).encode())
@@ -62,6 +70,9 @@ def cluster(database, monkeypatch):
     monkeypatch.setattr(shadow, "_get_client", lambda: fake)
     monkeypatch.setattr(shadow, "_stats", shadow._Stats())
     monkeypatch.setattr(inbound, "state", inbound._State())
+    monkeypatch.setattr(cluster_lead, "STATUS_TTL_S", 0)
+    cluster_lead.forget()
+    ids.forget()
     shadow.seed()  # this node joined: the tree holds what it holds, and that version is applied
     return fake
 
