@@ -18,7 +18,7 @@ Hyperlite is configured through environment variables, normally set in `/root/hy
 | `HYPERLITE_TUNNEL_IDLE_TIMEOUT_S` | A tunnel without traffic is closed after this many seconds. | `3600` |
 | `HYPERLITE_TUNNEL_MAX_PER_USER` | Open tunnels per user. | `20` |
 | `HYPERLITE_CLI_TOKEN_DAYS` | Lifetime of the token of a workstation signed in with `hyperlite login`. | `30` |
-| `HYPERLITE_CFS_SHADOW` | `1` copies every change of the mirrored tables into the local `hyperlite-cfs` daemon and reports the differences (`GET /cfs/shadow`); SQLite stays the source of truth. See `cfs/README.md`, shadow mode. | off |
+| `HYPERLITE_CFS_SHADOW` | `1` forces shadow mode on: every change of the mirrored tables is copied into the local `hyperlite-cfs` daemon and the differences are reported (`GET /cfs/shadow`); SQLite stays the source of truth. Without it, shadow mode is turned on and off from Administration › Replicated configuration. See `cfs/README.md`, shadow mode. | off |
 | `HYPERLITE_CFS_SOCKET` | Socket of the `hyperlite-cfs` daemon used by shadow mode. | `/run/hyperlite-cfs/socket` |
 
 Installer and build-time variables:
