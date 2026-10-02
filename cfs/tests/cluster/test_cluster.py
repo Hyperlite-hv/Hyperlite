@@ -18,11 +18,14 @@ import pytest
 from app.core.cfs_client import ANY_VERSION, MUST_NOT_EXIST, CfsClient, CfsError, Conflict, ReadOnly, Synchronising
 
 BIN = os.environ.get("HYPERLITE_CFS_BIN", "")
-LAB = Path(__file__).with_name("lab.sh")
+# The lab: three namespaces on this machine (lab.sh, needs the daemon built here), or three Debian VMs that build
+# their own (lab/vm.sh, set HYPERLITE_CFS_LAB to its path). Both scripts take the same commands.
+LAB = Path(os.environ.get("HYPERLITE_CFS_LAB") or Path(__file__).with_name("lab.sh"))
+VMS = LAB.name == "vm.sh"
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("HYPERLITE_CFS_CLUSTER") != "1" or not BIN or os.geteuid() != 0,
-    reason="needs root, corosync and HYPERLITE_CFS_CLUSTER=1 with HYPERLITE_CFS_BIN",
+    os.environ.get("HYPERLITE_CFS_CLUSTER") != "1" or os.geteuid() != 0 or not (VMS or BIN),
+    reason="needs root and HYPERLITE_CFS_CLUSTER=1, with HYPERLITE_CFS_BIN (namespaces) or HYPERLITE_CFS_LAB (VMs)",
 )
 
 
@@ -57,12 +60,12 @@ def show_logs(work):
 def nodes(tmp_path_factory):
     work = tmp_path_factory.mktemp("lab")
     lab("down")
-    assert Path(BIN).is_file(), f"HYPERLITE_CFS_BIN names {BIN}, which does not exist"
+    assert VMS or Path(BIN).is_file(), f"HYPERLITE_CFS_BIN names {BIN}, which does not exist"
     clients = []
     try:
-        lab("up", BIN, work)
+        lab("up", BIN or "-", work)
         socks = [work / f"n{i}" / "cfs.sock" for i in (1, 2, 3)]
-        until(lambda: all(s.exists() for s in socks), what="the daemons")
+        until(lambda: all(s.exists() for s in socks), timeout=600 if VMS else 90, what="the daemons")
         clients = [CfsClient(str(s)) for s in socks]
         # Writable once the three members agree: a probe write from each node succeeds.
         for i, c in enumerate(clients):
@@ -71,7 +74,7 @@ def nodes(tmp_path_factory):
     finally:
         for c in clients:
             c.close()
-        lab("down")
+        lab("down", work)  # the VM lab fetches each node's logs before destroying it
         show_logs(work)
 
 
