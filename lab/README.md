@@ -15,7 +15,7 @@ sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_LAB="$PWD/lab/vm.sh" venv/bin/pyt
 
 The tests (`cfs/tests/cluster/test_cluster.py`) drive either this lab or the network namespaces of
 `cfs/tests/cluster/lab.sh`, which the CI's `cfs` job uses on every pull request: both scripts take the same commands
-(`up`, `cut N`, `heal N`, `down`).
+(`up`, `cut N`, `heal N`, `stop N`, `crash N`, `start N`, `down`).
 
 What the lab cannot show: real hardware, the latency of a real link between sites, and a real NAS. Those are checked
 on real machines with a written procedure before production.

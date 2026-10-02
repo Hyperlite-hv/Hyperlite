@@ -2,6 +2,7 @@
 
 #include <corosync/cpg.h>
 #include <corosync/quorum.h>
+#include <corosync/votequorum.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,7 @@
 struct cfs_corosync {
     cpg_handle_t cpg;
     quorum_handle_t quorum;
+    votequorum_handle_t votes;
     struct cpg_name group;
     uint32_t nodeid;
     cfs_node *node;
@@ -23,11 +25,31 @@ struct cfs_corosync {
     uint64_t quorum_ring; /* the ring it was for */
     uint64_t ring;        /* the ring CPG reported last */
     bool ring_known;
+    uint32_t members[CFS_MEMBERS_MAX]; /* the nodes whose daemon is in the group */
+    size_t nmembers;
 };
+
+/* Corosync counts the votes of every node it sees, daemon or not. A change answered by the daemons alone is held by
+ * them alone, so it survives only if their votes are a quorum by themselves: otherwise a later majority without them
+ * could lose it. A QDevice's vote counts as Corosync counts it (design, section 8.4). */
+static bool members_hold_a_quorum(cfs_corosync *c)
+{
+    struct votequorum_info info;
+    if (votequorum_getinfo(c->votes, 0, &info) != CS_OK)
+        return false;
+    unsigned votes = info.qdevice_votes;
+    for (size_t i = 0; i < c->nmembers; i++) {
+        struct votequorum_info node;
+        if (votequorum_getinfo(c->votes, c->members[i], &node) == CS_OK &&
+            node.node_state == VOTEQUORUM_NODESTATE_MEMBER)
+            votes += node.node_votes;
+    }
+    return info.quorum > 0 && votes >= info.quorum;
+}
 
 static void update_quorum(cfs_corosync *c)
 {
-    cfs_node_quorum(c->node, c->quorate && c->ring_known && c->quorum_ring == c->ring);
+    cfs_node_quorum(c->node, c->quorate && c->ring_known && c->quorum_ring == c->ring && members_hold_a_quorum(c));
 }
 
 static cfs_corosync *from_cpg(cpg_handle_t h)
@@ -64,16 +86,18 @@ static void on_confchg(cpg_handle_t h, const struct cpg_name *group, const struc
     cfs_corosync *c = from_cpg(h);
     if (!c || !c->node)
         return;
-    uint32_t ids[CFS_MEMBERS_MAX];
     size_t n = 0;
     for (size_t i = 0; i < nmembers && n < CFS_MEMBERS_MAX; i++) {
         bool dup = false;
         for (size_t k = 0; k < n; k++)
-            dup = dup || ids[k] == members[i].nodeid;
+            dup = dup || c->members[k] == members[i].nodeid;
         if (!dup)
-            ids[n++] = members[i].nodeid; /* one daemon per node; a second process of a node counts once */
+            c->members[n++] = members[i].nodeid; /* one daemon per node; a second process of a node counts once */
     }
-    cfs_node_membership(c->node, ids, n);
+    c->nmembers = n;
+    /* The quorum first: the state the membership makes the node send must already count these members' votes. */
+    update_quorum(c);
+    cfs_node_membership(c->node, c->members, n);
 }
 
 /* A new Corosync ring (totem membership). Its sequence number only grows, and Corosync keeps it across restarts in
@@ -177,10 +201,20 @@ cfs_corosync *cfs_corosync_open(char *err, size_t errlen)
         rc = quorum_context_set(c->quorum, c);
     else if (rc == CS_OK)
         rc = CS_ERR_NOT_EXIST;
+    bool votes = false;
+    if (rc == CS_OK) {
+        /* Only asked for the votes and the threshold (members_hold_a_quorum): no callbacks, nothing to dispatch. */
+        rc = votequorum_initialize(&c->votes, NULL);
+        votes = rc == CS_OK;
+        if (!votes)
+            snprintf(err, errlen, "cannot reach Corosync's votequorum service (error %d)", (int)rc);
+    }
     unsigned int nodeid = 0;
     if (rc == CS_OK && (rc = cpg_local_get(c->cpg, &nodeid)) != CS_OK)
         snprintf(err, errlen, "cannot read this node's Corosync id (error %d)", (int)rc);
     if (rc != CS_OK) {
+        if (votes)
+            votequorum_finalize(c->votes);
         quorum_finalize(c->quorum);
         cpg_finalize(c->cpg);
         free(c);
@@ -229,6 +263,7 @@ void cfs_corosync_close(cfs_corosync *c)
     if (!c)
         return;
     cpg_quit(c);
+    votequorum_finalize(c->votes);
     quorum_finalize(c->quorum);
     cpg_finalize(c->cpg);
     free(c);

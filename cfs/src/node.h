@@ -84,6 +84,7 @@ typedef struct {
     bool failed;   /* a change failed here: the node left the group */
 
     uint64_t ring; /* the current Corosync ring (totem membership), 0 in local mode */
+    uint32_t round; /* agreement round: 0 at each membership, one more at the same points of the order on every member */
 
     uint32_t members[CFS_MEMBERS_MAX];
     cfs_member_state states[CFS_MEMBERS_MAX];

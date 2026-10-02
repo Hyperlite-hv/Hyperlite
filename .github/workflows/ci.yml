@@ -96,10 +96,11 @@ jobs:
   cfs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
     # and UndefinedBehaviorSanitizer, its C tests (a simulated cluster included), the Python client against the real
-    # daemon, a three-node cluster on a real Corosync in network namespaces, and fuzzing of the requests and of the
-    # messages between nodes.
+    # daemon, a three-node cluster on a real Corosync in network namespaces (its fault tests and five soak rounds
+    # included; the thousand rounds run every night in lab.yml), and fuzzing of the requests and of the messages
+    # between nodes.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -109,7 +110,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc clang libclang-rt-dev \
-            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev iproute2
+            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev libvotequorum-dev iproute2
           # The package starts a Corosync of its own; the cluster test runs its own three, in namespaces.
           sudo systemctl stop corosync || true
       - name: Build and test (GCC, sanitizers)

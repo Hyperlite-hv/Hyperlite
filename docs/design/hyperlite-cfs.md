@@ -1,8 +1,8 @@
 # Design: `hyperlite-cfs`, the replicated cluster configuration
 
-Status: **accepted (2026-10-01).** Phase A (local mode), steps B1 and B2 of phase B (Corosync, quorum, agreement
-on one state, state transfer) and the first part of B3 (terms, answers confirmed by every member) are in `cfs/`; the
-rest of B3, then B4 to E, are to come.
+Status: **accepted (2026-10-01).** Phase A (local mode) and steps B1 to B3 of phase B (Corosync, quorum, agreement
+on one state, state transfer, terms and confirmed answers, the fault tests and their nightly soak) are in `cfs/`; B4
+to E are to come.
 
 Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose Proxmox VE's architecture
 on Proxmox VE's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
@@ -193,7 +193,7 @@ Two consequences, both deliberate:
 | B1 | Corosync transport (CPG agreed order, quorum service); changes applied by every member in delivery order; refused without quorum; after each membership change, every member sends its state and changes resume only when all states are equal and quorate; a three-node test on a real Corosync in network namespaces | done |
 | B2 | State transfer: a member that differs receives the source's tree and locks (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | done |
 | B3a | What the fault tests need the protocol to guarantee, found while writing them (section 8.4): terms, answers confirmed by every member, the quorum of the current ring | done |
-| B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | to do |
+| B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | in place: `cfs/tests/cluster/test_faults.py` on both labs for every pull request (five soak rounds), and a thousand soak rounds every night (`lab.yml`, job `cfs-soak`: ten shards of a hundred in parallel, about 30 minutes); phase B's exit criterion is met once a night passes |
 | B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | to do |
 
 ### 8.2 Decisions taken while building B1
@@ -271,6 +271,22 @@ against B2's code before it was fixed.
   the old ring. A state counts only if it names the receiver's current ring; every member resends its state once it
   knows the ring, so they agree on the new ring's number, never on the old one.
 
+- **The daemons' votes must be a quorum by themselves.** Corosync counts the votes of every node it sees, whether its
+  daemon runs or not. With the daemons of two nodes stopped and their Corosync running, the third daemon was quorate
+  alone (found by the fault tests): what it answered would have been held by it alone, and lost if it then failed and
+  the other two came back. The node now counts as quorate only if the votes of the nodes whose daemon is in the group
+  (read from votequorum), plus a QDevice's, reach Corosync's threshold. A QDevice's vote counts as Corosync counts it,
+  so a two-node cluster with a QDevice keeps writing on one node; the risk that node then carries alone is B4's to
+  handle (Corosync's `wait_for_all`).
+
+- **A state sent after an agreement starts a new round** (found by the first thousand-round soak). A member sends
+  its state again when its view changes: a late quorum notification, a new ring. The others' states were as old as
+  the agreement, and changes had been applied since, so the states compared as different. With a transfer already
+  run in that membership, every member then stayed read-only until the next membership change. Now each state carries
+  the number of the round it was sent in: 0 at each membership change, one more at the end of a transfer and when a
+  state arrives after an agreement, at the same point of the order on every member. A member counts only the states
+  of the current round, and every member sends its state again when a round starts.
+
 The term is not part of the checksum, and agreement compares the data alone (version and checksum): a state sent
 just before an agreement can carry the previous term, and the agreement brings every member to the same term. If
 Corosync's ring ever falls below a stored term (its state directory wiped), the term stays and the node logs a
@@ -286,7 +302,8 @@ warning.
   - concurrent compare-and-set on the same path from three nodes;
   - lock holder killed, lock holder hung (TTL);
   - a 128 MiB tree; 1,000 guests; 100 writes per second.
-- **Checker**: every acknowledged write is present on every node once the cluster is whole again, and every node's
+- **Checker** (`cfs/tests/cluster/harness.py`): every acknowledged write is present on every node once the cluster is
+  whole again, nothing refused before being sent is anywhere, and every node's
   checksum matches.
 - `corosync-vqsim` (Debian package `corosync-vqsim`, a votequorum simulator) for the quorum edge cases.
 

@@ -8,6 +8,9 @@
 #                      daemon's socket to DIR/n1/cfs.sock ... DIR/n3/cfs.sock (BIN is ignored: the VMs build their own)
 #   vm.sh cut N        cut node N from the others (Corosync's traffic dropped by nftables; SSH stays up)
 #   vm.sh heal N       let it through again
+#   vm.sh stop N       kill node N's hyperlite-cfs (SIGKILL: a crash of the daemon)
+#   vm.sh crash N      kill node N's Corosync and hyperlite-cfs (SIGKILL: a crash of the node's cluster stack)
+#   vm.sh start N      start what is not running on node N, Corosync first
 #   vm.sh down [DIR]   keep each node's logs in DIR/nN/cfs.log, then destroy everything
 #
 # Needs root, libvirt with KVM, dnsmasq, virt-install, qemu-img, losetup, cloud-image-utils (cloud-localds),
@@ -127,21 +130,46 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     on "$dir" "$i" cloud-init status --wait || true
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        corosync libcpg-dev libquorum-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables
+        corosync libcpg-dev libquorum-dev libvotequorum-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables
     tar -C "$REPO" -cz cfs | on "$dir" "$i" sh -c 'rm -rf /opt/cfs && mkdir -p /opt && tar -C /opt -xz'
     # Warnings stay warnings here: a newer compiler than the CI's must not stop the lab (the CI keeps -Werror).
     on "$dir" "$i" sh -c 'meson setup -Dwerror=false /opt/cfs/build /opt/cfs && ninja -C /opt/cfs/build'
     corosync_conf | on "$dir" "$i" tee /etc/corosync/corosync.conf > /dev/null
     on "$dir" "$i" systemctl restart corosync
     on "$dir" "$i" mkdir -p /var/lib/hyperlite-cfs /run/hyperlite-cfs
-    # The socket is opened to every local user, since the test reaches it through an SSH forward as `debian`.
-    on "$dir" "$i" systemd-run --unit hyperlite-cfs /opt/cfs/build/hyperlite-cfs --cluster \
-        --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0666 > /dev/null
-    for _ in $(seq 1 60); do on "$dir" "$i" test -S /run/hyperlite-cfs/socket && break || sleep 1; done
+    start_cfs "$dir" "$i"
     ssh -i "$(key_of "$dir")" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
         -o ExitOnForwardFailure=yes -o StreamLocalBindUnlink=yes -o ServerAliveInterval=5 -f -N \
         -L "$dir/n$i/cfs.sock:/run/hyperlite-cfs/socket" "debian@$(ip_of "$i")"
     chmod 0666 "$dir/n$i/cfs.sock"
+}
+
+start_cfs() { # start_cfs DIR N: hyperlite-cfs as a transient unit, and wait for its socket
+    local dir=$1 i=$2
+    # A unit killed earlier stays loaded as failed, and systemd-run refuses its name until it is reset.
+    on "$dir" "$i" systemctl reset-failed hyperlite-cfs > /dev/null 2>&1 || true
+    # The socket is opened to every local user, since the test reaches it through an SSH forward as `debian`.
+    on "$dir" "$i" systemd-run --unit hyperlite-cfs /opt/cfs/build/hyperlite-cfs --cluster \
+        --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0666 > /dev/null
+    for _ in $(seq 1 60); do on "$dir" "$i" test -S /run/hyperlite-cfs/socket && break || sleep 1; done
+}
+
+kill_unit() { # kill_unit DIR N UNIT: SIGKILL it and keep it down (no restart policy brings it back)
+    on "$1" "$2" systemctl kill --signal=KILL "$3" > /dev/null 2>&1 || true
+    on "$1" "$2" systemctl stop "$3" > /dev/null 2>&1 || true
+}
+
+start_node() { # start_node DIR N: Corosync if it is not active, then hyperlite-cfs if it is not
+    local dir=$1 i=$2
+    if ! on "$dir" "$i" systemctl is-active --quiet corosync; then
+        on "$dir" "$i" systemctl reset-failed corosync > /dev/null 2>&1 || true
+        on "$dir" "$i" systemctl start corosync
+    fi
+    if ! on "$dir" "$i" systemctl is-active --quiet hyperlite-cfs; then
+        # The SSH forward stays: it connects to the socket path anew for every connection.
+        on "$dir" "$i" rm -f /run/hyperlite-cfs/socket
+        start_cfs "$dir" "$i"
+    fi
 }
 
 # The VMs boot straight into the image's kernel (no GRUB), its messages on the serial console: a kernel that dies says
@@ -300,6 +328,7 @@ down() {
 
 # Corosync's knet traffic is UDP on port 5405; dropping it both ways splits the node off, SSH keeps working.
 cut() {
+    heal "$1" "$2" # once only, whatever was there
     on "$1" "$2" nft -f - <<'EOF'
 table inet hlcfs_cut {
   chain input { type filter hook input priority 0; udp dport 5405 drop; }
@@ -308,11 +337,11 @@ table inet hlcfs_cut {
 EOF
 }
 
-heal() {
-    on "$1" "$2" nft delete table inet hlcfs_cut
+heal() { # a node that is not cut is left as it is
+    on "$1" "$2" sh -c 'nft list table inet hlcfs_cut > /dev/null 2>&1 && nft delete table inet hlcfs_cut || true'
 }
 
-# cut and heal need the directory of the SSH key: the tests keep the last one used in this file.
+# cut, heal, stop, crash and start need the directory of the SSH key: the tests keep the last one used in this file.
 STATE=/tmp/${P}-vmlab-dir
 case ${1:-} in
     up)
@@ -322,8 +351,14 @@ case ${1:-} in
     down) down "${2:-$(cat $STATE 2> /dev/null || true)}" ;;
     cut) cut "$(cat $STATE)" "$2" ;;
     heal) heal "$(cat $STATE)" "$2" ;;
+    stop) kill_unit "$(cat $STATE)" "$2" hyperlite-cfs ;;
+    crash)
+        kill_unit "$(cat $STATE)" "$2" corosync
+        kill_unit "$(cat $STATE)" "$2" hyperlite-cfs
+        ;;
+    start) start_node "$(cat $STATE)" "$2" ;;
     *)
-        echo "usage: $0 up BIN DIR | cut N | heal N | down [DIR]" >&2
+        echo "usage: $0 up BIN DIR | cut N | heal N | stop N | crash N | start N | down [DIR]" >&2
         exit 2
         ;;
 esac

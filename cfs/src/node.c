@@ -9,11 +9,11 @@
 /* Messages between nodes, little-endian like the socket protocol:
  *   u32 magic, u8 format version, u8 kind, then
  *   CHANGE:  i64 sender's message number, i64 sender's time (seconds), then a request body as a client sent it;
- *   STATE:   u8 quorate, u64 ring, i64 term, i64 cluster version, blob SHA-256 of tree and locks;
+ *   STATE:   u32 round, u8 quorate, u64 ring, i64 term, i64 cluster version, blob SHA-256 of tree and locks;
  *   APPLIED: u64 changes delivered by the sender since the agreement (its confirmation).
  * The sender's node id comes from the transport (Corosync names it), never from the message. */
 #define MSG_MAGIC 0x53464348u /* "HCFS" */
-#define MSG_FORMAT 2
+#define MSG_FORMAT 3
 #define MSG_CHANGE 1
 #define MSG_STATE 2
 #define MSG_XFER_BEGIN 3 /* i64 version, i64 term, blob checksum */
@@ -243,6 +243,7 @@ static void send_state(cfs_node *n)
     cfs_write_u32(&w, MSG_MAGIC);
     cfs_write_u8(&w, MSG_FORMAT);
     cfs_write_u8(&w, MSG_STATE);
+    cfs_write_u32(&w, n->round);
     cfs_write_u8(&w, n->quorate ? 1 : 0);
     cfs_write_i64(&w, (int64_t)n->ring);
     cfs_write_i64(&w, cfs_store_term(n->ctx.store));
@@ -607,6 +608,7 @@ static void deliver_xfer_end(cfs_node *n, cfs_reader *r)
     xfer_reset(n);
     /* Every member, at the same point of the order, starts the agreement again from its new state. */
     memset(n->states, 0, sizeof(n->states));
+    n->round++;
     send_state(n);
 }
 
@@ -753,6 +755,7 @@ static void evaluate_states(cfs_node *n)
 static void deliver_state(cfs_node *n, uint32_t sender, cfs_reader *r)
 {
     cfs_member_state s = {.seen = true};
+    uint32_t round = cfs_read_u32(r);
     s.quorate = cfs_read_u8(r) != 0;
     s.ring = (uint64_t)cfs_read_i64(r);
     s.term = cfs_read_i64(r);
@@ -763,6 +766,24 @@ static void deliver_state(cfs_node *n, uint32_t sender, cfs_reader *r)
     if (r->err || r->off != r->len || sum_len != CFS_CHECKSUM_LEN || i < 0)
         return;
     memcpy(s.sum, sum, CFS_CHECKSUM_LEN);
+    /* Only the states sent in this round count: one sent before its sender reached this round (it did not know yet)
+     * describes a moment the others have moved past. Its sender sends another when it reaches the round. */
+    if (round != n->round)
+        return;
+    if (n->synced) {
+        /* A state after the agreement: a member's view changed (its quorum, a new ring). The others' states are as old
+         * as the agreement and the changes applied since, so comparing them would find a difference that is not one,
+         * and with a transfer already run in this membership every member would stay read-only. Every member starts a
+         * new round instead, at this same point of the order, by sending its state as it is now; this state, sent in
+         * the old round, does not count in the new one. */
+        memset(n->states, 0, sizeof(n->states));
+        n->synced = false;
+        n->transferred = false;
+        n->round++;
+        fail_awaiting(n);
+        send_state(n);
+        return;
+    }
     n->states[i] = s;
     evaluate_states(n);
 }
@@ -810,6 +831,7 @@ void cfs_node_membership(cfs_node *n, const uint32_t *members, size_t count)
     n->synced = false;
     n->diverged = false;
     n->transferred = false;
+    n->round = 0; /* every member, the new ones included, counts from this same point of the order */
     xfer_reset(n); /* a transfer cut by the membership change is dropped; the next agreement starts over */
     fprintf(stderr, "hyperlite-cfs: membership changed, %zu member(s)\n", count);
     /* Changes sent before this point and not delivered yet are dropped by every member still here (deliver_change),

@@ -571,6 +571,36 @@ static void test_answers_wait_for_every_member(void)
     teardown();
 }
 
+/* After an agreement, a member can send its state again (its quorum view came late, a new ring): the others moved on
+ * since their own states, so the states differ. Once a transfer ran in this membership, that used to leave every member
+ * read-only until the next membership change. */
+static void test_a_late_state_after_an_agreement_starts_a_new_round(void)
+{
+    setup();
+    int split[NODES] = {0, 0, 1};
+    partition(split);
+    put(0, "/before", "1", CFS_ANY_VERSION);
+    pump();
+    int all[NODES] = {0, 0, 0};
+    partition(all); /* node 3 takes the state: a transfer ran in this membership */
+    for (int k = 0; k < NODES; k++)
+        CHECK(sim[k].node.synced);
+    for (int i = 0; i < 5; i++) {
+        put(i % 2, "/after", "x", CFS_ANY_VERSION);
+        pump();
+    }
+    cfs_node_quorum(&sim[2].node, false); /* a late view of the quorum, then the right one */
+    cfs_node_quorum(&sim[2].node, true);
+    pump();
+    for (int k = 0; k < NODES; k++)
+        CHECK(sim[k].node.synced && !sim[k].node.diverged);
+    put(2, "/again", "1", CFS_ANY_VERSION);
+    pump();
+    CHECK_EQ(sim[2].status, CFS_OK);
+    CHECK(same_state(0, 1) && same_state(1, 2));
+    teardown();
+}
+
 int main(void)
 {
     test_changes_are_applied_alike_everywhere();
@@ -585,5 +615,6 @@ int main(void)
     test_two_states_at_the_same_version_resolve_to_the_lowest_node();
     test_a_change_held_by_a_minority_is_never_answered_nor_kept();
     test_answers_wait_for_every_member();
+    test_a_late_state_after_an_agreement_starts_a_new_round();
     return check_failures;
 }
