@@ -29,6 +29,7 @@ hyperlite.db-wal
 hyperlite.db-shm
 hyperlite.db
 data/tmp/
+data/backups/
 .publish.env
 CLAUDE.local.md
 dashboard/e2e-report/

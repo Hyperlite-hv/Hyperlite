@@ -9,6 +9,8 @@ import pytest
 
 from app.core import backup_integrity, backups, site_recovery
 
+REAL_ALLOWED_ROOTS = site_recovery._allowed_roots
+
 
 def write_backup(root, vm, stamp, source="site-a", disks=("vda",), corrupt=False):
     d = root / vm / stamp
@@ -51,8 +53,18 @@ class FakeConn:
             raise libvirt.libvirtError("no network")
         return object()
 
+    def listAllStoragePools(self):
+        return []
+
     def close(self):
         pass
+
+
+@pytest.fixture(autouse=True)
+def allowed(tmp_path, monkeypatch):
+    """The scenarios write their backups under tmp_path: it stands for a storage this node knows (the real list of
+    allowed directories has its own test)."""
+    monkeypatch.setattr(site_recovery, "_allowed_roots", lambda: [os.path.realpath(tmp_path)])
 
 
 @pytest.fixture()
@@ -96,6 +108,29 @@ def test_the_scan_refuses_a_directory_reached_through_a_link(tmp_path, database,
     os.symlink("/etc", tmp_path / "share")
     with pytest.raises(site_recovery.RecoveryError, match="symbolic link"):
         site_recovery.scan(str(tmp_path / "share"))
+
+
+def test_only_storage_this_node_knows_can_be_scanned(tmp_path, database, monkeypatch):
+    # The real list: mount points, pools, the backup directory and the jobs' directories; anything else is refused.
+    monkeypatch.setattr(site_recovery, "_allowed_roots", REAL_ALLOWED_ROOTS)
+    pool = tmp_path / "pool"
+    pool.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+
+    class Pool:
+        def XMLDesc(self, flags):
+            return f"<pool type='netfs'><target><path>{pool}</path></target></pool>"
+
+    class Conn(FakeConn):
+        def listAllStoragePools(self):
+            return [Pool()]
+
+    monkeypatch.setattr("app.core.libvirt_utils.open_conn", lambda *a, **k: Conn())
+    roots = site_recovery._allowed_roots()
+    assert os.path.realpath(pool) in roots and "/mnt" in roots and str(backups.DEFAULT_BACKUP_DIR) in roots
+    assert site_recovery.scan(str(pool)) == []
+    with pytest.raises(site_recovery.RecoveryError, match="outside the storage this node knows"):
+        site_recovery.scan(str(tmp_path / "elsewhere"))
 
 
 @pytest.mark.parametrize("bad", ["relative/path", "/etc", "/var/../etc", "/nonexistent-dir"])
