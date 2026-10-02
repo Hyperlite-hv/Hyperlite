@@ -96,6 +96,27 @@ deletion, start at boot); the cluster-wide work (the HA watcher) runs on the nod
 takes its id from the daemon's cluster-wide counter (`app/repositories/cfs/ids.py`), so two nodes never number two
 rows alike; while the daemon does not answer, a node of a cluster creates nothing new (the API answers 503).
 
+### Creating and joining a cluster
+
+From Administration › Replicated configuration (`app/core/cluster_setup.py`), as Proxmox's "Create cluster" and "Join
+cluster"; every node needs Corosync (`apt install corosync`) and an address on a network the members share.
+
+- **Create** on a first node: Corosync gets a new key (`/etc/corosync/authkey`) and a configuration with this node
+  alone (knet, `aes256`/`sha256`), hyperlite-cfs restarts in cluster mode, and this node's configuration becomes the
+  cluster's. The members, Corosync's key and the members' SSH keys are kept in hyperlite-cfs (`/cluster/...`), so any
+  member can let a node in, and every node rewrites its `corosync.conf` and its `authorized_keys` when they change.
+- **Join information** on a member: the member's address, the fingerprint of its HTTPS certificate and a one-time
+  ticket valid 30 minutes. It lets one node in and gives it the cluster's keys: it is a secret.
+- **Join** on the new node, with that information and the cluster's name typed back: the new node checks the member's
+  certificate against the fingerprint before sending anything, the member adds it and sends the cluster's
+  configuration and keys. The new node's configuration (accounts, groups, jobs, settings) is replaced by the
+  cluster's: its hyperlite-cfs database is moved aside (`config.db.before-join-*`), its pending changes are dropped,
+  the cluster's tree is applied, and Hyperlite restarts with the cluster's `.env` keys. Its guests are not touched.
+- **Remove** a member from another member, once it is off.
+
+Adding a member raises the votes the cluster needs: if the new node never comes up, the others lose the quorum until
+it does, or until `hyperlite-cfs expected-votes` lowers the votes (above) so the member can be removed.
+
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
 

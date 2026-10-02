@@ -834,10 +834,11 @@ def init_db():
             conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608
         # Last, once every table exists: the triggers that record configuration changes for hyperlite-cfs, then the
         # node's own name in the tables every node of a cluster shares (the triggers record that rewrite).
-        from app.core import self_node
+        from app.core import cluster_setup, self_node
         from app.repositories.cfs.shadow import install_triggers
 
         install_triggers(conn)
         _ids.forget()  # the numbered tables are known once they all exist
         self_node.migrate(conn)
+        cluster_setup.finish_join(conn)
         conn.commit()

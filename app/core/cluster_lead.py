@@ -115,11 +115,18 @@ def forget():
 
 
 def _loop():
+    from app.core import cluster_setup
+
     while True:
         try:
             renew()
         except Exception:  # the thread must survive anything, or no node would run the cluster-wide tasks
             logger.exception("Renewing the cluster lead failed")
+        if mode() == "cluster":
+            try:
+                cluster_setup.sync()  # Corosync's configuration and the members' SSH keys follow the shared ones
+            except Exception:
+                logger.exception("Following the cluster's configuration failed")
         time.sleep(RENEW_S)
 
 
