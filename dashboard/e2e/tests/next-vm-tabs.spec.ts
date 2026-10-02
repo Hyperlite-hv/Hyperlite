@@ -266,8 +266,13 @@ test("hardware: a disk is moved to another pool from a drawer, then back", async
     await expect(page.getByText("Move started (see Tasks)").first()).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => (await firstDisk()).pool, { timeout: 90_000 }).toBe(pool);
   } finally {
-    // Back home, so the VM's later tests and its deletion find the disk where it was.
-    const back = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
+    // Back home, so the VM's later tests and its deletion find the disk where it was. The first move's task holds the
+    // VM's lock a moment after the disk shows in its new pool (it still removes the source): retry while it answers 409.
+    let back = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
+    for (let i = 0; back.status() === 409 && i < 60; i++) {
+      await page.waitForTimeout(1000);
+      back = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
+    }
     if (back.ok()) await expect.poll(async () => (await firstDisk()).pool, { timeout: 90_000 }).toBe(home);
     await request.delete(`/storage/${pool}?confirm=true`, { headers: auth() });
   }
