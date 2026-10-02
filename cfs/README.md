@@ -66,6 +66,12 @@ difference; SQLite stays the source of truth, and a copy that fails never fails 
 ```bash
 systemctl enable --now hyperlite-cfs                               # local mode
 echo HYPERLITE_CFS_SHADOW=1 >> /root/hyperlite/.env && systemctl restart hyperlite
+```
+
+Then, in the dashboard, **Administration › Replicated configuration** copies the database once (**Copy the database
+again**) and shows the report; the same through the API:
+
+```bash
 curl -k -X POST -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow/seed   # the first copy
 curl -k -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow                # "ecarts": 0
 ```
