@@ -28,6 +28,8 @@ from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
+from app.repositories.cfs.inbound import start_apply_loop
+from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
@@ -288,6 +290,8 @@ def on_startup():
     start_replication_scheduler()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
+    start_shadow_copy()
+    start_apply_loop()
     recover_interrupted_k8s_clusters()
     start_boot_sequence()
 
