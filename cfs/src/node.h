@@ -7,15 +7,17 @@
  *   - A read is answered at once from this node's store.
  *   - A change is checked here, refused at once without quorum or while the members do not agree on one state, and
  *     otherwise multicast. Every member applies it when it is delivered, in delivery order, with the sender's node id
- *     and time stamp; the sender answers its client only when its own copy has been applied (read-your-writes, and
- *     the same result on every node).
- *   - On a membership change every member stops applying changes and multicasts its state (cluster version, SHA-256
- *     of tree and locks, and its view of the quorum). Changes are applied again once every member has sent a state,
- *     all of them quorate and all identical. A change delivered before that is dropped by every member alike.
- *     When they differ, every member picks the same source (the highest version, then the lowest node id); the
- *     source multicasts its whole state, the members that differ replace theirs with it in one transaction and check
- *     its checksum, then every member sends its state again. One transfer per membership: members that still differ
- *     after it stay read-only and say so.
+ *     and time stamp, and confirms what it applied. The sender answers its client only once every member confirmed
+ *     the change: an answered change is held by a quorum, so no later quorate membership can lose it. If the
+ *     membership changes first, the answer is "uncertain", never "not applied" (design, section 8.4).
+ *   - On a membership change every member stops applying changes and multicasts its state (term, cluster version,
+ *     SHA-256 of tree and locks, its view of the quorum and of the Corosync ring). Changes are applied again once
+ *     every member has sent a state, all of them quorate, in the same ring and identical; the term then becomes that
+ *     ring. A change delivered before that is dropped by every member alike. When they differ, every member picks the
+ *     same source (the highest term, then the highest version, then the lowest node id); the source multicasts its
+ *     whole state, the members that differ replace theirs with it in one transaction and check its checksum, then
+ *     every member sends its state again. One transfer per membership: members that still differ after it stay
+ *     read-only and say so.
  *   - A change that fails here with an internal error (disk full, database error) while the other members applied
  *     it would make this node diverge silently: the node leaves the group instead and refuses every change. */
 
@@ -51,9 +53,20 @@ typedef struct {
     size_t len;
 } cfs_outgoing;
 
+/* A change this node applied, whose answer waits until every member confirmed it. */
+typedef struct {
+    uint64_t pos;   /* its place among the changes delivered since the agreement */
+    uint64_t token; /* the client waiting for it */
+    uint32_t id;    /* the client's request id */
+    uint8_t *frame; /* the answer, ready */
+    size_t len;
+} cfs_awaiting;
+
 typedef struct {
     bool seen;
     bool quorate;
+    uint64_t ring; /* the Corosync ring the member was in when it sent its state */
+    int64_t term;
     int64_t version;
     uint8_t sum[CFS_CHECKSUM_LEN];
 } cfs_member_state;
@@ -70,16 +83,26 @@ typedef struct {
     bool diverged; /* every member sent a state, and they differ */
     bool failed;   /* a change failed here: the node left the group */
 
+    uint64_t ring; /* the current Corosync ring (totem membership), 0 in local mode */
+
     uint32_t members[CFS_MEMBERS_MAX];
     cfs_member_state states[CFS_MEMBERS_MAX];
     size_t nmembers;
+
+    /* Confirmations, counted in changes delivered since the agreement (the same count on every member). */
+    uint64_t pos;                        /* changes delivered here */
+    uint64_t confirmed[CFS_MEMBERS_MAX]; /* what each member said it applied */
+    uint64_t reported;                   /* what this node last said */
+    bool confirming;                     /* this node's confirmation is in flight */
+    cfs_awaiting *awaiting;
+    size_t nawaiting, cap_awaiting;
 
     /* State transfer, at most one per membership. */
     bool transferring;     /* waiting for the source's state */
     bool transferred;      /* a transfer already ran in this membership */
     bool xfer_needed;      /* this node's state differs from the source's */
     uint32_t xfer_source;
-    int64_t xfer_version, xfer_next_id;
+    int64_t xfer_version, xfer_next_id, xfer_term;
     uint8_t xfer_sum[CFS_CHECKSUM_LEN];
     uint8_t *xfer_buf; /* the records received so far */
     size_t xfer_len, xfer_cap;
@@ -104,6 +127,8 @@ void cfs_node_forget(cfs_node *n, uint64_t token);
 void cfs_node_deliver(cfs_node *n, uint32_t sender, const uint8_t *msg, size_t len);
 void cfs_node_membership(cfs_node *n, const uint32_t *members, size_t count);
 void cfs_node_quorum(cfs_node *n, bool quorate);
+/* Corosync formed a new ring (sequence number `seq`, which only grows); called before the membership it brings. */
+void cfs_node_ring(cfs_node *n, uint64_t seq);
 
 /* Send again what the transport refused for flow control; true while something is still waiting. */
 bool cfs_node_flush(cfs_node *n);

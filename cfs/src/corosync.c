@@ -16,7 +16,19 @@ struct cfs_corosync {
     uint32_t nodeid;
     cfs_node *node;
     bool joined;
+    /* The quorum service and CPG are two connections, in no set order between them, and a quorum view read when CPG
+     * reports a membership can still be the previous ring's. The node counts as quorate only when the last quorum
+     * notification was for the ring CPG reports now; votequorum sends one at every ring (votequorum_sync_activate). */
+    bool quorate;         /* the quorum service's last answer */
+    uint64_t quorum_ring; /* the ring it was for */
+    uint64_t ring;        /* the ring CPG reported last */
+    bool ring_known;
 };
+
+static void update_quorum(cfs_corosync *c)
+{
+    cfs_node_quorum(c->node, c->quorate && c->ring_known && c->quorum_ring == c->ring);
+}
 
 static cfs_corosync *from_cpg(cpg_handle_t h)
 {
@@ -52,11 +64,6 @@ static void on_confchg(cpg_handle_t h, const struct cpg_name *group, const struc
     cfs_corosync *c = from_cpg(h);
     if (!c || !c->node)
         return;
-    /* The quorum service has finished its own synchronisation when CPG reports a new membership; its answer now is
-     * the one for this membership, which the state message must carry. */
-    int quorate = 0;
-    if (quorum_getquorate(c->quorum, &quorate) == CS_OK)
-        cfs_node_quorum(c->node, quorate != 0);
     uint32_t ids[CFS_MEMBERS_MAX];
     size_t n = 0;
     for (size_t i = 0; i < nmembers && n < CFS_MEMBERS_MAX; i++) {
@@ -69,14 +76,32 @@ static void on_confchg(cpg_handle_t h, const struct cpg_name *group, const struc
     cfs_node_membership(c->node, ids, n);
 }
 
+/* A new Corosync ring (totem membership). Its sequence number only grows, and Corosync keeps it across restarts in
+ * /var/lib/corosync: the node uses it as the term of its agreements (design, section 8.4). */
+static void on_ring(cpg_handle_t h, struct cpg_ring_id ring, uint32_t nmembers, const uint32_t *members)
+{
+    (void)nmembers;
+    (void)members;
+    cfs_corosync *c = from_cpg(h);
+    if (!c || !c->node)
+        return;
+    c->ring = ring.seq;
+    c->ring_known = true;
+    /* The quorum first: the state the ring makes the node send must already say whether this ring is quorate. */
+    update_quorum(c);
+    cfs_node_ring(c->node, ring.seq);
+}
+
 static void on_quorum(quorum_handle_t h, uint32_t quorate, uint64_t ring_seq, uint32_t nview, uint32_t *view)
 {
-    (void)ring_seq;
     (void)nview;
     (void)view;
     cfs_corosync *c = from_quorum(h);
-    if (c && c->node)
-        cfs_node_quorum(c->node, quorate != 0);
+    if (!c || !c->node)
+        return;
+    c->quorate = quorate != 0;
+    c->quorum_ring = ring_seq;
+    update_quorum(c);
 }
 
 static int cpg_send(void *arg, const uint8_t *msg, size_t len)
@@ -132,6 +157,8 @@ cfs_corosync *cfs_corosync_open(char *err, size_t errlen)
         .model = CPG_MODEL_V1,
         .cpg_deliver_fn = on_deliver,
         .cpg_confchg_fn = on_confchg,
+        .cpg_totem_confchg_fn = on_ring,
+        .flags = CPG_MODEL_V1_DELIVER_INITIAL_TOTEM_CONF, /* the current ring at once, not only the next one */
     };
     cs_error_t rc = cpg_model_initialize(&c->cpg, CPG_MODEL_V1, (cpg_model_data_t *)&model, c);
     if (rc != CS_OK) {
@@ -178,12 +205,9 @@ cfs_transport cfs_corosync_transport(cfs_corosync *c)
 int cfs_corosync_start(cfs_corosync *c, cfs_node *node, cfs_source sources[2], char *err, size_t errlen)
 {
     c->node = node;
-    int cfd = -1, qfd = -1, quorate = 0;
-    cs_error_t rc = quorum_trackstart(c->quorum, CS_TRACK_CHANGES);
-    if (rc == CS_OK)
-        rc = quorum_getquorate(c->quorum, &quorate);
-    if (rc == CS_OK)
-        cfs_node_quorum(node, quorate != 0);
+    int cfd = -1, qfd = -1;
+    /* CS_TRACK_CURRENT: a first notification at once, with the ring it is for; until then the node is not quorate. */
+    cs_error_t rc = quorum_trackstart(c->quorum, CS_TRACK_CURRENT | CS_TRACK_CHANGES);
     if (rc == CS_OK)
         rc = cpg_fd_get(c->cpg, &cfd);
     if (rc == CS_OK)
