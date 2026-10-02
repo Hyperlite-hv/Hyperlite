@@ -187,6 +187,10 @@ Two consequences, both deliberate:
 | D | **Source of truth**: reads from `hyperlite-cfs`, SQLite kept read-only one release for rollback | a rollback drill done once |
 | E | `hyperlite-statd` over the same channel, list pages from the status table | 1,000 VMs listed in under 200 ms |
 
+Between B and C, the `hyperlite` package builds the daemon on each node and installs its unit disabled
+(`scripts/build-cfs.sh`, `installer/hyperlite-cfs.service`): every node has it before any phase uses it, and an upgrade
+changes nothing on a node that has no cluster.
+
 ### 8.1 Phase B, step by step
 
 | Step | Content | State |
