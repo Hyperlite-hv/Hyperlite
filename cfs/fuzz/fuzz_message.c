@@ -1,6 +1,6 @@
-/* libFuzzer target: any byte string as a message from another node, through the node's decoder, the state agreement
- * and the apply path, against a real store. Peer messages come from the network: they must be as safe to parse as the
- * local socket. Built with meson -Dfuzz=true (clang), run with ./fuzz_message -max_total_time=60. */
+/* libFuzzer target: any byte string as a message from another node, through the node's decoder, the state agreement,
+ * the state transfer and the apply path, against a real store. Peer messages come from the network: they must be as
+ * safe to parse as the local socket. Built with meson -Dfuzz=true (clang), run with ./fuzz_message -max_total_time=60. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,10 +46,17 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
      * itself now and then, so changes are applied too, not only dropped. */
     if (size == 0)
         return 0;
+    uint32_t sender = (uint32_t)(data[0] & 0x03);
     if (data[0] & 0x80) {
         node.synced = true;
         node.failed = false;
     }
-    cfs_node_deliver(&node, (uint32_t)(data[0] & 0x03), data + 1, size - 1);
+    if (data[0] & 0x40) { /* as if a state transfer from this sender were under way, to reach its decoder */
+        node.failed = false;
+        node.transferring = true;
+        node.xfer_needed = true;
+        node.xfer_source = sender;
+    }
+    cfs_node_deliver(&node, sender, data + 1, size - 1);
     return 0;
 }

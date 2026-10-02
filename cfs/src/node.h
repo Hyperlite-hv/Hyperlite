@@ -12,7 +12,10 @@
  *   - On a membership change every member stops applying changes and multicasts its state (cluster version, SHA-256
  *     of tree and locks, and its view of the quorum). Changes are applied again once every member has sent a state,
  *     all of them quorate and all identical. A change delivered before that is dropped by every member alike.
- *     Members that differ stay read-only: copying the state between members is step B2.
+ *     When they differ, every member picks the same source (the highest version, then the lowest node id); the
+ *     source multicasts its whole state, the members that differ replace theirs with it in one transaction and check
+ *     its checksum, then every member sends its state again. One transfer per membership: members that still differ
+ *     after it stay read-only and say so.
  *   - A change that fails here with an internal error (disk full, database error) while the other members applied
  *     it would make this node diverge silently: the node leaves the group instead and refuses every change. */
 
@@ -70,6 +73,17 @@ typedef struct {
     uint32_t members[CFS_MEMBERS_MAX];
     cfs_member_state states[CFS_MEMBERS_MAX];
     size_t nmembers;
+
+    /* State transfer, at most one per membership. */
+    bool transferring;     /* waiting for the source's state */
+    bool transferred;      /* a transfer already ran in this membership */
+    bool xfer_needed;      /* this node's state differs from the source's */
+    uint32_t xfer_source;
+    int64_t xfer_version, xfer_next_id;
+    uint8_t xfer_sum[CFS_CHECKSUM_LEN];
+    uint8_t *xfer_buf; /* the records received so far */
+    size_t xfer_len, xfer_cap;
+    uint32_t xfer_records;
 
     uint64_t next_seq;
     cfs_pending *pending;
