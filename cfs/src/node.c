@@ -1,5 +1,7 @@
 #include "node.h"
 
+#include "path.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +15,12 @@
 #define MSG_FORMAT 1
 #define MSG_CHANGE 1
 #define MSG_STATE 2
+#define MSG_XFER_BEGIN 3 /* i64 version, i64 next id, blob checksum */
+#define MSG_XFER_DATA 4  /* u32 count, then records: u8 1 + string path, i64 version, i64 mtime, blob data, or
+                            u8 2 + string name, string owner, u32 node, i64 expires */
+#define MSG_XFER_END 5   /* u32 records sent */
+#define XFER_CHUNK (512u * 1024u) /* a data message is sent once it holds this much */
+#define XFER_BUF_MAX (2 * CFS_TREE_MAX) /* the records of a full tree, with room for their framing */
 #define MSG_HEADER 6
 #define CHANGE_HEADER (MSG_HEADER + 16)
 
@@ -32,8 +40,19 @@ void cfs_node_init(cfs_node *n, cfs_store *store, uint8_t mode, uint32_t self, c
     n->next_seq = 1;
 }
 
+static void xfer_reset(cfs_node *n)
+{
+    free(n->xfer_buf);
+    n->xfer_buf = NULL;
+    n->xfer_len = n->xfer_cap = 0;
+    n->xfer_records = 0;
+    n->transferring = false;
+    n->xfer_needed = false;
+}
+
 void cfs_node_free(cfs_node *n)
 {
+    xfer_reset(n);
     for (size_t i = 0; i < n->nqueue; i++)
         free(n->queue[i].p);
     free(n->queue);
@@ -213,8 +232,8 @@ void cfs_node_request(cfs_node *n, const uint8_t *body, size_t len, uid_t uid, u
     }
     if (!n->synced) {
         reply(n, token, req.id, CFS_SYNCHRONISING, NULL,
-              n->diverged ? "the cluster members hold different states and copying a state between them is not "
-                            "implemented yet: changes are refused"
+              n->diverged ? "the cluster members still hold different states after a state transfer: changes are "
+                            "refused; see the hyperlite-cfs log of each node"
                           : "the cluster is agreeing on its state after a membership change: retry");
         return;
     }
@@ -240,6 +259,256 @@ void cfs_node_request(cfs_node *n, const uint8_t *body, size_t len, uid_t uid, u
         take_pending(n, seq, &gone);
         reply(n, token, req.id, CFS_INTERNAL, NULL, "the change could not be sent to the cluster");
     }
+}
+
+/* ---- State transfer ------------------------------------------------------------------------------------------ */
+
+typedef struct {
+    cfs_node *n;
+    cfs_writer w;
+    size_t count_at;
+    uint32_t count, total;
+    bool err;
+} dump_ctx;
+
+static void chunk_start(dump_ctx *d)
+{
+    cfs_writer_init(&d->w);
+    cfs_write_u32(&d->w, MSG_MAGIC);
+    cfs_write_u8(&d->w, MSG_FORMAT);
+    cfs_write_u8(&d->w, MSG_XFER_DATA);
+    d->count_at = d->w.len;
+    cfs_write_u32(&d->w, 0);
+    d->count = 0;
+}
+
+static void chunk_send(dump_ctx *d)
+{
+    cfs_patch_u32(&d->w, d->count_at, d->count);
+    if (d->w.err || !send_or_queue(d->n, d->w.p, d->w.len))
+        d->err = true;
+    if (d->w.err)
+        cfs_writer_free(&d->w);
+    d->w.p = NULL; /* send_or_queue owns it */
+    chunk_start(d);
+}
+
+/* Room for one more record of `size` bytes, sending what is held first when it would not fit in one message. */
+static void chunk_room(dump_ctx *d, size_t size)
+{
+    if (d->count && d->w.len + size > CFS_FRAME_MAX - 64)
+        chunk_send(d);
+}
+
+static int dump_entry(void *p, const char *path, int64_t version, int64_t mtime, const uint8_t *data, size_t len)
+{
+    dump_ctx *d = p;
+    chunk_room(d, 1 + 4 + strlen(path) + 16 + 4 + len);
+    cfs_write_u8(&d->w, 1);
+    cfs_write_string(&d->w, path);
+    cfs_write_i64(&d->w, version);
+    cfs_write_i64(&d->w, mtime);
+    cfs_write_blob(&d->w, data, len);
+    d->count++;
+    d->total++;
+    if (d->w.len >= XFER_CHUNK)
+        chunk_send(d);
+    return d->err || d->w.err ? -1 : 0;
+}
+
+static int dump_lock(void *p, const char *name, const char *owner, uint32_t node, int64_t expires)
+{
+    dump_ctx *d = p;
+    chunk_room(d, 1 + 8 + strlen(name) + strlen(owner) + 12);
+    cfs_write_u8(&d->w, 2);
+    cfs_write_string(&d->w, name);
+    cfs_write_string(&d->w, owner);
+    cfs_write_u32(&d->w, node);
+    cfs_write_i64(&d->w, expires);
+    d->count++;
+    d->total++;
+    return d->err || d->w.err ? -1 : 0;
+}
+
+static void fail_node(cfs_node *n, const char *why);
+
+/* The source multicasts its whole state: a begin, data messages, an end. */
+static void send_dump(cfs_node *n)
+{
+    int64_t version = 0, next_id = 0, entries, bytes;
+    uint8_t sum[CFS_CHECKSUM_LEN];
+    if (cfs_store_status(n->ctx.store, &version, sum, &entries, &bytes) != CFS_OK) {
+        fail_node(n, cfs_store_error(n->ctx.store));
+        return;
+    }
+    cfs_writer w;
+    cfs_writer_init(&w);
+    cfs_write_u32(&w, MSG_MAGIC);
+    cfs_write_u8(&w, MSG_FORMAT);
+    cfs_write_u8(&w, MSG_XFER_BEGIN);
+    cfs_write_i64(&w, version);
+    cfs_write_blob(&w, sum, sizeof(sum));
+    bool ok = !w.err && send_or_queue(n, w.p, w.len);
+    if (w.err)
+        cfs_writer_free(&w);
+    dump_ctx d = {.n = n};
+    chunk_start(&d);
+    if (ok && cfs_store_dump(n->ctx.store, dump_entry, dump_lock, &d, &version, &next_id) != CFS_OK)
+        ok = false;
+    if (ok && d.count)
+        chunk_send(&d);
+    cfs_writer_free(&d.w);
+    if (!ok || d.err) {
+        fail_node(n, "this node could not send its state to the members that differ");
+        return;
+    }
+    cfs_writer_init(&w);
+    cfs_write_u32(&w, MSG_MAGIC);
+    cfs_write_u8(&w, MSG_FORMAT);
+    cfs_write_u8(&w, MSG_XFER_END);
+    cfs_write_u32(&w, d.total);
+    cfs_write_i64(&w, next_id);
+    if (w.err || !send_or_queue(n, w.p, w.len)) {
+        if (w.err)
+            cfs_writer_free(&w);
+        fail_node(n, "this node could not finish sending its state");
+    }
+}
+
+static long member_index(const cfs_node *n, uint32_t node);
+
+/* Every member runs this at the same point of the delivery order, with the same states: they pick the same source. */
+static void start_transfer(cfs_node *n)
+{
+    size_t src = 0;
+    for (size_t i = 1; i < n->nmembers; i++) /* members are sorted: on a tie the lowest node id stays */
+        if (n->states[i].version > n->states[src].version)
+            src = i;
+    long me = member_index(n, n->self);
+    n->transferring = true;
+    n->transferred = true;
+    n->xfer_source = n->members[src];
+    n->xfer_needed = me >= 0 && (n->states[me].version != n->states[src].version ||
+                                 memcmp(n->states[me].sum, n->states[src].sum, CFS_CHECKSUM_LEN) != 0);
+    fprintf(stderr, "hyperlite-cfs: the members differ; node %u sends its state (version %lld)%s\n", n->xfer_source,
+            (long long)n->states[src].version, n->xfer_needed ? " and this node takes it" : "");
+    if (n->xfer_needed && me >= 0 && n->states[me].version == n->states[src].version)
+        fprintf(stderr, "hyperlite-cfs: WARNING: this node holds a different state at the same version, which only "
+                        "two writable partitions can produce (an expected-votes override on both sides?): its "
+                        "changes since then are replaced by node %u's\n",
+                n->xfer_source);
+    if (n->xfer_source == n->self)
+        send_dump(n);
+}
+
+static void deliver_xfer_begin(cfs_node *n, cfs_reader *r)
+{
+    n->xfer_version = cfs_read_i64(r);
+    uint32_t len;
+    const uint8_t *sum = cfs_read_blob(r, CFS_CHECKSUM_LEN, &len);
+    if (r->err || len != CFS_CHECKSUM_LEN) {
+        fail_node(n, "the source's state transfer began with a malformed message");
+        return;
+    }
+    memcpy(n->xfer_sum, sum, CFS_CHECKSUM_LEN);
+    n->xfer_len = 0;
+    n->xfer_records = 0;
+}
+
+static void deliver_xfer_data(cfs_node *n, cfs_reader *r)
+{
+    uint32_t count = cfs_read_u32(r);
+    if (r->err)
+        return;
+    if (!n->xfer_needed)
+        return;
+    size_t len = r->len - r->off;
+    if (n->xfer_len + len > XFER_BUF_MAX) {
+        fail_node(n, "the source's state is larger than any valid state");
+        return;
+    }
+    if (n->xfer_len + len > n->xfer_cap) {
+        size_t cap = n->xfer_cap ? n->xfer_cap : 1u << 20;
+        while (cap < n->xfer_len + len)
+            cap *= 2;
+        uint8_t *p = realloc(n->xfer_buf, cap);
+        if (!p) {
+            fail_node(n, "out of memory while receiving the source's state");
+            return;
+        }
+        n->xfer_buf = p;
+        n->xfer_cap = cap;
+    }
+    memcpy(n->xfer_buf + n->xfer_len, r->p + r->off, len);
+    n->xfer_len += len;
+    n->xfer_records += count;
+}
+
+/* Replace this node's state with the records received, in one transaction, and check it is the source's. */
+static bool apply_transfer(cfs_node *n, uint32_t total, int64_t next_id)
+{
+    cfs_store *st = n->ctx.store;
+    if (total != n->xfer_records)
+        return false;
+    if (cfs_store_replace_begin(st) != CFS_OK)
+        return false;
+    cfs_reader r;
+    cfs_reader_init(&r, n->xfer_buf, n->xfer_len);
+    int rc = CFS_OK;
+    for (uint32_t i = 0; i < total && rc == CFS_OK; i++) {
+        uint8_t type = cfs_read_u8(&r);
+        if (type == 1) {
+            char path[CFS_PATH_MAX + 1];
+            cfs_read_string(&r, path, CFS_PATH_MAX);
+            int64_t version = cfs_read_i64(&r), mtime = cfs_read_i64(&r);
+            uint32_t len;
+            const uint8_t *data = cfs_read_blob(&r, CFS_FILE_MAX, &len);
+            rc = r.err || !cfs_path_valid(path, false) ? CFS_INVALID
+                                                       : cfs_store_replace_entry(st, path, version, mtime, data, len);
+        } else if (type == 2) {
+            char name[CFS_NAME_MAX + 1], owner[CFS_NAME_MAX + 1];
+            cfs_read_string(&r, name, CFS_NAME_MAX);
+            cfs_read_string(&r, owner, CFS_NAME_MAX);
+            uint32_t node = cfs_read_u32(&r);
+            int64_t expires = cfs_read_i64(&r);
+            rc = r.err ? CFS_INVALID : cfs_store_replace_lock(st, name, owner, node, expires);
+        } else {
+            rc = CFS_INVALID;
+        }
+    }
+    if (rc != CFS_OK || r.off != r.len) {
+        cfs_store_replace_abort(st);
+        return false;
+    }
+    if (cfs_store_replace_commit(st, n->xfer_version, next_id) != CFS_OK)
+        return false;
+    int64_t version, entries, bytes;
+    uint8_t sum[CFS_CHECKSUM_LEN];
+    return cfs_store_status(st, &version, sum, &entries, &bytes) == CFS_OK && version == n->xfer_version &&
+           memcmp(sum, n->xfer_sum, CFS_CHECKSUM_LEN) == 0;
+}
+
+static void deliver_xfer_end(cfs_node *n, cfs_reader *r)
+{
+    uint32_t total = cfs_read_u32(r);
+    int64_t next_id = cfs_read_i64(r);
+    if (r->err) {
+        fail_node(n, "the source's state transfer ended with a malformed message");
+        return;
+    }
+    if (n->xfer_needed) {
+        if (!apply_transfer(n, total, next_id)) {
+            xfer_reset(n);
+            fail_node(n, "the state received from the source could not be applied, or does not match its checksum");
+            return;
+        }
+        fprintf(stderr, "hyperlite-cfs: took node %u's state, version %lld\n", n->xfer_source,
+                (long long)n->xfer_version);
+    }
+    xfer_reset(n);
+    /* Every member, at the same point of the order, starts the agreement again from its new state. */
+    memset(n->states, 0, sizeof(n->states));
+    send_state(n);
 }
 
 /* ---- Delivery ----------------------------------------------------------------------------------------------------- */
@@ -318,13 +587,18 @@ static void evaluate_states(cfs_node *n)
                memcmp(s->sum, n->states[0].sum, CFS_CHECKSUM_LEN) == 0;
     }
     bool was = n->synced;
-    n->synced = all && quorate && same && !n->failed;
-    n->diverged = all && !same;
+    n->synced = all && quorate && same && !n->failed && !n->transferring;
+    n->diverged = all && !same && n->transferred && !n->transferring;
+    if (all && quorate && !same && !n->transferred && !n->failed) {
+        start_transfer(n);
+        return;
+    }
     if (n->synced && !was)
         fprintf(stderr, "hyperlite-cfs: %zu member(s) agree on version %lld, changes are applied\n", n->nmembers,
                 (long long)n->states[0].version);
     else if (n->diverged)
-        fprintf(stderr, "hyperlite-cfs: the members hold different states, changes stay refused\n");
+        fprintf(stderr, "hyperlite-cfs: the members still hold different states after a state transfer, changes "
+                        "stay refused\n");
 }
 
 static void deliver_state(cfs_node *n, uint32_t sender, cfs_reader *r)
@@ -356,6 +630,14 @@ void cfs_node_deliver(cfs_node *n, uint32_t sender, const uint8_t *msg, size_t l
         deliver_change(n, sender, &r, msg, len);
     else if (kind == MSG_STATE)
         deliver_state(n, sender, &r);
+    else if (n->transferring && sender == n->xfer_source && !n->failed) {
+        if (kind == MSG_XFER_BEGIN)
+            deliver_xfer_begin(n, &r);
+        else if (kind == MSG_XFER_DATA)
+            deliver_xfer_data(n, &r);
+        else if (kind == MSG_XFER_END)
+            deliver_xfer_end(n, &r);
+    }
 }
 
 static int cmp_u32(const void *a, const void *b)
@@ -374,6 +656,8 @@ void cfs_node_membership(cfs_node *n, const uint32_t *members, size_t count)
     memset(n->states, 0, sizeof(n->states));
     n->synced = false;
     n->diverged = false;
+    n->transferred = false;
+    xfer_reset(n); /* a transfer cut by the membership change is dropped; the next agreement starts over */
     fprintf(stderr, "hyperlite-cfs: membership changed, %zu member(s)\n", count);
     /* Changes sent before this point and not delivered yet are dropped by every member (deliver_change). */
     fail_pending(n, CFS_SYNCHRONISING,

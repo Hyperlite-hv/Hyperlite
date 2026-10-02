@@ -54,6 +54,22 @@ int cfs_store_list(cfs_store *s, const char *dir, cfs_list_cb cb, void *ctx);
 /* A new guest id, unique and never reused, starting at CFS_FIRST_ID. */
 int cfs_store_next_id(cfs_store *s, int64_t *id);
 
+/* The whole state, for a state transfer (design, section 4.4): every entry in path order, every lock in name order,
+ * and the two counters. A callback returns 0 to go on. */
+typedef int (*cfs_dump_entry_cb)(void *ctx, const char *path, int64_t version, int64_t mtime, const uint8_t *data,
+                                 size_t len);
+typedef int (*cfs_dump_lock_cb)(void *ctx, const char *name, const char *owner, uint32_t node, int64_t expires);
+int cfs_store_dump(cfs_store *s, cfs_dump_entry_cb on_entry, cfs_dump_lock_cb on_lock, void *ctx, int64_t *version,
+                   int64_t *next_id);
+
+/* Replace the whole state with another node's, in one transaction: begin, the rows, then commit (or abort). */
+int cfs_store_replace_begin(cfs_store *s);
+int cfs_store_replace_entry(cfs_store *s, const char *path, int64_t version, int64_t mtime, const uint8_t *data,
+                            size_t len);
+int cfs_store_replace_lock(cfs_store *s, const char *name, const char *owner, uint32_t node, int64_t expires);
+int cfs_store_replace_commit(cfs_store *s, int64_t version, int64_t next_id);
+void cfs_store_replace_abort(cfs_store *s);
+
 /* The cluster version, and the SHA-256 of the whole state (tree and locks): two nodes hold the same state iff both
  * are equal. */
 int cfs_store_status(cfs_store *s, int64_t *version, uint8_t checksum[CFS_CHECKSUM_LEN], int64_t *entries,

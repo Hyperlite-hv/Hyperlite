@@ -539,6 +539,114 @@ int cfs_store_drop_locks(cfs_store *s, const uint32_t *members, size_t count)
     return rc;
 }
 
+/* ---- State transfer ------------------------------------------------------------------------------------------- */
+
+int cfs_store_dump(cfs_store *s, cfs_dump_entry_cb on_entry, cfs_dump_lock_cb on_lock, void *ctx, int64_t *version,
+                   int64_t *next_id)
+{
+    sqlite3_stmt *st;
+    if (sqlite3_prepare_v2(s->db, "SELECT path, version, mtime, data FROM tree ORDER BY path", -1, &st, NULL) !=
+        SQLITE_OK) {
+        set_error(s, "dump");
+        return CFS_INTERNAL;
+    }
+    int rc, result = CFS_OK;
+    while (result == CFS_OK && (rc = sqlite3_step(st)) == SQLITE_ROW) {
+        int n = sqlite3_column_bytes(st, 3);
+        if (on_entry(ctx, (const char *)sqlite3_column_text(st, 0), sqlite3_column_int64(st, 1),
+                     sqlite3_column_int64(st, 2), sqlite3_column_blob(st, 3), (size_t)n) != 0)
+            result = CFS_INTERNAL;
+    }
+    if (result == CFS_OK && rc != SQLITE_DONE) {
+        set_error(s, "dump");
+        result = CFS_INTERNAL;
+    }
+    sqlite3_finalize(st);
+    if (result != CFS_OK)
+        return result;
+    if (sqlite3_prepare_v2(s->db, "SELECT name, owner, node, expires FROM locks ORDER BY name", -1, &st, NULL) !=
+        SQLITE_OK) {
+        set_error(s, "dump");
+        return CFS_INTERNAL;
+    }
+    while (result == CFS_OK && (rc = sqlite3_step(st)) == SQLITE_ROW)
+        if (on_lock(ctx, (const char *)sqlite3_column_text(st, 0), (const char *)sqlite3_column_text(st, 1),
+                    (uint32_t)sqlite3_column_int64(st, 2), sqlite3_column_int64(st, 3)) != 0)
+            result = CFS_INTERNAL;
+    if (result == CFS_OK && rc != SQLITE_DONE) {
+        set_error(s, "dump");
+        result = CFS_INTERNAL;
+    }
+    sqlite3_finalize(st);
+    *version = s->version;
+    *next_id = query_i64(s, "SELECT value FROM meta WHERE key = 'next_id'", -1);
+    if (result == CFS_OK && *next_id < CFS_FIRST_ID) {
+        snprintf(s->error, sizeof(s->error), "the id counter is missing or below %d", CFS_FIRST_ID);
+        result = CFS_INTERNAL;
+    }
+    return result;
+}
+
+int cfs_store_replace_begin(cfs_store *s)
+{
+    if (begin(s) != CFS_OK)
+        return CFS_INTERNAL;
+    if (exec(s, "DELETE FROM tree; DELETE FROM locks;") != CFS_OK) {
+        rollback(s);
+        return CFS_INTERNAL;
+    }
+    return CFS_OK;
+}
+
+int cfs_store_replace_entry(cfs_store *s, const char *path, int64_t version, int64_t mtime, const uint8_t *data,
+                            size_t len)
+{
+    return len > CFS_FILE_MAX ? CFS_TOO_LARGE : write_row(s, path, version, mtime, data, len);
+}
+
+int cfs_store_replace_lock(cfs_store *s, const char *name, const char *owner, uint32_t node, int64_t expires)
+{
+    return run(s, "INSERT INTO locks (name, owner, node, expires) VALUES (?, ?, ?, ?)", name, owner, node, expires,
+               2) == SQLITE_DONE
+               ? CFS_OK
+               : CFS_INTERNAL;
+}
+
+int cfs_store_replace_commit(cfs_store *s, int64_t version, int64_t next_id)
+{
+    sqlite3_stmt *st;
+    int rc = CFS_OK;
+    if (sqlite3_prepare_v2(s->db, "UPDATE meta SET value = ? WHERE key = 'next_id'", -1, &st, NULL) != SQLITE_OK) {
+        set_error(s, "replace");
+        rc = CFS_INTERNAL;
+    } else {
+        sqlite3_bind_int64(st, 1, next_id);
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            set_error(s, "replace");
+            rc = CFS_INTERNAL;
+        }
+        sqlite3_finalize(st);
+    }
+    int64_t bytes = query_i64(s, "SELECT COALESCE(SUM(length(data)), 0) FROM tree", -1);
+    if (rc == CFS_OK && (bytes < 0 || (uint64_t)bytes > CFS_TREE_MAX)) {
+        snprintf(s->error, sizeof(s->error), "the received tree is larger than the limit");
+        rc = CFS_TOO_LARGE;
+    }
+    if (rc == CFS_OK)
+        rc = commit_version(s, version);
+    if (rc != CFS_OK) {
+        rollback(s);
+        return rc;
+    }
+    s->bytes = bytes;
+    return CFS_OK;
+}
+
+void cfs_store_replace_abort(cfs_store *s)
+{
+    rollback(s);
+}
+
 /* ---- Reads ------------------------------------------------------------------------------------------------------- */
 
 int cfs_store_get(cfs_store *s, const char *path, int64_t *version, int64_t *mtime, uint8_t **data, size_t *len)

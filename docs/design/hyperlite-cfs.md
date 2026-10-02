@@ -1,7 +1,7 @@
 # Design: `hyperlite-cfs`, the replicated cluster configuration
 
-Status: **accepted (2026-10-01).** Phase A (local mode) and step B1 of phase B (Corosync, quorum, agreement on one
-state) are in `cfs/`; B2 to E are to come.
+Status: **accepted (2026-10-01).** Phase A (local mode) and steps B1 and B2 of phase B (Corosync, quorum, agreement
+on one state, state transfer) are in `cfs/`; B3 to E are to come.
 
 Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose Proxmox VE's architecture
 on Proxmox VE's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
@@ -187,7 +187,7 @@ Two consequences, both deliberate:
 | Step | Content | State |
 |---|---|---|
 | B1 | Corosync transport (CPG agreed order, quorum service); changes applied by every member in delivery order; refused without quorum; after each membership change, every member sends its state and changes resume only when all states are equal and quorate; a three-node test on a real Corosync in network namespaces | done |
-| B2 | State transfer: a member that differs receives the source's tree (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | to do |
+| B2 | State transfer: a member that differs receives the source's tree and locks (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | done |
 | B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | to do |
 | B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | to do |
 
@@ -214,6 +214,26 @@ Found by reading phase A against what cluster mode needs:
   service when CPG reports the membership, after Corosync finished its synchronisation). A minority never agrees,
   so it never applies anything.
 - **Messages from other nodes are untrusted input**, like the local socket: they have their own fuzz target.
+
+### 8.3 How B2 transfers a state
+
+- Every member decides from the same states, delivered in the same order: when all members sent theirs, all are
+  quorate and they differ, they pick the same **source**, the highest version and, on a tie, the lowest node id. A
+  minority never gets there, since its members are not quorate, so it can never become a source.
+- The source multicasts its whole state: a begin message (version, checksum), data messages of at most 512 KiB
+  (entries in path order, then locks), an end message (record count, id counter). The members that differ keep the
+  records in memory and, at the end, replace their state **in one SQLite transaction**, then check that the result has
+  the source's version and checksum. Any mismatch makes that node leave (section 8.2).
+- At the end message every member, at the same point of the order, sends its state again: the members agree and
+  changes resume. **One transfer per membership**: members that still differ afterwards stay read-only and log it,
+  instead of looping.
+- A membership change during a transfer drops it: the next agreement starts over, and a node half-way through
+  keeps its old state, since nothing is written before the end message.
+- Two states at the **same version** with different checksums can only come from two writable partitions (an
+  expected-votes override on both sides). They are resolved like any other difference, to the lowest node id, and the
+  node that loses its changes logs a warning.
+- It is a full copy, not a diff: a tree is at most 128 MiB, and copying it whole keeps the code small. A diff is an
+  optimisation for later if transfers prove slow.
 
 ## 9. Tests
 

@@ -4,11 +4,11 @@ Hyperlite's replicated cluster configuration, the counterpart of Proxmox VE's `p
 [`docs/design/hyperlite-cfs.md`](../docs/design/hyperlite-cfs.md) and the architecture around it is section 15.2 of
 [`docs/design/control-plane-v2-migration.md`](../docs/design/control-plane-v2-migration.md).
 
-**State: phase B1.** The daemon keeps the configuration tree in SQLite and serves it on a Unix socket, with versions,
+**State: phase B2.** The daemon keeps the configuration tree in SQLite and serves it on a Unix socket, with versions,
 compare-and-set, locks, guest id allocation and a checksum of the state. In cluster mode (`--cluster`) it joins
 Corosync: every change is applied by every node in the order Corosync agreed, refused without quorum, and refused
-while the members do not hold the same state. Copying the state to a member that differs (a node that was away) is
-step B2: until then such a cluster stays read-only. Nothing in Hyperlite uses the daemon yet.
+while the members do not hold the same state; a member that differs (a node that was away) receives the state of the
+most advanced member before changes resume. Nothing in Hyperlite uses the daemon yet.
 
 ## Build and test
 

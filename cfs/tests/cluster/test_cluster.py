@@ -2,10 +2,11 @@
 
 What it shows: a change made on one node is applied by every node; two nodes creating the same entry at once get one
 success and one conflict; many changes from every node leave identical states; a large file crosses Corosync; a node
-cut from the others refuses changes while the majority goes on; the locks of a node that left are released.
+cut from the others refuses changes while the majority goes on; the locks of a node that left are released; a node
+that comes back takes the majority's state.
 
 Needs root, iproute2, corosync and the daemon: set HYPERLITE_CFS_BIN to the binary and HYPERLITE_CFS_CLUSTER=1 (the
-CI's cfs job does). The scenarios share one cluster and run in order, the last one leaves it partitioned."""
+CI's cfs job does). The scenarios share one cluster and run in order."""
 
 import os
 import subprocess
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.cfs_client import ANY_VERSION, MUST_NOT_EXIST, CfsClient, CfsError, Conflict, ReadOnly, Synchronising
+from app.core.cfs_client import ANY_VERSION, MUST_NOT_EXIST, CfsClient, CfsError, Conflict, ReadOnly
 
 BIN = os.environ.get("HYPERLITE_CFS_BIN", "")
 # The lab: three namespaces on this machine (lab.sh, needs the daemon built here), or three Debian VMs that build
@@ -145,14 +146,10 @@ def test_a_node_cut_from_the_others_refuses_changes_and_its_locks_are_released(n
     assert nodes[1].get("/x").data == b"majority"
 
 
-def test_after_the_partition_the_members_differ_and_stay_read_only_until_step_b2(nodes):
+def test_a_node_back_after_the_partition_takes_the_majority_state(nodes):
     lab("heal", 3)
-
-    def refused():
-        try:
-            nodes[0].put("/y", b"1")
-            return False
-        except Synchronising as e:
-            return "different states" in e.reason
-
-    until(refused, what="the merge")
+    # Node 3 missed the majority's changes: it takes the whole state, and every node is writable again.
+    until(lambda: nodes[2].put("/after-merge", b"from node 3") > 0, timeout=120, what="the merge")
+    until(lambda: same_everywhere(nodes), what="the states")
+    assert nodes[2].get("/x").data == b"majority"
+    assert nodes[0].get("/after-merge").data == b"from node 3"
