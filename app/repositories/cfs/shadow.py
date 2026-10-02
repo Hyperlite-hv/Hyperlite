@@ -30,6 +30,7 @@ from app.core.cfs_client import (
     Synchronising,
     Uncertain,
 )
+from app.repositories.cfs import ids
 from app.repositories.cfs.tables import TABLES
 
 logger = logging.getLogger(__name__)
@@ -364,6 +365,10 @@ def seed():
         w, d = _sync(client, table)
         written += w
         deleted += d
+    if client.status().mode == "cluster":
+        # The tree now holds this node's rows: ids handed out from now on start above them (ids.py).
+        with _db() as db:
+            ids.set_offset(db, client)
     from app.repositories.cfs import inbound  # imports this module
 
     inbound.mark_applied()

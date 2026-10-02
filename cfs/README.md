@@ -92,7 +92,9 @@ the host name (recorded then: renaming the host later changes nothing); a node c
 
 Every node runs the jobs of the VMs it hosts (backups, grouped backups and replication on its own schedule, automatic
 deletion, start at boot); the cluster-wide work (the HA watcher) runs on the node holding the lock `hyperlite-lead`
-(`app/core/cluster_lead.py`), and another node takes it over when that one leaves.
+(`app/core/cluster_lead.py`), and another node takes it over when that one leaves. A new row of a replicated table
+takes its id from the daemon's cluster-wide counter (`app/repositories/cfs/ids.py`), so two nodes never number two
+rows alike; while the daemon does not answer, a node of a cluster creates nothing new (the API answers 503).
 
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.

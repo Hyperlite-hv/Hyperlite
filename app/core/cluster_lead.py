@@ -7,8 +7,8 @@ that went down): the lock is renewed every RENEW_S, and the daemon releases it w
 or after TTL_S when the holder hangs, so another node takes over.
 
 Outside a cluster (no shadow mode, or the daemon in local mode) this node is alone: it runs everything, as before.
-When the daemon does not answer, the last mode it reported holds; before any answer, a node with shadow mode on
-behaves as in a cluster, the careful side: it leaves alone what may belong to another node.
+When the daemon does not answer, the last mode it reported holds (kept in app_settings across restarts); a node
+that never heard from it behaves as in a cluster, the careful side: it leaves alone what may belong to another node.
 """
 
 import logging
@@ -21,6 +21,7 @@ from app.core.cfs_client import CfsError, Locked
 logger = logging.getLogger(__name__)
 
 LOCK = "hyperlite-lead"
+MODE_SETTING = "cfs_mode"  # the daemon's last reported mode, a row each node keeps (app/repositories/cfs/tables.py)
 TTL_S = 60
 RENEW_S = 15
 STATUS_TTL_S = 5.0
@@ -37,25 +38,41 @@ def _shadow():
     return shadow
 
 
-def in_cluster():
-    """True when other nodes may run Hyperlite on the same configuration."""
+def _settings():
+    from app.repositories.sqlite.settings import SqliteSettingsStore
+
+    return SqliteSettingsStore()
+
+
+def mode(record=True):
+    """The daemon's mode, "local" or "cluster", or None when shadow mode is off or the daemon never answered.
+    record=False: never write the setting (a caller inside a write transaction, which that write would wait for)."""
     global _mode, _mode_at
     shadow = _shadow()
     if not shadow.enabled():
-        return False
+        return None
     now = time.monotonic()
     with _lock:
-        fresh = _mode is not None and now - _mode_at < STATUS_TTL_S
-        if fresh:
-            return _mode != "local"
+        if _mode is not None and now - _mode_at < STATUS_TTL_S:
+            return _mode
     try:
-        mode = shadow._get_client().status().mode
+        current = shadow._get_client().status().mode
     except (CfsError, OSError):
         with _lock:
-            return _mode != "local"
+            known = _mode
+        return known or _settings().app_setting(MODE_SETTING)
     with _lock:
-        _mode, _mode_at = mode, now
-    return mode != "local"
+        changed, _mode, _mode_at = current != _mode, current, now
+    if record and changed and _settings().app_setting(MODE_SETTING) != current:
+        _settings().set_app_setting(MODE_SETTING, current)
+    return current
+
+
+def in_cluster():
+    """True when other nodes may run Hyperlite on the same configuration."""
+    if not _shadow().enabled():
+        return False
+    return mode() != "local"
 
 
 def is_leader():

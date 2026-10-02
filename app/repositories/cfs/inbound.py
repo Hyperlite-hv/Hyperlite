@@ -118,6 +118,7 @@ def apply():
 
     written = 0
     with shadow._db() as db:
+        db.reserve_ids = False  # rows from the tree carry their ids (ids.py)
         db.execute("BEGIN IMMEDIATE")  # no other write to SQLite until this apply is done
         try:
             if db.execute("SELECT COUNT(*) FROM cfs_outbox").fetchone()[0]:

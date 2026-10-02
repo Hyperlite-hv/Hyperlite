@@ -211,8 +211,11 @@ node's own schedule (`schedule_state`, a table each node keeps, holds its next r
 start at boot of its own VMs. What concerns the whole cluster (the HA watcher, the alert about a node gone down) runs
 on the node that holds the cfs lock `hyperlite-lead` (`app/core/cluster_lead.py`), renewed every 15 s, released when
 its holder leaves the membership. In a cluster the configuration copy to standby nodes stops: the tree replaces it.
-What is left for several nodes to run Hyperlite at once: integer ids allocated without collision, and the encryption
-and signing keys shared when a node joins.
+A new row of a replicated table gets an id no other node hands out (`app/repositories/cfs/ids.py`): right before the
+insert, under SQLite's write lock, the connection sets `sqlite_sequence` from the daemon's cluster-wide counter (4.3),
+lifted once above the first node's ids (`/cluster/id-offset`); without the daemon, a cluster node refuses new rows
+(503). What is left for several nodes to run Hyperlite at once: the encryption and signing keys shared when a node
+joins.
 
 ### 8.1 Phase B, step by step
 

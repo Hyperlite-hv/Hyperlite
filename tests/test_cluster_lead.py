@@ -7,9 +7,9 @@ import libvirt
 import pytest
 
 from app.core import backups, cluster_lead, replication, vm_cleanup
-from app.core.cfs_client import Locked, Status
+from app.core.cfs_client import Locked, NotFound, Status
 from app.core.database import get_conn
-from app.repositories.cfs import shadow
+from app.repositories.cfs import ids, shadow
 from tests.test_replication import job_payload, vms  # noqa: F401  (fixture)
 
 
@@ -26,6 +26,12 @@ class Daemon:
             raise ConnectionRefusedError("down")
         return Status(version=1, checksum="00", quorate=True, mode=self.mode, entries=0, bytes=0)
 
+    def next_id(self):
+        return 100
+
+    def get(self, path):
+        raise NotFound(1, "no such entry")
+
     def lock(self, name, owner, ttl=60):
         if self.down:
             raise ConnectionRefusedError("down")
@@ -41,6 +47,7 @@ def daemon(database, monkeypatch):
     monkeypatch.setattr(shadow, "_get_client", lambda: fake)
     monkeypatch.setattr(cluster_lead, "STATUS_TTL_S", 0)  # every call asks the daemon
     cluster_lead.forget()
+    ids.forget()
     yield fake
     cluster_lead.forget()
 
