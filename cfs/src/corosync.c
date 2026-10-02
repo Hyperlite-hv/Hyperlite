@@ -1,5 +1,6 @@
 #include "corosync.h"
 
+#include <corosync/cmap.h>
 #include <corosync/cpg.h>
 #include <corosync/quorum.h>
 #include <corosync/votequorum.h>
@@ -14,6 +15,7 @@ struct cfs_corosync {
     cpg_handle_t cpg;
     quorum_handle_t quorum;
     votequorum_handle_t votes;
+    cmap_handle_t cmap;
     struct cpg_name group;
     uint32_t nodeid;
     cfs_node *node;
@@ -27,17 +29,60 @@ struct cfs_corosync {
     bool ring_known;
     uint32_t members[CFS_MEMBERS_MAX]; /* the nodes whose daemon is in the group */
     size_t nmembers;
+    /* Every configured node's daemon was in the group at once since this daemon started: until then a QDevice's
+     * vote does not count (see members_hold_a_quorum). */
+    bool seen_all;
+    bool held_back_said;
 };
+
+/* Every node of corosync.conf's nodelist is a member of the group now. Unreadable nodelist: no. */
+static bool every_node_present(cfs_corosync *c)
+{
+    cmap_iter_handle_t it;
+    if (cmap_iter_init(c->cmap, "nodelist.node.", &it) != CS_OK)
+        return false;
+    char key[CMAP_KEYNAME_MAXLEN + 1];
+    size_t len;
+    cmap_value_types_t type;
+    bool all = true, any = false;
+    while (cmap_iter_next(c->cmap, it, key, &len, &type) == CS_OK) {
+        unsigned index;
+        char field[16];
+        uint32_t id;
+        if (sscanf(key, "nodelist.node.%u.%15s", &index, field) != 2 || strcmp(field, "nodeid") != 0 ||
+            cmap_get_uint32(c->cmap, key, &id) != CS_OK)
+            continue;
+        any = true;
+        bool member = false;
+        for (size_t i = 0; i < c->nmembers; i++)
+            member = member || c->members[i] == id;
+        all = all && member;
+    }
+    cmap_iter_finalize(c->cmap, it);
+    return any && all;
+}
 
 /* Corosync counts the votes of every node it sees, daemon or not. A change answered by the daemons alone is held by
  * them alone, so it survives only if their votes are a quorum by themselves: otherwise a later majority without them
- * could lose it. A QDevice's vote counts as Corosync counts it (design, section 8.4). */
+ * could lose it (design, section 8.4).
+ *
+ * A QDevice's vote counts only once this daemon has seen every configured node since it started: a node that comes
+ * back alone may hold a stale state while the other node wrote on alone, and with the QDevice's vote it would agree
+ * with itself in a new ring, so a later term, and its stale state would win the merge. Corosync's wait_for_all should
+ * prevent that, but with a QDevice it lets such a node through: right after a restart the QDevice's vote already counts
+ * while the expected votes are still the nodes' alone, and votequorum's check (all the expected votes present) passes
+ * (are_we_quorate, Corosync 3.1). */
 static bool members_hold_a_quorum(cfs_corosync *c)
 {
     struct votequorum_info info;
     if (votequorum_getinfo(c->votes, 0, &info) != CS_OK)
         return false;
-    unsigned votes = info.qdevice_votes;
+    unsigned votes = c->seen_all ? info.qdevice_votes : 0;
+    if (!c->seen_all && info.qdevice_votes && !c->held_back_said) {
+        fprintf(stderr, "hyperlite-cfs: the QDevice's vote counts only once every node has been seen since this "
+                        "daemon started (this node may hold a stale state)\n");
+        c->held_back_said = true;
+    }
     for (size_t i = 0; i < c->nmembers; i++) {
         struct votequorum_info node;
         if (votequorum_getinfo(c->votes, c->members[i], &node) == CS_OK &&
@@ -95,6 +140,10 @@ static void on_confchg(cpg_handle_t h, const struct cpg_name *group, const struc
             c->members[n++] = members[i].nodeid; /* one daemon per node; a second process of a node counts once */
     }
     c->nmembers = n;
+    if (!c->seen_all && every_node_present(c)) {
+        c->seen_all = true;
+        fprintf(stderr, "hyperlite-cfs: every configured node has been seen: a QDevice's vote counts from now on\n");
+    }
     /* The quorum first: the state the membership makes the node send must already count these members' votes. */
     update_quorum(c);
     cfs_node_membership(c->node, c->members, n);
@@ -201,7 +250,7 @@ cfs_corosync *cfs_corosync_open(char *err, size_t errlen)
         rc = quorum_context_set(c->quorum, c);
     else if (rc == CS_OK)
         rc = CS_ERR_NOT_EXIST;
-    bool votes = false;
+    bool votes = false, cmap = false;
     if (rc == CS_OK) {
         /* Only asked for the votes and the threshold (members_hold_a_quorum): no callbacks, nothing to dispatch. */
         rc = votequorum_initialize(&c->votes, NULL);
@@ -209,10 +258,18 @@ cfs_corosync *cfs_corosync_open(char *err, size_t errlen)
         if (!votes)
             snprintf(err, errlen, "cannot reach Corosync's votequorum service (error %d)", (int)rc);
     }
+    if (rc == CS_OK) {
+        rc = cmap_initialize(&c->cmap); /* read the nodelist (every_node_present) */
+        cmap = rc == CS_OK;
+        if (!cmap)
+            snprintf(err, errlen, "cannot reach Corosync's configuration map (error %d)", (int)rc);
+    }
     unsigned int nodeid = 0;
     if (rc == CS_OK && (rc = cpg_local_get(c->cpg, &nodeid)) != CS_OK)
         snprintf(err, errlen, "cannot read this node's Corosync id (error %d)", (int)rc);
     if (rc != CS_OK) {
+        if (cmap)
+            cmap_finalize(c->cmap);
         if (votes)
             votequorum_finalize(c->votes);
         quorum_finalize(c->quorum);
@@ -263,6 +320,7 @@ void cfs_corosync_close(cfs_corosync *c)
     if (!c)
         return;
     cpg_quit(c);
+    cmap_finalize(c->cmap);
     votequorum_finalize(c->votes);
     quorum_finalize(c->quorum);
     cpg_finalize(c->cpg);

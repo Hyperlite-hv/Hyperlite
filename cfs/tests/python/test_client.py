@@ -125,7 +125,7 @@ def test_concurrent_clients_get_unique_ids_and_one_winner(daemon):
                     c.put("/race", b"mine", expected=cfs_client.MUST_NOT_EXIST)
                     wins.append(1)
                 except Conflict:
-                    pass
+                    pass  # the losers of the race: expected, counted by the winners above
         except Exception as e:  # collected and asserted below
             errors.append(e)
 

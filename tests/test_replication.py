@@ -171,5 +171,8 @@ def test_the_api_is_for_administrators(client, auth_headers, vms, monkeypatch):
     watcher = auth_headers("watcher", role="observateur")
     assert client.get("/replication/jobs", headers=watcher).status_code == 403
     assert client.get("/replication/status", headers=watcher).status_code == 403
-    assert client.delete(f"/replication/jobs/{job_id}", headers=admin).status_code == 200
-    assert client.delete(f"/replication/jobs/{job_id}", headers=admin).status_code == 404
+    # The calls stay out of the asserts, so that they still run under `python -O`.
+    deleted = client.delete(f"/replication/jobs/{job_id}", headers=admin)
+    deleted_again = client.delete(f"/replication/jobs/{job_id}", headers=admin)
+    assert deleted.status_code == 200
+    assert deleted_again.status_code == 404

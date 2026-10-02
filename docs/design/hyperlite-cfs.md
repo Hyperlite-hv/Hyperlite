@@ -1,8 +1,8 @@
 # Design: `hyperlite-cfs`, the replicated cluster configuration
 
-Status: **accepted (2026-10-01).** Phase A (local mode) and steps B1 to B3 of phase B (Corosync, quorum, agreement
-on one state, state transfer, terms and confirmed answers, the fault tests and their nightly soak) are in `cfs/`; B4
-to E are to come.
+Status: **accepted (2026-10-01).** Phase A (local mode) and phase B (Corosync, quorum, agreement on one state, state
+transfer, terms and confirmed answers, the fault tests and their nightly soak, two-node clusters) are in `cfs/`; C to
+E are to come.
 
 Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose Proxmox VE's architecture
 on Proxmox VE's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
@@ -150,8 +150,9 @@ Two consequences, both deliberate:
   earlier ring counts as not quorate (section 8.4).
 - **Two nodes**: Hyperlite does **not** enable `two_node: 1`. That option sets quorum "artificially to 1", so both
   halves of a split could write. Two-node clusters follow Proxmox's recommendation of a QDevice (`corosync-qnetd` on
-  a third machine). Without one, the survivor of a failure is read-only until the administrator runs the equivalent
-  of `pvecm expected 1`.
+  a third machine, `corosync-qdevice` on each node, `wait_for_all: 1`). Without one, the survivor of a failure is
+  read-only until the administrator runs `hyperlite-cfs expected-votes 1`, the counterpart of `pvecm expected 1`
+  (section 8.5).
 - Single node: local mode, always writable, no Corosync.
 
 ## 6. Security
@@ -194,7 +195,7 @@ Two consequences, both deliberate:
 | B2 | State transfer: a member that differs receives the source's tree and locks (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | done |
 | B3a | What the fault tests need the protocol to guarantee, found while writing them (section 8.4): terms, answers confirmed by every member, the quorum of the current ring | done |
 | B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | in place: `cfs/tests/cluster/test_faults.py` on both labs for every pull request (five soak rounds), and a thousand soak rounds every night (`lab.yml`, job `cfs-soak`: ten shards of a hundred in parallel, about 30 minutes); phase B's exit criterion is met once a night passes |
-| B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | to do |
+| B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | done (section 8.5) |
 
 ### 8.2 Decisions taken while building B1
 
@@ -291,6 +292,24 @@ The term is not part of the checksum, and agreement compares the data alone (ver
 just before an agreement can carry the previous term, and the agreement brings every member to the same term. If
 Corosync's ring ever falls below a stored term (its state directory wiped), the term stays and the node logs a
 warning.
+
+### 8.5 Two nodes (B4)
+
+- **`hyperlite-cfs expected-votes VOTES [--confirm CLUSTER]`** lowers Corosync's expected votes (`votequorum_setexpected`)
+  so that a partition that lost its quorum is writable again. It refuses on a quorate partition, and when VOTES would
+  not make this partition quorate; it lists the configured nodes, marks the missing ones, says what a double override
+  risks (section 8.3), and changes nothing until the cluster's name is typed on the terminal or given with
+  `--confirm`. Corosync raises the expected votes again as the missing nodes come back.
+- **A QDevice's vote counts only after this daemon has seen every node.** The two-node lab found that Corosync's
+  `wait_for_all` does not hold with a QDevice: right after a restart the QDevice's vote already counts while the
+  expected votes are still the nodes' alone, so votequorum's check (all expected votes present) passes and a node that
+  comes back alone is quorate at once (`are_we_quorate`, Corosync 3.1). That node may be stale: the other node may have
+  written alone since. Agreeing alone in a new ring, it would get the later term, and its stale state would win the
+  merge, losing what the other node answered. The daemon therefore counts the QDevice's vote only once every node of
+  the nodelist has had its daemon in the group at the same time since it started; until then that node is read-only,
+  as `wait_for_all` intends. Reproduced in the lab first (`test_two_nodes.py`), then fixed.
+- The lab runs two nodes with and without a QDevice (`HYPERLITE_LAB_NODES=2`, `HYPERLITE_LAB_QDEVICE=1`); the arbiter
+  runs without TLS there, which a real cluster must not do (Proxmox's `pvecm qdevice setup` sets up the certificates).
 
 ## 9. Tests
 
