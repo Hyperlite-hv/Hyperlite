@@ -21,6 +21,8 @@ import os
 import threading
 from pathlib import Path
 
+import libvirt
+
 from app.core import backup_integrity
 from app.core.backup_groups import GroupError, validate_target
 from app.core.tasks import create_task, finish_task, update_task_progress
@@ -29,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 MAX_VMS = 2000
 MAX_BACKUPS_PER_VM = 500
+# Where an administrator mounts a share by hand; storage pools, the backup directory and the backup and replication
+# jobs' directories are allowed too (_allowed_roots).
+MOUNT_ROOTS = ("/mnt", "/media", "/srv")
 
 
 class RecoveryError(Exception):
@@ -41,20 +46,57 @@ def _store():
     return registry.backups().sync
 
 
-def _directory(path):
-    """The directory to scan: absolute, outside the system's own directories, without a symbolic link anywhere (a link
-    would lead past that check, to /etc say), an existing directory."""
+def _allowed_roots():
+    """The directories under which another site's backups may be read: the usual mount points, this node's storage
+    pools (an NFS share of the other site is usually one), the backup directory and the backup and replication jobs'
+    directories. A path from a client is read only under one of them, so the service, which runs as root, never reads
+    a place an administrator did not set up for storage."""
+    from app.core import backup_groups, replication
+    from app.core.backups import DEFAULT_BACKUP_DIR
+    from app.core.libvirt_utils import open_conn, pool_type_and_target_path
+
+    roots = [*MOUNT_ROOTS, str(DEFAULT_BACKUP_DIR)]
+    # The jobs' rows straight from their stores: list_jobs() would also ask libvirt for each job's VMs.
+    roots += [dict(row).get("cible_dir") for row in backup_groups._store().list_group_jobs()]
+    roots += [dict(row).get("cible_dir") for row in replication._store().list_jobs()]
+    try:
+        conn = open_conn()
+        try:
+            roots += [pool_type_and_target_path(pool)[1] for pool in conn.listAllStoragePools()]
+        finally:
+            conn.close()
+    except libvirt.libvirtError:
+        logger.warning("Storage pools unreadable: only the other storage directories are allowed", exc_info=True)
+    return [os.path.realpath(root) for root in roots if root]
+
+
+def _allowed(path):
+    """`path` with every symbolic link resolved, when it lies under an allowed root; RecoveryError otherwise. A path
+    that went through a link is refused too: the link could lead anywhere."""
     try:
         normalized = validate_target(path)
     except GroupError as e:
         raise RecoveryError(str(e)) from None
     if not normalized:
         raise RecoveryError("Choose the directory that holds the other site's backups")
-    if os.path.realpath(normalized) != normalized:
+    real = os.path.realpath(normalized)
+    if real != normalized:
         raise RecoveryError(f"{normalized} goes through a symbolic link: give the directory's real path")
-    root = Path(normalized)
+    for base in _allowed_roots():
+        if real == base or real.startswith(base + os.sep):
+            return Path(real)
+    raise RecoveryError(
+        f"{normalized} is outside the storage this node knows: mount the share under /mnt, /media or /srv, or add it "
+        "as a storage pool"
+    )
+
+
+def _directory(path):
+    """The directory to scan: absolute, outside the system's own directories, without a symbolic link anywhere (a link
+    would lead past that check, to /etc say), under an allowed root, an existing directory."""
+    root = _allowed(path)
     if not root.is_dir():
-        raise RecoveryError(f"{normalized} is not a directory this node can read")
+        raise RecoveryError(f"{root} is not a directory this node can read")
     return root
 
 
@@ -124,18 +166,13 @@ def scan(directory):
 
 
 def _backup_dir(path):
-    """A backup directory given by a client: absolute, no '..', no symbolic link anywhere, holding a manifest of a
-    backup with at least one disk."""
-    try:
-        normalized = validate_target(path)
-    except GroupError as e:
-        raise RecoveryError(str(e)) from None
-    if not normalized or os.path.realpath(normalized) != normalized:
-        raise RecoveryError("Invalid backup path")
-    manifest = backup_integrity.read_manifest(normalized)
+    """A backup directory given by a client: absolute, no '..', no symbolic link anywhere, under an allowed root,
+    holding a manifest of a backup with at least one disk."""
+    backup_dir = _allowed(path)
+    manifest = backup_integrity.read_manifest(str(backup_dir))
     if not isinstance(manifest, dict) or not any(f.get("role") == "disque" for f in manifest.get("fichiers") or []):
-        raise RecoveryError(f"No Hyperlite backup in {normalized}")
-    return Path(normalized), manifest
+        raise RecoveryError(f"No Hyperlite backup in {backup_dir}")
+    return backup_dir, manifest
 
 
 def register(path, username="system"):
