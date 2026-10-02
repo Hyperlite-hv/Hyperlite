@@ -482,9 +482,15 @@ def start_job(job, username):
 def run_due(now):
     """Called by the backup scheduler: starts the jobs whose time has come. Each runs in its own thread so a long
     full copy never delays the backups."""
+    from app.core import cluster_lead
+
+    own = cluster_lead.in_cluster()  # in a cluster, each node replicates its VMs on its own schedule
     for job in _store().due_jobs(now.isoformat()):
         _store().record_run(
-            job["id"], now.isoformat(), (now + timedelta(minutes=job["intervalle_minutes"])).isoformat()
+            job["id"],
+            now.isoformat(),
+            (now + timedelta(minutes=job["intervalle_minutes"])).isoformat(),
+            shared_next=job["prochaine_partagee"] if own else None,
         )
         if job["id"] not in _running_jobs:
             start_job(job, "scheduler")

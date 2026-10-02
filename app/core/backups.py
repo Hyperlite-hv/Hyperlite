@@ -36,7 +36,16 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import backup_integrity, backup_retention, checkpoints, firmware, guest_agent, replication, vm_locks
+from app.core import (
+    backup_integrity,
+    backup_retention,
+    checkpoints,
+    cluster_lead,
+    firmware,
+    guest_agent,
+    replication,
+    vm_locks,
+)
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
@@ -726,21 +735,37 @@ def _next_run(frequence, heure, from_time=None):
     return candidate
 
 
+def _hosted_vms():
+    conn = open_conn()
+    try:
+        return {d.name() for d in conn.listAllDomains()}
+    finally:
+        conn.close()
+
+
+def run_due_schedules(now):
+    """The per-VM jobs whose time has come."""
+    hosted = _hosted_vms() if cluster_lead.in_cluster() else None
+    for job in _store().due_schedules(now.isoformat()):
+        if hosted is not None and job["vm_name"] not in hosted:
+            continue  # in a cluster, the node hosting the VM runs its job, and moves its next run for all
+        try:
+            # Retention is now applied INSIDE run_backup() itself (see its body), which also
+            # covers the manual backups of this VM, not only those of the scheduler.
+            run_backup(job["vm_name"], job["cible_dir"], job_id=job["id"], username="scheduler")
+        except vm_locks.VmBusy:
+            continue  # another operation runs on this VM: the job stays due and is retried next tick
+        except Exception as e:
+            log_action("scheduler", "backup_job_echec", job["vm_name"], "echec", str(e))
+        next_run = _next_run(job["frequence"], job["heure"], now)
+        _store().record_schedule_run(job["id"], now.isoformat(), next_run.isoformat())
+
+
 def _scheduler_loop():
     while True:
         try:
             now = _now()
-            for job in _store().due_schedules(now.isoformat()):
-                try:
-                    # Retention is now applied INSIDE run_backup() itself (see its body), which also
-                    # covers the manual backups of this VM, not only those of the scheduler.
-                    run_backup(job["vm_name"], job["cible_dir"], job_id=job["id"], username="scheduler")
-                except vm_locks.VmBusy:
-                    continue  # another operation runs on this VM: the job stays due and is retried next tick
-                except Exception as e:
-                    log_action("scheduler", "backup_job_echec", job["vm_name"], "echec", str(e))
-                next_run = _next_run(job["frequence"], job["heure"], now)
-                _store().record_schedule_run(job["id"], now.isoformat(), next_run.isoformat())
+            run_due_schedules(now)
             from app.core import backup_groups
 
             backup_groups.run_due(now)

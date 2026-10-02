@@ -90,6 +90,10 @@ The shared rows that name a node store its real name, so they mean the same mach
 (`app/core/self_node.py`). The name is `HYPERLITE_NODE_NAME` when set, else the one recorded at the first start, else
 the host name (recorded then: renaming the host later changes nothing); a node cannot be registered under it.
 
+Every node runs the jobs of the VMs it hosts (backups, grouped backups and replication on its own schedule, automatic
+deletion, start at boot); the cluster-wide work (the HA watcher) runs on the node holding the lock `hyperlite-lead`
+(`app/core/cluster_lead.py`), and another node takes it over when that one leaves.
+
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
 

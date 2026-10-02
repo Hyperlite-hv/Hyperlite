@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 
 import libvirt
 
-from app.core import vm_locks
+from app.core import cluster_lead, vm_locks
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
 from app.core.vm_meta import delete_vm_auto_cleanup, list_all_auto_cleanup
@@ -89,6 +89,8 @@ def _check_vm(conn, row):
     try:
         domain = conn.lookupByName(vm_name)
     except libvirt.libvirtError:
+        if cluster_lead.in_cluster():
+            return  # in a cluster it may run on another node, which checks it
         # VM already deleted through another path (an admin, the regular DELETE
         # /vms/{name}): clean up the orphaned entry instead of retrying it forever on
         # every cycle.

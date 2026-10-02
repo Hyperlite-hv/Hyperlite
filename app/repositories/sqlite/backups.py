@@ -5,6 +5,7 @@ import asyncio
 import json
 
 from app.core.database import get_conn
+from app.repositories.sqlite import schedule_state
 
 GROUP_COLUMNS = (
     "nom",
@@ -20,6 +21,15 @@ GROUP_COLUMNS = (
     "garder_mois",
     "actif",
 )
+
+
+GROUP_KIND = "backup_group"
+
+
+def _with_own_schedule(sql, params=()):
+    with get_conn() as db:
+        rows = [dict(r) for r in db.execute(sql, params).fetchall()]
+        return schedule_state.overlay(db, GROUP_KIND, rows)
 
 
 def _one(sql, params=()):
@@ -140,10 +150,11 @@ class SqliteBackupStore:
     # ---- Grouped jobs ----
 
     def list_group_jobs(self):
-        return _all("SELECT * FROM backup_group_jobs ORDER BY nom")
+        return _with_own_schedule("SELECT * FROM backup_group_jobs ORDER BY nom")
 
     def get_group_job(self, job_id):
-        return _one("SELECT * FROM backup_group_jobs WHERE id = ?", (job_id,))
+        rows = _with_own_schedule("SELECT * FROM backup_group_jobs WHERE id = ?", (job_id,))
+        return rows[0] if rows else None
 
     def group_name_taken(self, name, job_id=None):
         return _one("SELECT id FROM backup_group_jobs WHERE nom = ? AND id IS NOT ?", (name, job_id)) is not None
@@ -171,16 +182,31 @@ class SqliteBackupStore:
         return job_id
 
     def delete_group_job(self, job_id):
-        return _write("DELETE FROM backup_group_jobs WHERE id = ?", (job_id,)).rowcount > 0
+        with get_conn() as db:
+            deleted = db.execute("DELETE FROM backup_group_jobs WHERE id = ?", (job_id,)).rowcount > 0
+            schedule_state.forget(db, GROUP_KIND, job_id)
+            db.commit()
+        return deleted
 
     def due_group_jobs(self, now):
-        return _all("SELECT * FROM backup_group_jobs WHERE actif = 1 AND prochaine_execution <= ?", (now,))
+        """The active jobs due on this node; each carries the shared next run as "prochaine_partagee"."""
+        with get_conn() as db:
+            rows = [dict(r) for r in db.execute("SELECT * FROM backup_group_jobs WHERE actif = 1").fetchall()]
+            return schedule_state.due(db, GROUP_KIND, rows, now)
 
-    def record_group_run(self, job_id, last, next_run):
-        _write(
-            "UPDATE backup_group_jobs SET derniere_execution = ?, prochaine_execution = ? WHERE id = ?",
-            (last, next_run, job_id),
-        )
+    def record_group_run(self, job_id, last, next_run, shared_next=None):
+        """shared_next None: the next run is the shared one (a single node). Otherwise (in a cluster) the next run is
+        this node's own, computed from the shared value shared_next."""
+        with get_conn() as db:
+            if shared_next is None:
+                db.execute(
+                    "UPDATE backup_group_jobs SET derniere_execution = ?, prochaine_execution = ? WHERE id = ?",
+                    (last, next_run, job_id),
+                )
+            else:
+                db.execute("UPDATE backup_group_jobs SET derniere_execution = ? WHERE id = ?", (last, job_id))
+                schedule_state.record(db, GROUP_KIND, job_id, shared_next, next_run)
+            db.commit()
 
     # ---- Container backups ----
 

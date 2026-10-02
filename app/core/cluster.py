@@ -45,6 +45,7 @@ from pathlib import Path
 
 import libvirt
 
+from app.core import cluster_lead
 from app.core.audit import log_action
 from app.core.vm_builder import PROJDIR
 
@@ -433,11 +434,11 @@ def _poll_nodes():
                 ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
                 new_statut = "en_ligne" if ok else "hors_ligne"
                 prev = _nodes().update_status(node["id"], new_statut, datetime.now(UTC).isoformat())
-                if ok:
+                if ok and not cluster_lead.in_cluster():  # a member of a cluster starts its own VMs
                     _check_node_boot(node)
                 if prev and prev != new_statut:
                     log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
-                    if new_statut == "hors_ligne":
+                    if new_statut == "hors_ligne" and cluster_lead.is_leader():
                         # HA: report the protected VMs of this node as soon as it is detected as down.
                         # Late import, avoids a cycle (ha.py already imports from libvirt_utils.py).
                         from app.core.ha import alert_for_down_node

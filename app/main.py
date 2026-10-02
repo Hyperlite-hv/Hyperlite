@@ -12,6 +12,7 @@ from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
 from app.core.cluster import start_node_poller
+from app.core.cluster_lead import start_lead_loop
 from app.core.config_copy import start_config_copy
 from app.core.ha_watch import start_ha_watch
 from app.core.http_headers import api_docs_enabled, inline_script_hashes, security_headers
@@ -292,6 +293,7 @@ def on_startup():
     start_update_check_scheduler()
     start_shadow_copy()
     start_apply_loop()
+    start_lead_loop()
     recover_interrupted_k8s_clusters()
     start_boot_sequence()
 

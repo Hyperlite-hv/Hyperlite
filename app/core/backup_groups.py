@@ -228,9 +228,11 @@ def run_job(job, username="scheduler"):
 
 def run_due(now):
     """Called by the backup scheduler: runs the jobs whose time has come, then sets their next run."""
+    from app.core import cluster_lead
     from app.core.audit import log_action
     from app.core.backups import _next_run
 
+    own = cluster_lead.in_cluster()  # in a cluster, each node runs the job for its VMs on its own schedule
     for row in _store().due_group_jobs(now.isoformat()):
         job = _row(row)
         results = run_job(job)
@@ -243,5 +245,8 @@ def run_due(now):
             "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VMs",
         )
         _store().record_group_run(
-            job["id"], now.isoformat(), _next_run(job["frequence"], job["heure"], now).isoformat()
+            job["id"],
+            now.isoformat(),
+            _next_run(job["frequence"], job["heure"], now).isoformat(),
+            shared_next=row["prochaine_partagee"] if own else None,
         )

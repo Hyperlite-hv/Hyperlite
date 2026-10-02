@@ -205,9 +205,14 @@ the shared rows that name a node (start at boot, notes and tags, maintenance, fe
 shared pool) store its name, never "local", which would mean another machine on every other node
 (`app/core/self_node.py`: `HYPERLITE_NODE_NAME`, else the name recorded at the first start, else the host name; the API
 keeps saying "local" for the node that answers, and a start renames older "local" rows). The `nodes` table lists every
-member, and each node leaves its own row out of its list of remote nodes. What is left for several nodes to run
-Hyperlite at once: one node runs the cluster-wide schedulers (a cfs lock), integer ids allocated without collision, and
-the encryption and signing keys shared when a node joins.
+member, and each node leaves its own row out of its list of remote nodes. Each node runs the jobs of the guests it
+hosts: a VM's own backup job on the node that has the VM, grouped backups and replication for each node's VMs on that
+node's own schedule (`schedule_state`, a table each node keeps, holds its next runs), the automatic deletion and the
+start at boot of its own VMs. What concerns the whole cluster (the HA watcher, the alert about a node gone down) runs
+on the node that holds the cfs lock `hyperlite-lead` (`app/core/cluster_lead.py`), renewed every 15 s, released when
+its holder leaves the membership. In a cluster the configuration copy to standby nodes stops: the tree replaces it.
+What is left for several nodes to run Hyperlite at once: integer ids allocated without collision, and the encryption
+and signing keys shared when a node joins.
 
 ### 8.1 Phase B, step by step
 

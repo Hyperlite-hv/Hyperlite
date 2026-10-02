@@ -251,9 +251,12 @@ def copy_now(force=False, username="system"):
 
 
 def _loop():
+    from app.core import cluster_lead
+
     while True:
         try:
-            copy_now()
+            if not cluster_lead.in_cluster():  # in a cluster, hyperlite-cfs gives every node the configuration
+                copy_now()
         except Exception as e:  # never let one round stop the copies
             print(f"[config-copy] round failed: {e!r}", flush=True)
         time.sleep(COPY_CHECK_S)
