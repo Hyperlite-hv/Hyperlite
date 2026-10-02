@@ -152,7 +152,7 @@ def test_creating_a_cluster(host):
     ]
     # This node's configuration is the cluster's, with what a new member needs.
     assert shadow.enabled() and any(p.startswith("/db/groups/") for p in host.files)
-    assert base64.b64decode(host.files[cluster_setup.AUTHKEY_PATH]) == key.read_bytes()
+    assert base64.b64decode(host.files[cluster_setup.COROSYNC_KEY_ENTRY]) == key.read_bytes()
     assert host.files["/cluster/ssh/hv-test"] == KEY_A.encode()
     with get_conn() as db:  # listed in the shared nodes table, which this node leaves itself out of
         assert db.execute("SELECT name, hostname FROM nodes").fetchall()[0][:] == ("hv-test", ADDRESS)
@@ -216,7 +216,7 @@ def _answer(me="hv-test", address="192.0.2.11"):
                 {"nom": me, "nodeid": 2, "adresse": address},
             ],
         },
-        "authkey": base64.b64encode(b"k" * 256).decode(),
+        "cle_corosync": base64.b64encode(b"k" * 256).decode(),
         "cles": {
             "HYPERLITE_SECRET_KEY": "the-clusters-secret-key-0123456789",
             "HYPERLITE_ENCRYPTION_KEY": "the-clusters-fernet-key-0123456789ab=",
@@ -342,6 +342,7 @@ def test_the_member_is_reached_only_through_the_certificate_of_the_join_informat
     cert, key = _certificate(tmp_path)
     server = http.server.HTTPServer(("127.0.0.1", 0), _Member)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(cert, key)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()

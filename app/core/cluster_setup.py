@@ -4,7 +4,7 @@ Every node of a cluster runs Corosync, hyperlite-cfs in cluster mode and Hyperli
 share lives in hyperlite-cfs:
 - CONF_PATH: the cluster's name, its config version and its members (name, Corosync node id, address), from which
   each node writes its own /etc/corosync/corosync.conf;
-- AUTHKEY_PATH (under /priv, root only): Corosync's key, so any member can let a new node in;
+- COROSYNC_KEY_ENTRY (under /priv, root only): Corosync's key, so any member can let a new node in;
 - SSH_DIR/<node>: each member's cluster SSH key (app/core/cluster.py), which every member authorizes, so any node
   reaches any other.
 
@@ -55,7 +55,7 @@ CFS_DB = Path("/var/lib/hyperlite-cfs/config.db")
 PORT = int(os.environ.get("HYPERLITE_PORT", "8000"))
 
 CONF_PATH = "/cluster/corosync.json"
-AUTHKEY_PATH = "/priv/cluster/authkey"
+COROSYNC_KEY_ENTRY = "/priv/cluster/authkey"
 SSH_DIR = "/cluster/ssh"
 
 TICKET_SETTING = "cluster_join_ticket"  # rows each node keeps for itself (app/repositories/cfs/tables.py)
@@ -232,8 +232,8 @@ def state():
     try:
         conf = shared_conf()
         status = _client().status()
-    except ClusterError as e:
-        out["erreur"] = str(e)
+    except ClusterError:
+        out["erreur"] = "The cluster's configuration in hyperlite-cfs is not valid"
         return out
     except (CfsError, OSError) as e:
         logger.warning("Cluster state unknown: %s", e)
@@ -318,7 +318,7 @@ def create(name, address, username):
     shadow.seed()  # this node's configuration becomes the cluster's
     client = _client()
     client.put(CONF_PATH, json.dumps(conf).encode())
-    client.put(AUTHKEY_PATH, base64.b64encode(key))
+    client.put(COROSYNC_KEY_ENTRY, base64.b64encode(key))
     client.put(f"{SSH_DIR}/{shadow.component(me)}", cluster.get_cluster_pubkey().encode())
     _register(me, address)
     log_action(username, "cluster_create", name, "succes", f"{me} ({address})")
@@ -424,7 +424,7 @@ def accept_member(ticket, name, address, ssh_key):
     log_action("system", "cluster_join", name, "succes", f"{name} ({address}) joined {conf['cluster']}")
     return {
         "configuration": conf,
-        "authkey": client.get(AUTHKEY_PATH).data.decode(),
+        "cle_corosync": client.get(COROSYNC_KEY_ENTRY).data.decode(),
         "cles": keys,
         "cles_ssh": _member_keys(client),
     }
@@ -535,7 +535,7 @@ def join(information, address, confirmation, username):
     )
     try:
         conf = _check_conf(answer["configuration"])
-        key = base64.b64decode(answer["authkey"], validate=True)
+        key = base64.b64decode(answer["cle_corosync"], validate=True)
         member_keys = answer.get("cles_ssh") or {}
         keys = answer["cles"]
     except (KeyError, TypeError, ValueError):
