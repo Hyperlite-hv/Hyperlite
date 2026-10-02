@@ -61,26 +61,16 @@ build fails, the installation carries on with a warning: SQLite remains Hyperlit
 Hyperlite copies every change of a mirrored table into the daemon right after SQLite saved it, and reports any
 difference; SQLite stays the source of truth, and a copy that fails never fails the change
 (`app/repositories/cfs/shadow.py`). Mirrored so far: the notes and tags of VMs, containers and nodes, at
-`/meta/<kind>/<node>/<name>`, and the start at boot settings of VMs, at `/boot/<node>/<vm>`. To turn it on, on the node that runs Hyperlite:
-
-```bash
-systemctl enable --now hyperlite-cfs                               # local mode
-echo HYPERLITE_CFS_SHADOW=1 >> /root/hyperlite/.env && systemctl restart hyperlite
-```
-
-Then, in the dashboard, **Administration › Replicated configuration** copies the database once (**Copy the database
-again**) and shows the report; the same through the API:
-
-```bash
-curl -k -X POST -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow/seed   # the first copy
-curl -k -H "Authorization: Bearer $TOKEN" https://localhost:8000/cfs/shadow                # "ecarts": 0
-```
+`/meta/<kind>/<node>/<name>`, and the start at boot settings of VMs, at `/boot/<node>/<vm>`. To turn it on: **Administration › Replicated configuration › Turn
+shadow mode on**. That starts `hyperlite-cfs.service` (local mode), records the choice in the database and copies the
+database once; **Turn off** stops copying and stops the service (the daemon's database is kept). The same through the
+API, as an administrator: `POST /cfs/shadow/activer` and `POST /cfs/shadow/desactiver`. `HYPERLITE_CFS_SHADOW=1` in
+`.env` forces it on, for a node managed by scripts.
 
 `GET /cfs/shadow` gives the copies made, the failures and the last one, the daemon's state and, per domain, the entries
 missing from the daemon (`manquants`), those it holds that SQLite no longer has (`en_trop`) and those that differ
-(`differents`), with up to 20 paths of each. A failure while the daemon was down shows there until
-`POST /cfs/shadow/seed` copies SQLite again. To turn it off: remove the line from `.env`, restart Hyperlite, then
-`systemctl disable --now hyperlite-cfs`.
+(`differents`), with up to 20 paths of each. A failure while the daemon was down shows there until **Copy the database
+again** (`POST /cfs/shadow/seed`) copies SQLite again.
 
 `installer/test-package.sh IMAGE` checks this on a distribution, in a container: the package's dependencies resolve,
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.

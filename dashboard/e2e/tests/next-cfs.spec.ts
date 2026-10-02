@@ -4,12 +4,14 @@ import { expect, goTo, test, uiLogin } from "../support/fixtures";
 // with shadow mode off, so the first test reads the real answer; the second plays a node where it is on, with
 // differences, through the routes of /cfs/shadow (app/repositories/cfs/shadow.py is covered by
 // tests/test_cfs_shadow.py, against the real daemon too).
-test("with shadow mode off, the page says how to turn it on, in English and in French", async ({ page }) => {
+test("with shadow mode off and no daemon installed, the page says so, in English and in French", async ({ page }) => {
   await uiLogin(page);
   await goTo(page, "Replicated configuration");
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Shadow mode is off" })).toBeVisible();
-  await expect(main.getByLabel("Commands to turn shadow mode on")).toContainText("HYPERLITE_CFS_SHADOW=1");
+  // The test backend runs from a checkout: the package's /usr/local/sbin/hyperlite-cfs is not there.
+  await expect(main.getByRole("alert")).toContainText("hyperlite-cfs is not installed on this node");
+  await expect(main.getByRole("button", { name: "Turn shadow mode on" })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Copy the database again" })).toHaveCount(0);
 
   await page.evaluate(() => localStorage.setItem("hyperlite-next-lang", "fr"));
@@ -77,4 +79,30 @@ test("a daemon that does not answer is shown, and the copy is not offered", asyn
   await expect(main.getByRole("alert")).toContainText("hyperlite-cfs is not running");
   await expect(main.getByRole("group", { name: "State of shadow mode" })).toContainText("Not reachable");
   await expect(main.getByRole("button", { name: "Copy the database again" })).toBeDisabled();
+});
+
+test("the button turns shadow mode on, and off after a confirmation", async ({ page }) => {
+  let on = false;
+  const calls: string[] = [];
+  await page.route(/\/cfs\/shadow$/, (route) => route.fulfill({ json: on ? { ...report(0), force: false, installe: true }
+    : { actif: false, force: false, installe: true, socket: "/run/hyperlite-cfs/socket", copies: 0, echecs: 0,
+        derniere_erreur: null, derniere_erreur_le: null, joignable: false, erreur: "hyperlite-cfs is not running: nothing answers on its socket" } }));
+  await page.route(/\/cfs\/shadow\/activer$/, (route) => { calls.push("on"); on = true; return route.fulfill({ json: { ecrits: 3, supprimes: 0 } }); });
+  await page.route(/\/cfs\/shadow\/desactiver$/, (route) => { calls.push("off"); on = false; return route.fulfill({ json: { actif: false } }); });
+  await uiLogin(page);
+  await goTo(page, "Replicated configuration");
+  const main = page.getByRole("main");
+
+  await main.getByRole("button", { name: "Turn shadow mode on" }).click();
+  await expect(page.getByText("Shadow mode is on")).toBeVisible();
+  await expect(main.getByRole("group", { name: "State of shadow mode" })).toContainText("Local mode");
+  expect(calls).toEqual(["on"]);
+
+  await main.getByRole("button", { name: "Turn off" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+  expect(calls).toEqual(["on"]);
+  await main.getByRole("button", { name: "Turn off" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Turn off" }).click();
+  await expect(main.getByRole("heading", { name: "Shadow mode is off" })).toBeVisible();
+  expect(calls).toEqual(["on", "off"]);
 });

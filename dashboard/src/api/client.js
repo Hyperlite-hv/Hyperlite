@@ -1223,6 +1223,12 @@ export async function fetchCfsShadow() {
 export async function seedCfsShadow() {
   return realFetch("/cfs/shadow/seed", { method: "POST" });
 }
+export async function turnCfsShadowOn() {
+  return realFetch("/cfs/shadow/activer", { method: "POST" });
+}
+export async function turnCfsShadowOff() {
+  return realFetch("/cfs/shadow/desactiver", { method: "POST" });
+}
 export async function fetchApiDocsAccess() {
   return realFetch("/api-docs/acces");
 }
