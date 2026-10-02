@@ -58,6 +58,20 @@ class SqliteBackupStore:
             (vm_name, job_id, chemin, mode, cree_le, task_id),
         ).lastrowid
 
+    def find_by_path(self, chemin):
+        return _one("SELECT * FROM backups WHERE chemin = ?", (chemin,))
+
+    def known_paths(self):
+        return {r["chemin"] for r in _all("SELECT chemin FROM backups")}
+
+    def register_imported(self, vm_name, chemin, mode, cree_le, size, checksum, source):
+        """A complete backup found on a storage this node can read, made by another installation."""
+        return _write(
+            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut, taille_octets, checksum_sha256, importe_de) "
+            "VALUES (?, ?, ?, ?, 'termine', ?, ?, ?)",
+            (vm_name, chemin, mode, cree_le, size, checksum, source),
+        ).lastrowid
+
     def mark_done(self, backup_id, size, checksum):
         _write(
             "UPDATE backups SET statut = 'termine', taille_octets = ?, checksum_sha256 = ? WHERE id = ?",

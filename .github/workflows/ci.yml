@@ -89,9 +89,61 @@ jobs:
       - uses: actions/checkout@v7
       - name: Syntax check shell scripts
         run: |
-          for f in installer/*.sh installer/deb/postinst scripts/*.sh; do
+          for f in installer/*.sh installer/deb/postinst scripts/*.sh lab/*.sh cfs/tests/cluster/*.sh; do
             bash -n "$f"
           done
+
+  cfs:
+    # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
+    # and UndefinedBehaviorSanitizer, its C tests (a simulated cluster included), the Python client against the real
+    # daemon, a three-node cluster on a real Corosync in network namespaces (its fault tests and five soak rounds
+    # included; the thousand rounds run every night in lab.yml), two-node clusters with and without a QDevice, and
+    # fuzzing of the requests and of the messages between nodes.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc clang libclang-rt-dev \
+            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2 \
+            corosync-qnetd corosync-qdevice
+          # The packages start daemons of their own; the cluster tests run their own, in namespaces.
+          sudo systemctl stop corosync corosync-qnetd corosync-qdevice || true
+      - name: Build and test (GCC, sanitizers)
+        run: |
+          meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
+          ninja -C build-gcc  # meson test builds only what the C tests need, not the daemon the next steps run
+          meson test -C build-gcc --print-errorlogs
+      - name: Python client against the daemon
+        run: |
+          pip install pytest
+          HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs python -m pytest -q cfs/tests/python
+      - name: Three nodes on a real Corosync
+        run: |
+          sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs "$(which python)" -m pytest -q \
+            -p no:cacheprovider cfs/tests/cluster
+      - name: Two nodes, without then with a QDevice
+        run: |
+          for qdevice in 0 1; do
+            sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs HYPERLITE_LAB_NODES=2 \
+              HYPERLITE_LAB_QDEVICE=$qdevice "$(which python)" -m pytest -q -p no:cacheprovider \
+              cfs/tests/cluster/test_two_nodes.py
+          done
+      - name: Fuzz the request handler and the peer messages (clang, libFuzzer, 2 x 45 s)
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1  # undefined behaviour stops the run, as a crash does
+        run: |
+          CC=clang meson setup build-fuzz cfs -Dfuzz=true -Db_sanitize=address,undefined -Db_lundef=false -Dbuildtype=debug
+          ninja -C build-fuzz  # meson test builds only the tests, not the fuzz target
+          meson test -C build-fuzz --print-errorlogs
+          mkdir -p fuzz-work fuzz-work-message
+          build-fuzz/fuzz_request -max_total_time=45 -max_len=4096 fuzz-work cfs/fuzz/corpus
+          build-fuzz/fuzz_message -max_total_time=45 -max_len=4096 fuzz-work-message cfs/fuzz/corpus-message
 
   e2e:
     # End-to-end suite against a real backend and a real libvirt/QEMU.
@@ -136,6 +188,10 @@ jobs:
           npm ci
           npm run build
           npx playwright install --with-deps chromium
+      - name: Replication on a real QEMU VM
+        run: |
+          venv/bin/pip install -r requirements-dev.txt
+          sudo env HYPERLITE_TEST_LIBVIRT=1 venv/bin/python -m pytest -q -p no:cacheprovider tests/test_replication_qemu.py
       - name: Run the end-to-end suite
         working-directory: dashboard
         run: sudo -E env "PATH=$PATH" npx playwright test

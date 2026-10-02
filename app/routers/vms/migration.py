@@ -8,7 +8,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import cluster_compat, ha, iscsi, maintenance, object_meta, vm_boot, vm_locks
+from app.core import checkpoints, cluster_compat, ha, iscsi, maintenance, object_meta, vm_boot, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -386,6 +386,8 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         raise_if_cancelled(task_id)
         task_log(task_id, f"Migrating {vm_name} to {target_node} ({'shared' if shared else 'copied'} storage)")
         progress_thread.start()
+        # Replication is per node: the VM leaves this one, and its checkpoint must not block the disk copy.
+        checkpoints.release(domain, vm_name)
         domain.migrateToURI3(dest_uri, migrate_params, flags)
         task_log(task_id, "Migration done, cleaning up")
 

@@ -8,7 +8,7 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import maintenance, vm_locks
+from app.core import maintenance, site_recovery, vm_locks
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -31,6 +31,37 @@ router = APIRouter(tags=["backups"])
 @router.get("/backups")
 async def list_all_backups(user: dict = Depends(get_current_user)):
     return await backup_service.list_all()
+
+
+class RecoveryItem(BaseModel):
+    chemin: str = Field(max_length=4096)
+    nom: str = Field(max_length=128)
+
+
+class RecoveryRequest(BaseModel):
+    elements: list[RecoveryItem] = Field(max_length=site_recovery.MAX_VMS)
+    reseau: str | None = Field(None, max_length=64)
+
+
+@router.get("/backups/site-recovery/scan")
+def scan_foreign_backups(chemin: str, user: dict = Depends(require_role("admin"))):
+    """The backups another site wrote under `chemin` (an NFS share of this site, for instance), per VM."""
+    try:
+        return site_recovery.scan(chemin)
+    except site_recovery.RecoveryError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
+
+@router.post("/backups/site-recovery", status_code=202)
+def start_site_recovery(payload: RecoveryRequest, user: dict = Depends(require_role("admin"))):
+    """Restore the chosen backups as new VMs of this node, one after another, in one task."""
+    try:
+        task_id = site_recovery.recover(
+            [item.model_dump() for item in payload.elements], payload.reseau or None, user["username"]
+        )
+    except site_recovery.RecoveryError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    return {"task_id": task_id}
 
 
 @router.get("/backup-schedules")

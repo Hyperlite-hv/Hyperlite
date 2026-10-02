@@ -13,6 +13,7 @@ from app.repositories.sqlite.metrics import SqliteMetricsRepository
 from app.repositories.sqlite.nodes import SqliteNodeRepository
 from app.repositories.sqlite.objects import SqliteObjectRepository
 from app.repositories.sqlite.renames import SqliteRenameRepository
+from app.repositories.sqlite.replication import SqliteReplicationRepository
 from app.repositories.sqlite.settings import SqliteSettingsRepository
 from app.repositories.sqlite.tasks import SqliteTaskRepository
 
@@ -80,3 +81,8 @@ def ha():
 @cache
 def settings():
     return SqliteSettingsRepository()
+
+
+@cache
+def replication():
+    return SqliteReplicationRepository()

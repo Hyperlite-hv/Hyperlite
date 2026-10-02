@@ -12,6 +12,9 @@ from app.core import backup_integrity, backups
 
 
 class FakeDomain:
+    def listAllCheckpoints(self):
+        return []  # no replication checkpoint (app/core/checkpoints.py)
+
     def __init__(self, disks):
         self.disks = disks  # [(dev, path, driver type)]
 

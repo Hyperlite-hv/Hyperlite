@@ -297,7 +297,7 @@ export async function fetchStoragePools() {
 
 export async function fetchNetworks() {
   const nets = await realFetch("/networks");
-  return nets.map((n) => ({ nom: n.nom, type: n.type, pont: n.pont, actif: n.actif, reseau: n.reseau, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms }));
+  return nets.map((n) => ({ nom: n.nom, type: n.type, pont: n.pont, actif: n.actif, reseau: n.reseau, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true }));
 }
 export async function fetchNetworkDetail(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}`);
@@ -370,6 +370,33 @@ export async function restoreBackup(id, mode, newName = null) {
 // Recompute every checksum of a backup and check its images (a task).
 export async function verifyBackup(id) {
   return realFetch(`/backups/${id}/verify`, { method: "POST" });
+}
+// Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
+// then restored here as new VMs.
+export async function scanSiteBackups(chemin) {
+  return realFetch(`/backups/site-recovery/scan?chemin=${encodeURIComponent(chemin)}`);
+}
+export async function startSiteRecovery(elements, reseau) {
+  return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, reseau: reseau || null }) });
+}
+// Replication to another site (app/core/replication.py): jobs and each VM's last copy.
+export async function fetchReplicationJobs() {
+  return realFetch("/replication/jobs");
+}
+export async function createReplicationJob(payload) {
+  return realFetch("/replication/jobs", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateReplicationJob(id, payload) {
+  return realFetch(`/replication/jobs/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteReplicationJob(id) {
+  return realFetch(`/replication/jobs/${id}`, { method: "DELETE" });
+}
+export async function runReplicationJob(id) {
+  return realFetch(`/replication/jobs/${id}/run`, { method: "POST" });
+}
+export async function fetchReplicationStatus() {
+  return realFetch("/replication/status");
 }
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);

@@ -20,6 +20,7 @@ from app.core.k8s_cluster import recover_interrupted as recover_interrupted_k8s_
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import start_metrics_collector
 from app.core.network_firewall import reapply_all as reapply_network_firewalls
+from app.core.replication import start_replication_scheduler
 from app.core.security import optional_user
 from app.core.seed import seed_admin
 from app.core.tasks import close_interrupted_tasks
@@ -53,6 +54,7 @@ from app.routers.network import router as network_router
 from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
+from app.routers.replication import router as replication_router
 from app.routers.sso import router as sso_router
 from app.routers.storage import router as storage_router
 from app.routers.tasks import router as tasks_router
@@ -136,6 +138,7 @@ app.include_router(certificate_router)
 app.include_router(host_system_router)
 app.include_router(metric_servers_router)
 app.include_router(backup_groups_router)
+app.include_router(replication_router)
 app.include_router(file_restore_router)
 app.include_router(ldap_router)
 app.include_router(api_docs_router)
@@ -280,6 +283,7 @@ def on_startup():
     start_node_poller()
     start_config_copy()
     start_ha_watch()
+    start_replication_scheduler()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
     recover_interrupted_k8s_clusters()

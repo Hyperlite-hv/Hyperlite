@@ -15,6 +15,10 @@ def get_vm_ssh_user(vm_name):
     return _store().vm_ssh_user(vm_name)
 
 
+def all_vm_ssh_users():
+    return _store().vm_ssh_users()
+
+
 def delete_vm_ssh_user(vm_name):
     _store().delete_vm_ssh_user(vm_name)
 
@@ -36,6 +40,10 @@ def set_vm_os_label(vm_name, os_label):
 
 def get_vm_os_label(vm_name):
     return _store().vm_os_label(vm_name)
+
+
+def all_vm_os_labels():
+    return _store().vm_os_labels()
 
 
 def delete_vm_os_label(vm_name):

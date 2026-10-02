@@ -14,6 +14,8 @@ import { ErrorState, InlineError } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
 import { Archive, Info, Trash2 } from "lucide-react";
 import BackupGroupJobs from "../components/BackupGroupJobs";
+import SiteRecovery from "../components/SiteRecovery";
+import ReplicationJobs from "../components/ReplicationJobs";
 
 const STATUS = { termine: "termine", echec: "echec" };
 
@@ -89,6 +91,8 @@ export default function BackupsPage() {
           )}
       </div>
       {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><BackupGroupJobs onChange={onGroups} /></div>}
+      {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><ReplicationJobs /></div>}
+      {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><SiteRecovery /></div>}
       <ActionsContextMenu ctx={ctx} label={(b) => t("ctx.menuOf", { name: `${b.vm_name} #${b.id}` })} entries={(b) => [
         { key: "vm", icon: "open", label: t("ctx.vmBackups"), run: () => navigateTo("vm", b.vm_name, "backup") },
         b.chemin && b.statut === "termine" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.chemin) },

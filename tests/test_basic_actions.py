@@ -219,6 +219,9 @@ def test_the_reverse_key_follows_a_renamed_node(tmp_path, monkeypatch):
 
 
 class _Domain:
+    def listAllCheckpoints(self):
+        return []  # no replication checkpoint (app/core/checkpoints.py)
+
     def __init__(self, name, active=False, snapshots=0, xml=None, app=False):
         self._name, self.active, self.snapshots = name, active, snapshots
         self.xml = xml or f"<domain><name>{name}</name><devices/></domain>"

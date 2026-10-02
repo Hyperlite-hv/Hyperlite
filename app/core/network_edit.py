@@ -14,6 +14,25 @@ import xml.etree.ElementTree as ET
 
 import libvirt
 
+# libvirt applies an interface's <vlan><tag> only on an Open vSwitch bridge or an SR-IOV function handed to the guest
+# (forward mode hostdev or passthrough). On a NAT, isolated, Linux bridge or macvtap network it refuses the tag when
+# the VM starts ("vlan tag not supported for this connection type", verified on libvirt 10): a tag written to a stopped
+# VM's definition would keep it from ever starting again.
+VLAN_UNSUPPORTED = (
+    "Network '{name}' cannot carry a VLAN tag: libvirt applies one only on an Open vSwitch bridge or an SR-IOV "
+    "network, and refuses to start the VM otherwise. Attach the VM to a network that sits on the VLAN instead, or "
+    "leave the VLAN empty."
+)
+
+
+def carries_vlan_tags(root):
+    """Whether VM interfaces on this network (its parsed <network> XML) can be given a VLAN tag."""
+    forward = root.find("forward")
+    if forward is not None and forward.get("mode") in ("hostdev", "passthrough"):
+        return True
+    return any(v.get("type") == "openvswitch" for v in root.iter("virtualport"))
+
+
 MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
 
