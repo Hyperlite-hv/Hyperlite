@@ -6,7 +6,9 @@ app/core encrypt and decrypt them.
 """
 
 import asyncio
+import json
 
+from app.core import self_node
 from app.core.database import get_conn
 
 
@@ -31,6 +33,15 @@ def _write(sql, params=()):
 # Columns update_k8s_cluster() and update_channel() may set: names are interpolated, values are bound.
 K8S_COLUMNS = frozenset({"statut", "erreur", "task_id", "kubeconfig", "jeton", "adresse", "version"})
 CHANNEL_COLUMNS = frozenset({"name", "events", "enabled", "config"})
+
+
+def _nodes_to_db(nodes):
+    # A shared pool's nodes, a JSON list: "local" is stored as this node's name (app/core/self_node.py).
+    return json.dumps([self_node.to_db(n) for n in json.loads(nodes or "[]")])
+
+
+def _shared_pool(row):
+    return {**row, "noeuds": json.dumps([self_node.from_db(n) for n in json.loads(row["noeuds"] or "[]")])}
 
 
 class SqliteSettingsStore:
@@ -63,19 +74,22 @@ class SqliteSettingsStore:
             "INSERT INTO shared_pools (nom, definition, tous_les_noeuds, noeuds, cree_par, cree_le) "
             "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(nom) DO UPDATE SET definition = excluded.definition, "
             "tous_les_noeuds = excluded.tous_les_noeuds, noeuds = excluded.noeuds",
-            (name, definition, all_nodes, nodes, username, now),
+            (name, definition, all_nodes, _nodes_to_db(nodes), username, now),
         )
 
     def shared_pools(self, every_node_only=False):
         if every_node_only:
-            return _rows("SELECT * FROM shared_pools WHERE tous_les_noeuds = 1 ORDER BY nom")
-        return _rows("SELECT * FROM shared_pools ORDER BY nom")
+            rows = _rows("SELECT * FROM shared_pools WHERE tous_les_noeuds = 1 ORDER BY nom")
+        else:
+            rows = _rows("SELECT * FROM shared_pools ORDER BY nom")
+        return [_shared_pool(r) for r in rows]
 
     def shared_pool(self, name):
-        return _one("SELECT * FROM shared_pools WHERE nom = ?", (name,))
+        row = _one("SELECT * FROM shared_pools WHERE nom = ?", (name,))
+        return _shared_pool(row) if row else None
 
     def set_shared_pool_nodes(self, name, nodes):
-        _write("UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (nodes, name))
+        _write("UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (_nodes_to_db(nodes), name))
 
     def rename_shared_pool(self, old, new, definition):
         _write("UPDATE OR REPLACE shared_pools SET nom = ?, definition = ? WHERE nom = ?", (new, definition, old))

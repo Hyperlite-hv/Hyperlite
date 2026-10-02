@@ -104,7 +104,7 @@ def test_notes_and_tags_are_copied_as_sqlite_holds_them(cfs):
     object_meta.put("vm", "web", "Front of the shop", ["Prod", "db"])
     object_meta.put("node", "pve-a", "Rack 2", [])
     assert shadow.pending() == 2 and shadow.drain() == 2 and shadow.pending() == 0
-    web = row(cfs, "/db/object_meta/vm/local/web")
+    web = row(cfs, "/db/object_meta/vm/hv-test/web")
     assert web["notes"] == "Front of the shop" and json.loads(web["tags"]) == ["prod", "db"]
     assert row(cfs, "/db/object_meta/node/_/pve-a")["notes"] == "Rack 2"  # a node's own notes: node is ''
 
@@ -193,14 +193,14 @@ def test_a_daemon_that_is_down_never_fails_the_write_and_is_caught_up_on(cfs):
     assert shadow.drain() == 0 and shadow.pending() == 1
     state = shadow.report()
     assert state["joignable"] is False and state["echecs"] == 1 and state["en_attente"] == 1
-    assert "/db/object_meta/vm/local/web" in state["derniere_erreur"]
+    assert "/db/object_meta/vm/hv-test/web" in state["derniere_erreur"]
 
     cfs.down = False
     assert shadow.drain() == 1 and shadow.pending() == 0  # the daemon answers again: the copy goes through
-    cfs.files["/db/object_meta/vm/local/gone"] = b"{}"  # left over from elsewhere
+    cfs.files["/db/object_meta/vm/hv-test/gone"] = b"{}"  # left over from elsewhere
     state = shadow.report()
     assert state["ecarts"] == 1 and state["domaines"]["object_meta"]["exemples"]["en_trop"] == [
-        "/db/object_meta/vm/local/gone"
+        "/db/object_meta/vm/hv-test/gone"
     ]
     assert shadow.seed()["supprimes"] == 1
     assert shadow.report()["ecarts"] == 0
@@ -222,9 +222,9 @@ def test_errors_reach_the_client_as_fixed_sentences_not_exception_text(cfs, monk
 def test_a_copy_that_differs_is_reported(cfs):
     object_meta.put("vm", "web", "Front", ["prod"])
     shadow.drain()
-    cfs.files["/db/object_meta/vm/local/web"] = b'{"notes":"Front","tags":"[]"}'
+    cfs.files["/db/object_meta/vm/hv-test/web"] = b'{"notes":"Front","tags":"[]"}'
     report = shadow.report()["domaines"]["object_meta"]
-    assert report["differents"] == 1 and report["exemples"]["differents"] == ["/db/object_meta/vm/local/web"]
+    assert report["differents"] == 1 and report["exemples"]["differents"] == ["/db/object_meta/vm/hv-test/web"]
 
 
 def test_the_report_and_the_seed_are_for_administrators(client, auth_headers, cfs):
@@ -296,7 +296,7 @@ def test_against_the_real_daemon(database, tmp_path, monkeypatch):
 
     proc = _start(BIN, tmp_path)  # same database: what it held survived the restart
     try:
-        assert shadow.report()["domaines"]["object_meta"]["exemples"]["manquants"] == ["/db/object_meta/vm/local/db"]
+        assert shadow.report()["domaines"]["object_meta"]["exemples"]["manquants"] == ["/db/object_meta/vm/hv-test/db"]
         assert shadow.drain() == 1  # caught up on without a seed
         assert shadow.report()["ecarts"] == 0
     finally:
@@ -334,10 +334,10 @@ def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, au
 
     assert client.post("/cfs/shadow/activer", headers=admin).json()["supprimes"] == 0
     assert switch.calls == [("enable", "--now")]
-    assert shadow.enabled() and "/db/object_meta/vm/local/web" in switch.files
+    assert shadow.enabled() and "/db/object_meta/vm/hv-test/web" in switch.files
     object_meta.put("vm", "db", "", ["prod"])  # from now on every change is copied
     shadow.drain()
-    assert "/db/object_meta/vm/local/db" in switch.files
+    assert "/db/object_meta/vm/hv-test/db" in switch.files
     body = client.get("/cfs/shadow", headers=admin).json()
     assert body["actif"] and not body["force"] and body["installe"] and body["ecarts"] == 0
 
@@ -346,7 +346,7 @@ def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, au
     assert not shadow.enabled()
     object_meta.put("vm", "cache", "", ["prod"])
     shadow.drain()
-    assert "/db/object_meta/vm/local/cache" not in switch.files
+    assert "/db/object_meta/vm/hv-test/cache" not in switch.files
 
 
 def test_the_button_says_why_it_cannot_turn_shadow_mode_on(client, auth_headers, switch):
