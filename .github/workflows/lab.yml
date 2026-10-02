@@ -9,6 +9,13 @@ on:
   schedule:
     - cron: "41 2 * * *"
   workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Soak rounds (cfs-soak job)"
+        default: "1000"
+      seed:
+        description: "Soak seed, to replay a failed night (empty: a new one)"
+        default: ""
 
 permissions:
   contents: read
@@ -51,3 +58,35 @@ jobs:
           sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_LAB="$PWD/lab/vm.sh" HYPERLITE_LAB_CACHE=/tmp/hyperlite-lab-cache \
             "$(which python)" -m pytest -q -s -p no:cacheprovider cfs/tests/cluster
           sudo chmod -R a+rX /tmp/hyperlite-lab-cache
+
+  # Phase B's exit criterion (docs/design/hyperlite-cfs.md, section 8): random faults on three nodes, a thousand
+  # rounds in a row, every answered write checked after each. Namespaces, not VMs: a round takes seconds instead of a
+  # minute. Every night and on demand only; the pull requests run five rounds in ci.yml.
+  cfs-soak:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev \
+            corosync libcpg-dev libquorum-dev libvotequorum-dev iproute2
+          sudo systemctl stop corosync || true
+          pip install pytest
+      - name: Build, with the sanitizers (a memory error during the soak fails it)
+        run: |
+          meson setup build cfs -Db_sanitize=address,undefined -Dbuildtype=debug
+          ninja -C build
+      - name: Soak
+        env:
+          ROUNDS: ${{ inputs.rounds || '1000' }}
+          SEED: ${{ inputs.seed }}
+        run: |
+          sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build/hyperlite-cfs HYPERLITE_CFS_ROUNDS="$ROUNDS" \
+            HYPERLITE_CFS_SEED="$SEED" UBSAN_OPTIONS=halt_on_error=1 "$(which python)" -m pytest -q -s -p no:cacheprovider \
+            cfs/tests/cluster/test_faults.py -k soak
