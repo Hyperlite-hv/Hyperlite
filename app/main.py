@@ -41,6 +41,7 @@ from app.routers.backup_groups import router as backup_groups_router
 from app.routers.backups import router as backups_router
 from app.routers.certificate import router as certificate_router
 from app.routers.cfs import router as cfs_router
+from app.routers.cluster_setup import router as cluster_setup_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.file_restore import router as file_restore_router
@@ -140,6 +141,7 @@ app.include_router(workstation_router)
 app.include_router(kubernetes_router)
 app.include_router(meta_router)
 app.include_router(cfs_router)
+app.include_router(cluster_setup_router)
 app.include_router(certificate_router)
 app.include_router(host_system_router)
 app.include_router(metric_servers_router)

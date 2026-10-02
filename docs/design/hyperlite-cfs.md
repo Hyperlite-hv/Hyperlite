@@ -214,8 +214,9 @@ its holder leaves the membership. In a cluster the configuration copy to standby
 A new row of a replicated table gets an id no other node hands out (`app/repositories/cfs/ids.py`): right before the
 insert, under SQLite's write lock, the connection sets `sqlite_sequence` from the daemon's cluster-wide counter (4.3),
 lifted once above the first node's ids (`/cluster/id-offset`); without the daemon, a cluster node refuses new rows
-(503). What is left for several nodes to run Hyperlite at once: the encryption and signing keys shared when a node
-joins.
+(503). Clusters are created, joined and left from the dashboard (`app/core/cluster_setup.py`, `cfs/README.md`): the
+members, Corosync's key and the members' SSH keys live in the tree, and a joining node receives the encryption and
+signing keys of `.env` from the member that lets it in, over HTTPS pinned to that member's certificate.
 
 ### 8.1 Phase B, step by step
 

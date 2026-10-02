@@ -30,9 +30,20 @@ TABLES = {
     "node_fencing": {"priv": True},
     "ha_settings": {},
     "ha_protected_vms": {"volatile": {"last_synced_at", "etat_ha", "derniere_action", "derniere_action_le"}},
-    # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode and this node's
-    # own name stay per node.
-    "app_settings": {"local_rows": {"cle": ("cfs_shadow", "cfs_applied_version", "cfs_mode", "node_name")}},
+    # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode, this node's own
+    # name, its pending join and the ticket of its join information stay per node.
+    "app_settings": {
+        "local_rows": {
+            "cle": (
+                "cfs_shadow",
+                "cfs_applied_version",
+                "cfs_mode",
+                "node_name",
+                "cfs_join_pending",
+                "cluster_join_ticket",
+            )
+        }
+    },
     # Guests
     "object_meta": {},
     "vm_boot": {},

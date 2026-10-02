@@ -1229,6 +1229,22 @@ export async function turnCfsShadowOn() {
 export async function turnCfsShadowOff() {
   return realFetch("/cfs/shadow/desactiver", { method: "POST" });
 }
+// The cluster (admin, app/core/cluster_setup.py): create one, let a node in, join one, remove a member.
+export async function fetchCluster() {
+  return realFetch("/cluster");
+}
+export async function createCluster({ nom, adresse }) {
+  return realFetch("/cluster/creer", { method: "POST", ...jsonBody({ nom: nom.trim(), adresse: adresse.trim() }) });
+}
+export async function clusterJoinInformation() {
+  return realFetch("/cluster/adhesion", { method: "POST" });
+}
+export async function joinCluster({ information, adresse, confirmation }) {
+  return realFetch("/cluster/rejoindre", { method: "POST", ...jsonBody({ information: information.trim(), adresse: adresse.trim(), confirmation: confirmation.trim() }) });
+}
+export async function removeClusterMember(name) {
+  return realFetch(`/cluster/membres/${encodeURIComponent(name)}/retirer`, { method: "POST", ...jsonBody({ confirmation: name }) });
+}
 export async function fetchApiDocsAccess() {
   return realFetch("/api-docs/acces");
 }
