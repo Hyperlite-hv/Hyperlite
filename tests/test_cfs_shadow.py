@@ -200,7 +200,7 @@ def test_the_report_and_the_seed_are_for_administrators(client, auth_headers, cf
 def test_the_seed_is_refused_while_shadow_mode_is_off(client, auth_headers, cfs, monkeypatch):
     monkeypatch.setenv("HYPERLITE_CFS_SHADOW", "0")
     response = client.post("/cfs/shadow/seed", headers=auth_headers("root", "admin"))
-    assert response.status_code == 409 and "HYPERLITE_CFS_SHADOW=1" in response.json()["detail"]
+    assert response.status_code == 409 and "turn it on" in response.json()["detail"]
 
 
 BIN = os.environ.get("HYPERLITE_CFS_BIN", "")
@@ -250,3 +250,67 @@ def test_against_the_real_daemon(database, tmp_path, monkeypatch):
         assert shadow.report()["ecarts"] == 0
     finally:
         _stop(proc)
+
+
+@pytest.fixture()
+def switch(database, tmp_path, monkeypatch):
+    """Shadow mode off, a daemon installed and systemctl recorded instead of run."""
+    fake = FakeCfs()
+    monkeypatch.delenv("HYPERLITE_CFS_SHADOW", raising=False)
+    monkeypatch.setattr(shadow, "_get_client", lambda: fake)
+    monkeypatch.setattr(shadow, "_stats", shadow._Stats())
+    binary = tmp_path / "hyperlite-cfs"
+    binary.write_text("")
+    monkeypatch.setattr(shadow, "BINARY", str(binary))
+    calls = []
+    fake.systemctl_ok = True
+
+    def systemctl(*args):
+        calls.append(args)
+        return fake.systemctl_ok
+
+    monkeypatch.setattr(shadow, "_systemctl", systemctl)
+    fake.calls = calls
+    fake.binary = binary
+    return fake
+
+
+def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, auth_headers, switch):
+    object_meta.put("vm", "web", "Front", ["prod"])  # written while shadow mode is off: not copied
+    assert switch.files == {}
+    admin = auth_headers("root", "admin")
+    assert client.post("/cfs/shadow/activer", headers=auth_headers("watcher", "observateur")).status_code == 403
+
+    assert client.post("/cfs/shadow/activer", headers=admin).json() == {"ecrits": 1, "supprimes": 0}
+    assert switch.calls == [("enable", "--now")]
+    assert shadow.enabled() and "/meta/vm/local/web" in switch.files
+    object_meta.put("vm", "db", "", ["prod"])  # from now on every change is copied
+    assert "/meta/vm/local/db" in switch.files
+    body = client.get("/cfs/shadow", headers=admin).json()
+    assert body["actif"] and not body["force"] and body["installe"] and body["ecarts"] == 0
+
+    assert client.post("/cfs/shadow/desactiver", headers=admin).json() == {"actif": False}
+    assert switch.calls[-1] == ("disable", "--now")
+    assert not shadow.enabled()
+    object_meta.put("vm", "cache", "", ["prod"])
+    assert "/meta/vm/local/cache" not in switch.files
+
+
+def test_the_button_says_why_it_cannot_turn_shadow_mode_on(client, auth_headers, switch):
+    admin = auth_headers("root", "admin")
+    switch.systemctl_ok = False
+    response = client.post("/cfs/shadow/activer", headers=admin)
+    assert response.status_code == 503 and "did not start" in response.json()["detail"]
+    assert not shadow.enabled()
+
+    switch.binary.unlink()
+    response = client.post("/cfs/shadow/activer", headers=admin)
+    assert response.status_code == 503 and "not installed" in response.json()["detail"]
+    assert client.get("/cfs/shadow", headers=admin).json()["installe"] is False
+
+
+def test_shadow_mode_forced_in_env_cannot_be_turned_off_from_the_page(client, auth_headers, switch, monkeypatch):
+    monkeypatch.setenv("HYPERLITE_CFS_SHADOW", "1")
+    response = client.post("/cfs/shadow/desactiver", headers=auth_headers("root", "admin"))
+    assert response.status_code == 409 and "HYPERLITE_CFS_SHADOW=1" in response.json()["detail"]
+    assert switch.calls == []

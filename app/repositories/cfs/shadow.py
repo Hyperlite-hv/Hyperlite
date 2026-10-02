@@ -17,7 +17,9 @@ import json
 import logging
 import os
 import re
+import subprocess
 import threading
+import time
 from datetime import UTC, datetime
 
 from app.core.cfs_client import DEFAULT_SOCKET, CfsClient, CfsError, NotFound, ReadOnly, Synchronising, Uncertain
@@ -31,15 +33,36 @@ EXAMPLES = 20  # paths listed per kind of difference in the report
 _PLAIN = re.compile(r"^[A-Za-z0-9-][A-Za-z0-9._-]*$")
 
 
-DISABLED = "Shadow mode is off: set HYPERLITE_CFS_SHADOW=1 in .env and restart Hyperlite"
+DISABLED = "Shadow mode is off: turn it on in Administration > Replicated configuration"
 
 
 class ShadowDisabled(Exception):
     pass
 
 
-def enabled():
+# Turned on from Administration > Replicated configuration (app_settings), or forced by HYPERLITE_CFS_SHADOW=1.
+SETTING = "cfs_shadow"
+SERVICE = "hyperlite-cfs.service"
+BINARY = "/usr/local/sbin/hyperlite-cfs"  # installed by the package (scripts/build-cfs.sh)
+START_WAIT_S = 10
+
+
+class ShadowError(Exception):
+    """A switch that could not be made; the message is a fixed sentence, safe to show."""
+
+
+def _settings():
+    from app.repositories.sqlite.settings import SqliteSettingsStore
+
+    return SqliteSettingsStore()
+
+
+def forced():
     return os.environ.get("HYPERLITE_CFS_SHADOW", "") == "1"
+
+
+def enabled():
+    return forced() or _settings().app_setting(SETTING) == "1"
 
 
 def socket_path():
@@ -251,6 +274,59 @@ def seed():
     return {"ecrits": written, "supprimes": deleted}
 
 
+def _systemctl(*args):
+    try:
+        done = subprocess.run(["systemctl", *args, SERVICE], capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning("systemctl %s %s: %s", " ".join(args), SERVICE, e)
+        return False
+    if done.returncode:
+        logger.warning("systemctl %s %s failed: %s", " ".join(args), SERVICE, done.stderr.strip())
+    return done.returncode == 0
+
+
+def turn_on():
+    """Start the daemon (local mode unless /etc/default/hyperlite-cfs says otherwise), remember that shadow mode is on,
+    and make the first copy. Raises ShadowError with a sentence that says what to do."""
+    if not os.path.exists(BINARY):
+        raise ShadowError(
+            "hyperlite-cfs is not installed on this node: its build failed at the last upgrade (see the upgrade log)"
+        )
+    if not _systemctl("enable", "--now"):
+        raise ShadowError("The hyperlite-cfs service did not start: see systemctl status hyperlite-cfs")
+    deadline = time.monotonic() + START_WAIT_S
+    while True:
+        try:
+            _get_client().status()
+            break
+        except (CfsError, OSError) as e:
+            if time.monotonic() > deadline:
+                logger.warning("hyperlite-cfs started but does not answer: %s", e)
+                raise ShadowError(
+                    "hyperlite-cfs started but does not answer: see journalctl -u hyperlite-cfs"
+                ) from None
+            time.sleep(0.2)
+    _settings().set_app_setting(SETTING, "1")
+    try:
+        return seed()
+    except (CfsError, OSError) as e:
+        logger.warning("hyperlite-cfs shadow: first copy failed: %s", e)
+        raise ShadowError(f"Shadow mode is on, but the first copy did not complete: {describe(e)}") from None
+
+
+def turn_off():
+    """Stop copying and stop the daemon. Its database stays in /var/lib/hyperlite-cfs for the next time."""
+    if forced():
+        raise ShadowError(
+            "Shadow mode is forced by HYPERLITE_CFS_SHADOW=1 in .env: remove that line and restart Hyperlite"
+        )
+    _settings().set_app_setting(SETTING, "0")
+    if not _systemctl("disable", "--now"):
+        raise ShadowError(
+            "Shadow mode is off, but the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
+        )
+
+
 def _compare(expected, actual):
     missing = sorted(expected.keys() - actual.keys())
     extra = sorted(actual.keys() - expected.keys())
@@ -269,6 +345,8 @@ def report():
     with _stats.lock:
         out = {
             "actif": enabled(),
+            "force": forced(),
+            "installe": os.path.exists(BINARY),
             "socket": socket_path(),
             "copies": _stats.copies,
             "echecs": _stats.failures,
