@@ -159,9 +159,16 @@ extract_kernel() { # the image's kernel and initrd, next to the base image, read
     mount -o ro,loop,offset=$((start * 512)) "$raw" "$mnt"
     cp "$(ls "$mnt"/boot/vmlinuz-* | sort -V | tail -n 1)" "$POOL/${P}-vmlinuz"
     cp "$(ls "$mnt"/boot/initrd.img-* | sort -V | tail -n 1)" "$POOL/${P}-initrd"
-    # The root the image's own boot loader names (a PARTUUID or a label), so the kernel finds it as GRUB would.
-    local root
-    root=$(grep -oE 'root=[^ ]+' "$mnt/boot/grub/grub.cfg" 2> /dev/null | head -n 1) || root=""
+    # The root by the UUID of the file system just mounted; else the root= of the kernel line in the image's grub.cfg
+    # (not GRUB's own "set root=hd0,gpt1", which names a disk for GRUB, not for the kernel).
+    local root uuid
+    uuid=$(blkid -s UUID -o value "$(findmnt -n -o SOURCE "$mnt")" 2> /dev/null) || uuid=""
+    if [ -n "$uuid" ]; then
+        root="root=UUID=$uuid"
+    else
+        root=$(grep -E '^[[:space:]]*linux[[:space:]]' "$mnt/boot/grub/grub.cfg" 2> /dev/null |
+            grep -oE '[[:space:]]root=[^[:space:]]+' | head -n 1 | tr -d '[:space:]') || root=""
+    fi
     echo "${root:-root=/dev/vda1}" > "$POOL/${P}-root"
     umount "$mnt"
     rm -f "$raw"
