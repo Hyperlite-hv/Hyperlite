@@ -2,6 +2,7 @@
 
 import json
 import threading
+import types
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -102,3 +103,24 @@ def test_smtp_password_is_encrypted_at_rest(database):
     with database.get_conn() as conn:
         raw = conn.execute("SELECT config FROM notification_channels").fetchone()["config"]
     assert "s3cret" not in raw
+
+
+def test_an_audited_event_reads_as_a_sentence(database, monkeypatch):
+    """It was the raw action key and the stored result: "create_vm on 'web': succes"."""
+    from app.core import audit
+    from app.core.notifications import notify as audit_notify
+
+    sent = []
+
+    class _Thread:
+        def __init__(self, target=None, args=(), **kw):
+            self.target, self.args = target, args
+
+        def start(self):
+            if self.target is audit_notify:
+                sent.append(self.args)
+
+    monkeypatch.setattr(audit, "threading", types.SimpleNamespace(Thread=_Thread))
+    audit.log_action("alice", "create_vm", "web", "succes")
+    audit.log_action("alice", "backup_vm", "web", "echec", "disk full")
+    assert [a[2] for a in sent] == ["VM creation of 'web' succeeded", "VM backup of 'web' failed: disk full"]

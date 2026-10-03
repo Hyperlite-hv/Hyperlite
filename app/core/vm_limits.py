@@ -93,10 +93,10 @@ def validate_vm_resources(vcpu=None, memory_mb=None, disk_sizes=None):
             errors.append(f"{label}: {value}{unit} is out of limits ({lim['min']}-{lim['max']}{unit}, {origine})")
 
     check("vCPU", vcpu, limits["vcpu"], "")
-    check("Memory", memory_mb, limits["memoire_mo"], " Mo")
+    check("Memory", memory_mb, limits["memoire_mo"], " MB")
     if disk_sizes is not None:
         if len(disk_sizes) > limits["disques"]["max"]:
             errors.append(f"Disks: {len(disk_sizes)} requested, maximum {limits['disques']['max']}")
         for i, size in enumerate(disk_sizes):
-            check(f"Disk {i + 1}", size, limits["disque_go"], " Go")
+            check(f"Disk {i + 1}", size, limits["disque_go"], " GB")
     return errors
