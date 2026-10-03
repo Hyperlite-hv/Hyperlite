@@ -11,7 +11,7 @@ test("a running job run shows its log, is cancelled from the task list and ends 
   expect((await request.post(`/jobs/${jobId}/run`, { headers: auth, data: { targets: [], dry_run: false } })).status()).toBe(202);
 
   await uiLogin(page);
-  await goTo(page, "Tasks");
+  await goTo(page, "Activity");
   const row = page.getByRole("row").filter({ hasText: name }).first();
   await row.getByRole("button", { name: "Run job" }).click();
   await expect(page.getByText(/Step 1\/1 on the host: sleep 30/)).toBeVisible({ timeout: 15_000 });

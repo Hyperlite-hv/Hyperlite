@@ -13,6 +13,7 @@ import { useT, useLangStore } from "../i18n";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
+import SsoPage from "./SsoPage";
 import { PageHeader, SideDrawer, Field, Chip, Empty, Loading, TableWrap } from "../components/ui";
 import { useIntent } from "../lib/intents";
 import { KeyRound, Layers, PencilLine, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
@@ -23,15 +24,17 @@ import { passwordAccepted } from "../lib/passwordPolicy";
 // Global roles stay `admin` / `observateur` (wire values); ACLs, groups, pools and custom roles only ADD
 // scoped rights on top of them (app/core/permissions.py). Same endpoints and payloads as the historical tab.
 
-const TABS = ["users", "groups", "roles", "pools", "acl"];
+const TABS = ["users", "groups", "roles", "pools", "acl", "sso"];
 
-export default function SecurityPage() {
+// Users and access: accounts, groups, roles, VM pools, assignments, and single sign-on (SSO), which used to be a
+// page of its own. ?tab=sso opens the SSO tab (SecuritySsoPage).
+export default function SecurityPage({ initialTab = "users" }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const vms = useInfraStore((s) => s.vms);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [tab, setTab] = useState("users");
+  const [tab, setTab] = useState(initialTab);
   const [drawer, setDrawer] = useState(null);
 
   const reload = useCallback(async () => {
@@ -68,10 +71,12 @@ export default function SecurityPage() {
     const ctx = { t, run, data, vms, allRoles, drawer, closeDrawer: () => setDrawer(null) };
     body = tab === "users" ? <UsersTab {...ctx} /> : tab === "groups" ? <GroupsTab {...ctx} /> : tab === "roles" ? <RolesTab {...ctx} /> : tab === "pools" ? <PoolsTab {...ctx} /> : <AclTab {...ctx} />;
   }
+  // The SSO tab needs none of the data above: it loads its own settings.
+  if (tab === "sso") body = <SsoPage embedded />;
 
   return (
     <>
-      <PageHeader title={t("tab.permissions")} actions={data && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setDrawer(tab)}><Plus size={15} aria-hidden="true" />{t(primary)}</button>} />
+      <PageHeader title={t("tab.permissions")} actions={data && primary && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setDrawer(tab)}><Plus size={15} aria-hidden="true" />{t(primary)}</button>} />
       <div className="nx-tabs nx-tabs--page" role="tablist" aria-label={t("tab.permissions")} onKeyDown={onTabKey}>
         {TABS.map((id) => (
           <button key={id} id={`sec-tab-${id}`} type="button" role="tab" aria-selected={tab === id} aria-controls="sec-panel" tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}>
@@ -84,6 +89,11 @@ export default function SecurityPage() {
   );
 }
 SecurityPage.ownHeader = true;
+
+export function SecuritySsoPage() {
+  return <SecurityPage initialTab="sso" />;
+}
+SecuritySsoPage.ownHeader = true;
 
 const del = (t) => t("menu.delete").replace("…", "");
 function IconBtn({ label, onClick, disabled, title, icon: Icon = Trash2 }) {

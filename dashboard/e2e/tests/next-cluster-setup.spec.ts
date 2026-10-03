@@ -1,13 +1,13 @@
 import { expect, goTo, test, uiLogin } from "../support/fixtures";
 
-// Administration › Replicated configuration, the Cluster card (app/core/cluster_setup.py, covered by
+// Cluster › Cluster, the Cluster card (app/core/cluster_setup.py, covered by
 // tests/test_cluster_setup.py): the test backend is a node in no cluster, and the tests play the routes of /cluster for
 // the rest.
 test("a node in no cluster shows the card; without Corosync it says how to install it", async ({ page }) => {
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { name: "Cluster", exact: true })).toBeVisible();  // the real answer
+  await expect(main.getByRole("heading", { level: 2, name: "Cluster", exact: true })).toBeVisible();  // the real answer
 
   await page.route(/\/cluster$/, (route) => route.fulfill({ json: { corosync_installe: false, en_cluster: false, nom: null, membres: [], noeud: "pve-a" } }));
   await page.reload();
@@ -34,7 +34,7 @@ test("creating a cluster, then copying the join information and removing a membe
     return route.fulfill({ json: state });
   });
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
 
   const create = main.getByRole("form", { name: "Create a cluster" });
@@ -65,7 +65,7 @@ test("joining needs the cluster's name typed back, in English and in French", as
   await page.route(/\/cluster$/, (route) => route.fulfill({ json: ALONE }));
   await page.route(/\/cluster\/rejoindre$/, (route) => { sent.push(route.request().postDataJSON()); return route.fulfill({ json: { cluster: "prod", redemarrage: true } }); });
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
   const join = main.getByRole("form", { name: "Join a cluster" });
   // base64url of {"cluster":"prod","adresse":"192.0.2.10"}
