@@ -63,6 +63,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 | [docs/onboarding.md](docs/onboarding.md) | Access and working rules for a new contributor and their AI assistant |
 | [docs/architecture.md](docs/architecture.md) | Components, data model, security model |
 | [docs/features.md](docs/features.md) | Feature reference and known scope limits |
+| [docs/roadmap.md](docs/roadmap.md) | What is planned next, in priority order, and what is out of scope |
 | [docs/configuration.md](docs/configuration.md) | Environment variables and files |
 | [docs/workstation-access.md](docs/workstation-access.md) | SSH and remote desktop from a workstation (`hyperlite` client) |
 | [docs/deployment.md](docs/deployment.md) | Installation, updates, APT repository, ISO, publishing |
