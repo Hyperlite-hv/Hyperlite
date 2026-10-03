@@ -18,13 +18,16 @@ actionable message. This is the intended "clean handling", not an oversight.
 """
 
 import contextlib
+import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
 import threading
 import time
+import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -33,6 +36,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core import version
 from app.core.audit import log_action
 from app.core.database import DB_PATH
+from app.core.http_safety import require_http_url
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 
@@ -189,7 +193,7 @@ def _install_method():
 
 def _dpkg_installed_version():
     r = _run_c(["dpkg-query", "-W", "-f=${Version}", "hyperlite"])
-    return r.stdout.strip() if r.returncode == 0 else None
+    return version.without_epoch(r.stdout.strip()) if r.returncode == 0 else None
 
 
 # `apt-get update` used to fail PERSISTENTLY with an inconsistent size error
@@ -304,7 +308,7 @@ def _check_update_apt():
     for line in policy.stdout.splitlines():
         line = line.strip()
         if line.startswith("Candidate:"):
-            candidate = line.split(":", 1)[1].strip()
+            candidate = version.without_epoch(line.split(":", 1)[1].strip())
     # The package can say one version while the service runs another: an update whose new code did not answer
     # in time is rolled back from the backup, but dpkg still records the new package. Comparing only dpkg with
     # the candidate then answered "up to date" and the update could never be applied again.
@@ -330,10 +334,61 @@ def _check_update_apt():
     }
 
 
+SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(~[a-z0-9.]+)?$")
+NOTES_TIMEOUT_S = 5
+
+
+def _deb(value):
+    """The package version apt compares: semver releases carry the epoch 1: (installer/build-deb.sh)."""
+    return f"1:{value}" if value and SEMVER_RE.match(value) else value
+
+
+def _newer(a, b):
+    """True when package version a is newer than b (dpkg's own ordering, epochs and ~ included)."""
+    return _run_c(["dpkg", "--compare-versions", _deb(a), "gt", _deb(b)]).returncode == 0
+
+
+def _fetch_text(url):
+    try:
+        require_http_url(url)
+    except ValueError as e:
+        raise OSError(str(e)) from e
+    req = urllib.request.Request(url, headers={"User-Agent": "hyperlite-update-check"})  # noqa: S310 -- checked above
+    with urllib.request.urlopen(req, timeout=NOTES_TIMEOUT_S) as resp:  # noqa: S310 -- checked above
+        return resp.read(512 * 1024).decode("utf-8", "replace")
+
+
+def _release_notes(installed, candidate, lang):
+    """The notes of every version after the installed one, up to the candidate, newest first, in `lang` when they
+    exist in it (else English). Published next to the repository (scripts/release-notes.sh); none before 1.0.0. A
+    mirror that does not answer only leaves the notes out: the update itself does not depend on them."""
+    base = _official_apt_url()
+    if not base or not candidate or not installed:
+        return []
+    try:
+        index = json.loads(_fetch_text(f"{base}/notes/index.json"))
+    except (OSError, ValueError):
+        return []
+    notes = []
+    for entry in index if isinstance(index, list) else []:
+        v = str(entry.get("version", "")) if isinstance(entry, dict) else ""
+        if not SEMVER_RE.match(v) or not _newer(v, installed) or _newer(v, candidate):
+            continue
+        suffix = "fr" if lang == "fr" and entry.get("fr") else "en"
+        try:
+            notes.append({"version": v, "langue": suffix, "texte": _fetch_text(f"{base}/notes/{v}.{suffix}.md")})
+        except OSError:
+            continue
+    return notes
+
+
 @router.get("/check")
-def check_update(user: dict = Depends(require_role("admin"))):
+def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
     if _install_method() == "apt":
-        return _check_update_apt()
+        result = _check_update_apt()
+        if result.get("verifiable") and not result.get("a_jour"):
+            result["notes"] = _release_notes(result.get("commit_local"), result.get("commit_distant"), lang)
+        return result
 
     branch = _current_branch()
     local = _current_commit()
