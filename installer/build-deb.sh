@@ -40,7 +40,7 @@ log "copying the files tracked by Git"
         installer/build-*.sh|installer/test-package.sh|installer/iso-release-notes.tmpl) continue ;;
         installer/hyperlite-apt-repo.nginx.conf) continue ;;
         scripts/ci-publish.sh|scripts/publish-gh-pages.sh|scripts/release.sh|scripts/sign-iso.sh) continue ;;
-        scripts/verify-apt-mirror.sh|scripts/systemd/*) continue ;;
+        scripts/verify-apt-mirror.sh) continue ;;
     esac
     mkdir -p "$STAGE/root/hyperlite/$(dirname "$f")"
     cp "$REPO_DIR/$f" "$STAGE/root/hyperlite/$f"

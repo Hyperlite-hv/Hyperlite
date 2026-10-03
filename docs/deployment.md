@@ -52,13 +52,11 @@ announces a size and a SHA-256 for each index file, and the files served next to
 (a mismatch is the "File has unexpected size" error on clients). Exit codes: 0 consistent, 1
 inconsistent, 2 stale (an expected version is missing), 3 unreachable.
 
-- The publishing hook runs it in the background after each publication and waits up to 15
-  minutes for GitHub Pages to serve the new files; the result is written to `publish.log`.
-- `scripts/systemd/hyperlite-mirror-check.{service,timer}` run it every 30 minutes on the build
-  host (install them in `/etc/systemd/system`, then `systemctl enable --now
-  hyperlite-mirror-check.timer`); results go to `mirror-check.log`.
-- Set `HYPERLITE_ALERT_WEBHOOK` (a chat or ntfy webhook URL) in the untracked `.publish.env` to be
-  alerted on failure. Never commit it.
+- The `Publish` workflow (`scripts/ci-publish.sh`) runs it after each publication and waits up to 15
+  minutes for GitHub Pages to serve the new version.
+- The `Mirror check` workflow (`.github/workflows/mirror-check.yml`) runs it every hour; GitHub reports
+  a failed run to the repository's watchers. Set the repository secret `HYPERLITE_ALERT_WEBHOOK` (a
+  chat or ntfy webhook URL) to be alerted there too.
 - On an appliance, the update dialog explains a momentarily out-of-sync mirror and asks to retry.
 
 ### Single source of truth for updates
