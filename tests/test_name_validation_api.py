@@ -47,3 +47,28 @@ def test_a_distribution_iso_name_is_accepted(client, auth_headers, iso_dir):
     r = client.post("/isos", files=files, headers=auth_headers("alice"))
     assert r.status_code == 201, r.text
     assert (iso_dir / name).read_bytes() == b"data"
+
+
+def test_an_upload_never_replaces_an_iso(client, auth_headers, iso_dir):
+    """It replaced it silently, even one in a VM's CD-ROM drive."""
+    files = lambda data: {"file": ("debian.iso", io.BytesIO(data), "application/octet-stream")}  # noqa: E731
+    admin = auth_headers("alice")
+    assert client.post("/isos", files=files(b"first"), headers=admin).status_code == 201
+    r = client.post("/isos", files=files(b"second"), headers=admin)
+    assert r.status_code == 409 and "already exists" in r.json()["detail"]
+    assert (iso_dir / "debian.iso").read_bytes() == b"first"
+
+
+def test_an_interrupted_upload_leaves_nothing_in_the_library(client, auth_headers, iso_dir, monkeypatch):
+    """It was written under its final name: a truncated ISO stayed in the library."""
+    from app.routers import isos
+
+    def _fail(source, out, length=0):
+        out.write(b"half")
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(isos.shutil, "copyfileobj", _fail)
+    files = {"file": ("debian.iso", io.BytesIO(b"data"), "application/octet-stream")}
+    r = client.post("/isos", files=files, headers=auth_headers("alice"))
+    assert r.status_code == 500
+    assert list(iso_dir.iterdir()) == []
