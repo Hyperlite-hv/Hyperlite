@@ -77,3 +77,13 @@ def test_each_mode_has_its_preseed_and_the_disk_is_chosen_when_the_cd_is_mounted
     # No network mirror in either mode.
     assert "d-i apt-setup/use_mirror boolean false" in common
     assert "hyperlite-questions.sh ask" in common and "hyperlite-questions.sh keyboard" in common
+
+
+def test_corosync_is_a_dependency_kept_stopped_until_a_cluster_configures_it():
+    """The cluster is created from the dashboard, which asked to "apt install corosync" by hand on a node installed
+    from the package; Debian's own sample configuration (no encryption) must not run meanwhile."""
+    control = (INSTALLER / "deb" / "control.template").read_text()
+    depends = next(line for line in control.splitlines() if line.startswith("Depends:"))
+    assert "corosync" in [d.strip().split(" ")[0] for d in depends[len("Depends:") :].split(",")]
+    postinst = (INSTALLER / "deb" / "postinst").read_text()
+    assert "systemctl disable --now corosync.service" in postinst and "crypto_cipher" in postinst
