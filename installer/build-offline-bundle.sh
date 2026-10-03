@@ -55,7 +55,10 @@ package_deps=$(sed -n 's/^\(Depends\|Recommends\): //p' "$SCRIPT_DIR/deb/control
 printf '%s\n' intel-microcode amd64-microcode qemu-guest-agent > "$OUT/hardware.list"
 # The packages of priority required and important are installed from the ISO's base system; their latest versions
 # (security updates included) are carried too, so the new machine is as up to date as the bundle.
-base=$(awk '/^Package:/{p=$2} /^Priority: (required|important)$/{print p}' /var/lib/apt/lists/*_Packages | sort -u)
+# Read through apt-cache: the indexes on disk may be compressed (Debian's container images keep them as
+# *_Packages.lz4), which the CI's debian:13 container does and a VM does not.
+base=$(apt-cache dumpavail | awk '/^Package:/{p=$2} /^Priority: (required|important)$/{print p}' | sort -u)
+[ -n "$base" ] || { echo "no package of priority required or important found in the apt indexes" >&2; exit 1; }
 
 log "downloading $(wc -l < "$OUT/install.list") packages and everything they need"
 # An empty dpkg status: apt resolves the whole set from scratch, as for a machine that has nothing installed, so
