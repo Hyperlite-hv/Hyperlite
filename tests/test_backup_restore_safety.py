@@ -244,7 +244,7 @@ class _Domain:
 @pytest.mark.parametrize(
     ("cdrom", "expected"), [("/i/vm1-cloudinit.iso", True), ("/isos/debian.iso", False), (None, False)]
 )
-def test_a_backup_records_whether_the_vm_was_set_up_by_cloud_init(tmp_path, cdrom, expected):
+def test_a_backup_records_whether_the_vm_was_set_up_by_cloud_init(database, tmp_path, cdrom, expected):
     backups._write_vm_config(_Domain(cdrom), tmp_path)
     assert json.loads((tmp_path / "vm-config.json").read_text())["cloud_init"] is expected
 
@@ -265,3 +265,19 @@ def test_a_copy_restored_under_a_new_name_gets_a_new_cloud_init_drive(tmp_path, 
     (tmp_path / "vm1-cloudinit.iso").write_text("")
     assert backups._reseed_iso({}, "vm1", "copy3") == tmp_path / "copy3-cloudinit.iso"
     assert made == ["copy", "copy3"]
+
+
+def test_a_backup_records_the_os_label_and_the_ssh_user(database, tmp_path):
+    """A copy restored under a new name lost them: no OS shown, and the SSH terminal did not know which account."""
+    from app.core.vm_meta import set_vm_os_label, set_vm_ssh_user
+
+    set_vm_os_label("vm1", "Debian 12")
+    set_vm_ssh_user("vm1", "debian")
+
+    class _Named(_Domain):
+        def XMLDesc(self, *_):
+            return super().XMLDesc().replace("<domain>", "<domain><name>vm1</name>", 1)
+
+    backups._write_vm_config(_Named(None), tmp_path)
+    config = json.loads((tmp_path / "vm-config.json").read_text())
+    assert (config["os_label"], config["ssh_user"]) == ("Debian 12", "debian")

@@ -13,12 +13,13 @@ test.describe.configure({ mode: "serial", timeout: 120_000 });
 test.beforeAll(async ({ request }) => { token = await apiLogin(request); });
 test.afterAll(async ({ request }) => {
   const h = auth();
-  const get = async (p: string) => (await (await request.get(p, { headers: h })).json()) as { id: number; name?: string; key?: string; label?: string }[];
+  // A missing route answers a JSON 404 (it used to answer the dashboard page): only a list is walked.
+  const get = async (p: string) => { const r = await request.get(p, { headers: h }); const body = r.ok() ? await r.json() : []; return (Array.isArray(body) ? body : []) as { id: number; name?: string; key?: string; label?: string }[]; };
   // Only this file's assignments: other files run at the same time and keep theirs.
   for (const a of (await get("/acl").catch(() => [])) as { id: number; subject_label?: string }[]) if (a.subject_label === USER || a.subject_label === GROUP) await request.delete(`/acl/${a.id}`, { headers: h }).catch(() => {});
   for (const g of await get("/groups").catch(() => [])) if (g.name === GROUP) await request.delete(`/groups/${g.id}`, { headers: h }).catch(() => {});
   for (const p of await get("/pools").catch(() => [])) if (p.name === POOL) await request.delete(`/pools/${p.id}`, { headers: h }).catch(() => {});
-  for (const r of await get("/custom-roles").catch(() => [])) if (r.label === ROLE) await request.delete(`/custom-roles/${r.id}`, { headers: h }).catch(() => {});
+  for (const r of await get("/acl/custom-roles").catch(() => [])) if ((r.label ?? r.name) === ROLE) await request.delete(`/acl/custom-roles/${r.id}`, { headers: h }).catch(() => {});
   await request.delete(`/auth/users/${USER}`, { headers: h }).catch(() => {});
 });
 
@@ -62,7 +63,13 @@ test("users: create with validation, promotion needs a confirmation, self is pro
   await expect(roleSel).toHaveValue("admin");
   const users = (await (await request.get("/auth/users", { headers: auth() })).json()) as { username: string; role: string }[];
   expect(users.find((u) => u.username === USER)?.role).toBe("admin");
+  // demoting an administrator asks too: cancel keeps the role, confirm applies it
   await roleSel.selectOption("observateur");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(roleSel).toHaveValue("admin");
+  await roleSel.selectOption("observateur");
+  await dialogConfirm(page, "Remove the rights");
+  await expect(roleSel).toHaveValue("observateur");
 
   // an administrator can neither demote nor delete themself here
   await expect(main.getByRole("combobox", { name: `Role of ${ADMIN.username}` })).toBeDisabled();

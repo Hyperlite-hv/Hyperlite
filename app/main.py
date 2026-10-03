@@ -29,6 +29,7 @@ from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
+from app.core.vm_crash_watch import start_vm_crash_watch
 from app.repositories.cfs.ids import NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
@@ -252,11 +253,15 @@ NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 
 @app.get("/", include_in_schema=False)
 @app.get("/{path:path}", include_in_schema=False)
-def serve_ui(path: str = ""):
+def serve_ui(request: Request, path: str = ""):
     # SPA catch-all: every client-side URL (react-router) returns index.html and
     # routing happens in the browser. It must remain the LAST declared route so it
     # never intercepts the real API/WebSocket routes registered above it (they are
     # tried first).
+    # Only a browser navigating asks for HTML. An API client calling a path that does not exist (a typo, a route of
+    # another version) got the dashboard page with a 200, which reads as a success: it gets a JSON 404.
+    if "text/html" not in request.headers.get("accept", ""):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     dashboard_index = f"{DASHBOARD_DIST}/index.html"
     if os.path.isfile(dashboard_index):
         return FileResponse(dashboard_index, headers=NO_CACHE_HEADERS)
@@ -300,6 +305,7 @@ def on_startup():
     start_node_poller()
     start_config_copy()
     start_ha_watch()
+    start_vm_crash_watch()
     start_replication_scheduler()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
