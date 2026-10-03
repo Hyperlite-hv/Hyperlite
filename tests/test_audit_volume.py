@@ -76,3 +76,25 @@ def test_entries_older_than_the_retention_are_deleted(database, monkeypatch):
     assert audit.purge_old_entries(now) == 1
     monkeypatch.setenv("HYPERLITE_AUDIT_RETENTION_DAYS", "0")
     assert audit.purge_old_entries(now + timedelta(days=4000)) == 0  # 0 keeps everything
+
+
+def test_the_reads_logged_before_are_removed_at_start(database):
+    """102,073 of 102,926 entries of an audited host were successful reads logged before they no longer were."""
+    rows = [
+        ("list_vms", "succes"),
+        ("get_vm", "succes"),
+        ("list_networks", "echec"),  # a failed read stays: it may tell of a problem
+        ("create_vm", "succes"),
+        ("listen_x", "succes"),  # not a read: no underscore after "list"
+    ]
+    with database.get_conn() as conn:
+        for action, result in rows:
+            conn.execute(
+                "INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES ('t', 'a', ?, 'r', ?)",
+                (action, result),
+            )
+        conn.commit()
+    database.init_db()
+    with database.get_conn() as conn:
+        left = sorted(r[0] for r in conn.execute("SELECT action FROM audit_log"))
+    assert left == ["create_vm", "list_networks", "listen_x"]
