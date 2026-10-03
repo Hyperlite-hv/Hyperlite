@@ -14,6 +14,7 @@ def started(database, monkeypatch):
     """The target each accepted backup would have been written in (nothing runs)."""
     runs = []
     monkeypatch.setattr(backups, "refuse_vm_with_block_disks", lambda *a: None)
+    monkeypatch.setattr(backups, "_vm_exists", lambda name: name == "web")
     monkeypatch.setattr(backups, "run_backup", lambda name, target, **k: runs.append(target))
 
     class _Thread:
@@ -62,3 +63,11 @@ def test_a_vm_manager_edits_a_schedule_without_moving_its_directory(started, cli
     r = client.put("/vms/web/backup-schedule", json={**body, "cible_dir": "/home/bob"}, headers=bob)
     assert r.status_code == 403
     assert client.get("/vms/web/backup-schedule", headers=admin).json()["cible_dir"] == "/srv/backups"
+
+
+def test_a_schedule_is_for_a_vm_of_this_node(started, client, auth_headers):
+    """A schedule for a name that is no VM here (a typo) was accepted, and failed every night."""
+    body = {"frequence": "quotidien", "heure": "02:00"}
+    admin = auth_headers("admin")
+    assert client.put("/vms/nope/backup-schedule", json=body, headers=admin).status_code == 404
+    assert client.get("/backup-schedules", headers=admin).json() == []

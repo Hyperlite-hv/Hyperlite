@@ -5,6 +5,7 @@ validates input, checks permissions and orchestrates the background task."""
 import logging
 import threading
 
+import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -18,6 +19,7 @@ from app.core.backups import (
     run_backup,
     verify_backup,
 )
+from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task
 from app.core.vm_builder import validate_name
@@ -215,8 +217,22 @@ async def get_backup_schedule(name: str, user: dict = Depends(require_vm_privile
     return await backup_service.get_schedule(name)
 
 
+def _vm_exists(name):
+    conn = open_conn()
+    try:
+        conn.lookupByName(name)
+        return True
+    except libvirt.libvirtError:
+        return False
+    finally:
+        conn.close()
+
+
 @router.put("/vms/{name}/backup-schedule")
 def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+    # The scheduler backs up the VMs of this host: a schedule for any other name (a typo) failed every night.
+    if not _vm_exists(name):
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found on this node")
     if payload.frequence not in ("quotidien", "hebdomadaire", "mensuel"):
         raise HTTPException(status_code=422, detail="Invalid frequency")
     try:
