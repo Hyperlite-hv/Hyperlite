@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { ADMIN, apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtures";
 
-// Users and roles › Users: the create form is a side drawer.
+// Users and access › Users: the create form is a side drawer.
 async function createUser(page: Page, role?: string) {
   await page.getByRole("main").getByRole("button", { name: "Create a user", exact: true }).click();
   const form = page.getByRole("dialog", { name: "Create a user" });
@@ -25,7 +25,7 @@ test.afterAll(async ({ request }) => {
 test.describe("Users and permissions", () => {
   test("an administrator creates a read-only user from the Permissions tab", async ({ page, request, problems }) => {
     await uiLogin(page);
-    await goTo(page, "Users and roles");
+    await goTo(page, "Users and access");
     await createUser(page, "observateur");
     await expect(page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` })).toBeVisible();
 
@@ -43,7 +43,7 @@ test.describe("Users and permissions", () => {
 
   test("refuses a duplicate user name with a clear message", async ({ page }) => {
     await uiLogin(page);
-    await goTo(page, "Users and roles");
+    await goTo(page, "Users and access");
     const form = await createUser(page);
     await expect(page.getByText(/already exists|Creation failed/i).first()).toBeVisible();
     await expect(form.getByRole("textbox", { name: "Username" })).toHaveValue(OBSERVER.username);
@@ -93,7 +93,7 @@ test.describe("Users and permissions", () => {
 
   test("an administrator deletes the user after confirming", async ({ page, request }) => {
     await uiLogin(page);
-    await goTo(page, "Users and roles");
+    await goTo(page, "Users and access");
     await page.getByRole("button", { name: `Delete user ${OBSERVER.username}` }).click();
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toContainText(OBSERVER.username);

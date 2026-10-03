@@ -168,6 +168,13 @@ static void test_ids_status_and_persistence(const char *db)
     CHECK_EQ(put(s, "/p/x", "y", CFS_ANY_VERSION, &v), CFS_OK);
     CHECK_EQ(cfs_store_status(s, &version, sum3, &entries, &bytes), CFS_OK);
     CHECK(memcmp(sum1, sum3, CFS_CHECKSUM_LEN) != 0); /* any change of content changes the checksum */
+
+    /* A counter received from a peer at its very end: refused, not wrapped around (found by the fuzzer). */
+    CHECK_EQ(cfs_store_status(s, &version, sum3, &entries, &bytes), CFS_OK);
+    CHECK_EQ(cfs_store_replace_begin(s), CFS_OK);
+    CHECK_EQ(cfs_store_replace_commit(s, version + 1, INT64_MAX, 0), CFS_OK);
+    CHECK_EQ(cfs_store_next_id(s, &id1), CFS_INTERNAL);
+    CHECK_EQ(cfs_store_next_id(s, &id1), CFS_INTERNAL);
     cfs_store_close(s);
 }
 

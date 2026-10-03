@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Boxes, Download, Info, Plus, Trash2 } from "lucide-react";
-import { createK8sCluster, deleteK8sCluster, fetchK8sClusters, fetchKubeconfig, fetchNetworks } from "../../api/client";
+import { createK8sCluster, deleteK8sCluster, fetchHostLimits, fetchK8sClusters, fetchKubeconfig, fetchNetworks } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -120,6 +120,9 @@ function CreateClusterDialog({ onClose, onStarted }) {
     fetchNetworks().then((l) => setFreshNetworks(Array.isArray(l) ? l : [])).catch((e) => setNetworksError(errorMessage(e)));
   }, []);
   useEffect(() => { loadNetworks(); }, [loadNetworks]);
+  // A node's vCPUs stop at this host's CPU threads, as for any VM (the server refuses more).
+  const [vcpuMax, setVcpuMax] = useState(undefined);
+  useEffect(() => { fetchHostLimits().then((l) => setVcpuMax(l?.vcpu?.max)).catch(() => {}); }, []);
   const networks = (freshNetworks ?? storeNetworks).filter((n) => n.actif);
   const pickNetwork = (list) => list.find((n) => n.type === "nat")?.nom || list[0]?.nom || "";
   const [form, setForm] = useState({ nom: "", workers: 2, vcpu: 2, memoire_mo: 2048, disque_go: 20, reseau: pickNetwork(networks) });
@@ -162,7 +165,7 @@ function CreateClusterDialog({ onClose, onStarted }) {
           <input className="nx-input" type="number" min={1} max={MAX_WORKERS} value={form.workers} onChange={set("workers")} disabled={busy} />
         </label>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))", gap: "var(--space-3)" }}>
-          <label className="nx-dialog-field">{t("k8s.vcpu")}<input className="nx-input" type="number" min={1} value={form.vcpu} onChange={set("vcpu")} disabled={busy} /></label>
+          <label className="nx-dialog-field">{t("k8s.vcpu")}<input className="nx-input" type="number" min={1} max={vcpuMax} value={form.vcpu} onChange={set("vcpu")} disabled={busy} /></label>
           <label className="nx-dialog-field">{t("k8s.memory")}<input className="nx-input" type="number" min={1024} step={256} value={form.memoire_mo} onChange={set("memoire_mo")} disabled={busy} /></label>
           <label className="nx-dialog-field">{t("k8s.disk")}<input className="nx-input" type="number" min={10} value={form.disque_go} onChange={set("disque_go")} disabled={busy} /></label>
         </div>

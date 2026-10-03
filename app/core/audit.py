@@ -145,5 +145,8 @@ def log_action(
 
     if action in NOTIFY_EVENTS:
         title = f"{NOTIFY_EVENTS[action]} — {resource}"
-        message = error_message or f"{action} on '{resource}': {result}"
+        # Read by a person (a chat channel, a mailbox): what happened, then the detail. It was the raw action key
+        # and the stored result ("create_vm on 'web': succes").
+        outcome = "succeeded" if result == "succes" else "failed"
+        message = f"{NOTIFY_EVENTS[action]} of '{resource}' {outcome}" + (f": {error_message}" if error_message else "")
         threading.Thread(target=notify, args=(action, title, message, result), daemon=True).start()

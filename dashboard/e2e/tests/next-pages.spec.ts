@@ -129,7 +129,7 @@ test.describe("Journal, Backups, Exports and the administrator gate", () => {
   test("the journal sends every filter, including the end date, and can be exported", async ({ page }) => {
     await nextLogin(page, "journal");
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { level: 1, name: "Audit log" })).toBeVisible();
+    await expect(main.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
     await expect(main.getByRole("table")).toBeVisible({ timeout: 20_000 });
     const asked = page.waitForRequest((r) => r.url().includes("/audit?") && r.url().includes("jusqu_a="));
     await main.getByLabel("Show entries until").fill("2099-01-01T00:00");

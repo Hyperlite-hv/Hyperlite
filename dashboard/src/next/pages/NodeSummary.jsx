@@ -95,7 +95,7 @@ export default function NodeSummary({ resource: node }) {
             <dt>{t("nn.kernel")}</dt><dd className="nx-mono">{node.noyau || na}</dd>
             <dt>{t("nn.os")}</dt><dd>{node.os || na}</dd>
             <dt>{t("dock.alerts")}</dt><dd>{alerts.length === 0 ? <span className="nx-st nx-tone-success"><span className="nx-dot" data-tone="success" aria-hidden="true" />{t("ns.noAlert")}</span>
-              : <button type="button" className="nx-lnk nx-tone-warning" onClick={() => window.dispatchEvent(new CustomEvent("nx:dock", { detail: "alerts" }))}>{t("ns.alertsN", { n: alerts.length })}</button>}</dd>
+              : <button type="button" className="nx-lnk nx-tone-warning" onClick={() => navigateTo("datacenter", null, "summary")}>{t("ns.alertsN", { n: alerts.length })}</button>}</dd>
           </dl>
         </Card>
       </div>

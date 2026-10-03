@@ -32,7 +32,7 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
   test("user group: cancel keeps it, confirm removes it (UI and backend)", async ({ page, request }) => {
     const name = `${PREFIX}group-${stamp}`;
     await uiLogin(page);
-    await goTo(page, "Users and roles");
+    await goTo(page, "Users and access");
     await page.getByRole("main").getByRole("tab", { name: /^Groups/ }).click();
     await page.getByRole("main").getByRole("button", { name: "Create a group", exact: true }).click();
     const form = page.getByRole("dialog", { name: "Create a group" });

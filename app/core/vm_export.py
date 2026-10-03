@@ -65,7 +65,7 @@ def run_export(vm_name, username="system"):
         disk0 = all_disks[:1]
 
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        task_id = create_task("export_vm", vm_name, node=conn.getHostname(), username=username)
+        task_id = create_task("export_vm", vm_name, node=None, username=username)
         work_dir = safe_child(EXPORTS_DIR, f".tmp-{vm_name}-{stamp}")
         work_dir.mkdir(parents=True, exist_ok=True)
 

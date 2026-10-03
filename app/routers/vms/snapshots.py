@@ -154,9 +154,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             # different.
             claim = vm_locks.claim_or_409(name, "a snapshot")
             try:
-                task_id = create_task(
-                    "create_snapshot", payload.name, node=conn.getHostname(), username=user["username"]
-                )
+                task_id = create_task("create_snapshot", payload.name, node=None, username=user["username"])
                 threading.Thread(
                     target=vm_locks.released_after(claim, _create_zvol_snapshot_job),
                     args=(task_id, user["username"], zvol_specs, payload.name),
@@ -193,7 +191,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
         # other option is offered.
         claim = vm_locks.claim_or_409(name, "a snapshot")
         try:
-            task_id = create_task("create_snapshot", payload.name, node=conn.getHostname(), username=user["username"])
+            task_id = create_task("create_snapshot", payload.name, node=None, username=user["username"])
             threading.Thread(
                 target=vm_locks.released_after(claim, _create_snapshot_job),
                 args=(task_id, user["username"], name, payload.name, snap_xml),
@@ -275,9 +273,7 @@ def restore_snapshot(
                 )
             claim = vm_locks.claim_or_409(name, "a snapshot")
             try:
-                task_id = create_task(
-                    "restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"]
-                )
+                task_id = create_task("restore_snapshot", snapshot_name, node=None, username=user["username"])
                 threading.Thread(
                     target=vm_locks.released_after(claim, _restore_zvol_snapshot_job),
                     args=(task_id, user["username"], zvol_specs, snapshot_name),
@@ -304,7 +300,7 @@ def restore_snapshot(
 
         claim = vm_locks.claim_or_409(name, "a snapshot")
         try:
-            task_id = create_task("restore_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
+            task_id = create_task("restore_snapshot", snapshot_name, node=None, username=user["username"])
             threading.Thread(
                 target=vm_locks.released_after(claim, _restore_snapshot_job),
                 args=(task_id, user["username"], name, snapshot_name),
@@ -336,7 +332,7 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
     except BaseException:
         claim.release()
         raise
-    task_id = create_task("delete_snapshot", snapshot_name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("delete_snapshot", snapshot_name, node=None, username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)

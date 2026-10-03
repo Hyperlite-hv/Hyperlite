@@ -1,12 +1,12 @@
 import { expect, goTo, test, uiLogin } from "../support/fixtures";
 
-// Administration › Replicated configuration: shadow mode of hyperlite-cfs. The test backend runs without the daemon and
+// Cluster › Cluster: shadow mode of hyperlite-cfs. The test backend runs without the daemon and
 // with shadow mode off, so the first test reads the real answer; the second plays a node where it is on, with
 // differences, through the routes of /cfs/shadow (app/repositories/cfs/shadow.py is covered by
 // tests/test_cfs_shadow.py, against the real daemon too).
 test("with shadow mode off and no daemon installed, the page says so, in English and in French", async ({ page }) => {
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Shadow mode is off" })).toBeVisible();
   // The test backend runs from a checkout: the package's /usr/local/sbin/hyperlite-cfs is not there.
@@ -17,7 +17,7 @@ test("with shadow mode off and no daemon installed, the page says so, in English
   await page.evaluate(() => localStorage.setItem("hyperlite-next-lang", "fr"));
   await page.reload();
   await expect(main.getByRole("heading", { name: "Le mode fantôme est désactivé" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("navigation", { name: /./ }).getByRole("button", { name: "Configuration répliquée" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: /./ }).getByRole("button", { name: "Cluster", exact: true })).toBeVisible();
 });
 
 const PATHS = { manquants: ["/db/object_meta/vm/local/e2e-web"], en_trop: ["/db/object_meta/vm/local/e2e-gone"], differents: [] };
@@ -42,7 +42,7 @@ test("differences are listed, and copying the database again after a confirmatio
   await page.route(/\/cfs\/shadow$/, (route) => route.fulfill({ json: report(gaps) }));
   await page.route(/\/cfs\/shadow\/seed$/, (route) => { seeded += 1; gaps = 0; return route.fulfill({ json: { ecrits: 1, supprimes: 1 } }); });
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
 
   const strip = main.getByRole("group", { name: "State of shadow mode" });
@@ -74,7 +74,7 @@ test("a daemon that does not answer is shown, and the copy is not offered", asyn
     joignable: false, erreur: "hyperlite-cfs is not running: nothing answers on its socket",
   } }));
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
   await expect(main.getByRole("alert")).toContainText("hyperlite-cfs is not running");
   await expect(main.getByRole("group", { name: "State of shadow mode" })).toContainText("Not reachable");
@@ -90,7 +90,7 @@ test("the button turns shadow mode on, and off after a confirmation", async ({ p
   await page.route(/\/cfs\/shadow\/activer$/, (route) => { calls.push("on"); on = true; return route.fulfill({ json: { ecrits: 3, supprimes: 0 } }); });
   await page.route(/\/cfs\/shadow\/desactiver$/, (route) => { calls.push("off"); on = false; return route.fulfill({ json: { actif: false } }); });
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
 
   await main.getByRole("button", { name: "Turn shadow mode on" }).click();
@@ -114,7 +114,7 @@ test("in a cluster, changes received from other nodes are counted and a held-bac
     reception: { appliques: 7, derniere_application: "2026-10-02T12:00:00+00:00", probleme: problem },
   } }));
   await uiLogin(page);
-  await goTo(page, "Replicated configuration");
+  await goTo(page, "Cluster");
   const main = page.getByRole("main");
   const strip = main.getByRole("group", { name: "State of shadow mode" });
   await expect(strip).toContainText("Cluster mode");

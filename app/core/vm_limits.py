@@ -1,8 +1,9 @@
 """Per-VM resource bounds.
 
-Like Proxmox and vSphere, Hyperlite imposes no ceiling of its own on a VM's vCPU, memory or disks: the
-administrator decides, and libvirt/QEMU refuse what they cannot do with their real error. What remains:
+Like Proxmox and vSphere, Hyperlite imposes no ceiling of its own on a VM's memory or disks: the administrator
+decides, and libvirt/QEMU refuse what they cannot do with their real error. What remains:
   - technical floors (1 vCPU, 256 MiB, 1 GB) and absurd-value ceilings that stop a typo, not a choice;
+  - a VM's vCPUs: at most this host's CPU threads, as on Proxmox (overcommitment across VMs stays allowed);
   - optional caps an administrator sets on purpose in the environment (HYPERLITE_VM_MAX_*), for example on a
     small test machine.
 Each bound reports its `source` so the UI can explain it. The host's physical resources are returned too, only
@@ -68,6 +69,18 @@ def compute_limits(force=False):
                 "source": "technique",
                 "detail": "no limit set by Hyperlite (technical ceiling only)",
             }
+    # A VM never gets more vCPUs than this host has CPU threads, as on Proxmox: they would only queue for the same
+    # threads (and a guest spinning on a lock held by a descheduled vCPU stalls). The vCPUs of all the VMs together
+    # may still exceed it: that is overcommitment, a sizing choice. A cluster of 2 x 64 vCPUs was accepted on a host
+    # of 12 threads until the audit before 1.0.0.
+    threads = os.cpu_count()
+    if threads and value["vcpu"]["max"] > threads:
+        value["vcpu"] = {
+            "min": MINIMUMS["vcpu"],
+            "max": threads,
+            "source": "materiel",
+            "detail": f"this host has {threads} CPU threads",
+        }
     disk_free = _detect_disk_free_gb()
     value["physique"] = {
         "vcpu": os.cpu_count(),
@@ -93,10 +106,10 @@ def validate_vm_resources(vcpu=None, memory_mb=None, disk_sizes=None):
             errors.append(f"{label}: {value}{unit} is out of limits ({lim['min']}-{lim['max']}{unit}, {origine})")
 
     check("vCPU", vcpu, limits["vcpu"], "")
-    check("Memory", memory_mb, limits["memoire_mo"], " Mo")
+    check("Memory", memory_mb, limits["memoire_mo"], " MB")
     if disk_sizes is not None:
         if len(disk_sizes) > limits["disques"]["max"]:
             errors.append(f"Disks: {len(disk_sizes)} requested, maximum {limits['disques']['max']}")
         for i, size in enumerate(disk_sizes):
-            check(f"Disk {i + 1}", size, limits["disque_go"], " Go")
+            check(f"Disk {i + 1}", size, limits["disque_go"], " GB")
     return errors

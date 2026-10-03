@@ -23,10 +23,10 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
 // Datacenter-level pages (historical ?tab= ids) and the title of their page.
 // "templates" is the historical id of the Library page (ISO images and templates).
 const DATACENTER_PAGES: Record<string, string> = {
-  summary: "Home", activity: "Tasks and logs", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
-  backups: "Backups", exports: "Exports", permissions: "Users and roles", reseau: "Network", automation: "Automation", containers: "Containers",
-  nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Authentication (SSO)",
-  journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots", metrics: "Metrics",
+  summary: "Home", activity: "Activity", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
+  backups: "Backups", exports: "Exports", permissions: "Users and access", reseau: "Network", automation: "Automation", containers: "Containers",
+  nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Users and access",
+  journal: "Activity", vms: "Virtual machines", snapshots: "Snapshots", metrics: "Metrics",
 };
 
 test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
@@ -62,9 +62,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
   test("the sidebar reaches every Datacenter page and marks the current one", async ({ page }) => {
     await nextLogin(page);
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    // The sidebar groups are always open (Infrastructure, Cluster, Protection, Library, Operations, Administration).
-    for (const g of ["Infrastructure", "Cluster", "Protection", "Library", "Operations", "Administration"]) await expect(nav.getByRole("group", { name: g, exact: true })).toBeVisible();
-    for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users and roles", "permissions", "Users and roles"], ["Authentication (SSO)", "sso", "Authentication (SSO)"], ["Audit log", "journal", "Audit log"], ["Home", "summary", "Home"]] as const) {
+    // The sidebar groups are always open, grouped by what an engineer is doing.
+    for (const g of ["Resources", "Infrastructure", "Cluster", "Protection", "Monitoring", "Administration"]) await expect(nav.getByRole("group", { name: g, exact: true })).toBeVisible();
+    for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users and access", "permissions", "Users and access"], ["Activity", "activity", "Activity"], ["Home", "summary", "Home"]] as const) {
       await nav.getByRole("button", { name: item }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
       if (tab !== "summary") await expect(page).toHaveURL(new RegExp(`tab=${tab}`));
@@ -199,7 +199,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await nextLogin(page);
     await page.goto("/datacenter?tab=activity");
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { name: /^Tasks/ })).toBeVisible();
+    // Tasks and the audit log share the Activity entry, Tasks being its first tab.
+    await expect(main.getByRole("heading", { name: /^Activity/ })).toBeVisible();
+    await expect(main.getByRole("tab", { name: "Tasks", selected: true })).toBeVisible();
     const filters = main.getByRole("group", { name: "Task filters" });
     await main.getByRole("group", { name: "Status" }).getByRole("button", { name: /^Failed/ }).click();
     await filters.getByLabel("Period").selectOption("all");
@@ -243,30 +245,15 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
-  test("the activity panel is closed by default, opens from the top bar and closes with Escape", async ({ page }) => {
+  test("the top bar has no Activity button: alerts are on Home, running tasks on the Tasks page", async ({ page }) => {
     await nextLogin(page);
-    const panel = page.getByRole("complementary", { name: "Activity" });
-    await expect(panel).toBeHidden();
-    // R2: one Activity button in the top bar; the sidebar has no Alerts entry any more.
+    const banner = page.getByRole("banner");
+    await expect(banner.getByRole("button", { name: "Create" })).toBeVisible();
+    await expect(banner.getByRole("button", { name: /^Activity/ })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Activity" })).toHaveCount(0);
+    // The sidebar has no Alerts entry either: the open alerts are in Home's watch list.
     await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /^Alerts/ })).toHaveCount(0);
-    await page.getByRole("banner").getByRole("button", { name: /^Activity/ }).click();
-    await expect(panel).toBeVisible();
-    await expect(panel.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
-    await page.keyboard.press("Escape");
-    await expect(panel).toBeHidden();
-    // a second click on the same button closes the panel
-    const activity = page.getByRole("banner").getByRole("button", { name: /^Activity/ });
-    await activity.click();
-    await expect(panel).toBeVisible();
-    await expect(activity).toHaveAttribute("aria-expanded", "true");
-    await activity.click();
-    await expect(panel).toBeHidden();
-    await expect(activity).toHaveAttribute("aria-expanded", "false");
-    await activity.click();
-    await panel.getByRole("tab", { name: /^Running tasks/ }).click();
-    await expect(panel.getByText("No task running.")).toBeVisible();
-    await panel.getByRole("button", { name: "Close activity panel" }).click();
-    await expect(panel).toBeHidden();
+    await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /^To watch/ })).toBeVisible();
   });
 
   test("on a tablet the sidebar opens as a drawer and closes after a navigation", async ({ page }) => {

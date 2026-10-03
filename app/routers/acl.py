@@ -5,6 +5,7 @@ from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
 from app.core.security import require_role
+from app.services import account_service
 
 router = APIRouter(prefix="/acl", tags=["acl"])
 
@@ -107,6 +108,13 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=422, detail="resource_type must be 'vm', 'pool' or 'container'")
     if not perm.role_exists(payload.role):
         raise HTTPException(status_code=422, detail=f"Unknown role: {payload.role}")
+    # A right given to a name nobody has yet would go to whoever is created under it later.
+    if payload.subject_type == "user" and not account_service.get(payload.subject_id):
+        raise HTTPException(status_code=404, detail=f"User '{payload.subject_id}' not found")
+    if payload.subject_type == "group" and payload.subject_id not in {str(g["id"]) for g in perm.list_groups()}:
+        raise HTTPException(status_code=404, detail=f"Group {payload.subject_id} not found")
+    if payload.resource_type == "pool" and payload.resource_id not in {str(p["id"]) for p in perm.list_pools()}:
+        raise HTTPException(status_code=404, detail=f"Pool {payload.resource_id} not found")
     acl_id = perm.create_acl(
         payload.subject_type,
         payload.subject_id,

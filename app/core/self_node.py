@@ -18,6 +18,7 @@ import threading
 
 LOCAL = "local"
 SETTING = "node_name"
+TASKS_SETTING = "tasks_node_names"  # the one-time rewrite of the tasks recorded under a host name (migrate)
 # The names nodes are registered under (app/routers/nodes.py), lowercase.
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,62}$")
 
@@ -109,5 +110,13 @@ def migrate(db):
         if LOCAL in nodes:
             fixed = sorted({own if n == LOCAL else n for n in nodes})
             db.execute("UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (json.dumps(fixed), nom))
+    # The tasks are this node's own history. Before the node had a name of its own they recorded the host name
+    # libvirt gave (it changes with the host: "hyperlite.home", then "antho"), "local" or nothing, so the node's
+    # pages showed none of them. Once: every task that names no registered node is this node's.
+    if not db.execute("SELECT 1 FROM app_settings WHERE cle = ?", (TASKS_SETTING,)).fetchone():
+        known = [r[0] for r in db.execute("SELECT name FROM nodes")] + [own]
+        marks = ",".join("?" * len(known))
+        db.execute(f"UPDATE tasks SET node = ? WHERE node IS NULL OR node NOT IN ({marks})", (own, *known))  # noqa: S608
+        db.execute("INSERT INTO app_settings (cle, valeur) VALUES (?, '1')", (TASKS_SETTING,))
     with _lock:
         _name = None if forced else own

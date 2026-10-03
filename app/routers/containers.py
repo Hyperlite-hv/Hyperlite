@@ -342,7 +342,7 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
             errors.append("The password must contain at least 4 characters")
 
     conn = open_lxc_conn()
-    task_id = create_task("create_container", payload.name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("create_container", payload.name, node=None, username=user["username"])
     try:
         try:
             conn.lookupByName(payload.name)
@@ -462,12 +462,22 @@ def _create_app_container(conn, payload, user, task_id, storage=None):
     return _summary(domain)
 
 
+def _lookup(conn, name):
+    try:
+        return conn.lookupByName(name)
+    except libvirt.libvirtError:
+        raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
+
+
 @router.post("/{name}/start")
 def start_container(name: str, user: dict = Depends(require_container_privilege("container.power"))):
     conn = open_lxc_conn()
     try:
+        domain = _lookup(conn, name)
+        # Answered before libvirt does: its own refusal surfaced as a 500, in the host's language.
+        if domain.isActive():
+            raise HTTPException(status_code=409, detail=f"Container '{name}' is already running")
         try:
-            domain = conn.lookupByName(name)
             domain.create()
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
@@ -515,8 +525,10 @@ def stop_container(
 ):
     conn = open_lxc_conn()
     try:
+        domain = _lookup(conn, name)
+        if not domain.isActive():
+            raise HTTPException(status_code=409, detail=f"Container '{name}' is already stopped")
         try:
-            domain = conn.lookupByName(name)
             run_id = domain.ID()
             if force:
                 domain.destroy()
@@ -657,7 +669,7 @@ class CloneContainerRequest(BaseModel):
 def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depends(require_role("admin"))):
     maintenance.refuse_if_in_maintenance("local", "Cloning")
     conn = open_lxc_conn()
-    task_id = create_task("clone_container", name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("clone_container", name, node=None, username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)

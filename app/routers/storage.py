@@ -44,6 +44,52 @@ NFS_HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.:_-]{0,253})$")
 # Absolute path (server-side NFS export, or the local directory of a "dir"
 # pool): no spaces or special XML/shell characters.
 POOL_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.-]{0,255}$")
+# Every file in a "dir" pool's directory is listed as a volume, and a volume can be deleted from the dashboard: a
+# pool on /etc (accepted until the audit before 1.0.0) offered /etc/passwd for deletion. Refused, with everything
+# below them.
+SYSTEM_TREES = (
+    "/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32", "/proc", "/root", "/run", "/sbin", "/sys",
+    "/usr", "/var/lib/hyperlite", "/var/lib/apt", "/var/lib/dpkg", "/var/log",
+    "/tmp",  # noqa: S108 - emptied at boot (a tmpfs on many hosts): the disks would vanish
+)  # fmt: skip
+# Refused as such, a directory below them is fine (/home/vms, /srv/pool, /mnt/disk2).
+SYSTEM_DIRS = ("/", "/home", "/media", "/mnt", "/opt", "/srv", "/var", "/var/lib", "/var/lib/libvirt")
+
+
+def _normalize(path):
+    return "/" + "/".join(p for p in path.split("/") if p)
+
+
+def _dir_pool_path_error(path):
+    """Why a "dir" pool may not use this directory, or None."""
+    parts = path.split("/")
+    if ".." in parts or "." in parts:
+        return "Invalid pool path: '.' and '..' are not allowed"
+    path = _normalize(path)
+    if path in SYSTEM_DIRS or any(path == t or path.startswith(t + "/") for t in SYSTEM_TREES):
+        return f"{path} is a system directory: its files would be listed as volumes, and could be deleted"
+    return None
+
+
+def _inside(a, b):
+    return a == b or a.startswith(b.rstrip("/") + "/")
+
+
+def _pool_on_path(node, path):
+    """The pool whose directory is this one, or contains it, or lies inside it (libvirt only catches the first)."""
+    conn = open_conn(node)
+    try:
+        for pool in conn.listAllStoragePools(0):
+            other = _pool_path(pool)
+            if (
+                other
+                and other.startswith("/")
+                and (_inside(path, _normalize(other)) or _inside(_normalize(other), path))
+            ):
+                return pool.name()
+        return None
+    finally:
+        conn.close()
 
 
 def _pool_type(pool):
@@ -295,6 +341,16 @@ def _create_single(payload, node, user):
             raise HTTPException(
                 status_code=422,
                 detail="Invalid pool path (must be an absolute path, without spaces or special characters)",
+            )
+        path_error = _dir_pool_path_error(target_path)
+        if path_error:
+            log_action(user["username"], "create_storage_pool", payload.name, "echec", path_error)
+            raise HTTPException(status_code=422, detail=path_error)
+        target_path = _normalize(target_path)
+        other = _pool_on_path(node, target_path)
+        if other:
+            raise HTTPException(
+                status_code=409, detail=f"The pool '{other}' already uses {target_path}: choose another directory"
             )
     elif payload.type == "iscsi":
         if not payload.iscsi_host or not payload.iscsi_target:

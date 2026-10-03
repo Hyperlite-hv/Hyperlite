@@ -35,7 +35,15 @@ HOST=$(hostname)
 # already shown BEFORE authentication on the physical console: anyone with
 # physical access to the screen has already crossed the same trust barrier as
 # root access, so writing it here exposes it no further.
-ROOT_PASS=$(cat /root/.hyperlite-initial-password 2>/dev/null || echo "(see /root/.hyperlite-initial-password)")
+# Without the file, the administrator chose the password during a custom installation (installer/postinstall.sh
+# removes the random one then), or removed the file after changing it.
+if [ -f /root/.hyperlite-initial-password ]; then
+    ROOT_PASS="$(cat /root/.hyperlite-initial-password)"
+    PASS_NOTE="(initial password, change it after signing in)"
+else
+    ROOT_PASS="(the one chosen at installation)"
+    PASS_NOTE=""
+fi
 
 BANNER="
 ================================================================
@@ -44,7 +52,7 @@ BANNER="
   Web interface  : https://${IP}:8000
   Account        : admin
   Password       : ${ROOT_PASS}
-                   (initial password, change it after signing in)
+                   ${PASS_NOTE}
 
   Host           : ${HOST}
 ================================================================

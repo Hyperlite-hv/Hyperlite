@@ -197,9 +197,12 @@ test.describe("Account security", () => {
 });
 
 test.describe("Settings persist and secrets are never returned", () => {
-  test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM", async ({ page, request }) => {
+  test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM but the host's threads", async ({ page, request }) => {
     const limits = (await (await request.get("/host/limits", { headers: auth() })).json()) as Record<string, { source?: string; max?: number }>;
-    for (const key of ["vcpu", "memoire_mo", "disque_go", "disques"]) expect(limits[key].source, key).toBe("technique");
+    for (const key of ["memoire_mo", "disque_go", "disques"]) expect(limits[key].source, key).toBe("technique");
+    // A VM's vCPUs stop at the host's CPU threads, as on Proxmox.
+    expect(limits.vcpu.source).toBe("materiel");
+    expect(limits.vcpu.max).toBeGreaterThanOrEqual(1);
     await uiLogin(page);
     await goTo(page, "Compatibility");
     await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
@@ -211,7 +214,8 @@ test.describe("Journal", () => {
   test("actions appear in the journal and the result filter works", async ({ page, request }) => {
     await request.post("/auth/login", { form: { username: "admin", password: "definitely-wrong" } });
     await uiLogin(page);
-    await goTo(page, "Audit log");
+    await goTo(page, "Activity");
+    await page.getByRole("main").getByRole("tab", { name: "Audit log" }).click();
     const table = page.getByRole("main").getByRole("table");
     await expect(table).toBeVisible({ timeout: 20_000 });
     await expect(table.getByText(/^Success$/).first()).toBeVisible();
