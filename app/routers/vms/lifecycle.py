@@ -24,6 +24,7 @@ from app.core.vm_meta import (
     touch_vm_activity,
 )
 from app.routers.vms._shared import _domain_summary, router
+from app.services import backup_service
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,8 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     object_meta.delete("vm", name, node)
     if not node:
         cloudinit_edit.delete_state(name)
+        # Its backups are kept (they may be all that is left of it), its schedule is not: it failed at every run.
+        backup_service.delete_schedule(name)
 
 
 @router.delete("/{name}")
