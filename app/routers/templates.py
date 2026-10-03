@@ -1,6 +1,8 @@
+import logging
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,7 +13,9 @@ from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
-from app.core.vm_builder import IMAGES_DIR, validate_name
+from app.core.vm_builder import IMAGES_DIR, create_cloudinit_reseed_iso, validate_name
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -154,10 +158,30 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
                     src.set("file", str(new_disk_path))
 
         devices_el = root.find(".//devices")
+        cloud_init = False
         if devices_el is not None:
             for disk in list(devices_el.findall("disk")):
                 if disk.get("device") == "cdrom":
+                    src = disk.find("source")
+                    cloud_init |= src is not None and (src.get("file") or "").endswith("-cloudinit.iso")
                     devices_el.remove(disk)
+        # A template made from a VM set up by cloud-init: the copy gets a cloud-init drive with a new instance id, as
+        # a clone does. Without it, it booted with the network configuration cloud-init had written for the
+        # template's MAC address (netplan's `match: macaddress`), so without any address, and with its host name and
+        # SSH host keys.
+        reseed_iso = None
+        if cloud_init and devices_el is not None:
+            try:
+                reseed_iso = create_cloudinit_reseed_iso(payload.new_name)
+            except (OSError, subprocess.CalledProcessError):
+                logger.warning("No cloud-init drive for %s deployed from %s", payload.new_name, template_name)
+            if reseed_iso:
+                cdrom_el = ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"})
+                ET.SubElement(cdrom_el, "driver", {"name": "qemu", "type": "raw"})
+                ET.SubElement(cdrom_el, "source", {"file": str(reseed_iso)})
+                dev, bus = firmware.cdrom_target("hdc", firmware.of_domain(root))
+                ET.SubElement(cdrom_el, "target", {"dev": dev, "bus": bus})
+                ET.SubElement(cdrom_el, "readonly")
 
         for iface in root.findall(".//devices/interface"):
             mac = iface.find("mac")
@@ -174,10 +198,12 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
             new_domain = conn.defineXML(new_xml)
         except libvirt.libvirtError as exc:
             new_disk_path.unlink(missing_ok=True)
+            if reseed_iso:
+                Path(reseed_iso).unlink(missing_ok=True)
             log_action(user["username"], "deploy_template", template_name, "echec", str(exc))
             raise HTTPException(status_code=500, detail=f"Domain definition failed: {exc}") from exc
 
-        refresh_pools_for_paths(conn, [new_disk_path])
+        refresh_pools_for_paths(conn, [new_disk_path, *([reseed_iso] if reseed_iso else [])])
         log_action(user["username"], "deploy_template", template_name, "succes", f"-> {payload.new_name}")
         return {"template": template_name, "vm": new_domain.name(), "etat": "arretee"}
     finally:
