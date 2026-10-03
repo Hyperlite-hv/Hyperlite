@@ -4,7 +4,9 @@
 #   OUT/wheels/    the Python packages of requirements.txt, as wheels built for the target's Python
 #                  (libvirt-python included, so nothing is compiled from PyPI at installation);
 #   OUT/install.list  the packages postinstall.sh installs: installer/packages.list plus the "standard" and
-#                  "ssh-server" tasks the Debian installer used to select.
+#                  "ssh-server" tasks the Debian installer used to select;
+#   OUT/hardware.list the packages postinstall.sh installs depending on the machine (the processor's microcode,
+#                  the guest agent in a VM), as the Debian installer does when it has a network.
 #
 # Run it as root in a Debian of the same release as the ISO (installer/build-iso.sh, DEBIAN_VERSION): the packages
 # and the wheels must match what the installer puts on the disk. scripts/ci-publish.sh runs it in a debian container.
@@ -32,6 +34,10 @@ rm -rf "$OUT"
 mkdir -p "$OUT/debs/partial" "$OUT/wheels"
 
 log "tools"
+# The processors' microcode is in non-free-firmware, which a debian container does not enable.
+if [ -f /etc/apt/sources.list.d/debian.sources ]; then
+    sed -i 's/^Components: main$/Components: main contrib non-free-firmware/' /etc/apt/sources.list.d/debian.sources
+fi
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends apt-utils tasksel python3 python3-venv python3-dev python3-pip \
     pkg-config gcc libvirt-dev > /dev/null
@@ -46,6 +52,7 @@ package_deps=$(sed -n 's/^\(Depends\|Recommends\): //p' "$SCRIPT_DIR/deb/control
     tasksel --task-packages standard
     tasksel --task-packages ssh-server
 } | sort -u > "$OUT/install.list"
+printf '%s\n' intel-microcode amd64-microcode qemu-guest-agent > "$OUT/hardware.list"
 # The packages of priority required and important are installed from the ISO's base system; their latest versions
 # (security updates included) are carried too, so the new machine is as up to date as the bundle.
 base=$(awk '/^Package:/{p=$2} /^Priority: (required|important)$/{print p}' /var/lib/apt/lists/*_Packages | sort -u)
@@ -61,13 +68,16 @@ apt-get install -y -qq --download-only \
     -o Dir::Cache::archives="$OUT/debs" \
     -o APT::Install-Recommends=true \
     -o APT::Sandbox::User=root \
-    $(cat "$OUT/install.list") $package_deps $base > /dev/null
+    $(cat "$OUT/install.list" "$OUT/hardware.list") $package_deps $base > /dev/null
 rm -rf "$empty_status" "$OUT/debs/partial" "$OUT/debs/lock"
 
 count=$(find "$OUT/debs" -name "*.deb" | wc -l)
 [ "$count" -gt 0 ] || fail "no package was downloaded"
 log "APT index ($count packages)"
-( cd "$OUT/debs" && apt-ftparchive packages . > Packages && gzip -9k Packages )
+# Not named Packages: the Debian installer scans the CD for Packages files and would add this unsigned directory
+# as a source of its own, which breaks its CD source (console-setup and the microcode then fail to install).
+# postinstall.sh copies it to Packages in its copy of the bundle.
+( cd "$OUT/debs" && apt-ftparchive packages . > packages.index )
 
 log "Python wheels"
 venv=$(mktemp -d)

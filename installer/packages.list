@@ -4,7 +4,10 @@
 # installer/build-offline-bundle.sh puts them, with every dependency, on the ISO, and installer/postinstall.sh
 # installs them from there: the installation needs no network, as with Proxmox.
 
-# Access and administration
+# Access and administration. The console keyboard: the installer cannot install it from the CD without a
+# network mirror, so it comes from here (hyperlite-questions.sh writes the layout chosen in the installer).
+console-setup
+keyboard-configuration
 openssh-server
 sudo
 curl

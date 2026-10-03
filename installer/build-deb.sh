@@ -33,7 +33,7 @@ log "copying the files tracked by Git"
     case "$f" in
         tests/*|.github/*|requirements-dev.txt|CLAUDE.md|AGENTS.md|.gitignore|pyproject.toml) continue ;;
         cfs/tests/*|installer/deb/*|installer/preseed.cfg|installer/partman-auto.sh|installer/postinstall.sh) continue ;;
-        installer/packages.list) continue ;;
+        installer/packages.list|installer/preseed-*.cfg|installer/hyperlite-questions.sh|installer/hyperlite.templates) continue ;;
         docs/*|lab/*|dashboard/*|cli/*) continue ;;
         README.md|CHANGELOG.md|CONTRIBUTING.md|CODE_OF_CONDUCT.md|SECURITY.md|*/README.md) continue ;;
         cfs/fuzz/*) continue ;;
