@@ -327,8 +327,33 @@ def _write_vm_config(domain, dest_dir):
         # A UEFI system disk does not boot with a BIOS: a VM restored to a new location keeps its firmware kind,
         # and gets its NVRAM and TPM state back from the backup (see backup_integrity.py).
         "firmware": firmware.of_domain(root),
+        # Created with Hyperlite's cloud-init drive: a copy restored under a new name gets a new one (see
+        # _reseed_iso).
+        "cloud_init": any(
+            (src.get("file") or "").endswith("-cloudinit.iso") for src in root.findall("./devices/disk/source")
+        ),
     }
     (dest_dir / "vm-config.json").write_text(json.dumps(config))
+
+
+def _reseed_iso(config, source_vm, new_name):
+    """The cloud-init drive of a VM restored under a new name, or None. Without it, the copy boots with the network
+    configuration cloud-init wrote for the original's MAC address (netplan's `match: macaddress`), so it never gets
+    an address, and with the original's host name and SSH host keys. A new instance id makes cloud-init configure
+    it again, as for a clone (create_cloudinit_reseed_iso). Backups made before vm-config.json recorded it: guessed
+    as for a clone, from the original's drive."""
+    from app.core.vm_builder import create_cloudinit_reseed_iso
+
+    used = config.get("cloud_init")
+    if used is None:
+        used = safe_child(IMAGES_DIR, f"{source_vm}-cloudinit.iso").exists()
+    if not used:
+        return None
+    try:
+        return create_cloudinit_reseed_iso(new_name)
+    except (OSError, subprocess.CalledProcessError):
+        logger.warning("No cloud-init drive for the restored VM %s", new_name, exc_info=True)
+        return None
 
 
 def _read_vm_config(src_dir):
@@ -625,12 +650,15 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
                 new_disk_paths.append(dest)
                 _convert(src, dest, "qcow2", task_id, 20 + i * span, span)
 
+            seed = _reseed_iso(config, row["vm_name"], new_name)
+            if seed:
+                new_disk_paths.append(seed)
             xml = build_domain_xml(
                 new_name,
                 config["vcpu"],
                 config["memory_mb"],
-                new_disk_paths,
-                None,
+                new_disk_paths[: len(images)],
+                seed,
                 config["network"],
                 firmware=config["firmware"],
             )

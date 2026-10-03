@@ -226,3 +226,42 @@ def test_the_domain_xml_formats_are_read_per_target():
     dom = FakeDomain([("vda", "/x", "qcow2"), ("sdb", "/y", "raw")])
     assert backups._disk_formats(dom) == {"vda": "qcow2", "sdb": "raw"}
     assert ET.fromstring(dom.XMLDesc())  # well-formed
+
+
+class _Domain:
+    def __init__(self, cdrom):
+        self.cdrom = cdrom
+
+    def XMLDesc(self, *_):
+        cd = f"<disk type='file' device='cdrom'><source file='{self.cdrom}'/></disk>" if self.cdrom else ""
+        return (
+            "<domain><memory>1048576</memory><vcpu>1</vcpu><os><type>hvm</type></os><devices>"
+            f"<disk type='file' device='disk'><source file='/i/vm1.qcow2'/></disk>{cd}"
+            "<interface type='network'><source network='default'/></interface></devices></domain>"
+        )
+
+
+@pytest.mark.parametrize(
+    ("cdrom", "expected"), [("/i/vm1-cloudinit.iso", True), ("/isos/debian.iso", False), (None, False)]
+)
+def test_a_backup_records_whether_the_vm_was_set_up_by_cloud_init(tmp_path, cdrom, expected):
+    backups._write_vm_config(_Domain(cdrom), tmp_path)
+    assert json.loads((tmp_path / "vm-config.json").read_text())["cloud_init"] is expected
+
+
+def test_a_copy_restored_under_a_new_name_gets_a_new_cloud_init_drive(tmp_path, monkeypatch):
+    """Found on a real host: the copy kept netplan's `match: macaddress` of the original, and never got an address."""
+    from app.core import vm_builder
+
+    made = []
+    monkeypatch.setattr(backups, "IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(
+        vm_builder, "create_cloudinit_reseed_iso", lambda name: made.append(name) or tmp_path / f"{name}-cloudinit.iso"
+    )
+    assert backups._reseed_iso({"cloud_init": True}, "vm1", "copy") == tmp_path / "copy-cloudinit.iso"
+    assert backups._reseed_iso({"cloud_init": False}, "vm1", "copy") is None
+    # A backup older than the flag: guessed from the original's drive, as for a clone.
+    assert backups._reseed_iso({}, "vm1", "copy2") is None
+    (tmp_path / "vm1-cloudinit.iso").write_text("")
+    assert backups._reseed_iso({}, "vm1", "copy3") == tmp_path / "copy3-cloudinit.iso"
+    assert made == ["copy", "copy3"]
