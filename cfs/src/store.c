@@ -2,6 +2,7 @@
 
 #include <openssl/evp.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <sqlite3.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -455,6 +456,9 @@ int cfs_store_lock(cfs_store *s, const char *name, const char *owner, uint32_t n
 {
     holder[0] = '\0';
     if (ttl == 0 || ttl > CFS_LOCK_TTL_MAX)
+        return CFS_INVALID;
+    /* now comes from the change, so from another node: its expiry must stay a valid int64. */
+    if (now < 0 || now > INT64_MAX - (int64_t)CFS_LOCK_TTL_MAX)
         return CFS_INVALID;
     if (begin(s) != CFS_OK)
         return CFS_INTERNAL;
