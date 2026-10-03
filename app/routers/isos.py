@@ -6,6 +6,7 @@ from pathlib import Path
 
 import libvirt
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app.core.audit import log_action
@@ -91,6 +92,14 @@ def _refresh_iso_pool(path):
         conn.close()
 
 
+def _write_upload(source, partial, dest):
+    with open(partial, "wb") as out:
+        shutil.copyfileobj(source, out, 8 * 1024 * 1024)
+    if dest.exists():  # another upload of the same name finished meanwhile
+        raise FileExistsError(f"An ISO named '{dest.name}' already exists")
+    partial.rename(dest)
+
+
 @router.post("", status_code=201)
 async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_role("admin"))):
     filename = Path(file.filename or "").name
@@ -107,19 +116,32 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
         raise HTTPException(status_code=422, detail=msg)
 
     dest = safe_child(ISOS_DIR, filename)
+    # An upload under an existing name replaced it silently, even in a VM's CD-ROM drive: rename or delete it first.
+    if dest.exists():
+        await file.close()
+        msg = f"An ISO named '{filename}' already exists: rename or delete it first"
+        finish_task(task_id, "echec", msg)
+        raise HTTPException(status_code=409, detail=msg)
+    # Written under a temporary name, then renamed: an interrupted upload left a truncated ISO in the library. The
+    # copy (gigabytes) runs in a worker thread: in this coroutine it held up every other request meanwhile.
+    partial = dest.with_name(f".{filename}.part")
     try:
         try:
-            with open(dest, "wb") as out:
-                shutil.copyfileobj(file.file, out)
+            await run_in_threadpool(_write_upload, file.file, partial, dest)
         finally:
             await file.close()
-    except OSError as e:
+    except BaseException as e:
+        partial.unlink(missing_ok=True)
         # Safety net: without it, a failing write (disk full, permissions...) would
         # leave the task stuck in "en_cours" forever in the task list, never
         # "termine" and never "echec".
-        msg = describe_exception(e)
+        msg = describe_exception(e) if isinstance(e, OSError) else "upload interrupted"
         finish_task(task_id, "echec", msg)
-        raise HTTPException(status_code=500, detail=f"Failed to write the ISO: {msg}") from e
+        if isinstance(e, FileExistsError):
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if isinstance(e, OSError):
+            raise HTTPException(status_code=500, detail=f"Failed to write the ISO: {msg}") from e
+        raise
 
     _refresh_iso_pool(dest)
     log_action(user["username"], "upload_iso", filename, "succes", task_id=task_id)

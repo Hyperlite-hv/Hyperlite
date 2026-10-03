@@ -176,7 +176,10 @@ def test_api_is_admin_only_and_due_jobs_move_to_their_next_run(client, auth_head
     assert client.delete(f"/backup-groups/{job['id']}", headers=admin).status_code == 200
 
 
-def test_vm_schedule_accepts_gfs_and_refuses_system_targets(client, auth_headers):
+def test_vm_schedule_accepts_gfs_and_refuses_system_targets(client, auth_headers, monkeypatch):
+    from app.routers import backups as backups_router
+
+    monkeypatch.setattr(backups_router, "_vm_exists", lambda name: True)
     admin = auth_headers("root", "admin")
     body = {"frequence": "quotidien", "heure": "01:00", "retention_count": 3, "garder_semaines": 4, "garder_mois": 6}
     r = client.put("/vms/web/backup-schedule", json=body, headers=admin)

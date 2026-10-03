@@ -15,7 +15,8 @@ const EMPTY_F = { result: "", action: "", username: "", resource: "", from: "", 
 
 // Audit journal (GET /audit, administrators): every filter of the API — result, action, user, resource,
 // from AND to (`jusqu_a`, never exposed before) — with typing debounce, live refresh and CSV export.
-export default function JournalPage() {
+// embedded: the Audit log tab of the Activity page (ActivityHub.jsx), under its header.
+export default function JournalPage({ embedded = false }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const [rows, setRows] = useState(null);
@@ -55,7 +56,9 @@ export default function JournalPage() {
   const dirty = JSON.stringify(f) !== JSON.stringify(EMPTY_F);
   return (
     <>
-      <PageHeader title={t("tab.journal")} count={total ?? (rows ? rows.length : null)} desc={t("jr.desc")} />
+      {embedded
+        ? <p className="nx-muted" style={{ margin: 0 }}>{t("jr.desc")}{total != null ? ` · ${t("jr.count", { n: total.toLocaleString() })}` : ""}</p>
+        : <PageHeader title={t("tab.journal")} count={total ?? (rows ? rows.length : null)} desc={t("jr.desc")} />}
       <div className="nx-bar" role="group" aria-label={t("jr.filters")}>
         <select className="nx-sel" aria-label={t("a11y.filter_by_result")} value={f.result} onChange={upd("result")}><option value="">{t("jr.allResults")}</option><option value="succes">{t("jr.success")}</option><option value="echec">{t("jr.failure")}</option></select>
         <select className="nx-sel" aria-label={t("a11y.filter_by_action_type")} value={f.action} onChange={upd("action")}><option value="">{t("jr.allActions")}</option>{actions.map((a) => <option key={a} value={a}>{a}</option>)}</select>

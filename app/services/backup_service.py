@@ -1,6 +1,7 @@
 """Backups as the API manages them: the catalogue of VM backups, their schedules, deletion, and container backups.
 Running, verifying and restoring backups stays in app/core/backups.py (long operations in threads)."""
 
+import contextlib
 import shutil
 from pathlib import Path
 
@@ -42,6 +43,9 @@ def delete(backup_id):
     if not row:
         raise BackupNotFound(backup_id)
     shutil.rmtree(row["chemin"], ignore_errors=True)
+    # <target>/<vm>/<timestamp>: the VM's directory goes with its last backup (rmdir leaves a non-empty one).
+    with contextlib.suppress(OSError):
+        Path(row["chemin"]).parent.rmdir()
     store.delete(backup_id)
     return row
 

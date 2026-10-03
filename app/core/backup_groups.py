@@ -38,6 +38,7 @@ FORBIDDEN_ROOTS = (
     "/sbin",
     "/sys",
     "/usr",
+    "/var/lib/hyperlite",
 )
 _running = set()
 _running_lock = threading.Lock()

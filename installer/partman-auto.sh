@@ -1,26 +1,14 @@
 #!/bin/sh
-# Run by d-i preseed/include_command (NOT early_command, see preseed.cfg).
-# IMPORTANT, counter-intuitive: the standard output of include_command is NOT
-# re-read as preseed content directly. It must contain the PATH OF A FILE to
-# include, exactly like preseed/include (tested: printing preseed content
-# directly on stdout makes d-i try to fetch a file named after the FIRST WORD
-# of the output, e.g. "d-i", hence the observed error "could not retrieve
-# file:///cdrom/hyperlite/d-i"). The content is therefore written to a
-# temporary file and ONLY its path is printed.
+# Run by d-i when the partitioner starts (partman/early_command, preseed-auto.cfg), in automatic mode only.
+# Chooses the disk from the hardware actually detected: the first internal disk, with LVM. The CD is mounted by then (it is not when the preseed embedded in the initrd is read, which is why the
+# former preseed/include_command never ran this script), and the answers are loaded with debconf-set-selections,
+# the same mechanism as a preseed file: it accepts questions whose component is not loaded yet.
 #
-# Why include_command anyway (rather than early_command + a direct db_set): the
-# included file is loaded by the SAME mechanism as preseed.cfg itself, which
-# accepts values for components that are not loaded yet (e.g. partman-auto),
-# unlike a direct db_set from early_command, which fails ("question doesn't
-# exist", return code 10, tested and confirmed) as long as the owning component
-# has not been loaded by the installer at that very early stage.
-#
-# Also generates the partitioning strategy (RAID1+LVM with 2+ disks, plain LVM otherwise) from the hardware
-# actually detected.
+# It never answers the confirmation that writes the disk: the administrator sees which disk will be erased.
 set -e
 
-OUT=/tmp/hyperlite-dynamic-preseed.cfg
-log() { echo "[hyperlite-partman] $*" > /dev/console 2>&1 || true; }
+OUT=/tmp/hyperlite-partman.cfg
+log() { echo "[hyperlite-partman] $*" > /dev/console 2>&1 || true; logger -t hyperlite-partman "$*" 2>/dev/null || true; }
 
 # ---- Disk detection ----
 # /proc/partitions rather than list-devices (partman-base d-i module): nothing
@@ -59,67 +47,19 @@ DISKS=$(awk '
 DISK_COUNT=$(printf '%s\n' "$DISKS" | grep -c . || true)
 log "detected disks: $DISK_COUNT ($(printf '%s' "$DISKS" | tr '\n' ' '))"
 
-# Partition suffix: /dev/sda -> /dev/sda2, but /dev/nvme0n1 -> /dev/nvme0n1p2.
-partsuffix() {
-    case "$1" in
-        *[0-9]) printf 'p' ;;
-    esac
-}
+# The system goes on the first internal disk, with LVM; the other disks stay untouched for storage pools. A RAID1
+# layout over two disks was tried here, but its recipe failed when the partitioner applied it ("error while setting
+# up the preconfigured RAID", tested on two disks): RAID stays a choice of the custom installation (manual
+# partitioning) until the automatic one is rebuilt and tested on BIOS and UEFI.
+D1=$(printf '%s\n' "$DISKS" | sed -n '1p')
+[ -n "$D1" ] || { log "no internal disk found: the installer asks"; exit 0; }
+log "LVM on $D1 ($DISK_COUNT internal disk(s), the others are left untouched)"
+{
+    echo "d-i partman-auto/disk string $D1"
+    echo "d-i partman-auto/method string lvm"
+    echo "d-i partman-auto/choose_recipe select atomic"
+    echo "d-i partman-auto-lvm/guided_size string max"
+} > "$OUT"
 
-if [ "$DISK_COUNT" -ge 2 ]; then
-    D1=$(printf '%s\n' "$DISKS" | sed -n '1p')
-    D2=$(printf '%s\n' "$DISKS" | sed -n '2p')
-    log "RAID1 mode: $D1 + $D2"
-    S1=$(partsuffix "$D1")
-    S2=$(partsuffix "$D2")
-
-    {
-        # No passwd/root-password* here: see preseed.cfg (moved there because
-        # include_command is consumed before the passwd/user-setup udeb is
-        # loaded).
-        echo "d-i partman-auto/disk string $D1 $D2"
-        echo "d-i partman-auto/method string raid"
-        echo "d-i partman-lvm/device_remove_lvm boolean true"
-        echo "d-i partman-md/device_remove_md boolean true"
-        echo "d-i partman-lvm/confirm boolean true"
-        echo "d-i partman-lvm/confirm_nooverwrite boolean true"
-        # Heredoc with a QUOTED delimiter ('EOF'): no shell substitution, and a
-        # trailing "\" stays literal (a continuation read by the PRESEED
-        # PARSER, not by the shell), so $iflabel/$reusemethod need no escaping.
-        cat <<'EOF'
-d-i partman-auto/expert_recipe string                       \
-      multiraid ::                                          \
-              538 538 1075 free                              \
-                      $iflabel{ gpt } $reusemethod{ }        \
-                      method{ efi } format{ }                 \
-              .                                              \
-              1000 10000 1000000000 raid                     \
-                      $iflabel{ gpt } $reusemethod{ }        \
-                      method{ raid }                          \
-              .
-EOF
-        echo "d-i partman-auto/choose_recipe select multiraid"
-        echo "d-i partman-auto-raid/recipe string  1 2 0 ext4 /  ${D1}${S1}2#${D2}${S2}2  ."
-        # The system still boots when the RAID is degraded (a failed disk)
-        # rather than dropping to an unreachable rescue shell: a hypervisor that
-        # is up in degraded mode beats one that is unreachable.
-        echo "d-i mdadm/boot_degraded boolean true"
-    } > "$OUT"
-else
-    D1=$(printf '%s\n' "$DISKS" | sed -n '1p')
-    log "single disk + LVM mode: $D1"
-
-    {
-        # No passwd/root-password* here: see preseed.cfg (same reason as in the
-        # RAID1 branch above).
-        echo "d-i partman-auto/disk string $D1"
-        echo "d-i partman-auto/method string lvm"
-        echo "d-i partman-auto/choose_recipe select atomic"
-        echo "d-i partman-auto-lvm/guided_size string max"
-        echo "d-i partman-lvm/confirm boolean true"
-        echo "d-i partman-lvm/confirm_nooverwrite boolean true"
-    } > "$OUT"
-fi
-
-log "preseed fragment generated ($DISK_COUNT disk(s)) -> $OUT"
-echo "$OUT"
+debconf-set-selections "$OUT"
+log "partitioning answers loaded ($DISK_COUNT disk(s))"

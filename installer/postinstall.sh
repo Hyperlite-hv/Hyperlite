@@ -1,14 +1,16 @@
 #!/bin/bash
 # Runs CHROOTED in the target system (through d-i preseed/late_command +
-# in-target, see preseed.cfg) right after the base Debian installation and the
-# packages listed in pkgsel/include (libvirt/KVM/python3/curl/gnupg are already
-# present at this stage).
+# in-target, see preseed.cfg) right after the installer put the base Debian
+# system from the CD.
 #
-# Hyperlite is not embedded as source in the ISO: it is installed directly from
-# the published APT repository (see installer/build-apt-repo.sh), exactly as an
-# administrator would do by typing the command by hand. A fresh appliance is
-# therefore NATIVELY managed by apt from its first boot, and updates never
-# require rebuilding or reflashing an ISO.
+# The installation needs no network, as with Proxmox: the ISO carries every
+# Debian package the appliance needs and the Python wheels of Hyperlite
+# (installer/build-offline-bundle.sh, in offline/), and the hyperlite package
+# itself. This script installs them from there, then writes the Debian and
+# Hyperlite APT sources the machine updates from once it has a network.
+#
+# An ISO built without the offline bundle (a developer build) installs from
+# the Debian mirror and PyPI instead, as before.
 #
 # The repository location comes from installer/apt-source.conf, embedded next to this
 # script by build-iso.sh.
@@ -25,12 +27,17 @@ APP_DIR=/root/hyperlite
 # here (set -e) if that file is missing.
 
 log "=== 1/6: preparing APT ==="
-# The Debian installer AUTOMATICALLY adds the installation CD-ROM as an APT
-# source in /etc/apt/sources.list (standard, documented installer behaviour).
-# `apt-get update` then fails globally with "The repository 'cdrom://...' does
-# not have a Release file" even if every other source works, because apt returns
-# an error as soon as ANY single source fails. The line is removed first.
-sed -i '/^deb cdrom:/d' /etc/apt/sources.list
+# The Debian installer adds the installation CD-ROM as an APT source in
+# /etc/apt/sources.list. It is replaced by the Debian sources this machine
+# updates from (the installer configured none: no network mirror, see
+# preseed.cfg). Nothing is downloaded from them during the installation.
+# shellcheck disable=SC1091
+. /etc/os-release
+{
+    echo "deb http://deb.debian.org/debian $VERSION_CODENAME main contrib non-free-firmware"
+    echo "deb http://deb.debian.org/debian $VERSION_CODENAME-updates main contrib non-free-firmware"
+    echo "deb http://security.debian.org/debian-security $VERSION_CODENAME-security main contrib non-free-firmware"
+} > /etc/apt/sources.list
 
 # The repository location comes from installer/apt-source.conf (the single source of truth),
 # embedded in the ISO by build-iso.sh.
@@ -43,9 +50,7 @@ fi
 KEYRING=/usr/share/keyrings/hyperlite-archive-keyring.gpg
 
 install_repository_source() {
-    # Source used for FUTURE updates only. The installation itself does not depend
-    # on it (see below), because a CDN-hosted repository such as GitHub Pages can
-    # transiently serve InRelease and Packages out of sync.
+    # Source used for FUTURE updates only: the installation itself does not depend on it.
     if [ ! -s "$KEYRING" ]; then
         if [ -s "$INSTALLER_DIR/hyperlite-archive-keyring.asc" ]; then
             gpg --dearmor < "$INSTALLER_DIR/hyperlite-archive-keyring.asc" > "$KEYRING"
@@ -56,27 +61,59 @@ install_repository_source() {
     echo "deb [signed-by=$KEYRING] $HYPERLITE_APT_URL stable main" > /etc/apt/sources.list.d/hyperlite.list
 }
 
-# Debian's own mirrors are needed for the dependencies; retry a few times.
-ok=0
-for attempt in 1 2 3 4 5; do
-    if apt-get update; then ok=1; break; fi
-    log "apt-get update failed (attempt $attempt/5), retrying in 15 s"
-    sleep 15
-done
-[ "$ok" = 1 ] || { log "ERROR: apt-get update failed (no network or Debian mirror unreachable?)"; exit 1; }
+OFFLINE="$INSTALLER_DIR/offline"
+if [ -s "$OFFLINE/debs/packages.index" ]; then
+    # Only the packages of the ISO: apt reads a source list of its own, so the
+    # network sources above are not even looked at. The packages come from the
+    # ISO built and signed by the project (trusted=yes: the local index has no
+    # signature of its own).
+    log "offline installation: $(tr '\n' ' ' < "$OFFLINE/bundle-info" 2>/dev/null)"
+    cp "$OFFLINE/debs/packages.index" "$OFFLINE/debs/Packages"  # not named so on the CD: build-offline-bundle.sh
+    echo "deb [trusted=yes] file:$OFFLINE/debs ./" > "$OFFLINE/local.list"
+    APT=(apt-get -o Dir::Etc::sourcelist="$OFFLINE/local.list" -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=false)
+    "${APT[@]}" update
+    PACKAGES=$(cat "$OFFLINE/install.list")
+    # What the Debian installer adds for the hardware when it has a network: the processor's microcode, and the
+    # guest agent in a virtual machine.
+    case "$(grep -m1 '^vendor_id' /proc/cpuinfo 2>/dev/null)" in
+        *GenuineIntel*) PACKAGES="$PACKAGES intel-microcode" ;;
+        *AuthenticAMD*) PACKAGES="$PACKAGES amd64-microcode" ;;
+    esac
+    virt=$(systemd-detect-virt --vm 2>/dev/null || true)
+    if [ -n "$virt" ] && [ "$virt" != none ]; then
+        PACKAGES="$PACKAGES qemu-guest-agent"
+    fi
+    # pip installs the Python requirements from the wheels of the ISO (the
+    # package postinst reads these variables through apt and dpkg).
+    export PIP_NO_INDEX=1 PIP_FIND_LINKS="$OFFLINE/wheels"
+else
+    log "no offline bundle on the ISO: installing from the Debian mirror and PyPI"
+    APT=(apt-get)
+    ok=0
+    for attempt in 1 2 3 4 5; do
+        if apt-get update; then ok=1; break; fi
+        log "apt-get update failed (attempt $attempt/5), retrying in 15 s"
+        sleep 15
+    done
+    [ "$ok" = 1 ] || { log "ERROR: apt-get update failed (no network or Debian mirror unreachable?)"; exit 1; }
+    PACKAGES=$(sed 's/#.*//' "$INSTALLER_DIR/packages.list" | awk 'NF {print $1}')
+fi
 
 # Record which ISO build installed this machine (version, source commit, build date).
 [ -f "$INSTALLER_DIR/build-info" ] && cp "$INSTALLER_DIR/build-info" /etc/hyperlite-build-info
 
-log "=== 2/6: installing Hyperlite ==="
-# The package is embedded in the ISO: installing it from the local file makes the
-# installation independent of the Hyperlite repository. Dependencies still come
-# from the Debian mirrors. The package postinst does all the application work
-# (venv, requirements, secrets specific to THIS machine, systemd service).
+log "=== 2/6: installing the system packages and Hyperlite ==="
+# The base system from the CD is brought to the versions carried by the ISO
+# (security updates included), then the appliance's packages are installed.
+DEBIAN_FRONTEND=noninteractive "${APT[@]}" -y dist-upgrade
+# shellcheck disable=SC2086
+DEBIAN_FRONTEND=noninteractive "${APT[@]}" install -y $PACKAGES
+# The package is embedded in the ISO. Its postinst does all the application
+# work (venv, requirements, secrets specific to THIS machine, systemd service).
 LOCAL_DEB=$(ls "$INSTALLER_DIR"/hyperlite_*_amd64.deb 2>/dev/null | tail -1 || true)
 if [ -n "$LOCAL_DEB" ]; then
     log "installing the embedded package: $(basename "$LOCAL_DEB")"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "$LOCAL_DEB"
+    DEBIAN_FRONTEND=noninteractive "${APT[@]}" install -y "$LOCAL_DEB"
     install_repository_source || log "WARNING: could not configure the Hyperlite repository for future updates ($HYPERLITE_APT_URL)"
 else
     log "no embedded package, installing from the repository $HYPERLITE_APT_URL"
@@ -84,12 +121,12 @@ else
     apt-get update || { log "ERROR: cannot read the Hyperlite repository $HYPERLITE_APT_URL"; exit 1; }
     DEBIAN_FRONTEND=noninteractive apt-get install -y hyperlite
 fi
+unset PIP_NO_INDEX PIP_FIND_LINKS
 
 log "=== 3/6: Hyperlite admin account ==="
 # The Linux root password is the one chosen by the person running the installer
-# (the installer asks for it). The Hyperlite `admin` account gets the random
-# initial password generated by the package (stored in .env and shown on the
-# console banner).
+# (the installer asks for it). The Hyperlite `admin` account gets the password chosen in custom mode, or else the
+# random initial password generated by the package (stored in .env and shown on the console banner).
 
 # systemctl is restrained by policy-rc.d inside the installation chroot
 # ("Running in chroot, ignoring command 'start'", standard and INTENDED Debian
@@ -107,11 +144,67 @@ set -a
 # shellcheck disable=SC1091
 . "$APP_DIR/.env"
 set +a
+
+# Custom mode: the answers hyperlite-questions.sh collected in the installer (the admin password, and the alerts
+# by email). The password is checked against Hyperlite's own policy; when it is refused, the random initial
+# password stays and the installer's last screen says why.
+ANSWERS="$INSTALLER_DIR/answers.env"
+RESULT=/root/.hyperlite-install-result
+if [ -f "$ANSWERS" ]; then
+    # shellcheck disable=SC1090
+    . "$ANSWERS"
+    reason=$(HL_PASSWORD="$HL_ADMIN_PASSWORD" "$APP_DIR/venv/bin/python3" -c "
+import os, sys; sys.path.insert(0, '$APP_DIR')
+from app.core.password_policy import password_problem
+print(password_problem(os.environ['HL_PASSWORD'], 'admin') or '')
+")
+    if [ -z "$reason" ]; then
+        export HYPERLITE_INITIAL_ADMIN_PASSWORD="$HL_ADMIN_PASSWORD"
+        echo "admin=chosen" > "$RESULT"
+    else
+        log "the chosen admin password was refused ($reason): the initial password stays"
+        printf "admin=initial\nreason='%s'\n" "$(printf '%s' "$reason" | tr -d "'")" > "$RESULT"
+    fi
+    chmod 600 "$RESULT"
+fi
+
 "$APP_DIR/venv/bin/python3" -c "
 import sys; sys.path.insert(0, '$APP_DIR')
 from app.core.seed import seed_admin
 seed_admin()
 "
+
+if [ -f "$RESULT" ] && grep -q '^admin=chosen' "$RESULT"; then
+    # The administrator knows this password: no copy of it, nor of the random one, stays on the disk, and the
+    # console banner (scripts/write-motd.sh) does not show one.
+    sed -i '/^HYPERLITE_INITIAL_ADMIN_PASSWORD=/d' "$APP_DIR/.env"
+    rm -f /root/.hyperlite-initial-password
+fi
+
+if [ -n "${HL_ALERT_TO:-}" ]; then
+    # The email channel of the dashboard's Notifications, for the alerts (not the routine VM operations). 465 is TLS from the start, 25 is
+    # plain, anything else uses STARTTLS. The sender is the SMTP account when it is an address (most providers
+    # require it), the recipient otherwise.
+    HL_ALERT_TO="$HL_ALERT_TO" HL_SMTP_HOST="$HL_SMTP_HOST" HL_SMTP_PORT="$HL_SMTP_PORT" \
+    HL_SMTP_USER="$HL_SMTP_USER" HL_SMTP_PASSWORD="$HL_SMTP_PASSWORD" "$APP_DIR/venv/bin/python3" -c "
+import os, sys; sys.path.insert(0, '$APP_DIR')
+from app.core import notifications
+e = os.environ
+port = int(e['HL_SMTP_PORT'])
+user = e['HL_SMTP_USER']
+config = {
+    'smtp_host': e['HL_SMTP_HOST'], 'smtp_port': port, 'to_addr': e['HL_ALERT_TO'],
+    'from_addr': user if '@' in user else e['HL_ALERT_TO'],
+    'ssl': port == 465, 'use_tls': port not in (25, 465),
+}
+if user:
+    config['smtp_user'] = user
+    config['smtp_password'] = e['HL_SMTP_PASSWORD']
+events = ['node_statut_change', 'ha_alert', 'backup_vm', 'verify_backup', 'auto_cleanup_warning', 'update_available', 'hyperlite_update']
+notifications.create_channel('email', 'Alerts', config, [x for x in events if x in notifications.NOTIFY_EVENTS], 'installer')
+" && log "email alerts sent to $HL_ALERT_TO" || log "WARNING: the email alerts could not be set up: add them in Notifications"
+fi
+unset HL_ADMIN_PASSWORD HL_SMTP_PASSWORD HYPERLITE_INITIAL_ADMIN_PASSWORD
 
 # By default Debian does NOT allow root password login over SSH (key only,
 # implicit PermitRootLogin=prohibit-password): without this file, the password
@@ -145,6 +238,30 @@ log "=== 5/6: restart (up-to-date password/MOTD) ==="
 systemctl restart hyperlite.service
 
 log "=== 6/6: cleanup ==="
+# The network APT sources wait for the first boot. After this script, the installer runs apt-get update on the
+# sources it finds: without a network every name resolution times out, which added four minutes to an offline
+# installation. hyperlite-apt-sources.service puts them back at the first boot, then removes itself.
+PENDING=/etc/apt/hyperlite-pending
+mkdir -p "$PENDING"
+mv /etc/apt/sources.list "$PENDING/sources.list"
+[ -f /etc/apt/sources.list.d/hyperlite.list ] && mv /etc/apt/sources.list.d/hyperlite.list "$PENDING/hyperlite.list"
+echo "# The Debian sources are put back at the first boot (hyperlite-apt-sources.service)." > /etc/apt/sources.list
+cat > /etc/systemd/system/hyperlite-apt-sources.service <<'UNITEOF'
+[Unit]
+Description=Hyperlite: enable the APT sources after the installation
+ConditionPathIsDirectory=/etc/apt/hyperlite-pending
+Before=hyperlite.service apt-daily.service apt-daily-upgrade.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'mv /etc/apt/hyperlite-pending/sources.list /etc/apt/sources.list; if [ -f /etc/apt/hyperlite-pending/hyperlite.list ]; then mv /etc/apt/hyperlite-pending/hyperlite.list /etc/apt/sources.list.d/hyperlite.list; fi; rmdir /etc/apt/hyperlite-pending'
+ExecStartPost=/bin/sh -c 'systemctl disable hyperlite-apt-sources.service; rm -f /etc/systemd/system/hyperlite-apt-sources.service'
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+systemctl enable hyperlite-apt-sources.service
+
 # The installer files copied from the ISO (the package, the preseed, these scripts) are not needed any more: the
 # package is installed, the repository source and its key are in place, and build-info is in /etc. Nothing of the
 # installation stays in /root. bash keeps reading this script from its open file, so removing it here is safe.

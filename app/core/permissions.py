@@ -261,6 +261,13 @@ def delete_acl_for_vm(vm_name):
     _store().delete_acl_for_vm(vm_name)
 
 
+def delete_acl_for_user(username):
+    """A deleted account's rights go with it: they were kept, and given to the next account created under that name."""
+    for entry in _store().acl():
+        if entry["subject_type"] == "user" and entry["subject_id"] == username:
+            _store().delete_acl(entry["id"])
+
+
 # ---- Effective permission check ----
 
 

@@ -17,7 +17,8 @@ const isUrl = (v, https = false) => { try { const u = new URL(v); return https ?
 // OIDC single sign-on (server-wide setting). Local password sign-in always stays available as a fallback.
 // The backend accepts any content, so the page prevents enabling an incomplete or malformed configuration
 // (which would break the SSO button on the login screen) and shows unsaved changes.
-export default function SsoPage() {
+// embedded: shown as a tab of Users and access (SecurityPage), without a header of its own.
+export default function SsoPage({ embedded = false }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [saved, setSaved] = useState(null);
@@ -70,7 +71,7 @@ export default function SsoPage() {
     finally { setSaving(false); }
   }
 
-  const header = <PageHeader title={t("tab.sso")} desc={t("sso.desc")} />;
+  const header = embedded ? <p className="nx-muted" style={{ margin: 0 }}>{t("sso.desc")}</p> : <PageHeader title={t("tab.sso")} desc={t("sso.desc")} />;
   if (error && !saved) return <>{header}<ErrorState message={error} onRetry={load} /></>;
   if (!saved) return <>{header}<Loading /></>;
 

@@ -137,7 +137,7 @@ async def host_terminal(websocket: WebSocket):
     # A shell session can last hours. Unlike instantaneous VM actions, "termine" at
     # task closing only means "session closed cleanly" here (see also finish_task
     # below), not a success/failure of an operation in the usual sense.
-    task_id = create_task("host_shell", hostname, node=hostname, username=username)
+    task_id = create_task("host_shell", hostname, node=None, username=username)
     log_action(username, "host_shell_open", hostname, "succes")
 
     shell = os.environ.get("SHELL", "/bin/bash")

@@ -306,11 +306,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
             errors.append("The password must contain at least 4 characters")
 
     conn = open_conn()
-    task_id = (
-        None
-        if check_only
-        else create_task("create_vm", payload.name, node=conn.getHostname(), username=user["username"])
-    )
+    task_id = None if check_only else create_task("create_vm", payload.name, node=None, username=user["username"])
     try:
         try:
             conn.lookupByName(payload.name)
@@ -526,9 +522,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
             # distinct from the "create_vm" task (which only covers the domain definition,
             # already finished when this block runs). It is closed by get_vm_provisioning
             # below, on success, failure or timeout.
-            install_task_id = create_task(
-                "auto_install", payload.name, node=conn.getHostname(), username=user["username"]
-            )
+            install_task_id = create_task("auto_install", payload.name, node=None, username=user["username"])
             mark_provisioning(payload.name, os_family, task_id=install_task_id)
             try:
                 domain.create()
