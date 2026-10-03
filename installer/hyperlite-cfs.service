@@ -1,6 +1,6 @@
 [Unit]
 Description=Hyperlite replicated cluster configuration (hyperlite-cfs)
-Documentation=file:///root/hyperlite/cfs/README.md
+Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/cfs/README.md
 # The package installs this unit disabled. Local mode (the default) needs nothing else: it is what shadow mode uses on
 # a node without a cluster. Cluster mode (HYPERLITE_CFS_MODE=--cluster in /etc/default/hyperlite-cfs) joins the local
 # Corosync's process group; Corosync and its configuration come with setting up a cluster.

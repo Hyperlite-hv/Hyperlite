@@ -145,9 +145,9 @@ log "=== 5/6: restart (up-to-date password/MOTD) ==="
 systemctl restart hyperlite.service
 
 log "=== 6/6: cleanup ==="
-# The clear-text password copied from the live environment is erased: it only
-# remains as a hash (Hyperlite DB) and in /root/.hyperlite-initial-password
-# (the same file, an explicit purpose, rather than a generically named file
-# forgotten in an installer directory).
+# The installer files copied from the ISO (the package, the preseed, these scripts) are not needed any more: the
+# package is installed, the repository source and its key are in place, and build-info is in /etc. Nothing of the
+# installation stays in /root. bash keeps reading this script from its open file, so removing it here is safe.
+rm -rf "$INSTALLER_DIR"
 
 log "done"
