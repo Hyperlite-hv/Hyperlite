@@ -9,6 +9,7 @@ Hyperlite includes or depends on third-party software. Each component is provide
 | noVNC (HTML5 VNC client) | `dashboard/public/novnc/core/` | MPL-2.0 (see the header of each file). Source: https://github.com/novnc/noVNC |
 | pako (zlib port, used by noVNC) | `dashboard/public/novnc/vendor/pako/` | MIT and Zlib. Source: https://github.com/nodeca/pako |
 | xterm.js and its fit addon | `dashboard/public/xterm/` | MIT. Source: https://github.com/xtermjs/xterm.js |
+| shadcn stylesheet (4.21.0, `dist/tailwind.css`) | `dashboard/src/vendor/shadcn-tailwind.css` | MIT, Copyright (c) 2023 shadcn. Source: https://github.com/shadcn-ui/ui |
 
 The exact upstream versions of these vendored copies were not recorded when they were added. When updating them, record the version here and include the upstream license files.
 
