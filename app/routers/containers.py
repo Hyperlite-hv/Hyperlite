@@ -553,7 +553,10 @@ def stop_container(
 
 
 @router.delete("/{name}")
-def delete_container(name: str, user: dict = Depends(require_role("admin"))):
+def delete_container(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+    # Irreversible (its filesystem goes with it), as for a VM, a pool or a backup: it was deleted at the first call.
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion")
     conn = open_lxc_conn()
     try:
         try:
