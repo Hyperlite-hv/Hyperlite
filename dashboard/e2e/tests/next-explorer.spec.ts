@@ -199,7 +199,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await nextLogin(page);
     await page.goto("/datacenter?tab=activity");
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { name: /^Tasks/ })).toBeVisible();
+    // Tasks and the audit log share the Activity entry, Tasks being its first tab.
+    await expect(main.getByRole("heading", { name: /^Activity/ })).toBeVisible();
+    await expect(main.getByRole("tab", { name: "Tasks", selected: true })).toBeVisible();
     const filters = main.getByRole("group", { name: "Task filters" });
     await main.getByRole("group", { name: "Status" }).getByRole("button", { name: /^Failed/ }).click();
     await filters.getByLabel("Period").selectOption("all");
