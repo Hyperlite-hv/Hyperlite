@@ -166,3 +166,34 @@ def test_a_failing_step_stops_the_run(database, no_libvirt, monkeypatch):
     assert run["statut"] == "echec"
     assert run["resultat"] == "FAILED"
     assert calls == ["first"]
+
+
+def test_a_runs_output_is_for_administrators(client, auth_headers, database):
+    """Root commands on the host or in VMs: their output may carry secrets. Other accounts see the steps and results."""
+    from app.repositories import registry
+
+    store = registry.automation().sync
+    job_id = store.create_job(
+        "audit",
+        None,
+        "alice",
+        "t0",
+        [
+            {
+                "cible_type": "host",
+                "cible": None,
+                "commande": "cat /etc/x",
+                "condition_type": "exit_code",
+                "condition_valeur": "0",
+                "ordre": 0,
+            }
+        ],
+    )
+    store.create_run("r1", job_id, "task-1", False, "[]", "t1")
+    store.log_step("r1", 0, "host", "cat /etc/x", "secret=hunter2", "warn", 0, True, "t2")
+    store.close_run("r1", "succes", "t3", "1/1 steps")
+    admin = client.get("/jobs/runs/r1", headers=auth_headers("root")).json()
+    assert (admin["logs"][0]["stdout"], admin["logs"][0]["stderr"]) == ("secret=hunter2", "warn")
+    other = client.get("/jobs/runs/r1", headers=auth_headers("eve", role="observateur")).json()
+    assert other["statut"] == "succes" and other["logs"][0]["reussi"] == 1
+    assert (other["logs"][0]["stdout"], other["logs"][0]["stderr"]) == ("", "")
