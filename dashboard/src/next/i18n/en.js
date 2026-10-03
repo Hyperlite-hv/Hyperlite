@@ -2892,7 +2892,7 @@ export default {
   "cl.informationLabel": "Join information",
   "cl.joinWarning": "This node's configuration (accounts, groups, jobs, settings) is replaced by the cluster's, and its keys by the cluster's keys: you sign in again with an account of the cluster. Its VMs and containers stay as they are.",
   "cl.typeName": "Type the cluster's name, {name}, to confirm",
-  "cl.typeNameWait": "Paste the join information first",
+  "cl.typeNameWait": "Cluster name: shown once the details above are pasted",
   "cl.join": "Join the cluster",
   "cl.joinTitle": "Join the cluster {name}?",
   "cl.joinMsg": "This node's configuration is replaced by the cluster's, and Hyperlite restarts on this node.",

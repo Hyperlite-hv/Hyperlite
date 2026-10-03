@@ -2924,7 +2924,7 @@ export default {
   "cl.informationLabel": "Informations d'adhésion",
   "cl.joinWarning": "La configuration de ce nœud (comptes, groupes, tâches, réglages) est remplacée par celle du cluster, et ses clés par celles du cluster : vous vous reconnectez avec un compte du cluster. Ses VM et conteneurs restent tels quels.",
   "cl.typeName": "Tapez le nom du cluster, {name}, pour confirmer",
-  "cl.typeNameWait": "Collez d’abord les informations d’adhésion",
+  "cl.typeNameWait": "Nom du cluster : affiché une fois les informations ci-dessus collées",
   "cl.join": "Rejoindre le cluster",
   "cl.joinTitle": "Rejoindre le cluster {name} ?",
   "cl.joinMsg": "La configuration de ce nœud est remplacée par celle du cluster, et Hyperlite redémarre sur ce nœud.",
