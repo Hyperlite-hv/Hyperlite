@@ -252,11 +252,15 @@ NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 
 @app.get("/", include_in_schema=False)
 @app.get("/{path:path}", include_in_schema=False)
-def serve_ui(path: str = ""):
+def serve_ui(request: Request, path: str = ""):
     # SPA catch-all: every client-side URL (react-router) returns index.html and
     # routing happens in the browser. It must remain the LAST declared route so it
     # never intercepts the real API/WebSocket routes registered above it (they are
     # tried first).
+    # Only a browser navigating asks for HTML. An API client calling a path that does not exist (a typo, a route of
+    # another version) got the dashboard page with a 200, which reads as a success: it gets a JSON 404.
+    if "text/html" not in request.headers.get("accept", ""):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     dashboard_index = f"{DASHBOARD_DIST}/index.html"
     if os.path.isfile(dashboard_index):
         return FileResponse(dashboard_index, headers=NO_CACHE_HEADERS)
