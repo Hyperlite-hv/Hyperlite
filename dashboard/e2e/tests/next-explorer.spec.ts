@@ -243,30 +243,15 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
-  test("the activity panel is closed by default, opens from the top bar and closes with Escape", async ({ page }) => {
+  test("the top bar has no Activity button: alerts are on Home, running tasks on the Tasks page", async ({ page }) => {
     await nextLogin(page);
-    const panel = page.getByRole("complementary", { name: "Activity" });
-    await expect(panel).toBeHidden();
-    // R2: one Activity button in the top bar; the sidebar has no Alerts entry any more.
+    const banner = page.getByRole("banner");
+    await expect(banner.getByRole("button", { name: "Create" })).toBeVisible();
+    await expect(banner.getByRole("button", { name: /^Activity/ })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Activity" })).toHaveCount(0);
+    // The sidebar has no Alerts entry either: the open alerts are in Home's watch list.
     await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /^Alerts/ })).toHaveCount(0);
-    await page.getByRole("banner").getByRole("button", { name: /^Activity/ }).click();
-    await expect(panel).toBeVisible();
-    await expect(panel.getByRole("tab", { name: /^Alerts/ })).toHaveAttribute("aria-selected", "true");
-    await page.keyboard.press("Escape");
-    await expect(panel).toBeHidden();
-    // a second click on the same button closes the panel
-    const activity = page.getByRole("banner").getByRole("button", { name: /^Activity/ });
-    await activity.click();
-    await expect(panel).toBeVisible();
-    await expect(activity).toHaveAttribute("aria-expanded", "true");
-    await activity.click();
-    await expect(panel).toBeHidden();
-    await expect(activity).toHaveAttribute("aria-expanded", "false");
-    await activity.click();
-    await panel.getByRole("tab", { name: /^Running tasks/ }).click();
-    await expect(panel.getByText("No task running.")).toBeVisible();
-    await panel.getByRole("button", { name: "Close activity panel" }).click();
-    await expect(panel).toBeHidden();
+    await expect(page.getByRole("main").getByRole("heading", { level: 2, name: /^To watch/ })).toBeVisible();
   });
 
   test("on a tablet the sidebar opens as a drawer and closes after a navigation", async ({ page }) => {

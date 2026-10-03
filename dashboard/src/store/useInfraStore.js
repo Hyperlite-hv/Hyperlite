@@ -50,7 +50,6 @@ export const useInfraStore = create((set, get) => ({
 
   // ---- Tasks (real actions of this session) & notifications ----
   tasks: [],
-  taskLogCollapsed: false,
 
   // ---- Theme ----
   // Light mode is the default of the Hyperlite identity. The real .dark class on
@@ -125,9 +124,6 @@ export const useInfraStore = create((set, get) => ({
     set({ theme: next });
   },
 
-  toggleTaskLog() {
-    set((s) => ({ taskLogCollapsed: !s.taskLogCollapsed }));
-  },
 
   // ---- Toasts ----
   // Rendered by sonner's <Toaster/>, which has a close button. Errors stay three times longer than successes: a

@@ -177,7 +177,6 @@
 .nx-find:hover { background: var(--color-bg-hover); }
 .nx-find-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .nx-kbd { flex: none; font-family: var(--font-mono); font-size: var(--font-size-xs); border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); padding: 0 var(--space-1); color: var(--color-text-muted); margin-left: auto; }
-.nx-badge-count { min-width: 1.1rem; height: 1.1rem; border-radius: 999px; background: var(--color-accent); color: var(--color-text-on-accent); font-size: 0.6875rem; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; font-weight: 600; }
 .nx-fresh { font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
 .nx-top-group { display: inline-flex; align-items: center; gap: var(--space-2); padding-left: var(--space-3); margin-left: var(--space-1); border-left: 1px solid var(--color-border-subtle); }
 
@@ -492,16 +491,6 @@
 .nx-spark { margin-top: var(--space-3); }
 
 /* ---------- Activity panel (right slide-over, closed by default) ---------- */
-.nx-drawer { position: fixed; top: var(--topbar-height); right: 0; bottom: 0; width: min(26rem, 100vw); z-index: 45; display: flex; flex-direction: column; background: var(--color-bg-surface); border-left: 1px solid var(--color-border-default); box-shadow: var(--shadow-float); transform: translateX(105%); transition: transform var(--duration-base) var(--ease-standard); visibility: hidden; }
-.nx-drawer[data-open="true"] { transform: none; visibility: visible; }
-.nx-drawer-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5) var(--space-2); }
-.nx-drawer-head h2 { margin: 0; font-size: var(--font-size-lg); font-weight: 600; }
-.nx-drawer-tabs { display: flex; gap: var(--space-1); padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border-subtle); }
-.nx-drawer-tabs [role="tab"] { background: none; border: 0; cursor: pointer; padding: var(--space-2) var(--space-3); color: var(--color-text-secondary); font-size: var(--font-size-sm); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.nx-drawer-tabs [role="tab"]:hover { color: var(--color-text-primary); }
-.nx-drawer-tabs [role="tab"][aria-selected="true"] { color: var(--color-text-primary); border-bottom-color: var(--color-accent); font-weight: 600; }
-.nx-drawer-body { flex: 1; overflow: auto; padding: var(--space-4) var(--space-5); display: grid; align-content: start; gap: var(--space-2); }
-.nx-drawer-empty { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-4) 0; }
 .nx-trow { border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); background: var(--color-bg-workspace); overflow: hidden; }
 .nx-trow-main { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; width: 100%; padding: var(--space-3); background: none; border: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
 .nx-trow-main:hover { background: var(--color-bg-hover); }
