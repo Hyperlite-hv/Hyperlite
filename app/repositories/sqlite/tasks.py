@@ -39,11 +39,14 @@ def _log_in(conn, task_id, message, at):
 def _clauses(filters):
     """filters: statut, type, username, node (exact), cible (part of a name), depuis (cree_le >=), objet (exact
     target), famille ("vm" or "container")."""
+    from app.core import self_node
+
     clauses, params = [], []
     for column in ("statut", "type", "username", "node"):
         if filters.get(column):
             clauses.append(f"{column} = ?")
-            params.append(filters[column])
+            # The tasks record this node under its name (app/core/tasks.py): "local" asks for it.
+            params.append(self_node.to_db(filters[column]) if column == "node" else filters[column])
     if filters.get("cible"):
         clauses.append("cible LIKE ?")
         params.append(f"%{filters['cible']}%")
