@@ -27,9 +27,18 @@ bash "$REPO_DIR/installer/build-cli.sh"
 
 log "copying the files tracked by Git"
 ( cd "$REPO_DIR" && git ls-files -z ) | while IFS= read -r -d '' f; do
-    # Development-only files are not shipped.
+    # Only what a node runs is shipped. Documentation, design notes, the lab, the frontend sources (dashboard/dist
+    # is added below) and the publishing tools stay in the Git repository. cfs/tests/*.c stay: cfs/meson.build
+    # declares those tests, so the build of hyperlite-cfs on the node needs them.
     case "$f" in
-        tests/*|.github/*|requirements-dev.txt|CLAUDE.md) continue ;;
+        tests/*|.github/*|requirements-dev.txt|CLAUDE.md|AGENTS.md) continue ;;
+        docs/*|lab/*|dashboard/*|cli/*) continue ;;
+        README.md|CHANGELOG.md|CONTRIBUTING.md|CODE_OF_CONDUCT.md|SECURITY.md|*/README.md) continue ;;
+        cfs/fuzz/*|cfs/tests/python/*|cfs/tests/cluster/*) continue ;;
+        installer/build-*.sh|installer/test-package.sh|installer/iso-release-notes.tmpl) continue ;;
+        installer/hyperlite-apt-repo.nginx.conf) continue ;;
+        scripts/ci-publish.sh|scripts/publish-gh-pages.sh|scripts/release.sh|scripts/sign-iso.sh) continue ;;
+        scripts/verify-apt-mirror.sh|scripts/systemd/*) continue ;;
     esac
     mkdir -p "$STAGE/root/hyperlite/$(dirname "$f")"
     cp "$REPO_DIR/$f" "$STAGE/root/hyperlite/$f"

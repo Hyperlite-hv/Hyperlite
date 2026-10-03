@@ -386,3 +386,127 @@ def test_a_join_whose_services_do_not_start_keeps_this_nodes_keys(host, monkeypa
     with get_conn() as db:
         assert db.execute("SELECT valeur FROM app_settings WHERE cle = 'cfs_join_pending'").fetchone() is None
     assert host.restarts == []
+
+
+def test_the_first_member_is_registered_before_corosync_drops_the_quorum(host, monkeypatch):
+    """Going from 1 to 2 members raises the votes Corosync needs to 2: once it reloads, the member alone refuses every
+    write until the new node is up. Every shared write must be done by then."""
+    from app.core.cfs_client import ReadOnly
+
+    _create(host)
+    _info, decoded = _information(host)
+    reloaded = []
+    run = cluster_setup._run
+
+    def reloading(args, timeout=60):
+        if args == ["corosync-cfgtool", "-R"]:
+            reloaded.append(1)
+        return run(args, timeout)
+
+    def refusing(real):
+        def call(*args, **kwargs):
+            if reloaded:
+                raise ReadOnly(5, "this node is not part of a quorate cluster")
+            return real(*args, **kwargs)
+
+        return call
+
+    for method in ("put", "delete", "next_id"):
+        monkeypatch.setattr(host, method, refusing(getattr(host, method)))
+    monkeypatch.setattr(cluster_setup, "_run", reloading)
+
+    answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    assert reloaded and answer["configuration"]["membres"][1]["nom"] == "pve-b"
+    assert answer["cles_ssh"] == {"hv-test": KEY_A, "pve-b": KEY_B} and answer["cle_corosync"]
+    with get_conn() as db:
+        assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test", "pve-b"}
+
+
+def test_a_shared_write_that_fails_leaves_no_trace_of_the_new_node(host, monkeypatch):
+    from app.core.cfs_client import ReadOnly
+
+    _create(host)
+    _info, decoded = _information(host)
+    put = host.put
+
+    def refusing(path, data, expected=-1):
+        if path == cluster_setup.CONF_PATH:
+            raise ReadOnly(5, "this node is not part of a quorate cluster")
+        return put(path, data, expected)
+
+    monkeypatch.setattr(host, "put", refusing)
+    with pytest.raises(ReadOnly):
+        cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    with get_conn() as db:
+        assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test"}
+    assert not any(p.endswith("/pve-b") for p in host.files) and "corosync-cfgtool -R" not in host.commands
+
+
+def test_a_member_that_never_encrypted_anything_sends_a_new_encryption_key(host, monkeypatch):
+    """HYPERLITE_ENCRYPTION_KEY only exists once a node encrypted a secret: a fresh member creates it, or the new node
+    would get none."""
+    from app.core import secrets_crypto
+
+    env = host.tmp / ".env"
+    env.write_text("HYPERLITE_SECRET_KEY=a-secret-key-of-this-node-0123456789\nOTHER=1\n")
+    monkeypatch.setattr(secrets_crypto, "ENV_PATH", env)
+    monkeypatch.delenv("HYPERLITE_ENCRYPTION_KEY")
+    _create(host)
+    _info, decoded = _information(host)
+    answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    key = answer["cles"]["HYPERLITE_ENCRYPTION_KEY"]
+    assert key and f"HYPERLITE_ENCRYPTION_KEY={key}" in env.read_text()
+
+
+def test_an_answer_without_the_clusters_keys_changes_nothing(host, monkeypatch):
+    answer = _answer()
+    del answer["cles"]["HYPERLITE_ENCRYPTION_KEY"]
+    monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: answer)
+    with pytest.raises(cluster_setup.ClusterError, match=r"did not send the cluster's keys.*remove hv-test there"):
+        cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
+    assert "a-secret-key-of-this-node" in (host.tmp / ".env").read_text()
+    assert not cluster_setup.COROSYNC_KEY.exists() and not cluster_setup.CFS_DEFAULTS.exists()
+    assert host.commands == []
+
+
+def test_a_join_that_fails_puts_this_node_back_as_it_was(host, monkeypatch):
+    """hyperlite-cfs never reaches the cluster: Corosync, hyperlite-cfs, their files, this node's cfs database and its
+    authorized_keys are back as they were, and nothing tells Hyperlite it joined."""
+    monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: _answer())
+    monkeypatch.setattr(cluster_setup, "WAIT_S", 0)
+    conf = cluster_setup.COROSYNC_CONF
+    conf.parent.mkdir(parents=True)
+    conf.write_text("# Debian's own\n")
+    cfs_db = cluster_setup.CFS_DB
+    cfs_db.parent.mkdir(parents=True)
+    cfs_db.write_bytes(b"its own tree")
+    keys = host.tmp / "authorized_keys"
+    keys.write_text("ssh-ed25519 OWN admin\n")
+    run = cluster_setup._run
+
+    def services(args, timeout=60):
+        if args[:2] == ["systemctl", "is-active"]:
+            return args[-1] == "corosync"  # Debian starts Corosync when it is installed; hyperlite-cfs is off
+        if args[:2] == ["systemctl", "is-enabled"]:
+            return args[-1] == "corosync"
+        if args == ["systemctl", "restart", shadow.SERVICE]:
+            (cfs_db.parent / "config.db").write_bytes(b"the cluster's tree")
+            return True  # the daemon stays in local mode: _wait_for_cluster gives up
+        return run(args, timeout)
+
+    monkeypatch.setattr(cluster_setup, "_run", services)
+    with pytest.raises(cluster_setup.ClusterError, match=r"back as it was.*remove hv-test there"):
+        cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
+
+    assert conf.read_text() == "# Debian's own\n" and not cluster_setup.COROSYNC_KEY.exists()
+    assert not cluster_setup.CFS_DEFAULTS.exists()
+    assert cfs_db.read_bytes() == b"its own tree" and not list(cfs_db.parent.glob("*.before-join-*"))
+    assert keys.read_text() == "ssh-ed25519 OWN admin\n"
+    assert "a-secret-key-of-this-node" in (host.tmp / ".env").read_text()
+    tail = host.commands[host.commands.index("systemctl stop corosync") :]
+    assert "systemctl disable hyperlite-cfs.service" in tail and "systemctl restart corosync" in tail
+    assert "systemctl restart hyperlite-cfs.service" not in tail
+    with get_conn() as db:
+        settings = dict(db.execute("SELECT cle, valeur FROM app_settings").fetchall())
+    assert "cfs_join_pending" not in settings and settings.get("cfs_shadow") != "1"
+    assert host.restarts == []
