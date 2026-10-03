@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include "store.h"
 
 #include <stdlib.h>
@@ -193,6 +194,9 @@ static void test_locks(cfs_store *s)
     CHECK_EQ(cfs_store_lock(s, "vm:101", "b", 2, 10, 2010, holder), CFS_OK);
     CHECK_EQ(cfs_store_lock(s, "x", "a", 1, 0, 3000, holder), CFS_INVALID);
     CHECK_EQ(cfs_store_lock(s, "x", "a", 1, CFS_LOCK_TTL_MAX + 1, 3000, holder), CFS_INVALID);
+    /* A time no clock gives, from a damaged or forged change: refused, not an expiry that overflows. */
+    CHECK_EQ(cfs_store_lock(s, "x", "a", 1, 60, INT64_MAX, holder), CFS_INVALID);
+    CHECK_EQ(cfs_store_lock(s, "x", "a", 1, 60, -1, holder), CFS_INVALID);
 
     /* The locks taken from a node that left are released; the others stay. */
     CHECK_EQ(cfs_store_lock(s, "vm:200", "ha@node3", 3, 600, 4000, holder), CFS_OK);
