@@ -841,4 +841,11 @@ def init_db():
         _ids.forget()  # the numbered tables are known once they all exist
         self_node.migrate(conn)
         cluster_setup.finish_join(conn)
+        # Successful reads are no longer logged (audit.READ_ACTION_PREFIXES); those logged before drowned the real
+        # actions (102,073 of 102,926 entries on a host audited before 1.0.0). Nothing writes them any more, so this
+        # finds nothing after the first start.
+        conn.execute(
+            "DELETE FROM audit_log WHERE result = 'succes' AND (action LIKE 'list\\_%' ESCAPE '\\' "
+            "OR action LIKE 'get\\_%' ESCAPE '\\')"
+        )
         conn.commit()
