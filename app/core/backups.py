@@ -396,7 +396,10 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             checksum = disk_sums[0] if len(disk_sums) == 1 else None
             _store().mark_done(backup_id, total_size, checksum)
             finish_task(task_id, "termine")
-            log_action(username, "backup_vm", vm_name, "succes", f"{mode}, {total_size} octets -> {dest_dir}")
+            kind = "live" if mode == "chaud" else "offline"
+            log_action(
+                username, "backup_vm", vm_name, "succes", f"{kind}, {total_size / 1024**3:.1f} GiB in {dest_dir}"
+            )
             # Retention (retention_count, part of the schema) is applied HERE, in the same
             # place for manual and scheduled backups, and on ALL the backups of this VM (not
             # only those of the same job_id): a retention_count configured for a VM must cap
