@@ -471,3 +471,18 @@ def test_files_of_a_remote_vm_are_renamed_with_quoted_paths(monkeypatch):
             "/var/lib/libvirt/images/shop-cloudinit.iso",
         ]
     ]
+
+
+def test_starting_a_running_or_stopping_a_stopped_container_is_a_conflict(client, auth_headers, monkeypatch):
+    """libvirt's own refusal surfaced as a 500, in the host's language; an unknown name as a 500 too."""
+    from app.routers import containers
+
+    running, stopped = _Domain("web", active=True), _Domain("db", active=False)
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(running, stopped))
+    admin = auth_headers("alice")
+    r = client.post("/containers/web/start", headers=admin)
+    assert r.status_code == 409 and "already running" in r.json()["detail"]
+    r = client.post("/containers/db/stop", headers=admin)
+    assert r.status_code == 409 and "already stopped" in r.json()["detail"]
+    assert client.post("/containers/nope/start", headers=admin).status_code == 404
+    assert client.post("/containers/nope/stop", headers=admin).status_code == 404
