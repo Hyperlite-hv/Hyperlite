@@ -377,6 +377,12 @@ int cfs_store_next_id(cfs_store *s, int64_t *id)
     int rc = next < CFS_FIRST_ID ? CFS_INTERNAL : CFS_OK;
     if (rc != CFS_OK)
         snprintf(s->error, sizeof(s->error), "the id counter is missing or below %d", CFS_FIRST_ID);
+    /* A counter received from a peer is taken as is (cfs_store_replace_commit): it may already be at the end, and
+     * next + 1 would overflow (found by the fuzzer). */
+    if (rc == CFS_OK && next == INT64_MAX) {
+        snprintf(s->error, sizeof(s->error), "the id counter is exhausted");
+        rc = CFS_INTERNAL;
+    }
     sqlite3_stmt *st = NULL;
     if (rc == CFS_OK &&
         sqlite3_prepare_v2(s->db, "UPDATE meta SET value = ? WHERE key = 'next_id'", -1, &st, NULL) != SQLITE_OK) {
