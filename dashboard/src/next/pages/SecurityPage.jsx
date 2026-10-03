@@ -131,6 +131,8 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
   }
   async function changeRole(u, role) {
     if (role === "admin" && !(await confirmAction({ title: t("sec.promoteTitle", { name: u.username }), message: t("sec.promoteMsg"), confirmLabel: t("sec.promote"), danger: true }))) return;
+    // Taking an administrator's rights away was one slip of the mouse in the table.
+    if (u.role === "admin" && role !== "admin" && !(await confirmAction({ title: t("sec.demoteTitle", { name: u.username }), message: t("sec.demoteMsg"), confirmLabel: t("sec.demote"), danger: true }))) return;
     run(() => updateUser(u.username, { role }), { fail: t("sec.updateFailed") });
   }
   const when = (iso) => (iso ? new Intl.DateTimeFormat(lang, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)) : null);

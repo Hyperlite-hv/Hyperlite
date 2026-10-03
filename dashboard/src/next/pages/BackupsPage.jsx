@@ -62,7 +62,7 @@ export default function BackupsPage() {
     <>
       <PageHeader title={t("tab.backups")} count={rows ? rows.length : null} desc={t("bk.desc")} />
       {unprotected > 0 && (
-        <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("bk.unscheduled", { n: unprotected })}</span>
+        <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t(unprotected === 1 ? "bk.unscheduledOne" : "bk.unscheduled", { n: unprotected })}</span>
           <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("datacenter", null, "vms")}>{t("bk.seeVms")}</button></div>
       )}
       {scheduleError && <InlineError message={scheduleError} onRetry={load} />}

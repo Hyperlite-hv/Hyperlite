@@ -63,7 +63,13 @@ test("users: create with validation, promotion needs a confirmation, self is pro
   await expect(roleSel).toHaveValue("admin");
   const users = (await (await request.get("/auth/users", { headers: auth() })).json()) as { username: string; role: string }[];
   expect(users.find((u) => u.username === USER)?.role).toBe("admin");
+  // demoting an administrator asks too: cancel keeps the role, confirm applies it
   await roleSel.selectOption("observateur");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(roleSel).toHaveValue("admin");
+  await roleSel.selectOption("observateur");
+  await dialogConfirm(page, "Remove the rights");
+  await expect(roleSel).toHaveValue("observateur");
 
   // an administrator can neither demote nor delete themself here
   await expect(main.getByRole("combobox", { name: `Role of ${ADMIN.username}` })).toBeDisabled();
