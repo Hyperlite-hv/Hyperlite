@@ -17,9 +17,9 @@ BUILD="$APP_DIR/data/cfs-build"
 log() { echo "[build-cfs] $*"; }
 
 # Werror stays for the developers' builds; a newer compiler on the target must not turn a new warning into a failed
-# installation.
+# installation. The C tests are not shipped in the package (installer/build-deb.sh), so they are not built here.
 rm -rf "${BUILD:?}"
-meson setup --buildtype=release -Dwerror=false "$BUILD" "$APP_DIR/cfs" > "$BUILD.log" 2>&1 ||
+meson setup --buildtype=release -Dwerror=false -Dtests=false "$BUILD" "$APP_DIR/cfs" > "$BUILD.log" 2>&1 ||
     { cat "$BUILD.log" >&2; exit 1; }
 ninja -C "$BUILD" hyperlite-cfs >> "$BUILD.log" 2>&1 || { tail -n 40 "$BUILD.log" >&2; exit 1; }
 

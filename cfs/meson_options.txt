@@ -1,1 +1,2 @@
+option('tests', type: 'boolean', value: true, description: 'Build the C tests (off on the nodes: scripts/build-cfs.sh)')
 option('fuzz', type: 'boolean', value: false, description: 'Build the libFuzzer targets (clang only)')
