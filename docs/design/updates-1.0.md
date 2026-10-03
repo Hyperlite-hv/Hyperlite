@@ -1,7 +1,7 @@
 # Design: updates for 1.0.0
 
-Status: **proposal, waiting for the maintainer's decision.** No code is written before it is accepted. The goals
-below are those Antho chose on 2026-10-03 (#354); the open questions are listed in section 10.
+Status: **accepted** on 2026-10-03, with the decisions of section 10. The goals below are those Antho chose the
+same day (#354).
 
 ## 1. Where we are
 
@@ -113,11 +113,13 @@ Mixed versions during the run: version N and N+1 must work together in one clust
 node-to-node calls). That is a rule for every minor release from now on; a major release may break it and then
 says so in its notes.
 
-## 10. Open questions for Antho
+## 10. Decisions (Antho, 2026-10-03)
 
-1. **Night window** for the security updates: 03:30 by default, changeable per node? Never an automatic reboot?
-2. **Test channel**: publish every merge into `test` (several a day), or only when asked?
-3. **Version of the first release**: 1.0.0 as soon as this chantier and the audit (#354) are done?
+1. **Security updates** every night at 03:30 by default (changeable per node), **never an automatic reboot**: a
+   reboot need is notified and the administrator picks the moment.
+2. **Test channel**: every merge into `test` is published to it.
+3. **1.0.0** is published once this chantier and the audit (#354) are done, its exit criteria met. Until then,
+   `master` keeps publishing dated versions; the first release under the new scheme is 1.0.0.
 
 ## 11. Order of the work
 
