@@ -59,13 +59,15 @@ executable(
   install_dir: get_option('sbindir'),
 )
 
-foreach t : ['path', 'proto', 'store', 'handler', 'node']
-  test(
-    t,
-    executable('test_' + t, 'tests/test_' + t + '.c', link_with: core, dependencies: deps,
-               include_directories: include_directories('src')),
-  )
-endforeach
+if get_option('tests')
+  foreach t : ['path', 'proto', 'store', 'handler', 'node']
+    test(
+      t,
+      executable('test_' + t, 'tests/test_' + t + '.c', link_with: core, dependencies: deps,
+                 include_directories: include_directories('src')),
+    )
+  endforeach
+endif
 
 # Fuzzing the request decoder and handler, and the messages from other nodes, needs clang's libFuzzer: meson setup -Dfuzz=true with CC=clang.
 if get_option('fuzz')
