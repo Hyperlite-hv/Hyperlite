@@ -79,8 +79,25 @@ class BackupRequest(BaseModel):
     target_dir: str | None = None
 
 
+def _target_dir(path, user, kept=None):
+    """The directory a backup of this request is written in: None (the default one), or a checked one. Backups run
+    as root: another directory is for administrators only, a VM's own operator (vm.snapshot) keeps the default (a
+    manual backup took any directory, /etc included, until the audit before 1.0.0). `kept`: the directory already
+    set by an administrator, which an operator editing the schedule sends back unchanged."""
+    from app.core.backup_groups import GroupError, validate_target
+
+    try:
+        target = validate_target(path)
+    except GroupError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    if target and target not in (str(DEFAULT_BACKUP_DIR), kept) and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only an administrator can choose the backup directory")
+    return target
+
+
 @router.post("/vms/{name}/backups", status_code=202)
 def create_backup(name: str, payload: BackupRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+    target_dir = _target_dir(payload.target_dir, user)
     refuse_vm_with_block_disks(name, "A backup")
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit)
@@ -89,7 +106,7 @@ def create_backup(name: str, payload: BackupRequest, user: dict = Depends(requir
 
     def job():
         try:
-            run_backup(name, payload.target_dir, username=user["username"], claim=claim)
+            run_backup(name, target_dir, username=user["username"], claim=claim)
         except Exception:
             logger.debug(
                 "Ignored exception in job()", exc_info=True
@@ -210,12 +227,8 @@ def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depend
     if not valid_time:
         raise HTTPException(status_code=422, detail="Invalid time (expected HH:MM)")
 
-    from app.core.backup_groups import GroupError, validate_target
-
-    try:
-        target = validate_target(payload.cible_dir) or str(DEFAULT_BACKUP_DIR)
-    except GroupError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    current = backup_service.schedule_of(name)
+    target = _target_dir(payload.cible_dir, user, current and current.get("cible_dir")) or str(DEFAULT_BACKUP_DIR)
     next_run = _next_run(payload.frequence, payload.heure)
     backup_service.set_schedule(
         name,
