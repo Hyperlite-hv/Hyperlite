@@ -5,6 +5,7 @@ validates input, checks permissions and orchestrates the background task."""
 import logging
 import threading
 
+import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -18,6 +19,7 @@ from app.core.backups import (
     run_backup,
     verify_backup,
 )
+from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task
 from app.core.vm_builder import validate_name
@@ -79,8 +81,25 @@ class BackupRequest(BaseModel):
     target_dir: str | None = None
 
 
+def _target_dir(path, user, kept=None):
+    """The directory a backup of this request is written in: None (the default one), or a checked one. Backups run
+    as root: another directory is for administrators only, a VM's own operator (vm.snapshot) keeps the default (a
+    manual backup took any directory, /etc included, until the audit before 1.0.0). `kept`: the directory already
+    set by an administrator, which an operator editing the schedule sends back unchanged."""
+    from app.core.backup_groups import GroupError, validate_target
+
+    try:
+        target = validate_target(path)
+    except GroupError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    if target and target not in (str(DEFAULT_BACKUP_DIR), kept) and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only an administrator can choose the backup directory")
+    return target
+
+
 @router.post("/vms/{name}/backups", status_code=202)
 def create_backup(name: str, payload: BackupRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+    target_dir = _target_dir(payload.target_dir, user)
     refuse_vm_with_block_disks(name, "A backup")
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit)
@@ -89,7 +108,7 @@ def create_backup(name: str, payload: BackupRequest, user: dict = Depends(requir
 
     def job():
         try:
-            run_backup(name, payload.target_dir, username=user["username"], claim=claim)
+            run_backup(name, target_dir, username=user["username"], claim=claim)
         except Exception:
             logger.debug(
                 "Ignored exception in job()", exc_info=True
@@ -198,8 +217,22 @@ async def get_backup_schedule(name: str, user: dict = Depends(require_vm_privile
     return await backup_service.get_schedule(name)
 
 
+def _vm_exists(name):
+    conn = open_conn()
+    try:
+        conn.lookupByName(name)
+        return True
+    except libvirt.libvirtError:
+        return False
+    finally:
+        conn.close()
+
+
 @router.put("/vms/{name}/backup-schedule")
 def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+    # The scheduler backs up the VMs of this host: a schedule for any other name (a typo) failed every night.
+    if not _vm_exists(name):
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found on this node")
     if payload.frequence not in ("quotidien", "hebdomadaire", "mensuel"):
         raise HTTPException(status_code=422, detail="Invalid frequency")
     try:
@@ -210,12 +243,8 @@ def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depend
     if not valid_time:
         raise HTTPException(status_code=422, detail="Invalid time (expected HH:MM)")
 
-    from app.core.backup_groups import GroupError, validate_target
-
-    try:
-        target = validate_target(payload.cible_dir) or str(DEFAULT_BACKUP_DIR)
-    except GroupError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    current = backup_service.schedule_of(name)
+    target = _target_dir(payload.cible_dir, user, current and current.get("cible_dir")) or str(DEFAULT_BACKUP_DIR)
     next_run = _next_run(payload.frequence, payload.heure)
     backup_service.set_schedule(
         name,
