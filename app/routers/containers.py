@@ -342,7 +342,7 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
             errors.append("The password must contain at least 4 characters")
 
     conn = open_lxc_conn()
-    task_id = create_task("create_container", payload.name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("create_container", payload.name, node=None, username=user["username"])
     try:
         try:
             conn.lookupByName(payload.name)
@@ -657,7 +657,7 @@ class CloneContainerRequest(BaseModel):
 def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depends(require_role("admin"))):
     maintenance.refuse_if_in_maintenance("local", "Cloning")
     conn = open_lxc_conn()
-    task_id = create_task("clone_container", name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("clone_container", name, node=None, username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)

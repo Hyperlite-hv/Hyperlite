@@ -64,7 +64,7 @@ def _clone_vm(name, payload, user):
     #    the same limit as a hypervisor without a guest agent, documented in the
     #    response rather than silently ignored.
     conn = open_conn()
-    task_id = create_task("clone_vm", name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("clone_vm", name, node=None, username=user["username"])
     new_disk_paths = []
     try:
         try:

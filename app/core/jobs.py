@@ -37,7 +37,6 @@ terminal already is.
 
 import json
 import logging
-import socket
 import subprocess
 import threading
 import uuid
@@ -181,17 +180,10 @@ class JobRunRefused(ValueError):
 
 
 def _local_node():
-    """Name of the node the run is recorded under. The run must still be recorded
-    when libvirt is unreachable, so it falls back to the system host name."""
-    try:
-        conn = open_conn()
-    except libvirt.libvirtError:
-        logger.warning("libvirt unreachable, recording the job run under the system host name", exc_info=True)
-        return socket.gethostname()
-    try:
-        return conn.getHostname()
-    finally:
-        conn.close()
+    """The node a run is recorded under: this one (app/core/self_node.py), even when libvirt does not answer."""
+    from app.core import self_node
+
+    return self_node.name()
 
 
 def _check_targets(job, steps, targets):

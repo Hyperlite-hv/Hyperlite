@@ -147,8 +147,12 @@ def close_interrupted_tasks():
 def create_task(type_, cible=None, node=None, username=None):
     """Create a task and mark it 'en_cours' immediately (see the module
     docstring: there is no real queue yet)."""
+    from app.core import self_node
+
     task_id = str(uuid.uuid4())
-    _store().create(task_id, type_, cible, node, username, _now())
+    # One name per node, whatever the caller had at hand: this node's name for None and "local", a registered node's
+    # name otherwise (never the host name libvirt reports, which is neither).
+    _store().create(task_id, type_, cible, self_node.to_db(node), username, _now())
     with _cancel_lock:
         _live.add(task_id)
     return task_id

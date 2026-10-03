@@ -140,3 +140,52 @@ def test_a_node_cannot_be_registered_or_renamed_under_this_node_name(nodes_api):
     assert _add(client, admin, "pve-b").status_code == 201
     r = client.post("/nodes/pve-b/rename", json={"new_name": "hv-test"}, headers=admin)
     assert r.status_code == 422
+
+
+def test_a_task_names_its_node_and_this_node_finds_it_as_local(database):
+    """The node pages ask for node=local: tasks recorded the host name libvirt gave, so they found none."""
+    from app.core.tasks import create_task
+    from app.repositories.sqlite.tasks import SqliteTaskStore
+
+    create_task("start_vm", "web")  # local
+    create_task("stop_vm", "web", node="local")
+    create_task("start_vm", "db", node="pve-b")  # a registered node keeps its name
+
+    assert _rows(database, "SELECT node FROM tasks ORDER BY cible, type") == [("pve-b",), ("hv-test",), ("hv-test",)]
+    store = SqliteTaskStore()
+    assert sorted(t["cible"] for t in store.list({"node": "local"})) == ["web", "web"]
+    assert [t["cible"] for t in store.list({"node": "pve-b"})] == ["db"]
+
+
+def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
+    from app.core import self_node
+
+    with database.get_conn() as db:
+        db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('pve-b', '192.0.2.2', 't')")
+        db.execute("DELETE FROM app_settings WHERE cle = ?", (self_node.TASKS_SETTING,))
+        for i, node in enumerate(("hyperlite.home", None, "local", "pve-b", "hv-test")):
+            db.execute(
+                "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES (?, 'start_vm', ?, ?, 'termine', 100, 't')",
+                (f"t{i}", f"vm{i}", node),
+            )
+        db.commit()
+
+    self_node.forget()
+    database.init_db()  # the next start
+
+    assert _rows(database, "SELECT cible, node FROM tasks ORDER BY cible") == [
+        ("vm0", "hv-test"),
+        ("vm1", "hv-test"),
+        ("vm2", "hv-test"),
+        ("vm3", "pve-b"),
+        ("vm4", "hv-test"),
+    ]
+    # Once only: a later task of a node that left the cluster keeps its name.
+    with database.get_conn() as db:
+        db.execute(
+            "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES ('t9', 'start_vm', 'vm9', 'gone', 'termine', 100, 't')"
+        )
+        db.commit()
+    self_node.forget()
+    database.init_db()
+    assert _rows(database, "SELECT node FROM tasks WHERE id = 't9'") == [("gone",)]
