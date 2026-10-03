@@ -1,11 +1,10 @@
 import { useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Activity, Box, ChevronDown, ChevronRight, Database, Monitor, Network, PanelLeft, Plus, Search, Users } from "lucide-react";
+import { Box, ChevronDown, ChevronRight, Database, Monitor, Network, PanelLeft, Plus, Search, Users } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
-import { deriveAlerts } from "../lib/alerts";
 import { requestIntent } from "../lib/intents";
 import Menu, { MenuItem } from "../components/Menu";
 import CreateVmWizard from "../wizard/CreateVmWizard";
@@ -14,21 +13,18 @@ import { locate } from "../legacy/tabs";
 import { useEnvironmentLabel } from "../lib/environment";
 import { parseVmKey } from "../lib/vmId";
 
-// Top bar: clickable breadcrumb, global search (opens the palette), one Activity button whose badge counts
-// alerts (or running tasks), and the Create menu as a default button: list pages carry their own primary.
+// Top bar: clickable breadcrumb, global search (opens the palette), and the Create menu as a default button: list
+// pages carry their own primary. The open alerts are on Home ("To watch"), the running tasks on the Tasks page.
 export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWizards }) {
   const t = useT();
-  const { tasks, nodes, vms, storagePools, selection, activeTab, navigateTo } = useInfraStore(useShallow((s) => ({
-    tasks: s.tasks, nodes: s.nodes, vms: s.vms, storagePools: s.storagePools, selection: s.selection, activeTab: s.activeTab, navigateTo: s.navigateTo,
+  const { nodes, selection, activeTab, navigateTo } = useInfraStore(useShallow((s) => ({
+    nodes: s.nodes, selection: s.selection, activeTab: s.activeTab, navigateTo: s.navigateTo,
   })));
   const caps = capabilities(useAuthStore((s) => s.role));
   const [createOpen, setCreateOpen] = useState(false);
   const createBtn = useRef(null);
   const env = useEnvironmentLabel();
 
-  const running = tasks.filter((x) => x.statut === "en_cours").length;
-  const alerts = deriveAlerts({ nodes, vms, storagePools, tasks }).length;
-  const badge = alerts || running;
   const page = locate("datacenter", activeTab || "summary").page;
   const node = selection.type === "node" ? nodes.find((n) => n.id === selection.id) : null;
 
@@ -38,12 +34,6 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
   else if (selection.type === "container") crumbs.push([t("nav.containers"), () => navigateTo("datacenter", null, "containers")], [selection.id]);
   else if (page !== "summary") crumbs.push([t(`tab.${page}`)]);
 
-  // The Activity button toggles the panel: a second click closes it.
-  const activityOpen = useInfraStore((s) => !s.taskLogCollapsed);
-  const toggleActivity = () => {
-    if (activityOpen) { useInfraStore.getState().toggleTaskLog(); return; }
-    window.dispatchEvent(new CustomEvent("nx:dock", { detail: alerts ? "alerts" : running ? "tasks" : "alerts" }));
-  };
   const create = (kind) => {
     setCreateOpen(false);
     if (kind === "vm" || kind === "container") { setWizards({ [kind]: true }); return; }
@@ -71,11 +61,6 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
         <Search size={15} aria-hidden="true" />
         <span className="nx-find-label">{t("find.placeholder")}</span>
         <span className="nx-kbd" aria-hidden="true">Ctrl K</span>
-      </button>
-      <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon nx-activity-btn" title={t("top.activity")}
-        aria-label={t("top.activityLabel", { alerts, running })} aria-expanded={activityOpen} aria-controls="nx-activity" onClick={toggleActivity}>
-        <Activity size={17} aria-hidden="true" />
-        {badge > 0 && <span className={`nx-badge-count${alerts ? " is-warn" : ""}`} aria-hidden="true">{badge}</span>}
       </button>
       {caps.create && (
         <span className="nx-relative">

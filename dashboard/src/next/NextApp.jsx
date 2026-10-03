@@ -9,12 +9,10 @@ import MaintenanceHost from "./components/MaintenanceDialog";
 import NodePowerHost from "./components/NodePowerDialog";
 import { useT, useLangStore } from "./i18n";
 import { useThemeStore } from "./tokens/theme";
-import { useInfraStore } from "../store/useInfraStore";
 import { usePolling } from "./lib/polling";
 import { refreshInventory, refreshExtras } from "./lib/inventory";
 import TopBar from "./layout/TopBar";
 import Workspace from "./layout/Workspace";
-import Dock from "./layout/Dock";
 import Palette from "./layout/Palette";
 import Sidebar from "./layout/Sidebar";
 
@@ -49,7 +47,6 @@ export default function NextApp() {
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
   // The task dock starts collapsed (calm by default); it shows a running-task count and can be opened at any time.
-  useEffect(() => { useInfraStore.setState({ taskLogCollapsed: true }); }, []);
 
   useEffect(() => { refreshInventory({ initial: true }).catch(() => {}); refreshExtras(); }, []);
   usePolling(useCallback(() => refreshInventory(), []), REFRESH_MS);
@@ -109,7 +106,6 @@ export default function NextApp() {
           <Route path="/container/:id" element={<Workspace />} />
           <Route path="*" element={<Navigate to="/datacenter" replace />} />
         </Routes>
-        <Dock />
         <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} setWizards={setWizards} />
         <MaintenanceHost />
         <NodePowerHost />
