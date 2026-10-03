@@ -1362,7 +1362,6 @@ export default {
   "help": "Help",
   "action.close": "Close",
   "nav.library": "ISO images and templates",
-  "nav.auditLog": "Audit log",
   "nav.notifications": "Notifications",
   "env.title": "{label} installation: this is not production",
   "crumb.label": "Breadcrumb",

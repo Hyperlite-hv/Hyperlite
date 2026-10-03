@@ -1394,7 +1394,6 @@ export default {
   "help": "Aide",
   "action.close": "Fermer",
   "nav.library": "Images ISO et modèles",
-  "nav.auditLog": "Journal d’audit",
   "nav.notifications": "Notifications",
   "env.title": "Installation {label} : ce n’est pas la production",
   "crumb.label": "Fil d’Ariane",
