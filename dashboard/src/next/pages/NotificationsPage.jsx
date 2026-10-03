@@ -25,6 +25,8 @@ export default function NotificationsPage() {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [events, setEvents] = useState({});
+  // The server names its events in English; a newer one without a translation keeps the server's name.
+  const evLabel = (k, label = events[k] || k) => (t(`nt.ev.${k}`) === `nt.ev.${k}` ? label : t(`nt.ev.${k}`));
   const [channels, setChannels] = useState(null);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(false);
@@ -134,7 +136,7 @@ export default function NotificationsPage() {
                       <td><StatusIndicator override={c.enabled ? ON : OFF} /></td>
                       <th scope="row">{c.name}</th>
                       <td>{c.type === "email" ? t("nt.email") : "Webhook"}</td>
-                      <td className="nx-wrapcell">{c.events.length === 0 ? t("nt.allEvents") : c.events.map((k) => events[k] || k).join(", ")}</td>
+                      <td className="nx-wrapcell">{c.events.length === 0 ? t("nt.allEvents") : c.events.map((k) => evLabel(k)).join(", ")}</td>
                       <td><div className="nx-ra">
                         <button type="button" className="nx-btn nx-btn--sm" disabled={testing === c.id} aria-label={t("a11y.test_x", { v: c.name })} onClick={() => test(c)}>{testing === c.id ? "…" : t("nt.test")}</button>
                         {!c.config?.redacted && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("nt.editAria", { v: c.name })} onClick={() => openEdit(c)}><Pencil size={14} aria-hidden="true" />{t("nt.edit")}</button>}
@@ -176,7 +178,7 @@ export default function NotificationsPage() {
           <legend>{t("nt.events")}</legend>
           <p className="nx-f-h" style={{ margin: "0 0 var(--space-2)" }}>{t("nt.eventsHelp")}</p>
           <div className="nx-checks">
-            {Object.entries(events).map(([k, label]) => <label key={k} className="nx-check"><input type="checkbox" checked={picked.includes(k)} onChange={() => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]))} /> {t(`nt.ev.${k}`) === `nt.ev.${k}` ? label : t(`nt.ev.${k}`)}</label>)}
+            {Object.entries(events).map(([k, label]) => <label key={k} className="nx-check"><input type="checkbox" checked={picked.includes(k)} onChange={() => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]))} /> {evLabel(k, label)}</label>)}
           </div>
         </fieldset>
       </SideDrawer>

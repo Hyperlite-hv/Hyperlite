@@ -29,6 +29,7 @@ from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
+from app.core.vm_crash_watch import start_vm_crash_watch
 from app.repositories.cfs.ids import NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
@@ -304,6 +305,7 @@ def on_startup():
     start_node_poller()
     start_config_copy()
     start_ha_watch()
+    start_vm_crash_watch()
     start_replication_scheduler()
     start_auto_cleanup_scheduler()
     start_update_check_scheduler()
