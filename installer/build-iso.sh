@@ -1,8 +1,8 @@
 #!/bin/bash
-# Builds the bootable "Hyperlite Appliance" ISO: starts from the official
-# Debian netinst image, injects the preseed and the installation scripts, and
-# changes the boot menu so that the unattended installation starts by default
-# after a short delay (boot, wait, done).
+# Builds the bootable Hyperlite ISO: starts from the official Debian netinst image, adds the hyperlite package,
+# the offline bundle (every package and wheel the installation needs, so it needs no network), the preseeds and
+# the installation scripts, and writes a boot menu with two modes, in French or English: automatic (the default
+# after 5 s) and custom, guided step by step.
 #
 # Usage: ./build-iso.sh [output_iso_path.iso]
 set -e
@@ -59,12 +59,10 @@ log "=== 3/6: injecting the Hyperlite installation files ==="
 HL_DIR="$EXTRACT_DIR/hyperlite"
 mkdir -p "$HL_DIR"
 
-# The ISO embeds NO application code, only the installation scripts. Hyperlite
-# itself is installed by postinstall.sh through `apt install hyperlite` from the
-# published APT repository, exactly as an administrator would do by hand, so a
-# fresh appliance is natively managed by apt from its first boot. Updates
-# therefore never require rebuilding or reflashing an ISO, and the ISO stays
-# small (no source code or Git history to embed).
+# The ISO carries the hyperlite package, every Debian package and Python wheel the installation needs (the offline
+# bundle below) and the installation scripts: an installation needs no network. The machine is then managed by apt
+# like any Debian, from the Debian mirrors and the Hyperlite repository, as soon as it has a network.
+
 # Single source of truth: installer/apt-source.conf. An exported HYPERLITE_APT_URL overrides it,
 # for tests only.
 if [ -z "${HYPERLITE_APT_URL:-}" ] && [ -f "$SCRIPT_DIR/apt-source.conf" ]; then
@@ -93,175 +91,134 @@ fi
     echo "commit=$(git -C "$HYPERLITE_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
     echo "built_at=$(date -u +%FT%TZ)"
 } > "$HL_DIR/build-info"
-cp "$SCRIPT_DIR/preseed.cfg" "$HL_DIR/preseed.cfg"
+# The preseeds are not copied here: they are embedded in the initrds (step 3.5).
 cp "$SCRIPT_DIR/partman-auto.sh" "$HL_DIR/partman-auto.sh"
 cp "$SCRIPT_DIR/postinstall.sh" "$HL_DIR/postinstall.sh"
+cp "$SCRIPT_DIR/hyperlite-questions.sh" "$HL_DIR/hyperlite-questions.sh"
+cp "$SCRIPT_DIR/hyperlite.templates" "$HL_DIR/hyperlite.templates"
+cp "$SCRIPT_DIR/packages.list" "$HL_DIR/packages.list"
 chmod +x "$HL_DIR"/*.sh
 
-log "=== 3.5/6: preseed embedded directly in the initrd ==="
-# The Debian installer (d-i) loads ONE preseed file, the first one it finds,
-# and stops there: it does NOT also load the one referenced by the
-# "preseed/file=" kernel parameter. The file on the CD
-# (/cdrom/hyperlite/preseed.cfg, and with it preseed/include_command and
-# preseed/late_command) would therefore never be read if another preseed were
-# found first. Evidence: "grep late_command /var/log/installer/syslog" returns
-# nothing after an installation that nevertheless completed without a single
-# blocking screen, which means postinstall.sh (reached only through
-# late_command) never ran.
-# So this script embeds the REAL preseed.cfg of the repository (including
-# include_command/late_command) at the root of the initrd: a single source of
-# truth, loaded from the very first moment of the boot (before the CD-ROM is
-# even mounted). The "/cdrom/hyperlite/..." paths inside
-# include_command/late_command remain valid: they point to scripts EXECUTED
-# much later (once the CD is mounted), not to preseed files to load.
-# Injection technique: append a small cpio+gzip archive to the existing initrd
-# (the kernel unpacks concatenated cpio archives in order, and files from the
-# last archive win over the previous ones) rather than rebuilding the initrd.
-CPIO_DIR="$WORKDIR/early-preseed-cpio"
-mkdir -p "$CPIO_DIR"
-cp "$SCRIPT_DIR/preseed.cfg" "$CPIO_DIR/preseed.cfg"
-( cd "$CPIO_DIR" && echo preseed.cfg | cpio -o -H newc 2>/dev/null | gzip -9 > "$WORKDIR/early-preseed.cpio.gz" )
-for INITRD in "$EXTRACT_DIR/install.amd/initrd.gz" "$EXTRACT_DIR/install.amd/gtk/initrd.gz"; do
-    [ -f "$INITRD" ] && cat "$WORKDIR/early-preseed.cpio.gz" >> "$INITRD"
+# The offline bundle (installer/build-offline-bundle.sh): every Debian package and Python wheel the installation
+# needs, so it runs without a network, as with Proxmox. Without it the installation downloads them.
+OFFLINE_BUNDLE="${HYPERLITE_OFFLINE_BUNDLE:-$SCRIPT_DIR/offline-bundle}"
+if [ -s "$OFFLINE_BUNDLE/debs/packages.index" ] && [ -s "$OFFLINE_BUNDLE/install.list" ]; then
+    rsync -a "$OFFLINE_BUNDLE/" "$HL_DIR/offline/"
+    log "offline bundle embedded: $(tr "\n" " " < "$OFFLINE_BUNDLE/bundle-info")($(du -sh "$HL_DIR/offline" | cut -f1))"
+else
+    log "WARNING: no offline bundle in $OFFLINE_BUNDLE (run installer/build-offline-bundle.sh): the installation will need the network"
+fi
+
+log "=== 3.5/6: one initrd per installation mode, with its preseed ==="
+# The Debian installer loads ONE preseed file, the first one it finds, and the very first screens (language,
+# keyboard) come before the CD is even mounted. So each mode gets its own copy of the installer's initrd with its
+# preseed at the root (preseed.cfg + preseed-auto.cfg or preseed-custom.cfg), loaded from the first moment of the
+# boot. The automatic mode uses the text installer, the custom one the graphical installer (mouse, clearer
+# screens). Debian's own initrds stay untouched for its entries in the advanced menu.
+# Injection technique: a small cpio+gzip archive appended to a copy of the initrd (the kernel unpacks concatenated
+# cpio archives in order).
+HL_INITRD_DIR="$EXTRACT_DIR/install.amd/hyperlite"
+mkdir -p "$HL_INITRD_DIR"
+for mode in auto custom; do
+    CPIO_DIR="$WORKDIR/preseed-$mode"
+    mkdir -p "$CPIO_DIR"
+    cat "$SCRIPT_DIR/preseed.cfg" "$SCRIPT_DIR/preseed-$mode.cfg" > "$CPIO_DIR/preseed.cfg"
+    ( cd "$CPIO_DIR" && echo preseed.cfg | cpio -o -H newc 2>/dev/null | gzip -9 > "$WORKDIR/preseed-$mode.cpio.gz" )
 done
+cat "$EXTRACT_DIR/install.amd/initrd.gz" "$WORKDIR/preseed-auto.cpio.gz" > "$HL_INITRD_DIR/initrd-auto.gz"
+cat "$EXTRACT_DIR/install.amd/gtk/initrd.gz" "$WORKDIR/preseed-custom.cpio.gz" > "$HL_INITRD_DIR/initrd-custom.gz"
 
-log "=== 4/6: boot menu, unattended installation by default ==="
-# Same mechanism as the "Automated install" entry that Debian already ships in
-# its own "Advanced options" submenu (isolinux/adtxt.cfg, boot/grub/grub.cfg):
-# auto=true priority=critical forces every upcoming debconf answer from the
-# preseed (no more questions), and quiet hides the verbose kernel log. THIS
-# entry becomes the one that starts automatically after a short delay when
-# nobody touches the keyboard, which the stock Debian menu does not do (it
-# waits indefinitely for a key, with no timeout configured).
-# debian-installer/language, /country and /locale (all THREE, because
-# localechooser handles them as distinct questions and preseeding /locale alone
-# is not always enough to suppress the other two), the keyboard and
-# netcfg/get_hostname/hostname/get_domain are ALSO passed as kernel
-# parameters, in addition to being in the preseed.cfg embedded in the initrd:
-# the very first screens (language, keyboard) are processed before cdebconf has
-# finished loading the embedded preseed, so only kernel parameters (available
-# from the very first moment of the boot) skip them reliably.
-# hostname=/domain= (generic Linux kernel parameters) are also present in
-# addition to netcfg/*: they set the name of the machine BEING INSTALLED (the
-# live environment), not the answers to the netcfg/* debconf questions that
-# drive the name PERSISTED on the target machine. These are two different
-# things despite the similar name.
-# No "preseed/file=/cdrom/..." here: it is never consulted anyway, because the
-# preseed embedded in the initrd is found and loaded first (see above).
-# The installer locale defaults (fr/FR/fr_FR.UTF-8) are the appliance defaults.
-APPEND_ARGS="auto=true priority=critical debian-installer/language=fr debian-installer/country=FR debian-installer/locale=fr_FR.UTF-8 keyboard-configuration/xkb-keymap=fr netcfg/get_hostname=hyperlite netcfg/hostname=hyperlite netcfg/get_domain=local hostname=hyperlite domain= --- quiet"
-# Without `set -u` an unset variable expands to nothing, silently: this line was lost once and the ISO booted with an
-# empty kernel command line. Fail the build instead.
-: "${APPEND_ARGS:?APPEND_ARGS must be set before the boot menus are written}"
+log "=== 4/6: boot menu: automatic or custom, in French or English ==="
+# The kernel command line answers the first screens, shown before the preseed is read (language, country,
+# locale; in automatic mode also the keyboard, the host name and the time zone). debconf/language is the language
+# the installer's screens are shown in: answered on the command line, the language step does not set it (tested:
+# the screens stayed in English). The preseed at the root of the
+# initrd is read in both modes. Automatic: auto=true and priority=critical ask only what is essential. Custom:
+# priority=high asks the usual questions of an installation, with the preseed's values as defaults, and no
+# auto=true, which skips the keyboard (tested: the keyboard question never came, and stayed empty). hlmode= tells the installation
+# scripts which mode runs (installer/hyperlite-questions.sh). hostname=/domain= name the installer's own live
+# system, netcfg/* the installed machine.
+FR="debian-installer/language=fr debian-installer/country=FR debian-installer/locale=fr_FR.UTF-8 debconf/language=fr"
+EN="debian-installer/language=en debian-installer/country=US debian-installer/locale=en_US.UTF-8 debconf/language=en"
+AUTO="auto=true priority=critical hlmode=auto netcfg/get_hostname=hyperlite netcfg/hostname=hyperlite netcfg/get_domain=local hostname=hyperlite domain="
+CUSTOM="priority=high hlmode=custom"
+ARGS_AUTO_FR="$AUTO $FR keyboard-configuration/xkb-keymap=fr time/zone=Europe/Paris --- quiet"
+ARGS_AUTO_EN="$AUTO $EN keyboard-configuration/xkb-keymap=us time/zone=Etc/UTC --- quiet"
+ARGS_CUSTOM_FR="$CUSTOM $FR --- quiet"
+ARGS_CUSTOM_EN="$CUSTOM $EN --- quiet"
+INITRD_AUTO=/install.amd/hyperlite/initrd-auto.gz
+INITRD_CUSTOM=/install.amd/hyperlite/initrd-custom.gz
 
-# ---- BIOS (isolinux/syslinux) ----
-# Dedicated fragment (the convention Debian already uses for
-# txt.cfg/gtk.cfg/adtxt.cfg...) rather than editing txt.cfg in place: safer,
-# and no need to parse the single "install" entry found there.
-cat > "$EXTRACT_DIR/isolinux/hyperlite.cfg" <<CFGEOF
-label hyperlite-auto
-	menu label ^Install Hyperlite Appliance (automatic)
-	menu default
-	kernel /install.amd/vmlinuz
-	append $APPEND_ARGS
-CFGEOF
-
-MENU_CFG="$EXTRACT_DIR/isolinux/menu.cfg"
-# menu timeout is in tenths of a second (50 = 5 s); ontimeout must repeat the
-# label name above exactly. gtk.cfg currently carries "menu default" on
-# "Graphical install": it is removed so that our entry is the only one marked
-# as default (syslinux behaviour is undefined when several entries are).
-# WARNING: the "menu title ... Debian GNU/Linux installer menu (BIOS mode)"
-# line contains an invisible BEL byte (0x07) between "title" and "Debian",
-# which Debian uses for the accessibility beep. A sed looking for the literal
-# string "menu title Debian..." therefore NEVER matches (0 replacements, no
-# error), and menu timeout/ontimeout are never injected: the menu then stays on
-# the default Debian behaviour (a speech synthesis probe after ~15 s, which
-# waits indefinitely for Enter, so no unattended installation ever happens).
-# Hence the ".*", which absorbs this byte instead of matching it literally.
-sed -i '0,/menu default/{/menu default/d}' "$EXTRACT_DIR/isolinux/gtk.cfg"
-sed -i "s/^menu title.*BIOS mode).*\$/&\nmenu timeout 50\nontimeout hyperlite-auto/" "$MENU_CFG"
-# The above is enough for the entry to be highlighted/default IF a human looks
-# at the screen and navigates the vesamenu manually. It is NOT enough for the
-# unattended path: "menu timeout"/"ontimeout" do NOT drive the "Press a key,
-# otherwise speech synthesis will be started in N seconds..." prompt, which
-# always shows up and runs at its own pace (~15 s) whatever menu.cfg says
-# (tested: re-asserting our timeout/ontimeout at the very bottom, after
-# spkgtk.cfg/spk.cfg, changed NOTHING). This prompt is an accessibility feature
-# HARD-WIRED in the vesamenu.c32 binary itself (deliberately not bypassable by
-# configuration, so that it can never be switched off by mistake for a
-# visually impaired user): it triggers as soon as vesamenu is idle,
-# independently of any timeout value.
-# Reliable workaround: do NOT go through vesamenu.c32 at all for the
-# unattended path. isolinux.cfg (the top-level file, loaded even before
-# menu.cfg) currently points "default" at vesamenu.c32 with a timeout of 0
-# (immediate start of the graphical menu): it is made to point directly at
-# our kernel instead, with a real delay. menu.cfg/vesamenu stay reachable
-# manually (press a key, then type "vesamenu") for anyone who really wants to
-# browse the graphical menu, but are no longer on the unattended boot path, so
-# they are never reached without an explicit human interaction.
-# Text banner displayed on the very first boot screen (the isolinux "display"
-# mechanism, independent of vesamenu, which does NOT trigger the accessibility
-# problem above): it makes the automatic/manual choice VISIBLE from the start
-# instead of hiding it behind an empty "boot:" prompt where one would have to
-# guess what to type.
-# WARNING: "prompt 1" (instead of the "prompt 0" below) brings back the
-# accessibility block described at the top of this comment. It is not
-# vesamenu.c32 specifically that triggers it, but the mere fact that the
-# "boot:" prompt is displayed/active from the start. The "display" file above
-# is shown immediately (before the countdown even begins) WITHOUT enabling that
-# state, so it stays visible permanently without ever risking the block, as
-# long as "prompt" stays at 0.
+# ---- BIOS (isolinux) ----
+# isolinux.cfg holds our entries only and boots the automatic French installation after 5 s at the boot: prompt.
+# Debian's menu (menu.cfg) is not included: its files carry "default" lines of their own, and the last one read
+# wins, so Debian's own default entry booted instead of ours. Nor is vesamenu.c32 loaded: when idle it starts a
+# speech synthesis prompt that waits for Enter forever (an accessibility feature configuration cannot switch
+# off), which blocked the unattended boot. The text banner lists the entries.
 cat > "$EXTRACT_DIR/isolinux/hyperlite-banner.txt" <<'BANNEREOF'
 
 
-                         HYPERLITE APPLIANCE
+                         HYPERLITE
 
-  Automatic start in 5 seconds (full Hyperlite installation, with no
-  interaction) if you press no key.
+  Automatic installation in French in 5 seconds if no key is pressed.
+  It asks for the root password, then shows the disk it will erase.
 
-  To choose manually, type a name below at the "boot:" prompt and press
-  Enter:
+  To choose, type a name below at the boot: prompt and press Enter:
 
-    hyperlite-auto    Hyperlite installation (same as the automatic one)
-    install           Standard Debian installation (manual, text)
-    installgui        Standard Debian installation (manual, graphical)
+    hyperlite             Automatic installation (French)
+    hyperlite-custom      Custom installation, guided step by step (French)
+    hyperlite-en          Automatic installation (English)
+    hyperlite-custom-en   Custom installation, guided step by step (English)
+    rescue                Debian rescue mode
 
 BANNEREOF
-ISOLINUX_CFG="$EXTRACT_DIR/isolinux/isolinux.cfg"
-cat > "$ISOLINUX_CFG" <<CFGEOF
+cat > "$EXTRACT_DIR/isolinux/isolinux.cfg" <<CFGEOF
 path
 display hyperlite-banner.txt
-prompt 0
+prompt 1
 timeout 50
-default hyperlite-auto
-label hyperlite-auto
+default hyperlite
+label hyperlite
 	kernel /install.amd/vmlinuz
-	append $APPEND_ARGS
-include menu.cfg
+	append initrd=$INITRD_AUTO $ARGS_AUTO_FR
+label hyperlite-custom
+	kernel /install.amd/vmlinuz
+	append vga=788 initrd=$INITRD_CUSTOM $ARGS_CUSTOM_FR
+label hyperlite-en
+	kernel /install.amd/vmlinuz
+	append initrd=$INITRD_AUTO $ARGS_AUTO_EN
+label hyperlite-custom-en
+	kernel /install.amd/vmlinuz
+	append vga=788 initrd=$INITRD_CUSTOM $ARGS_CUSTOM_EN
+label rescue
+	kernel /install.amd/vmlinuz
+	append initrd=/install.amd/initrd.gz rescue/enable=true --- quiet
 CFGEOF
-sed -i "s/^include stdmenu.cfg\$/include hyperlite.cfg\n&/" "$MENU_CFG"
 
 # ---- UEFI (grub) ----
+# Our four entries, then Debian's own menu in a submenu (its rescue mode stays reachable). Debian's grub.cfg
+# sets neither default nor timeout: both are set here, and the first entry is the automatic French one.
 GRUB_CFG="$EXTRACT_DIR/boot/grub/grub.cfg"
-cat > "$WORKDIR/hyperlite-entry-grub.cfg" <<CFGEOF
-menuentry 'Install Hyperlite Appliance (automatic)' {
-	set background_color=black
-	linux	/install.amd/vmlinuz $APPEND_ARGS
-	initrd	/install.amd/initrd.gz
-}
-CFGEOF
-# Neither "set default" nor "set timeout" is defined in this d-i grub.cfg: we
-# add them explicitly rather than relying on an undocumented implicit default.
-# Our entry is inserted first (index 0), so default=0 points at it without
-# ambiguity.
 {
     echo "set default=0"
     echo "set timeout=5"
     echo ""
-    cat "$WORKDIR/hyperlite-entry-grub.cfg"
+    for entry in \
+        "Installer Hyperlite (automatique)|$INITRD_AUTO|$ARGS_AUTO_FR" \
+        "Installer Hyperlite (personnalisée, guidée)|$INITRD_CUSTOM|$ARGS_CUSTOM_FR" \
+        "Install Hyperlite (automatic)|$INITRD_AUTO|$ARGS_AUTO_EN" \
+        "Install Hyperlite (custom, guided)|$INITRD_CUSTOM|$ARGS_CUSTOM_EN"; do
+        IFS='|' read -r title initrd args <<< "$entry"
+        echo "menuentry '$title' {"
+        echo "	set background_color=black"
+        echo "	linux	/install.amd/vmlinuz $args"
+        echo "	initrd	$initrd"
+        echo "}"
+    done
     echo ""
+    echo "submenu 'Debian installer (advanced, rescue)' {"
     cat "$GRUB_CFG"
+    echo "}"
 } > "$WORKDIR/grub.cfg.new"
 mv "$WORKDIR/grub.cfg.new" "$GRUB_CFG"
 

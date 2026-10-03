@@ -1,0 +1,101 @@
+Template: hyperlite/admin-password
+Type: password
+Description: Password of the dashboard's "admin" account:
+ This is the account you sign in with at https://<this server>:8000. Use at least 12 characters, with 5
+ different ones at least. Hyperlite also refuses common passwords.
+Description-fr.UTF-8: Mot de passe du compte « admin » du tableau de bord :
+ C'est le compte avec lequel vous vous connecterez sur https://<ce serveur>:8000. Au moins 12 caractères,
+ dont au moins 5 différents. Hyperlite refuse aussi les mots de passe trop courants.
+
+Template: hyperlite/admin-password-again
+Type: password
+Description: The same password again, to check it:
+Description-fr.UTF-8: Le même mot de passe, pour vérification :
+
+Template: hyperlite/password-mismatch
+Type: error
+Description: The two passwords differ
+ Type the same password twice.
+Description-fr.UTF-8: Les deux mots de passe sont différents
+ Saisissez deux fois le même mot de passe.
+
+Template: hyperlite/password-weak
+Type: error
+Description: This password is too weak
+ ${REASON}
+Description-fr.UTF-8: Ce mot de passe est trop faible
+ ${REASON}
+
+Template: hyperlite/email-alerts
+Type: boolean
+Default: false
+Description: Send the alerts by email?
+ Hyperlite can email you when a node goes down, a backup fails or an update is available. It needs an SMTP server
+ to send through (your provider's, or your organisation's). This can also be set up later in the dashboard,
+ under Notifications.
+Description-fr.UTF-8: Envoyer les alertes par e-mail ?
+ Hyperlite peut vous prévenir par e-mail quand un nœud tombe, qu'une sauvegarde échoue ou qu'une mise à jour
+ est disponible. Il lui faut un serveur SMTP pour les envoyer (celui de votre fournisseur ou de votre organisation).
+ Cela se configure aussi plus tard dans le tableau de bord, rubrique Notifications.
+
+Template: hyperlite/email-to
+Type: string
+Description: Email address that receives the alerts:
+Description-fr.UTF-8: Adresse e-mail qui recevra les alertes :
+
+Template: hyperlite/smtp-host
+Type: string
+Description: SMTP server (name or address):
+ For example smtp.example.com.
+Description-fr.UTF-8: Serveur SMTP (nom ou adresse) :
+ Par exemple smtp.exemple.fr.
+
+Template: hyperlite/smtp-port
+Type: string
+Default: 587
+Description: SMTP port:
+ 587 for STARTTLS (the most common), 465 for TLS, 25 without encryption.
+Description-fr.UTF-8: Port SMTP :
+ 587 pour STARTTLS (le plus courant), 465 pour TLS, 25 sans chiffrement.
+
+Template: hyperlite/smtp-user
+Type: string
+Description: SMTP user name (leave empty if the server needs none):
+Description-fr.UTF-8: Identifiant SMTP (laissez vide si le serveur n'en demande pas) :
+
+Template: hyperlite/smtp-password
+Type: password
+Description: SMTP password:
+Description-fr.UTF-8: Mot de passe SMTP :
+
+Template: hyperlite/invalid-value
+Type: error
+Description: Invalid value
+ ${REASON}
+Description-fr.UTF-8: Valeur incorrecte
+ ${REASON}
+
+Template: hyperlite/finished
+Type: note
+Description: Hyperlite is installed
+ After the restart, open the dashboard from a browser on your network:
+ .
+   ${URL}
+ .
+ Account: admin. ${PASSWORD}
+ .
+ The browser warns about the certificate the first time: it is this server's own, until you install one
+ from the dashboard (Administration).
+ .
+ Remove the installation media (USB stick or DVD), then continue: the server restarts.
+Description-fr.UTF-8: Hyperlite est installé
+ Après le redémarrage, ouvrez le tableau de bord depuis un navigateur de votre réseau :
+ .
+   ${URL}
+ .
+ Compte : admin. ${PASSWORD}
+ .
+ Le navigateur signale le certificat la première fois : c'est celui du serveur lui-même, tant que vous n'en
+ installez pas un depuis le tableau de bord (Administration).
+ .
+ Retirez le support d'installation (clé USB ou DVD), puis continuez : le serveur redémarre.
