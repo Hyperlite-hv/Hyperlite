@@ -9,6 +9,13 @@ set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION=$(cat "$REPO_DIR/VERSION")
+# From 1.0.0 the versions are semver, and the package carries the epoch 1: (docs/design/updates-1.0.md): without it,
+# apt orders 1.0.0 below the dated versions published before. The file names and /health keep the bare version.
+if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(~[a-z0-9.]+)?$ ]]; then
+    DEB_VERSION="1:$VERSION"
+else
+    DEB_VERSION="$VERSION"
+fi
 BUILD_DIR="$REPO_DIR/installer/deb-build"
 STAGE="$BUILD_DIR/hyperlite_${VERSION}"
 OUT_DEB="$REPO_DIR/installer/hyperlite_${VERSION}_amd64.deb"
@@ -39,7 +46,7 @@ log "copying the files tracked by Git"
         cfs/fuzz/*) continue ;;
         installer/build-*.sh|installer/test-package.sh|installer/iso-release-notes.tmpl) continue ;;
         installer/hyperlite-apt-repo.nginx.conf) continue ;;
-        scripts/ci-publish.sh|scripts/publish-gh-pages.sh|scripts/release.sh|scripts/sign-iso.sh) continue ;;
+        scripts/ci-publish.sh|scripts/publish-gh-pages.sh|scripts/release.sh|scripts/release-notes.sh|scripts/sign-iso.sh) continue ;;
         scripts/verify-apt-mirror.sh) continue ;;
     esac
     mkdir -p "$STAGE/root/hyperlite/$(dirname "$f")"
@@ -61,7 +68,7 @@ cp -r "$REPO_DIR/cli/dist" "$STAGE/root/hyperlite/cli/dist"
 cp "$REPO_DIR/VERSION" "$STAGE/root/hyperlite/VERSION"
 
 log "control/postinst"
-sed "s/__VERSION__/$VERSION/" "$REPO_DIR/installer/deb/control.template" > "$STAGE/DEBIAN/control"
+sed "s/__VERSION__/$DEB_VERSION/" "$REPO_DIR/installer/deb/control.template" > "$STAGE/DEBIAN/control"
 cp "$REPO_DIR/installer/deb/postinst" "$STAGE/DEBIAN/postinst"
 chmod 755 "$STAGE/DEBIAN/postinst"
 
