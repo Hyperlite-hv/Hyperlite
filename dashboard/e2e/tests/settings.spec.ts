@@ -211,7 +211,8 @@ test.describe("Journal", () => {
   test("actions appear in the journal and the result filter works", async ({ page, request }) => {
     await request.post("/auth/login", { form: { username: "admin", password: "definitely-wrong" } });
     await uiLogin(page);
-    await goTo(page, "Audit log");
+    await goTo(page, "Activity");
+    await page.getByRole("main").getByRole("tab", { name: "Audit log" }).click();
     const table = page.getByRole("main").getByRole("table");
     await expect(table).toBeVisible({ timeout: 20_000 });
     await expect(table.getByText(/^Success$/).first()).toBeVisible();

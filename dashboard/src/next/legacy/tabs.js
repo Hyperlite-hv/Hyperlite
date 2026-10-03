@@ -1,12 +1,11 @@
 // Bridge to the screens that are not rebuilt yet: the same panel components, rendered inside the new
 // workspace. Each domain replaces its entries here as it is migrated.
-import SecurityPage from "../pages/SecurityPage";
+import SecurityPage, { SecuritySsoPage } from "../pages/SecurityPage";
 import LibraryPage from "../pages/LibraryPage";
 import AutomationPage from "../pages/AutomationPage";
 import NodesPage from "../pages/NodesPage";
 import HaPage from "../pages/HaPage";
 import NotificationsPage from "../pages/NotificationsPage";
-import SsoPage from "../pages/SsoPage";
 import ContainersPage from "../pages/ContainersPage";
 import KubernetesPage from "../pages/KubernetesPage";
 import CompatibilityPage from "../pages/CompatibilityPage";
@@ -17,7 +16,7 @@ import Overview from "../pages/Overview";
 import ActivityPage from "../pages/ActivityPage";
 import StoragePage from "../pages/StoragePage";
 import NetworkPage from "../pages/NetworkPage";
-import JournalPage from "../pages/JournalPage";
+import { ActivityTasksPage, ActivityJournalPage } from "../pages/ActivityHub";
 import BackupsPage from "../pages/BackupsPage";
 import ExportsPage from "../pages/ExportsPage";
 import SnapshotsPage from "../pages/SnapshotsPage";
@@ -37,9 +36,9 @@ import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPerm
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
-  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
+  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SsoPage, journal: JournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage,
+  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,

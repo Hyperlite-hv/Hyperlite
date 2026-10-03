@@ -11,7 +11,7 @@ test("a user group is renamed from its card, its members stay", async ({ page, r
   await request.post(`/groups/${id}/members`, { headers, data: { username: "admin" } });
 
   await uiLogin(page);
-  await goTo(page, "Users and roles");
+  await goTo(page, "Users and access");
   const main = page.getByRole("main");
   await main.getByRole("tab", { name: /^Groups/ }).click();
   await main.getByRole("button", { name: `Rename ${name}` }).click();

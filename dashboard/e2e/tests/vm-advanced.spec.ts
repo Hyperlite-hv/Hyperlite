@@ -132,7 +132,7 @@ test.describe("Advanced VM operations (real backend)", () => {
 
   test("the activity list shows the operations performed above with their real status", async ({ page }) => {
     await uiLogin(page);
-    await goTo(page, "Tasks");
+    await goTo(page, "Activity");
     const list = page.getByRole("main").getByRole("table");
     await expect(list).toContainText(/Create VM|Clone VM|Restore backup/);
     await expect(list.getByText(/^Done$/).first()).toBeVisible();
