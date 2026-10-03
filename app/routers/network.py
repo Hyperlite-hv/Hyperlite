@@ -1,5 +1,8 @@
 import hashlib
+import ipaddress
+import json
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 
 import libvirt
@@ -33,6 +36,51 @@ _IFACE_NAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,15}$")
 def _valid_ipv4(addr):
     m = _IPV4_RE.match(addr or "")
     return bool(m) and all(0 <= int(g) <= 255 for g in m.groups())
+
+
+def _host_subnets():
+    """(interface, IPv4 network) of the addresses configured on this host."""
+    try:
+        out = subprocess.run(["ip", "-j", "-4", "addr", "show"], capture_output=True, text=True, timeout=10, check=True)
+        links = json.loads(out.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    found = []
+    for link in links:
+        for a in link.get("addr_info", []):
+            try:
+                found.append(
+                    (link.get("ifname", "?"), ipaddress.ip_network(f"{a['local']}/{a['prefixlen']}", strict=False))
+                )
+            except (KeyError, ValueError):
+                continue
+    return found
+
+
+def _subnet_conflict(conn, subnet):
+    """A sentence naming what already uses an address range overlapping `subnet`, or None. libvirt refuses such a
+    network only when it starts, with a message of its own, after defining it."""
+    bridges = {}
+    for net in conn.listAllNetworks():
+        try:
+            root = ET.fromstring(net.XMLDesc(0))
+        except (libvirt.libvirtError, ET.ParseError):
+            continue
+        bridge = root.find("bridge")
+        if bridge is not None and bridge.get("name"):
+            bridges[bridge.get("name")] = net.name()
+        for ip in root.findall("ip"):
+            try:
+                mask = ip.get("netmask") or ip.get("prefix") or "24"
+                other = ipaddress.ip_network(f"{ip.get('address')}/{mask}", strict=False)
+            except (TypeError, ValueError):
+                continue
+            if other.version == 4 and other.overlaps(subnet):
+                return f"{subnet} overlaps the network '{net.name()}' ({other})"
+    for iface, other in _host_subnets():
+        if other.overlaps(subnet) and iface not in bridges:
+            return f"{subnet} overlaps the address of the host interface {iface} ({other})"
+    return None
 
 
 FORWARD_MODE_LABELS = {
@@ -483,11 +531,24 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
                 raise HTTPException(
                     status_code=422, detail="Invalid subnet_address (an IPv4 address is expected, e.g. '192.168.150.1')"
                 )
+            try:
+                subnet = ipaddress.ip_network(f"{payload.subnet_address}/{payload.subnet_netmask}", strict=False)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid subnet_netmask (e.g. '255.255.255.0')") from None
+            conflict = _subnet_conflict(conn, subnet)
+            if conflict:
+                log_action(user["username"], "create_network", payload.name, "echec", conflict)
+                raise HTTPException(status_code=409, detail=f"{conflict}: choose another address range")
             forward_xml = "<forward mode='nat'/>" if payload.mode == "nat" else ""
             dhcp_xml = ""
             if payload.dhcp_start and payload.dhcp_end:
                 if not (_valid_ipv4(payload.dhcp_start) and _valid_ipv4(payload.dhcp_end)):
                     raise HTTPException(status_code=422, detail="Invalid dhcp_start/dhcp_end")
+                start, end = ipaddress.ip_address(payload.dhcp_start), ipaddress.ip_address(payload.dhcp_end)
+                if start not in subnet or end not in subnet or start > end:
+                    raise HTTPException(
+                        status_code=422, detail=f"The DHCP range must lie inside {subnet}, its start before its end"
+                    )
                 dhcp_xml = f"<dhcp><range start='{payload.dhcp_start}' end='{payload.dhcp_end}'/></dhcp>"
             # The bridge name is derived from the network name: a short prefix (4
             # characters, for a bit of readability) plus a SHA-1 hash of the FULL name (5 hex
@@ -512,11 +573,20 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
             </network>
             """
 
+        net = None
         try:
             net = conn.networkDefineXML(net_xml)
             net.create()
             net.setAutostart(True)
         except libvirt.libvirtError as e:
+            # Defined but not started: a half-created network would stay listed, inactive.
+            if net is not None:
+                try:
+                    if net.isActive():
+                        net.destroy()
+                    net.undefine()
+                except libvirt.libvirtError:
+                    pass
             msg = describe_exception(e)
             log_action(user["username"], "create_network", payload.name, "echec", msg)
             raise HTTPException(status_code=500, detail=f"Network creation error: {msg}") from e
