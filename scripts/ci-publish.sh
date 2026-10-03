@@ -59,6 +59,11 @@ fi
 # 4. ISO: build, checksum and signature, then the single moving release.
 if [ "${SKIP_ISO:-0}" != "1" ]; then
     ISO=installer/hyperlite-appliance-amd64.iso
+    # The offline bundle is built in a Debian of the release the ISO installs, so the packages and the wheels
+    # match the installed system (installer/build-offline-bundle.sh checks it).
+    DEBIAN_MAJOR=$(sed -n "s/^DEBIAN_VERSION=\"\([0-9]*\)\..*/\1/p" installer/build-iso.sh)
+    docker run --rm -v "$PWD:/src" -w /src -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" "debian:$DEBIAN_MAJOR" \
+        bash installer/build-offline-bundle.sh installer/offline-bundle
     bash installer/build-iso.sh "$ISO"
     bash scripts/sign-iso.sh "$ISO"
     NOTES="$(sed -e "s|@VERSION@|$VERSION|" -e "s|@COMMIT@|$SOURCE_COMMIT|" \
