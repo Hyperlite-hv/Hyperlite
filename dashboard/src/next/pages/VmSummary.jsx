@@ -113,7 +113,7 @@ export default function VmSummary({ resource: vm }) {
             <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memoire_mo, lang)}</dd>
             <dt>{t("vh.disks")}</dt>
             <dd>{disks == null ? "…" : disks === false ? na : disks.length === 0 ? <span className="nx-muted">{t("vh.noDisks")}</span> : (
-              <ul className="nx-plainlist">{disks.map((d) => <li key={d.cible} className="nx-mono">{[d.cible, d.bus?.toUpperCase(), d.taille_go ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(d.taille_go)} ${lang === "fr" ? "Go" : "GB"}` : null].filter(Boolean).join(" · ")}{d.pool ? <span className="nx-muted"> ({d.pool})</span> : d.source ? <span className="nx-muted"> · {base(d.source)}</span> : d.type === "cdrom" ? <span className="nx-muted"> · {t("vh.emptyDrive")}</span> : null}</li>)}</ul>
+              <ul className="nx-plainlist">{disks.map((d) => <li key={d.cible} className="nx-mono">{d.type === "cdrom" ? <>{[d.cible, t("vh.cdDrive")].join(" · ")}<span className="nx-muted"> · {d.source ? base(d.source) : t("vh.emptyDrive")}</span></> : <>{[d.cible, d.bus?.toUpperCase(), d.taille_go ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(d.taille_go)} ${lang === "fr" ? "Go" : "GB"}` : null].filter(Boolean).join(" · ")}{d.pool ? <span className="nx-muted"> ({d.pool})</span> : d.source ? <span className="nx-muted"> · {base(d.source)}</span> : null}</>}</li>)}</ul>
             )}</dd>
             <dt>{t("ns.network")}</dt>
             <dd>{net == null ? "…" : net === false ? na : net.length === 0 ? <span className="nx-muted">—</span> : (

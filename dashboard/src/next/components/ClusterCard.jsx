@@ -130,7 +130,7 @@ export default function ClusterCard() {
           <label>{t("cl.informationLabel")}<textarea className="nx-input nx-mono" rows={4} value={join.information} onChange={(e) => setJoin({ ...join, information: e.target.value })} spellCheck={false} /></label>
           <label>{t("cl.addressOfThisNode")}<input className="nx-input nx-mono" value={join.adresse} onChange={(e) => setJoin({ ...join, adresse: e.target.value })} placeholder="192.0.2.11" autoComplete="off" /></label>
           <div className="nx-notice nx-notice--warning" role="note">{t("cl.joinWarning")}</div>
-          <label>{t("cl.typeName", { name: joinName ?? "…" })}<input className="nx-input nx-mono" value={join.confirmation} onChange={(e) => setJoin({ ...join, confirmation: e.target.value })} autoComplete="off" spellCheck={false} /></label>
+          <label>{joinName ? t("cl.typeName", { name: joinName }) : t("cl.typeNameWait")}<input className="nx-input nx-mono" value={join.confirmation} onChange={(e) => setJoin({ ...join, confirmation: e.target.value })} autoComplete="off" spellCheck={false} /></label>
           <div><button type="submit" className="nx-btn nx-btn--danger" disabled={busy || !state.corosync_installe || !joinName || !join.adresse || join.confirmation.trim() !== joinName}><UserPlus size={15} aria-hidden="true" />{t("cl.join")}</button></div>
         </form>
       </div>

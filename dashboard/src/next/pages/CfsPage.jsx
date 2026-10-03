@@ -32,7 +32,7 @@ export default function CfsPage() {
   useEffect(() => { load(); }, []);
 
   async function seed() {
-    if (!(await confirmAction({ title: t("cfs.seedTitle"), message: t("cfs.seedMsg"), confirmLabel: t("cfs.seed"), danger: false }))) return;
+    if (!(await confirmAction({ title: t("cfs.seedTitle"), message: t("cfs.seedMsg"), confirmLabel: t("cfs.seed"), danger: true }))) return;
     setBusy(true);
     try {
       const done = await seedCfsShadow();
@@ -71,7 +71,7 @@ export default function CfsPage() {
     <>
       <button type="button" className="nx-btn" onClick={load}><RefreshCw size={15} aria-hidden="true" />{t("cfs.refresh")}</button>
       {state?.actif && !state.force && <button type="button" className="nx-btn" disabled={busy} onClick={turnOff}><PowerOff size={15} aria-hidden="true" />{t("cfs.turnOff")}</button>}
-      {state?.actif && <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !state.joignable} onClick={seed}><Copy size={15} aria-hidden="true" />{t("cfs.seed")}</button>}
+      {state?.actif && <button type="button" className="nx-btn" disabled={busy || !state.joignable} onClick={seed}><Copy size={15} aria-hidden="true" />{t("cfs.seed")}</button>}
     </>
   );
   return (
