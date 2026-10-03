@@ -12,7 +12,7 @@ from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, re
 from app.core.audit import log_action
 from app.core.client_address import client_address
 from app.core.password_policy import password_problem
-from app.core.permissions import get_user_groups, remove_group_member
+from app.core.permissions import delete_acl_for_user, get_user_groups, remove_group_member
 from app.core.security import (
     ALGORITHM,
     SECRET_KEY,
@@ -684,5 +684,6 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     webauthn_keys.delete_all_keys(username)
     for group_id in get_user_groups(username):
         remove_group_member(group_id, username)
+    delete_acl_for_user(username)
     log_action(user["username"], "delete_user", username, "succes")
     return {"message": "User deleted"}
