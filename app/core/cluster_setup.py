@@ -391,11 +391,30 @@ def _take_ticket(ticket):
 _members_lock = threading.Lock()
 
 
+def _cluster_keys():
+    """The keys of .env the new node takes. HYPERLITE_ENCRYPTION_KEY only exists once this node encrypted something:
+    a node that never did creates it now, or the new node would get no key to decrypt the secrets shared later."""
+    from app.core import secrets_crypto
+    from app.core.config_copy import KEY_NAMES, _read_keys
+
+    keys = {k: v for k, v in _read_keys().items() if v}
+    if "HYPERLITE_ENCRYPTION_KEY" not in keys:
+        secrets_crypto._load_or_create_key()
+        keys = {k: v for k, v in _read_keys().items() if v}
+    if set(keys) != set(KEY_NAMES):
+        raise ClusterError("This node's .env lacks the cluster's keys: see journalctl -u hyperlite")
+    return keys
+
+
 def accept_member(ticket, name, address, ssh_key):
-    """Run on a member, called by the joining node with the ticket of the join information."""
+    """Run on a member, called by the joining node with the ticket of the join information.
+
+    Every write to the shared configuration happens before this node's Corosync reloads with the new member: adding
+    the first member raises the votes the cluster needs to 2, so this node loses the quorum, and with it every write,
+    until the new node is up."""
     from app.core.audit import log_action
-    from app.core.config_copy import _read_keys
     from app.repositories.cfs import shadow
+    from app.repositories.sqlite.nodes import SqliteNodeStore
 
     with _members_lock:  # one node per ticket, even when two calls race
         if not _take_ticket(ticket):
@@ -412,22 +431,27 @@ def accept_member(ticket, name, address, ssh_key):
             raise ClusterError(f"A member of the cluster is already named {name}")
         if any(m["adresse"] == address for m in conf["membres"]):
             raise ClusterError(f"A member of the cluster already uses {address}")
+        keys = _cluster_keys()
+        corosync_key = client.get(COROSYNC_KEY_ENTRY).data.decode()
         conf["membres"].append(
             {"nom": name, "nodeid": max(m["nodeid"] for m in conf["membres"]) + 1, "adresse": address}
         )
         conf["version"] += 1
-        client.put(f"{SSH_DIR}/{shadow.component(name)}", ssh_key.strip().encode())
-        client.put(CONF_PATH, json.dumps(conf).encode())
-        sync()  # this node's Corosync knows the new member before it calls
+        ssh_entry = f"{SSH_DIR}/{shadow.component(name)}"
         _register(name, address)
-    keys = {k: v for k, v in _read_keys().items() if v}
+        try:
+            client.put(ssh_entry, ssh_key.strip().encode())
+            client.put(CONF_PATH, json.dumps(conf).encode())
+        except Exception:  # the cluster does not list the new node: neither do the nodes table and the SSH keys
+            with contextlib.suppress(Exception):
+                client.delete(ssh_entry)
+            with contextlib.suppress(Exception):
+                SqliteNodeStore().delete(name)
+            raise
+        answer = {"configuration": conf, "cle_corosync": corosync_key, "cles": keys, "cles_ssh": _member_keys(client)}
+        sync()  # last: this node's Corosync knows the new member before it calls, and may lose the quorum until it does
     log_action("system", "cluster_join", name, "succes", f"{name} ({address}) joined {conf['cluster']}")
-    return {
-        "configuration": conf,
-        "cle_corosync": client.get(COROSYNC_KEY_ENTRY).data.decode(),
-        "cles": keys,
-        "cles_ssh": _member_keys(client),
-    }
+    return answer
 
 
 def _member_keys(client):
@@ -495,9 +519,11 @@ def _call_member(info, body):
     return answer
 
 
-def _write_env_keys(keys):
-    from app.core.config_copy import KEY_NAMES, _env_path
+def _check_env_keys(keys):
+    from app.core.config_copy import KEY_NAMES
 
+    if not isinstance(keys, dict):
+        raise ClusterError("The member did not send the cluster's keys")
     keys = {
         k: v
         for k, v in keys.items()
@@ -505,6 +531,12 @@ def _write_env_keys(keys):
     }
     if set(keys) != set(KEY_NAMES):
         raise ClusterError("The member did not send the cluster's keys")
+    return keys
+
+
+def _write_env_keys(keys):
+    from app.core.config_copy import _env_path
+
     env = _env_path()
     lines = env.read_text().splitlines() if env.exists() else []
     kept = [line for line in lines if line.partition("=")[0].strip() not in keys]
@@ -515,6 +547,50 @@ def _restart_service():
     from app.routers.update import _spawn_outside_service
 
     _spawn_outside_service("hyperlite-cluster-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
+
+
+def _saved(path):
+    """A file's content and mode, or None when it does not exist: what _restore puts back."""
+    path = Path(path)
+    return (path.read_bytes(), path.stat().st_mode & 0o777) if path.exists() else None
+
+
+def _restore(path, saved):
+    path = Path(path)
+    if saved is None:
+        path.unlink(missing_ok=True)
+    else:
+        _write(path, saved[0], saved[1])
+
+
+def _service_state(name):
+    return {
+        "active": _run(["systemctl", "is-active", "--quiet", name]),
+        "enabled": _run(["systemctl", "is-enabled", "--quiet", name]),
+    }
+
+
+def _undo_join(files, services, moved):
+    """Put this node back as it was before join(): its files, its hyperlite-cfs database and its services."""
+    from app.core import cluster_lead
+    from app.repositories.cfs import shadow
+
+    _run(["systemctl", "stop", shadow.SERVICE])
+    _run(["systemctl", "stop", "corosync"])
+    for path, saved in files.items():
+        try:
+            _restore(path, saved)
+        except OSError as e:
+            logger.error("Undoing the join: %s could not be restored: %s", path, e)
+    for suffix in ("", "-wal", "-shm"):  # the copy of the cluster's tree goes, this node's own comes back
+        Path(f"{CFS_DB}{suffix}").unlink(missing_ok=True)
+    for original, aside in moved:
+        aside.replace(original)
+    for name, was in services.items():
+        _run(["systemctl", "enable" if was["enabled"] else "disable", name])
+        if was["active"]:
+            _run(["systemctl", "restart", name])
+    cluster_lead.forget()
 
 
 def join(information, address, confirmation, username):
@@ -533,34 +609,52 @@ def join(information, address, confirmation, username):
     answer = _call_member(
         info, {"ticket": info["ticket"], "nom": me, "adresse": address, "cle_ssh": cluster.get_cluster_pubkey()}
     )
+    # The member lists this node from now on: when this node gives up, the member must take it out again.
+    take_out = f"{info['adresse']} already lists this node: remove {me} there (Cluster card) before joining again"
     try:
         conf = _check_conf(answer["configuration"])
         key = base64.b64decode(answer["cle_corosync"], validate=True)
         member_keys = answer.get("cles_ssh") or {}
-        keys = answer["cles"]
-    except (KeyError, TypeError, ValueError):
-        raise ClusterError("The member answered something unexpected") from None
+        keys = _check_env_keys(answer["cles"])
+    except ClusterError as e:
+        raise ClusterError(f"{e}. {take_out}") from None
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise ClusterError(f"The member answered something unexpected. {take_out}") from None
     if not any(m["nom"] == me and m["adresse"] == address for m in conf["membres"]) or not 128 <= len(key) <= 4096:
         raise ClusterError("The member answered something unexpected")
 
-    # From here on, this node's configuration gives way to the cluster's. Its own keys and database stay usable until
-    # Corosync and hyperlite-cfs are up in the cluster: only then are the cluster's keys written.
-    _authorize(member_keys, me)
-    _backup(COROSYNC_CONF)
-    _write(COROSYNC_KEY, key, 0o400)
-    _write(COROSYNC_CONF, render(conf), 0o644)
-    _run(["systemctl", "stop", shadow.SERVICE])
-    stamp = _now().strftime("%Y%m%dT%H%M%SZ")
-    for suffix in ("", "-wal", "-shm"):
-        path = Path(f"{CFS_DB}{suffix}")
-        if path.exists():
-            path.replace(path.with_name(f"{path.name}.before-join-{stamp}"))
-    _start_cluster_services()
-    _wait_for_cluster()
-    settings = _settings()
-    settings.set_app_setting(shadow.SETTING, "1")
-    settings.set_app_setting(JOIN_SETTING, "1")  # the next start empties the outbox (finish_join)
-    _write_env_keys(keys)
+    # From here on, this node's configuration gives way to the cluster's. Everything changed is saved first: when
+    # Corosync or hyperlite-cfs do not come up in the cluster, this node is put back as it was, its keys included.
+    from app.core.cluster import _authorized_keys_path
+    from app.core.config_copy import _env_path
+
+    files = {p: _saved(p) for p in (_authorized_keys_path(), COROSYNC_CONF, COROSYNC_KEY, CFS_DEFAULTS, _env_path())}
+    services = {name: _service_state(name) for name in ("corosync", shadow.SERVICE)}
+    moved = []
+    try:
+        _authorize(member_keys, me)
+        _backup(COROSYNC_CONF)
+        _write(COROSYNC_KEY, key, 0o400)
+        _write(COROSYNC_CONF, render(conf), 0o644)
+        _run(["systemctl", "stop", shadow.SERVICE])
+        stamp = _now().strftime("%Y%m%dT%H%M%SZ")
+        for suffix in ("", "-wal", "-shm"):
+            path = Path(f"{CFS_DB}{suffix}")
+            if path.exists():
+                aside = path.with_name(f"{path.name}.before-join-{stamp}")
+                path.replace(aside)
+                moved.append((path, aside))
+        _start_cluster_services()
+        _wait_for_cluster()
+        _write_env_keys(keys)
+        settings = _settings()
+        settings.set_app_setting(JOIN_SETTING, "1")  # the next start empties the outbox (finish_join)
+        settings.set_app_setting(shadow.SETTING, "1")  # last: until now this node keeps out of the cluster's tree
+    except Exception as e:
+        logger.exception("Joining %s failed: this node is put back as it was", conf["cluster"])
+        _undo_join(files, services, moved)
+        reason = str(e) if isinstance(e, ClusterError) else "the join failed (see journalctl -u hyperlite)"
+        raise ClusterError(f"{reason}. This node is back as it was. {take_out}") from None
     log_action(username, "cluster_join", conf["cluster"], "succes", f"{me} ({address})")
     _restart_service()
     return {"cluster": conf["cluster"], "redemarrage": True}
