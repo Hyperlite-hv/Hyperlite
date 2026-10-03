@@ -141,8 +141,7 @@ export default function Sidebar({ collapsed }) {
           <NavItem icon="exports" label={t("nav.exports")} active={onDatacenterTab("exports")} onClick={() => goto("exports")} />
         </NavGroup>
         <NavGroup label={t("nav.group.supervision")}>
-          <NavItem icon="tasks" label={t("nav.tasks")} active={onDatacenterTab("activity")} onClick={() => goto("activity")} />
-          <NavItem icon="audit" label={t("nav.auditLog")} active={onDatacenterTab("journal")} onClick={() => goto("journal")} />
+          <NavItem icon="tasks" label={t("nav.activity")} active={onDatacenterTab("activity") || onDatacenterTab("journal")} onClick={() => goto("activity")} />
           {caps.admin && <NavItem icon="metrics" label={t("nav.metrics")} active={onDatacenterTab("metrics")} onClick={() => goto("metrics")} />}
           {caps.admin && <NavItem icon="notifications" label={t("nav.notifications")} active={onDatacenterTab("notifications")} onClick={() => goto("notifications")} />}
         </NavGroup>

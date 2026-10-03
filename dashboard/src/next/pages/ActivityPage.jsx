@@ -33,7 +33,8 @@ function defaultTask(rows) {
 // Tasks: every persisted task with the filters the API supports (type, target, node, user, period), status tabs,
 // live refresh, and the journal of the selected task under the list, with a CSV export.
 // On a node page (`selection.type === "node"`) the same view is scoped to that node.
-export default function ActivityPage({ selection }) {
+// embedded: the Tasks tab of the Activity page (ActivityHub.jsx), under its header.
+export default function ActivityPage({ selection, embedded = false }) {
   const nodeId = selection?.type === "node" ? selection.id : undefined;
   // A VM's or a container's own history: its exact name, among the tasks of its kind.
   const own = selection?.type === "vm" ? { objet: parseVmKey(selection.id).nom, famille: "vm" }
@@ -166,13 +167,19 @@ export default function ActivityPage({ selection }) {
     </section>
   );
 
-  const header = !nodeId && (
+  const header = !nodeId && (embedded ? (
+    <div className="nx-bar">
+      {rows && <span className="nx-muted">{t("act.summary", { run: counts.running, fail: counts.failed, period })}</span>}
+      <span className="nx-sp" />
+      {tabs}
+    </div>
+  ) : (
     <PageHeader
       title={t("act.title")}
       desc={rows ? t("act.summary", { run: counts.running, fail: counts.failed, period }) : null}
       actions={tabs}
     />
-  );
+  ));
 
   return (
     <>
