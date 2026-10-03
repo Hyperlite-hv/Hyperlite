@@ -120,7 +120,14 @@ async def list_job_runs(job_id: int, user: dict = Depends(get_current_user)):
 
 @router.get("/runs/{run_id}")
 async def get_job_run(run_id: str, user: dict = Depends(get_current_user)):
+    """What a run printed is for administrators: the commands run as root on the host or in VMs, and their output
+    may carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,
+    as the notification channels show them their name but not their configuration."""
     try:
-        return await automation.get_run(run_id)
+        run = await automation.get_run(run_id)
     except automation.RunNotFound:
         raise HTTPException(status_code=404, detail="Run not found") from None
+    if user["role"] != "admin":
+        for log in run["logs"]:
+            log["stdout"] = log["stderr"] = ""
+    return run
