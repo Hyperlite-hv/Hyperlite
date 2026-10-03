@@ -88,6 +88,16 @@ log "systemd service"
 cp "$APP_DIR/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
 cp "$APP_DIR/installer/hyperlite-cfs.service" /etc/systemd/system/hyperlite-cfs.service
 systemctl daemon-reload
+# Corosync is a dependency (a cluster is created from the dashboard), but Debian's package starts it at once with its
+# own sample configuration: cluster "debian", no encryption. Until Hyperlite writes its own (cluster creation or join,
+# app/core/cluster_setup.py, which enables and starts it), it stays stopped.
+# Told apart by its "crypto_cipher: none" too: Hyperlite's configuration always encrypts (a cluster may be named
+# "debian").
+conf=/etc/corosync/corosync.conf
+if [ -f "$conf" ] && grep -Eq '^[[:space:]]*cluster_name:[[:space:]]*debian[[:space:]]*$' "$conf" \
+    && grep -Eq '^[[:space:]]*crypto_cipher:[[:space:]]*none[[:space:]]*$' "$conf"; then
+    systemctl disable --now corosync.service >/dev/null 2>&1 || true
+fi
 # Only a daemon an administrator started (a cluster) is restarted onto the new binary; a disabled one stays stopped.
 if [ "$CFS_BUILT" = "1" ] && ! systemctl try-restart hyperlite-cfs.service; then
     log "WARNING: hyperlite-cfs did not restart: systemctl status hyperlite-cfs"
