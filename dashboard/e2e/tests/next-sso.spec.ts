@@ -31,7 +31,9 @@ test("cannot enable an incomplete configuration; saving sends the fields, keeps 
   const main = page.getByRole("main");
   // The LDAP card below has its own "Save": this one is the OIDC card's.
   const save = main.getByRole("region", { name: "OIDC provider" }).getByRole("button", { name: "Save", exact: true });
-  await expect(main.getByRole("heading", { level: 1, name: "Authentication (SSO)" })).toBeVisible({ timeout: 20_000 });
+  // Single sign-on is a tab of Users and access; ?tab=sso opens it.
+  await expect(main.getByRole("heading", { level: 1, name: "Users and access" })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("tab", { name: "Single sign-on (SSO)" })).toHaveAttribute("aria-selected", "true");
   await expect(main.getByRole("heading", { name: "OIDC provider" })).toBeVisible();
   await expect(save).toBeDisabled(); // nothing changed yet
 
@@ -90,12 +92,15 @@ test.describe("SSO settings persist and the secret is never returned", () => {
 
   test("the SSO tab keeps the saved values after a reload without showing the secret", async ({ page }) => {
     await uiLogin(page);
-    await goTo(page, "Authentication (SSO)");
+    await goTo(page, "Users and access");
     const main = page.getByRole("main");
+    await main.getByRole("tab", { name: "Single sign-on (SSO)" }).click();
     await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
     await expect(main.getByText(/already saved/)).toBeVisible();
     await expect(main.locator("form input[type=password]")).toHaveValue(""); // the OIDC form, not the LDAP card
     await page.reload();
+    // Like the other tabs of the page, a reload comes back to Users: open the SSO tab again.
+    await main.getByRole("tab", { name: "Single sign-on (SSO)" }).click();
     await expect(main.getByRole("textbox", { name: /Issuer/ })).toHaveValue("https://idp.example.invalid");
   });
 });

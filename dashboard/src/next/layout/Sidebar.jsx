@@ -118,15 +118,20 @@ export default function Sidebar({ collapsed }) {
         <NavGroup>
           <NavItem icon="overview" label={t("nav.overview")} active={onDatacenterTab("summary")} onClick={() => goto("summary")} />
         </NavGroup>
-        <NavGroup label={t("nav.group.infrastructure")}>
-          <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes") || selection.type === "node"} onClick={() => goto("nodes")} />
+        {/* Grouped by what an engineer is doing: what runs, what it runs on, the cluster, protection, watching, administration. */}
+        <NavGroup label={t("nav.group.resources")}>
           <NavItem icon="vms" label={t("nav.vms")} count={vms.length} tone={problems ? "warning" : undefined} active={selection.type === "vm" || onDatacenterTab("vms")} onClick={() => goto("vms")} />
           <NavItem icon="containers" label={t("nav.containers")} count={containers?.length ?? 0} active={selection.type === "container" || onDatacenterTab("containers")} onClick={() => goto("containers")} />
           <NavItem icon="kubernetes" label={t("nav.kubernetes")} active={onDatacenterTab("kubernetes")} onClick={() => goto("kubernetes")} />
+          <NavItem icon="library" label={t("nav.library")} active={onDatacenterTab("library") || onDatacenterTab("templates")} onClick={() => goto("library")} />
+        </NavGroup>
+        <NavGroup label={t("nav.group.infrastructure")}>
+          <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes") || selection.type === "node"} onClick={() => goto("nodes")} />
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
           <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />
         </NavGroup>
         <NavGroup label={t("nav.group.cluster")}>
+          {caps.admin && <NavItem icon="cfs" label={t("nav.cfs")} active={onDatacenterTab("cfs")} onClick={() => goto("cfs")} />}
           <NavItem icon="ha" label={t("nav.ha")} active={onDatacenterTab("ha")} onClick={() => goto("ha")} />
           <NavItem icon="compat" label={t("nav.compat")} active={onDatacenterTab("compat")} onClick={() => goto("compat")} />
         </NavGroup>
@@ -135,25 +140,17 @@ export default function Sidebar({ collapsed }) {
           <NavItem icon="snapshots" label={t("nav.snapshots")} active={onDatacenterTab("snapshots")} onClick={() => goto("snapshots")} />
           <NavItem icon="exports" label={t("nav.exports")} active={onDatacenterTab("exports")} onClick={() => goto("exports")} />
         </NavGroup>
-        <NavGroup label={t("nav.group.library")}>
-          <NavItem icon="library" label={t("nav.library")} active={onDatacenterTab("library") || onDatacenterTab("templates")} onClick={() => goto("library")} />
-        </NavGroup>
-        <NavGroup label={t("nav.group.operations")}>
+        <NavGroup label={t("nav.group.supervision")}>
           <NavItem icon="tasks" label={t("nav.tasks")} active={onDatacenterTab("activity")} onClick={() => goto("activity")} />
           <NavItem icon="audit" label={t("nav.auditLog")} active={onDatacenterTab("journal")} onClick={() => goto("journal")} />
-          <NavItem icon="automation" label={t("nav.automation")} active={onDatacenterTab("automation")} onClick={() => goto("automation")} />
-          {!caps.admin && apiOpen && <NavItem icon="api" label={t("nav.api")} active={onDatacenterTab("api")} onClick={() => goto("api")} />}
+          {caps.admin && <NavItem icon="metrics" label={t("nav.metrics")} active={onDatacenterTab("metrics")} onClick={() => goto("metrics")} />}
+          {caps.admin && <NavItem icon="notifications" label={t("nav.notifications")} active={onDatacenterTab("notifications")} onClick={() => goto("notifications")} />}
         </NavGroup>
-        {caps.admin && (
-          <NavGroup label={t("nav.group.administration")}>
-            <NavItem icon="users" label={t("nav.usersRoles")} active={onDatacenterTab("permissions")} onClick={() => goto("permissions")} />
-            <NavItem icon="sso" label={t("nav.sso")} active={onDatacenterTab("sso")} onClick={() => goto("sso")} />
-            <NavItem icon="notifications" label={t("nav.notifications")} active={onDatacenterTab("notifications")} onClick={() => goto("notifications")} />
-            <NavItem icon="metrics" label={t("nav.metrics")} active={onDatacenterTab("metrics")} onClick={() => goto("metrics")} />
-            <NavItem icon="api" label={t("nav.api")} active={onDatacenterTab("api")} onClick={() => goto("api")} />
-            <NavItem icon="cfs" label={t("nav.cfs")} active={onDatacenterTab("cfs")} onClick={() => goto("cfs")} />
-          </NavGroup>
-        )}
+        <NavGroup label={t("nav.group.administration")}>
+          {caps.admin && <NavItem icon="users" label={t("nav.usersRoles")} active={onDatacenterTab("permissions") || onDatacenterTab("sso")} onClick={() => goto("permissions")} />}
+          <NavItem icon="automation" label={t("nav.automation")} active={onDatacenterTab("automation")} onClick={() => goto("automation")} />
+          {(caps.admin || apiOpen) && <NavItem icon="api" label={t("nav.api")} active={onDatacenterTab("api")} onClick={() => goto("api")} />}
+        </NavGroup>
       </div>
 
       <div className="nx-relative">

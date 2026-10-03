@@ -24,8 +24,8 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
 // "templates" is the historical id of the Library page (ISO images and templates).
 const DATACENTER_PAGES: Record<string, string> = {
   summary: "Home", activity: "Tasks and logs", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
-  backups: "Backups", exports: "Exports", permissions: "Users and roles", reseau: "Network", automation: "Automation", containers: "Containers",
-  nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Authentication (SSO)",
+  backups: "Backups", exports: "Exports", permissions: "Users and access", reseau: "Network", automation: "Automation", containers: "Containers",
+  nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Users and access",
   journal: "Audit log", vms: "Virtual machines", snapshots: "Snapshots", metrics: "Metrics",
 };
 
@@ -62,9 +62,9 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
   test("the sidebar reaches every Datacenter page and marks the current one", async ({ page }) => {
     await nextLogin(page);
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    // The sidebar groups are always open (Infrastructure, Cluster, Protection, Library, Operations, Administration).
-    for (const g of ["Infrastructure", "Cluster", "Protection", "Library", "Operations", "Administration"]) await expect(nav.getByRole("group", { name: g, exact: true })).toBeVisible();
-    for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users and roles", "permissions", "Users and roles"], ["Authentication (SSO)", "sso", "Authentication (SSO)"], ["Audit log", "journal", "Audit log"], ["Home", "summary", "Home"]] as const) {
+    // The sidebar groups are always open, grouped by what an engineer is doing.
+    for (const g of ["Resources", "Infrastructure", "Cluster", "Protection", "Monitoring", "Administration"]) await expect(nav.getByRole("group", { name: g, exact: true })).toBeVisible();
+    for (const [item, tab, title] of [["Storage", "storage", "Storage"], ["Backups", "backups", "Backups"], ["Virtual Machines", "vms", "Virtual machines"], ["Users and access", "permissions", "Users and access"], ["Audit log", "journal", "Audit log"], ["Home", "summary", "Home"]] as const) {
       await nav.getByRole("button", { name: item }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
       if (tab !== "summary") await expect(page).toHaveURL(new RegExp(`tab=${tab}`));
