@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 @router.post("/{name}/start")
 def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn(node)
-    task_id = create_task("start_vm", name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("start_vm", name, node=node, username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
@@ -60,7 +60,7 @@ def stop_vm(
 ):
     conn = open_conn(node)
     action_name = "force_stop_vm" if force else "stop_vm"
-    task_id = create_task(action_name, name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task(action_name, name, node=node, username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
@@ -91,7 +91,7 @@ def restart_vm(
     name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))
 ):
     conn = open_conn(node)
-    task_id = create_task("restart_vm", name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("restart_vm", name, node=node, username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)
@@ -242,7 +242,7 @@ def delete_vm(name: str, confirm: bool = False, node: str | None = None, user: d
 
 def _delete_vm(name, confirm, node, user):
     conn = open_conn(node)
-    task_id = create_task("delete_vm", name, node=conn.getHostname(), username=user["username"])
+    task_id = create_task("delete_vm", name, node=node, username=user["username"])
     try:
         try:
             domain = conn.lookupByName(name)

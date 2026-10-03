@@ -376,7 +376,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         backup_integrity.save_firmware_state(domain, dest_dir)
         firmware_kind = firmware.of_domain(ET.fromstring(domain.XMLDesc(0)))
 
-        task_id = create_task("backup_vm", vm_name, node=conn.getHostname(), username=username)
+        task_id = create_task("backup_vm", vm_name, node=None, username=username)
         backup_id = _store().create(vm_name, job_id, str(dest_dir), mode, _now().isoformat(), task_id)
 
         try:
@@ -564,7 +564,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
     with claim:
         src_dir = Path(row["chemin"])
         conn = open_conn()
-        task_id = create_task("restore_backup", row["vm_name"], node=conn.getHostname(), username=username)
+        task_id = create_task("restore_backup", row["vm_name"], node=None, username=username)
         new_disk_paths = []
         try:
             images = _backup_images(src_dir)
