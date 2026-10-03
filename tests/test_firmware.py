@@ -193,7 +193,7 @@ def test_a_running_uefi_vm_is_not_snapshotted_a_stopped_one_is(monkeypatch, fw, 
         assert snapshots.create_snapshot("win", payload, {"username": "admin"})["task_id"] == "t1"
 
 
-def test_a_backup_remembers_the_firmware_for_a_restore_to_a_new_vm(tmp_path):
+def test_a_backup_remembers_the_firmware_for_a_restore_to_a_new_vm(database, tmp_path):
     from app.core import backups
 
     domain = Mock()

@@ -12,6 +12,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 PROBE_SCRIPT = r"""
+# The tools' own field names are parsed: in the host's language, lscpu said "Socket(s)\u00a0:" and "Thread(s) par
+# coeur" on a French host, and no CPU topology was found (the node page showed its 12 threads as "12 cores").
+export LC_ALL=C
 echo '@@links'
 for i in /sys/class/net/*; do
   n=$(basename "$i"); [ "$n" = lo ] && continue

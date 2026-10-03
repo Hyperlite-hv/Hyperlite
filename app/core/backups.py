@@ -52,6 +52,7 @@ from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, raise_if_cancelled, register_cancel, update_task_progress
 from app.core.vm_builder import IMAGES_DIR
+from app.core.vm_meta import get_vm_os_label, get_vm_ssh_user, set_vm_os_label, set_vm_ssh_user
 
 logger = logging.getLogger(__name__)
 
@@ -332,6 +333,10 @@ def _write_vm_config(domain, dest_dir):
         "cloud_init": any(
             (src.get("file") or "").endswith("-cloudinit.iso") for src in root.findall("./devices/disk/source")
         ),
+        # Hyperlite's own data about the guest: a copy restored under a new name lost them (no OS shown, and the
+        # SSH terminal did not know which account to open).
+        "os_label": get_vm_os_label(root.findtext("name")),
+        "ssh_user": get_vm_ssh_user(root.findtext("name")),
     }
     (dest_dir / "vm-config.json").write_text(json.dumps(config))
 
@@ -592,7 +597,7 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
     with claim:
         src_dir = Path(row["chemin"])
         conn = open_conn()
-        task_id = create_task("restore_backup", row["vm_name"], node=None, username=username)
+        task_id = create_task("restore_backup", target_name, node=None, username=username)
         new_disk_paths = []
         try:
             images = _backup_images(src_dir)
@@ -668,6 +673,13 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
             new_domain = conn.defineXML(xml)
             refresh_pools_for_paths(conn, new_disk_paths)
             restored = backup_integrity.restore_firmware_state(src_dir, new_domain)
+            # Older backups did not record them: taken from the original VM when it still has them.
+            os_label = config.get("os_label") or get_vm_os_label(row["vm_name"])
+            ssh_user = config.get("ssh_user") or get_vm_ssh_user(row["vm_name"])
+            if os_label:
+                set_vm_os_label(new_name, os_label)
+            if ssh_user:
+                set_vm_ssh_user(new_name, ssh_user)
             finish_task(task_id, "termine")
             detail = f"new VM from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
             log_action(username, "restore_backup", new_name, "succes", detail)

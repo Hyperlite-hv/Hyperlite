@@ -103,3 +103,16 @@ def test_health_gives_the_running_version_to_the_host_itself(libvirt_up):
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
     body = main.health(request)
     assert set(body) == {"status", "environment", "hyperlite_version"}
+
+
+def test_an_unknown_api_path_is_a_json_404_and_a_page_is_the_dashboard(client, monkeypatch, tmp_path):
+    """An API client calling a path that does not exist got the dashboard page with a 200, which reads as a success."""
+    from app import main
+
+    (tmp_path / "index.html").write_text("<!doctype html><title>Hyperlite</title>")
+    monkeypatch.setattr(main, "DASHBOARD_DIST", str(tmp_path))
+    r = client.get("/kubernetes", headers={"Accept": "application/json"})
+    assert r.status_code == 404 and r.json() == {"detail": "Not Found"}
+    assert client.get("/no/such/route").status_code == 404
+    page = client.get("/vm/web", headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
+    assert page.status_code == 200 and "<title>Hyperlite</title>" in page.text
