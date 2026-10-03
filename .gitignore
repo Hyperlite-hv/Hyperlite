@@ -23,6 +23,7 @@ installer/.iso-cache/
 installer/*.deb
 installer/deb-build/
 installer/apt-repo/
+installer/offline-bundle/
 .last-published-commit
 hyperlite.db-journal
 hyperlite.db-wal

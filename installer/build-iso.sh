@@ -59,12 +59,10 @@ log "=== 3/6: injecting the Hyperlite installation files ==="
 HL_DIR="$EXTRACT_DIR/hyperlite"
 mkdir -p "$HL_DIR"
 
-# The ISO embeds NO application code, only the installation scripts. Hyperlite
-# itself is installed by postinstall.sh through `apt install hyperlite` from the
-# published APT repository, exactly as an administrator would do by hand, so a
-# fresh appliance is natively managed by apt from its first boot. Updates
-# therefore never require rebuilding or reflashing an ISO, and the ISO stays
-# small (no source code or Git history to embed).
+# The ISO carries the hyperlite package, every Debian package and Python wheel the installation needs (the offline
+# bundle below) and the installation scripts: an installation needs no network. The machine is then managed by apt
+# like any Debian, from the Debian mirrors and the Hyperlite repository, as soon as it has a network.
+
 # Single source of truth: installer/apt-source.conf. An exported HYPERLITE_APT_URL overrides it,
 # for tests only.
 if [ -z "${HYPERLITE_APT_URL:-}" ] && [ -f "$SCRIPT_DIR/apt-source.conf" ]; then
@@ -96,7 +94,18 @@ fi
 cp "$SCRIPT_DIR/preseed.cfg" "$HL_DIR/preseed.cfg"
 cp "$SCRIPT_DIR/partman-auto.sh" "$HL_DIR/partman-auto.sh"
 cp "$SCRIPT_DIR/postinstall.sh" "$HL_DIR/postinstall.sh"
+cp "$SCRIPT_DIR/packages.list" "$HL_DIR/packages.list"
 chmod +x "$HL_DIR"/*.sh
+
+# The offline bundle (installer/build-offline-bundle.sh): every Debian package and Python wheel the installation
+# needs, so it runs without a network, as with Proxmox. Without it the installation downloads them.
+OFFLINE_BUNDLE="${HYPERLITE_OFFLINE_BUNDLE:-$SCRIPT_DIR/offline-bundle}"
+if [ -s "$OFFLINE_BUNDLE/debs/Packages" ] && [ -s "$OFFLINE_BUNDLE/install.list" ]; then
+    rsync -a "$OFFLINE_BUNDLE/" "$HL_DIR/offline/"
+    log "offline bundle embedded: $(tr "\n" " " < "$OFFLINE_BUNDLE/bundle-info")($(du -sh "$HL_DIR/offline" | cut -f1))"
+else
+    log "WARNING: no offline bundle in $OFFLINE_BUNDLE (run installer/build-offline-bundle.sh): the installation will need the network"
+fi
 
 log "=== 3.5/6: preseed embedded directly in the initrd ==="
 # The Debian installer (d-i) loads ONE preseed file, the first one it finds,
