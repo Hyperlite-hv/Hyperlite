@@ -132,14 +132,20 @@ def _domain_summary(domain):
     return _summary(domain, root, state, leases, {name: get_vm_ssh_user(name)}, {name: get_vm_os_label(name)})
 
 
-def _domain_summaries(conn):
-    """Every VM of a connection: one bulk state call, one XML read per VM, one SQLite query per table and one
-    lease read per network, instead of about ten calls per VM."""
+def _networks_of(root):
+    """The libvirt networks a VM has an interface on, each once."""
+    return {src.get("network") for src in root.findall("./devices/interface/source") if src.get("network")}
+
+
+def _scan(conn):
+    """Every VM of a connection, and the number of VMs on each libvirt network, from one pass: one bulk state call,
+    one XML read per VM, one SQLite query per table and one lease read per network, instead of about ten calls per
+    VM."""
     stats = conn.getAllDomainStats(libvirt.VIR_DOMAIN_STATS_STATE)
     leases = _dhcp_leases(conn) if any(d.ID() != -1 for d, _ in stats) else {}
     ssh_users = all_vm_ssh_users()
     os_labels = all_vm_os_labels()
-    result = []
+    result, per_network = [], {}
     for domain, values in stats:
         try:
             root = ET.fromstring(domain.XMLDesc(0))
@@ -148,7 +154,22 @@ def _domain_summaries(conn):
             logger.debug("VM gone while listing", exc_info=True)
             continue
         result.append(_summary(domain, root, values.get("state.state"), leases, ssh_users, os_labels))
-    return result
+        for net in _networks_of(root):
+            per_network[net] = per_network.get(net, 0) + 1
+    return {"vms": result, "per_network": per_network}
+
+
+def inventory(conn, node=None):
+    """_scan of a node, shared with the requests of the same moment (app/core/inventory_cache.py). The lists are
+    copies: callers may change them."""
+    from app.core import inventory_cache
+
+    scan = inventory_cache.get(("vms", node or "local"), lambda: _scan(conn))
+    return {"vms": [dict(v) for v in scan["vms"]], "per_network": dict(scan["per_network"])}
+
+
+def _domain_summaries(conn, node=None):
+    return inventory(conn, node)["vms"]
 
 
 def _zvol_disks_of_domain(domain):

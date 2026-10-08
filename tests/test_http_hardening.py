@@ -116,3 +116,14 @@ def test_an_unknown_api_path_is_a_json_404_and_a_page_is_the_dashboard(client, m
     assert client.get("/no/such/route").status_code == 404
     page = client.get("/vm/web", headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
     assert page.status_code == 200 and "<title>Hyperlite</title>" in page.text
+
+
+def test_large_answers_are_compressed_for_clients_that_accept_it(client, auth_headers, monkeypatch, tmp_path):
+    from app import main
+
+    (tmp_path / "index.html").write_text("<!doctype html><title>Hyperlite</title>" + "x" * 5000)
+    monkeypatch.setattr(main, "DASHBOARD_DIST", str(tmp_path))
+    r = client.get("/vm/web", headers={"Accept": "text/html", "Accept-Encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip" and "<title>Hyperlite</title>" in r.text
+    small = client.get("/health", headers={"Accept-Encoding": "gzip"})
+    assert "content-encoding" not in small.headers  # under 1 kB: not worth it

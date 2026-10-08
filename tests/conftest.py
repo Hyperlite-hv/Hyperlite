@@ -160,3 +160,13 @@ def cluster(database, tmp_path, monkeypatch):
     monkeypatch.setattr(iso_share, "_scp", fake_scp)
     monkeypatch.setattr(iso_share, "PROGRESS_EVERY_S", 0.01)
     return {"local": local, "add_node": add_node, "scp_calls": scp_calls}
+
+
+@pytest.fixture(autouse=True)
+def _fresh_inventory():
+    """The VM listing shared between requests (app/core/inventory_cache.py) never carries over from one test."""
+    from app.core import inventory_cache
+
+    inventory_cache.invalidate()
+    yield
+    inventory_cache.invalidate()
