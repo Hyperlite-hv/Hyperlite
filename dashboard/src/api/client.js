@@ -644,8 +644,9 @@ export async function startVM(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/start${q}`, { method: "POST" });
 }
-export async function stopVM(name, force = false, node = null) {
+export async function stopVM(name, force = false, node = null, forceAfter = null) {
   const params = new URLSearchParams({ force: String(force) });
+  if (forceAfter) params.set("forcer_apres", String(forceAfter));
   if (node && node !== "local") params.set("node", node);
   return realFetch(`/vms/${encodeURIComponent(name)}/stop?${params}`, { method: "POST" });
 }

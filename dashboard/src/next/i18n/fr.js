@@ -490,6 +490,7 @@ export default {
   "confirm.stop.title": "Arrêter {name} ?",
   "confirm.stop.message": "La VM reçoit une demande d’arrêt (ACPI). L’arrêt effectif dépend de la coopération du système invité ; utilisez Forcer l’arrêt s’il ne répond pas.",
   "confirm.stop.confirm": "Arrêter",
+  "confirm.stop.forceAfter": "Forcer l’arrêt si la VM tourne encore dans 3 minutes",
   "confirm.forceStop.title": "Forcer l’arrêt de {name} ?",
   "confirm.forceStop.message": "C’est équivalent à débrancher la prise : la VM est coupée immédiatement, des données non enregistrées peuvent être perdues et ses systèmes de fichiers peuvent nécessiter une vérification au prochain démarrage. Préférez Arrêter (arrêt propre) quand la VM répond.",
   "confirm.forceStop.confirm": "Forcer l’arrêt",

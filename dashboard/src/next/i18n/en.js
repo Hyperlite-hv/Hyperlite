@@ -458,6 +458,7 @@ export default {
   "confirm.stop.title": "Stop {name}?",
   "confirm.stop.message": "The guest receives a shutdown request (ACPI). Whether it stops depends on the guest cooperating; use Force stop if it does not.",
   "confirm.stop.confirm": "Stop",
+  "confirm.stop.forceAfter": "Force the stop if the VM is still running in 3 minutes",
   "confirm.forceStop.title": "Force stop {name}?",
   "confirm.forceStop.message": "This is equivalent to pulling the power cable: the guest is powered off immediately, unsaved data may be lost and its filesystems may need a check at the next boot. Prefer Stop (clean shutdown) when the guest responds.",
   "confirm.forceStop.confirm": "Force stop",
