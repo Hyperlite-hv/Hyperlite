@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions published to the APT repository are timestamp based (`YYYY.MM.DD.HHMM`) and generated automatically; this file tracks user-visible changes between them.
+All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions published to the APT repository were timestamp based (`YYYY.MM.DD.HHMM`) until 1.0.0; from 1.0.0 they follow [Semantic Versioning](https://semver.org/): the release PR sets `VERSION`, renames `[Unreleased]` to the version, and adds its French notes in `docs/release-notes/fr/<version>.md`. The section of each version is the release note shown before updating (see `docs/design/updates-1.0.md`).
 
 ## [Unreleased]
 
