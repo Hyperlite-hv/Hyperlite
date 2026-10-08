@@ -178,10 +178,33 @@ def _netfs_pools(conn):
     return out
 
 
+def _backing_files(domain, target):
+    """The base images a running VM's disk is built on (libvirt's live XML lists the chain), nearest first."""
+    try:
+        live = ET.fromstring(domain.XMLDesc(0))
+    except (libvirt.libvirtError, ET.ParseError):
+        return []
+    for disk in live.findall("devices/disk"):
+        t = disk.find("target")
+        if t is None or t.get("dev") != target:
+            continue
+        files, store = [], disk.find("backingStore")
+        while store is not None and store.find("source") is not None:
+            if store.find("source").get("file"):
+                files.append(store.find("source").get("file"))
+            store = store.find("backingStore")
+        return files
+    return []
+
+
 def check_vm_migration(src, dst, domain):
     """Host-pair checks plus the ones specific to the VM configuration."""
     checks = check_pair(src, dst)
-    xml = ET.fromstring(domain.XMLDesc(0))
+    # The definition the destination receives (VIR_DOMAIN_XML_MIGRATABLE), not the live XML: a running VM's live CPU
+    # lists every feature the host gave it (check='full', a hundred of them, disabled ones included), which libvirt
+    # finds incompatible even with the very host the VM runs on, so every live migration of a VM with a cluster CPU
+    # model was refused ("VM CPU is incompatible with the destination CPU").
+    xml = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_MIGRATABLE))
     name = domain.name()
 
     def state():
@@ -317,8 +340,25 @@ def check_vm_migration(src, dst, domain):
             fmt = disk.find("driver").get("type") if disk.find("driver") is not None else None
             if fmt not in (None, "qcow2", "raw"):
                 out.append(_c(f"format:{target}", WARNING, f"Disk format {fmt} ({target}): migration not tested"))
-            is_shared = any(path and path.startswith(t) and key in dst_shared for key, t in shared.items())
-            if is_shared:
+
+            def on_shared(p):
+                return any(p and p.startswith(t) and key in dst_shared for key, t in shared.items())
+
+            is_shared = on_shared(path)
+            local_base = next((b for b in _backing_files(domain, target) if not on_shared(b)), None)
+            if is_shared and local_base:
+                # The disk holds only its changes over a base image the destination cannot open: libvirt failed in
+                # the middle of the migration ("Cannot access backing file").
+                out.append(
+                    _c(
+                        f"disque:{target}",
+                        BLOCKING,
+                        f"Disk {target} is on shared storage but is based on {local_base}, which only this node has",
+                        action="copy the base image to the same path on the destination, or merge it into the disk "
+                        "(virsh blockpull)",
+                    )
+                )
+            elif is_shared:
                 out.append(_c(f"disque:{target}", OK, f"Disk {target} is on shared storage (no copy)"))
             else:
                 try:
@@ -330,6 +370,22 @@ def check_vm_migration(src, dst, domain):
                     _c(f"disque:{target}", OK, f"Disk {target} is copied over the network ({size / 1024**3:.1f} GB)")
                 )
         if to_copy_bytes:
+            try:
+                snapshots = domain.snapshotNum(0)
+            except (libvirt.libvirtError, AttributeError):
+                snapshots = 0
+            if snapshots:
+                # On shared storage the snapshots go with the VM (app/core/snapshot_carry.py); a copied disk carries
+                # only its current state.
+                out.append(
+                    _c(
+                        "instantanes",
+                        BLOCKING,
+                        f"The VM has {snapshots} snapshot(s) and its disks would be copied: the copy carries only the "
+                        "current state, the snapshots would be lost",
+                        action="delete its snapshots, or put its disks on shared storage",
+                    )
+                )
             pool = dst.storagePoolLookupByName("default")
             avail = pool.info()[3]
             if avail < to_copy_bytes:

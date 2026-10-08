@@ -57,3 +57,31 @@ def test_a_failed_download_leaves_nothing_behind(base, problem):
     with pytest.raises((subprocess.CalledProcessError, RuntimeError)):
         vm_builder.ensure_base_image()
     assert list(vm_builder.BASE_IMAGE.parent.iterdir()) == []
+
+
+def test_a_disk_on_another_pool_is_based_on_a_copy_of_the_base_in_that_pool(base, tmp_path, monkeypatch):
+    """On a shared pool, a base image left in this node's images directory could not be opened by the other nodes:
+    the VM could not migrate ("Cannot access backing file")."""
+    images = tmp_path / "images"
+    images.mkdir()
+    monkeypatch.setattr(vm_builder, "IMAGES_DIR", images)
+    pool = tmp_path / "pool"
+    pool.mkdir()
+    created = []
+    _run, _ = base
+    real = vm_builder.subprocess.run
+
+    def recording(cmd, **kw):
+        if cmd[:2] == ["qemu-img", "create"]:
+            created.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(vm_builder.subprocess, "run", recording)
+    vm_builder.create_disk("web", 8, target_dir=pool)
+    vm_builder.create_disk("db", 8, target_dir=pool)
+    in_pool = pool / vm_builder.POOL_BASE_NAME
+    assert in_pool.read_text() == "qcow2 bytes"
+    assert [c[c.index("-b") + 1] for c in created] == [str(in_pool), str(in_pool)]
+    vm_builder.create_disk("local", 8, target_dir=images)
+    assert created[-1][created[-1].index("-b") + 1] == str(vm_builder.BASE_IMAGE)
