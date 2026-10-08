@@ -200,3 +200,48 @@ def test_a_crashing_check_becomes_a_warning_instead_of_failing_the_diagnostic():
 @pytest.mark.parametrize("version,expected", [(9000000, "9.0.0"), (11003001, "11.3.1")])
 def test_version_formatting(version, expected):
     assert cc._ver(version) == expected
+
+
+def test_the_vm_cpu_is_compared_as_defined_not_as_it_runs(monkeypatch):
+    """A running VM's live CPU lists every feature its host gave it (check='full'), which libvirt finds incompatible
+    even with the host the VM runs on: every live migration of a VM with a cluster CPU model was refused. The
+    definition the destination receives (VIR_DOMAIN_XML_MIGRATABLE) is compared."""
+    live = SIMPLE_VM.replace(
+        "<devices>", "<cpu mode='custom' match='exact' check='full'><model>Skylake-Client-IBRS</model></cpu><devices>"
+    )
+    defined = SIMPLE_VM.replace(
+        "<devices>",
+        "<cpu mode='custom' match='exact' check='partial'><model>Skylake-Client-IBRS</model></cpu><devices>",
+    )
+
+    class Domain(FakeDomain):
+        def XMLDesc(self, flags):
+            return defined if flags & libvirt.VIR_DOMAIN_XML_MIGRATABLE else live
+
+    class Dst(FakeConn):
+        def compareCPU(self, xml, flags):
+            return libvirt.VIR_CPU_COMPARE_INCOMPATIBLE if 'check="full"' in xml else libvirt.VIR_CPU_COMPARE_SUPERSET
+
+    checks = by_id(cc.check_vm_migration(FakeConn(), Dst(), Domain(live)))
+    assert checks["cpu_vm"]["statut"] == cc.OK
+
+
+def test_a_disk_on_shared_storage_based_on_a_local_image_is_refused(monkeypatch):
+    """The disk was on NFS, its base image in the source node's own directory: libvirt failed mid-migration."""
+    disk = "<disk type='file' device='disk'><driver type='qcow2'/><source file='/var/lib/libvirt/hyperlite-pools/nfs/vm1.qcow2'/>"
+    vm = SIMPLE_VM.replace(
+        "<disk type='file' device='disk'><driver type='qcow2'/><source file='/var/lib/libvirt/images/vm1.qcow2'/>", disk
+    )
+    chain = vm.replace(
+        "<target dev='vda'/>",
+        "<target dev='vda'/><backingStore type='file'><format type='qcow2'/>"
+        "<source file='/var/lib/libvirt/images/base/debian.qcow2'/><backingStore/></backingStore>",
+    )
+    monkeypatch.setattr(cc, "_netfs_pools", lambda conn: {"nfs": "/var/lib/libvirt/hyperlite-pools/nfs"})
+
+    class Domain(FakeDomain):
+        def XMLDesc(self, flags):
+            return vm if flags & libvirt.VIR_DOMAIN_XML_MIGRATABLE else chain
+
+    checks = by_id(cc.check_vm_migration(FakeConn(), FakeConn(), Domain(chain)))
+    assert checks["disque:vda"]["statut"] == cc.BLOCKING and "only this node has" in checks["disque:vda"]["message"]

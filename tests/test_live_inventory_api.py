@@ -284,7 +284,12 @@ def test_networks_report_dhcp_and_how_many_vms_use_them():
             ]
 
     assert network._network_summary(_Net())["dhcp"] is True
-    assert network._vm_count_by_network(_C()) == {"lan": 1, "other": 1}
+    import xml.etree.ElementTree as ET
+
+    from app.routers.vms._shared import _networks_of
+
+    # A VM with two interfaces on one network counts once there.
+    assert [_networks_of(ET.fromstring(d.XMLDesc(0))) for d in _C().listAllDomains()] == [{"lan"}, {"other"}]
 
 
 def test_sso_test_reads_the_saved_issuer_discovery_document(client, make_user, monkeypatch):
