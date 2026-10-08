@@ -23,7 +23,7 @@ def list_vms(node: str | None = None, user: dict = Depends(get_current_user)):
     when testing with a real second physical node."""
     conn = open_conn(node)
     try:
-        result = _domain_summaries(conn)
+        result = _domain_summaries(conn, node)
         log_action(user["username"], "list_vms", "vms", "succes")
         return result
     finally:

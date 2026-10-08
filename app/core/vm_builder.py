@@ -1,7 +1,9 @@
+import json
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -71,14 +73,55 @@ def get_automation_private_key_path():
     return priv
 
 
+_base_image_lock = threading.Lock()
+
+
 def ensure_base_image():
+    """The cloud image every Debian VM starts from, downloaded once. It was written under its final name: a second
+    VM created during the download saw the file "there" and started from a truncated image ("Image is not in qcow2
+    format"), and a failed download left that truncated image for every later VM. Now one download at a time, under
+    a temporary name, renamed only once qemu-img reads it as a qcow2 image."""
     BASE_IMAGE.parent.mkdir(parents=True, exist_ok=True)
-    if not BASE_IMAGE.exists():
-        subprocess.run(
-            ["wget", "-q", "-O", str(BASE_IMAGE), BASE_IMAGE_URL],
-            check=True,
-        )
+    with _base_image_lock:
+        if BASE_IMAGE.exists():
+            return BASE_IMAGE
+        partial = BASE_IMAGE.with_name(BASE_IMAGE.name + ".part")
+        try:
+            subprocess.run(["wget", "-q", "-O", str(partial), BASE_IMAGE_URL], check=True)
+            info = subprocess.run(
+                ["qemu-img", "info", "--output=json", str(partial)], check=True, capture_output=True, text=True
+            )
+            if json.loads(info.stdout).get("format") != "qcow2":
+                raise RuntimeError(f"The downloaded base image is not a qcow2 image ({BASE_IMAGE_URL})")
+            partial.rename(BASE_IMAGE)
+        finally:
+            partial.unlink(missing_ok=True)
     return BASE_IMAGE
+
+
+POOL_BASE_NAME = "hyperlite-base-debian-12.qcow2"
+
+
+def ensure_pool_base_image(pool_dir):
+    """The base cloud image inside a storage pool, copied there once. A VM's system disk only holds its changes over
+    the base image: on a shared pool, a base image left in this node's /var/lib/libvirt/images could not be opened
+    by the other nodes, and the VM could not migrate ("Cannot access backing file"). As Proxmox keeps templates in the
+    storage of the disks based on them."""
+    target = Path(pool_dir) / POOL_BASE_NAME
+    with _base_image_lock:
+        if target.exists():
+            return target
+    source = ensure_base_image()
+    with _base_image_lock:
+        if target.exists():  # another VM copied it meanwhile
+            return target
+        partial = target.with_name(target.name + ".part")
+        try:
+            shutil.copyfile(source, partial)
+            partial.rename(target)
+        finally:
+            partial.unlink(missing_ok=True)
+    return target
 
 
 def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
@@ -93,7 +136,7 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     target_dir = target_dir or IMAGES_DIR
     disk_path = target_dir / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
     if index == 0 and not blank:
-        ensure_base_image()
+        base = ensure_base_image() if Path(target_dir) == IMAGES_DIR else ensure_pool_base_image(Path(target_dir))
         subprocess.run(
             [
                 "qemu-img",
@@ -103,7 +146,7 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
                 "-F",
                 "qcow2",
                 "-b",
-                str(BASE_IMAGE),
+                str(base),
                 str(disk_path),
                 f"{disk_gb}G",
             ],

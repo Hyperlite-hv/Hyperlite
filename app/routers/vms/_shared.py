@@ -76,7 +76,7 @@ def _dhcp_leases(conn):
     return leases
 
 
-def _summary(domain, root, state, leases, ssh_users, os_labels):
+def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
     """The VM summary from one parsed XML: the list used to read each domain's XML three times and to run two
     SQLite queries per VM, about 4 s for 1,000 VMs."""
     name = domain.name()
@@ -88,7 +88,7 @@ def _summary(domain, root, state, leases, ssh_users, os_labels):
     if active:
         agent = guest_agent.state_of_xml(root)
         if agent == guest_agent.CONNECTED:
-            ip = guest_agent.ipv4_of_connected(domain)
+            ip = agent_ips.get(domain.UUIDString()) if agent_ips is not None else guest_agent.ipv4_of_connected(domain)
         if not ip:
             for mac_el in root.findall("./devices/interface/mac"):
                 ip = _lease_ipv4(mac_el.get("address"), leases)
@@ -132,23 +132,49 @@ def _domain_summary(domain):
     return _summary(domain, root, state, leases, {name: get_vm_ssh_user(name)}, {name: get_vm_os_label(name)})
 
 
-def _domain_summaries(conn):
-    """Every VM of a connection: one bulk state call, one XML read per VM, one SQLite query per table and one
-    lease read per network, instead of about ten calls per VM."""
+def _networks_of(root):
+    """The libvirt networks a VM has an interface on, each once."""
+    return {src.get("network") for src in root.findall("./devices/interface/source") if src.get("network")}
+
+
+def _scan(conn):
+    """Every VM of a connection, and the number of VMs on each libvirt network, from one pass: one bulk state call,
+    one XML read per VM, one SQLite query per table and one lease read per network, instead of about ten calls per
+    VM."""
     stats = conn.getAllDomainStats(libvirt.VIR_DOMAIN_STATS_STATE)
     leases = _dhcp_leases(conn) if any(d.ID() != -1 for d, _ in stats) else {}
     ssh_users = all_vm_ssh_users()
     os_labels = all_vm_os_labels()
-    result = []
+    read = []
     for domain, values in stats:
         try:
-            root = ET.fromstring(domain.XMLDesc(0))
+            read.append((domain, ET.fromstring(domain.XMLDesc(0)), values.get("state.state")))
         except libvirt.libvirtError:
             # Undefined between the two calls: it is simply no longer in the list.
             logger.debug("VM gone while listing", exc_info=True)
-            continue
-        result.append(_summary(domain, root, values.get("state.state"), leases, ssh_users, os_labels))
-    return result
+    # The agents of all the running VMs are asked together, the list waiting a bounded time (guest_agent.ipv4_many).
+    agent_ips = guest_agent.ipv4_many(
+        [d for d, root, _ in read if d.ID() != -1 and guest_agent.state_of_xml(root) == guest_agent.CONNECTED]
+    )
+    result, per_network = [], {}
+    for domain, root, state in read:
+        result.append(_summary(domain, root, state, leases, ssh_users, os_labels, agent_ips))
+        for net in _networks_of(root):
+            per_network[net] = per_network.get(net, 0) + 1
+    return {"vms": result, "per_network": per_network}
+
+
+def inventory(conn, node=None):
+    """_scan of a node, shared with the requests of the same moment (app/core/inventory_cache.py). The lists are
+    copies: callers may change them."""
+    from app.core import inventory_cache
+
+    scan = inventory_cache.get(("vms", node or "local"), lambda: _scan(conn))
+    return {"vms": [dict(v) for v in scan["vms"]], "per_network": dict(scan["per_network"])}
+
+
+def _domain_summaries(conn, node=None):
+    return inventory(conn, node)["vms"]
 
 
 def _zvol_disks_of_domain(domain):

@@ -4,10 +4,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.core import version
+from app.core import inventory_cache, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -87,6 +88,9 @@ app = FastAPI(
     redoc_url="/redoc" if _API_DOCS else None,
     openapi_url="/openapi.json" if _API_DOCS else None,
 )
+# JSON lists and the dashboard's scripts compress about tenfold: the VM list of 1,000 VMs was 261 kB, sent every 6 s
+# to every open tab. Live streams (text/event-stream) are left alone by Starlette.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 # Web interface (React/Vite, dashboard/), served at the root.
 DASHBOARD_DIST = "dashboard/dist"
@@ -101,6 +105,19 @@ async def add_security_headers(request: Request, call_next):
     for name, value in headers.items():
         response.headers.setdefault(name, value)
     return response
+
+
+@app.middleware("http")
+async def drop_shared_inventory_on_change(request: Request, call_next):
+    """A request that changes something drops the VM listing shared between requests (app/core/inventory_cache.py),
+    before and after it runs: the next listing shows the change, even one the request makes without auditing it."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return await call_next(request)
+    inventory_cache.invalidate()
+    try:
+        return await call_next(request)
+    finally:
+        inventory_cache.invalidate()
 
 
 @app.middleware("http")

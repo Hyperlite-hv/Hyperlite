@@ -18,3 +18,12 @@ def read_version_file():
 
 
 STARTUP_VERSION = read_version_file()
+
+
+# From 1.0.0 the versions are semver; the package adds the epoch "1:" to them, or apt would order 1.0.0 below the
+# dated versions published before (2026.10.03.2003). The epoch is a packaging detail: what is shown, and what
+# /health reports, never has it (docs/design/updates-1.0.md).
+def without_epoch(value):
+    if value and ":" in value:
+        return value.split(":", 1)[1]
+    return value
