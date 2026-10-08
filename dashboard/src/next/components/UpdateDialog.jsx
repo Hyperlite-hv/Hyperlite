@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { applyUpdate, fetchHealth, fetchTaskDetail, fetchUpdateCheck } from "../../api/client";
+import { applyUpdate, fetchHealth, fetchTaskDetail, fetchUpdateCheck, rollbackUpdate } from "../../api/client";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useLangStore, useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
@@ -18,6 +19,7 @@ export default function UpdateDialog({ onClose }) {
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting | ok | failed
   const [progress, setProgress] = useState(0);
   const [after, setAfter] = useState(null); // the check once the update is done: is a reboot needed now?
+  const [restarted, setRestarted] = useState(false); // Hyperlite itself changed: the page must be reloaded
   const opener = useRef(typeof document !== "undefined" ? document.activeElement : null);
   const dialog = useRef(null);
   const busy = phase === "updating" || phase === "restarting";
@@ -35,11 +37,18 @@ export default function UpdateDialog({ onClose }) {
   const debianNew = (sys?.paquets ?? 0) > 0;
   const nothing = info?.verifiable && !hyperliteNew && !debianNew;
 
-  async function start() {
+  async function back() {
+    if (!(await confirmAction({ title: t("upd.backTitle", { version: info.precedente }), message: t("upd.backMsg"), confirmLabel: t("upd.back", { version: info.precedente }) }))) return;
+    start(true);
+  }
+
+  async function start(rollback = false) {
     setPhase("updating");
     setError(null);
+    const target = rollback ? info.precedente : info.commit_distant;
+    const restarts = rollback || hyperliteNew;
     try {
-      const { task_id } = await applyUpdate(true);
+      const { task_id } = rollback ? await rollbackUpdate() : await applyUpdate(true);
       for (;;) {
         const task = await fetchTaskDetail(task_id);
         setProgress(task.progres ?? 0);
@@ -47,7 +56,7 @@ export default function UpdateDialog({ onClose }) {
         if (task.statut === "termine") break;
         await wait(1500);
       }
-      if (hyperliteNew) {
+      if (restarts) {
         // Hyperlite restarts a few seconds after its task ends; success is the new version answering. The server's
         // watchdog puts the previous one back if it does not start: that answers too, with the old version.
         setPhase("restarting");
@@ -57,15 +66,16 @@ export default function UpdateDialog({ onClose }) {
           await wait(2000);
           try {
             running = (await fetchHealth()).hyperlite_version ?? null;
-            if (running === info.commit_distant) break;
+            if (running === target) break;
           } catch { /* restarting */ }
         }
-        if (running !== info.commit_distant) {
+        if (running !== target) {
           setPhase("failed");
           setError(running ? t("upd.rolledBackNow", { version: running }) : t("upd.noAnswer"));
           return;
         }
       }
+      setRestarted(restarts);
       setAfter(await fetchUpdateCheck(lang).catch(() => null));
       setPhase("ok");
     } catch (e) {
@@ -111,7 +121,8 @@ export default function UpdateDialog({ onClose }) {
             )}
             <div className="nx-dialog-actions">
               <button type="button" className="nx-btn" onClick={onClose}>{t("upd.close")}</button>
-              <button type="button" className="nx-btn nx-btn--primary" disabled={!info.verifiable || nothing} onClick={start}>{t("upd.apply")}</button>
+              {info.precedente && <button type="button" className="nx-btn" onClick={back}>{t("upd.back", { version: info.precedente })}</button>}
+              <button type="button" className="nx-btn nx-btn--primary" disabled={!info.verifiable || nothing} onClick={() => start(false)}>{t("upd.apply")}</button>
             </div>
           </>
         )}
@@ -126,11 +137,11 @@ export default function UpdateDialog({ onClose }) {
 
         {phase === "ok" && (
           <>
-            <p role="status">{t(hyperliteNew ? "upd.doneReload" : "upd.done")}</p>
+            <p role="status">{t(restarted ? "upd.doneReload" : "upd.done")}</p>
             {rebootNow && <p className="nx-banner" role="status">{t("upd.rebootNow")}</p>}
             <div className="nx-dialog-actions">
               {rebootNow && <button type="button" className="nx-btn" onClick={() => { onClose(); navigateTo("node", "local", "system"); }}>{t("upd.goReboot")}</button>}
-              {hyperliteNew
+              {restarted
                 ? <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.location.reload()}>{t("upd.reload")}</button>
                 : <button type="button" className="nx-btn nx-btn--primary" onClick={onClose}>{t("upd.close")}</button>}
             </div>
