@@ -105,3 +105,39 @@ def test_hourly_check_alerts_once_when_the_source_is_missing(apt, database, monk
     with database.get_conn() as conn:
         rows = conn.execute("SELECT * FROM audit_log WHERE action = 'update_check_blocked'").fetchall()
     assert len(rows) == 1
+
+
+def test_the_epoch_of_a_semver_release_is_never_shown(apt):
+    """From 1.0.0 the package is 1:1.0.0 (or apt would order it below the dated versions); /health says 1.0.0."""
+    apt(_policy("2026.10.03.2003", "1:1.0.0", (500, f"{OFFICIAL} stable/main amd64 Packages")))
+    result = update._check_update_apt()
+    assert result["commit_distant"] == "1.0.0" and result["a_jour"] is False
+
+
+def test_the_notes_between_the_installed_version_and_the_candidate(monkeypatch, tmp_path):
+    conf = tmp_path / "apt-source.conf"
+    conf.write_text(f'HYPERLITE_APT_URL="{OFFICIAL}"\n')
+    monkeypatch.setattr(update, "APT_SOURCE_CONF", conf)
+    served = {
+        f"{OFFICIAL}/notes/index.json": '[{"version": "1.2.0", "fr": true}, {"version": "1.1.0", "fr": false},'
+        ' {"version": "1.0.0", "fr": true}]',
+        f"{OFFICIAL}/notes/1.2.0.fr.md": "nouveautés 1.2",
+        f"{OFFICIAL}/notes/1.1.0.en.md": "what is new in 1.1",
+        f"{OFFICIAL}/notes/1.0.0.en.md": "first release",
+    }
+
+    def fetch(url):
+        if url not in served:
+            raise OSError("404")
+        return served[url]
+
+    monkeypatch.setattr(update, "_fetch_text", fetch)
+    notes = update._release_notes("1.0.0", "1.2.0", "fr")
+    assert [(n["version"], n["langue"], n["texte"]) for n in notes] == [
+        ("1.2.0", "fr", "nouveautés 1.2"),
+        ("1.1.0", "en", "what is new in 1.1"),  # no French notes: the English ones
+    ]
+    # From a dated version every semver release is newer; a mirror that does not answer leaves the notes out.
+    assert [n["version"] for n in update._release_notes("2026.10.03.2003", "1.1.0", "en")] == ["1.1.0", "1.0.0"]
+    monkeypatch.setattr(update, "_fetch_text", lambda url: (_ for _ in ()).throw(OSError("offline")))
+    assert update._release_notes("1.0.0", "1.2.0", "en") == []

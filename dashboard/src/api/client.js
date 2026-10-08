@@ -595,8 +595,8 @@ export async function cancelTask(id, force = false) {
 
 // ---- Hyperlite update from Git (real: GET/POST /update/*, see
 // app/routers/update.py) ----
-export async function fetchUpdateCheck() {
-  return realFetch("/update/check");
+export async function fetchUpdateCheck(lang = "en") {
+  return realFetch(`/update/check?lang=${encodeURIComponent(lang)}`);
 }
 export async function applyUpdate() {
   return realFetch("/update/apply", { method: "POST" });

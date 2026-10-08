@@ -4,6 +4,7 @@ import ProgressBar from "./ProgressBar";
 import { fetchUpdateCheck, applyUpdate, fetchTaskDetail, fetchHealth } from "../api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useLangStore } from "../next/i18n";
 
 const STEP_ORDER = [
   [5, "Backing up the current state"],
@@ -35,14 +36,15 @@ export default function UpdateModal({ open, onClose, triggerRef }) {
   const [error, setError] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting | ok | failed
   const [task, setTask] = useState(null);
+  const lang = useLangStore((s) => s.lang);
 
   useEffect(() => {
     // Guarded on `open`: the component now stays mounted while closed (see the
     // note in VMWizard.jsx), so without this it would call the backend on
     // every page load instead of only when the modal is actually opened.
     if (!open) return;
-    fetchUpdateCheck().then(setInfo).catch((e) => setError(e.message));
-  }, [open]);
+    fetchUpdateCheck(lang).then(setInfo).catch((e) => setError(e.message));
+  }, [open, lang]);
   // Same "stays mounted while closed" consequence: without resetting these,
   // closing the dialog after a failed/finished update and reopening it would
   // show that stale outcome instead of a fresh check.
@@ -121,6 +123,17 @@ export default function UpdateModal({ open, onClose, triggerRef }) {
                 {info.changelog?.length > 0 && (
                   <div className="mt-2 rounded-md bg-muted/60 p-2 max-h-32 overflow-y-auto font-mono text-xs text-foreground/80">
                     {info.changelog.map((l, i) => <div key={i}>{l}</div>)}
+                  </div>
+                )}
+
+                {info.notes?.length > 0 && (
+                  <div className="mt-2 rounded-md bg-muted/60 p-2 max-h-64 overflow-y-auto text-xs text-foreground/90" aria-label="Release notes">
+                    {info.notes.map((n) => (
+                      <section key={n.version} lang={n.langue} className="mb-2">
+                        <h3 className="font-semibold">{n.version}</h3>
+                        <pre className="whitespace-pre-wrap font-sans">{n.texte.trim()}</pre>
+                      </section>
+                    ))}
                   </div>
                 )}
 

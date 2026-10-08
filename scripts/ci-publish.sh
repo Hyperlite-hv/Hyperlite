@@ -10,7 +10,8 @@
 #   HYPERLITE_MIRROR_REPO                 git URL of the mirror repository (default: installer/apt-source.conf);
 #                                         an SSH URL with GIT_SSH_COMMAND lets a deploy key push
 #   GH_TOKEN                              needed to upload the ISO release (not in dry run)
-#   HYPERLITE_VERSION                     version to publish (default: current UTC time, YYYY.MM.DD.HHMM)
+#   HYPERLITE_VERSION                     version to publish (default: the committed VERSION file when it holds a
+#                                         semver release, 1.0.0 and later; else the current UTC time, YYYY.MM.DD.HHMM)
 #   SOURCE_COMMIT                         commit recorded in the ISO notes (default: HEAD)
 #   DRY_RUN=1                             build, sign and check everything but push nothing and upload nothing
 #   SKIP_ISO=1                            do not build the ISO
@@ -31,7 +32,19 @@ MIRROR_OVERRIDE="${HYPERLITE_MIRROR_REPO:-}"
 [ -n "$MIRROR_OVERRIDE" ] && HYPERLITE_MIRROR_REPO="$MIRROR_OVERRIDE"
 export HYPERLITE_APT_URL
 
-VERSION="${HYPERLITE_VERSION:-$(date -u +%Y.%m.%d.%H%M)}"
+# From 1.0.0 the release PR sets the version in VERSION (docs/design/updates-1.0.md); before, it is the date.
+SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+(~[a-z0-9.]+)?$'
+COMMITTED="$(tr -d '[:space:]' < VERSION)"
+if [ -n "${HYPERLITE_VERSION:-}" ]; then
+    VERSION="$HYPERLITE_VERSION"
+elif [[ "$COMMITTED" =~ $SEMVER_RE ]]; then
+    VERSION="$COMMITTED"
+else
+    VERSION="$(date -u +%Y.%m.%d.%H%M)"
+fi
+# The package's own version: semver gets the epoch 1: (installer/build-deb.sh), so apt orders it above the dated ones.
+DEB_VERSION="$VERSION"
+[[ "$VERSION" =~ $SEMVER_RE ]] && DEB_VERSION="1:$VERSION"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git rev-parse HEAD)}"
 DRY_RUN="${DRY_RUN:-0}"
 echo "$VERSION" > VERSION
@@ -44,6 +57,14 @@ trap 'rm -rf "$WORK"' EXIT
 git clone -q --depth 1 --branch gh-pages "$HYPERLITE_MIRROR_REPO" "$WORK/mirror"
 mkdir -p installer/apt-repo
 rsync -a --exclude=.git "$WORK/mirror/" installer/apt-repo/
+# A semver version is published once: a second publication of 1.0.1 with other content would reach some nodes and
+# not others. The release PR bumps VERSION.
+if [[ "$VERSION" =~ $SEMVER_RE ]] && [ -e "installer/apt-repo/pool/main/h/hyperlite/hyperlite_${VERSION}_amd64.deb" ]; then
+    echo "[ci-publish] version $VERSION is already published: bump VERSION in the release PR" >&2
+    exit 1
+fi
+# The release notes the update dialog shows (GET /update/check), next to the repository.
+bash scripts/release-notes.sh "$VERSION" installer/apt-repo/notes
 
 # 2. Package, then the signed repository.
 bash installer/build-deb.sh
@@ -86,6 +107,6 @@ fi
 
 # 5. What clients see: GitHub Pages needs a few minutes to serve the new files.
 if [ "$DRY_RUN" != "1" ] && [ "${SKIP_VERIFY:-0}" != "1" ]; then
-    bash scripts/verify-apt-mirror.sh --expect-version "$VERSION" --wait 900
+    bash scripts/verify-apt-mirror.sh --expect-version "$DEB_VERSION" --wait 900
 fi
 log "done: version $VERSION"
