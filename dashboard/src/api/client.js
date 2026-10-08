@@ -598,8 +598,8 @@ export async function cancelTask(id, force = false) {
 export async function fetchUpdateCheck(lang = "en") {
   return realFetch(`/update/check?lang=${encodeURIComponent(lang)}`);
 }
-export async function applyUpdate() {
-  return realFetch("/update/apply", { method: "POST" });
+export async function applyUpdate(systeme = true) {
+  return realFetch("/update/apply", { method: "POST", ...jsonBody({ systeme }) });
 }
 
 // ---- Users (real) ----

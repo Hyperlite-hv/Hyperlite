@@ -99,6 +99,24 @@ def parse_upgradable(text):
     return packages
 
 
+# Packages whose new version is only used after a reboot: Debian then writes /run/reboot-required. Known before the
+# update from the names alone, so the update dialog can say it beforehand (docs/design/updates-1.0.md).
+REBOOT_PATTERNS = (
+    re.compile(r"^linux-image-"),
+    re.compile(r"^linux-firmware"),
+    re.compile(r"^firmware-"),
+    re.compile(r"^(intel|amd64)-microcode$"),
+    re.compile(r"^libc6$"),
+    re.compile(r"^systemd$"),
+    re.compile(r"^dbus$"),
+)
+
+
+def needs_reboot(packages):
+    """The names, among `packages`, that need a reboot to be used."""
+    return sorted(n for n in packages if any(p.match(n) for p in REBOOT_PATTERNS))
+
+
 def updates(refresh=False):
     if shutil.which("apt-get") is None:
         return {
