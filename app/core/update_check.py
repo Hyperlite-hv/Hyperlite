@@ -21,6 +21,7 @@ email per hour indefinitely.
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 from app.core.audit import log_action
 
@@ -51,8 +52,34 @@ def _touch_checked_at():
     _store().touch_update_checked(datetime.now(UTC).isoformat())
 
 
+REBOOT_MARK = "reboot_notified_boot"
+BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
+
+
+def check_reboot_needed():
+    """Notify once per boot that the node waits for a reboot to use installed updates (the night's security updates
+    never reboot by themselves)."""
+    from app.core import host_system
+
+    if not host_system.REBOOT_REQUIRED.exists():
+        return False
+    try:
+        boot = BOOT_ID.read_text().strip()
+    except OSError:
+        boot = "unknown"
+    if _store().app_setting(REBOOT_MARK) == boot:
+        return False
+    pkgs = host_system.REBOOT_PKGS.read_text().split() if host_system.REBOOT_PKGS.exists() else []
+    detail = f"for {', '.join(sorted(set(pkgs)))[:300]}" if pkgs else None
+    log_action("system", "host_reboot_required", "host", "succes", detail)
+    _store().set_app_setting(REBOOT_MARK, boot)
+    return True
+
+
 def check_once():
     from app.routers.update import check_update  # late import: avoids a cycle when the module loads
+
+    check_reboot_needed()
 
     result = check_update(user={"role": "admin"})
     _touch_checked_at()
