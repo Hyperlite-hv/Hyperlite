@@ -59,6 +59,11 @@ HYPERLITE_SECRET_KEY=$SECRET_KEY
 HYPERLITE_INITIAL_ADMIN_PASSWORD=$ADMIN_PASSWORD
 ENVEOF
     chmod 600 "$APP_DIR/.env"
+    # libvirt's "default" NAT network (virbr0) is the one VMs get unless told otherwise, but Debian 13 defines it
+    # without starting it: on a node installed from the package (not the ISO, whose installer already does this),
+    # the first VM could not start. On an upgrade the administrator's choice is left alone.
+    virsh net-autostart default >/dev/null 2>&1 || true
+    virsh net-start default >/dev/null 2>&1 || true
 
     if [ ! -f "$APP_DIR/data/ssh/hyperlite_automation" ]; then
         ssh-keygen -t ed25519 -N "" -f "$APP_DIR/data/ssh/hyperlite_automation" -C "hyperlite-automation" -q

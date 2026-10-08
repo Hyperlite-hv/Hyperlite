@@ -29,6 +29,23 @@ from app.services import backup_service
 logger = logging.getLogger(__name__)
 
 
+def _stopped_networks(conn, domain):
+    """The libvirt networks the VM has an interface on that are not running, in order."""
+    try:
+        root = ET.fromstring(domain.XMLDesc(0))
+    except (libvirt.libvirtError, ET.ParseError):
+        return []
+    names = dict.fromkeys(s.get("network") for s in root.findall("./devices/interface/source") if s.get("network"))
+    stopped = []
+    for net in names:
+        try:
+            if not conn.networkLookupByName(net).isActive():
+                stopped.append(net)
+        except libvirt.libvirtError:
+            stopped.append(net)  # gone: libvirt would refuse too
+    return stopped
+
+
 @router.post("/{name}/start")
 def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn(node)
@@ -42,6 +59,14 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
         if domain.isActive():
             log_action(user["username"], "start_vm", name, "echec", "VM already running", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already running")
+        stopped = _stopped_networks(conn, domain)
+        if stopped:
+            # libvirt's own refusal named no remedy ("network 'default' is not active").
+            msg = (
+                f"The network {', '.join(repr(n) for n in stopped)} of this VM is stopped: start it on the Network page"
+            )
+            log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=409, detail=msg)
         try:
             domain.create()
         except libvirt.libvirtError as e:
