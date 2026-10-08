@@ -175,6 +175,13 @@ static void test_ids_status_and_persistence(const char *db)
     CHECK_EQ(cfs_store_replace_commit(s, version + 1, INT64_MAX, 0), CFS_OK);
     CHECK_EQ(cfs_store_next_id(s, &id1), CFS_INTERNAL);
     CHECK_EQ(cfs_store_next_id(s, &id1), CFS_INTERNAL);
+
+    /* The same for the version counter: a change at its end is refused, not wrapped around (found by the fuzzer). */
+    CHECK_EQ(cfs_store_replace_begin(s), CFS_OK);
+    CHECK_EQ(cfs_store_replace_commit(s, INT64_MAX, CFS_FIRST_ID, 0), CFS_OK);
+    CHECK_EQ(put(s, "/p/y", "y", CFS_ANY_VERSION, &v), CFS_INTERNAL);
+    char holder[CFS_NAME_MAX + 1];
+    CHECK_EQ(cfs_store_lock(s, "vm:1", "owner", 1, 30, 1000, holder), CFS_INTERNAL);
     cfs_store_close(s);
 }
 

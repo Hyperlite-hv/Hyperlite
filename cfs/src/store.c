@@ -218,6 +218,27 @@ static void rollback(cfs_store *s)
 }
 
 /* Write the new cluster version and commit. On success, the in-memory counter follows. */
+/* The version after the current one. The counter may come from a peer as is (cfs_store_replace_commit): at the end of
+ * its range, +1 would overflow (found by the fuzzer), so the change is refused instead. */
+static int next_version(cfs_store *s, int64_t *version)
+{
+    if (s->version == INT64_MAX) {
+        snprintf(s->error, sizeof(s->error), "the version counter is exhausted");
+        return CFS_INTERNAL;
+    }
+    *version = s->version + 1;
+    return CFS_OK;
+}
+
+static int commit_version(cfs_store *s, int64_t version);
+
+static int commit_next_version(cfs_store *s)
+{
+    int64_t version = 0;
+    int rc = next_version(s, &version);
+    return rc == CFS_OK ? commit_version(s, version) : rc;
+}
+
 static int commit_version(cfs_store *s, int64_t version)
 {
     sqlite3_stmt *st;
@@ -294,7 +315,9 @@ int cfs_store_put(cfs_store *s, const char *path, const uint8_t *data, size_t le
     int64_t bytes = s->bytes - (found == CFS_OK ? old_size : 0) + (int64_t)len;
     if (rc == CFS_OK && (uint64_t)bytes > CFS_TREE_MAX)
         rc = CFS_TOO_LARGE;
-    int64_t version = s->version + 1;
+    int64_t version = 0;
+    if (rc == CFS_OK)
+        rc = next_version(s, &version);
     if (rc == CFS_OK)
         rc = write_row(s, path, version, now, data, len);
     if (rc == CFS_OK)
@@ -319,7 +342,7 @@ int cfs_store_delete(cfs_store *s, const char *path, int64_t expected)
     if (rc == CFS_OK)
         rc = delete_row(s, path);
     if (rc == CFS_OK)
-        rc = commit_version(s, s->version + 1);
+        rc = commit_next_version(s);
     if (rc != CFS_OK) {
         rollback(s);
         return rc;
@@ -355,7 +378,9 @@ int cfs_store_rename(cfs_store *s, const char *from, const char *to, int64_t exp
         rc = delete_row(s, from);
     if (rc == CFS_OK)
         rc = check_shape(s, to);
-    int64_t version = s->version + 1;
+    int64_t version = 0;
+    if (rc == CFS_OK)
+        rc = next_version(s, &version);
     if (rc == CFS_OK)
         rc = write_row(s, to, version, now, data, len);
     free(data);
@@ -398,7 +423,7 @@ int cfs_store_next_id(cfs_store *s, int64_t *id)
     }
     sqlite3_finalize(st);
     if (rc == CFS_OK)
-        rc = commit_version(s, s->version + 1);
+        rc = commit_next_version(s);
     if (rc != CFS_OK) {
         rollback(s);
         return rc;
@@ -487,7 +512,7 @@ int cfs_store_lock(cfs_store *s, const char *name, const char *owner, uint32_t n
             name, owner, node, now + (int64_t)ttl, 2) != SQLITE_DONE)
         rc = CFS_INTERNAL;
     if (rc == CFS_OK)
-        rc = commit_version(s, s->version + 1);
+        rc = commit_next_version(s);
     if (rc != CFS_OK)
         rollback(s);
     return rc;
@@ -507,7 +532,7 @@ int cfs_store_unlock(cfs_store *s, const char *name, const char *owner, int64_t 
     if (rc == CFS_OK && run(s, "DELETE FROM locks WHERE name = ?", name, NULL, 0, 0, 0) != SQLITE_DONE)
         rc = CFS_INTERNAL;
     if (rc == CFS_OK)
-        rc = commit_version(s, s->version + 1);
+        rc = commit_next_version(s);
     if (rc != CFS_OK)
         rollback(s);
     return rc;
@@ -545,7 +570,7 @@ int cfs_store_drop_locks(cfs_store *s, const uint32_t *members, size_t count)
         if (run(s, "DELETE FROM locks WHERE node = ?", NULL, NULL, gone[i], 0, 1) != SQLITE_DONE)
             rc = CFS_INTERNAL;
     if (rc == CFS_OK)
-        rc = commit_version(s, s->version + 1);
+        rc = commit_next_version(s);
     if (rc != CFS_OK)
         rollback(s);
     return rc;

@@ -99,6 +99,88 @@ def parse_upgradable(text):
     return packages
 
 
+# Packages whose new version is only used after a reboot: Debian then writes /run/reboot-required. Known before the
+# update from the names alone, so the update dialog can say it beforehand (docs/design/updates-1.0.md).
+REBOOT_PATTERNS = (
+    re.compile(r"^linux-image-"),
+    re.compile(r"^linux-firmware"),
+    re.compile(r"^firmware-"),
+    re.compile(r"^(intel|amd64)-microcode$"),
+    re.compile(r"^libc6$"),
+    re.compile(r"^systemd$"),
+    re.compile(r"^dbus$"),
+)
+
+
+def needs_reboot(packages):
+    """The names, among `packages`, that need a reboot to be used."""
+    return sorted(n for n in packages if any(p.match(n) for p in REBOOT_PATTERNS))
+
+
+# ---- Automatic security updates (docs/design/updates-1.0.md) ----
+# Debian's own unattended-upgrades, limited to the security archive, every night at a time chosen per node, never
+# rebooting by itself; Hyperlite is never updated this way, only announced. Our settings come after Debian's defaults
+# (APT reads apt.conf.d in order, a later value wins).
+AUTO_CONF = Path("/etc/apt/apt.conf.d/52hyperlite-security-updates")
+AUTO_TIMERS = {
+    "apt-daily.timer": Path("/etc/systemd/system/apt-daily.timer.d/hyperlite.conf"),
+    "apt-daily-upgrade.timer": Path("/etc/systemd/system/apt-daily-upgrade.timer.d/hyperlite.conf"),
+}
+AUTO_DEFAULT_TIME = "03:30"
+TIME_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+_ON_CALENDAR_RE = re.compile(r"OnCalendar=\*-\*-\* (\d\d:\d\d)")
+
+
+def auto_updates():
+    """{"actif", "heure", "installe"}: the night run of the security updates on this node."""
+    text = AUTO_CONF.read_text() if AUTO_CONF.exists() else ""
+    timer = AUTO_TIMERS["apt-daily-upgrade.timer"]
+    m = _ON_CALENDAR_RE.search(timer.read_text()) if timer.exists() else None
+    return {
+        "actif": 'APT::Periodic::Unattended-Upgrade "1";' in text,
+        "heure": m.group(1) if m else AUTO_DEFAULT_TIME,
+        "installe": shutil.which("unattended-upgrade") is not None,
+    }
+
+
+def set_auto_updates(active, at):
+    if not TIME_RE.match(at or ""):
+        raise SettingError("Invalid time (expected HH:MM)")
+    flag = "1" if active else "0"
+    _write(
+        AUTO_CONF,
+        "// Written by Hyperlite (Node > Updates). Security updates only, never a reboot, never Hyperlite itself.\n"
+        f'APT::Periodic::Update-Package-Lists "{flag}";\n'
+        f'APT::Periodic::Unattended-Upgrade "{flag}";\n'
+        # Debian's own file lists its stable point releases too, and APT adds the lists up: cleared first.
+        "#clear Unattended-Upgrade::Origins-Pattern;\n"
+        "Unattended-Upgrade::Origins-Pattern {\n"
+        '  "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";\n'
+        '  "origin=Debian,codename=${distro_codename},label=Debian-Security";\n'
+        "};\n"
+        'Unattended-Upgrade::Package-Blacklist { "hyperlite"; };\n'
+        'Unattended-Upgrade::Automatic-Reboot "false";\n',
+    )
+    hh, mm = (int(x) for x in at.split(":"))
+    # The package lists are read 30 minutes before the upgrade, so it installs what was published that night.
+    before = (hh * 60 + mm - 30) % 1440
+    for timer, when in (("apt-daily.timer", f"{before // 60:02d}:{before % 60:02d}"), ("apt-daily-upgrade.timer", at)):
+        _write(
+            AUTO_TIMERS[timer],
+            f"[Timer]\nOnCalendar=\nOnCalendar=*-*-* {when}\nRandomizedDelaySec=0\nPersistent=true\n",
+        )
+    _run(["systemctl", "daemon-reload"])
+    for timer in AUTO_TIMERS:
+        _run(["systemctl", "enable", "--now", timer])
+    return auto_updates()
+
+
+def ensure_auto_updates_default():
+    """On a node that never chose: the night run on, at AUTO_DEFAULT_TIME (the package's first installation)."""
+    if not AUTO_CONF.exists():
+        set_auto_updates(True, AUTO_DEFAULT_TIME)
+
+
 def updates(refresh=False):
     if shutil.which("apt-get") is None:
         return {
