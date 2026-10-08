@@ -43,6 +43,7 @@ TABLES = {
                 "cfs_join_pending",
                 "cluster_join_ticket",
                 "tasks_node_names",
+                "reboot_notified_boot",
             )
         }
     },

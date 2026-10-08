@@ -71,6 +71,12 @@ async function realFetch(path, opts = {}) {
 export async function fetchHostUpdates(refresh = false) {
   return realFetch(`/host/system/updates${refresh ? "?refresh=true" : ""}`);
 }
+export async function fetchAutoUpdates() {
+  return realFetch("/host/system/auto-updates");
+}
+export async function setAutoUpdates(actif, heure) {
+  return realFetch("/host/system/auto-updates", { method: "PUT", ...jsonBody({ actif, heure }) });
+}
 export async function upgradeHostPackages(paquets) {
   return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
 }
@@ -598,8 +604,11 @@ export async function cancelTask(id, force = false) {
 export async function fetchUpdateCheck(lang = "en") {
   return realFetch(`/update/check?lang=${encodeURIComponent(lang)}`);
 }
-export async function applyUpdate() {
-  return realFetch("/update/apply", { method: "POST" });
+export async function rollbackUpdate() {
+  return realFetch("/update/rollback", { method: "POST" });
+}
+export async function applyUpdate(systeme = true) {
+  return realFetch("/update/apply", { method: "POST", ...jsonBody({ systeme }) });
 }
 
 // ---- Users (real) ----

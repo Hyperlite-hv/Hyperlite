@@ -5,7 +5,7 @@ import socket
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core import host_system
 from app.core.audit import log_action
@@ -59,6 +59,28 @@ def upgrade(payload: UpgradeRequest, user: dict = Depends(require_role("admin"))
 
     threading.Thread(target=work, name="host-upgrade", daemon=True).start()
     return {"tache": task_id}
+
+
+class AutoUpdates(BaseModel):
+    actif: bool
+    heure: str = Field(default="03:30", max_length=5)
+
+
+@router.get("/auto-updates")
+def get_auto_updates(user: dict = Depends(require_role("admin"))):
+    return host_system.auto_updates()
+
+
+@router.put("/auto-updates")
+def put_auto_updates(payload: AutoUpdates, user: dict = Depends(require_role("admin"))):
+    try:
+        result = host_system.set_auto_updates(payload.actif, payload.heure)
+    except host_system.SettingError as e:
+        raise _refused(user, "set_auto_updates", e) from e
+    log_action(
+        user["username"], "set_auto_updates", "host", "succes", f"{'on' if payload.actif else 'off'} at {payload.heure}"
+    )
+    return result
 
 
 class DnsSettings(BaseModel):

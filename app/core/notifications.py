@@ -35,6 +35,7 @@ NOTIFY_EVENTS = {
     "update_available": "New Hyperlite version available (to be applied)",
     "create_vm": "VM creation",
     "delete_vm": "VM deletion",
+    "host_reboot_required": "Node reboot needed (updates installed)",
     "vm_crashed": "VM stopped by accident (crash)",
     "migrate_vm": "VM migration",
     "backup_vm": "VM backup",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  fetchAutoUpdates, setAutoUpdates,
   fetchHostUpdates, upgradeHostPackages, fetchHostDns, setHostDns, fetchHostTime, fetchHostTimezones, setHostTime, fetchHostSyslog, setHostSyslog,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -81,7 +82,37 @@ export function NodeUpdatesPage({ resource: node }) {
           </TableWrap>
         )}
       </Card>
+      <AutoUpdatesCard />
     </>
+  );
+}
+
+// Debian's security updates every night (docs/design/updates-1.0.md): never a reboot, never Hyperlite itself.
+function AutoUpdatesCard() {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [d, setD] = useState(null);
+  const [f, setF] = useState({ actif: true, heure: "03:30" });
+  const [error, setError] = useState(null);
+  const fill = (x) => { setD(x); setF({ actif: x.actif, heure: x.heure }); };
+  const load = useCallback(() => fetchAutoUpdates().then((x) => { fill(x); setError(null); }).catch((e) => setError(errorMessage(e))), []);
+  useEffect(() => { load(); }, [load]);
+  if (error && !d) return <Card title={t("au2.title")}><ErrorState message={error} onRetry={load} /></Card>;
+  if (!d) return <Card title={t("au2.title")}><Loading /></Card>;
+  const dirty = f.actif !== d.actif || f.heure !== d.heure;
+  async function save() {
+    try { fill(await setAutoUpdates(f.actif, f.heure)); pushToast({ kind: "success", title: t("hs.saved") }); }
+    catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
+  }
+  return (
+    <Card title={t("au2.title")} actions={<button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || !/^\d\d:\d\d$/.test(f.heure)} onClick={save}>{t("hs.save")}</button>}>
+      <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("au2.help")}</p>
+      {!d.installe && <p className="nx-pending" role="status">{t("au2.notInstalled")}</p>}
+      <label className="nx-check"><input type="checkbox" checked={f.actif} onChange={(e) => setF({ ...f, actif: e.target.checked })} /> {t("au2.enable")}</label>
+      <div className="nx-fg" style={{ marginTop: "var(--space-3)" }}>
+        <Field label={t("au2.time")} hint={t("au2.timeHint")}>{(p) => <input {...p} type="time" className="nx-inp" disabled={!f.actif} value={f.heure} onChange={(e) => setF({ ...f, heure: e.target.value })} />}</Field>
+      </div>
+    </Card>
   );
 }
 
