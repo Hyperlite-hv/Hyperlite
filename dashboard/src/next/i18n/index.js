@@ -1,15 +1,20 @@
 import { useCallback } from "react";
 import { create } from "zustand";
-import en from "./en";
-import fr from "./fr";
-
-const CATALOGS = { en, fr };
+// Each language is a file of its own, loaded when it is used: both made a 320 kB script that every sign-in downloaded
+// whole (#354). The language shown first is loaded before the dashboard renders (main.jsx).
+const LOADERS = { en: () => import("./en"), fr: () => import("./fr") };
+const CATALOGS = {};
 const KEY = "hyperlite-next-lang";
+
+export function loadLang(lang) {
+  if (CATALOGS[lang]) return Promise.resolve(CATALOGS[lang]);
+  return LOADERS[lang]().then((m) => { CATALOGS[lang] = m.default; return m.default; });
+}
 
 export function detectLang() {
   try {
     const stored = localStorage.getItem(KEY);
-    if (stored && CATALOGS[stored]) return stored;
+    if (stored && LOADERS[stored]) return stored;
   } catch { /* storage unavailable */ }
   const nav = typeof navigator !== "undefined" ? (navigator.language || "en") : "en";
   return nav.toLowerCase().startsWith("fr") ? "fr" : "en";
@@ -18,15 +23,15 @@ export function detectLang() {
 export const useLangStore = create((set) => ({
   lang: detectLang(),
   setLang(lang) {
-    if (!CATALOGS[lang]) return;
+    if (!LOADERS[lang]) return;
     try { localStorage.setItem(KEY, lang); } catch { /* applies for this session only */ }
-    document.documentElement.lang = lang;
-    set({ lang });
+    // The switch happens once the new language is there: no screen of raw keys meanwhile.
+    loadLang(lang).then(() => { document.documentElement.lang = lang; set({ lang }); }).catch(() => {});
   },
 }));
 
 export function translate(lang, key, vars) {
-  let s = CATALOGS[lang]?.[key] ?? CATALOGS.en[key] ?? key;
+  let s = CATALOGS[lang]?.[key] ?? CATALOGS.en?.[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
   return s;
 }
