@@ -8,7 +8,17 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import checkpoints, cluster_compat, ha, iscsi, maintenance, object_meta, vm_boot, vm_locks
+from app.core import (
+    checkpoints,
+    cluster_compat,
+    ha,
+    iscsi,
+    maintenance,
+    object_meta,
+    snapshot_carry,
+    vm_boot,
+    vm_locks,
+)
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -388,7 +398,21 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         progress_thread.start()
         # Replication is per node: the VM leaves this one, and its checkpoint must not block the disk copy.
         checkpoints.release(domain, vm_name)
-        domain.migrateToURI3(dest_uri, migrate_params, flags)
+        # libvirt refuses a VM with snapshot records; on shared storage they go with it (app/core/snapshot_carry.py).
+        stashed = snapshot_carry.stash(domain) if shared else None
+        if stashed:
+            task_log(task_id, f"Carrying {len(stashed['snapshots'])} snapshot(s) to {target_node}")
+        try:
+            domain.migrateToURI3(dest_uri, migrate_params, flags)
+        except libvirt.libvirtError:
+            lost = snapshot_carry.restore(domain, stashed)
+            if lost:
+                logger.error("Snapshots of %s not defined again after a failed migration: %s", vm_name, lost)
+            raise
+        if stashed:
+            lost = snapshot_carry.restore(dest_conn.lookupByName(vm_name), stashed)
+            if lost:
+                task_log(task_id, f"Snapshots not carried (their data stays in the disks): {', '.join(lost)}")
         task_log(task_id, "Migration done, cleaning up")
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
