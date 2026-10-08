@@ -126,6 +126,10 @@ def log_action(
 
     if result == "succes" and action.startswith(READ_ACTION_PREFIXES):
         return
+    # Something changed (or was attempted): the VM listing shared between requests is read again.
+    from app.core import inventory_cache
+
+    inventory_cache.invalidate()
     _ensure_writer_started()
     entry = (username, action, resource, result, error_message, datetime.now(UTC).isoformat(), request_ip.get())
     try:

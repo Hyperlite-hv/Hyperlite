@@ -16,6 +16,7 @@ from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
+from app.routers.vms._shared import inventory
 from app.routers.vms.firewall import _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS, FirewallConfig
 
 router = APIRouter(prefix="/networks", tags=["networks"])
@@ -95,24 +96,6 @@ FORWARD_MODE_LABELS = {
 }
 
 
-def _vm_count_by_network(conn):
-    """Number of VMs (running or not) with at least one interface on each libvirt network."""
-    counts = {}
-    try:
-        domains = conn.listAllDomains()
-    except libvirt.libvirtError:
-        return counts
-    for dom in domains:
-        try:
-            root = ET.fromstring(dom.XMLDesc(0))
-        except (libvirt.libvirtError, ET.ParseError):
-            continue
-        names = {src.get("network") for src in root.findall(".//devices/interface/source") if src.get("network")}
-        for n in names:
-            counts[n] = counts.get(n, 0) + 1
-    return counts
-
-
 def _network_summary(net):
     xml_desc = net.XMLDesc(0)
     root = ET.fromstring(xml_desc)
@@ -149,7 +132,7 @@ def list_networks(user: dict = Depends(get_current_user)):
     try:
         ensure_isolated_network(conn)
         result = []
-        vm_counts = _vm_count_by_network(conn)
+        vm_counts = inventory(conn)["per_network"]
         for net in conn.listAllNetworks():
             try:
                 summary = _network_summary(net)

@@ -44,6 +44,9 @@ class _EmptyHost:
     def listAllDomains(self, *_a):
         return []
 
+    def getAllDomainStats(self, *_a):
+        return []
+
     def close(self):
         return 0
 
