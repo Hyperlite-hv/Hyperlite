@@ -103,6 +103,12 @@ if [ -f "$conf" ] && grep -Eq '^[[:space:]]*cluster_name:[[:space:]]*debian[[:sp
     && grep -Eq '^[[:space:]]*crypto_cipher:[[:space:]]*none[[:space:]]*$' "$conf"; then
     systemctl disable --now corosync.service >/dev/null 2>&1 || true
 fi
+# Debian's security updates every night (03:30), never a reboot, never Hyperlite itself: Antho's decision for every
+# node (docs/design/updates-1.0.md). Only on a node that never chose; changed on Node > Updates.
+if ! ( cd "$APP_DIR" && "$APP_DIR/venv/bin/python3" -c \
+    "from app.core.host_system import ensure_auto_updates_default; ensure_auto_updates_default()" ) >/dev/null 2>&1; then
+    log "WARNING: the night security updates could not be set up (Node > Updates)."
+fi
 # Only a daemon an administrator started (a cluster) is restarted onto the new binary; a disabled one stays stopped.
 if [ "$CFS_BUILT" = "1" ] && ! systemctl try-restart hyperlite-cfs.service; then
     log "WARNING: hyperlite-cfs did not restart: systemctl status hyperlite-cfs"

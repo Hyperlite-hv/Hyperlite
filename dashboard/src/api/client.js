@@ -71,6 +71,12 @@ async function realFetch(path, opts = {}) {
 export async function fetchHostUpdates(refresh = false) {
   return realFetch(`/host/system/updates${refresh ? "?refresh=true" : ""}`);
 }
+export async function fetchAutoUpdates() {
+  return realFetch("/host/system/auto-updates");
+}
+export async function setAutoUpdates(actif, heure) {
+  return realFetch("/host/system/auto-updates", { method: "PUT", ...jsonBody({ actif, heure }) });
+}
 export async function upgradeHostPackages(paquets) {
   return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
 }
