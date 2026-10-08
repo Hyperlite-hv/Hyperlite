@@ -125,5 +125,5 @@ def test_large_answers_are_compressed_for_clients_that_accept_it(client, auth_he
     monkeypatch.setattr(main, "DASHBOARD_DIST", str(tmp_path))
     r = client.get("/vm/web", headers={"Accept": "text/html", "Accept-Encoding": "gzip"})
     assert r.headers.get("content-encoding") == "gzip" and "<title>Hyperlite</title>" in r.text
-    small = client.get("/health", headers={"Accept-Encoding": "gzip"})
-    assert "content-encoding" not in small.headers  # under 1 kB: not worth it
+    small = client.get("/no/such/route", headers={"Accept": "application/json", "Accept-Encoding": "gzip"})
+    assert small.status_code == 404 and "content-encoding" not in small.headers  # under 1 kB: not worth it
