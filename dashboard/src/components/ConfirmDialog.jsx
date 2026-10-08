@@ -16,7 +16,8 @@ import { cn } from "@/lib/utils";
 // it moves focus into the dialog, so document.activeElement there is still
 // whatever was focused just before (the button that was clicked) -- captured in
 // an event callback, not during render.
-export default function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", danger = true, onConfirm, onCancel }) {
+// option: an optional checkbox under the message ({ label }), its state passed back through onConfirm.
+export default function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", danger = true, onConfirm, onCancel, option = null, optionChecked = false, onOptionChange }) {
   const triggerRef = useRef(null);
 
   return (
@@ -38,6 +39,12 @@ export default function ConfirmDialog({ open, title, message, confirmLabel = "Co
           <div className="flex-1 text-left">
             <AlertDialogTitle className="text-sm">{title}</AlertDialogTitle>
             <AlertDialogDescription className="mt-1 text-sm whitespace-pre-line">{message}</AlertDialogDescription>
+            {option && (
+              <label className="mt-3 flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={optionChecked} onChange={(e) => onOptionChange?.(e.target.checked)} />
+                <span>{option.label}</span>
+              </label>
+            )}
           </div>
         </AlertDialogHeader>
         <AlertDialogFooter>
