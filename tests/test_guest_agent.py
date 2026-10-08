@@ -8,6 +8,7 @@ import libvirt
 import pytest
 
 from app.core import guest_agent, vm_builder
+from tests.conftest import agent_answer
 
 CHANNEL = "<channel type='unix'><target type='virtio' name='org.qemu.guest_agent.0'{state}/></channel>"
 
@@ -48,10 +49,13 @@ class FakeDomain:
         else:
             self.calls.append("acpi-reboot")
 
-    def interfaceAddresses(self, source):
-        assert source == libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT
+    def UUIDString(self):
+        return f"uuid-{id(self)}"
+
+    def agent_reply(self, command):
+        assert "guest-network-get-interfaces" in command
         self._agent("addresses")
-        return self.addrs
+        return agent_answer(self.addrs)
 
     def snapshotCreateXML(self, xml, flags):
         if flags & libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE:
@@ -82,12 +86,11 @@ def test_without_a_working_agent_shutdown_and_reboot_use_acpi(domain):
     assert "acpi-shutdown" in domain.calls and "acpi-reboot" in domain.calls
 
 
-def test_the_ip_is_the_guests_first_routable_ipv4():
-    v4, v6 = libvirt.VIR_IP_ADDR_TYPE_IPV4, libvirt.VIR_IP_ADDR_TYPE_IPV6
+def test_the_ip_is_the_guests_first_routable_ipv4(fake_agent):
     addrs = {
-        "lo": {"addrs": [{"type": v4, "addr": "127.0.0.1"}]},
-        "eth0": {"addrs": [{"type": v6, "addr": "fe80::1"}, {"type": v4, "addr": "169.254.3.4"}]},
-        "eth1": {"addrs": [{"type": v4, "addr": "192.0.2.15"}]},
+        "lo": [("ipv4", "127.0.0.1")],
+        "eth0": [("ipv6", "fe80::1"), ("ipv4", "169.254.3.4")],
+        "eth1": [("ipv4", "192.0.2.15")],
     }
     assert guest_agent.ipv4(FakeDomain(addrs=addrs)) == "192.0.2.15"
     assert guest_agent.ipv4(FakeDomain(addrs={"lo": addrs["lo"]})) is None
@@ -117,3 +120,53 @@ def test_cloud_init_installs_and_starts_the_agent(monkeypatch, tmp_path):
     vm_builder.create_cloudinit_iso("vm1", "tester", "Testpass1", target_dir=tmp_path)
     assert "packages:\n  - qemu-guest-agent\n" in seen["user_data"]
     assert "[systemctl, enable, --now, qemu-guest-agent]" in seen["user_data"]
+
+
+def test_a_hung_agent_never_holds_the_vm_list(fake_agent):
+    """On a test node one hung agent held the VM list for over 13 minutes: libvirt waits for an agent without limit."""
+    import threading
+    import time
+
+    release = threading.Event()
+
+    class Hung(FakeDomain):
+        asked = 0
+
+        def agent_reply(self, command):
+            Hung.asked += 1
+            release.wait(5)
+            return agent_answer({"eth0": [("ipv4", "192.0.2.77")]})
+
+    hung, fine = Hung(), FakeDomain(addrs={"eth0": [("ipv4", "192.0.2.15")]})
+    t = time.monotonic()
+    ips = guest_agent.ipv4_many([hung, fine], wait=0.3)
+    assert time.monotonic() - t < 1
+    assert ips == {hung.UUIDString(): None, fine.UUIDString(): "192.0.2.15"}
+    # Asked again while the first question is still in flight: neither asked twice nor waited for.
+    t = time.monotonic()
+    guest_agent.ipv4_many([hung], wait=2)
+    assert Hung.asked == 1 and time.monotonic() - t < 0.5
+    # Once it answers, the next list has its address.
+    release.set()
+    deadline = time.monotonic() + 3
+    while guest_agent.ipv4_many([hung], wait=0.2)[hung.UUIDString()] is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert guest_agent.ipv4_many([hung], wait=0.2)[hung.UUIDString()] == "192.0.2.77"
+
+
+def test_an_agent_that_did_not_answer_is_left_alone_for_a_while(fake_agent, monkeypatch):
+    asked = []
+
+    class Silent(FakeDomain):
+        def agent_reply(self, command):
+            asked.append(1)
+            raise libvirt.libvirtError("agent not responding")
+
+    vm = Silent()
+    assert guest_agent.ipv4_many([vm], wait=1) == {vm.UUIDString(): None}
+    assert guest_agent.ipv4_many([vm], wait=1) == {vm.UUIDString(): None}
+    assert len(asked) == 1  # not asked again within RETRY_AFTER_S
+    monkeypatch.setattr(guest_agent, "RETRY_AFTER_S", 0)
+    guest_agent._silent_until.clear()
+    guest_agent.ipv4_many([vm], wait=1)
+    assert len(asked) == 2

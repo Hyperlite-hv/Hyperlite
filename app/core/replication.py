@@ -150,7 +150,7 @@ def _wait(domain):
 def _run_backup_job(domain, disks, point_dir, checkpoint, incremental_from, skipped=()):
     flags = libvirt.VIR_DOMAIN_BACKUP_BEGIN_REUSE_EXTERNAL if incremental_from else 0
     frozen = False
-    if guest_agent.state(domain) == guest_agent.CONNECTED:
+    if guest_agent.state(domain) == guest_agent.CONNECTED and guest_agent.bound(domain):
         try:
             domain.fsFreeze()
             frozen = True

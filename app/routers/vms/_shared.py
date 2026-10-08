@@ -76,7 +76,7 @@ def _dhcp_leases(conn):
     return leases
 
 
-def _summary(domain, root, state, leases, ssh_users, os_labels):
+def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
     """The VM summary from one parsed XML: the list used to read each domain's XML three times and to run two
     SQLite queries per VM, about 4 s for 1,000 VMs."""
     name = domain.name()
@@ -88,7 +88,7 @@ def _summary(domain, root, state, leases, ssh_users, os_labels):
     if active:
         agent = guest_agent.state_of_xml(root)
         if agent == guest_agent.CONNECTED:
-            ip = guest_agent.ipv4_of_connected(domain)
+            ip = agent_ips.get(domain.UUIDString()) if agent_ips is not None else guest_agent.ipv4_of_connected(domain)
         if not ip:
             for mac_el in root.findall("./devices/interface/mac"):
                 ip = _lease_ipv4(mac_el.get("address"), leases)
@@ -145,15 +145,20 @@ def _scan(conn):
     leases = _dhcp_leases(conn) if any(d.ID() != -1 for d, _ in stats) else {}
     ssh_users = all_vm_ssh_users()
     os_labels = all_vm_os_labels()
-    result, per_network = [], {}
+    read = []
     for domain, values in stats:
         try:
-            root = ET.fromstring(domain.XMLDesc(0))
+            read.append((domain, ET.fromstring(domain.XMLDesc(0)), values.get("state.state")))
         except libvirt.libvirtError:
             # Undefined between the two calls: it is simply no longer in the list.
             logger.debug("VM gone while listing", exc_info=True)
-            continue
-        result.append(_summary(domain, root, values.get("state.state"), leases, ssh_users, os_labels))
+    # The agents of all the running VMs are asked together, the list waiting a bounded time (guest_agent.ipv4_many).
+    agent_ips = guest_agent.ipv4_many(
+        [d for d, root, _ in read if d.ID() != -1 and guest_agent.state_of_xml(root) == guest_agent.CONNECTED]
+    )
+    result, per_network = [], {}
+    for domain, root, state in read:
+        result.append(_summary(domain, root, state, leases, ssh_users, os_labels, agent_ips))
         for net in _networks_of(root):
             per_network[net] = per_network.get(net, 0) + 1
     return {"vms": result, "per_network": per_network}
