@@ -15,6 +15,7 @@ from app.core import (
     iscsi,
     maintenance,
     object_meta,
+    self_node,
     snapshot_carry,
     vm_boot,
     vm_locks,
@@ -447,7 +448,8 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             "migrate_vm",
             vm_name,
             "succes",
-            f"{source_node} -> {target_node} ({'shared' if shared else 'copied'} storage)",
+            # The local node has no name of its own in source_node (None): the audit log said "None -> hlc2".
+            f"{source_node or self_node.name()} -> {target_node} ({'shared' if shared else 'copied'} storage)",
         )
     except libvirt.libvirtError as e:
         stop_event.set()
