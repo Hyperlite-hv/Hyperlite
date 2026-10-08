@@ -47,6 +47,9 @@ router = APIRouter(prefix="/update", tags=["update"])
 
 REPO_DIR = Path(__file__).resolve().parent.parent.parent  # /root/hyperlite
 BACKUP_DIR = Path("/root/hyperlite-backups")
+# The package of the version before the last update, for a return to it (docs/design/updates-1.0.md): kept on the
+# node, so the return works without the mirror too. One version only.
+PREVIOUS_DIR = Path("/var/lib/hyperlite/previous")
 WATCHDOG_SCRIPT = REPO_DIR / "scripts" / "update_watchdog.sh"
 
 
@@ -190,6 +193,55 @@ def _install_method():
     if r.returncode == 0 and "install ok installed" in r.stdout:
         return "apt"
     return "git"  # indeterminate state: fall back to the historical behaviour
+
+
+def _raw_installed_version():
+    """The installed package version as dpkg knows it, epoch included."""
+    r = _run_c(["dpkg-query", "-W", "-f=${Version}", "hyperlite"])
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def _raw_candidate_version():
+    for line in _run_c(["apt-cache", "policy", "hyperlite"]).stdout.splitlines():
+        if line.strip().startswith("Candidate:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def _previous():
+    """The kept package of the previous version: {"version", "fichier"} or None."""
+    debs = sorted(PREVIOUS_DIR.glob("hyperlite_*.deb")) if PREVIOUS_DIR.is_dir() else []
+    if not debs:
+        return None
+    r = _run_c(["dpkg-deb", "-f", str(debs[-1]), "Version"])
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return {"version": version.without_epoch(r.stdout.strip()), "fichier": debs[-1]}
+
+
+def _keep_previous(task_id):
+    """Before Hyperlite changes: keep the installed version's package (from the mirror's pool, which keeps every
+    version). Best effort: without it, the return to the previous version is just not offered."""
+    installed, candidate = _raw_installed_version(), _raw_candidate_version()
+    if not installed or not candidate or installed == candidate:
+        return
+    PREVIOUS_DIR.mkdir(parents=True, exist_ok=True)
+    work = PREVIOUS_DIR / ".download"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
+    r = subprocess.run(
+        ["apt-get", "download", f"hyperlite={installed}"], cwd=str(work), capture_output=True, text=True, timeout=300
+    )
+    debs = list(work.glob("hyperlite_*.deb"))
+    if r.returncode != 0 or not debs:
+        task_log(task_id, f"The package of {installed} could not be kept: the return to it will not be offered")
+        shutil.rmtree(work, ignore_errors=True)
+        return
+    for old in PREVIOUS_DIR.glob("hyperlite_*.deb"):
+        old.unlink()
+    debs[0].rename(PREVIOUS_DIR / debs[0].name)
+    shutil.rmtree(work, ignore_errors=True)
+    task_log(task_id, f"Version {version.without_epoch(installed)} kept for a return to it")
 
 
 def _dpkg_installed_version():
@@ -392,6 +444,8 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
         if result.get("verifiable"):
             # apt-get update ran above: the Debian side is current too.
             result["systeme"] = _system_summary()
+        previous = _previous()
+        result["precedente"] = previous["version"] if previous else None
         return result
 
     branch = _current_branch()
@@ -607,6 +661,8 @@ def _run_update_job_apt(task_id, username, system=True):
 
         rolled_back = bool(version.STARTUP_VERSION and old_version and old_version != version.STARTUP_VERSION)
         env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
+        if not rolled_back:
+            _keep_previous(task_id)
         if rolled_back:
             # After a rollback the package is already "installed" at the version that did not start: reinstall it.
             step(35, "Installing Hyperlite again (the last update was rolled back)")
@@ -719,3 +775,60 @@ def _start_update(user, system=True):
     task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
     threading.Thread(target=_run_update_job, args=(task_id, user["username"], branch), daemon=True).start()
     return {"task_id": task_id, "statut": "en_cours"}
+
+
+def _run_rollback_job(task_id, username, previous):
+    log_file = BACKUP_DIR / "update.log"
+    old_version = _dpkg_installed_version()
+    try:
+        update_task_progress(task_id, 5)
+        tarball = _backup(task_id)
+        update_task_progress(task_id, 30)
+        task_log(task_id, f"Installing {previous['version']} again")
+        env = {
+            **os.environ,
+            "HYPERLITE_SKIP_RESTART": "1",
+            "LC_ALL": "C",
+            "LANG": "C",
+            "DEBIAN_FRONTEND": "noninteractive",
+        }
+        r = subprocess.run(
+            ["apt-get", "install", "-y", "--allow-downgrades", str(previous["fichier"])],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=600, env=env,
+        )  # fmt: skip
+        if r.returncode != 0:
+            raise RuntimeError(f"apt-get install failed: {(r.stderr or r.stdout).strip()[-400:]}")
+        # One step back only: the version left is the one the mirror offers again.
+        previous["fichier"].unlink(missing_ok=True)
+        update_task_progress(task_id, 90)
+        _spawn_outside_service(
+            "hyperlite-update-watchdog",
+            ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
+        )
+        _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
+        finish_task(task_id, "termine")
+        log_action(username, "hyperlite_rollback", f"{old_version} -> {previous['version']}", "succes")
+    except Exception as exc:
+        finish_task(task_id, "echec", str(exc))
+        log_action(username, "hyperlite_rollback", str(exc), "echec")
+
+
+@router.post("/rollback", status_code=202)
+def rollback_update(user: dict = Depends(require_role("admin"))):
+    """Back to the version before the last update of Hyperlite (its package kept on the node), under the same
+    safety net as an update. Hyperlite only: the Debian packages stay as they are."""
+    if _install_method() != "apt":
+        raise HTTPException(status_code=409, detail="Only a node installed from the package can go back a version")
+    previous = _previous()
+    if not previous:
+        raise HTTPException(status_code=409, detail="No previous version kept on this node")
+    with _apply_lock:
+        running_for = _update_in_progress()
+        if running_for:
+            raise HTTPException(
+                status_code=409,
+                detail=f"An update started by {running_for} is already running. Wait for it to finish.",
+            )
+        task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
+        threading.Thread(target=_run_rollback_job, args=(task_id, user["username"], previous), daemon=True).start()
+    return {"task_id": task_id, "statut": "en_cours", "version": previous["version"]}
