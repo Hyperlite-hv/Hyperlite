@@ -15,9 +15,9 @@ def test_a_running_update_blocks_a_second_one(database, monkeypatch):
     create_task("hyperlite_update", "hyperlite", username="alice")
     assert update._update_in_progress() == "alice"
 
-    monkeypatch.setattr(update, "_start_update", lambda user: {"started": True})
+    monkeypatch.setattr(update, "_start_update", lambda user, system=True: {"started": True})
     with pytest.raises(HTTPException) as refused:
-        update.apply_update({"username": "bob"})
+        update.apply_update(user={"username": "bob"})
     assert refused.value.status_code == 409
     assert "alice" in refused.value.detail
 
@@ -25,8 +25,8 @@ def test_a_running_update_blocks_a_second_one(database, monkeypatch):
 def test_a_finished_update_does_not_block(database, monkeypatch):
     task_id = create_task("hyperlite_update", "hyperlite", username="alice")
     finish_task(task_id, "termine")
-    monkeypatch.setattr(update, "_start_update", lambda user: {"started": True})
-    assert update.apply_update({"username": "bob"}) == {"started": True}
+    monkeypatch.setattr(update, "_start_update", lambda user, system=True: {"started": True})
+    assert update.apply_update(user={"username": "bob"}) == {"started": True}
 
 
 def test_a_stale_task_left_running_by_a_crash_does_not_block_forever(database):

@@ -8,7 +8,7 @@ import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
 import { fetchApiDocsAccess } from "../../api/client";
 import Menu, { MenuItem } from "../components/Menu";
-import UpdateModal from "../../components/UpdateModal";
+import UpdateDialog from "../components/UpdateDialog";
 import AccountSecurityModal from "../../components/AccountSecurityModal";
 import ChangePasswordDrawer from "../components/ChangePasswordDrawer";
 import PreferencesDrawer from "../components/PreferencesDrawer";
@@ -177,7 +177,7 @@ export default function Sidebar({ collapsed }) {
         </Menu>
       </div>
 
-      <UpdateModal open={updateOpen} onClose={() => setUpdateOpen(false)} triggerRef={userBtn} />
+      {updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}
       <AccountSecurityModal open={securityOpen} onClose={() => setSecurityOpen(false)} triggerRef={userBtn} />
       <ChangePasswordDrawer open={passwordOpen} onClose={() => setPasswordOpen(false)} />
       <PreferencesDrawer open={prefsOpen} onClose={() => setPrefsOpen(false)} />

@@ -32,13 +32,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
-from app.core import version
+from app.core import host_system, version
 from app.core.audit import log_action
 from app.core.database import DB_PATH
 from app.core.http_safety import require_http_url
 from app.core.security import require_role
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, task_log, update_task_progress
 
 logger = logging.getLogger(__name__)
 
@@ -388,6 +389,9 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
         result = _check_update_apt()
         if result.get("verifiable") and not result.get("a_jour"):
             result["notes"] = _release_notes(result.get("commit_local"), result.get("commit_distant"), lang)
+        if result.get("verifiable"):
+            # apt-get update ran above: the Debian side is current too.
+            result["systeme"] = _system_summary()
         return result
 
     branch = _current_branch()
@@ -544,7 +548,42 @@ def _run_update_job(task_id, username, branch):
         log_action(username, "hyperlite_update", str(exc), "echec")
 
 
-def _run_update_job_apt(task_id, username):
+def _full_upgrade_command():
+    """apt-get full-upgrade of every package, in a systemd unit of its own when possible: a package that restarts
+    services (libvirt) must not take the upgrade down with the service that started it. Hyperlite's own postinst does
+    not restart Hyperlite (HYPERLITE_SKIP_RESTART): the update job does, under its watchdog."""
+    apt = [
+        "env", "HYPERLITE_SKIP_RESTART=1", "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C",
+        "apt-get", "-y", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
+        "full-upgrade",
+    ]  # fmt: skip
+    if shutil.which("systemd-run") and Path("/run/systemd/system").is_dir():
+        unit = f"hyperlite-node-update-{int(time.time())}"
+        return ["systemd-run", "--quiet", "--collect", "--wait", "--pipe", f"--unit={unit}", *apt]
+    return apt
+
+
+def _system_summary():
+    """The Debian side of the node's update, for the update dialog: how many packages, how many security ones, and
+    whether a reboot will be needed (predicted from their names) or already is."""
+    try:
+        u = host_system.updates()
+    except host_system.SettingError:
+        return None
+    if not u.get("disponible"):
+        return None
+    pkgs = [p for p in u["paquets"] if p["nom"] != host_system.SELF_PACKAGE]
+    names = [p["nom"] for p in pkgs]
+    return {
+        "paquets": len(pkgs),
+        "securite": sum(1 for p in pkgs if p["securite"]),
+        "noms": names[:300],
+        "redemarrage_prevu": host_system.needs_reboot(names),
+        "redemarrage_requis": u["redemarrage_requis"],
+    }
+
+
+def _run_update_job_apt(task_id, username, system=True):
     log_file = BACKUP_DIR / "update.log"
 
     def step(pct, message):
@@ -566,30 +605,42 @@ def _run_update_job_apt(task_id, username):
             detail = upd.stderr.strip()[:400] if upd is not None else "timed out"
             raise RuntimeError(f"apt-get update failed: {detail}")
 
-        step(40, "Installing the new version (apt-get install)")
-        # HYPERLITE_SKIP_RESTART: the package's postinst NORMALLY restarts the service by
-        # itself (standard Debian behaviour, expected by an admin running `apt install`
-        # by hand over SSH). But HERE, apt-get is a subprocess of the RUNNING hyperlite
-        # service (this very HTTP request), and letting it restart itself from inside
-        # that subprocess would kill apt-get in the middle of its own postinst. This flag
-        # tells the postinst NOT to restart, and this thread does it right afterwards, in
-        # the same detached way as the Git path (Popen + sleep 2).
-        env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
-        # After a rollback the package is already "installed" at the version that did not start: reinstall it
-        # (apt-get still upgrades when a newer one is available).
         rolled_back = bool(version.STARTUP_VERSION and old_version and old_version != version.STARTUP_VERSION)
-        mode = "--reinstall" if rolled_back else "--only-upgrade"
-        install = subprocess.run(
-            ["apt-get", "install", mode, "-y", "hyperlite"],
-            cwd=str(REPO_DIR),
-            capture_output=True,
-            text=True,
-            timeout=300,
-            env=env,
-        )
-        if install.returncode != 0:
-            raise RuntimeError(f"apt-get install failed: {install.stderr.strip()[:400]}")
+        env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
+        if rolled_back:
+            # After a rollback the package is already "installed" at the version that did not start: reinstall it.
+            step(35, "Installing Hyperlite again (the last update was rolled back)")
+            again = subprocess.run(
+                ["apt-get", "install", "--reinstall", "-y", "hyperlite"],
+                cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300, env=env,
+            )  # fmt: skip
+            if again.returncode != 0:
+                raise RuntimeError(f"apt-get install failed: {again.stderr.strip()[:400]}")
+        if system:
+            # One update for the whole node: Hyperlite and every Debian package (docs/design/updates-1.0.md).
+            step(40, "Installing the updates of Hyperlite and Debian (apt-get full-upgrade)")
+            code = host_system.run_upgrade(_full_upgrade_command(), lambda line: task_log(task_id, line))
+            if code != 0:
+                raise RuntimeError(f"apt-get full-upgrade exited with {code}: see the task log")
+        else:
+            # HYPERLITE_SKIP_RESTART: the package's postinst NORMALLY restarts the service by itself, which here
+            # would kill apt-get in the middle of its own postinst; this thread restarts it right afterwards.
+            step(40, "Installing the new version (apt-get install)")
+            install = subprocess.run(
+                ["apt-get", "install", "--only-upgrade", "-y", "hyperlite"],
+                cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300, env=env,
+            )  # fmt: skip
+            if install.returncode != 0:
+                raise RuntimeError(f"apt-get install failed: {install.stderr.strip()[:400]}")
         new_version = _dpkg_installed_version()
+        if host_system.REBOOT_REQUIRED.exists():
+            task_log(task_id, "A reboot of the node is needed to use some of the new packages")
+            log_action(username, "host_reboot_required", "host", "succes", "after an update")
+        if new_version == old_version and not rolled_back:
+            # Only Debian packages changed: Hyperlite keeps running, nothing to restart or watch.
+            finish_task(task_id, "termine")
+            log_action(username, "hyperlite_update", f"Debian packages updated, Hyperlite {new_version}", "succes")
+            return
 
         step(85, "Checking the database schema (no migration required)")
         step(90, "Restarting the service and post-update verification")
@@ -632,8 +683,13 @@ def _update_in_progress():
     return (username or "another administrator") if username is not None else None
 
 
+class ApplyRequest(BaseModel):
+    # The node's Debian packages are updated with Hyperlite (one update per node); False: Hyperlite alone.
+    systeme: bool = True
+
+
 @router.post("/apply", status_code=202)
-def apply_update(user: dict = Depends(require_role("admin"))):
+def apply_update(payload: ApplyRequest | None = None, user: dict = Depends(require_role("admin"))):
     # Two administrators (or a double click) must not start two updates at once: two package
     # installs, two backups and two restarts at the same time would corrupt each other.
     with _apply_lock:
@@ -643,13 +699,13 @@ def apply_update(user: dict = Depends(require_role("admin"))):
                 status_code=409,
                 detail=f"An update started by {running_for} is already running. Wait for it to finish.",
             )
-        return _start_update(user)
+        return _start_update(user, payload.systeme if payload else True)
 
 
-def _start_update(user):
+def _start_update(user, system=True):
     if _install_method() == "apt":
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
-        threading.Thread(target=_run_update_job_apt, args=(task_id, user["username"]), daemon=True).start()
+        threading.Thread(target=_run_update_job_apt, args=(task_id, user["username"], system), daemon=True).start()
         return {"task_id": task_id, "statut": "en_cours"}
 
     branch = _current_branch()
