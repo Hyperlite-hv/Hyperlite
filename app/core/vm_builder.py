@@ -99,6 +99,31 @@ def ensure_base_image():
     return BASE_IMAGE
 
 
+POOL_BASE_NAME = "hyperlite-base-debian-12.qcow2"
+
+
+def ensure_pool_base_image(pool_dir):
+    """The base cloud image inside a storage pool, copied there once. A VM's system disk only holds its changes over
+    the base image: on a shared pool, a base image left in this node's /var/lib/libvirt/images could not be opened
+    by the other nodes, and the VM could not migrate ("Cannot access backing file"). As Proxmox keeps templates in the
+    storage of the disks based on them."""
+    target = Path(pool_dir) / POOL_BASE_NAME
+    with _base_image_lock:
+        if target.exists():
+            return target
+    source = ensure_base_image()
+    with _base_image_lock:
+        if target.exists():  # another VM copied it meanwhile
+            return target
+        partial = target.with_name(target.name + ".part")
+        try:
+            shutil.copyfile(source, partial)
+            partial.rename(target)
+        finally:
+            partial.unlink(missing_ok=True)
+    return target
+
+
 def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     """Create a qcow2 disk for the VM. The disk at index 0 (system) is based on the
     default Debian cloud image; the following disks are always blank (extra
@@ -111,7 +136,7 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     target_dir = target_dir or IMAGES_DIR
     disk_path = target_dir / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
     if index == 0 and not blank:
-        ensure_base_image()
+        base = ensure_base_image() if Path(target_dir) == IMAGES_DIR else ensure_pool_base_image(Path(target_dir))
         subprocess.run(
             [
                 "qemu-img",
@@ -121,7 +146,7 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
                 "-F",
                 "qcow2",
                 "-b",
-                str(BASE_IMAGE),
+                str(base),
                 str(disk_path),
                 f"{disk_gb}G",
             ],
