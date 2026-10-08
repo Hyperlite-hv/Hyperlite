@@ -37,11 +37,14 @@ class _Conn:
     def listAllDomains(self):
         return []
 
+    def getAllDomainStats(self, *_a):
+        return []
+
     def close(self):
         pass
 
 
-def test_a_network_deleted_during_listing_is_skipped_not_a_500(monkeypatch):
+def test_a_network_deleted_during_listing_is_skipped_not_a_500(database, monkeypatch):
     conn = _Conn([_Net("kept"), _Net("vanished", gone=True), _Net("also-kept")])
     monkeypatch.setattr(network, "open_conn", lambda: conn)
     monkeypatch.setattr(network, "ensure_isolated_network", lambda _c: None)

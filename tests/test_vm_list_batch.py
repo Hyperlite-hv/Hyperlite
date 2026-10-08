@@ -5,6 +5,7 @@ import libvirt
 
 from app.core.vm_meta import set_vm_os_label, set_vm_ssh_user
 from app.routers.vms import _shared
+from tests.conftest import agent_answer
 
 RUNNING_XML = """<domain type='kvm' id='3'><name>{name}</name><uuid>{uuid}</uuid>
 <memory unit='KiB'>2097152</memory><vcpu placement='static' current='2'>4</vcpu>
@@ -43,9 +44,8 @@ class FakeDomain:
     def state(self):
         return [libvirt.VIR_DOMAIN_RUNNING if self._running else libvirt.VIR_DOMAIN_SHUTOFF, 1]
 
-    def interfaceAddresses(self, source):
-        assert source == libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT
-        return {"eth0": {"addrs": [{"type": libvirt.VIR_IP_ADDR_TYPE_IPV4, "addr": self._agent_ip}]}}
+    def agent_reply(self, command):
+        return agent_answer({"eth0": [("ipv4", self._agent_ip)]})
 
     def connect(self):
         return self.conn
@@ -82,7 +82,7 @@ def make_conn():
     return FakeConn([web, db, old])
 
 
-def test_the_list_reads_each_xml_once_and_the_leases_once(database):
+def test_the_list_reads_each_xml_once_and_the_leases_once(database, fake_agent):
     set_vm_ssh_user("web", "antho")
     set_vm_os_label("old", "Debian 13")
     conn = make_conn()
@@ -98,7 +98,7 @@ def test_the_list_reads_each_xml_once_and_the_leases_once(database):
     assert old["os"] == "Debian 13" and old["stockage_zfs"] is True and old["vcpu"] == 1
 
 
-def test_one_vm_gets_the_same_summary_as_in_the_list(database, monkeypatch):
+def test_one_vm_gets_the_same_summary_as_in_the_list(database, monkeypatch, fake_agent):
     monkeypatch.setattr(_shared, "get_vm_uptime_s", lambda name: 42)
     conn = make_conn()
     listed = {v["nom"]: v for v in _shared._domain_summaries(conn)}

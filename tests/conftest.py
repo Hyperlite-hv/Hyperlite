@@ -160,3 +160,43 @@ def cluster(database, tmp_path, monkeypatch):
     monkeypatch.setattr(iso_share, "_scp", fake_scp)
     monkeypatch.setattr(iso_share, "PROGRESS_EVERY_S", 0.01)
     return {"local": local, "add_node": add_node, "scp_calls": scp_calls}
+
+
+@pytest.fixture(autouse=True)
+def _fresh_inventory():
+    """The VM listing shared between requests (app/core/inventory_cache.py) never carries over from one test."""
+    from app.core import guest_agent, inventory_cache
+
+    inventory_cache.invalidate()
+    guest_agent.forget()
+    yield
+    inventory_cache.invalidate()
+    guest_agent.forget()
+
+
+def agent_answer(addresses):
+    """What qemu-guest-agent answers to guest-network-get-interfaces, from {interface: [(type, address)]}."""
+    import json
+
+    return json.dumps(
+        {
+            "return": [
+                {"name": name, "ip-addresses": [{"ip-address-type": t, "ip-address": a} for t, a in addrs]}
+                for name, addrs in addresses.items()
+            ]
+        }
+    )
+
+
+@pytest.fixture()
+def fake_agent(monkeypatch):
+    """The agent is asked through libvirt_qemu.qemuAgentCommand: a fake domain answers it with agent_reply()."""
+    import types
+
+    from app.core import guest_agent
+
+    monkeypatch.setattr(
+        guest_agent,
+        "libvirt_qemu",
+        types.SimpleNamespace(qemuAgentCommand=lambda domain, command, timeout, flags: domain.agent_reply(command)),
+    )

@@ -16,11 +16,17 @@ Whether the agent is there is read from libvirt's view of the channel (state='co
 by calling the agent: a call to a hung agent could block a request, and the VM list asks for every VM.
 """
 
+import concurrent.futures
 import ipaddress
+import json
 import logging
+import threading
+import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 
 import libvirt
+import libvirt_qemu
 
 logger = logging.getLogger(__name__)
 
@@ -63,19 +69,31 @@ def ipv4(domain):
     return ipv4_of_connected(domain)
 
 
-def ipv4_of_connected(domain):
-    """ipv4() for a VM already known to have its agent connected (the VM list read it from the XML it holds)."""
-    try:
-        ifaces = domain.interfaceAddresses(libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT)
-    except libvirt.libvirtError:
-        logger.debug("Agent did not report addresses", exc_info=True)
-        return None
-    for iface in ifaces.values():
-        for addr in iface.get("addrs") or []:
-            if addr.get("type") != libvirt.VIR_IP_ADDR_TYPE_IPV4:
+# Asking an agent for its addresses. libvirt waits for an agent's answer without any limit by default: one guest whose
+# agent hung (its channel still "connected") held the VM list for more than 13 minutes on a test node, and every
+# later agent call on that VM waited 30 s for libvirt's lock. So the question is asked with a timeout, in a few
+# worker threads, and a VM list waits LIST_WAIT_S for all of them together: an agent that answers later serves the
+# next list, and meanwhile the VM keeps the address it last reported.
+AGENT_TIMEOUT_S = 2
+LIST_WAIT_S = 0.5
+_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="agent-ip")
+_lock = threading.Lock()
+_known = {}  # VM uuid -> the last address its agent reported (None: it reported none)
+_pending = {}  # VM uuid -> the question in flight, never asked twice at once
+_silent_until = {}  # VM uuid -> monotonic time before which an agent that did not answer is not asked again
+RETRY_AFTER_S = 30
+
+
+def _query_ipv4(domain):
+    answer = libvirt_qemu.qemuAgentCommand(
+        domain, json.dumps({"execute": "guest-network-get-interfaces"}), AGENT_TIMEOUT_S, 0
+    )
+    for iface in json.loads(answer).get("return") or []:
+        for addr in iface.get("ip-addresses") or []:
+            if addr.get("ip-address-type") != "ipv4":
                 continue
             try:
-                ip = ipaddress.ip_address(addr.get("addr"))
+                ip = ipaddress.ip_address(addr.get("ip-address"))
             except ValueError:
                 continue
             if not (ip.is_loopback or ip.is_link_local):
@@ -83,10 +101,75 @@ def ipv4_of_connected(domain):
     return None
 
 
+def _ask(uuid, domain):
+    try:
+        ip = _query_ipv4(domain)
+    except (libvirt.libvirtError, ValueError, AttributeError, TypeError):
+        logger.debug("Agent did not report addresses", exc_info=True)
+        with _lock:
+            _silent_until[uuid] = time.monotonic() + RETRY_AFTER_S
+        return  # the last known address stays
+    with _lock:
+        _known[uuid] = ip
+        _silent_until.pop(uuid, None)
+
+
+def ipv4_many(domains, wait=LIST_WAIT_S):
+    """{uuid: address or None} for running VMs whose agent is connected, waiting at most `wait` for them all."""
+    asked, uuids = [], []
+    with _lock:
+        for domain in domains:
+            uuid = domain.UUIDString()
+            uuids.append(uuid)
+            future = _pending.get(uuid)
+            # A question still in flight from an earlier list is a slow agent: it is not waited for again. An agent
+            # that did not answer is left alone for RETRY_AFTER_S.
+            if (future is None or future.done()) and time.monotonic() >= _silent_until.get(uuid, 0):
+                _pending[uuid] = _pool.submit(_ask, uuid, domain)
+                asked.append(_pending[uuid])
+    if asked:
+        concurrent.futures.wait(asked, timeout=wait)
+    with _lock:
+        return {uuid: _known.get(uuid) for uuid in uuids}
+
+
+def forget():
+    """Drop the addresses known so far (tests)."""
+    with _lock:
+        _known.clear()
+        _pending.clear()
+        _silent_until.clear()
+
+
+def ipv4_of_connected(domain):
+    """ipv4() for a VM already known to have its agent connected (the VM list read it from the XML it holds)."""
+    return ipv4_many([domain]).get(domain.UUIDString())
+
+
+# What an agent operation (shutdown, reboot, freeze for a consistent snapshot) may wait for the guest's answer before
+# libvirt gives up and the caller falls back (ACPI, a crash-consistent snapshot). libvirt's own default is to wait
+# forever: a hung agent held the request, and every later agent call on that VM.
+AGENT_OPERATION_TIMEOUT_S = 10
+
+
+def bound(domain):
+    """Limit how long libvirt waits for this running VM's agent (it holds until the VM stops). False when libvirt
+    could not even do that: an agent call is already stuck on this VM, and asking the agent again would wait for it
+    (libvirt's lock, 30 s) before failing anyway."""
+    try:
+        domain.agentSetResponseTimeout(AGENT_OPERATION_TIMEOUT_S, 0)
+        return True
+    except AttributeError:
+        return True  # a libvirt too old to set it: the agent is asked as before
+    except libvirt.libvirtError:
+        logger.warning("The guest agent of %s is busy: not asking it", domain.name(), exc_info=True)
+        return False
+
+
 def shutdown(domain):
     """Ask the guest to shut down: through the agent when it is there, else the ACPI button. Returns the method
     used ("agent" or "acpi"). An agent that fails to act falls back to ACPI rather than failing the request."""
-    if connected(domain):
+    if connected(domain) and bound(domain):
         try:
             domain.shutdownFlags(libvirt.VIR_DOMAIN_SHUTDOWN_GUEST_AGENT)
             return "agent"
@@ -98,7 +181,7 @@ def shutdown(domain):
 
 def reboot(domain):
     """Same as shutdown(), for a reboot."""
-    if connected(domain):
+    if connected(domain) and bound(domain):
         try:
             domain.reboot(libvirt.VIR_DOMAIN_REBOOT_GUEST_AGENT)
             return "agent"
@@ -113,7 +196,7 @@ def quiesced_snapshot(domain, snap_xml, flags):
     there, so the snapshot is consistent. If the freeze fails (an agent without fsfreeze support, a guest busy
     thawing), the snapshot is retried without it: a crash-consistent backup is better than no backup.
     Returns (snapshot, quiesced)."""
-    if connected(domain):
+    if connected(domain) and bound(domain):
         try:
             return domain.snapshotCreateXML(snap_xml, flags | libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE), True
         except libvirt.libvirtError:
