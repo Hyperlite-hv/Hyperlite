@@ -1,7 +1,9 @@
+import json
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -71,13 +73,29 @@ def get_automation_private_key_path():
     return priv
 
 
+_base_image_lock = threading.Lock()
+
+
 def ensure_base_image():
+    """The cloud image every Debian VM starts from, downloaded once. It was written under its final name: a second
+    VM created during the download saw the file "there" and started from a truncated image ("Image is not in qcow2
+    format"), and a failed download left that truncated image for every later VM. Now one download at a time, under
+    a temporary name, renamed only once qemu-img reads it as a qcow2 image."""
     BASE_IMAGE.parent.mkdir(parents=True, exist_ok=True)
-    if not BASE_IMAGE.exists():
-        subprocess.run(
-            ["wget", "-q", "-O", str(BASE_IMAGE), BASE_IMAGE_URL],
-            check=True,
-        )
+    with _base_image_lock:
+        if BASE_IMAGE.exists():
+            return BASE_IMAGE
+        partial = BASE_IMAGE.with_name(BASE_IMAGE.name + ".part")
+        try:
+            subprocess.run(["wget", "-q", "-O", str(partial), BASE_IMAGE_URL], check=True)
+            info = subprocess.run(
+                ["qemu-img", "info", "--output=json", str(partial)], check=True, capture_output=True, text=True
+            )
+            if json.loads(info.stdout).get("format") != "qcow2":
+                raise RuntimeError(f"The downloaded base image is not a qcow2 image ({BASE_IMAGE_URL})")
+            partial.rename(BASE_IMAGE)
+        finally:
+            partial.unlink(missing_ok=True)
     return BASE_IMAGE
 
 
