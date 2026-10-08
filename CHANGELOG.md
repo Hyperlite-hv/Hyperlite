@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- One update per node: Hyperlite and the node's Debian packages together, from the account menu. The dialog (French and English) shows the versions, the Debian packages with the security ones counted, the release notes of every version in between, and whether the node will need a reboot, before anything starts; running VMs are not stopped, and a Hyperlite version that does not start is put back automatically. (#393)
+- Going back to the version before the last update of Hyperlite, from the same dialog: its package is kept on the node (so it also works offline) and installed again under the same safety net; one step back, Debian packages unchanged. (#395)
+- Debian's security updates every night (03:30 by default, changeable per node on Node › Updates, or turned off): security packages only, never Hyperlite, never an automatic reboot; a pending reboot is notified once per boot. Turned on with this update on nodes that never chose. (#394)
+- A notification when a VM stops by accident (its QEMU process died, or the guest panicked), once per crash. Notification event names are shown in the dashboard's language. (#381)
+- From 1.0.0, versions follow semver (`1.x.y`, the package carrying the epoch `1:`), and each release's notes (this file, and their French version) are published with it. (#384)
+- Offline installation ISO: every package Hyperlite needs is on the ISO, no network needed. An automatic mode (root password and one confirmation naming the disk) and a guided one (admin password, optional email channel), each in French or English, on LVM ext4, with a manual network setup when DHCP does not answer. (#353)
+- The sidebar groups pages by use (Resources, Infrastructure, Cluster, Protection, Supervision, Administration), and Tasks and the Audit log are two tabs of one Activity entry. (#357)
+
 - Replication to another site: on the Backups page, a job copies the chosen VMs (all, a tag or a pool) to the other site's storage every few minutes (15 by default). Each copy holds only the blocks changed since the previous one (libvirt checkpoints and QEMU dirty bitmaps); a full copy starts a new chain each day and the two newest chains are kept. Stopped VMs are copied again only when they ran, started paused for the copy. Each VM's last copy is shown, with a warning when it is late. The other site restores the newest copy with Recovery of another site. Disk moves and resizes, snapshot reverts, offline snapshots, renames and migrations drop the replication checkpoint first (the next copy is then a full one); hot backups of a replicated VM keep it. Disks must be qcow2 files. See `docs/site-recovery.md`.
 - Recovery of another site: on the Backups page, an administrator points at the storage where the other site's backups land, sees each VM's latest backup with the host that made it, and restores the chosen VMs here as new VMs, one after another, each after an integrity check, with a network to use when the other site's networks do not exist here. Nothing is overwritten. Backup manifests now record the host that made them. See `docs/site-recovery.md`.
 - Renaming what could not be renamed yet: storage pools (stopped a moment and defined again with the same path, so the VMs' disks stay valid; a shared pool on every node that has it), networks (the stopped VMs and containers on it follow, its firewall and DHCP reservations are kept), VM pools, user groups, custom roles, automation jobs, API tokens, templates and ISO images. Still not renamable, with the reason shown: the `default` pool and the system networks, ZFS pools, Kubernetes clusters (their VMs are found by name), snapshots (libvirt cannot) and user names (the audit log and the sign-in sources refer to them).
@@ -74,6 +82,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- Faster with many VMs: one reading of a node's VMs serves the VM list and the network list for the requests of the same moment, answers are gzip-compressed (the VM list of 1,000 VMs went from 261 to 27 kB), and the dashboard loads only the language shown. Measured on a node with 1,000 VMs: network list 0.17 s → 0.009 s, VM list p95 with five tabs open 0.37 s → 0.27 s. (#385, #389)
+- A VM (or a Kubernetes node) gets at most as many vCPUs as its host has CPU threads, as on Proxmox; the VMs together may still exceed them. (#368)
+- `corosync` and `unattended-upgrades` are package dependencies; Debian's sample corosync configuration (unencrypted) stays stopped until a cluster is created. (#380, #394)
+- Deleting a container asks for `?confirm=true`, as VMs, pools and backups do; an unknown API path answers a JSON 404 instead of the dashboard page. (#376, #375)
+- The Activity button and panel left the top bar; node pages show the node's own tasks. (#355, #356)
+
 - The VM list is about nine times faster on a large host: 1,000 VMs are listed in 0.4 s instead of 3.6 s. Each VM's XML is read once instead of three times, the states come in one call, the DHCP leases once per network and the SSH users and OS labels in one query each; on a remote node this also removes most of the SSH round trips.
 - The Tasks page is laid out as a task list with status tabs (All, Running, Failed, with their counts) and, under it, the log of the selected task in a terminal-style panel, coloured by level. Columns: task, target, node, status with a progress bar, start, duration.
 - The sidebar no longer shows the host name and node count box under the logo; the search stays in the top bar and on Ctrl+K.
@@ -117,6 +131,17 @@ All notable changes to this project are documented here. The format is based on 
 - The local host is always labelled `local`; rows still using a legacy label are migrated at start-up.
 
 ### Fixed
+
+- Live migration between cluster nodes failed for every VM created by Hyperlite: the CPU check compared the running VM's live CPU (refused even on its own host), libvirt refused VMs with snapshots (they now go along on shared storage), and a VM on a shared pool was based on an image only its first node had (now in the pool itself). Migrations take 6 to 10 s on a lab cluster. (#391)
+- A guest whose agent hung froze the VM list for everyone (13 minutes measured on a lab node) and its stop never answered; the list now waits at most 0.5 s for the agents, and agent operations give up after 10 s and fall back to ACPI. (#385)
+- A VM restored under a new name, or deployed from a template, never got an IP address (its network configuration was bound to the original's MAC): it gets a new cloud-init drive, as a clone does, and keeps its OS label and SSH user. (#362, #370, #377)
+- On a node installed from the package (Debian 13), libvirt's default network was left stopped and the first VM could not start; starting a VM on a stopped network names it. (#386)
+- Two VMs created at once on a new node could start from a half-downloaded base image, which a failed download left for every later VM. (#388)
+- A network on an address range already in use was half created with a raw error; uploading an ISO under an existing name replaced it silently (even one in use) and an interrupted upload left a truncated file; starting a running container answered a 500. (#358, #369, #366)
+- Backup schedules stayed after their VM was deleted, and one could be created for a VM that does not exist. (#363, #361)
+- The audit log no longer keeps the successful reads logged before they stopped being audited (over 100,000 entries on one host). (#379)
+- Wording, plurals, CPU topology on non-English hosts, empty CD drives, and a confirmation before removing an administrator's rights. (#378, #367)
+- The cluster configuration service refuses a change at the end of its id or version counter instead of overflowing (found by fuzzing). (#360, #396)
 
 - The pool creation form: required fields are named and each one says what is wrong instead of a greyed-out button; examples read as examples ("e.g. …"); an NFS share needs its server and exported path, both absolute and checked; CHAP takes a user and a password together (the API no longer drops a password given alone); ZFS can no longer be picked for a remote node, which the API refuses.
 - Stopping a Docker container did nothing (PostgreSQL kept running): its process now receives SIGTERM, as with `docker stop`, and a container still running after 30 s (90 s for LXC) is stopped by force.
@@ -172,6 +197,11 @@ All notable changes to this project are documented here. The format is based on 
 - Trust-on-first-use SSH host key checking for cluster nodes.
 
 ### Security
+
+- A directory storage pool could be created on a system directory (`/etc`, `/usr`…), listing its files as deletable volumes. (#359)
+- A manual backup accepted any target directory, written as root, from any VM manager: the directory is checked, and only administrators choose one. (#361)
+- Access rights could be given to an account that does not exist, and stayed after an account was deleted: both went to the next account created under that name. (#364)
+- The output of automation runs (root commands on the host) was readable by every account: administrators only. (#365)
 
 - The brute-force lock is stored in the database, so a restart no longer resets it; knowing the password no longer allows unlimited guesses of the 2FA code; removing 2FA needs the password and a current code, from a signed-in session only (never an API token).
 - A password change or reset signs out every other session of the account.
