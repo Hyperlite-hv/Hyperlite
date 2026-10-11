@@ -103,13 +103,17 @@ if [ "${SKIP_ISO:-0}" != "1" ]; then
         bash installer/build-offline-bundle.sh installer/offline-bundle
     bash installer/build-iso.sh "$ISO"
     bash scripts/sign-iso.sh "$ISO"
+    # The update file of nodes without network, from the same package and bundle (scripts/build-update-file.sh).
+    UPDATE_FILE=installer/hyperlite-update-amd64.tar
+    bash scripts/build-update-file.sh "$VERSION" "installer/hyperlite_${VERSION}_amd64.deb" \
+        installer/offline-bundle installer/apt-repo/notes "$UPDATE_FILE"
     NOTES="$(sed -e "s|@VERSION@|$VERSION|" -e "s|@COMMIT@|$SOURCE_COMMIT|" \
         -e "s|@SHA256@|$(cut -d' ' -f1 "$ISO.sha256")|" installer/iso-release-notes.tmpl)"
     if [ "$DRY_RUN" = "1" ]; then
         log "dry run: the ISO release is not updated"
     else
         TAG="appliance-iso-latest"
-        ASSETS=("$ISO" "$ISO.sha256")
+        ASSETS=("$ISO" "$ISO.sha256" "$UPDATE_FILE" "$UPDATE_FILE.sha256")
         [ -f "$ISO.sig" ] && ASSETS+=("$ISO.sig")
         if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
