@@ -8,7 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.core import inventory_cache, version
+from app.core import inventory_cache, rolling_update, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -44,6 +44,7 @@ from app.routers.backups import router as backups_router
 from app.routers.certificate import router as certificate_router
 from app.routers.cfs import router as cfs_router
 from app.routers.cluster_setup import router as cluster_setup_router
+from app.routers.cluster_update import router as cluster_update_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.file_restore import router as file_restore_router
@@ -160,6 +161,7 @@ app.include_router(kubernetes_router)
 app.include_router(meta_router)
 app.include_router(cfs_router)
 app.include_router(cluster_setup_router)
+app.include_router(cluster_update_router)
 app.include_router(certificate_router)
 app.include_router(host_system_router)
 app.include_router(metric_servers_router)
@@ -316,6 +318,8 @@ def on_startup():
     encrypt_stored_totp_secrets()
     # Before anything starts new tasks: the ones still "running" belonged to the previous process.
     close_interrupted_tasks()
+    # This node updated itself as the last step of a rolling update: now that it runs, out of maintenance.
+    rolling_update.finish_self_after_restart()
     start_metrics_collector()
     start_backup_scheduler()
     ensure_lb_job_exists()

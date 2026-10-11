@@ -112,6 +112,14 @@ node:
    4. maintenance mode off; its VMs are **not** moved back automatically (a later DRS will).
 3. Any failure stops the run on the failing node, which stays in maintenance; the nodes already done stay done.
 
+As built (`app/core/rolling_update.py`, Administration › Replicated configuration › Cluster update): the run is
+started from any node, which drives the others through their own API on their loopback address over the cluster's
+SSH trust (the session token, signed with the cluster's shared key for the administrator who started it, goes
+through SSH's standard input), and updates itself last; a cfs lock keeps it to one run per cluster. VMs that cannot
+move keep running through the package update; they only decide the reboot, stopped for it or the reboot left for
+later, as chosen before starting. This node's own update restarts the service that runs the job: the next start
+takes the node out of maintenance.
+
 Mixed versions during the run: version N and N+1 must work together in one cluster (replicated configuration and
 node-to-node calls). That is a rule for every minor release from now on; a major release may break it and then
 says so in its notes.
