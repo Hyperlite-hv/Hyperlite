@@ -8,6 +8,7 @@ import { errorMessage } from "../lib/errors";
 import { formatDateTime } from "../lib/format";
 import { ErrorState } from "../components/States";
 import ClusterCard from "../components/ClusterCard";
+import ClusterUpdateCard from "../components/ClusterUpdateCard";
 import { PageHeader, Card, KpiStrip, Loading, TableWrap } from "../components/ui";
 
 const KINDS = ["manquants", "en_trop", "differents"];
@@ -78,6 +79,7 @@ export default function CfsPage() {
     <>
       <PageHeader title={t("tab.cfs")} help={t("cfs.intro")} actions={actions} />
       <ClusterCard />
+      <ClusterUpdateCard />
       {error && !state ? <ErrorState message={error} onRetry={load} /> : !state ? <Loading /> : !state.actif ? (
         <Card title={t("cfs.offTitle")}>
           <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t("cfs.offHelp")}</p>

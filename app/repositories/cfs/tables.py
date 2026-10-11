@@ -31,8 +31,8 @@ TABLES = {
     "ha_settings": {},
     "ha_protected_vms": {"volatile": {"last_synced_at", "etat_ha", "derniere_action", "derniere_action_le"}},
     # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode, this node's own
-    # name, its pending join, the ticket of its join information and the one-time rewrite of its tasks (they are its own
-    # history) stay per node.
+    # name, its pending join, the ticket of its join information, the one-time rewrite of its tasks (they are its own
+    # history) and its own step of a rolling update stay per node.
     "app_settings": {
         "local_rows": {
             "cle": (
@@ -44,6 +44,7 @@ TABLES = {
                 "cluster_join_ticket",
                 "tasks_node_names",
                 "reboot_notified_boot",
+                "rolling_update_self",
             )
         }
     },
