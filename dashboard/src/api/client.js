@@ -609,7 +609,8 @@ export async function cancelTask(id, force = false) {
 // ---- Hyperlite update from Git (real: GET/POST /update/*, see
 // app/routers/update.py) ----
 export async function fetchUpdateCheck(lang = "en") {
-  return realFetch(`/update/check?lang=${encodeURIComponent(lang)}`);
+  // The node reads its repositories, retrying a slow mirror (up to about 2 minutes): past the usual read limit.
+  return realFetch(`/update/check?lang=${encodeURIComponent(lang)}`, { signal: AbortSignal.timeout(180000) });
 }
 export async function rollbackUpdate() {
   return realFetch("/update/rollback", { method: "POST" });
@@ -1290,6 +1291,14 @@ export async function joinCluster({ information, adresse, confirmation }) {
 }
 export async function removeClusterMember(name) {
   return realFetch(`/cluster/membres/${encodeURIComponent(name)}/retirer`, { method: "POST", ...jsonBody({ confirmation: name }) });
+}
+// Rolling update of the cluster (app/core/rolling_update.py).
+export async function fetchClusterUpdatePlan() {
+  // Each node reads its repositories: longer than the usual read limit.
+  return realFetch("/cluster/update/plan", { signal: AbortSignal.timeout(300000) });
+}
+export async function startClusterUpdate(arreter_bloquees = false) {
+  return realFetch("/cluster/update", { method: "POST", ...jsonBody({ arreter_bloquees }) });
 }
 export async function fetchApiDocsAccess() {
   return realFetch("/api-docs/acces");
