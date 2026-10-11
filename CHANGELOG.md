@@ -133,6 +133,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A shutdown request the guest misses (just after a live migration, or while it boots) is sent again after 30 s and 90 s while the VM still runs: the VM used to keep running with nothing said. Asked with a forced stop after a delay, it is still stopped by force at the end.
 - Live migration between cluster nodes failed for every VM created by Hyperlite: the CPU check compared the running VM's live CPU (refused even on its own host), libvirt refused VMs with snapshots (they now go along on shared storage), and a VM on a shared pool was based on an image only its first node had (now in the pool itself). Migrations take 6 to 10 s on a lab cluster. (#391)
 - A guest whose agent hung froze the VM list for everyone (13 minutes measured on a lab node) and its stop never answered; the list now waits at most 0.5 s for the agents, and agent operations give up after 10 s and fall back to ACPI. (#385)
 - A VM restored under a new name, or deployed from a template, never got an IP address (its network configuration was bound to the original's MAC): it gets a new cloud-init drive, as a clone does, and keeps its OS label and SSH user. (#362, #370, #377)

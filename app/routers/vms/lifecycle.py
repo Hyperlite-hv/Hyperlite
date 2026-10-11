@@ -83,40 +83,46 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
         conn.close()
 
 
-# A guest may ignore the shutdown request (the ACPI button pressed while it is still booting, an agent not connected
-# again yet after a migration): the VM then kept running, and the request said nothing. Asked with forcer_apres, the
-# request is sent again halfway, and the VM is stopped by force when still running at the end, as Proxmox's
-# shutdown timeout with forceStop.
+# A guest may ignore the shutdown request (the ACPI button pressed while it is still booting, or just after a live
+# migration: twice in a 24 h lab run, the guest healthy and stopping at once on a second request): the VM then kept
+# running, and the request said nothing. The request is sent again after ASK_AGAIN_S while the VM runs; asked with
+# forcer_apres, the VM still running at the end is stopped by force, as Proxmox's shutdown timeout with forceStop.
 FORCE_AFTER_RANGE = (10, 3600)
+ASK_AGAIN_S = (30, 90)
 
 
-def _force_after(name, node, seconds, username):
+def _watch_stop(name, node, username, force_after=None):
     from app.core.libvirt_utils import open_conn as _open
 
-    deadline = time.monotonic() + seconds
-    asked_again = False
-    while time.monotonic() < deadline:
+    asks = [t for t in ASK_AGAIN_S if force_after is None or t < force_after]
+    if force_after and not asks:
+        asks = [force_after / 2]
+    end = force_after or ASK_AGAIN_S[-1] + 1
+    start = time.monotonic()
+    while time.monotonic() - start < end:
         time.sleep(2)
         conn = _open(node)
         try:
             domain = conn.lookupByName(name)
             if not domain.isActive():
                 return
-            if not asked_again and time.monotonic() > deadline - seconds / 2:
-                asked_again = True
+            if asks and time.monotonic() - start >= asks[0]:
+                asks.pop(0)
                 with contextlib.suppress(libvirt.libvirtError):
                     guest_agent.shutdown(domain)
         except libvirt.libvirtError:
             return  # gone meanwhile
         finally:
             conn.close()
+    if not force_after:
+        return
     conn = _open(node)
     try:
         domain = conn.lookupByName(name)
         if domain.isActive():
             domain.destroy()
             log_action(
-                username, "force_stop_vm", name, "succes", f"still running {seconds} s after the shutdown request"
+                username, "force_stop_vm", name, "succes", f"still running {force_after} s after the shutdown request"
             )
     except libvirt.libvirtError as e:
         log_action(username, "force_stop_vm", name, "echec", describe_exception(e))
@@ -159,11 +165,10 @@ def stop_vm(
             log_action(user["username"], action_name, name, "echec", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to stop the VM: {msg}") from e
         detail = f"via {method}" if method else None
-        if forcer_apres and not force:
-            detail = f"{detail}, forced after {forcer_apres} s if still running"
-            threading.Thread(
-                target=_force_after, args=(name, node, forcer_apres, user["username"]), daemon=True
-            ).start()
+        if not force:
+            if forcer_apres:
+                detail = f"{detail}, forced after {forcer_apres} s if still running"
+            threading.Thread(target=_watch_stop, args=(name, node, user["username"], forcer_apres), daemon=True).start()
         log_action(user["username"], action_name, name, "succes", detail, task_id=task_id)
         return _domain_summary(domain)
     finally:
