@@ -19,6 +19,7 @@ data/k3s/
 data/vm-exports/
 data/imported-disks/
 installer/*.iso
+installer/hyperlite-update-amd64.tar*
 installer/.iso-cache/
 installer/*.deb
 installer/deb-build/

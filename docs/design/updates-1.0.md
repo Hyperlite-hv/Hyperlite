@@ -133,5 +133,9 @@ Each step is one PR, tested in the nested lab (three nodes installed from the of
 3. Automatic security updates and the reboot notification (8).
 4. Return to the previous version (6).
 5. Channels (7).
-6. Offline update from a signed file (started on a local branch; manifest signed with the APT key).
+6. Offline update from a signed file: `scripts/build-update-file.sh` packs the package, the ISO's offline bundle and
+   the notes with a manifest of SHA-256 sums signed by the APT key (`hyperlite-update-amd64.tar`, next to the ISO);
+   the node (`app/core/offline_update.py`) checks the signature, refuses any entry the manifest does not list, a file
+   for another Debian release or older than the installed version, then runs the update of section 5 with apt
+   reading only the extracted packages (and pip only the wheels).
 7. Rolling cluster update (9), last because it builds on all of the above.
