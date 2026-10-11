@@ -1,5 +1,5 @@
-"""A stop asked with forcer_apres: the request is sent again halfway, and a VM still running at the end is stopped by
-force (a guest ignored the ACPI button while still booting during the lab stability run)."""
+"""A shutdown request a guest ignored is sent again (twice in a 24 h lab run, just after a live migration, the guest
+healthy); asked with forcer_apres, a VM still running at the end is stopped by force."""
 
 import pytest
 
@@ -39,7 +39,7 @@ def run(database, monkeypatch):
     def go(domain, seconds=60):
         monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(domain))
         domain.requests = 1  # the request the endpoint sent
-        lifecycle._force_after("web", None, seconds, "alice")
+        lifecycle._watch_stop("web", None, "alice", seconds)
         return domain
 
     return go
@@ -58,3 +58,29 @@ def test_a_guest_that_stops_on_the_second_request_is_not_forced(run):
 def test_the_delay_is_bounded(client, auth_headers):
     r = client.post("/vms/web/stop?forcer_apres=5", headers=auth_headers("root"))
     assert r.status_code == 422
+
+
+def test_a_plain_stop_asks_again_and_never_forces(run, monkeypatch):
+    d = _Domain(stops_after_requests=99)
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(d))
+    d.requests = 1
+    lifecycle._watch_stop("web", None, "alice")
+    assert d.requests == 3 and not d.destroyed  # asked again at 30 s and 90 s
+
+
+def test_a_plain_stop_lost_once_stops_on_the_next_request(run, monkeypatch):
+    d = _Domain(stops_after_requests=2)
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(d))
+    d.requests = 1
+    lifecycle._watch_stop("web", None, "alice")
+    assert d.requests == 2 and not d.destroyed
+
+
+def test_a_long_force_delay_asks_again_twice_before(run):
+    d = run(_Domain(stops_after_requests=99), seconds=180)
+    assert d.requests == 3 and d.destroyed
+
+
+def test_a_short_force_delay_asks_again_halfway(run):
+    d = run(_Domain(stops_after_requests=99), seconds=20)
+    assert d.requests == 2 and d.destroyed
