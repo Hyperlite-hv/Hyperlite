@@ -83,8 +83,11 @@ The Debian page keeps its package-by-package list for the cases that need it.
 ## 7. Channels
 
 - Two APT suites on the mirror: `stable` (from `master`) and `test` (from `test`).
-- A node setting (Administration → Updates) writes the suite into `/etc/apt/sources.list.d/hyperlite.list`.
+- A node setting (Node → Updates) writes the suite into `/etc/apt/sources.list.d/hyperlite.list`.
   Default `stable`. Moving from `test` back to `stable` waits for the next stable release (no downgrade).
+- Each suite has its own pool (`pool/main`, `pool/test`): the stable index lists only releases, the test index
+  lists both, so a test node takes the release that follows its build. A test build is the next patch as a
+  pre-release (`1.0.1~test.20261011.1530`; dated before 1.0.0), never an ISO.
 
 ## 8. Automatic security updates, announced Hyperlite updates
 

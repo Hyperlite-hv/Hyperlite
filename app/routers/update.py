@@ -325,7 +325,8 @@ def _source_problem(policy_stdout):
     Same when the repository comes from an address that no longer receives the publications."""
     official = _official_apt_url()
     urls = _hyperlite_repositories(policy_stdout)
-    line = f"deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] {official or '<repository-url>'} stable main"
+    suite = host_system.channel() or "stable"
+    line = f"deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] {official or '<repository-url>'} {suite} main"
     if not urls:
         return (
             "The Hyperlite repository is not among this machine's APT sources, so new versions cannot be seen "
@@ -427,6 +428,8 @@ def _release_notes(installed, candidate, lang):
         v = str(entry.get("version", "")) if isinstance(entry, dict) else ""
         if not SEMVER_RE.match(v) or not _newer(v, installed) or _newer(v, candidate):
             continue
+        if "~" in v and "~" not in candidate:
+            continue  # a test build's notes, for a node going to a release (the index lists both channels)
         suffix = "fr" if lang == "fr" and entry.get("fr") else "en"
         try:
             notes.append({"version": v, "langue": suffix, "texte": _fetch_text(f"{base}/notes/{v}.{suffix}.md")})
@@ -446,6 +449,7 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
             result["systeme"] = _system_summary()
         previous = _previous()
         result["precedente"] = previous["version"] if previous else None
+        result["canal"] = host_system.channel()
         return result
 
     branch = _current_branch()
@@ -811,6 +815,29 @@ def _run_rollback_job(task_id, username, previous):
     except Exception as exc:
         finish_task(task_id, "echec", str(exc))
         log_action(username, "hyperlite_rollback", str(exc), "echec")
+
+
+class ChannelRequest(BaseModel):
+    canal: str
+
+
+@router.get("/channel")
+def get_channel(user: dict = Depends(require_role("admin"))):
+    """The channel this node updates from: `stable` (releases) or `test` (every merge into the test branch)."""
+    return {"canal": host_system.channel(), "canaux": list(host_system.CHANNELS)}
+
+
+@router.put("/channel")
+def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admin"))):
+    """Moves the node to another channel. Nothing is installed: the next check shows what the channel offers, and
+    leaving test keeps the installed build until a stable release is newer (no downgrade)."""
+    try:
+        new = host_system.set_channel(payload.canal)
+    except host_system.SettingError as e:
+        log_action(user["username"], "set_update_channel", payload.canal[:20], "echec", str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    log_action(user["username"], "set_update_channel", new, "succes")
+    return {"canal": new, "canaux": list(host_system.CHANNELS)}
 
 
 @router.post("/rollback", status_code=202)

@@ -77,6 +77,13 @@ export async function fetchAutoUpdates() {
 export async function setAutoUpdates(actif, heure) {
   return realFetch("/host/system/auto-updates", { method: "PUT", ...jsonBody({ actif, heure }) });
 }
+// The channel Hyperlite updates from on this node: stable (releases) or test (every merge into the test branch).
+export async function fetchUpdateChannel() {
+  return realFetch("/update/channel");
+}
+export async function setUpdateChannel(canal) {
+  return realFetch("/update/channel", { method: "PUT", ...jsonBody({ canal }) });
+}
 export async function upgradeHostPackages(paquets) {
   return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
 }
