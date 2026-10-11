@@ -16,6 +16,8 @@
 #   DRY_RUN=1                             build, sign and check everything but push nothing and upload nothing
 #   SKIP_ISO=1                            do not build the ISO
 #   SKIP_VERIFY=1                         do not wait for the public address to serve the new version (local tests)
+#   HYPERLITE_CHANNEL                     stable (default, from master) or test (every merge into test: a pre-release
+#                                         of the next version, 1.0.1~test.20261011.1530, never an ISO)
 #
 # The version is not committed back to the repository: it is only stamped into the artifacts built
 # here, so publishing needs no write access to the protected branches.
@@ -35,20 +37,34 @@ export HYPERLITE_APT_URL
 # From 1.0.0 the release PR sets the version in VERSION (docs/design/updates-1.0.md); before, it is the date.
 SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+(~[a-z0-9.]+)?$'
 COMMITTED="$(tr -d '[:space:]' < VERSION)"
+CHANNEL="${HYPERLITE_CHANNEL:-stable}"
+STAMP="$(date -u +%Y%m%d.%H%M)"
 if [ -n "${HYPERLITE_VERSION:-}" ]; then
     VERSION="$HYPERLITE_VERSION"
+elif [ "$CHANNEL" = test ] && [[ "$COMMITTED" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    # The next patch, as a pre-release: above the release test starts from, below whatever the release PR chooses
+    # (1.0.1 or 1.1.0), so a test node moves to it by itself.
+    VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))~test.$STAMP"
+elif [ "$CHANNEL" = test ]; then
+    VERSION="$(date -u +%Y.%m.%d.%H%M)~test"  # before 1.0.0, dated like master
 elif [[ "$COMMITTED" =~ $SEMVER_RE ]]; then
     VERSION="$COMMITTED"
 else
     VERSION="$(date -u +%Y.%m.%d.%H%M)"
 fi
+case "$CHANNEL" in
+    stable) POOL=pool/main ;;
+    test) POOL=pool/test; SKIP_ISO=1 ;;  # the ISO installs the stable channel
+    *) echo "[ci-publish] unknown channel $CHANNEL (stable or test)" >&2; exit 1 ;;
+esac
+export HYPERLITE_SUITE="$CHANNEL"
 # The package's own version: semver gets the epoch 1: (installer/build-deb.sh), so apt orders it above the dated ones.
 DEB_VERSION="$VERSION"
 [[ "$VERSION" =~ $SEMVER_RE ]] && DEB_VERSION="1:$VERSION"
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git rev-parse HEAD)}"
 DRY_RUN="${DRY_RUN:-0}"
 echo "$VERSION" > VERSION
-log "version $VERSION, commit ${SOURCE_COMMIT:0:8}, mirror $HYPERLITE_MIRROR_REPO, dry run: $DRY_RUN"
+log "version $VERSION ($CHANNEL), commit ${SOURCE_COMMIT:0:8}, mirror $HYPERLITE_MIRROR_REPO, dry run: $DRY_RUN"
 
 # 1. Start from the current mirror content: the pool keeps every published version (a downgrade stays
 #    possible) and the new package is added to it.
@@ -59,7 +75,7 @@ mkdir -p installer/apt-repo
 rsync -a --exclude=.git "$WORK/mirror/" installer/apt-repo/
 # A semver version is published once: a second publication of 1.0.1 with other content would reach some nodes and
 # not others. The release PR bumps VERSION.
-if [[ "$VERSION" =~ $SEMVER_RE ]] && [ -e "installer/apt-repo/pool/main/h/hyperlite/hyperlite_${VERSION}_amd64.deb" ]; then
+if [[ "$VERSION" =~ $SEMVER_RE ]] && [ -e "installer/apt-repo/$POOL/h/hyperlite/hyperlite_${VERSION}_amd64.deb" ]; then
     echo "[ci-publish] version $VERSION is already published: bump VERSION in the release PR" >&2
     exit 1
 fi
@@ -107,6 +123,6 @@ fi
 
 # 5. What clients see: GitHub Pages needs a few minutes to serve the new files.
 if [ "$DRY_RUN" != "1" ] && [ "${SKIP_VERIFY:-0}" != "1" ]; then
-    bash scripts/verify-apt-mirror.sh --expect-version "$DEB_VERSION" --wait 900
+    bash scripts/verify-apt-mirror.sh --suite "$CHANNEL" --expect-version "$DEB_VERSION" --wait 900
 fi
 log "done: version $VERSION"

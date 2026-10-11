@@ -181,6 +181,38 @@ def ensure_auto_updates_default():
         set_auto_updates(True, AUTO_DEFAULT_TIME)
 
 
+# ---- Update channel (docs/design/updates-1.0.md, section 7) ----
+# The suite of Hyperlite's own APT source: `stable`, the releases, or `test`, every merge into the test branch.
+# Leaving test does not go back a version: the node stays on its build until a stable release is newer.
+HYPERLITE_LIST = Path("/etc/apt/sources.list.d/hyperlite.list")
+CHANNELS = ("stable", "test")
+_SOURCE_RE = re.compile(r"^(\s*deb\s+(?:\[[^\]]*\]\s+)?\S+\s+)(\S+)(\s+main\b.*)$")
+
+
+def channel():
+    """The channel this node follows, None when Hyperlite does not come from its APT repository here."""
+    if not HYPERLITE_LIST.exists():
+        return None
+    for line in HYPERLITE_LIST.read_text().splitlines():
+        m = _SOURCE_RE.match(line)
+        if m:
+            return m.group(2)
+    return None
+
+
+def set_channel(name):
+    if name not in CHANNELS:
+        raise SettingError(f"Unknown channel (expected one of: {', '.join(CHANNELS)})")
+    if channel() is None:
+        raise SettingError(f"Hyperlite is not installed from its APT repository on this node ({HYPERLITE_LIST})")
+    lines = [
+        f"{m.group(1)}{name}{m.group(3)}" if (m := _SOURCE_RE.match(line)) else line
+        for line in HYPERLITE_LIST.read_text().splitlines()
+    ]
+    _write(HYPERLITE_LIST, "\n".join(lines) + "\n")
+    return channel()
+
+
 def updates(refresh=False):
     if shutil.which("apt-get") is None:
         return {
