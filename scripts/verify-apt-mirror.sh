@@ -3,8 +3,9 @@
 # announces a size and a SHA-256 for every index file, and the files served next to it must match.
 # A mismatch is what makes clients fail with "File has unexpected size".
 #
-# Usage: verify-apt-mirror.sh [--url URL] [--expect-version VERSION] [--wait SECONDS]
+# Usage: verify-apt-mirror.sh [--url URL] [--suite stable|test] [--expect-version VERSION] [--wait SECONDS]
 #   --url             mirror base URL (default: $HYPERLITE_MIRROR_URL, else installer/apt-source.conf)
+#   --suite           the suite to check (default: stable)
 #   --expect-version  also require this package version to be listed (detects a stale mirror)
 #   --wait            keep retrying for up to SECONDS before giving up (a CDN needs a few minutes)
 #
@@ -25,10 +26,12 @@ if [ -z "$URL" ]; then
     exit 64
 fi
 EXPECT=""
+SUITE=stable
 WAIT=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --url) URL="$2"; shift 2 ;;
+        --suite) SUITE="$2"; shift 2 ;;
         --expect-version) EXPECT="$2"; shift 2 ;;
         --wait) WAIT="$2"; shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 64 ;;
@@ -44,8 +47,8 @@ MESSAGE=""
 
 check_once() {
     MESSAGE=""
-    if ! curl -fsS --max-time 30 "$URL/dists/stable/Release" -o "$WORK/Release" 2>"$WORK/err"; then
-        MESSAGE="cannot fetch $URL/dists/stable/Release: $(head -c 200 "$WORK/err")"
+    if ! curl -fsS --max-time 30 "$URL/dists/$SUITE/Release" -o "$WORK/Release" 2>"$WORK/err"; then
+        MESSAGE="cannot fetch $URL/dists/$SUITE/Release: $(head -c 200 "$WORK/err")"
         return 3
     fi
     for f in $INDEX_FILES; do
@@ -55,7 +58,7 @@ check_once() {
             MESSAGE="Release does not list $f"
             return 1
         fi
-        if ! curl -fsS --max-time 60 "$URL/dists/stable/$f" -o "$WORK/body" 2>"$WORK/err"; then
+        if ! curl -fsS --max-time 60 "$URL/dists/$SUITE/$f" -o "$WORK/body" 2>"$WORK/err"; then
             MESSAGE="cannot fetch $f: $(head -c 200 "$WORK/err")"
             return 3
         fi
@@ -67,7 +70,7 @@ check_once() {
         fi
     done
     if [ -n "$EXPECT" ]; then
-        curl -fsS --max-time 60 "$URL/dists/stable/main/binary-amd64/Packages" -o "$WORK/Packages" 2>/dev/null
+        curl -fsS --max-time 60 "$URL/dists/$SUITE/main/binary-amd64/Packages" -o "$WORK/Packages" 2>/dev/null
         if ! grep -qx "Version: $EXPECT" "$WORK/Packages"; then
             MESSAGE="the mirror is consistent but does not list version $EXPECT yet"
             return 2
