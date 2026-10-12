@@ -18,6 +18,7 @@ ends there, and the next start of the service takes this node out of maintenance
 
 import json
 import logging
+import shlex
 import threading
 import time
 
@@ -91,7 +92,10 @@ def peer_api(node, username, method, path, body=None, timeout=60):
         "token": create_access_token({"sub": username, "role": "admin"}),
     }
     try:
-        r = _ssh(node, ["python3", "-I", "-c", _PEER_CALL], stdin=json.dumps(request), timeout=timeout + 30)
+        # One argument: ssh joins its arguments with spaces into one command line for the remote shell, which would
+        # split the script.
+        command = shlex.join(["python3", "-I", "-c", _PEER_CALL])
+        r = _ssh(node, [command], stdin=json.dumps(request), timeout=timeout + 30)
     except Exception as e:  # ssh missing, timed out: the node is not reachable
         raise PeerUnreachable(f"{node['name']} is not reachable over SSH: {e}") from None
     if r.returncode != 0:
@@ -124,8 +128,20 @@ def peers():
 # ---- The plan, shown before starting ----
 
 
-def node_plan(node, username, local_check=None):
-    """What updating `node` (None: this node) would do: versions, Debian packages, reboot, and its VMs."""
+def _needs_update(check):
+    """True when a node's /update/check says its update would change something."""
+    sys_ = check.get("systeme") or {}
+    return bool(
+        not check.get("a_jour")
+        or sys_.get("paquets")
+        or sys_.get("redemarrage_prevu")
+        or sys_.get("redemarrage_requis")
+    )
+
+
+def node_plan(node, username, local_check=None, target=None):
+    """What updating `node` (None: this node) would do: versions, Debian packages, reboot, and its VMs, judged
+    against `target`, the node its VMs would go to (a label: a node name, or maintenance.LOCAL)."""
     name = node["name"] if node else self_node.name()
     label = node["name"] if node else maintenance.LOCAL
     out = {"nom": name, "local": node is None, "joignable": True}
@@ -153,15 +169,18 @@ def node_plan(node, username, local_check=None):
             "redemarrage": bool(sys_.get("redemarrage_prevu") or sys_.get("redemarrage_requis")),
         }
     )
-    out["a_faire"] = bool(out["verifiable"] and (not out["hyperlite_a_jour"] or out["paquets"] or out["redemarrage"]))
+    out["a_faire"] = bool(out["verifiable"] and _needs_update(check))
     try:
         from app.core.libvirt_utils import open_conn
 
         conn = open_conn(maintenance.conn_key(label))
+        dst = open_conn(maintenance.conn_key(target)) if target else None
         try:
-            vms = maintenance.plan(conn, None, None)
+            vms = maintenance.plan(conn, dst, target)
         finally:
             conn.close()
+            if dst:
+                dst.close()
         out["vms_a_migrer"] = vms["migrables"]
         out["vms_bloquees"] = vms["non_migrables"]
     except Exception as e:  # libvirt unreachable: the node cannot be emptied
@@ -176,9 +195,12 @@ def cluster_plan(username, local_check):
     repositories), and what prevents starting."""
     others = peers()
     results = [None] * (len(others) + 1)
+    # Each node's VMs judged against a node they could go to: the next one, and for this node (last) the one before.
+    order = [*(n["name"] for n in others), maintenance.LOCAL]
+    targets = [order[i + 1] if i + 1 < len(order) else (order[i - 1] if i else None) for i in range(len(order))]
 
     def run(i, node):
-        results[i] = node_plan(node, username, local_check)
+        results[i] = node_plan(node, username, local_check, targets[i])
 
     threads = [threading.Thread(target=run, args=(i, n), daemon=True) for i, n in enumerate([*others, None])]
     for t in threads:
@@ -277,8 +299,15 @@ def _drain(task_id, username, label, target):
 
 
 def _update_peer(task_id, username, node, target, stop_blocked):
+    """Returns False when the node had nothing to update (left as it is, never emptied)."""
     name = node["name"]
     task_log(task_id, f"== {name}")
+    status, check = peer_api(node, username, "GET", "/update/check", timeout=120)
+    if status != 200 or not check.get("verifiable"):
+        raise RollingError(f"{name}: the update check failed ({_detail(check)})")
+    if not _needs_update(check):
+        task_log(task_id, f"{name}: up to date, left as it is")
+        return False
     plan = _drain(task_id, username, name, target)
 
     status, body = peer_api(node, username, "POST", "/update/apply", {"systeme": True})
@@ -320,6 +349,7 @@ def _update_peer(task_id, username, node, target, stop_blocked):
             _reboot_peer(task_id, username, node)
     maintenance.leave(name)
     task_log(task_id, f"{name}: done, out of maintenance")
+    return True
 
 
 def _reboot_peer(task_id, username, node):
@@ -351,10 +381,11 @@ def _reboot_peer(task_id, username, node):
     task_log(task_id, f"{name}: back after its reboot")
 
 
-def run(task_id, username, stop_blocked, start_local_update, restarts_after_update):
+def run(task_id, username, stop_blocked, start_local_update, restarts_after_update, local_check=None):
     """The run, in the task `task_id`. start_local_update(username) starts this node's own update (POST /update/apply
     here) and returns its task id; restarts_after_update() says whether that update installed a new Hyperlite, whose
-    service restart ends this job (the next start finishes the node: finish_self_after_restart)."""
+    service restart ends this job (the next start finishes the node: finish_self_after_restart). local_check() returns
+    this node's (update check, channel), to leave it as it is when it has nothing to update."""
     from app.core.tasks import task_status
 
     others = peers()
@@ -365,18 +396,23 @@ def run(task_id, username, stop_blocked, start_local_update, restarts_after_upda
             if any(n.get("statut") == "hors_ligne" for n in others):
                 raise RollingError("A node is offline: every node must be online for a rolling update")
             steps = len(others) + 1
+            ready = []  # nodes on the new version, updated now or already: where the VMs go, so they do not move twice
             for i, node in enumerate(others):
-                # The VMs go to a node already done when there is one, so they do not move twice.
-                target = done[-1] if done else (others[i + 1]["name"] if i + 1 < len(others) else maintenance.LOCAL)
-                _update_peer(task_id, username, node, target, stop_blocked)
-                done.append(node["name"])
+                target = ready[-1] if ready else (others[i + 1]["name"] if i + 1 < len(others) else maintenance.LOCAL)
+                if _update_peer(task_id, username, node, target, stop_blocked):
+                    done.append(node["name"])
+                ready.append(node["name"])
                 update_task_progress(task_id, int((i + 1) * 100 / steps))
 
             task_log(task_id, f"== {name} (this node, last)")
-            _drain(task_id, username, maintenance.LOCAL, done[-1] if done else None)
-            _settings().set_app_setting(SELF_PENDING, json.dumps({"task": task_id, "user": username}))
-            local_task = start_local_update(username)
-            task_log(task_id, f"{name}: updating (task {local_task}); it leaves maintenance once it runs again")
+            local_task = None
+            if local_check is not None and not _needs_update(local_check()[0]):
+                task_log(task_id, f"{name}: up to date, left as it is")
+            else:
+                _drain(task_id, username, maintenance.LOCAL, ready[-1] if ready else None)
+                _settings().set_app_setting(SELF_PENDING, json.dumps({"task": task_id, "user": username}))
+                local_task = start_local_update(username)
+                task_log(task_id, f"{name}: updating (task {local_task}); it leaves maintenance once it runs again")
     except Exception as e:
         logger.exception("Rolling update stopped")
         message = str(e) if isinstance(e, RollingError) else f"internal error: {e}"
@@ -388,7 +424,8 @@ def run(task_id, username, stop_blocked, start_local_update, restarts_after_upda
     # Ended here, before this node's own update may restart the service under this job.
     finish_task(task_id, "termine")
     log_action(username, "cluster_update", "cluster", "succes", f"updated: {', '.join([*done, name])}")
-    _wait_local(username, local_task, task_status, restarts_after_update)
+    if local_task:
+        _wait_local(username, local_task, task_status, restarts_after_update)
 
 
 def _wait_local(username, local_task, task_status, restarts_after_update):

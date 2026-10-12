@@ -72,7 +72,7 @@ def start_rolling_update(payload: RollingRequest, user: dict = Depends(require_r
     log_action(user["username"], "cluster_update", "cluster", "succes", f"started on {len(plan['noeuds'])} nodes")
     threading.Thread(
         target=rolling_update.run,
-        args=(task_id, user["username"], payload.arreter_bloquees, start_local, restarts),
+        args=(task_id, user["username"], payload.arreter_bloquees, start_local, restarts, _local_check),
         name="rolling-update",
         daemon=True,
     ).start()
