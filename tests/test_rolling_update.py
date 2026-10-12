@@ -19,14 +19,17 @@ NODES = [
 class FakeCluster:
     """The other nodes' APIs: each update succeeds (or fails for `failing`), a reboot is needed on `reboot`."""
 
-    def __init__(self, failing=(), reboot=(), blocked=()):
-        self.failing, self.reboot, self.blocked = set(failing), set(reboot), set(blocked)
+    def __init__(self, failing=(), reboot=(), blocked=(), current=()):
+        self.failing, self.reboot, self.blocked, self.current = set(failing), set(reboot), set(blocked), set(current)
         self.calls, self.drained, self.rebooted = [], [], []
         self.version = {n["name"]: "1.0.0" for n in NODES}
 
     def api(self, node, username, method, path, body=None, timeout=60):
         name = node["name"]
         self.calls.append((name, method, path))
+        if path == "/update/check" and name not in self.drained_names():
+            # Asked before the node is emptied: what it has to update.
+            return 200, {"verifiable": True, "a_jour": name in self.current, "systeme": {"paquets": 0}}
         assert maintenance.get(name), f"{name} is updated while out of maintenance"
         if (method, path) == ("POST", "/update/apply"):
             return 202, {"task_id": f"t-{name}"}
@@ -37,7 +40,11 @@ class FakeCluster:
             return 200, {"statut": "termine"}
         if path == "/update/check":
             pending = name in self.reboot and name not in self.rebooted
-            return 200, {"commit_local": self.version[name], "systeme": {"redemarrage_requis": pending}}
+            return 200, {
+                "verifiable": True,
+                "commit_local": self.version[name],
+                "systeme": {"redemarrage_requis": pending},
+            }
         if path == "/host/system/power":
             assert body["arreter_invites"] is True and body["confirmation"] == f"host-{name}"
             self.rebooted.append(name)
@@ -45,6 +52,9 @@ class FakeCluster:
         if path == "/update/channel":
             return 200, {"canal": "stable"}
         raise AssertionError(f"unexpected call {method} {path}")
+
+    def drained_names(self):
+        return {label for label, _ in self.drained}
 
     def drain(self, task_id, username, label, target):
         maintenance.enter(label, username)
@@ -157,7 +167,11 @@ def test_the_token_goes_through_ssh_input_never_the_command_line(monkeypatch):
     request = json.loads(seen["input"])
     assert request["url"] == "https://127.0.0.1:8000/update/apply" and request["body"] == {"systeme": True}
     assert request["token"] and request["token"] not in " ".join(seen["argv"])
-    assert seen["argv"][-4:-1] == ["python3", "-I", "-c"] and "root@10.0.0.2" in seen["argv"]
+    # ssh joins its arguments into one command line for the remote shell: the script must survive that splitting.
+    import shlex
+
+    assert "root@10.0.0.2" in seen["argv"]
+    assert shlex.split(seen["argv"][-1]) == ["python3", "-I", "-c", rolling_update._PEER_CALL]
 
 
 def test_an_unreachable_node_is_said(monkeypatch):
@@ -170,7 +184,7 @@ def test_an_unreachable_node_is_said(monkeypatch):
 
 
 def test_the_plan_says_what_prevents_starting(monkeypatch):
-    def plan(node, username, local_check=None):
+    def plan(node, username, local_check=None, target=None):
         name = node["name"] if node else "pve1"
         return {"nom": name, "joignable": True, "verifiable": True, "canal": "test" if name == "pve3" else "stable",
                 "a_faire": name == "pve2"}  # fmt: skip
@@ -190,3 +204,24 @@ def test_the_api_outside_a_cluster(client, auth_headers, monkeypatch):
     assert client.get("/cluster/update/plan", headers=admin).status_code == 409
     assert client.post("/cluster/update", json={}, headers=admin).status_code == 409
     assert client.post("/cluster/update", json={}, headers=auth_headers("eve", role="observateur")).status_code == 403
+
+
+def test_a_node_already_up_to_date_is_left_as_it_is(cluster, database):
+    fake = cluster(current={"pve2"})
+    assert _run(database, [])[0] == "termine"
+    # pve2 never emptied, and pve3's VMs go to it: already on the new version.
+    assert fake.drained == [("pve3", "pve2"), (maintenance.LOCAL, "pve3")]
+    assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["pve3"]
+
+
+def test_the_plan_judges_each_node_against_a_target(monkeypatch):
+    seen = []
+
+    def plan(node, username, local_check=None, target=None):
+        seen.append((node["name"] if node else "local", target))
+        return {"nom": node["name"] if node else "pve1", "joignable": True, "verifiable": True, "canal": "stable"}
+
+    monkeypatch.setattr(rolling_update, "peers", lambda: [dict(n) for n in NODES])
+    monkeypatch.setattr(rolling_update, "node_plan", plan)
+    rolling_update.cluster_plan("alice", None)
+    assert sorted(seen) == [("local", "pve3"), ("pve2", "pve3"), ("pve3", maintenance.LOCAL)]
