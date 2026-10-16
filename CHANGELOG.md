@@ -135,6 +135,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- The Account security window (two-factor authentication and API tokens, from the user menu) was in English whatever the language chosen; it is now in French too, as are the disk and ISO upload areas, whose sizes and speeds also mixed French and English units. A network error during a disk or ISO upload no longer breaks the upload area.
+
 - Live migration between two other nodes (a drain or a rolling update driven from a third one) lost the VM's cloud-init drive: it was fetched to the driving node instead of the destination, which refused the VM. It is now carried from the source to the destination.
 - Live migration from another node to this one required a Tailscale address and a dedicated "reverse" SSH key, which a cluster made by joining never has: it now uses this node's cluster address (or its route to the source) and, in a cluster, the source's own cluster key.
 - Rolling update: its plan judged every VM as unable to move, the other nodes were not reachable (the command sent over SSH was split by the remote shell), a node already up to date was emptied and updated for nothing, and VMs were not sent to a node already on the new version when one was.

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import SecurityKeysSection from "../next/components/SecurityKeysSection";
+import { useT, useLangStore } from "../next/i18n";
 
 // Self-service panel opened from the user menu (Header.jsx), not a Datacenter
 // tab: these are settings of the signed-in ACCOUNT, not of the managed
@@ -22,6 +23,9 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
   const authSource = useAuthStore((s) => s.authSource);
   const refreshMe = useAuthStore((s) => s.refreshMe);
   const pushToast = useInfraStore((s) => s.pushToast);
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const day = (iso) => new Date(iso).toLocaleDateString(lang);
 
   // --- 2FA ---
   const [setupData, setSetupData] = useState(null); // { secret, qr_code_svg }
@@ -34,14 +38,14 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
     // The password is asked again: a session left open must not be enough to enrol someone else's device.
     let password = "";
     if (authSource !== "sso") {
-      password = await promptText({ title: "Enable two-factor authentication", label: "Your password", type: "password", confirmLabel: "Continue", validate: (v) => (v ? "" : "Enter your password") });
+      password = await promptText({ title: t("acctsec.totp.enableTitle"), label: t("acctsec.totp.yourPassword"), type: "password", confirmLabel: t("acctsec.totp.continue"), validate: (v) => (v ? "" : t("acctsec.totp.enterPassword")) });
       if (!password) return;
     }
     setBusy2fa(true);
     try {
       setSetupData(await setup2FA(password));
     } catch (e) {
-      pushToast({ kind: "error", title: "Failed", message: e.message });
+      pushToast({ kind: "error", title: t("acctsec.failed"), message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -52,12 +56,12 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
     setBusy2fa(true);
     try {
       await confirm2FA(confirmCode);
-      pushToast({ kind: "success", title: "2FA enabled", message: "A code will now be required at every sign-in." });
+      pushToast({ kind: "success", title: t("acctsec.totp.enabledToast"), message: t("acctsec.totp.enabledToastMsg") });
       setSetupData(null);
       setConfirmCode("");
       await refreshMe();
     } catch (e) {
-      pushToast({ kind: "error", title: "Two-factor setup failed", message: e.message });
+      pushToast({ kind: "error", title: t("acctsec.totp.setupFailed"), message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -68,12 +72,12 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
     setBusy2fa(true);
     try {
       await disable2FA(disablePassword, disableCode);
-      pushToast({ kind: "success", title: "2FA disabled", message: "" });
+      pushToast({ kind: "success", title: t("acctsec.totp.disabledToast"), message: "" });
       setDisablePassword("");
       setDisableCode("");
       await refreshMe();
     } catch (e) {
-      pushToast({ kind: "error", title: "Failed", message: e.message });
+      pushToast({ kind: "error", title: t("acctsec.failed"), message: e.message });
     } finally {
       setBusy2fa(false);
     }
@@ -112,27 +116,27 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
       setNewTokenName("");
       reloadTokens();
     } catch (e) {
-      pushToast({ kind: "error", title: "Creation failed", message: e.message });
+      pushToast({ kind: "error", title: t("acctsec.tokens.createFailed"), message: e.message });
     } finally {
       setBusyToken(false);
     }
   }
 
-  async function handleRenameToken(t) {
-    const name = await promptText({ title: `Rename the token '${t.name}'`, label: "New name", defaultValue: t.name, confirmLabel: "Rename", validate: (v) => (!v.trim() || v.trim().length > 100 ? "1 to 100 characters" : "") });
-    if (!name || name.trim() === t.name) return;
-    try { await renameApiToken(t.id, name.trim()); reloadTokens(); }
-    catch (e) { pushToast({ kind: "error", title: "Rename failed", message: e.message }); }
+  async function handleRenameToken(tok) {
+    const name = await promptText({ title: t("acctsec.tokens.renameTitle", { name: tok.name }), label: t("acctsec.tokens.newName"), defaultValue: tok.name, confirmLabel: t("acctsec.tokens.rename"), validate: (v) => (!v.trim() || v.trim().length > 100 ? t("acctsec.tokens.nameLength") : "") });
+    if (!name || name.trim() === tok.name) return;
+    try { await renameApiToken(tok.id, name.trim()); reloadTokens(); }
+    catch (e) { pushToast({ kind: "error", title: t("acctsec.tokens.renameFailed"), message: e.message }); }
   }
 
-  async function handleDeleteToken(t) {
-    if (!(await confirmAction({ title: "Please confirm", message: `Revoke the token '${t.name}'? Any script using it will immediately lose access.`, confirmLabel: "Confirm" }))) return;
+  async function handleDeleteToken(tok) {
+    if (!(await confirmAction({ title: t("acctsec.tokens.confirmTitle"), message: t("acctsec.tokens.revokeConfirm", { name: tok.name }), confirmLabel: t("acctsec.confirm") }))) return;
     try {
-      await deleteApiToken(t.id);
-      pushToast({ kind: "success", title: "Token revoked", message: t.name });
+      await deleteApiToken(tok.id);
+      pushToast({ kind: "success", title: t("acctsec.tokens.revoked"), message: tok.name });
       reloadTokens();
     } catch (e) {
-      pushToast({ kind: "error", title: "Failed", message: e.message });
+      pushToast({ kind: "error", title: t("acctsec.failed"), message: e.message });
     }
   }
 
@@ -158,29 +162,29 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
         }}
       >
         <DialogHeader>
-          <DialogTitle>Account security</DialogTitle>
+          <DialogTitle>{t("acctsec.title")}</DialogTitle>
         </DialogHeader>
 
         {/* --- 2FA --- */}
         <section className="space-y-3">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <ShieldCheck size={15} /> Two-factor authentication (TOTP)
+            <ShieldCheck size={15} /> {t("acctsec.totp.title")}
           </h4>
 
           {totpEnabled && !setupData && (
             <div className="space-y-3">
-              <p className="text-sm text-status-running">2FA is enabled on this account.</p>
+              <p className="text-sm text-status-running">{t("acctsec.totp.enabled")}</p>
               <form onSubmit={handleDisable} className="flex items-end gap-2">
                 <div className="flex-1">
-                  <Label className="text-xs font-medium text-foreground/80">Password (to disable)</Label>
-                  <Input aria-label="Password (to disable)" type="password" className="mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
+                  <Label className="text-xs font-medium text-foreground/80">{t("acctsec.totp.passwordToDisable")}</Label>
+                  <Input aria-label={t("acctsec.totp.passwordToDisable")} type="password" className="mt-1" required value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
                 </div>
                 <div className="w-32">
-                  <Label className="text-xs font-medium text-foreground/80">Current code</Label>
-                  <Input aria-label="Current 2FA code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="mt-1" required value={disableCode} onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ""))} />
+                  <Label className="text-xs font-medium text-foreground/80">{t("acctsec.totp.currentCode")}</Label>
+                  <Input aria-label={t("acctsec.totp.currentCodeAria")} inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="mt-1" required value={disableCode} onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ""))} />
                 </div>
                 <Button type="submit" disabled={busy2fa || disableCode.length !== 6} variant="outline" className="text-status-error border-status-error/30 hover:bg-status-error/10">
-                  <ShieldOff /> Disable
+                  <ShieldOff /> {t("acctsec.totp.disable")}
                 </Button>
               </form>
             </div>
@@ -188,9 +192,9 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
 
           {!totpEnabled && !setupData && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">Not enabled: protects sign-in with a one-time code in addition to the password.</p>
+              <p className="text-sm text-muted-foreground">{t("acctsec.totp.notEnabled")}</p>
               <Button onClick={handleStartSetup} disabled={busy2fa} className="shrink-0">
-                {busy2fa ? "..." : "Enable"}
+                {busy2fa ? "…" : t("acctsec.totp.enable")}
               </Button>
             </div>
           )}
@@ -198,7 +202,7 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
           {setupData && (
             <form onSubmit={handleConfirm} className="space-y-3 rounded-md border border-border p-3 animate-in fade-in-0 duration-150">
               <p className="text-xs text-foreground/80">
-                Scan this QR code with an authenticator app (Google Authenticator, Aegis, 1Password...), then enter the generated code to confirm.
+                {t("acctsec.totp.scan")}
               </p>
               <div
                 className="mx-auto w-40 rounded-md bg-white p-2 [&_svg]:w-full [&_svg]:h-full"
@@ -207,14 +211,14 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
               <p className="text-center font-mono text-[11px] text-muted-foreground break-all">{setupData.secret}</p>
               <div className="flex items-end gap-2">
                 <div className="flex-1">
-                  <Label className="text-xs font-medium text-foreground/80">6-digit code</Label>
-                  <Input aria-label="6-digit code"
+                  <Label className="text-xs font-medium text-foreground/80">{t("acctsec.totp.code6")}</Label>
+                  <Input aria-label={t("acctsec.totp.code6")}
                     className="mt-1 text-center tracking-[0.3em]" autoFocus inputMode="numeric" maxLength={6}
                     value={confirmCode} onChange={(e) => setConfirmCode(e.target.value.replace(/\D/g, ""))}
                   />
                 </div>
-                <Button type="submit" disabled={busy2fa || confirmCode.length !== 6}>Confirm</Button>
-                <Button type="button" variant="secondary" onClick={() => { setSetupData(null); setConfirmCode(""); }}>Cancel</Button>
+                <Button type="submit" disabled={busy2fa || confirmCode.length !== 6}>{t("acctsec.confirm")}</Button>
+                <Button type="button" variant="secondary" onClick={() => { setSetupData(null); setConfirmCode(""); }}>{t("acctsec.cancel")}</Button>
               </div>
             </form>
           )}
@@ -225,16 +229,16 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
         {/* --- Jetons API --- */}
         <section className="space-y-3 border-t border-border pt-4">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <KeyRound size={15} /> API tokens
+            <KeyRound size={15} /> {t("acctsec.tokens.title")}
           </h4>
           <p className="text-xs text-muted-foreground">
-            To authenticate scripts or automation (Terraform, cron...) without using your password. Each token can be revoked individually.
+            {t("acctsec.tokens.intro")}
           </p>
 
           {freshToken && (
             <div className="space-y-2 rounded-md border border-status-warning/40 bg-status-warning/10 p-3 animate-in fade-in-0 duration-150">
               <p className="text-xs text-foreground/90">
-                Copy this token now: it will never be shown again.
+                {t("acctsec.tokens.copyNow")}
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 truncate rounded-sm bg-background px-2 py-1.5 text-xs text-foreground">{freshToken.token}</code>
@@ -242,42 +246,42 @@ export default function AccountSecurityModal({ open, onClose, triggerRef }) {
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                 </Button>
               </div>
-              <button className="text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground/90" onClick={() => setFreshToken(null)}>Dismiss</button>
+              <button className="text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground/90" onClick={() => setFreshToken(null)}>{t("acctsec.tokens.dismiss")}</button>
             </div>
           )}
 
           <form onSubmit={handleCreateToken} className="flex items-end gap-2">
             <div className="flex-1">
-              <Label className="text-xs font-medium text-foreground/80">Token name</Label>
-              <Input aria-label="Token name" className="mt-1" placeholder="e.g. Terraform prod" value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
+              <Label className="text-xs font-medium text-foreground/80">{t("acctsec.tokens.name")}</Label>
+              <Input aria-label={t("acctsec.tokens.name")} className="mt-1" placeholder={t("acctsec.tokens.namePlaceholder")} value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} />
             </div>
             <div>
-              <Label className="text-xs font-medium text-foreground/80">Expires</Label>
-              <select aria-label="Token expiry" className="nx-input mt-1" value={newTokenDays} onChange={(e) => setNewTokenDays(e.target.value)}>
-                <option value="30">in 30 days</option>
-                <option value="90">in 90 days</option>
-                <option value="365">in a year</option>
-                <option value="">never</option>
+              <Label className="text-xs font-medium text-foreground/80">{t("acctsec.tokens.expires")}</Label>
+              <select aria-label={t("acctsec.tokens.expiryAria")} className="nx-input mt-1" value={newTokenDays} onChange={(e) => setNewTokenDays(e.target.value)}>
+                <option value="30">{t("acctsec.tokens.in30")}</option>
+                <option value="90">{t("acctsec.tokens.in90")}</option>
+                <option value="365">{t("acctsec.tokens.in365")}</option>
+                <option value="">{t("acctsec.tokens.never")}</option>
               </select>
             </div>
             <Button type="submit" disabled={busyToken || !newTokenName.trim()} variant="secondary">
-              <Plus /> Create
+              <Plus /> {t("acctsec.tokens.create")}
             </Button>
           </form>
 
           <div className="divide-y divide-border rounded-md border border-border">
             {tokens == null && <div className="px-3 py-2 text-xs text-muted-foreground"><LoadingState /></div>}
-            {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-muted-foreground text-center">No tokens.</div>}
-            {tokens && tokens.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted/40">
+            {tokens && tokens.length === 0 && <div className="px-3 py-3 text-xs text-muted-foreground text-center">{t("acctsec.tokens.none")}</div>}
+            {tokens && tokens.map((tok) => (
+              <div key={tok.id} className="flex items-center gap-3 px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted/40">
                 <div className="min-w-0 flex-1">
-                  <div className="text-foreground truncate">{t.name}</div>
+                  <div className="text-foreground truncate">{tok.name}</div>
                   <div className="text-muted-foreground text-xs">
-                    {t.kind === "cli" ? "Workstation · " : ""}Created on {new Date(t.created_at).toLocaleDateString()} · {t.last_used_at ? `last used on ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}{t.expires_at ? ` · expires on ${new Date(t.expires_at).toLocaleDateString()}` : ""}
+                    {tok.kind === "cli" ? t("acctsec.tokens.workstation") : ""}{t("acctsec.tokens.created", { date: day(tok.created_at) })} · {tok.last_used_at ? t("acctsec.tokens.lastUsed", { date: day(tok.last_used_at) }) : t("acctsec.tokens.neverUsed")}{tok.expires_at ? ` · ${t("acctsec.tokens.expiresOn", { date: day(tok.expires_at) })}` : ""}
                   </div>
                 </div>
-                <Button aria-label={`Rename token ${t.name}`} size="icon" variant="outline" className="size-7" onClick={() => handleRenameToken(t)}><PencilLine size={13} /></Button>
-                <Button aria-label={`Revoke token ${t.name}`} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDeleteToken(t)}><Trash2 size={13} /></Button>
+                <Button aria-label={t("acctsec.tokens.renameAria", { name: tok.name })} size="icon" variant="outline" className="size-7" onClick={() => handleRenameToken(tok)}><PencilLine size={13} /></Button>
+                <Button aria-label={t("acctsec.tokens.revokeAria", { name: tok.name })} size="icon" variant="outline" className="size-7 text-status-error border-status-error/30 hover:bg-status-error/10" onClick={() => handleDeleteToken(tok)}><Trash2 size={13} /></Button>
               </div>
             ))}
           </div>
