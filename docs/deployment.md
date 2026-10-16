@@ -29,17 +29,23 @@ The `hyperlite` Debian package installs the application in `/root/hyperlite` (th
 
 ## Updating
 
-The **Check for updates** button of the dashboard (`GET /update/check`, `POST /update/apply`) detects whether the installation is Git based or APT based. For APT it runs `apt-get install --only-upgrade hyperlite`; for Git it fetches and resets to the remote branch. In both cases a full backup of the application directory is taken first and a detached watchdog (`scripts/update_watchdog.sh`) restores it when the service does not answer on `/health` after the restart. Running VMs are never touched.
+How to update from the dashboard is in the [user guide, section 18](user-guide.md#18-updating-hyperlite). What happens underneath:
+
+- **One update per node.** `GET /update/check` reads the new version, its release notes and the Debian packages that would change; `POST /update/apply` upgrades Hyperlite and those packages together. The application directory is backed up first and a detached watchdog (`scripts/update_watchdog.sh`) restores it when the service does not answer on `/health` after the restart. Running VMs are never touched, and the node is never rebooted. A development setup (a Git clone) fetches and resets to its branch instead.
+- **Going back.** The package of the version installed before the last update is kept in `/var/lib/hyperlite/previous`, so the return works offline.
+- **Channels.** The repository has two suites, `stable` (every merge into `master`, the releases) and `test` (every merge into `test`), each with its own pool; a node's channel is the suite of its APT source (Node › Updates). Test builds are versioned `X.Y.(Z+1)~test.<date>` (before 1.0.0, the date followed by `~test`), so the next release is always newer than them.
+- **Security updates.** A nightly timer installs Debian's security updates only (never Hyperlite, never a reboot); a pending reboot is notified.
+- **Without network.** `scripts/build-update-file.sh` builds `hyperlite-update-amd64.tar`, published with each version: the packages, the release notes and a manifest signed with the repository key. The node checks the signature against `/usr/share/keyrings/hyperlite-archive-keyring.gpg` and every file's checksum, then installs from a local APT source of the file's packages only.
+- **A cluster.** The rolling update (`app/core/rolling_update.py`) drives each node through its own API over SSH, one at a time, behind a lock of the replicated configuration: maintenance, live migration of its VMs, update, reboot when needed, end of maintenance; the node that started it goes last.
+- **Versions.** Semver from 1.0.0, with the epoch `1:` on the package so APT upgrades from the dated versions.
 
 A background check (`app/core/update_check.py`) notifies administrators once per new version; it never applies an update by itself.
-
-Known limitation: the watchdog restores files but does not roll back dpkg's recorded package version.
 
 ## APT repository and publishing
 
 `installer/build-deb.sh` builds `hyperlite_<version>_amd64.deb` from the files tracked by Git plus the built dashboard. `installer/build-apt-repo.sh` assembles and signs a classic Debian repository (`dists/` and `pool/`) in `installer/apt-repo/` with a GPG key kept outside the repository (`/root/.hyperlite-apt-gpg`); only the public key is published.
 
-Publishing is automated by the **Publish** workflow (see "Publishing from GitHub Actions" below): after every change on `master` it builds the package and the ISO, signs the repository, updates the mirror and the stable `appliance-iso-latest` release.
+Publishing is automated by the **Publish** workflow (see "Publishing from GitHub Actions" below): after every change on `master` it builds the package, the update file and the ISO, signs the repository, updates the mirror's `stable` suite and the `appliance-iso-latest` release; after every change on `test` it publishes the package to the `test` suite (no ISO).
 
 ### Serving the repository
 
