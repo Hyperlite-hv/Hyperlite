@@ -3,7 +3,7 @@
 Each entry names the columns left out because they change all the time and say nothing about the configuration (a
 last run, a last check, a counter), whether the table holds secrets (copied under /priv, which the daemon serves to
 root only), and rows that stay local. Tables not listed are state or history (audit log, tasks, metrics, backup
-records, sessions, challenges): each node keeps its own.
+records, sign-in failures, challenges): each node keeps its own.
 
 A left-out column must be nullable or have a default, or be given a value in "fill" ("now": the current time), since a
 row that comes from another node is inserted without it (tests/test_cfs_shadow.py checks this).
@@ -16,6 +16,9 @@ TABLES = {
     "users": {"priv": True, "volatile": {"last_login_at", "totp_last_step"}},
     "webauthn_credentials": {"priv": True, "volatile": {"sign_count", "utilise_le"}},
     "api_tokens": {"priv": True, "volatile": {"last_used_at"}},
+    # A sign-out revokes its session on every node: a session token is valid on any of them (the signing key is
+    # shared), so a revocation only this node knew would leave it usable elsewhere until it expires.
+    "revoked_sessions": {},
     "groups": {},
     "group_members": {},
     "custom_roles": {},

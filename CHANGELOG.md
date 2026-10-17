@@ -135,6 +135,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- In a cluster, signing out now signs the session out on every node. A session token is valid on any node, but the sign-out was only known to the node that received it, so a copy of the token (another tab, a stolen token) kept working on the other nodes until it expired.
+
 - Publishing a version stopped before the ISO and the update file for nodes without network were released: the update file was written to a path relative to a temporary directory. The APT repository was already up to date.
 
 - A backup can no longer be deleted while it is being read: during a restore, a verification or a file-restore session, deleting it is refused and says what holds it, and a schedule's retention keeps it until its next run. Deleting it during a restore made the restore fail half way, and during the copy could have left a VM half restored.
