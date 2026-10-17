@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.core import cluster_view, ha_selffence, inventory_cache, rolling_update, version
+from app.core import cluster_view, ha_selffence, initial_password, inventory_cache, rolling_update, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -342,6 +342,7 @@ def on_startup():
         with os.fdopen(fd, "w") as f:
             f.write(pwd + "\n")
         print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
+    initial_password.settle()
     encrypt_stored_totp_secrets()
     # Before anything starts new tasks: the ones still "running" belonged to the previous process.
     close_interrupted_tasks()

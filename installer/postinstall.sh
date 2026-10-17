@@ -168,10 +168,13 @@ print(password_problem(os.environ['HL_PASSWORD'], 'admin') or '')
     chmod 600 "$RESULT"
 fi
 
+# A password the administrator typed is theirs; the random one is changed at the first sign-in.
+MUST_CHANGE=True
+[ -f "$RESULT" ] && grep -q '^admin=chosen' "$RESULT" && MUST_CHANGE=False
 "$APP_DIR/venv/bin/python3" -c "
 import sys; sys.path.insert(0, '$APP_DIR')
 from app.core.seed import seed_admin
-seed_admin()
+seed_admin(must_change=$MUST_CHANGE)
 "
 
 if [ -f "$RESULT" ] && grep -q '^admin=chosen' "$RESULT"; then
