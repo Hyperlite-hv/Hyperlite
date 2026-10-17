@@ -601,7 +601,7 @@ export async function fetchClusterTasks(filters = {}) {
 }
 export async function fetchTasks(filters = {}) {
   const r = await fetchClusterTasks(filters);
-  return Array.isArray(r?.items) ? r.items : [];
+  return Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : [];
 }
 export async function fetchTaskDetail(id, on) {
   return realFetch(`/tasks/${encodeURIComponent(id)}${onNode(on)}`);

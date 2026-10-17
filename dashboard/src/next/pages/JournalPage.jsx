@@ -3,6 +3,7 @@ import { fetchAuditLog, fetchAuditActions, fetchAuditCount, downloadAuditCsv } f
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
+import { listOf } from "../lib/clusterList";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
@@ -38,7 +39,7 @@ export default function JournalPage({ embedded = false }) {
     try {
       // In a cluster, every member's entries, each with the node that holds it, and the members that did not answer.
       const r = await fetchAuditLog({ limit: LIMIT, ...filters(applied) });
-      setRows(Array.isArray(r?.items) ? r.items : []); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []); setError(null);
+      setRows(listOf(r)); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []); setError(null);
       fetchAuditCount(filters(applied)).then((c) => setTotal(c?.total ?? null)).catch(() => setTotal(null));
     } catch (e) { setError(errorMessage(e)); }
   }, [applied]);

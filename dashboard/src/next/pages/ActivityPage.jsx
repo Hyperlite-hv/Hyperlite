@@ -5,6 +5,7 @@ import { parseVmKey } from "../lib/vmId";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
+import { listOf } from "../lib/clusterList";
 import { taskLabel, TASK_LABEL_KEYS } from "../lib/enums";
 import { errorMessage, normalizeDetail } from "../lib/errors";
 import { ErrorState } from "../components/States";
@@ -64,7 +65,7 @@ export default function ActivityPage({ selection, embedded = false }) {
     try {
       // In a cluster, every member's tasks (each with the node that holds it) and the members that did not answer.
       const r = await fetchClusterTasks({ ...filters(), limit: 200, tri: "cree_le", ordre: "desc" });
-      setRows(Array.isArray(r?.items) ? r.items : []); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []);
+      setRows(listOf(r)); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []);
       setNow(Date.now()); setError(null);
     } catch (e) { setError(normalizeDetail(e.message)); }
   }, [filters]);
