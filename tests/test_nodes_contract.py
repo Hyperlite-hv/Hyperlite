@@ -54,7 +54,8 @@ def test_the_list_carries_every_field_and_the_live_figures(nodes_api, database):
         db.commit()
     listed = client.get("/nodes", headers=viewer).json()
     assert [n["name"] for n in listed] == ["n2", "n3"]  # sorted by name
-    assert set(listed[0]) == NODE_KEYS
+    assert set(listed[0]) == NODE_KEYS | {"membre"}  # the list says which nodes are members of this node's cluster
+    assert [n["membre"] for n in listed] == [False, False]  # outside a cluster: none
     assert listed[0]["live"]["cpu_pct"] == 12.5 and listed[1]["live"] is None
 
 

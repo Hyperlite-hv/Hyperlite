@@ -822,6 +822,9 @@ def run_due_schedules(now):
 def _scheduler_loop():
     while True:
         try:
+            if cluster_lead.paused("Scheduled backups"):
+                time.sleep(SCHEDULER_INTERVAL_S)
+                continue
             now = _now()
             run_due_schedules(now)
             from app.core import backup_groups

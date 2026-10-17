@@ -155,6 +155,8 @@ export default function Workspace({ children }) {
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const caps = capabilities(useAuthStore((s) => s.role));
   const failing = useFreshness((s) => s.failing);
+  // A cluster node that lost the quorum changes nothing (as on Proxmox): said above every page while it lasts.
+  const readOnly = Boolean(nodes.find((n) => n.id === "local")?.lecture_seule);
   const { containers, containersLoaded } = useFreshness(useShallow((s) => ({ containers: s.containers, containersLoaded: s.containersLoaded })));
 
   const resource = selection.type === "vm" ? findVm(vms, selection.id)
@@ -182,7 +184,10 @@ export default function Workspace({ children }) {
     if (n) { e.preventDefault(); goTop(n); requestAnimationFrame(() => document.getElementById(`nx-top-${n.id}`)?.focus()); }
   }
   const useSubnav = isObj && top.pages.length > 1;
-  const localOnly = selection.type === "vm" && isRemoteVm(resource) && LOCAL_ONLY_VM_PAGES.has(tab);
+  // A VM of another cluster member is backed up by that member, through this node (app/routers/backups.py); the other
+  // pages still read this host only, and a node driven over SSH keeps no backups.
+  const localOnly = selection.type === "vm" && isRemoteVm(resource) && LOCAL_ONLY_VM_PAGES.has(tab)
+    && !(tab === "backup" && vmNode?.membre);
   const pageEl = localOnly
     ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.nom || resource.node })} />
     : Active ? <Active resource={resource} selection={selection} /> : null;
@@ -190,6 +195,7 @@ export default function Workspace({ children }) {
   return (
     <main className="nx-main" id="nx-main" tabIndex={-1}>
       {failing && <div className="nx-banner" role="status">▲ {t("inv.stale")}</div>}
+      {readOnly && <div className="nx-banner nx-banner--danger" role="alert">{t("ro.banner")}</div>}
       {remote && <div className="nx-banner nx-banner--info" role="status">{t("res.remoteBanner")}</div>}
       <div className="nx-content" data-legacy="true">
         {children}

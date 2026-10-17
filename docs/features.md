@@ -33,10 +33,13 @@ Virtual networks in NAT, isolated or bridge mode (on a host bridge, or on a NIC,
 
 ## Cluster, migration and high availability
 
-- Register remote hosts by SSH; view and manage their VMs from one dashboard.
+- A cluster of equal nodes, as on Proxmox VE: created on one node and joined from the others in the dashboard (the **Cluster** page, in the sidebar's Cluster group). Every node runs Corosync and `hyperlite-cfs`, which hold the configuration (users, permissions, nodes, HA, schedules, settings...) on every node ([design](design/hyperlite-cfs.md)). Any node serves the dashboard and the API, with the same accounts and sessions; there is no controller to lose. Each node runs the jobs of the VMs it hosts, and what concerns the whole cluster (HA watching, the alert about a node gone down) runs on one node at a time, taken over by another within seconds when it goes.
+- From any node: every node's tasks and audit log in one list, and the backups of a VM of another node (back up, schedule, restore, verify, delete; its files are browsed from its own node's dashboard).
+- Quorum, as on Proxmox: a node cut off from the majority changes nothing until it is back (the dashboard and the API refuse every change there, VM start and stop included; scheduled backups, replication and automatic deletion wait; VMs set to start at boot start once the node has the quorum). A change still on its way when a node is cut off is dropped if the others changed the same thing meanwhile: the majority's version is kept and the conflict is in the audit log.
+- Register remote hosts by SSH instead (a host across a WAN, where Corosync cannot run): view and manage their VMs from one dashboard.
 - Live migration between hosts, with a compatibility diagnostic (CPU, QEMU/libvirt versions, machine types, storage, networks) before migrating.
 - Node maintenance mode: draining live-migrates the running VMs to a chosen node, one migration task each, and lists the VMs that stay with the reason (stopped, iSCSI disks, compatibility blockers, name taken). A node in maintenance receives no new VM or container and is never a migration or HA recovery target.
-- Configuration copy: the controller copies its configuration (database without telemetry, and its keys) to every node every 15 minutes and right after a change; if the controller is lost, `hyperlite-promote` on a node takes over, refusing while the old controller still answers. See [Taking over when the controller is lost](cluster-failover.md).
+- Configuration copy, for hosts driven over SSH: the controller copies its configuration (database without telemetry, and its keys) to every node every 15 minutes and right after a change; if the controller is lost, `hyperlite-promote` on a node takes over, refusing while the old controller still answers. See [Taking over when the controller is lost](cluster-failover.md).
 - Basic HA: protected VMs (disks on shared storage) are monitored; when a node goes down an alert is raised and an administrator can recover the VM on another node. Recovery is never automatic, and an SSH-based best-effort fence is attempted first.
 - Automatic HA, **dry run** ([design](design/ha-automatic.md)): every 10 s the nodes carrying protected VMs are probed (libvirt and SSH). A node is suspect, then failed after configurable thresholds; a node whose libvirt fails while SSH answers is not counted as failed. For a failed node each protected VM shows what automatic HA *would* do: nothing if this controller may be the isolated one (it must reach a majority of the voters, a witness included), manual recovery on two nodes without a witness or without fencing, otherwise "power off through IPMI/Redfish/AMT or wait for the leases, then restart on <node>". Nothing is powered off or restarted. Per-node fencing settings (IPMI, Redfish, Intel AMT, leases only) are stored encrypted and **Test** only reads the power state (the `fence-agents` package provides the agents). **Leases** checks that libvirt's `lockd` lock manager is on.
 
@@ -74,7 +77,7 @@ At start-up and on demand Hyperlite detects the capabilities of the host (CPU, R
 
 ## Known scope limits
 
-- One controller: the configuration is copied to the nodes and a takeover is manual. The replicated configuration (Corosync and `hyperlite-cfs`, as Proxmox VE does with `pmxcfs`) is in progress.
+- A cluster needs a low-latency network between its nodes (Corosync). Hosts driven over SSH depend on one controller, whose loss needs a manual takeover.
 - No fencing yet; automatic HA is a dry run and recovery is manual.
 - VLAN tags only on Open vSwitch or SR-IOV networks; VLAN-aware Linux bridges are the next step (`docs/design/network.md`).
 - Backups of ZFS and iSCSI disks are refused; there is no deduplication or encryption of backups yet.

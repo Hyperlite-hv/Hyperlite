@@ -26,9 +26,10 @@ test("container page: open from the list, edit resources and DNS, start at boot,
     }
     return r.fulfill(json(detail));
   });
-  await page.route(/\/tasks\?.*objet=e2e-ct-web/, (r) => (api(r) ? r.fulfill(json([
-    { id: "t1", type: "backup_container", cible: NAME, node: null, username: "admin", statut: "termine", progres: 100, cree_le: new Date().toISOString(), debut_le: new Date().toISOString(), fin_le: new Date().toISOString(), erreur: null, annulable: false, arret_propre: false, orpheline: false },
-  ])) : r.fallback()));
+  // GET /tasks?cluster=true: the tasks of every node, each marked with the node that holds it.
+  await page.route(/\/tasks\?.*objet=e2e-ct-web/, (r) => (api(r) ? r.fulfill(json({ items: [
+    { id: "t1", type: "backup_container", cible: NAME, node: null, username: "admin", statut: "termine", progres: 100, cree_le: new Date().toISOString(), debut_le: new Date().toISOString(), fin_le: new Date().toISOString(), erreur: null, annulable: false, arret_propre: false, orpheline: false, on: "hv-test" },
+  ], unreachable: [] })) : r.fallback()));
 
   await page.goto("/datacenter?tab=containers");
   await page.getByRole("button", { name: NAME, exact: true }).click();

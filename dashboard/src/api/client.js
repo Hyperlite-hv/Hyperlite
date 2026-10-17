@@ -200,6 +200,8 @@ export async function fetchNodes() {
     version: `Hyperlite (${d.hyperviseur.type})`,
     vms_actives: d.vms.actives,
     vms_arretees: d.vms.arretees,
+    // Why this node changes nothing right now (a cluster node that lost the quorum), or null.
+    lecture_seule: d.lecture_seule ?? null,
   };
 
   // Registered remote nodes. They used to be missing here: this function only ever
@@ -230,6 +232,8 @@ export async function fetchNodes() {
         vms_actives: s?.vms_actives ?? 0,
         vms_arretees: s?.vms_arretees ?? 0,
         distant: true,
+        // A member of this node's cluster: it runs Hyperlite and keeps its VMs' backups (GET /nodes, "membre").
+        membre: Boolean(n.membre),
       };
     }));
   } catch { /* GET /nodes unavailable: stay on the local node alone, as before this fix */ }
@@ -365,24 +369,32 @@ export async function setVMFirewall(name, payload) {
 // ---- Native backups (real: GET/POST /vms/{name}/backups, DELETE /backups/{id},
 // POST /backups/{id}/restore, GET/PUT/DELETE /vms/{name}/backup-schedule; see
 // app/routers/backups.py) ----
+// In a cluster, each node keeps the backups of the VMs it hosts (app/routers/backups.py): a VM of another node is
+// backed up and listed through `node` (its node, "local" or nothing for this one), a backup through `on` (the node
+// that holds it, as GET /backups?cluster=true marks it). This node then sends the request to that node.
+const backupQs = (key, value, extra = "") => {
+  const parts = [extra, value && value !== "local" ? `${key}=${encodeURIComponent(value)}` : ""].filter(Boolean);
+  return parts.length ? `?${parts.join("&")}` : "";
+};
+// { items, unreachable }: every member's backups, each with the node that holds it ("on").
 export async function fetchAllBackups() {
-  return realFetch("/backups");
+  return realFetch("/backups?cluster=true");
 }
-export async function fetchVMBackups(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backups`);
+export async function fetchVMBackups(name, node) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`);
 }
-export async function createBackup(name, targetDir = null) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backups`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
+export async function createBackup(name, targetDir = null, node) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
 }
-export async function deleteBackup(id) {
-  return realFetch(`/backups/${id}?confirm=true`, { method: "DELETE" });
+export async function deleteBackup(id, on) {
+  return realFetch(`/backups/${id}${backupQs("on", on, "confirm=true")}`, { method: "DELETE" });
 }
-export async function restoreBackup(id, mode, newName = null) {
-  return realFetch(`/backups/${id}/restore`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
+export async function restoreBackup(id, mode, newName = null, on) {
+  return realFetch(`/backups/${id}/restore${backupQs("on", on)}`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
 }
-// Recompute every checksum of a backup and check its images (a task).
-export async function verifyBackup(id) {
-  return realFetch(`/backups/${id}/verify`, { method: "POST" });
+// Recompute every checksum of a backup and check its images (a task, held by the same node as the backup).
+export async function verifyBackup(id, on) {
+  return realFetch(`/backups/${id}/verify${backupQs("on", on)}`, { method: "POST" });
 }
 // Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
 // then restored here as new VMs.
@@ -414,8 +426,8 @@ export async function fetchReplicationStatus() {
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
 }
-export async function setBackupSchedule(name, payload) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`, { method: "PUT", ...jsonBody(payload) });
+export async function setBackupSchedule(name, payload, node) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule${backupQs("node", node)}`, { method: "PUT", ...jsonBody(payload) });
 }
 export async function deleteBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`, { method: "DELETE" });
@@ -508,8 +520,8 @@ async function downloadCsv(path, filters, fallbackName) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 // File-level restore: a browsing session on a backup's disks, its folders, and a file (or a folder as .tar.gz).
-export async function openBackupFiles(backupId) {
-  return realFetch(`/backups/${backupId}/files`, { method: "POST" });
+export async function openBackupFiles(backupId, on) {
+  return realFetch(`/backups/${backupId}/files${backupQs("on", on)}`, { method: "POST" });
 }
 export async function listBackupDir(session, device, path) {
   return realFetch(`/file-restore/${encodeURIComponent(session)}/ls?${new URLSearchParams({ device, path })}`);
@@ -527,16 +539,23 @@ export function downloadTasksCsv(filters = {}) {
   return downloadCsv("/tasks/export.csv", filters, "hyperlite-tasks.csv");
 }
 
-export async function fetchAuditLog(filters = {}) {
+// The activity of a cluster (tasks and audit log, app/core/cluster_view.py) is asked of every member: cluster=true.
+const clusterQuery = (filters) => {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== "") params.set(k, v);
   });
-  const qs = params.toString();
-  return realFetch(`/audit${qs ? `?${qs}` : ""}`);
+  params.set("cluster", "true");
+  return params.toString();
+};
+const onNode = (on) => (on ? `?on=${encodeURIComponent(on)}` : "");
+
+// The audit log of every member in a cluster: { items, unreachable }, as the tasks below.
+export async function fetchAuditLog(filters = {}) {
+  return realFetch(`/audit?${clusterQuery(filters)}`);
 }
 export async function fetchAuditActions() {
-  return realFetch("/audit/actions");
+  return realFetch("/audit/actions?cluster=true");
 }
 
 // ---- Automation: the job engine (real: /jobs, see app/routers/jobs.py) ----
@@ -587,23 +606,25 @@ export async function deleteRemoteNode(name) {
 // timestamps; see app/core/tasks.py). Replaces the theoretical fetchTasks() that
 // was closed over in NodeTasksTab.jsx with a real, filterable and sortable
 // GET /tasks. ----
-export async function fetchTasks(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") params.set(k, v);
-  });
-  const qs = params.toString();
-  return realFetch(`/tasks${qs ? `?${qs}` : ""}`);
+// In a cluster, the tasks of every member (app/core/cluster_view.py): { items, unreachable }, each item marked with
+// the node that holds it ("on"), which its detail, log and cancellation are sent to. Outside a cluster, this node's.
+export async function fetchClusterTasks(filters = {}) {
+  return realFetch(`/tasks?${clusterQuery(filters)}`);
 }
-export async function fetchTaskDetail(id) {
-  return realFetch(`/tasks/${encodeURIComponent(id)}`);
+export async function fetchTasks(filters = {}) {
+  const r = await fetchClusterTasks(filters);
+  return Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : [];
+}
+export async function fetchTaskDetail(id, on) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}${onNode(on)}`);
 }
 // A task's own log, and asking it to stop (force: close the record of one that cannot stop, administrator only).
-export async function fetchTaskLog(id) {
-  return realFetch(`/tasks/${encodeURIComponent(id)}/log`);
+export async function fetchTaskLog(id, on) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}/log${onNode(on)}`);
 }
-export async function cancelTask(id, force = false) {
-  return realFetch(`/tasks/${encodeURIComponent(id)}/cancel${force ? "?force=true" : ""}`, { method: "POST" });
+export async function cancelTask(id, force = false, on) {
+  const query = [force ? "force=true" : "", on ? `on=${encodeURIComponent(on)}` : ""].filter(Boolean).join("&");
+  return realFetch(`/tasks/${encodeURIComponent(id)}/cancel${query ? `?${query}` : ""}`, { method: "POST" });
 }
 
 // ---- Hyperlite update from Git (real: GET/POST /update/*, see
@@ -969,8 +990,7 @@ export async function fetchBackupSchedules() {
   return realFetch("/backup-schedules");
 }
 export async function fetchAuditCount(filters = {}) {
-  const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString();
-  return realFetch(`/audit/count${qs ? `?${qs}` : ""}`);
+  return realFetch(`/audit/count?${clusterQuery(filters)}`);
 }
 export async function fetchProvisioningStatus(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);
