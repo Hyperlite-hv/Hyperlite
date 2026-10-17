@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
-from app.core import cluster_view
+from app.core import access_log, audit, cluster_view
 from app.core.audit import log_action
 from app.core.csv_export import csv_lines
 from app.core.security import require_role
@@ -105,3 +106,39 @@ def export_audit(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="hyperlite-audit-{stamp}.csv"'},
     )
+
+
+class Retention(BaseModel):
+    access_log_days: int | None = None
+    audit_days: int | None = None
+
+
+def _retention():
+    return {
+        "access_log_days": access_log.days(),
+        "audit_days": audit.retention_days(),
+        "access_log_dir": str(access_log.log_dir()),
+    }
+
+
+@router.get("/retention")
+def get_retention(user: dict = Depends(require_role("admin"))):
+    """How long the users' addresses are kept: the access log's daily files and the audit log (#448, F4)."""
+    return _retention()
+
+
+@router.put("/retention")
+def set_retention(payload: Retention, user: dict = Depends(require_role("admin"))):
+    try:
+        if payload.access_log_days is not None:
+            access_log.set_days(payload.access_log_days)
+        if payload.audit_days is not None:
+            audit.set_retention_days(payload.audit_days)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    now = _retention()
+    log_action(
+        user["username"], "set_retention", "audit", "succes",
+        f"access log {now['access_log_days']} days, audit log {now['audit_days']} days",
+    )  # fmt: skip
+    return now

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- How long the users' addresses are kept, set by an administrator for the whole cluster (**Activity › Audit log › Retention**), for the GDPR: the access log, now written by Hyperlite to `/var/log/hyperlite/access.log` (one file per day, root and the `adm` group, 30 days by default, 0 for none) instead of the service journal, whose retention Hyperlite does not decide; and the audit log (365 days by default). The access log leaves out query strings.
+
 - A primary node in a cluster (**Cluster** page, **Make primary**): it counts twice in the quorum, so with one other node it keeps working when that node is off or cut off, and that node alone becomes read-only. For a main machine paired with one that is often off or reached over a slower link, without a third machine as an arbiter. Proxmox allows it only by editing `corosync.conf`.
 
 - In a cluster, a node that runs VMs with HA turned on fences itself when it is cut off from the majority, as on Proxmox: it arms its watchdog (a hardware one, or the kernel's softdog) and feeds it while it has the quorum, and without it the node is reset, so its VMs can be restarted elsewhere safely (the next step of automatic HA). A node without HA VMs never arms it, and a normal restart of the service (an update) disarms it first.

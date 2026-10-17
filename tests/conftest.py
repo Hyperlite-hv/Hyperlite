@@ -7,6 +7,7 @@ to the repository (in particular no `.env`, no `hyperlite.db`).
 
 import os
 import shutil
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,6 +26,8 @@ os.environ["HYPERLITE_CFS_SOCKET"] = "/nonexistent/hyperlite-cfs-tests/socket"
 os.environ["HYPERLITE_WATCHDOG_DEVICE"] = "/nonexistent/hyperlite-watchdog-tests"
 # Nor the host's initial admin password files (app/core/initial_password.py): a password change in a test removes them.
 os.environ["HYPERLITE_INITIAL_PASSWORD_ROOT"] = "/nonexistent/hyperlite-initial-password-tests"
+# Nor /var/log/hyperlite: the access log of a test client goes to a directory of its own (app/core/access_log.py).
+os.environ["HYPERLITE_ACCESS_LOG_DIR"] = tempfile.mkdtemp(prefix="hyperlite-access-log-tests-")
 
 import pytest
 

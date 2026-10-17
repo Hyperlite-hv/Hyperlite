@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchAuditLog, fetchAuditActions, fetchAuditCount, downloadAuditCsv } from "../../api/client";
+import { fetchAuditLog, fetchAuditActions, fetchAuditCount, downloadAuditCsv, fetchRetention, saveRetention } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
@@ -7,8 +7,8 @@ import { listOf } from "../lib/clusterList";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
-import { Download, ScrollText } from "lucide-react";
+import { PageHeader, Empty, Loading, TableWrap, SideDrawer, Field } from "../components/ui";
+import { Download, ScrollText, Timer } from "lucide-react";
 
 const iso = (local) => (local ? new Date(local).toISOString() : undefined);
 const LIMIT = 300;
@@ -29,6 +29,7 @@ export default function JournalPage({ embedded = false }) {
   const [applied, setApplied] = useState(f);
   const [open, setOpen] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [retentionOpen, setRetentionOpen] = useState(false);
   const pushToast = useInfraStore((s) => s.pushToast);
   const filters = (a) => ({ result: a.result, action: a.action, username: a.username, resource: a.resource, depuis: iso(a.from), jusqu_a: iso(a.to) });
 
@@ -73,8 +74,10 @@ export default function JournalPage({ embedded = false }) {
         <label className="nx-bar-lbl">{t("jr.to")}<input className="nx-inp nx-mono" style={{ width: "auto", height: "2.1333rem" }} aria-label={t("a11y.show_entries_until")} type="datetime-local" value={f.to} onChange={upd("to")} /></label>
         {dirty && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setF(EMPTY_F)}>{t("act.clear")}</button>}
         <span className="nx-sp" />
+        <button type="button" className="nx-btn" onClick={() => setRetentionOpen(true)}><Timer size={15} aria-hidden="true" />{t("ret.open")}</button>
         <button type="button" className="nx-btn" disabled={!rows?.length || exporting} title={total != null ? t("act.exportAll", { n: total }) : undefined} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>
       </div>
+      <RetentionDrawer open={retentionOpen} onClose={() => setRetentionOpen(false)} />
       {rows && total != null && total > rows.length && <p className="nx-hint" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("jr.partial", { n: new Intl.NumberFormat(lang).format(rows.length), total: new Intl.NumberFormat(lang).format(total) })}</p>}
       {unreachable.length > 0 && <p className="nx-notice nx-notice--warning" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("jr.unreachable", { nodes: unreachable.join(", ") })}</p>}
       <div className="nx-card2 nx-card2--flush">
@@ -106,3 +109,43 @@ export default function JournalPage({ embedded = false }) {
   );
 }
 JournalPage.ownHeader = true;
+
+const MAX_DAYS = 3650;
+const valid = (v, min) => /^\d+$/.test(String(v)) && Number(v) <= MAX_DAYS && (Number(v) === 0 || Number(v) >= min);
+
+// How long the users' addresses are kept (GDPR): the access log's daily files (0: none) and the audit log
+// (0: for ever). The cluster's settings, applied by every node (app/core/access_log.py, app/core/audit.py).
+function RetentionDrawer({ open, onClose }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    if (!open) return;
+    setF(null); setError(null);
+    fetchRetention().then((r) => setF({ access: String(r.access_log_days), audit: String(r.audit_days), dir: r.access_log_dir })).catch((e) => setError(errorMessage(e)));
+  }, [open]);
+  const ok = f && valid(f.access, 1) && valid(f.audit, 1);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await saveRetention({ access_log_days: Number(f.access), audit_days: Number(f.audit) });
+      pushToast({ kind: "success", title: t("ret.saved") });
+      onClose();
+    } catch (e) { pushToast({ kind: "error", title: t("ret.failed"), message: errorMessage(e) }); }
+    finally { setBusy(false); }
+  };
+  return (
+    <SideDrawer open={open} title={t("ret.title")} onClose={onClose} busy={busy} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={!ok || busy} onClick={save}>{t("ret.save")}</button>
+    </>}>
+      <p className="nx-muted" style={{ margin: 0 }}>{t("ret.intro")}</p>
+      {error ? <ErrorState message={error} /> : !f ? <Loading /> : <>
+        <Field label={t("ret.access")} unit={t("ret.days")} hint={t("ret.accessHint", { dir: f.dir })} error={valid(f.access, 1) ? null : t("ret.rule")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min="0" max={MAX_DAYS} value={f.access} onChange={(e) => setF({ ...f, access: e.target.value })} />}</Field>
+        <Field label={t("ret.audit")} unit={t("ret.days")} hint={t("ret.auditHint")} error={valid(f.audit, 1) ? null : t("ret.rule")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min="0" max={MAX_DAYS} value={f.audit} onChange={(e) => setF({ ...f, audit: e.target.value })} />}</Field>
+      </>}
+    </SideDrawer>
+  );
+}
