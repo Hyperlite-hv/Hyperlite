@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.core import cluster_view, inventory_cache, rolling_update, version
+from app.core import cluster_view, ha_selffence, inventory_cache, rolling_update, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -80,6 +80,8 @@ from app.routers.workstation import router as workstation_router
 async def lifespan(_app):
     on_startup()
     yield
+    # A normal stop (an update, a restart) disarms the HA watchdog: the node must not be reset for it.
+    ha_selffence.stop()
 
 
 _API_DOCS = api_docs_enabled()
@@ -349,6 +351,7 @@ def on_startup():
     start_node_poller()
     start_config_copy()
     start_ha_watch()
+    ha_selffence.start_selffence()
     start_vm_crash_watch()
     start_replication_scheduler()
     start_auto_cleanup_scheduler()

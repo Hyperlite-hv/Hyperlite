@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- In a cluster, a node that runs VMs with HA turned on fences itself when it is cut off from the majority, as on Proxmox: it arms its watchdog (a hardware one, or the kernel's softdog) and feeds it while it has the quorum, and without it the node is reset, so its VMs can be restarted elsewhere safely (the next step of automatic HA). A node without HA VMs never arms it, and a normal restart of the service (an update) disarms it first.
+
 - In a cluster, a VM hosted by another node is backed up, restored, verified and scheduled from whichever node the dashboard is open on: the request goes to the node that hosts it, which keeps its backups. The Backups page lists every node's backups, with their node. Browsing a backup's files stays on the dashboard of the node that holds it. A node registered over SSH only keeps no backups: a backup of one of its VMs is refused instead of being taken from a VM of the same name on this node.
 - In a cluster, the Activity page (tasks and audit log) and the recent tasks of the overview, of a node and of a VM show what every node did, from whichever node the dashboard is open on, as Proxmox does: each node keeps its own history, and the node that answers asks the others. A task held by another node opens, shows its log and can be stopped from any node. A node that does not answer is named above the list.
 
