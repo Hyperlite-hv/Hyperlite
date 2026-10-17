@@ -72,3 +72,19 @@ def test_a_node_down_at_the_first_poll_is_not_reported(poll):
     run(poll, up=False)  # no previous status: nothing went down while this node watched
     run(poll)
     assert poll["alerts"] == []
+
+
+def test_in_a_cluster_each_node_refreshes_only_the_protected_vms_it_hosts(database, monkeypatch):
+    from app.core import ha
+
+    rows = [{"vm_name": "mine", "node": "local"}, {"vm_name": "theirs", "node": "pve-b"}]
+    opened = []
+    monkeypatch.setattr(ha, "list_protected", lambda: rows)
+    monkeypatch.setattr(ha, "open_conn", lambda key=None: opened.append(key) or (_ for _ in ()).throw(RuntimeError()))
+    monkeypatch.setattr(cluster_lead, "in_cluster", lambda: True)
+    ha.sync_protected_vms()
+    assert opened == [None]  # its own libvirt, for its own VM only
+    opened.clear()
+    monkeypatch.setattr(cluster_lead, "in_cluster", lambda: False)  # a controller of SSH-driven nodes: all of them
+    ha.sync_protected_vms()
+    assert opened == [None, "pve-b"]
