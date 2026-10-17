@@ -439,14 +439,18 @@ def record_bases(db, versions):
 
 def refresh_bases(client=None):
     """Record the version of every entry this node holds exactly as the tree does (at start, and after a seed). An
-    entry that differs gets no version: a change of it here is dropped, unless the tree lacks it."""
+    entry that differs keeps the version this node last saw when the tree is still at it: the difference is a change
+    of this node not copied yet (a write made at start, before the copy loop ran), which goes out. Otherwise it gets no
+    version, and a change of it here is dropped, unless the tree lacks it. Found in the lab: the admin account flagged
+    at start (app/core/initial_password.py) was dropped as "changed in the cluster meanwhile", which nobody had done."""
     client = client or _get_client()
     with _db() as db:
+        seen = dict(db.execute("SELECT path, version FROM cfs_base").fetchall())
         versions = {}
         for table in tables().values():
             local = table.all(db)
             for path, (data, version) in _read_tree_versions(client, table.prefix).items():
-                if local.get(path) == data:
+                if local.get(path) == data or seen.get(path) == version:
                     versions[path] = version
         record_bases(db, versions)
         db.commit()
