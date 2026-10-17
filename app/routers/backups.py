@@ -15,6 +15,7 @@ from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
     _next_run,
+    check_space_for,
     refuse_vm_with_block_disks,
     restore_backup,
     run_backup,
@@ -126,6 +127,10 @@ def create_backup(
 ):
     target_dir = _target_dir(payload.target_dir, user)
     refuse_vm_with_block_disks(name, "A backup")
+    try:
+        check_space_for(name, target_dir)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit)
     # rather than introducing yet another dedicated privilege.
