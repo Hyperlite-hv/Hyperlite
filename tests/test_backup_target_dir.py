@@ -15,6 +15,7 @@ def started(database, monkeypatch):
     runs = []
     monkeypatch.setattr(backups, "refuse_vm_with_block_disks", lambda *a: None)
     monkeypatch.setattr(backups, "_vm_exists", lambda name: name == "web")
+    monkeypatch.setattr(backups, "check_space_for", lambda *a: None)  # never this host's libvirt
     monkeypatch.setattr(backups, "run_backup", lambda name, target, **k: runs.append(target))
 
     class _Thread:
