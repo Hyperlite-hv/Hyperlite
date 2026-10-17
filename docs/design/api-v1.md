@@ -117,10 +117,10 @@ A single node is the same without steps 2 and 5.
 4. The whole-cluster update mode of the rolling update, drilled in the lab (success, a node failing, the rollback).
 5. `410 Gone` for old routes, CLI version check, OpenAPI contract check in CI.
 
-## Open questions
+## Answered (Antho, 2026-10-17)
 
-1. `termine` → `succeeded` or `done`? (Kubernetes and most APIs say `succeeded`.)
-2. Error `code`s: a fixed list documented in `docs/api.md`, or free strings?
-3. May the migration test use a copy of serveur-antho's database on the lab? It holds account names and password
-   hashes; the copy would stay on the lab and be deleted after the test.
-4. Release order: this change first (before HA steps 2-4 and phase E), so they are written once, in the new names?
+1. A task that ended well is `succeeded` (`running` / `pending` / `succeeded` / `failed` / `cancelled`).
+2. Error `code`s are a fixed list documented in `docs/api.md`; a test fails on a code that is not listed.
+3. The migration is also tested on a copy of serveur-antho's database, on the lab only, deleted after the test.
+4. This change comes first: HA steps 2-4, the clean package, phase E and leaving `/root` are written after it, once,
+   with the new names.
