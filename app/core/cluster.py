@@ -427,35 +427,54 @@ def _check_node_boot(node_row):
     threading.Thread(target=check, daemon=True, name=f"vm-start-at-boot-{node_row['name']}").start()
 
 
+# Nodes this node saw go down while another node led the cluster. The leader of that moment reported them, unless it
+# was the node that went down: then nobody did. This node reports them once it leads, if they are still down (after a
+# change of leader for another reason, the same node may be reported twice: better than never).
+_unreported = set()
+
+
+def _report_down(name):
+    from app.core.ha import alert_for_down_node  # late import: avoids a cycle (ha.py imports libvirt_utils.py)
+
+    try:
+        alert_for_down_node(name)
+    except Exception as ha_exc:
+        print(f"[cluster] HA alert failed for {name}: {ha_exc!r}", flush=True)
+
+
+def _poll_once():
+    for node in list_nodes():
+        ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
+        new_statut = "en_ligne" if ok else "hors_ligne"
+        prev = _nodes().update_status(node["id"], new_statut, datetime.now(UTC).isoformat())
+        if ok and not cluster_lead.in_cluster():  # a member of a cluster starts its own VMs
+            _check_node_boot(node)
+        if prev and prev != new_statut:
+            log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
+        if ok:
+            _unreported.discard(node["name"])
+            continue
+        # HA: report the protected VMs of a node as soon as it is detected as down, by the node leading the cluster.
+        went_down = bool(prev) and prev != new_statut
+        if (went_down or node["name"] in _unreported) and cluster_lead.is_leader():
+            _unreported.discard(node["name"])
+            _report_down(node["name"])
+        elif went_down:
+            _unreported.add(node["name"])
+    # HA: resynchronize the cache of protected VMs while their node is reachable. Same cadence as the node poll
+    # (POLL_INTERVAL_S), no need for a separate dedicated loop.
+    try:
+        from app.core.ha import sync_protected_vms
+
+        sync_protected_vms()
+    except Exception as ha_exc:
+        print(f"[cluster] HA resynchronization failed: {ha_exc!r}", flush=True)
+
+
 def _poll_nodes():
     while True:
         try:
-            for node in list_nodes():
-                ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
-                new_statut = "en_ligne" if ok else "hors_ligne"
-                prev = _nodes().update_status(node["id"], new_statut, datetime.now(UTC).isoformat())
-                if ok and not cluster_lead.in_cluster():  # a member of a cluster starts its own VMs
-                    _check_node_boot(node)
-                if prev and prev != new_statut:
-                    log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
-                    if new_statut == "hors_ligne" and cluster_lead.is_leader():
-                        # HA: report the protected VMs of this node as soon as it is detected as down.
-                        # Late import, avoids a cycle (ha.py already imports from libvirt_utils.py).
-                        from app.core.ha import alert_for_down_node
-
-                        try:
-                            alert_for_down_node(node["name"])
-                        except Exception as ha_exc:
-                            print(f"[cluster] HA alert failed for {node['name']}: {ha_exc!r}", flush=True)
-            # HA: resynchronize the cache of protected VMs while their node is reachable.
-            # Same cadence as the node poll (POLL_INTERVAL_S), no need for a separate
-            # dedicated loop.
-            try:
-                from app.core.ha import sync_protected_vms
-
-                sync_protected_vms()
-            except Exception as ha_exc:
-                print(f"[cluster] HA resynchronization failed: {ha_exc!r}", flush=True)
+            _poll_once()
         except Exception as e:
             print(f"[cluster] poll failed: {e!r}", flush=True)
         time.sleep(POLL_INTERVAL_S)
