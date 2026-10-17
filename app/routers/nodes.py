@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import cluster_compat, maintenance, renaming, self_node, vm_locks
+from app.core import cluster_compat, cluster_view, maintenance, renaming, self_node, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import (
     get_cluster_pubkey,
@@ -57,8 +57,11 @@ async def _require(name):
 @router.get("")
 async def list_nodes(user: dict = Depends(get_current_user)):
     """Registered remote nodes, each with its latest live figures ("live", None until the
-    metrics collector has reached it once)."""
-    return await node_service.list_with_live()
+    metrics collector has reached it once). "membre": a member of this node's cluster (it runs Hyperlite and keeps
+    its own backups and history, app/core/cluster_view.py), not a node driven over SSH only."""
+    nodes = await node_service.list_with_live()
+    members = {n["name"] for n in await run_in_threadpool(cluster_view.members)}
+    return [{**n, "membre": n["name"] in members} for n in nodes]
 
 
 class NodeTest(BaseModel):

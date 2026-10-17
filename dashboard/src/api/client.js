@@ -230,6 +230,8 @@ export async function fetchNodes() {
         vms_actives: s?.vms_actives ?? 0,
         vms_arretees: s?.vms_arretees ?? 0,
         distant: true,
+        // A member of this node's cluster: it runs Hyperlite and keeps its VMs' backups (GET /nodes, "membre").
+        membre: Boolean(n.membre),
       };
     }));
   } catch { /* GET /nodes unavailable: stay on the local node alone, as before this fix */ }
@@ -365,24 +367,32 @@ export async function setVMFirewall(name, payload) {
 // ---- Native backups (real: GET/POST /vms/{name}/backups, DELETE /backups/{id},
 // POST /backups/{id}/restore, GET/PUT/DELETE /vms/{name}/backup-schedule; see
 // app/routers/backups.py) ----
+// In a cluster, each node keeps the backups of the VMs it hosts (app/routers/backups.py): a VM of another node is
+// backed up and listed through `node` (its node, "local" or nothing for this one), a backup through `on` (the node
+// that holds it, as GET /backups?cluster=true marks it). This node then sends the request to that node.
+const backupQs = (key, value, extra = "") => {
+  const parts = [extra, value && value !== "local" ? `${key}=${encodeURIComponent(value)}` : ""].filter(Boolean);
+  return parts.length ? `?${parts.join("&")}` : "";
+};
+// { items, unreachable }: every member's backups, each with the node that holds it ("on").
 export async function fetchAllBackups() {
-  return realFetch("/backups");
+  return realFetch("/backups?cluster=true");
 }
-export async function fetchVMBackups(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backups`);
+export async function fetchVMBackups(name, node) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`);
 }
-export async function createBackup(name, targetDir = null) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backups`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
+export async function createBackup(name, targetDir = null, node) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
 }
-export async function deleteBackup(id) {
-  return realFetch(`/backups/${id}?confirm=true`, { method: "DELETE" });
+export async function deleteBackup(id, on) {
+  return realFetch(`/backups/${id}${backupQs("on", on, "confirm=true")}`, { method: "DELETE" });
 }
-export async function restoreBackup(id, mode, newName = null) {
-  return realFetch(`/backups/${id}/restore`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
+export async function restoreBackup(id, mode, newName = null, on) {
+  return realFetch(`/backups/${id}/restore${backupQs("on", on)}`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
 }
-// Recompute every checksum of a backup and check its images (a task).
-export async function verifyBackup(id) {
-  return realFetch(`/backups/${id}/verify`, { method: "POST" });
+// Recompute every checksum of a backup and check its images (a task, held by the same node as the backup).
+export async function verifyBackup(id, on) {
+  return realFetch(`/backups/${id}/verify${backupQs("on", on)}`, { method: "POST" });
 }
 // Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
 // then restored here as new VMs.
@@ -414,8 +424,8 @@ export async function fetchReplicationStatus() {
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
 }
-export async function setBackupSchedule(name, payload) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`, { method: "PUT", ...jsonBody(payload) });
+export async function setBackupSchedule(name, payload, node) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule${backupQs("node", node)}`, { method: "PUT", ...jsonBody(payload) });
 }
 export async function deleteBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`, { method: "DELETE" });
@@ -508,8 +518,8 @@ async function downloadCsv(path, filters, fallbackName) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 // File-level restore: a browsing session on a backup's disks, its folders, and a file (or a folder as .tar.gz).
-export async function openBackupFiles(backupId) {
-  return realFetch(`/backups/${backupId}/files`, { method: "POST" });
+export async function openBackupFiles(backupId, on) {
+  return realFetch(`/backups/${backupId}/files${backupQs("on", on)}`, { method: "POST" });
 }
 export async function listBackupDir(session, device, path) {
   return realFetch(`/file-restore/${encodeURIComponent(session)}/ls?${new URLSearchParams({ device, path })}`);

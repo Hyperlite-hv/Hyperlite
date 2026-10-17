@@ -160,12 +160,14 @@ export function VmBackupPage({ resource: vm }) {
   const [enabling, setEnabling] = useState(false);
   const [browsing, setBrowsing] = useState(null);
   const vmName = vm?.nom;
+  // In a cluster the VM's own node keeps its backups: every request names it, and this node sends it there.
+  const vmNode = vm?.node && vm.node !== "local" ? vm.node : undefined;
 
   const reload = useCallback(async () => {
     if (!vmName) return;
-    try { const b = await fetchVMBackups(vmName); setBackups(Array.isArray(b) ? b : []); setError(null); } catch (e) { setError(errorMessage(e)); }
+    try { const b = await fetchVMBackups(vmName, vmNode); setBackups(Array.isArray(b) ? b : []); setError(null); } catch (e) { setError(errorMessage(e)); }
     fetchBackupSchedule(vmName).then((s) => { setSchedule(s || null); if (s) setForm({ frequence: s.frequence, heure: s.heure, ...retentionForm(s) }); }).catch(() => {});
-  }, [vmName]);
+  }, [vmName, vmNode]);
   useEffect(() => { reload(); }, [reload]);
   const running = Boolean(backups?.some((b) => b.statut !== "termine" && b.statut !== "echec"));
   useEffect(() => { if (!running) return undefined; const id = setInterval(reload, 4000); return () => clearInterval(id); }, [running, reload]);
@@ -182,13 +184,13 @@ export function VmBackupPage({ resource: vm }) {
 
   async function now() {
     setBusy(true);
-    try { await createBackup(vm.nom); pushToast({ kind: "success", title: t("vb.started"), message: vm.nom }); setTimeout(reload, 1500); } catch (e) { fail(t("vb.startFailed"))(e); } finally { setBusy(false); }
+    try { await createBackup(vm.nom, null, vmNode); pushToast({ kind: "success", title: t("vb.started"), message: vm.nom }); setTimeout(reload, 1500); } catch (e) { fail(t("vb.startFailed"))(e); } finally { setBusy(false); }
   }
   async function save(e) {
     e?.preventDefault();
     if (problems.heure || problems.retention) return;
     setBusy(true);
-    try { const s = await setBackupSchedule(vm.nom, { frequence: form.frequence, heure: form.heure, ...retention }); setSchedule(s); setEnabling(false); pushToast({ kind: "success", title: t("vb.scheduleSaved"), message: `${t(`vb.f.${form.frequence}`)} · ${form.heure} UTC` }); }
+    try { const s = await setBackupSchedule(vm.nom, { frequence: form.frequence, heure: form.heure, ...retention }, vmNode); setSchedule(s); setEnabling(false); pushToast({ kind: "success", title: t("vb.scheduleSaved"), message: `${t(`vb.f.${form.frequence}`)} · ${form.heure} UTC` }); }
     catch (er) { fail(t("vb.scheduleFailed"))(er); } finally { setBusy(false); }
   }
   async function disable() {
@@ -198,31 +200,31 @@ export function VmBackupPage({ resource: vm }) {
   }
   async function remove(b) {
     if (!(await confirmAction({ title: t("vb.deleteTitle", { id: b.id }), message: t("vb.deleteMsg"), confirmLabel: t("menu.delete").replace("…", ""), danger: true }))) return;
-    try { await deleteBackup(b.id); pushToast({ kind: "success", title: t("vb.deleted"), message: `#${b.id}` }); await reload(); } catch (er) { fail(t("vb.deleteFailed"))(er); }
+    try { await deleteBackup(b.id, vmNode); pushToast({ kind: "success", title: t("vb.deleted"), message: `#${b.id}` }); await reload(); } catch (er) { fail(t("vb.deleteFailed"))(er); }
   }
   async function restoreInPlace(b) {
     if (!stopped) return;
     if (!(await confirmAction({ title: t("vb.overwriteTitle", { name: vm.nom }), message: t("vb.overwriteMsg"), confirmLabel: t("vs.restore"), danger: true }))) return;
-    try { await restoreBackup(b.id, "overwrite"); pushToast({ kind: "success", title: t("vb.restoreStarted") }); await reload(); } catch (er) { fail(t("vb.restoreFailed"))(er); }
+    try { await restoreBackup(b.id, "overwrite", null, vmNode); pushToast({ kind: "success", title: t("vb.restoreStarted") }); await reload(); } catch (er) { fail(t("vb.restoreFailed"))(er); }
   }
   async function restoreNew(b) {
     const taken = new Set(vms.map((v) => v.nom));
     const name = await promptText({ title: t("vb.newTitle", { id: b.id }), label: t("tp.newName"), defaultValue: `${vm.nom}-restored`, confirmLabel: t("vs.restore"), validate: (v) => (!NAME_RE.test(v) ? t("ct.nameRule") : taken.has(v) ? t("tp.nameTaken") : "") });
     if (!name) return;
-    try { await restoreBackup(b.id, "new", name.trim()); pushToast({ kind: "success", title: t("vb.restoreStarted"), message: name.trim() }); } catch (er) { fail(t("vb.restoreFailed"))(er); }
+    try { await restoreBackup(b.id, "new", name.trim(), vmNode); pushToast({ kind: "success", title: t("vb.restoreStarted"), message: name.trim() }); } catch (er) { fail(t("vb.restoreFailed"))(er); }
   }
   async function verify(b) {
     setBusy(true);
     try {
-      const { task_id } = await verifyBackup(b.id);
+      const { task_id } = await verifyBackup(b.id, vmNode);
       pushToast({ kind: "info", title: t("vb.verifying"), message: `#${b.id}` });
       // A large backup takes a while to read: poll its task, then show the recorded result.
       for (let i = 0; i < 720; i += 1) {
         await new Promise((r) => setTimeout(r, 2500));
-        const task = await fetchTaskDetail(task_id).catch(() => null);
+        const task = await fetchTaskDetail(task_id, vmNode).catch(() => null);
         if (task && task.statut !== "en_cours") break;
       }
-      const fresh = (await fetchVMBackups(vm.nom)).find((x) => x.id === b.id);
+      const fresh = (await fetchVMBackups(vm.nom, vmNode)).find((x) => x.id === b.id);
       await reload();
       if (fresh?.verification === "verifie") pushToast({ kind: "success", title: t("vb.verified"), message: `#${b.id}` });
       else pushToast({ kind: "error", title: t("vb.corrupt"), message: fresh?.verification_detail || t("err.unknown") });
@@ -257,7 +259,7 @@ export function VmBackupPage({ resource: vm }) {
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
                         {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
-                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.nom })}>{t("fr.browse")}</button>}
+                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.nom, on: vmNode })}>{t("fr.browse")}</button>}
                         {caps.admin && (b.statut === "termine" || b.statut === "echec") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}
                       </div></td>
                     </tr>
