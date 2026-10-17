@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { applyUpdate, fetchHealth, fetchTaskDetail, fetchUpdateCheck, rollbackUpdate } from "../../api/client";
+import { applyUpdate, applyUpdateFile, deleteUpdateFile, fetchHealth, fetchTaskDetail, fetchUpdateCheck, fetchUpdateFile, rollbackUpdate, uploadUpdateFile } from "../../api/client";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useLangStore, useT } from "../i18n";
@@ -7,6 +7,7 @@ import { errorMessage } from "../lib/errors";
 
 // One update per node (docs/design/updates-1.0.md): Hyperlite and the node's Debian packages together, with the
 // release notes and, before anything starts, whether the node will need a reboot. Running VMs are not stopped.
+// A node without network updates from a file instead: the one published next to the ISO, checked by the node.
 const STEPS = [[5, "upd.step.backup"], [20, "upd.step.index"], [35, "upd.step.reinstall"], [40, "upd.step.install"], [85, "upd.step.restart"]];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -20,6 +21,9 @@ export default function UpdateDialog({ onClose }) {
   const [progress, setProgress] = useState(0);
   const [after, setAfter] = useState(null); // the check once the update is done: is a reboot needed now?
   const [restarted, setRestarted] = useState(false); // Hyperlite itself changed: the page must be reloaded
+  const [fromFile, setFromFile] = useState(false); // the "from a file" panel is open
+  const [file, setFile] = useState(null); // the update file received by the node: {version, notes, plus_ancienne…}
+  const [sending, setSending] = useState(null); // upload progress, 0-100, while a file is sent
   const opener = useRef(typeof document !== "undefined" ? document.activeElement : null);
   const dialog = useRef(null);
   const busy = phase === "updating" || phase === "restarting";
@@ -29,8 +33,24 @@ export default function UpdateDialog({ onClose }) {
   useEffect(() => {
     let alive = true;
     fetchUpdateCheck(lang).then((r) => alive && setInfo(r)).catch((e) => alive && setError(errorMessage(e)));
+    // A file already sent and not applied yet (the dialog was closed meanwhile).
+    fetchUpdateFile(lang).then((f) => { if (alive && f?.version) { setFile(f); setFromFile(true); } }).catch(() => {});
     return () => { alive = false; };
   }, [lang]);
+
+  async function send(chosen) {
+    if (!chosen) return;
+    setError(null);
+    setFile(null);
+    setSending(0);
+    try { setFile(await uploadUpdateFile(chosen, lang, setSending)); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setSending(null); }
+  }
+
+  async function dropFile() {
+    try { await deleteUpdateFile(); setFile(null); } catch (e) { setError(errorMessage(e)); }
+  }
 
   const sys = info?.systeme;
   const hyperliteNew = Boolean(info?.verifiable && !info.a_jour);
@@ -39,16 +59,17 @@ export default function UpdateDialog({ onClose }) {
 
   async function back() {
     if (!(await confirmAction({ title: t("upd.backTitle", { version: info.precedente }), message: t("upd.backMsg"), confirmLabel: t("upd.back", { version: info.precedente }) }))) return;
-    start(true);
+    start("rollback");
   }
 
-  async function start(rollback = false) {
+  // kind: "online" (the repositories), "rollback" (the version kept on the node) or "file" (the update file).
+  async function start(kind = "online") {
     setPhase("updating");
     setError(null);
-    const target = rollback ? info.precedente : info.commit_distant;
-    const restarts = rollback || hyperliteNew;
+    const target = kind === "rollback" ? info.precedente : kind === "file" ? file.version : info.commit_distant;
+    const restarts = kind === "rollback" || (kind === "file" ? file.version !== file.installee : hyperliteNew);
     try {
-      const { task_id } = rollback ? await rollbackUpdate() : await applyUpdate(true);
+      const { task_id } = kind === "rollback" ? await rollbackUpdate() : kind === "file" ? await applyUpdateFile(true) : await applyUpdate(true);
       for (;;) {
         const task = await fetchTaskDetail(task_id);
         setProgress(task.progres ?? 0);
@@ -93,11 +114,61 @@ export default function UpdateDialog({ onClose }) {
         <h2 id="upd-title">{t("upd.title")}</h2>
         {error && <p className="nx-error" role="alert">{error}</p>}
 
-        {phase === "idle" && !info && !error && <p className="nx-muted" role="status">{t("upd.checking")}</p>}
+        {phase === "idle" && !info && !error && !fromFile && <p className="nx-muted" role="status">{t("upd.checking")}</p>}
 
-        {phase === "idle" && info && (
+        {phase === "idle" && fromFile && (
+          <>
+            <p className="nx-muted" style={{ margin: 0 }}>{t("upd.fileHelp")}</p>
+            {!file && sending === null && (
+              <label className="nx-fg" style={{ display: "block", marginTop: "var(--space-3)" }}>
+                <span>{t("upd.fileChoose")}</span>
+                <input type="file" accept=".tar,application/x-tar" className="nx-inp" onChange={(e) => send(e.target.files?.[0])} />
+              </label>
+            )}
+            {sending !== null && (
+              <div role="status" aria-live="polite" style={{ marginTop: "var(--space-3)" }}>
+                <progress max={100} value={sending} style={{ width: "100%" }} aria-label={t("upd.fileSending")} />
+                <p className="nx-muted" style={{ margin: 0 }}>{sending < 100 ? t("upd.fileSending") : t("upd.fileChecking")}</p>
+              </div>
+            )}
+            {file && (
+              <>
+                <dl className="nx-dl">
+                  <dt>Hyperlite</dt>
+                  <dd>{file.version === file.installee ? t("upd.fileSame", { version: file.version }) : t("upd.hyperliteNew", { from: file.installee, to: file.version })}</dd>
+                  <dt>{t("upd.debian")}</dt>
+                  <dd>{t("upd.fileDebian", { debian: file.debian })}</dd>
+                </dl>
+                {file.plus_ancienne && <p className="nx-error" role="alert">{t("upd.fileOlder", { version: file.version, installed: file.installee })}</p>}
+                {file.notes && (
+                  <section aria-label={t("upd.notes")} className="nx-logs" tabIndex={0} style={{ maxHeight: "14rem", overflow: "auto", whiteSpace: "pre-wrap" }}>
+                    <strong>{file.version}</strong>{"\n"}{file.notes.trim()}
+                  </section>
+                )}
+                <p className="nx-muted" style={{ margin: 0 }}>{t("upd.safe")}</p>
+              </>
+            )}
+            <div className="nx-dialog-actions">
+              <button type="button" className="nx-btn" onClick={onClose}>{t("upd.close")}</button>
+              {file
+                ? <button type="button" className="nx-btn" onClick={dropFile}>{t("upd.fileRemove")}</button>
+                : <button type="button" className="nx-btn" disabled={sending !== null} onClick={() => setFromFile(false)}>{t("upd.fileBack")}</button>}
+              <button type="button" className="nx-btn nx-btn--primary" disabled={!file || file.plus_ancienne} onClick={() => start("file")}>{t("upd.fileApply")}</button>
+            </div>
+          </>
+        )}
+
+        {phase === "idle" && !fromFile && error && !info && (
+          <div className="nx-dialog-actions">
+            <button type="button" className="nx-btn" onClick={onClose}>{t("upd.close")}</button>
+            <button type="button" className="nx-btn" onClick={() => { setError(null); setFromFile(true); }}>{t("upd.fromFile")}</button>
+          </div>
+        )}
+
+        {phase === "idle" && info && !fromFile && (
           <>
             {!info.verifiable && <p role="alert">{info.erreur}</p>}
+            {!info.verifiable && <p className="nx-muted" style={{ margin: 0 }}>{t("upd.offlineHint")}</p>}
             {info.verifiable && (
               <>
                 <dl className="nx-dl">
@@ -121,8 +192,9 @@ export default function UpdateDialog({ onClose }) {
             )}
             <div className="nx-dialog-actions">
               <button type="button" className="nx-btn" onClick={onClose}>{t("upd.close")}</button>
+              <button type="button" className={info.verifiable ? "nx-btn nx-btn--ghost" : "nx-btn nx-btn--primary"} onClick={() => setFromFile(true)}>{t("upd.fromFile")}</button>
               {info.precedente && <button type="button" className="nx-btn" onClick={back}>{t("upd.back", { version: info.precedente })}</button>}
-              <button type="button" className="nx-btn nx-btn--primary" disabled={!info.verifiable || nothing} onClick={() => start(false)}>{t("upd.apply")}</button>
+              {info.verifiable && <button type="button" className="nx-btn nx-btn--primary" disabled={nothing} onClick={() => start("online")}>{t("upd.apply")}</button>}
             </div>
           </>
         )}

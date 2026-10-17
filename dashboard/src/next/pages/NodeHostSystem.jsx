@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  fetchAutoUpdates, setAutoUpdates,
+  fetchAutoUpdates, setAutoUpdates, fetchUpdateChannel, setUpdateChannel,
   fetchHostUpdates, upgradeHostPackages, fetchHostDns, setHostDns, fetchHostTime, fetchHostTimezones, setHostTime, fetchHostSyslog, setHostSyslog,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -83,6 +83,7 @@ export function NodeUpdatesPage({ resource: node }) {
         )}
       </Card>
       <AutoUpdatesCard />
+      <ChannelCard />
     </>
   );
 }
@@ -112,6 +113,38 @@ function AutoUpdatesCard() {
       <div className="nx-fg" style={{ marginTop: "var(--space-3)" }}>
         <Field label={t("au2.time")} hint={t("au2.timeHint")}>{(p) => <input {...p} type="time" className="nx-inp" disabled={!f.actif} value={f.heure} onChange={(e) => setF({ ...f, heure: e.target.value })} />}</Field>
       </div>
+    </Card>
+  );
+}
+
+function ChannelCard() {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [d, setD] = useState(null);
+  const [f, setF] = useState("stable");
+  const [error, setError] = useState(null);
+  const fill = (x) => { setD(x); setF(x.canal ?? "stable"); };
+  const load = useCallback(() => fetchUpdateChannel().then((x) => { fill(x); setError(null); }).catch((e) => setError(errorMessage(e))), []);
+  useEffect(() => { load(); }, [load]);
+  if (error && !d) return <Card title={t("ch.title")}><ErrorState message={error} onRetry={load} /></Card>;
+  if (!d) return <Card title={t("ch.title")}><Loading /></Card>;
+  if (!d.canal) return <Card title={t("ch.title")}><p className="nx-muted" style={{ margin: 0 }}>{t("ch.none")}</p></Card>;
+  async function save() {
+    try { fill(await setUpdateChannel(f)); pushToast({ kind: "success", title: t("hs.saved") }); }
+    catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
+  }
+  return (
+    <Card title={t("ch.title")} actions={<button type="button" className="nx-btn nx-btn--primary" disabled={f === d.canal} onClick={save}>{t("hs.save")}</button>}>
+      <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+        <legend className="nx-sr">{t("ch.title")}</legend>
+        {d.canaux.map((c) => (
+          <label key={c} className="nx-check" style={{ alignItems: "flex-start", marginBottom: "var(--space-2)" }}>
+            <input type="radio" name="update-channel" value={c} checked={f === c} onChange={() => setF(c)} />
+            <span><strong>{t(`ch.${c}`)}</strong><br /><span className="nx-muted" style={{ fontSize: "var(--fs-13)" }}>{t(`ch.${c}Help`)}</span></span>
+          </label>
+        ))}
+      </fieldset>
+      {d.canal === "test" && f === "stable" && <p className="nx-banner" role="status">{t("ch.leaveTest")}</p>}
     </Card>
   );
 }

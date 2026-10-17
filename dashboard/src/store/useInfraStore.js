@@ -182,7 +182,7 @@ export const useInfraStore = create((set, get) => ({
   // ---- VM actions ----
   // `key`: the VM's identity (see next/lib/vmId.js), never its bare name alone: two nodes may each have a VM of
   // that name, and acting on the first match stopped or deleted the wrong machine.
-  async runVMAction(key, action, { force = false } = {}) {
+  async runVMAction(key, action, { force = false, forceAfter = null } = {}) {
     const vm = findVm(get().vms, key);
     if (!vm) throw new Error(`VM '${parseVmKey(key).nom}' not found`);
     const vmName = vm.nom;
@@ -213,7 +213,7 @@ export const useInfraStore = create((set, get) => ({
       // by mistake (silently: the VM name could simply not exist locally, giving a 404,
       // or worse, coincide with a homonymous local VM).
       const result = action === "stop"
-        ? await apiFn(vmName, force, node)
+        ? await apiFn(vmName, force, node, forceAfter)
         : await apiFn(vmName, node);
       set((s) => ({
         mutations: s.mutations + 1,

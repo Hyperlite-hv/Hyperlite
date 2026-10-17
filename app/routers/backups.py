@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import maintenance, site_recovery, vm_locks
+from app.core import backup_use, maintenance, site_recovery, vm_locks
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -135,6 +135,9 @@ def delete_backup(backup_id: int, confirm: bool = False, user: dict = Depends(re
         row = backup_service.delete(backup_id)
     except backup_service.BackupNotFound:
         raise HTTPException(status_code=404, detail="Backup not found") from None
+    except backup_use.BackupInUse as e:
+        log_action(user["username"], "delete_backup", backup_service.find(backup_id)["vm_name"], "echec", str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from None
     log_action(user["username"], "delete_backup", row["vm_name"], "succes", f"backup #{backup_id}")
     return {"message": "Backup deleted"}
 

@@ -31,10 +31,11 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.core import host_system, version
+from app.core import host_system, offline_update, version
 from app.core.audit import log_action
 from app.core.database import DB_PATH
 from app.core.http_safety import require_http_url
@@ -325,7 +326,8 @@ def _source_problem(policy_stdout):
     Same when the repository comes from an address that no longer receives the publications."""
     official = _official_apt_url()
     urls = _hyperlite_repositories(policy_stdout)
-    line = f"deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] {official or '<repository-url>'} stable main"
+    suite = host_system.channel() or "stable"
+    line = f"deb [signed-by=/usr/share/keyrings/hyperlite-archive-keyring.gpg] {official or '<repository-url>'} {suite} main"
     if not urls:
         return (
             "The Hyperlite repository is not among this machine's APT sources, so new versions cannot be seen "
@@ -427,6 +429,8 @@ def _release_notes(installed, candidate, lang):
         v = str(entry.get("version", "")) if isinstance(entry, dict) else ""
         if not SEMVER_RE.match(v) or not _newer(v, installed) or _newer(v, candidate):
             continue
+        if "~" in v and "~" not in candidate:
+            continue  # a test build's notes, for a node going to a release (the index lists both channels)
         suffix = "fr" if lang == "fr" and entry.get("fr") else "en"
         try:
             notes.append({"version": v, "langue": suffix, "texte": _fetch_text(f"{base}/notes/{v}.{suffix}.md")})
@@ -446,6 +450,7 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
             result["systeme"] = _system_summary()
         previous = _previous()
         result["precedente"] = previous["version"] if previous else None
+        result["canal"] = host_system.channel()
         return result
 
     branch = _current_branch()
@@ -602,19 +607,23 @@ def _run_update_job(task_id, username, branch):
         log_action(username, "hyperlite_update", str(exc), "echec")
 
 
-def _full_upgrade_command():
-    """apt-get full-upgrade of every package, in a systemd unit of its own when possible: a package that restarts
-    services (libvirt) must not take the upgrade down with the service that started it. Hyperlite's own postinst does
-    not restart Hyperlite (HYPERLITE_SKIP_RESTART): the update job does, under its watchdog."""
+def _apt_command(args, env=()):
+    """apt-get with `args`, in a systemd unit of its own when possible: a package that restarts services (libvirt)
+    must not take the upgrade down with the service that started it. Hyperlite's own postinst does not restart
+    Hyperlite (HYPERLITE_SKIP_RESTART): the update job does, under its watchdog."""
     apt = [
-        "env", "HYPERLITE_SKIP_RESTART=1", "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C",
-        "apt-get", "-y", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
-        "full-upgrade",
+        "env", "HYPERLITE_SKIP_RESTART=1", "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C", *env,
+        "apt-get", "-y", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold", *args,
     ]  # fmt: skip
     if shutil.which("systemd-run") and Path("/run/systemd/system").is_dir():
-        unit = f"hyperlite-node-update-{int(time.time())}"
+        unit = f"hyperlite-node-update-{time.time_ns()}"
         return ["systemd-run", "--quiet", "--collect", "--wait", "--pipe", f"--unit={unit}", *apt]
     return apt
+
+
+def _full_upgrade_command():
+    """apt-get full-upgrade of every package (see _apt_command)."""
+    return _apt_command(["full-upgrade"])
 
 
 def _system_summary():
@@ -637,7 +646,9 @@ def _system_summary():
     }
 
 
-def _run_update_job_apt(task_id, username, system=True):
+def _run_update_job_apt(task_id, username, system=True, offline=False):
+    """The node's update. offline: from the update file received by POST /update/offline (app/core/offline_update.py)
+    instead of the repositories: its packages only, no network."""
     log_file = BACKUP_DIR / "update.log"
 
     def step(pct, message):
@@ -649,12 +660,23 @@ def _run_update_job_apt(task_id, username, system=True):
         step(5, "Backing up the current state (code + config + database)")
         tarball = _backup(task_id)
 
-        step(20, "Updating the APT index")
-        # See _apt_update_with_retry above: the repository is served directly by nginx
-        # (no CDN), so a modest retry is now enough. Slightly more patient than
-        # /update/check since this is a background task (the user already sees a progress
-        # bar).
-        upd = _apt_update_with_retry(attempts=6, delay_s=10, timeout=30)
+        apt_opts, apt_env, package = [], [], None
+        if offline:
+            step(15, "Checking the update file and extracting it")
+            new_file_version, package, bundle = offline_update.extract()
+            task_log(task_id, f"Update file of Hyperlite {new_file_version}, signature and checksums verified")
+            apt_opts = offline_update.local_apt_options(bundle)
+            # The package's postinst installs the Python requirements: from the file's wheels, not PyPI.
+            apt_env = ["PIP_NO_INDEX=1", f"PIP_FIND_LINKS={bundle / 'wheels'}"]
+            step(20, "Reading the packages of the update file")
+            upd = _run_c(["apt-get", *apt_opts, "update"], timeout=120)
+        else:
+            step(20, "Updating the APT index")
+            # See _apt_update_with_retry above: the repository is served directly by nginx
+            # (no CDN), so a modest retry is now enough. Slightly more patient than
+            # /update/check since this is a background task (the user already sees a progress
+            # bar).
+            upd = _apt_update_with_retry(attempts=6, delay_s=10, timeout=30)
         if upd is None or upd.returncode != 0:
             detail = upd.stderr.strip()[:400] if upd is not None else "timed out"
             raise RuntimeError(f"apt-get update failed: {detail}")
@@ -663,7 +685,7 @@ def _run_update_job_apt(task_id, username, system=True):
         env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
         if not rolled_back:
             _keep_previous(task_id)
-        if rolled_back:
+        if rolled_back and not offline:
             # After a rollback the package is already "installed" at the version that did not start: reinstall it.
             step(35, "Installing Hyperlite again (the last update was rolled back)")
             again = subprocess.run(
@@ -672,7 +694,20 @@ def _run_update_job_apt(task_id, username, system=True):
             )  # fmt: skip
             if again.returncode != 0:
                 raise RuntimeError(f"apt-get install failed: {again.stderr.strip()[:400]}")
-        if system:
+        if offline:
+            step(40, "Installing the packages of the update file")
+            if system:
+                code = host_system.run_upgrade(
+                    _apt_command([*apt_opts, "full-upgrade"], apt_env), lambda line: task_log(task_id, line)
+                )
+                if code != 0:
+                    raise RuntimeError(f"apt-get full-upgrade exited with {code}: see the task log")
+            # The package from the file (its dependencies from the bundle); again after a rolled back update.
+            install = [*apt_opts, "install", *(["--reinstall"] if rolled_back else []), str(package)]
+            code = host_system.run_upgrade(_apt_command(install, apt_env), lambda line: task_log(task_id, line))
+            if code != 0:
+                raise RuntimeError(f"apt-get install exited with {code}: see the task log")
+        elif system:
             # One update for the whole node: Hyperlite and every Debian package (docs/design/updates-1.0.md).
             step(40, "Installing the updates of Hyperlite and Debian (apt-get full-upgrade)")
             code = host_system.run_upgrade(_full_upgrade_command(), lambda line: task_log(task_id, line))
@@ -692,6 +727,8 @@ def _run_update_job_apt(task_id, username, system=True):
         if host_system.REBOOT_REQUIRED.exists():
             task_log(task_id, "A reboot of the node is needed to use some of the new packages")
             log_action(username, "host_reboot_required", "host", "succes", "after an update")
+        if offline:
+            offline_update.discard()  # applied: half a gigabyte less on the node
         if new_version == old_version and not rolled_back:
             # Only Debian packages changed: Hyperlite keeps running, nothing to restart or watch.
             finish_task(task_id, "termine")
@@ -719,6 +756,8 @@ def _run_update_job_apt(task_id, username, system=True):
         # restart means the old code is still running (nothing was restarted), and the
         # backup tarball plus the watchdog remain the real safety net should the package
         # state stay inconsistent anyway.
+        if offline:
+            offline_update.clean_extracted()  # the received file stays, to try again
         finish_task(task_id, "echec", str(exc))
         log_action(username, "hyperlite_update", str(exc), "echec")
 
@@ -811,6 +850,110 @@ def _run_rollback_job(task_id, username, previous):
     except Exception as exc:
         finish_task(task_id, "echec", str(exc))
         log_action(username, "hyperlite_rollback", str(exc), "echec")
+
+
+# ---- Update from a file, for a node without network (app/core/offline_update.py) ----
+
+
+def _offline_summary(info, lang):
+    installed = _dpkg_installed_version()
+    notes = info["notes"].get("fr" if lang == "fr" else "en") or info["notes"].get("en")
+    return {
+        "version": info["version"],
+        "debian": info["debian"],
+        "taille_mo": info["taille_mo"],
+        "installee": installed,
+        # Older than what runs: going back is POST /update/rollback, not an older file.
+        "plus_ancienne": bool(installed and _newer(installed, info["version"])),
+        "notes": notes,
+    }
+
+
+@router.post("/offline")
+async def upload_offline_update(
+    file: UploadFile = File(...), lang: str = "en", user: dict = Depends(require_role("admin"))
+):
+    """Receives an update file (published next to the ISO) and checks its signature and contents. Nothing is
+    installed: POST /update/offline/apply does."""
+    if _install_method() != "apt":
+        raise HTTPException(status_code=409, detail="Only a node installed from the package can be updated from a file")
+    try:
+        try:
+            info = await run_in_threadpool(offline_update.receive, file.file)
+        finally:
+            await file.close()
+    except offline_update.OfflineUpdateError as e:
+        log_action(user["username"], "upload_update_file", (file.filename or "")[:80], "echec", str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"The update file could not be stored: {e}") from e
+    log_action(user["username"], "upload_update_file", info["version"], "succes")
+    return _offline_summary(info, lang)
+
+
+@router.get("/offline")
+def get_offline_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
+    """The update file received and not applied yet, or {"version": null}."""
+    info = offline_update.stored()
+    return _offline_summary(info, lang) if info else {"version": None}
+
+
+@router.delete("/offline")
+def delete_offline_update(user: dict = Depends(require_role("admin"))):
+    offline_update.discard()
+    log_action(user["username"], "delete_update_file", "hyperlite", "succes")
+    return {"version": None}
+
+
+@router.post("/offline/apply", status_code=202)
+def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depends(require_role("admin"))):
+    """The update of section 5 from the received file: its packages only, under the same backup and watchdog."""
+    if _install_method() != "apt":
+        raise HTTPException(status_code=409, detail="Only a node installed from the package can be updated from a file")
+    info = offline_update.stored()
+    if not info:
+        raise HTTPException(status_code=409, detail="No valid update file received on this node")
+    if _offline_summary(info, "en")["plus_ancienne"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This file holds {info['version']}, older than the installed version: it is not installed",
+        )
+    with _apply_lock:
+        running_for = _update_in_progress()
+        if running_for:
+            raise HTTPException(
+                status_code=409,
+                detail=f"An update started by {running_for} is already running. Wait for it to finish.",
+            )
+        task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
+        system = payload.systeme if payload else True
+        threading.Thread(
+            target=_run_update_job_apt, args=(task_id, user["username"], system, True), daemon=True
+        ).start()
+    return {"task_id": task_id, "statut": "en_cours", "version": info["version"]}
+
+
+class ChannelRequest(BaseModel):
+    canal: str
+
+
+@router.get("/channel")
+def get_channel(user: dict = Depends(require_role("admin"))):
+    """The channel this node updates from: `stable` (releases) or `test` (every merge into the test branch)."""
+    return {"canal": host_system.channel(), "canaux": list(host_system.CHANNELS)}
+
+
+@router.put("/channel")
+def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admin"))):
+    """Moves the node to another channel. Nothing is installed: the next check shows what the channel offers, and
+    leaving test keeps the installed build until a stable release is newer (no downgrade)."""
+    try:
+        new = host_system.set_channel(payload.canal)
+    except host_system.SettingError as e:
+        log_action(user["username"], "set_update_channel", payload.canal[:20], "echec", str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    log_action(user["username"], "set_update_channel", new, "succes")
+    return {"canal": new, "canaux": list(host_system.CHANNELS)}
 
 
 @router.post("/rollback", status_code=202)

@@ -77,6 +77,13 @@ export async function fetchAutoUpdates() {
 export async function setAutoUpdates(actif, heure) {
   return realFetch("/host/system/auto-updates", { method: "PUT", ...jsonBody({ actif, heure }) });
 }
+// The channel Hyperlite updates from on this node: stable (releases) or test (every merge into the test branch).
+export async function fetchUpdateChannel() {
+  return realFetch("/update/channel");
+}
+export async function setUpdateChannel(canal) {
+  return realFetch("/update/channel", { method: "PUT", ...jsonBody({ canal }) });
+}
 export async function upgradeHostPackages(paquets) {
   return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
 }
@@ -602,10 +609,40 @@ export async function cancelTask(id, force = false) {
 // ---- Hyperlite update from Git (real: GET/POST /update/*, see
 // app/routers/update.py) ----
 export async function fetchUpdateCheck(lang = "en") {
-  return realFetch(`/update/check?lang=${encodeURIComponent(lang)}`);
+  // The node reads its repositories, retrying a slow mirror (up to about 2 minutes): past the usual read limit.
+  return realFetch(`/update/check?lang=${encodeURIComponent(lang)}`, { signal: AbortSignal.timeout(180000) });
 }
 export async function rollbackUpdate() {
   return realFetch("/update/rollback", { method: "POST" });
+}
+// Update from a file, for a node without network: the file published next to the ISO. The upload goes through
+// XMLHttpRequest for its progress event (hundreds of megabytes).
+export function uploadUpdateFile(file, lang, onProgress) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/update/offline?lang=${encodeURIComponent(lang)}`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.addEventListener("progress", (ev) => { if (ev.lengthComputable) onProgress?.(Math.round((ev.loaded / ev.total) * 100)); });
+    xhr.addEventListener("load", () => {
+      let body = null;
+      try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(body?.detail || `HTTP error ${xhr.status}`));
+    });
+    xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+    xhr.send(fd);
+  });
+}
+export async function fetchUpdateFile(lang = "en") {
+  return realFetch(`/update/offline?lang=${encodeURIComponent(lang)}`);
+}
+export async function deleteUpdateFile() {
+  return realFetch("/update/offline", { method: "DELETE" });
+}
+export async function applyUpdateFile(systeme = true) {
+  return realFetch("/update/offline/apply", { method: "POST", ...jsonBody({ systeme }) });
 }
 export async function applyUpdate(systeme = true) {
   return realFetch("/update/apply", { method: "POST", ...jsonBody({ systeme }) });
@@ -644,8 +681,9 @@ export async function startVM(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/start${q}`, { method: "POST" });
 }
-export async function stopVM(name, force = false, node = null) {
+export async function stopVM(name, force = false, node = null, forceAfter = null) {
   const params = new URLSearchParams({ force: String(force) });
+  if (forceAfter) params.set("forcer_apres", String(forceAfter));
   if (node && node !== "local") params.set("node", node);
   return realFetch(`/vms/${encodeURIComponent(name)}/stop?${params}`, { method: "POST" });
 }
@@ -1253,6 +1291,14 @@ export async function joinCluster({ information, adresse, confirmation }) {
 }
 export async function removeClusterMember(name) {
   return realFetch(`/cluster/membres/${encodeURIComponent(name)}/retirer`, { method: "POST", ...jsonBody({ confirmation: name }) });
+}
+// Rolling update of the cluster (app/core/rolling_update.py).
+export async function fetchClusterUpdatePlan() {
+  // Each node reads its repositories: longer than the usual read limit.
+  return realFetch("/cluster/update/plan", { signal: AbortSignal.timeout(300000) });
+}
+export async function startClusterUpdate(arreter_bloquees = false) {
+  return realFetch("/cluster/update", { method: "POST", ...jsonBody({ arreter_bloquees }) });
 }
 export async function fetchApiDocsAccess() {
   return realFetch("/api-docs/acces");

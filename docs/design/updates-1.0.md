@@ -83,8 +83,11 @@ The Debian page keeps its package-by-package list for the cases that need it.
 ## 7. Channels
 
 - Two APT suites on the mirror: `stable` (from `master`) and `test` (from `test`).
-- A node setting (Administration → Updates) writes the suite into `/etc/apt/sources.list.d/hyperlite.list`.
+- A node setting (Node → Updates) writes the suite into `/etc/apt/sources.list.d/hyperlite.list`.
   Default `stable`. Moving from `test` back to `stable` waits for the next stable release (no downgrade).
+- Each suite has its own pool (`pool/main`, `pool/test`): the stable index lists only releases, the test index
+  lists both, so a test node takes the release that follows its build. A test build is the next patch as a
+  pre-release (`1.0.1~test.20261011.1530`; dated before 1.0.0), never an ISO.
 
 ## 8. Automatic security updates, announced Hyperlite updates
 
@@ -109,6 +112,14 @@ node:
    4. maintenance mode off; its VMs are **not** moved back automatically (a later DRS will).
 3. Any failure stops the run on the failing node, which stays in maintenance; the nodes already done stay done.
 
+As built (`app/core/rolling_update.py`, Administration › Replicated configuration › Cluster update): the run is
+started from any node, which drives the others through their own API on their loopback address over the cluster's
+SSH trust (the session token, signed with the cluster's shared key for the administrator who started it, goes
+through SSH's standard input), and updates itself last; a cfs lock keeps it to one run per cluster. VMs that cannot
+move keep running through the package update; they only decide the reboot, stopped for it or the reboot left for
+later, as chosen before starting. This node's own update restarts the service that runs the job: the next start
+takes the node out of maintenance.
+
 Mixed versions during the run: version N and N+1 must work together in one cluster (replicated configuration and
 node-to-node calls). That is a rule for every minor release from now on; a major release may break it and then
 says so in its notes.
@@ -130,5 +141,9 @@ Each step is one PR, tested in the nested lab (three nodes installed from the of
 3. Automatic security updates and the reboot notification (8).
 4. Return to the previous version (6).
 5. Channels (7).
-6. Offline update from a signed file (started on a local branch; manifest signed with the APT key).
+6. Offline update from a signed file: `scripts/build-update-file.sh` packs the package, the ISO's offline bundle and
+   the notes with a manifest of SHA-256 sums signed by the APT key (`hyperlite-update-amd64.tar`, next to the ISO);
+   the node (`app/core/offline_update.py`) checks the signature, refuses any entry the manifest does not list, a file
+   for another Debian release or older than the installed version, then runs the update of section 5 with apt
+   reading only the extracted packages (and pip only the wheels).
 7. Rolling cluster update (9), last because it builds on all of the above.
