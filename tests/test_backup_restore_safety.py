@@ -281,3 +281,47 @@ def test_a_backup_records_the_os_label_and_the_ssh_user(database, tmp_path):
     backups._write_vm_config(_Named(None), tmp_path)
     config = json.loads((tmp_path / "vm-config.json").read_text())
     assert (config["os_label"], config["ssh_user"]) == ("Debian 12", "debian")
+
+
+def _no_room(monkeypatch):
+    monkeypatch.setattr(backups, "_allocated_bytes", lambda path: 50 * 1024**3)
+    monkeypatch.setattr(backups.disk_space.shutil, "disk_usage", lambda path: type("U", (), {"free": 20 * 1024**3})())
+
+
+def test_a_restore_that_would_not_fit_beside_the_disks_touches_nothing(tmp_path, monkeypatch, fake_convert):
+    """#448, F8: the images are written next to the old disks before the swap, so the disks' file system needs room
+    for both; a full system disk stops the database, the journal and libvirt."""
+    domain, vm_dir = _vm(tmp_path, ("vda", "qcow2"))
+    released = []
+    monkeypatch.setattr(backups.checkpoints, "release", lambda d: released.append(d))
+    _no_room(monkeypatch)
+    with pytest.raises(backups.disk_space.NotEnoughSpace, match=r"this restore.*20\.0 GiB free, about 50\.0 GiB"):
+        backups._restore_overwrite(None, domain, _images(tmp_path, "vda"), "t")
+    assert fake_convert == [] and released == []
+    assert (vm_dir / "vm1-vda.img").read_text() == "old vda"
+
+
+def test_the_replication_chain_is_kept_by_a_restore_that_is_refused(tmp_path, monkeypatch, fake_convert):
+    """#448, F9: the checkpoints were dropped before the disks were compared, so a refused restore still forced the
+    next replication to copy the whole VM again."""
+    domain, _vm_dir = _vm(tmp_path, ("vda", "qcow2"), ("vdb", "qcow2"))
+    released = []
+    monkeypatch.setattr(backups.checkpoints, "release", lambda d: released.append(d))
+    with pytest.raises(RuntimeError, match="no longer match"):
+        backups._restore_overwrite(None, domain, _images(tmp_path, "vda"), "t")
+    assert released == []
+    backups._restore_overwrite(None, domain, _images(tmp_path, "vda", "vdb"), "t")
+    assert released == [domain]  # a restore that goes ahead still drops them
+
+
+def test_a_failed_checkpoint_release_removes_the_staged_images(tmp_path, monkeypatch, fake_convert):
+    domain, vm_dir = _vm(tmp_path, ("vda", "qcow2"))
+
+    def broken(d):
+        raise RuntimeError("Cannot remove the replication bitmap")
+
+    monkeypatch.setattr(backups.checkpoints, "release", broken)
+    with pytest.raises(RuntimeError, match="bitmap"):
+        backups._restore_overwrite(None, domain, _images(tmp_path, "vda"), "t")
+    assert sorted(p.name for p in vm_dir.iterdir()) == ["vm1-vda.img"]
+    assert (vm_dir / "vm1-vda.img").read_text() == "old vda"

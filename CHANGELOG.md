@@ -142,6 +142,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A restore that would not fit is refused before anything is written, with what is free and what is needed: a restore over a VM writes the backup's images next to its disks before swapping them, so it needs room for both, and a full system disk also stops Hyperlite's database, the journal and libvirt. A restore refused because the VM's disks no longer match the backup no longer resets the VM's replication, which then had to copy the whole VM again.
+
 - A live migration that succeeded could be shown as failed, and then leave the VM's HA protection, tags and start at boot on the node it had left, when a step after the move failed (cleaning its old disks or addresses on the source node, for instance). HA could later restart a second copy of the VM on that node. The VM's HA protection now moves first, each step after the move runs whatever happened to the one before, and a step that fails is a warning on the finished task.
 
 - Snapshot tasks are listed with their VM: they named the snapshot, so a VM's Activity tab never showed them and the audit log did not say which VM a snapshot was taken, restored or deleted on. A snapshot task that failed on anything other than a libvirt error (removing the replication bitmaps of a stopped VM, for instance) stayed running forever with no audit entry; it now fails with the reason.

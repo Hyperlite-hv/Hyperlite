@@ -42,6 +42,7 @@ from app.core import (
     backup_use,
     checkpoints,
     cluster_lead,
+    disk_space,
     firmware,
     guest_agent,
     replication,
@@ -387,46 +388,19 @@ def run_backup(vm_name, target_dir=None, job_id=None, username="system", claim=N
         return _run_backup_locked(vm_name, target_dir, job_id, username)
 
 
-# What a backup leaves free on its target's filesystem: by default the system disk (data/backups), where a full disk
-# would also stop Hyperlite's database, the journal and libvirt.
-FREE_RESERVE_BYTES = 1 << 30
-
-
-def _allocated_bytes(path):
-    """What a disk occupies with its backing chain: qemu-img convert writes the chain flattened, unused blocks left
-    out, so its output is at most this."""
-    r = subprocess.run(
-        ["qemu-img", "info", "--backing-chain", "--output=json", "-U", str(path)],
-        capture_output=True, text=True, timeout=60,
-    )  # fmt: skip
-    if r.returncode == 0:
-        try:
-            return sum(int(layer.get("actual-size") or 0) for layer in json.loads(r.stdout))
-        except (ValueError, TypeError, AttributeError):
-            pass
-    try:
-        return os.stat(path).st_blocks * 512
-    except OSError:
-        return 0
+_allocated_bytes = disk_space.allocated_bytes
 
 
 def check_free_space(target_root, disk_paths):
-    """Refuse a backup that would not fit on its target with FREE_RESERVE_BYTES to spare. A check only: it creates
-    nothing, and measures the filesystem of the target's nearest existing directory (where the backup will land)."""
+    """Refuse a backup that would not fit on its target (disk_space.ensure_room). A check only: it creates nothing.
+    The default target is the system disk (data/backups)."""
     from app.core.backup_groups import validate_target  # late import: backup_groups imports this module
 
     needed = sum(_allocated_bytes(p) for p in disk_paths)
     target = os.path.normpath((validate_target(str(target_root)) if target_root else None) or DEFAULT_BACKUP_DIR)
     if not target.startswith("/"):  # validate_target already refuses it; spelled out for the path analysis
         raise RuntimeError(f"Invalid backup directory: {target_root}")
-    existing = next((d for d in (Path(target), *Path(target).parents) if d.is_dir()), Path("/"))
-    free = shutil.disk_usage(existing).free
-    if free < needed + FREE_RESERVE_BYTES:
-        gib = 1024**3
-        raise RuntimeError(
-            f"Not enough space for this backup in {target_root}: {free / gib:.1f} GiB free, about {needed / gib:.1f} "
-            f"GiB needed and {FREE_RESERVE_BYTES / gib:.0f} GiB kept free"
-        )
+    disk_space.ensure_room(target, needed, "this backup")
 
 
 def check_space_for(vm_name, target_dir=None):
@@ -583,6 +557,18 @@ def _check_before_restore(row, task_id, username):
         raise RuntimeError("The backup failed its integrity check, nothing was restored: " + "; ".join(problems[:5]))
 
 
+def _ensure_room_beside(existing, by_dev):
+    """Each restored image is written next to the disk it replaces, the old disk kept until the swap: every file
+    system holding a disk needs room for the images of its disks (disk_space.ensure_room)."""
+    needed = {}  # file system -> [a directory on it, bytes]
+    for dev, dest in existing:
+        folder = Path(dest).parent
+        entry = needed.setdefault(os.stat(folder).st_dev, [folder, 0])
+        entry[1] += _allocated_bytes(by_dev[dev])
+    for folder, size in needed.values():
+        disk_space.ensure_room(folder, size, "this restore")
+
+
 def _restore_overwrite(conn, domain, images, task_id):
     """Replace the disks of a stopped VM with the backup images, all or nothing.
 
@@ -592,8 +578,6 @@ def _restore_overwrite(conn, domain, images, task_id):
     half-written disk."""
     existing = domain_disk_paths(domain)
     by_dev = dict(images)
-    # The restored disks replace the ones the replication bitmap described.
-    checkpoints.release(domain)
     missing = [dev for dev, _ in existing if dev not in by_dev]
     extra = [dev for dev in by_dev if dev not in {d for d, _ in existing}]
     if missing or extra:
@@ -601,6 +585,7 @@ def _restore_overwrite(conn, domain, images, task_id):
             f"The VM's disks ({', '.join(d for d, _ in existing) or 'none'}) no longer match the backup's "
             f"({', '.join(by_dev)}): nothing was restored. Restore to a new VM instead."
         )
+    _ensure_room_beside(existing, by_dev)
     formats = _disk_formats(domain)
     token = uuid.uuid4().hex[:8]
     staged = []  # (dest, temp)
@@ -618,6 +603,14 @@ def _restore_overwrite(conn, domain, images, task_id):
             temp.unlink(missing_ok=True)
         raise
 
+    # The restored disks replace the ones the replication bitmap described. Dropped only now: a restore refused or
+    # stopped before this point leaves the VM's replication as it was (it used to restart from a full copy).
+    try:
+        checkpoints.release(domain)
+    except BaseException:
+        for _dest, temp in staged:
+            temp.unlink(missing_ok=True)
+        raise
     swapped = []  # (dest, previous)
     try:
         for dest, temp in staged:
@@ -720,6 +713,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                     "choose another network"
                 ) from None
             _check_before_restore(row, task_id, username)
+            disk_space.ensure_room(_IMAGES_DIR, sum(_allocated_bytes(src) for _dev, src in images), "this restore")
 
             span = 60 / len(images)
             for i, (_dev, src) in enumerate(images):
