@@ -15,6 +15,11 @@ received the rename yet, so its delete started from an older version. The API an
 copy loop found the conflict, dropped the delete ("the cluster's version wins", audit entry `cfs_conflict`) and the
 group came back. The user was told it was done, and it was not.
 
+Seen again in the lab (check 7a): hlc3 cut off at 23:34:13 answered **200** to a rename made in the same second,
+because the write guard reads the quorum through a 2-second cache (`cluster_lead.QUORUM_TTL_S`); the daemon refused
+to copy it, and the majority's value came back when the quorum did. A confirmed write sees the daemon refuse the copy
+and answers 503 at once.
+
 Proxmox's pmxcfs writes synchronously: a change that cannot be made is an error at once.
 
 ## What changes
