@@ -10,6 +10,7 @@ at creation time instead of being discovered afterwards from the DHCP lease
 import ipaddress
 import logging
 import random
+import threading
 import xml.etree.ElementTree as ET
 
 import libvirt
@@ -17,13 +18,38 @@ import libvirt
 logger = logging.getLogger(__name__)
 
 
+# One allocation at a time on this node: two creations at once read the same free addresses and picked the same one.
+_alloc_lock = threading.Lock()
+
+
 class AddressInUse(Exception):
     """A VM's reserved address is already held by another machine on the destination's network (#410)."""
 
 
+def _macs_in_use(conn):
+    """MACs this node knows: its VMs' interfaces (stopped ones hold no lease), and the leases and reservations of
+    its networks."""
+    taken = set()
+    for domain in conn.listAllDomains():
+        try:
+            taken |= {
+                m.get("address", "").lower() for m in ET.fromstring(domain.XMLDesc(0)).findall(".//interface/mac")
+            }
+        except libvirt.libvirtError:
+            continue  # undefined meanwhile
+    for net in conn.listAllNetworks():
+        try:
+            taken |= {lease.get("mac", "").lower() for lease in net.DHCPLeases()}
+            taken |= set(_reservations(net))
+        except libvirt.libvirtError:
+            continue  # an inactive network has no leases
+    return taken
+
+
 def generate_mac(conn):
-    """Random MAC in the standard QEMU/libvirt prefix (52:54:00), checked free among
-    the active leases of every network managed by this connector."""
+    """Random MAC in the standard QEMU/libvirt prefix (52:54:00), free among this node's VMs (running or not) and
+    the leases and reservations of its networks."""
+    taken = _macs_in_use(conn)
     for _ in range(20):
         # Non-cryptographic randomness is fine: this only avoids MAC collisions.
         mac = "52:54:00:%02x:%02x:%02x" % (  # noqa: UP031
@@ -31,20 +57,21 @@ def generate_mac(conn):
             random.randint(0, 255),  # noqa: S311
             random.randint(0, 255),  # noqa: S311
         )
-        collision = any(
-            lease.get("mac", "").lower() == mac.lower() for net in conn.listAllNetworks() for lease in net.DHCPLeases()
-        )
-        if not collision:
+        if mac not in taken:
             return mac
     raise RuntimeError("Unable to generate a free MAC address after 20 attempts")
 
 
 def _dhcp_range(network):
-    root = ET.fromstring(network.XMLDesc())
-    range_el = root.find(".//dhcp/range")
-    if range_el is None:
-        return None
-    return range_el.get("start"), range_el.get("end")
+    """(start, end) of the DHCP range of the network's IPv4 subnet. An IPv6 one is skipped: fixed addresses are
+    IPv4, and a network whose IPv6 subnet came first failed every creation on it."""
+    for ip_el in ET.fromstring(network.XMLDesc()).findall("ip"):
+        if ip_el.get("family", "ipv4") != "ipv4":
+            continue
+        range_el = ip_el.find("dhcp/range")
+        if range_el is not None:
+            return range_el.get("start"), range_el.get("end")
+    return None
 
 
 def _used_ips(network):
@@ -100,21 +127,30 @@ def allocate_static_ip(conn, network_name, mac, cluster=True):
     if rng is None:
         return None
     start, end = rng
-    used = _used_ips(network) | (cluster_used_ips(network_name) if cluster else set())
-
-    start_i = int(ipaddress.IPv4Address(start))
-    end_i = int(ipaddress.IPv4Address(end))
-    for raw in range(start_i, end_i + 1):
-        candidate = str(ipaddress.IPv4Address(raw))
-        if candidate not in used:
-            host_xml = f"<host mac='{mac}' ip='{candidate}'/>"
-            network.update(
-                libvirt.VIR_NETWORK_UPDATE_COMMAND_ADD_LAST,
-                libvirt.VIR_NETWORK_SECTION_IP_DHCP_HOST,
-                -1,
-                host_xml,
-                libvirt.VIR_NETWORK_UPDATE_AFFECT_LIVE | libvirt.VIR_NETWORK_UPDATE_AFFECT_CONFIG,
-            )
+    others = cluster_used_ips(network_name) if cluster else set()  # read outside the lock: other nodes, over SSH
+    with _alloc_lock:
+        used = _used_ips(network) | others
+        refused = 0
+        for raw in range(int(ipaddress.IPv4Address(start)), int(ipaddress.IPv4Address(end)) + 1):
+            candidate = str(ipaddress.IPv4Address(raw))
+            if candidate in used:
+                continue
+            try:
+                network.update(
+                    libvirt.VIR_NETWORK_UPDATE_COMMAND_ADD_LAST,
+                    libvirt.VIR_NETWORK_SECTION_IP_DHCP_HOST,
+                    -1,
+                    f"<host mac='{mac}' ip='{candidate}'/>",
+                    libvirt.VIR_NETWORK_UPDATE_AFFECT_LIVE | libvirt.VIR_NETWORK_UPDATE_AFFECT_CONFIG,
+                )
+            except libvirt.libvirtError:
+                # Reserved meanwhile from outside Hyperlite (virsh): the next address. A network that refuses every
+                # update is not tried address by address.
+                refused += 1
+                if refused >= 3:
+                    raise
+                logger.info("Address %s of %s refused, trying the next one", candidate, network_name, exc_info=True)
+                continue
             return candidate
     return None
 
