@@ -144,6 +144,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- In a cluster, a change a node made to the shared configuration while it started (before its copy to the cluster ran) was dropped as "changed in the cluster meanwhile", which nobody had done: a node leaving maintenance at the end of a rolling update, or the admin account flagged for a password change, could keep the cluster's older value. Such a change now goes out, and still loses to a change the cluster really made meanwhile.
+
 - A clone that would not fit in the images directory (on the system disk by default) is refused before the first byte is copied, with what is free and what is needed.
 
 - A restore that would not fit is refused before anything is written, with what is free and what is needed: a restore over a VM writes the backup's images next to its disks before swapping them, so it needs room for both, and a full system disk also stops Hyperlite's database, the journal and libvirt. A restore refused because the VM's disks no longer match the backup no longer resets the VM's replication, which then had to copy the whole VM again.
