@@ -88,8 +88,8 @@ Today's package is 14 MB. The venv is 91 MB unpacked and 18 MB compressed with x
    Ubuntu removed from the `package` matrix and from the APT repository's publishing.
 3. The ISO and the offline update file use the new package.
 
-## Open questions
+## Answered (Antho, 2026-10-18)
 
-1. The Debian 12 and Ubuntu nodes that exist today (if any): told in the release notes that their last version is the
-   current one, or a last package for them kept on the APT repository?
-2. `/usr/lib/hyperlite/` for the daemon and the wheels now, before the application itself leaves `/root`: agreed?
+1. No node runs Debian 12 or Ubuntu: their packages are simply no longer published.
+2. The daemon and the wheels go to `/usr/lib/hyperlite/` in this project; the application follows when it leaves
+   `/root`.
