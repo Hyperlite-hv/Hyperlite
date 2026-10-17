@@ -12,7 +12,7 @@ VERSION="$1"
 DEB="$2"
 BUNDLE="$3"
 NOTES="$4"
-OUT="$5"
+OUT="$(realpath -m "$5")"  # absolute: the archive is written from inside the staging directory
 
 log() { echo "[update-file] $*"; }
 
