@@ -17,6 +17,10 @@ os.environ.setdefault("HYPERLITE_ENCRYPTION_KEY", Fernet.generate_key().decode()
 # The name shared tables store for this node (app/core/self_node.py): fixed, so rows and cfs paths do not depend on the
 # host the suite runs on. Tests of the name itself remove it.
 os.environ.setdefault("HYPERLITE_NODE_NAME", "hv-test")
+# Never the host's own hyperlite-cfs: on a machine running Hyperlite, its socket (/run/hyperlite-cfs/socket) is reachable
+# by a suite run as root, and a test that reached it would write into that machine's real configuration. A socket that
+# cannot exist; tests of the daemon start their own and point this variable at it.
+os.environ["HYPERLITE_CFS_SOCKET"] = "/nonexistent/hyperlite-cfs-tests/socket"
 
 import pytest
 

@@ -3,6 +3,7 @@ import { fetchAuditLog, fetchAuditActions, fetchAuditCount, downloadAuditCsv } f
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
+import { listOf } from "../lib/clusterList";
 import { errorMessage } from "../lib/errors";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
@@ -20,6 +21,7 @@ export default function JournalPage({ embedded = false }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const [rows, setRows] = useState(null);
+  const [unreachable, setUnreachable] = useState([]);
   const [actions, setActions] = useState([]);
   const [error, setError] = useState(null);
   const [f, setF] = useState(EMPTY_F);
@@ -35,8 +37,9 @@ export default function JournalPage({ embedded = false }) {
 
   const load = useCallback(async () => {
     try {
+      // In a cluster, every member's entries, each with the node that holds it, and the members that did not answer.
       const r = await fetchAuditLog({ limit: LIMIT, ...filters(applied) });
-      setRows(Array.isArray(r) ? r : []); setError(null);
+      setRows(listOf(r)); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []); setError(null);
       fetchAuditCount(filters(applied)).then((c) => setTotal(c?.total ?? null)).catch(() => setTotal(null));
     } catch (e) { setError(errorMessage(e)); }
   }, [applied]);
@@ -54,6 +57,8 @@ export default function JournalPage({ embedded = false }) {
   };
 
   const dirty = JSON.stringify(f) !== JSON.stringify(EMPTY_F);
+  // A node column once the entries come from more than one node (a cluster).
+  const several = unreachable.length > 0 || new Set((rows || []).map((r) => r.on)).size > 1;
   return (
     <>
       {embedded
@@ -71,26 +76,28 @@ export default function JournalPage({ embedded = false }) {
         <button type="button" className="nx-btn" disabled={!rows?.length || exporting} title={total != null ? t("act.exportAll", { n: total }) : undefined} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>
       </div>
       {rows && total != null && total > rows.length && <p className="nx-hint" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("jr.partial", { n: new Intl.NumberFormat(lang).format(rows.length), total: new Intl.NumberFormat(lang).format(total) })}</p>}
+      {unreachable.length > 0 && <p className="nx-notice nx-notice--warning" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("jr.unreachable", { nodes: unreachable.join(", ") })}</p>}
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
           : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
           : rows.length === 0 ? <Empty icon={ScrollText} title={t("jr.none")} text={dirty ? t("act.noneFiltered") : null} /> : (
             <TableWrap>
               <table className="nx-table">
-                <thead><tr><th scope="col">{t("jr.time")}</th><th scope="col">{t("jr.result")}</th><th scope="col">{t("task.user")}</th><th scope="col">{t("jr.action")}</th><th scope="col">{t("jr.resource")}</th><th scope="col">{t("jr.ip")}</th></tr></thead>
+                <thead><tr><th scope="col">{t("jr.time")}</th>{several && <th scope="col">{t("ns.node")}</th>}<th scope="col">{t("jr.result")}</th><th scope="col">{t("task.user")}</th><th scope="col">{t("jr.action")}</th><th scope="col">{t("jr.resource")}</th><th scope="col">{t("jr.ip")}</th></tr></thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.id} className={r.error_message ? "nx-rowlink" : undefined} onClick={() => r.error_message && setOpen(open === r.id ? null : r.id)}>
+                    <tr key={`${r.on}/${r.id}`} className={r.error_message ? "nx-rowlink" : undefined} onClick={() => r.error_message && setOpen(open === `${r.on}/${r.id}` ? null : `${r.on}/${r.id}`)}>
                       <td className="nx-mono">{fmt(r.timestamp)}</td>
+                      {several && <td>{r.on}</td>}
                       <td><StatusIndicator override={r.result === "succes" ? { key: "jr.success", shape: "check", tone: "success" } : { key: "jr.failure", shape: "cross", tone: "danger" }} /></td>
                       <td>{r.username || "—"}</td>
                       <td className="nx-mono">{r.action}</td>
-                      <td className="nx-mono" style={{ whiteSpace: open === r.id ? "normal" : undefined, overflowWrap: "anywhere" }}>{r.resource || "—"}{r.error_message && <span className="nx-tone-danger"> — {open === r.id ? r.error_message : `${r.error_message.slice(0, 70)}${r.error_message.length > 70 ? "…" : ""}`}</span>}</td>
+                      <td className="nx-mono" style={{ whiteSpace: open === `${r.on}/${r.id}` ? "normal" : undefined, overflowWrap: "anywhere" }}>{r.resource || "—"}{r.error_message && <span className="nx-tone-danger"> — {open === `${r.on}/${r.id}` ? r.error_message : `${r.error_message.slice(0, 70)}${r.error_message.length > 70 ? "…" : ""}`}</span>}</td>
                       <td className="nx-mono nx-muted">{r.ip || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
-                <tfoot><tr><td colSpan={6}>{t("jr.footer", { total: total ?? rows.length, shown: rows.length })}</td></tr></tfoot>
+                <tfoot><tr><td colSpan={several ? 7 : 6}>{t("jr.footer", { total: total ?? rows.length, shown: rows.length })}</td></tr></tfoot>
               </table>
             </TableWrap>
           )}
