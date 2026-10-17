@@ -178,6 +178,12 @@ def _reap():
                 logger.exception("Closing an idle file-restore session failed")
 
 
+def is_open(backup_id):
+    """Whether a live file-restore session reads this backup (it must not be deleted under it)."""
+    with _lock:
+        return any(s.backup_id == backup_id and s.proc.poll() is None for s in _sessions.values())
+
+
 def open_session(backup_id, username):
     if interpreter() is None:
         raise RestoreError(status()["raison"])
