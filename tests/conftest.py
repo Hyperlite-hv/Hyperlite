@@ -21,6 +21,8 @@ os.environ.setdefault("HYPERLITE_NODE_NAME", "hv-test")
 # by a suite run as root, and a test that reached it would write into that machine's real configuration. A socket that
 # cannot exist; tests of the daemon start their own and point this variable at it.
 os.environ["HYPERLITE_CFS_SOCKET"] = "/nonexistent/hyperlite-cfs-tests/socket"
+# Never the host's own watchdog either: armed and left unfed, it would reset the machine running the suite.
+os.environ["HYPERLITE_WATCHDOG_DEVICE"] = "/nonexistent/hyperlite-watchdog-tests"
 
 import pytest
 
