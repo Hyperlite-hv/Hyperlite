@@ -22,6 +22,10 @@ TIMEOUT_S = 8  # one member's answer
 CONNECT_TIMEOUT_S = 3
 
 
+def _mode():
+    return cluster_lead.mode()
+
+
 class PeerError(Exception):
     """A member did not answer (status 0), with the reason."""
 
@@ -29,7 +33,7 @@ class PeerError(Exception):
 def members():
     """The other members of the cluster, as registered nodes (name, address, SSH user and port), in a stable order.
     Empty outside a cluster. A node registered over SSH only (no Hyperlite on it) is not a member."""
-    if cluster_lead.mode() != "cluster":
+    if _mode() != "cluster":
         return []
     from app.core import cluster, cluster_setup
 

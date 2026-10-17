@@ -6,7 +6,7 @@ import urllib.parse
 
 import pytest
 
-from app.core import audit, cluster, cluster_lead, cluster_setup, rolling_update
+from app.core import audit, cluster, cluster_setup, cluster_view, rolling_update
 from app.core.tasks import create_task
 
 TASK_A = "0b5e5cf2-6a39-4d55-9f8f-0f8f6f3c1a11"
@@ -40,7 +40,8 @@ def _node(name, statut="en_ligne"):
 @pytest.fixture()
 def peers(database, monkeypatch):
     fake = Peers()
-    monkeypatch.setattr(cluster_lead, "mode", lambda record=True: "cluster")
+    # Only this view sees a cluster: the rest of the application (the ids of new rows) stays on a single node.
+    monkeypatch.setattr(cluster_view, "_mode", lambda: "cluster")
     members = [
         {"nom": n, "nodeid": i, "adresse": f"10.0.0.{i}"} for i, n in enumerate(("hv-test", "pve-a", "pve-b"), 1)
     ]
