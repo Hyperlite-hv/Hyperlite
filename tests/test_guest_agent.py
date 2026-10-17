@@ -1,6 +1,7 @@
 """Hyperlite Tools (qemu-guest-agent): state read from the channel, clean shutdown and reboot through the agent with
 an ACPI fallback, the guest's own IP address, a quiesced hot-backup snapshot, and the agent in cloud-init."""
 
+import itertools
 import subprocess
 from pathlib import Path
 
@@ -13,8 +14,12 @@ from tests.conftest import agent_answer
 CHANNEL = "<channel type='unix'><target type='virtio' name='org.qemu.guest_agent.0'{state}/></channel>"
 
 
+_UUIDS = itertools.count(1)
+
+
 class FakeDomain:
     def __init__(self, active=True, channel="connected", agent_fails=False, addrs=None):
+        self.uuid = f"uuid-{next(_UUIDS)}"
         self.active = active
         self.agent_fails = agent_fails
         self.calls = []
@@ -50,7 +55,9 @@ class FakeDomain:
             self.calls.append("acpi-reboot")
 
     def UUIDString(self):
-        return f"uuid-{id(self)}"
+        # One per fake VM, never reused: id(self) was, once a fake VM was freed, and guest_agent keeps each VM's last
+        # address by UUID, so a later fake VM whose agent fails read an earlier one's address.
+        return self.uuid
 
     def agent_reply(self, command):
         assert "guest-network-get-interfaces" in command
