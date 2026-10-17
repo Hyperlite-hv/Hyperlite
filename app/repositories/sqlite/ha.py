@@ -58,9 +58,12 @@ class SqliteHaStore:
     def sync_definition(self, vm_name, domain_xml, now, node=None):
         """A fresher copy of the VM's definition; `node` too after a recovery onto another node."""
         if node is None:
+            # The definition is written only when it changed: it is a replicated column, and each write goes out to
+            # every node of a cluster. The time of the check stays on this node (a volatile column).
+            _write("UPDATE ha_protected_vms SET last_synced_at = ? WHERE vm_name = ?", (now, vm_name))
             _write(
-                "UPDATE ha_protected_vms SET domain_xml = ?, last_synced_at = ? WHERE vm_name = ?",
-                (domain_xml, now, vm_name),
+                "UPDATE ha_protected_vms SET domain_xml = ? WHERE vm_name = ? AND domain_xml IS NOT ?",
+                (domain_xml, vm_name, domain_xml),
             )
         else:
             _write(

@@ -235,6 +235,10 @@ def _keep_previous(task_id):
     )
     debs = list(work.glob("hyperlite_*.deb"))
     if r.returncode != 0 or not debs:
+        # A package kept by an earlier update is older than the version now replaced: offering it as "the version
+        # before the last update" would go back further than that, past whatever came in between.
+        for old in PREVIOUS_DIR.glob("hyperlite_*.deb"):
+            old.unlink()
         task_log(task_id, f"The package of {installed} could not be kept: the return to it will not be offered")
         shutil.rmtree(work, ignore_errors=True)
         return

@@ -289,6 +289,15 @@ def _write_checked(client, path, data, base):
             return None
         return client.put(path, data, base)
     except (Conflict, NotFound):
+        # The cluster changed it meanwhile; to the very value this node wanted, it is no conflict at all.
+        try:
+            current = client.get(path)
+        except NotFound:
+            current = None
+        if current is None and data is None:
+            return None
+        if current is not None and current.data == data:
+            return current.version
         raise _Dropped(path) from None
 
 

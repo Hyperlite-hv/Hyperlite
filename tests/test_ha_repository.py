@@ -53,3 +53,21 @@ def test_fencing_keeps_the_secret_sealed(repo):
     store.save_fencing("n1", "lease_only", None, None, None, None, 0, "alice", "t0")
     assert store.fencing("n2")["secret"] == "sealed" and store.fenced_nodes() == ["n1", "n2"]
     assert store.delete_fencing("n2") and not store.delete_fencing("n2") and store.fencing("n2") is None
+
+
+def test_an_unchanged_definition_is_not_written_again(repo, monkeypatch):
+    """A replicated column: in a cluster each write goes out to every node, so the minute's check writes only a change."""
+    from app.core.database import get_conn
+
+    store = repo.sync
+    store.protect("web", "n1", "<domain/>", "alice", "t0")
+    with get_conn() as db:
+        db.execute("DELETE FROM cfs_outbox")
+        db.commit()
+    store.sync_definition("web", "<domain/>", "t1")
+    with get_conn() as db:
+        assert db.execute("SELECT COUNT(*) FROM cfs_outbox").fetchone()[0] == 0  # nothing to send
+    assert run(repo.protected_vm("web"))["last_synced_at"] == "t1"  # the check itself is recorded here
+    store.sync_definition("web", "<domain>new</domain>", "t2")
+    with get_conn() as db:  # a change goes out (the trigger records the row's key before and after: one row)
+        assert db.execute("SELECT COUNT(DISTINCT tbl || pk) FROM cfs_outbox").fetchone()[0] == 1

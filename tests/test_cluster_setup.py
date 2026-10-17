@@ -138,7 +138,7 @@ def _create(host):
 def test_creating_a_cluster(host):
     state = _create(host)
     assert state["en_cluster"] and state["nom"] == "prod" and state["quorum"]
-    assert state["membres"] == [{"nom": "hv-test", "nodeid": 1, "adresse": ADDRESS}]
+    assert state["membres"] == [{"nom": "hv-test", "nodeid": 1, "adresse": ADDRESS, "voix": 1}]
 
     key = cluster_setup.COROSYNC_KEY
     assert len(key.read_bytes()) == 256 and oct(key.stat().st_mode & 0o777) == "0o400"
@@ -510,3 +510,53 @@ def test_a_join_that_fails_puts_this_node_back_as_it_was(host, monkeypatch):
         settings = dict(db.execute("SELECT cle, valeur FROM app_settings").fetchall())
     assert "cfs_join_pending" not in settings and settings.get("cfs_shadow") != "1"
     assert host.restarts == []
+
+
+# ---- The primary node: it counts twice in the quorum ----
+
+
+def _add_member(host, name="pve-b", nodeid=2, address="192.0.2.11"):
+    conf = json.loads(host.files[cluster_setup.CONF_PATH])
+    conf["membres"].append({"nom": name, "nodeid": nodeid, "adresse": address})
+    host.files[cluster_setup.CONF_PATH] = json.dumps(conf).encode()
+
+
+def test_a_primary_node_counts_twice_and_alone_keeps_the_quorum_with_one_other(host):
+    _create(host)
+    _add_member(host)  # a member from a configuration without votes: one each
+    assert "quorum_votes: 1" in cluster_setup.render(cluster_setup.shared_conf())
+    state = cluster_setup.set_primary("hv-test", "admin")
+    assert {m["nom"]: m["voix"] for m in state["membres"]} == {"hv-test": 2, "pve-b": 1}
+    conf = cluster_setup.COROSYNC_CONF.read_text()
+    assert "name: hv-test\n    nodeid: 1\n    quorum_votes: 2" in conf  # 2 of 3: quorate alone
+    assert "name: pve-b\n    nodeid: 2\n    quorum_votes: 1" in conf
+    version = cluster_setup.shared_conf()["version"]
+    state = cluster_setup.set_primary("pve-b", "admin")  # one primary at most: the other goes back to one vote
+    assert {m["nom"]: m["voix"] for m in state["membres"]} == {"hv-test": 1, "pve-b": 2}
+    assert cluster_setup.shared_conf()["version"] == version + 1  # every member writes corosync.conf again (sync)
+    state = cluster_setup.set_primary(None, "admin")
+    assert {m["voix"] for m in state["membres"]} == {1}
+
+
+def test_a_primary_must_be_a_member_and_a_configuration_with_two_is_refused(host):
+    _create(host)
+    with pytest.raises(cluster_setup.ClusterError, match="not a member"):
+        cluster_setup.set_primary("pve-z", "admin")
+    _add_member(host)
+    conf = json.loads(host.files[cluster_setup.CONF_PATH])
+    for m in conf["membres"]:
+        m["voix"] = 2
+    with pytest.raises(cluster_setup.ClusterError):
+        cluster_setup._check_conf(conf)  # never written from such a configuration
+    conf["membres"][0]["voix"] = 7
+    with pytest.raises(cluster_setup.ClusterError):
+        cluster_setup._check_conf(conf)
+
+
+def test_setting_the_primary_is_for_administrators(client, auth_headers, host):
+    _create(host)
+    viewer = auth_headers("olga", "observateur")
+    assert client.post("/cluster/principal", json={"nom": "hv-test"}, headers=viewer).status_code == 403
+    admin = auth_headers("root")
+    r = client.post("/cluster/principal", json={"nom": "hv-test"}, headers=admin)
+    assert r.status_code == 200 and r.json()["membres"][0]["voix"] == 2
