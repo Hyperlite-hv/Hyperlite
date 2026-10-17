@@ -31,13 +31,15 @@ def forget():
         try:
             path.unlink(missing_ok=True)
         except OSError:
-            logger.warning("The initial password could not be removed from %s", path, exc_info=True)
+            logger.warning(
+                "A copy of the initial password could not be removed", exc_info=True
+            )  # the error names the file
     try:
         lines = env.read_text().splitlines(keepends=True)
     except FileNotFoundError:
         return
     except OSError:
-        logger.warning("The initial password could not be removed from %s", env, exc_info=True)
+        logger.warning("The initial password could not be removed from the service's .env", exc_info=True)
         return
     kept = [line for line in lines if not line.startswith(ENV_LINE)]
     if kept == lines:
@@ -49,7 +51,7 @@ def forget():
             f.writelines(kept)
         os.replace(tmp, env)
     except OSError:
-        logger.warning("The initial password could not be removed from %s", env, exc_info=True)
+        logger.warning("The initial password could not be removed from the service's .env", exc_info=True)
         tmp.unlink(missing_ok=True)
 
 
