@@ -416,8 +416,10 @@ def check_free_space(target_root, disk_paths):
     from app.core.backup_groups import validate_target  # late import: backup_groups imports this module
 
     needed = sum(_allocated_bytes(p) for p in disk_paths)
-    target = Path((validate_target(str(target_root)) if target_root else None) or DEFAULT_BACKUP_DIR)
-    existing = next((d for d in (target, *target.parents) if d.is_dir()), Path("/"))
+    target = os.path.normpath((validate_target(str(target_root)) if target_root else None) or DEFAULT_BACKUP_DIR)
+    if not target.startswith("/"):  # validate_target already refuses it; spelled out for the path analysis
+        raise RuntimeError(f"Invalid backup directory: {target_root}")
+    existing = next((d for d in (Path(target), *Path(target).parents) if d.is_dir()), Path("/"))
     free = shutil.disk_usage(existing).free
     if free < needed + FREE_RESERVE_BYTES:
         gib = 1024**3
