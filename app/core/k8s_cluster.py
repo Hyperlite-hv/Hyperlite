@@ -457,7 +457,11 @@ def _provision(name, server, agents, vcpu, memory_mb, disk_gb, network, username
 
         step = "reading the kubeconfig"
         kubeconfig = fetch_kubeconfig(server, ips[server], name)
-        _update(name, statut="pret", erreur=None, adresse=ips[server], kubeconfig=encrypt(kubeconfig))
+        # Ready and free in one step, under the lock delete_cluster checks: a cluster shown ready can be deleted at
+        # once (it was refused as "being created" until this thread reached its finally).
+        with _busy_lock:
+            _update(name, statut="pret", erreur=None, adresse=ips[server], kubeconfig=encrypt(kubeconfig))
+            _busy.discard(name)
         finish_task(task_id, "termine")
         log_action(username, "create_k8s_cluster", name, "succes", task_id=task_id)
     except Exception as e:

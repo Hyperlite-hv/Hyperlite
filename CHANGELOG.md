@@ -135,6 +135,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Deleting a Kubernetes cluster right after it showed as ready could be refused as "being created": it was shown ready a moment before its creation let go of it. Both now happen at once.
+
 - In a cluster, signing out now signs the session out on every node. A session token is valid on any node, but the sign-out was only known to the node that received it, so a copy of the token (another tab, a stolen token) kept working on the other nodes until it expired.
 
 - Publishing a version stopped before the ISO and the update file for nodes without network were released: the update file was written to a path relative to a temporary directory. The APT repository was already up to date.
