@@ -294,6 +294,7 @@ export default {
   "bk.deleteHelp": "Cette action est irréversible.",
   "bk.deleted": "Sauvegarde supprimée",
   "bk.none": "Aucune sauvegarde pour l’instant.",
+  "bk.unreachable": "Pas de réponse de {nodes} : les sauvegardes qui y sont conservées ne sont pas listées.",
   "bk.noneHelp": "Lancez une sauvegarde ou planifiez-la depuis l’onglet Sauvegardes d’une VM.",
   "bk.mode": "Mode",
   "bk.size": "Taille",

@@ -27,11 +27,11 @@ export default function BackupFileBrowser({ backup, onClose }) {
   useEffect(() => {
     let alive = true;
     let opened = null;
-    openBackupFiles(backup.id)
+    openBackupFiles(backup.id, backup.on)
       .then((s) => { opened = s.session; if (!alive) { closeBackupFiles(s.session).catch(() => {}); return; } setSession(s); setDevice(s.filesystems[0]?.device || ""); })
       .catch((e) => alive && setError(errorMessage(e)));
     return () => { alive = false; if (opened) closeBackupFiles(opened).catch(() => {}); };
-  }, [backup.id]);
+  }, [backup.id, backup.on]);
 
   useEffect(() => {
     if (!session || !device) return undefined;

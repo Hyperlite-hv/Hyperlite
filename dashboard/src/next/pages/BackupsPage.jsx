@@ -5,6 +5,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
 import { usePolling } from "../lib/polling";
+import { listOf } from "../lib/clusterList";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
@@ -28,6 +29,7 @@ export default function BackupsPage() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const caps = capabilities(useAuthStore((s) => s.role));
   const [rows, setRows] = useState(null);
+  const [unreachable, setUnreachable] = useState([]);
   const ctx = useContextTarget(); // right click on a backup: its actions
   const [error, setError] = useState(null);
   const [scheduled, setScheduled] = useState(null);
@@ -38,7 +40,11 @@ export default function BackupsPage() {
   const onGroups = useCallback((jobs) => setGrouped(new Set(jobs.filter((j) => j.actif).flatMap((j) => j.vms))), []);
 
   const load = useCallback(async () => {
-    try { const r = await fetchAllBackups(); setRows(Array.isArray(r) ? r : []); setError(null); }
+    // In a cluster, every member's backups, each with the node that holds it ("on"), and the members that did not answer.
+    try {
+      const r = await fetchAllBackups();
+      setRows(listOf(r)); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []); setError(null);
+    }
     catch (e) { setError(errorMessage(e)); }
     // A failed read keeps the last known schedules and says so: dropping them would make the
     // "VMs without a backup schedule" warning vanish exactly when it cannot be checked.
@@ -53,10 +59,15 @@ export default function BackupsPage() {
 
   async function remove(b) {
     if (!(await confirmAction({ title: t("vb.deleteTitle", { id: b.id }), message: t("bk.deleteHelp"), confirmLabel: t("vx.delete"), danger: true }))) return;
-    try { await deleteBackup(b.id); pushToast({ kind: "success", title: t("bk.deleted"), message: `#${b.id}` }); load(); }
+    try { await deleteBackup(b.id, b.on); pushToast({ kind: "success", title: t("bk.deleted"), message: `#${b.id}` }); load(); }
     catch (e) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(e) }); }
   }
   const fmt = (ts) => new Intl.DateTimeFormat(lang, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(ts));
+  // Backup ids are per node: a row is its node and its id. A node column once the backups come from several nodes.
+  const rowKey = (b) => `${b.on}/${b.id}`;
+  const several = unreachable.length > 0 || new Set((rows || []).map((b) => b.on)).size > 1;
+  // The VM a backup belongs to: the one of the node that holds it when that node is another member, else this host's.
+  const vmOf = (b) => (vms.some((v) => v.nom === b.vm_name && v.node === b.on) ? `${b.vm_name}@${b.on}` : b.vm_name);
 
   return (
     <>
@@ -66,19 +77,21 @@ export default function BackupsPage() {
           <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("datacenter", null, "vms")}>{t("bk.seeVms")}</button></div>
       )}
       {scheduleError && <InlineError message={scheduleError} onRetry={load} />}
+      {unreachable.length > 0 && <p className="nx-notice nx-notice--warning" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("bk.unreachable", { nodes: unreachable.join(", ") })}</p>}
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
           : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
           : rows.length === 0 ? <Empty icon={Archive} title={t("bk.none")} text={t("bk.noneHelp")} /> : (
             <TableWrap>
               <table className="nx-table">
-                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("jr.time")}</th><th scope="col">VM</th><th scope="col">{t("bk.mode")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("bk.location")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("jr.time")}</th><th scope="col">VM</th>{several && <th scope="col">{t("ns.node")}</th>}<th scope="col">{t("bk.mode")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("bk.location")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {rows.map((b) => (
-                    <tr key={b.id} className={ctx.is("bk", b.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("bk", b, b.id)}>
+                    <tr key={rowKey(b)} className={ctx.is("bk", rowKey(b)) ? "is-ctx" : undefined} onContextMenu={ctx.open("bk", b, rowKey(b))}>
                       <td><StatusIndicator kind="task" wire={b.statut === "termine" ? "termine" : b.statut === "echec" ? "echec" : "en_cours"} /></td>
                       <td className="nx-mono">{fmt(b.cree_le)}</td>
-                      <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", b.vm_name, "backup")}>{b.vm_name}</button></th>
+                      <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmOf(b), "backup")}>{b.vm_name}</button></th>
+                      {several && <td>{b.on}</td>}
                       <td>{b.mode === "chaud" ? t("bk.hot") : t("bk.cold")}</td>
                       <td className="nx-num nx-mono">{b.taille_octets ? formatSizeMb(b.taille_octets / 1048576, lang) : "—"}</td>
                       <td className="nx-mono nx-wrapcell">{b.erreur ? <span className="nx-tone-danger">{b.erreur}</span> : b.chemin}</td>
@@ -94,7 +107,7 @@ export default function BackupsPage() {
       {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><ReplicationJobs /></div>}
       {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><SiteRecovery /></div>}
       <ActionsContextMenu ctx={ctx} label={(b) => t("ctx.menuOf", { name: `${b.vm_name} #${b.id}` })} entries={(b) => [
-        { key: "vm", icon: "open", label: t("ctx.vmBackups"), run: () => navigateTo("vm", b.vm_name, "backup") },
+        { key: "vm", icon: "open", label: t("ctx.vmBackups"), run: () => navigateTo("vm", vmOf(b), "backup") },
         b.chemin && b.statut === "termine" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.chemin) },
         "-",
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(b),

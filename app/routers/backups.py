@@ -7,9 +7,10 @@ import threading
 
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import backup_use, maintenance, site_recovery, vm_locks
+from app.core import backup_use, cluster_view, maintenance, site_recovery, vm_locks
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -30,9 +31,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["backups"])
 
 
+# A cluster's backups are kept by the node that made them, which is the node hosting the VM: the requests about a VM of
+# another member, or about a backup it holds, go to that member (app/core/cluster_view.py).
+NOT_A_MEMBER = "{node} is not a member of this cluster: its VMs cannot be backed up or restored from this node"
+_on_vm_node = cluster_view.forward_to("node", NOT_A_MEMBER)
+# A backup id is per node: a holder that is not a member (a node that left the cluster) is refused, never read as this
+# node's backup with the same id.
+_on_holder = cluster_view.forward_to(
+    "on", "{node} is not a member of this cluster: its backups are not reachable from here"
+)
+
+
 @router.get("/backups")
-async def list_all_backups(user: dict = Depends(get_current_user)):
-    return await backup_service.list_all()
+async def list_all_backups(cluster: bool = False, user: dict = Depends(get_current_user)):
+    """cluster: every member's backups, each marked with the node that holds it ("on"), and the members that did not
+    answer; outside a cluster this node's, in the same shape."""
+    rows = await backup_service.list_all()
+    if not cluster:
+        return rows
+    answers, missing = await run_in_threadpool(cluster_view.gather, user["username"], "/backups", {})
+    return {"items": cluster_view.merge(rows, answers, "cree_le"), "unreachable": missing}
 
 
 class RecoveryItem(BaseModel):
@@ -73,7 +91,9 @@ async def list_backup_schedules(user: dict = Depends(get_current_user)):
 
 
 @router.get("/vms/{name}/backups")
-async def list_vm_backups(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
+async def list_vm_backups(
+    name: str, user: dict = Depends(require_vm_privilege("vm.view")), _: None = Depends(_on_vm_node)
+):
     return await backup_service.list_for_vm(name)
 
 
@@ -98,7 +118,12 @@ def _target_dir(path, user, kept=None):
 
 
 @router.post("/vms/{name}/backups", status_code=202)
-def create_backup(name: str, payload: BackupRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+def create_backup(
+    name: str,
+    payload: BackupRequest,
+    user: dict = Depends(require_vm_privilege("vm.snapshot")),
+    _: None = Depends(_on_vm_node),
+):
     target_dir = _target_dir(payload.target_dir, user)
     refuse_vm_with_block_disks(name, "A backup")
 
@@ -126,7 +151,9 @@ def create_backup(name: str, payload: BackupRequest, user: dict = Depends(requir
 
 
 @router.delete("/backups/{backup_id}")
-def delete_backup(backup_id: int, confirm: bool = False, user: dict = Depends(require_role("admin"))):
+def delete_backup(
+    backup_id: int, confirm: bool = False, user: dict = Depends(require_role("admin")), _: None = Depends(_on_holder)
+):
     if not backup_service.find(backup_id):
         raise HTTPException(status_code=404, detail="Backup not found")
     if not confirm:
@@ -143,7 +170,7 @@ def delete_backup(backup_id: int, confirm: bool = False, user: dict = Depends(re
 
 
 @router.post("/backups/{backup_id}/verify", status_code=202)
-def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("admin"))):
+def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("admin")), _: None = Depends(_on_holder)):
     """Recompute every checksum and check the images now, as a task (a large backup takes a while to read)."""
     row = backup_service.find(backup_id)
     if not row:
@@ -170,7 +197,12 @@ class RestoreRequest(BaseModel):
 
 
 @router.post("/backups/{backup_id}/restore", status_code=202)
-def restore_backup_endpoint(backup_id: int, payload: RestoreRequest, user: dict = Depends(require_role("admin"))):
+def restore_backup_endpoint(
+    backup_id: int,
+    payload: RestoreRequest,
+    user: dict = Depends(require_role("admin")),
+    _: None = Depends(_on_holder),
+):
     maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
     row = backup_service.find(backup_id)
     if not row:
@@ -232,8 +264,14 @@ def _vm_exists(name):
 
 
 @router.put("/vms/{name}/backup-schedule")
-def set_backup_schedule(name: str, payload: ScheduleRequest, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    # The scheduler backs up the VMs of this host: a schedule for any other name (a typo) failed every night.
+def set_backup_schedule(
+    name: str,
+    payload: ScheduleRequest,
+    user: dict = Depends(require_vm_privilege("vm.snapshot")),
+    _: None = Depends(_on_vm_node),
+):
+    # The scheduler backs up the VMs of this host: a schedule for any other name (a typo) failed every night. In a
+    # cluster, the schedule of another member's VM is set on that member (the schedules are shared; it runs them).
     if not _vm_exists(name):
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found on this node")
     if payload.frequence not in ("quotidien", "hebdomadaire", "mensuel"):

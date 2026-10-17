@@ -8,7 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.core import inventory_cache, rolling_update, version
+from app.core import cluster_view, inventory_cache, rolling_update, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -297,6 +297,12 @@ async def no_id_handler(request: Request, exc: NoId):
         status_code=503,
         content={"detail": "The cluster configuration service does not answer: nothing new can be created right now"},
     )
+
+
+@app.exception_handler(cluster_view.Forwarded)
+async def forwarded_handler(request: Request, exc: cluster_view.Forwarded):
+    # A request about another member's backups or guests, answered by that member (app/core/cluster_view.py).
+    return JSONResponse(status_code=exc.status, content=exc.body)
 
 
 @app.exception_handler(Exception)

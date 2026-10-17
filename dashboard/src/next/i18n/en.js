@@ -295,6 +295,7 @@ export default {
   "bk.deleteHelp": "This action is irreversible.",
   "bk.deleted": "Backup deleted",
   "bk.none": "No backups yet.",
+  "bk.unreachable": "No answer from {nodes}: the backups held there are not listed.",
   "bk.noneHelp": "Run a backup or schedule one from the Backups tab of a VM.",
   "bk.mode": "Mode",
   "bk.size": "Size",
