@@ -431,8 +431,11 @@ def check_free_space(target_root, disk_paths):
 
 def check_space_for(vm_name, target_dir=None):
     """Before a manual backup starts: refused at once (RuntimeError) when it would not fit, rather than reported as
-    started and failing in its task."""
-    conn = open_conn()
+    started and failing in its task. A check only: when the VM cannot be read, the backup's task reports why."""
+    try:
+        conn = open_conn()
+    except libvirt.libvirtError:
+        return
     try:
         domain = conn.lookupByName(vm_name)
         check_free_space(
