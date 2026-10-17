@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchTasks, fetchTaskDetail, downloadTasksCsv } from "../../api/client";
+import { fetchClusterTasks, fetchTaskDetail, downloadTasksCsv } from "../../api/client";
 import TaskLog from "../components/TaskLog";
 import { parseVmKey } from "../lib/vmId";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -45,6 +45,7 @@ export default function ActivityPage({ selection, embedded = false }) {
   const vms = useInfraStore((s) => s.vms);
   const nodes = useInfraStore((s) => s.nodes);
   const [rows, setRows] = useState(null);
+  const [unreachable, setUnreachable] = useState([]);
   const [error, setError] = useState(null);
   const EMPTY_F = { type: "", cible: "", username: "", node: "", since: "24h" };
   const [f, setF] = useState(EMPTY_F);
@@ -61,8 +62,10 @@ export default function ActivityPage({ selection, embedded = false }) {
   }, [f, nodeId, own?.objet, own?.famille]); // eslint-disable-line react-hooks/exhaustive-deps
   const load = useCallback(async () => {
     try {
-      const r = await fetchTasks({ ...filters(), limit: 200, tri: "cree_le", ordre: "desc" });
-      setRows(Array.isArray(r) ? r : []); setNow(Date.now()); setError(null);
+      // In a cluster, every member's tasks (each with the node that holds it) and the members that did not answer.
+      const r = await fetchClusterTasks({ ...filters(), limit: 200, tri: "cree_le", ordre: "desc" });
+      setRows(Array.isArray(r?.items) ? r.items : []); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []);
+      setNow(Date.now()); setError(null);
     } catch (e) { setError(normalizeDetail(e.message)); }
   }, [filters]);
   usePolling(load, 8000);
@@ -79,7 +82,7 @@ export default function ActivityPage({ selection, embedded = false }) {
   useEffect(() => {
     if (!current || detail[current.id]) return;
     let live = true;
-    fetchTaskDetail(current.id).then((d) => d, () => ({ error: true })).then((d) => { if (live) setDetail((x) => ({ ...x, [current.id]: d })); });
+    fetchTaskDetail(current.id, current.on).then((d) => d, () => ({ error: true })).then((d) => { if (live) setDetail((x) => ({ ...x, [current.id]: d })); });
     return () => { live = false; };
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -195,6 +198,7 @@ export default function ActivityPage({ selection, embedded = false }) {
         <span className="nx-sp" />
         <button type="button" className="nx-btn" disabled={!rows?.length || exporting} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>
       </div>
+      {unreachable.length > 0 && <p className="nx-notice nx-notice--warning" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("act.unreachable", { nodes: unreachable.join(", ") })}</p>}
       <div className="nx-card2 nx-card2--flush">{table}</div>
       {journal}
     </>

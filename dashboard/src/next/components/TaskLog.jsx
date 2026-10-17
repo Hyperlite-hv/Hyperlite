@@ -33,8 +33,8 @@ export default function TaskLog({ task, onChanged, terminal = false }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
-    try { setLines(await fetchTaskLog(task.id)); setError(null); } catch (e) { setError(errorMessage(e)); }
-  }, [task.id]);
+    try { setLines(await fetchTaskLog(task.id, task.on)); setError(null); } catch (e) { setError(errorMessage(e)); }
+  }, [task.id, task.on]);
   useEffect(() => { load(); }, [load]);
   usePolling(load, 2000, { enabled: running(task) });
 
@@ -50,7 +50,7 @@ export default function TaskLog({ task, onChanged, terminal = false }) {
     if (!(await confirmAction({ title: copy.title, message: copy.message, confirmLabel: copy.confirm, danger: copy.danger }))) return;
     setBusy(true);
     try {
-      const r = await cancelTask(task.id, copy.force);
+      const r = await cancelTask(task.id, copy.force, task.on);
       pushToast({ kind: "success", title: r.resultat === "requested" ? t("tl.requested") : t("tl.closed"), message: task.cible || task.type });
       load(); onChanged?.();
     } catch (e) { pushToast({ kind: "error", title: t("tl.cancelFailed"), message: errorMessage(e) }); } finally { setBusy(false); }

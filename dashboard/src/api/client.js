@@ -527,16 +527,23 @@ export function downloadTasksCsv(filters = {}) {
   return downloadCsv("/tasks/export.csv", filters, "hyperlite-tasks.csv");
 }
 
-export async function fetchAuditLog(filters = {}) {
+// The activity of a cluster (tasks and audit log, app/core/cluster_view.py) is asked of every member: cluster=true.
+const clusterQuery = (filters) => {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== "") params.set(k, v);
   });
-  const qs = params.toString();
-  return realFetch(`/audit${qs ? `?${qs}` : ""}`);
+  params.set("cluster", "true");
+  return params.toString();
+};
+const onNode = (on) => (on ? `?on=${encodeURIComponent(on)}` : "");
+
+// The audit log of every member in a cluster: { items, unreachable }, as the tasks below.
+export async function fetchAuditLog(filters = {}) {
+  return realFetch(`/audit?${clusterQuery(filters)}`);
 }
 export async function fetchAuditActions() {
-  return realFetch("/audit/actions");
+  return realFetch("/audit/actions?cluster=true");
 }
 
 // ---- Automation: the job engine (real: /jobs, see app/routers/jobs.py) ----
@@ -587,23 +594,25 @@ export async function deleteRemoteNode(name) {
 // timestamps; see app/core/tasks.py). Replaces the theoretical fetchTasks() that
 // was closed over in NodeTasksTab.jsx with a real, filterable and sortable
 // GET /tasks. ----
-export async function fetchTasks(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") params.set(k, v);
-  });
-  const qs = params.toString();
-  return realFetch(`/tasks${qs ? `?${qs}` : ""}`);
+// In a cluster, the tasks of every member (app/core/cluster_view.py): { items, unreachable }, each item marked with
+// the node that holds it ("on"), which its detail, log and cancellation are sent to. Outside a cluster, this node's.
+export async function fetchClusterTasks(filters = {}) {
+  return realFetch(`/tasks?${clusterQuery(filters)}`);
 }
-export async function fetchTaskDetail(id) {
-  return realFetch(`/tasks/${encodeURIComponent(id)}`);
+export async function fetchTasks(filters = {}) {
+  const r = await fetchClusterTasks(filters);
+  return Array.isArray(r?.items) ? r.items : [];
+}
+export async function fetchTaskDetail(id, on) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}${onNode(on)}`);
 }
 // A task's own log, and asking it to stop (force: close the record of one that cannot stop, administrator only).
-export async function fetchTaskLog(id) {
-  return realFetch(`/tasks/${encodeURIComponent(id)}/log`);
+export async function fetchTaskLog(id, on) {
+  return realFetch(`/tasks/${encodeURIComponent(id)}/log${onNode(on)}`);
 }
-export async function cancelTask(id, force = false) {
-  return realFetch(`/tasks/${encodeURIComponent(id)}/cancel${force ? "?force=true" : ""}`, { method: "POST" });
+export async function cancelTask(id, force = false, on) {
+  const query = [force ? "force=true" : "", on ? `on=${encodeURIComponent(on)}` : ""].filter(Boolean).join("&");
+  return realFetch(`/tasks/${encodeURIComponent(id)}/cancel${query ? `?${query}` : ""}`, { method: "POST" });
 }
 
 // ---- Hyperlite update from Git (real: GET/POST /update/*, see
@@ -969,8 +978,7 @@ export async function fetchBackupSchedules() {
   return realFetch("/backup-schedules");
 }
 export async function fetchAuditCount(filters = {}) {
-  const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString();
-  return realFetch(`/audit/count${qs ? `?${qs}` : ""}`);
+  return realFetch(`/audit/count?${clusterQuery(filters)}`);
 }
 export async function fetchProvisioningStatus(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- In a cluster, the Activity page (tasks and audit log) and the recent tasks of the overview, of a node and of a VM show what every node did, from whichever node the dashboard is open on, as Proxmox does: each node keeps its own history, and the node that answers asks the others. A task held by another node opens, shows its log and can be stopped from any node. A node that does not answer is named above the list.
+
 - One update per node: Hyperlite and the node's Debian packages together, from the account menu. The dialog (French and English) shows the versions, the Debian packages with the security ones counted, the release notes of every version in between, and whether the node will need a reboot, before anything starts; running VMs are not stopped, and a Hyperlite version that does not start is put back automatically. (#393)
 - Going back to the version before the last update of Hyperlite, from the same dialog: its package is kept on the node (so it also works offline) and installed again under the same safety net; one step back, Debian packages unchanged. (#395)
 - Debian's security updates every night (03:30 by default, changeable per node on Node › Updates, or turned off): security packages only, never Hyperlite, never an automatic reboot; a pending reboot is notified once per boot. Turned on with this update on nodes that never chose. (#394)
