@@ -19,11 +19,14 @@ class NotEnoughSpace(RuntimeError):
 def allocated_bytes(path):
     """What a disk occupies with its backing chain: qemu-img convert writes the chain flattened, unused blocks left
     out, so its output is at most this."""
-    r = subprocess.run(
-        ["qemu-img", "info", "--backing-chain", "--output=json", "-U", str(path)],
-        capture_output=True, text=True, timeout=60,
-    )  # fmt: skip
-    if r.returncode == 0:
+    try:
+        r = subprocess.run(
+            ["qemu-img", "info", "--backing-chain", "--output=json", "-U", str(path)],
+            capture_output=True, text=True, timeout=60,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):  # qemu-img missing or stuck: the file's own blocks below
+        r = None
+    if r is not None and r.returncode == 0:
         try:
             return sum(int(layer.get("actual-size") or 0) for layer in json.loads(r.stdout))
         except (ValueError, TypeError, AttributeError):
