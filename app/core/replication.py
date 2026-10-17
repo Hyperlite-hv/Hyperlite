@@ -28,6 +28,7 @@ reported with the reason.
 import json
 import logging
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
@@ -410,10 +411,8 @@ def save_job(payload, job_id=None):
             job_id = _store().create_job(values, next_run)
         elif not _store().update_job(job_id, values, next_run):
             return None
-    except Exception as e:
-        if "UNIQUE" in str(e):
-            raise ReplicationError(f"A replication job is already named {values['nom']}") from None
-        raise
+    except sqlite3.IntegrityError:  # the name is unique (the type, not the text of the message)
+        raise ReplicationError(f"A replication job is already named {values['nom']}") from None
     return job_with_vms(_store().get_job(job_id))
 
 

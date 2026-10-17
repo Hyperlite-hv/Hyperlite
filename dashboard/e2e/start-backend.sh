@@ -9,6 +9,10 @@ export HYPERLITE_DB_PATH="$WORK/hyperlite.db"
 export HYPERLITE_SECRET_KEY="e2e-$(openssl rand -hex 16)"
 export HYPERLITE_ENCRYPTION_KEY="$("${ROOT}/venv/bin/python" -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' 2>/dev/null || python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 export HYPERLITE_INITIAL_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-E2e-Quartz-Harbor-2026}"
+# The tests sign in with it as is (a real installation's is changed at the first sign-in), and never touch the
+# machine's own initial password files (app/core/initial_password.py).
+export HYPERLITE_INITIAL_ADMIN_MUST_CHANGE=0
+export HYPERLITE_INITIAL_PASSWORD_ROOT="$WORK"
 cd "$ROOT"
 PY="$ROOT/venv/bin/python"; [ -x "$PY" ] || PY=python3
 exec "$PY" -m uvicorn app.main:app --host 127.0.0.1 --port "${E2E_PORT:-8011}"

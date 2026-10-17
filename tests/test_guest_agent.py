@@ -119,7 +119,11 @@ def test_the_hot_backup_snapshot_is_quiesced_when_possible_and_still_taken_other
 def test_cloud_init_installs_and_starts_the_agent(monkeypatch, tmp_path):
     seen = {}
 
+    real_run = subprocess.run
+
     def fake_localds(args, **kwargs):
+        if args[0] == "openssl":  # hashing the password is real
+            return real_run(args, **kwargs)
         seen["user_data"] = Path(args[2]).read_text()
         return subprocess.CompletedProcess(args, 0)
 
@@ -127,6 +131,7 @@ def test_cloud_init_installs_and_starts_the_agent(monkeypatch, tmp_path):
     vm_builder.create_cloudinit_iso("vm1", "tester", "Testpass1", target_dir=tmp_path)
     assert "packages:\n  - qemu-guest-agent\n" in seen["user_data"]
     assert "[systemctl, enable, --now, qemu-guest-agent]" in seen["user_data"]
+    assert "Testpass1" not in seen["user_data"] and "    hashed_passwd: '$6$" in seen["user_data"]
 
 
 def test_a_hung_agent_never_holds_the_vm_list(fake_agent):
@@ -177,3 +182,28 @@ def test_an_agent_that_did_not_answer_is_left_alone_for_a_while(fake_agent, monk
     guest_agent._silent_until.clear()
     guest_agent.ipv4_many([vm], wait=1)
     assert len(asked) == 2
+
+
+def test_cloud_init_drives_are_private_new_and_existing(monkeypatch, tmp_path):
+    """They hold the account, its SSH keys and its password's hash: private to root (libvirt hands them to QEMU)."""
+    real_run = subprocess.run
+
+    def fake_localds(args, **kwargs):
+        if args[0] == "openssl":
+            return real_run(args, **kwargs)
+        Path(args[1]).write_text("iso")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(vm_builder.subprocess, "run", fake_localds)
+    iso = vm_builder.create_cloudinit_iso("vm1", "tester", "Testpass1", target_dir=tmp_path)
+    assert oct(iso.stat().st_mode & 0o777) == "0o600"
+
+    old = tmp_path / "pool" / "legacy-cloudinit.iso"  # written world-readable by an earlier version
+    old.parent.mkdir()
+    old.write_text("iso")
+    old.chmod(0o644)
+    other = tmp_path / "pool" / "disk.qcow2"
+    other.write_text("disk")
+    other.chmod(0o644)
+    assert vm_builder.protect_existing_drives([tmp_path]) == 1
+    assert oct(old.stat().st_mode & 0o777) == "0o600" and oct(other.stat().st_mode & 0o777) == "0o644"

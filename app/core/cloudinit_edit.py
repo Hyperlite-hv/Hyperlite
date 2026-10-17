@@ -22,7 +22,7 @@ from pathlib import Path
 import libvirt
 
 from app.core.safe_paths import safe_child
-from app.core.vm_builder import IMAGES_DIR, get_or_create_automation_pubkey
+from app.core.vm_builder import IMAGES_DIR, get_or_create_automation_pubkey, hash_guest_password, protect_drive
 
 
 def _store():
@@ -145,8 +145,8 @@ def user_data(vm_name, username, password, keys, automation_key):
             "  expire: false",
             "  users:",
             f"    - name: {_yaml_str(username)}",
-            f"      password: {_yaml_str(password)}",
-            "      type: text",
+            f"      password: {_yaml_str(hash_guest_password(password))}",
+            "      type: hash",  # never in clear on the drive (vm_builder.hash_guest_password); lower case: cloud-init ignores "HASH"
             "ssh_pwauth: true",
         ]
     return "\n".join(lines) + "\n"
@@ -169,9 +169,9 @@ def rewrite_drive(vm_name, iso_path, username, password, keys):
             tmp_iso.unlink(missing_ok=True)
             raise CloudInitError(f"Cannot build the cloud-init drive: {result.stderr.strip()[:300]}")
         if iso_path.exists():
-            shutil.copymode(iso_path, tmp_iso)
             st = iso_path.stat()
             os.chown(tmp_iso, st.st_uid, st.st_gid)
+        protect_drive(tmp_iso)  # private to root, whatever the old drive's mode was
         tmp_iso.replace(iso_path)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

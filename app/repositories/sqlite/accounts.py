@@ -7,6 +7,7 @@ their SHA-256.
 
 import asyncio
 import sqlite3
+import time
 
 from app.core.database import get_conn
 from app.domain.common import AlreadyExists
@@ -43,18 +44,17 @@ class SqliteAccountStore:
         return [{**dict(r), "totp_enabled": bool(r["totp_enabled"])} for r in rows]
 
     def create(self, username, hashed_password, role, auth_source=None, ldap_dn=None):
+        """A new account starts with nothing of a former one of the same name (a new colleague also called Bob): its
+        API tokens, left by a deletion before they were removed with the account, are deleted, and password_changed_at
+        is now, so a session issued to the former account is refused (app/core/security.py)."""
         try:
             with get_conn() as db:
-                if auth_source is None:
-                    db.execute(
-                        "INSERT INTO users (username, hashed_password, role) VALUES (?, ?, ?)",
-                        (username, hashed_password, role),
-                    )
-                else:
-                    db.execute(
-                        "INSERT INTO users (username, hashed_password, role, auth_source, ldap_dn) VALUES (?, ?, ?, ?, ?)",
-                        (username, hashed_password, role, auth_source, ldap_dn),
-                    )
+                db.execute("DELETE FROM api_tokens WHERE username = ?", (username,))
+                db.execute(
+                    "INSERT INTO users (username, hashed_password, role, auth_source, ldap_dn, password_changed_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (username, hashed_password, role, auth_source or "local", ldap_dn, int(time.time())),
+                )
                 db.commit()
         except sqlite3.IntegrityError as e:
             raise AlreadyExists(f"User '{username}' already exists") from e
@@ -76,7 +76,12 @@ class SqliteAccountStore:
         _write("UPDATE users SET role = ?, ldap_dn = ? WHERE username = ?", (role, dn, username))
 
     def delete(self, username):
-        _write("DELETE FROM users WHERE username = ?", (username,))
+        """The account and its API tokens, in one transaction: a token found by its owner's name would otherwise sign in
+        again as any later account of that name."""
+        with get_conn() as db:
+            db.execute("DELETE FROM api_tokens WHERE username = ?", (username,))
+            db.execute("DELETE FROM users WHERE username = ?", (username,))
+            db.commit()
 
     def other_admins(self, username):
         with get_conn() as db:

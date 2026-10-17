@@ -989,6 +989,13 @@ export async function runBackupGroup(id) {
 export async function fetchBackupSchedules() {
   return realFetch("/backup-schedules");
 }
+// How long the users' addresses are kept: the access log's daily files and the audit log (0: none / for ever).
+export function fetchRetention() {
+  return realFetch("/audit/retention");
+}
+export function saveRetention(payload) {
+  return realFetch("/audit/retention", { method: "PUT", ...jsonBody(payload) });
+}
 export async function fetchAuditCount(filters = {}) {
   return realFetch(`/audit/count?${clusterQuery(filters)}`);
 }

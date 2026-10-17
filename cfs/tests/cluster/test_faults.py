@@ -23,6 +23,7 @@ from harness import (
     settled,
     stop_writers,
     until,
+    writable,
     writers_on,
 )
 
@@ -79,6 +80,26 @@ def test_a_node_whose_cluster_stack_crashes_comes_back(nodes, socks):
     stop_writers(writers)
     assert check(nodes, writers) > 0
     clean(nodes[0], "/b3/crash")
+
+
+def test_a_daemon_that_loses_corosync_exits_and_comes_back(nodes, lab_dir):
+    """Corosync alone dies on a node: its daemon must exit (systemd restarts it once Corosync is back), not keep running
+    without it. It used to spin on a core in its event loop and answer no client, until restarted by hand."""
+    if VMS:
+        pytest.skip("the VM lab runs the daemons under systemd, which restarts them")
+    pid = int((lab_dir / "n3" / "cfs.pid").read_text())
+    lab("corosync-stop", 3)
+
+    def gone():
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        return False
+
+    until(gone, timeout=15, what="node 3's daemon exiting")
+    lab("start", 3)  # Corosync and the daemon, as systemd would once Corosync is back
+    until(lambda: writable(nodes), what="the three members agreeing again")
 
 
 def test_the_source_killed_during_a_transfer_another_member_takes_over(nodes, socks):

@@ -28,38 +28,46 @@ done
 IP=${IP:-"(no IP address yet -- check 'hostname -I' once connected)"}
 HOST=$(hostname)
 
-# The password is WRITTEN IN CLEAR TEXT here rather than pointing to
-# /root/.hyperlite-initial-password: that file is only readable once logged in as
-# root, which is a chicken-and-egg problem (you cannot log in without the
-# password, and cannot read the password without being logged in). /etc/issue is
-# already shown BEFORE authentication on the physical console: anyone with
-# physical access to the screen has already crossed the same trust barrier as
-# root access, so writing it here exposes it no further.
+# The physical console's banner (/etc/issue, shown by getty before anyone signs in) shows the initial password: it is
+# only readable on the node itself, and a fresh node cannot be signed into without it. getty runs as root, so the
+# file is root-only while it holds one: /etc/issue and /etc/motd are world-readable by default, which handed the
+# admin account to every local account and service of the node. /etc/motd (after an SSH sign-in, any account) only
+# says where the password is. The password is changed at the first sign-in, which removes the file
+# (app/core/initial_password.py).
 # Without the file, the administrator chose the password during a custom installation (installer/postinstall.sh
-# removes the random one then), or removed the file after changing it.
+# removes the random one then), or changed it.
 if [ -f /root/.hyperlite-initial-password ]; then
     ROOT_PASS="$(cat /root/.hyperlite-initial-password)"
-    PASS_NOTE="(initial password, change it after signing in)"
+    PASS_NOTE="(initial password, to change at the first sign-in)"
+    MOTD_PASS="in /root/.hyperlite-initial-password (root only)"
 else
     ROOT_PASS="(the one chosen at installation)"
     PASS_NOTE=""
+    MOTD_PASS="$ROOT_PASS"
 fi
 
-BANNER="
+banner() {
+    cat <<BANNER
+
 ================================================================
   Hyperlite - Welcome
 
   Web interface  : https://${IP}:8000
   Account        : admin
-  Password       : ${ROOT_PASS}
+  Password       : $1
                    ${PASS_NOTE}
 
   Host           : ${HOST}
 ================================================================
-"
 
-echo "$BANNER" > /etc/issue
-echo "$BANNER" > /etc/motd
+BANNER
+}
+
+# Written beside, then renamed: the old /etc/issue keeps its mode when written in place.
+(umask 077 && banner "$ROOT_PASS" > /etc/issue.hyperlite)
+[ -f /root/.hyperlite-initial-password ] || chmod 644 /etc/issue.hyperlite
+mv -f /etc/issue.hyperlite /etc/issue
+banner "$MOTD_PASS" > /etc/motd
 
 # The service can start after getty has already shown its prompt (first boot after
 # installation): ask running gettys to re-read /etc/issue so the banner appears.

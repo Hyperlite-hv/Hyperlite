@@ -1,6 +1,7 @@
 import logging
 import os
 import secrets
+import sqlite3
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -60,6 +61,16 @@ def create_access_token(data: dict, remember: bool = False):
     # iat (issued at, whole seconds): lets a password change sign out every session opened before it
     # (see _session_user and set_password). jti: identifies this session, so that signing out revokes it.
     to_encode.update({"exp": now + lifetime, "iat": int(now.timestamp()), "jti": secrets.token_urlsafe(16)})
+    # uid: the account itself, not only its name: an account deleted and created again under the same name (a new
+    # colleague also called Bob) is another account, and the former one's sessions are refused whatever the clocks say
+    # (in a cluster each node issues them with its own).
+    if "sub" in to_encode and "uid" not in to_encode:
+        try:
+            account = get_user(to_encode["sub"])
+        except sqlite3.Error:  # no database to ask: the session is checked by its time only, as before uid
+            account = None
+        if account is not None:
+            to_encode["uid"] = account["id"]
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -99,6 +110,10 @@ def set_password(username: str, plain: str, role: str | None = None):
     """Store a new password for the account (and a new role, in the same transaction) and sign out its existing
     sessions: every session token issued before this second is refused from now on."""
     _accounts().update(username, role=role, hashed_password=hash_password(plain), changed_at=int(time.time()))
+    if username == "admin":  # the only account an installation gives a password to
+        from app.core import initial_password
+
+        initial_password.forget()
 
 
 def flag_weak_password(username: str):
@@ -193,6 +208,10 @@ def _session_user(payload: dict, pending_ok: bool = False):
         raise _credentials_exception()
     user = get_user(username)
     if user is None:
+        raise _credentials_exception()
+    # Issued to another account of the same name (deleted, then created again): refused. A session from before uid
+    # existed has none, and is checked by its time below only.
+    if payload.get("uid") is not None and payload["uid"] != user["id"]:
         raise _credentials_exception()
     # A password change or reset signs out every session opened before it (set_password). A token without
     # iat predates that mechanism and is refused as soon as the password has been changed once.

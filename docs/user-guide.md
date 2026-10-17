@@ -361,8 +361,11 @@ covers the need.
 - **Tasks**: every long operation, with its status and progress (tabs All, Running, Failed). Selecting a task shows its
   log. A running task can be **cancelled** when it knows how to stop (migrations, drains, disk moves, backups, exports,
   automation runs); a task nobody runs any more (after a service restart) can be closed. Export to CSV.
-- **Audit log**: who did what, on what, when, with filters and a complete CSV export. Old entries are removed after
-  `HYPERLITE_AUDIT_RETENTION_DAYS` days (365 by default).
+- **Audit log**: who did what, on what, when, from which address, with filters and a complete CSV export.
+- **Retention** (Audit log tab, administrators): how long the users' addresses are kept, for the whole cluster. The
+  audit log keeps its entries 365 days by default (0: for ever). The access log, one line per request, is written to
+  `/var/log/hyperlite/access.log`, one file per day readable by root and the `adm` group, and kept 30 days by default
+  (0: no access log). Requests are no longer written to the service journal.
 - **Notifications** (administrators): channels (webhook, e-mail over SMTP) that receive a message on important events
   (VM crashed, backup failed or corrupted, node offline…); a channel with no event chosen receives all of them.
 - **Metrics** (administrators):

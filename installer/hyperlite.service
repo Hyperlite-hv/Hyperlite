@@ -10,6 +10,10 @@ WorkingDirectory=/root/hyperlite
 EnvironmentFile=/root/hyperlite/.env
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/root
+# The tools Hyperlite reads (apt, df, virsh, qemu-img...) answer in English whatever the server's language, so the
+# parsing of their output does not depend on it (a French server answered "fermé", "Candidat :"...). The dashboard has
+# its own languages. libvirtd's messages stay in the system's language: the code reads their error codes only.
+Environment=LC_ALL=C.UTF-8
 # Temporary files of multipart uploads (ISOs of several GB) go to the data disk,
 # NOT to /tmp: on recent Debian /tmp is a tmpfs (RAM/2), so an ISO larger than
 # it fails with "error parsing the body" (seen with a RHEL 10 DVD larger than

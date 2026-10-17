@@ -294,3 +294,23 @@ def test_both_sides_wrote_the_same_value_is_no_conflict(cluster):
     assert shadow.drain() == 1 and shadow.report()["conflits"] == 0
     write("UPDATE groups SET name = 'next' WHERE id = 7")  # and its next change starts from that version
     assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "next"
+
+
+def test_a_change_made_at_start_before_the_copy_loop_goes_out(cluster):
+    """Found in the lab: a write at start (the admin flagged for a password change) came before refresh_bases, which
+    then gave the entry no version, so the change was dropped as "changed in the cluster meanwhile"."""
+    cluster.remote("/db/groups/7", {"id": 7, "name": "ops"})
+    inbound.apply()
+    write("UPDATE groups SET name = 'set-at-start' WHERE id = 7")  # the service restarts and writes before copying
+    shadow.refresh_bases()  # the apply loop's first step
+    assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "set-at-start"
+    assert shadow.report()["conflits"] == 0
+
+
+def test_a_change_made_at_start_still_loses_to_the_clusters_newer_one(cluster):
+    cluster.remote("/db/groups/7", {"id": 7, "name": "ops"})
+    inbound.apply()
+    cluster.remote("/db/groups/7", {"id": 7, "name": "by-the-majority"})  # changed while this node was down
+    write("UPDATE groups SET name = 'set-at-start' WHERE id = 7")
+    shadow.refresh_bases()
+    assert shadow.drain() == 0 and json.loads(cluster.files["/db/groups/7"])["name"] == "by-the-majority"

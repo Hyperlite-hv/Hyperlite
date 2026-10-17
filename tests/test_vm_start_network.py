@@ -58,3 +58,40 @@ def test_a_stopped_network_is_named_before_starting(client, auth_headers, monkey
     assert r.status_code == 409 and "'default'" in r.json()["detail"] and "Network page" in r.json()["detail"]
     assert not domain.started
     assert lifecycle._stopped_networks(_Conn(domain, {"default": _Net(True)}), domain) == ["lan"]  # gone: stopped too
+
+
+def test_a_vm_busy_with_a_restore_or_a_copy_is_not_started(client, auth_headers, monkeypatch):
+    """A restore swaps the disks of a stopped VM after minutes of copying: started meanwhile, the VM kept writing to the
+    replaced files, which the swap then deleted (#448, F10). As Proxmox's lock, the start is refused while an
+    operation holds the VM."""
+    from app.core import vm_locks
+
+    domain = _Domain()
+    conn = _Conn(domain, {"default": _Net(True), "lan": _Net(True)})
+    monkeypatch.setattr(lifecycle, "open_conn", lambda *a, **k: conn)
+    monkeypatch.setattr(lifecycle, "_domain_summary", lambda domain, *a, **k: {"nom": "web"})
+    headers = auth_headers("root")
+    held = vm_locks.claim("web", "a backup restore")
+    try:
+        r = client.post("/vms/web/start", headers=headers)
+        assert r.status_code == 409 and "a backup restore" in r.json()["detail"]
+        assert not domain.started
+    finally:
+        held.release()
+    assert client.post("/vms/web/start", headers=headers).status_code == 200  # once the restore is over
+    assert domain.started
+
+
+def test_start_at_boot_skips_a_vm_busy_with_an_operation(monkeypatch, database):
+    from app.core import vm_boot, vm_locks
+
+    domain = _Domain()
+    conn = _Conn(domain, {})
+    monkeypatch.setattr(vm_boot, "open_conn", lambda *a, **k: conn)
+    monkeypatch.setattr(vm_boot, "sequence", lambda node: [{"nom": "web", "ordre": 1, "delai_s": 0}])
+    held = vm_locks.claim("web", "a backup restore")
+    try:
+        results = vm_boot.run_sequence()
+    finally:
+        held.release()
+    assert results == [("web", "occupee")] and not domain.started

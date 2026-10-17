@@ -62,6 +62,13 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
         if domain.isActive():
             log_action(user["username"], "start_vm", name, "echec", "VM already running", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already running")
+        # A restore, a cold backup, a disk move or a clone works on the stopped VM's disks: started meanwhile, the VM
+        # would write to files being copied or replaced (a restore then deletes them), as Proxmox's lock prevents.
+        busy = vm_locks.running(name, node)
+        if busy:
+            msg = f"VM '{name}' is busy: {busy} is in progress. Start it once it has finished."
+            log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
+            raise HTTPException(status_code=409, detail=msg)
         stopped = _stopped_networks(conn, domain)
         if stopped:
             # libvirt's own refusal named no remedy ("network 'default' is not active").
@@ -193,6 +200,9 @@ def restart_vm(
         try:
             method = None
             if force:
+                busy = vm_locks.running(name, node)
+                if busy:  # a hot backup or a live copy holds the VM: destroying it would break that work
+                    raise HTTPException(status_code=409, detail=f"VM '{name}' is busy: {busy} is in progress")
                 domain.destroy()
                 domain.create()
             else:
