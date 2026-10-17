@@ -142,6 +142,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- In a cluster, when Corosync stopped on a node (an upgrade, a crash), that node's `hyperlite-cfs` kept running without it: it spun on a processor core and answered no request, so the node stayed read-only until the daemon was restarted by hand. It now exits, and systemd restarts it until Corosync is back, however long that takes.
+
 - "Go back to the previous version" could offer a much older version than the one just replaced: when the replaced version's package could not be kept (a node installed from the offline ISO, updated from a file, or without network), the package kept by an earlier update stayed. The return is now simply not offered then, as the update's log says.
 
 - In a cluster, every node refreshed the HA definition of every protected VM each minute, so the nodes kept overwriting each other (a conflict a minute in the audit log), and any node that did not find a VM could turn its protection off for the whole cluster. Each node now refreshes the protected VMs it hosts, and only writes a definition that changed. Two nodes writing the very same value no longer count as a conflict.
