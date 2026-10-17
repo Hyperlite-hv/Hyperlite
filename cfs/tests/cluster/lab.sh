@@ -189,6 +189,10 @@ case ${1:-} in
     cut) ip link set "${P}v$2" down ;;
     heal) ip link set "${P}v$2" up ;;
     stop) kill_wait "$(lab_dir)/n$2/cfs.pid" ;;
+    corosync-stop) # Corosync alone dies (an upgrade, a crash): the daemon is left running
+        kill_wait "$(lab_dir)/n$2/qdevice.pid"
+        kill_wait "$(lab_dir)/n$2/corosync.pid"
+        ;;
     crash)
         kill_wait "$(lab_dir)/n$2/qdevice.pid"
         kill_wait "$(lab_dir)/n$2/corosync.pid"

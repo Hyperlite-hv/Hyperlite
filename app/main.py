@@ -1,5 +1,6 @@
 import ipaddress
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.core import cluster_view, ha_selffence, inventory_cache, rolling_update, version
+from app.core import cluster_view, ha_selffence, initial_password, inventory_cache, rolling_update, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -30,6 +31,7 @@ from app.core.tasks import close_interrupted_tasks
 from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
+from app.core.vm_builder import protect_existing_drives
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.core.vm_crash_watch import start_vm_crash_watch
 from app.repositories.cfs.ids import NoId
@@ -332,6 +334,9 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 def on_startup():
     pwd = seed_admin()
+    from app.core import access_log
+
+    access_log.start()  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
     if pwd:
         # Never log the password: store it in a root-only file and log only where it is.
         pw_file = Path(__file__).resolve().parent.parent / "data" / "initial-admin-password.txt"
@@ -340,6 +345,7 @@ def on_startup():
         with os.fdopen(fd, "w") as f:
             f.write(pwd + "\n")
         print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
+    initial_password.start()
     encrypt_stored_totp_secrets()
     # Before anything starts new tasks: the ones still "running" belonged to the previous process.
     close_interrupted_tasks()
@@ -361,6 +367,8 @@ def on_startup():
     start_lead_loop()
     recover_interrupted_k8s_clusters()
     start_boot_sequence()
+    # Cloud-init drives written before they were private (they hold the account and its password's hash).
+    threading.Thread(target=protect_existing_drives, daemon=True, name="protect-cloudinit-drives").start()
 
     # The iptables rules of the network firewall do not survive a host reboot
     # (unlike the per-VM firewall's nwfilter, which libvirt itself manages):

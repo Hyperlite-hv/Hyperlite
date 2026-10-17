@@ -5,6 +5,9 @@ Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/cfs/README.m
 # a node without a cluster. Cluster mode (HYPERLITE_CFS_MODE=--cluster in /etc/default/hyperlite-cfs) joins the local
 # Corosync's process group; Corosync and its configuration come with setting up a cluster.
 After=corosync.service
+# Never give up restarting it: in a cluster it exits when Corosync goes away (an upgrade, a crash) and must come back
+# once Corosync does, however long that takes (the default stops after 5 restarts in 10 s, about 10 s of outage).
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

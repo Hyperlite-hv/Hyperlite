@@ -73,7 +73,8 @@ ENVEOF
 
     echo "$ADMIN_PASSWORD" > /root/.hyperlite-initial-password
     chmod 600 /root/.hyperlite-initial-password
-    log "initial admin password: $ADMIN_PASSWORD (see also /root/.hyperlite-initial-password)"
+    # Never the password itself: dpkg's output is kept in /var/log/apt/term.log, readable by the adm group.
+    log "initial admin password: in /root/.hyperlite-initial-password (changed at the first sign-in)"
 else
     log "upgrade: existing secrets/config kept as is"
 fi

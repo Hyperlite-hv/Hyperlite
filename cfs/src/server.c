@@ -235,7 +235,10 @@ int cfs_serve(cfs_node *node, const char *socket_path, unsigned mode, const cfs_
     int idx[MAX_CLIENTS + MAX_SOURCES + 1];
     int result = 0;
 
-    while (!*stop) {
+    /* A failed source (Corosync gone) ends the loop with result -1, so the daemon exits and systemd restarts it once
+     * Corosync is back. It used to only stop handling events: the dead source kept poll() returning at once, the
+     * daemon spun on a core and answered no client, and nothing restarted it. */
+    while (!*stop && result == 0) {
         int n = 0;
         fds[n] = (struct pollfd){.fd = lfd, .events = POLLIN};
         idx[n++] = -1;

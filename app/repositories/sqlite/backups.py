@@ -104,8 +104,10 @@ class SqliteBackupStore:
         _write("DELETE FROM backups WHERE id = ?", (backup_id,))
 
     def finished_of(self, vm_name):
-        """(id, chemin, cree_le) of the VM's finished backups, for the retention policy."""
-        return _all("SELECT id, chemin, cree_le FROM backups WHERE vm_name = ? AND statut = 'termine'", (vm_name,))
+        """(id, chemin, cree_le, verification) of the VM's finished backups, for the retention policy."""
+        return _all(
+            "SELECT id, chemin, cree_le, verification FROM backups WHERE vm_name = ? AND statut = 'termine'", (vm_name,)
+        )
 
     def next_to_verify(self, older_than):
         """The finished backup verified longest ago (or never), when older than `older_than`; else None."""

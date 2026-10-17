@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- How long the users' addresses are kept, set by an administrator for the whole cluster (**Activity › Audit log › Retention**), for the GDPR: the access log, now written by Hyperlite to `/var/log/hyperlite/access.log` (one file per day, root and the `adm` group, 30 days by default, 0 for none) instead of the service journal, whose retention Hyperlite does not decide; and the audit log (365 days by default). The access log leaves out query strings.
+
 - A primary node in a cluster (**Cluster** page, **Make primary**): it counts twice in the quorum, so with one other node it keeps working when that node is off or cut off, and that node alone becomes read-only. For a main machine paired with one that is often off or reached over a slower link, without a third machine as an arbiter. Proxmox allows it only by editing `corosync.conf`.
 
 - In a cluster, a node that runs VMs with HA turned on fences itself when it is cut off from the majority, as on Proxmox: it arms its watchdog (a hardware one, or the kernel's softdog) and feeds it while it has the quorum, and without it the node is reset, so its VMs can be restarted elsewhere safely (the next step of automatic HA). A node without HA VMs never arms it, and a normal restart of the service (an update) disarms it first.
@@ -141,6 +143,38 @@ All notable changes to this project are documented here. The format is based on 
 - The local host is always labelled `local`; rows still using a legacy label are migrated at start-up.
 
 ### Fixed
+
+- In a cluster, a change a node made to the shared configuration while it started (before its copy to the cluster ran) was dropped as "changed in the cluster meanwhile", which nobody had done: a node leaving maintenance at the end of a rolling update, or the admin account flagged for a password change, could keep the cluster's older value. Such a change now goes out, and still loses to a change the cluster really made meanwhile.
+
+- A clone that would not fit in the images directory (on the system disk by default) is refused before the first byte is copied, with what is free and what is needed.
+
+- A restore that would not fit is refused before anything is written, with what is free and what is needed: a restore over a VM writes the backup's images next to its disks before swapping them, so it needs room for both, and a full system disk also stops Hyperlite's database, the journal and libvirt. A restore refused because the VM's disks no longer match the backup no longer resets the VM's replication, which then had to copy the whole VM again.
+
+- Two VMs created at the same time on one network could get the same first free address: libvirt refused the second reservation and that VM was created without its fixed address, with nothing said. Addresses are now handed out one at a time, moving on to the next one when an address was taken meanwhile. A network whose IPv6 subnet is listed before its IPv4 one no longer fails every creation on it. A new VM's MAC address is also checked against the node's stopped VMs and the networks' reservations, not only the active leases.
+
+- The HA watchdog now reads back the timeout its device really uses: some drivers refuse the 60 s Hyperlite asks for and keep their own, and the node still announced that it would be reset within 125 s, the time the cluster will wait before restarting its VMs elsewhere. A device that does not report its timeout is armed but never vouches for a reset time (its VMs are recovered by hand), and one whose timeout is too short to be fed safely is not armed; both are written in the node's journal.
+
+- **Security:** the admin account's random initial password was written in clear in `/etc/motd` and `/etc/issue`, which every local account and service of the node can read, and in the installation log (`/var/log/apt/term.log`); it also stayed in its files after being changed. It is now shown only on the physical console's banner (a root-only file), it must be changed at the first sign-in, and changing it removes every copy. In a cluster, the other nodes remove their own copy within 10 minutes of the change. A node installed before: a password already changed is removed from the disk when the service starts; one still in use is changed at the next sign-in.
+
+- A disk resize that was refused (a smaller size, a busy disk) no longer resets the VM's replication, which then had to copy the whole VM again; and when the replication's bookkeeping cannot be removed from the disk, the resize fails with that reason instead of an internal error.
+
+- A live migration that succeeded could be shown as failed, and then leave the VM's HA protection, tags and start at boot on the node it had left, when a step after the move failed (cleaning its old disks or addresses on the source node, for instance). HA could later restart a second copy of the VM on that node. The VM's HA protection now moves first, each step after the move runs whatever happened to the one before, and a step that fails is a warning on the finished task.
+
+- Snapshot tasks are listed with their VM: they named the snapshot, so a VM's Activity tab never showed them and the audit log did not say which VM a snapshot was taken, restored or deleted on. A snapshot task that failed on anything other than a libvirt error (removing the replication bitmaps of a stopped VM, for instance) stayed running forever with no audit entry; it now fails with the reason.
+
+- Cloning a VM whose disk is a raw file (a VM defined before Hyperlite managed the node) gave a clone that did not boot: the copy is a qcow2 file and the clone still read it as raw. A copy that stopped (a full disk, for instance) left its partial file in the images directory, and an unexpected error left the copied disks and a task shown as running; both are now removed and the task fails with the reason. Two clones to the same new name at once are refused.
+
+- **Security:** a VM's password was written in clear on its cloud-init drive, a file that stays attached to the VM, readable by every local account of the node (and from inside the VM, through its CD-ROM drive), and copied with the VM's pool. It is now written as a SHA-512 hash, as Proxmox does, at creation and when changed from the Cloud-Init tab, and the drives are private to root. Drives made before keep their content until the VM's password is changed: change it from the Cloud-Init tab to remove it.
+
+- **Backups:** a backup that had just succeeded was marked failed and deleted when the retention that follows it hit an error; it now stays, and the error is reported. Corrupted backups no longer take the place of good ones in the retention, so newer corrupted copies can no longer push out the last good one. A backup that would not fit on its target (the system disk by default) is refused before anything is written, with 1 GiB kept free, instead of filling the disk.
+
+- **Data:** a VM could be started while a restore was replacing its disks (or while a cold backup, a disk move or a clone copied them): it then wrote to files the restore deleted at the end, and a cold backup was no longer consistent. Starting a VM, its forced restart and the start at boot now wait for such an operation to end ("the VM is busy"), as Proxmox's lock does.
+
+- On a server in a language other than English, the migration compatibility check failed instead of warning when the destination did not know the source's CPU model: libvirt writes its errors in the server's language, and the check looked for the English message. The destination's known models are now asked instead. Hyperlite also runs its tools in a fixed locale (C.UTF-8), so reading their output no longer depends on the server's language.
+
+- **Security:** the API tokens of a deleted account stayed in the database and were found by their owner's name, so they worked again for any account later created under the same name (a former employee's script signing in as a new colleague, with the new colleague's rights), and so could a session of the former account opened shortly before. Deleting an account now deletes its tokens, a new account starts without any left by a former one, and every session is bound to the account itself, not only to its name.
+
+- In a cluster, when Corosync stopped on a node (an upgrade, a crash), that node's `hyperlite-cfs` kept running without it: it spun on a processor core and answered no request, so the node stayed read-only until the daemon was restarted by hand. It now exits, and systemd restarts it until Corosync is back, however long that takes.
 
 - "Go back to the previous version" could offer a much older version than the one just replaced: when the replaced version's package could not be kept (a node installed from the offline ISO, updated from a file, or without network), the package kept by an earlier update stayed. The return is now simply not offered then, as the update's log says.
 

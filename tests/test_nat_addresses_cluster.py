@@ -122,3 +122,79 @@ def test_bridged_networks_and_unreserved_vms_are_left_alone():
         + "</devices></domain>"
     )
     assert network_alloc.carry_reservations(src, dest, xml) == ([], [])
+
+
+class StrictNetwork(FakeNetwork):
+    """libvirt's own rule, seen in the lab: a reservation for an address another one holds is refused."""
+
+    def update(self, command, section, index, xml, flags):
+        el = ET.fromstring(xml)
+        if command != libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE and el.get("ip") in self.hosts.values():
+            raise libvirt.libvirtError("there is an existing dhcp host entry in network 'default' that matches")
+        super().update(command, section, index, xml, flags)
+
+
+def test_an_address_reserved_meanwhile_moves_on_to_the_next_one(monkeypatch):
+    """Two creations at once read the same free addresses: the second one's reservation was refused and the VM was
+    created without its fixed address, silently."""
+    net = StrictNetwork()
+    real_used = network_alloc._used_ips
+
+    def stale(network):  # what was read before the other creation reserved .2
+        used = real_used(network)
+        network.hosts.setdefault("52:54:00:00:00:01", "192.168.122.2")
+        return used
+
+    monkeypatch.setattr(network_alloc, "_used_ips", stale)
+    ip = network_alloc.allocate_static_ip(FakeConn({"default": net}), "default", "52:54:00:00:00:09", cluster=False)
+    assert ip == "192.168.122.3" and net.hosts["52:54:00:00:00:09"] == "192.168.122.3"
+
+
+def test_a_network_that_refuses_every_reservation_is_not_tried_address_by_address():
+    class Refusing(FakeNetwork):
+        calls = 0
+
+        def update(self, *a):
+            Refusing.calls += 1
+            raise libvirt.libvirtError("network is not active")
+
+    with pytest.raises(libvirt.libvirtError):
+        network_alloc.allocate_static_ip(
+            FakeConn({"default": Refusing()}), "default", "52:54:00:00:00:09", cluster=False
+        )
+    assert Refusing.calls == 3
+
+
+def test_the_fixed_address_comes_from_the_ipv4_subnet_when_ipv6_is_listed_first():
+    class DualStack(FakeNetwork):
+        def XMLDesc(self, flags=0):
+            return (
+                "<network><name>default</name>"
+                "<ip family='ipv6' address='fd00::1' prefix='64'><dhcp><range start='fd00::10' end='fd00::ff'/></dhcp></ip>"
+                "<ip address='192.168.122.1' prefix='24'><dhcp><range start='192.168.122.2' end='192.168.122.254'/>"
+                "</dhcp></ip></network>"
+            )
+
+    net = DualStack()
+    assert network_alloc.allocate_static_ip(
+        FakeConn({"default": net}), "default", "52:54:00:00:00:09", cluster=False
+    ) == ("192.168.122.2")
+
+
+def test_a_new_mac_is_never_one_of_a_stopped_vm(monkeypatch):
+    """A stopped VM holds no DHCP lease: its MAC was not seen, and could be handed to a new VM."""
+
+    class Domain:
+        def XMLDesc(self, flags=0):
+            return vm_xml("52:54:00:00:00:01")
+
+    class Conn:
+        def listAllDomains(self):
+            return [Domain()]
+
+        def listAllNetworks(self):
+            return [FakeNetwork(hosts={"52:54:00:00:00:02": "192.168.122.9"})]
+
+    draws = iter([0, 0, 1, 0, 0, 2, 0, 0, 3])
+    monkeypatch.setattr(network_alloc.random, "randint", lambda a, b: next(draws))
+    assert network_alloc.generate_mac(Conn()) == "52:54:00:00:00:03"
