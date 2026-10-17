@@ -110,6 +110,10 @@ def set_password(username: str, plain: str, role: str | None = None):
     """Store a new password for the account (and a new role, in the same transaction) and sign out its existing
     sessions: every session token issued before this second is refused from now on."""
     _accounts().update(username, role=role, hashed_password=hash_password(plain), changed_at=int(time.time()))
+    if username == "admin":  # the only account an installation gives a password to
+        from app.core import initial_password
+
+        initial_password.forget()
 
 
 def flag_weak_password(username: str):
