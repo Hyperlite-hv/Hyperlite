@@ -338,6 +338,7 @@ export default {
   "inv.retry": "Retry",
   "inv.updated": "Updated {t}",
   "inv.stale": "Data may be out of date",
+  "ro.banner": "This node has lost the cluster's quorum: nothing can be changed from it (VMs included) until it reaches the majority of the nodes again. The Cluster page shows which nodes it reaches.",
   "inv.poolNote": "Pool = resource pool (Security). Storage pools are under each node in Server mode.",
   "inv.local": "local",
   "inv.offlineSince": "Offline",

@@ -70,8 +70,8 @@ def mode(record=True):
 
 QUORUM_TTL_S = 2.0
 NO_QUORUM = (
-    "This node has lost the cluster's quorum: nothing can be changed from it until the quorum is back (Administration "
-    "> Cluster shows the members it reaches)"
+    "This node has lost the cluster's quorum: nothing can be changed from it until the quorum is back (the Cluster page "
+    "shows the members it reaches)"
 )
 NO_DAEMON = "The cluster service of this node does not answer: nothing can be changed from it until it does"
 _quorum_lock = threading.Lock()
