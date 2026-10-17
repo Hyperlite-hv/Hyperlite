@@ -29,7 +29,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
             meson ninja-build libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        # Two commands: requirements.txt carries hashes, which pip would then demand of the development tools too.
+        run: pip install -r requirements.txt && pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
       - name: Format check
