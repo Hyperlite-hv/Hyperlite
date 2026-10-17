@@ -23,6 +23,8 @@ os.environ.setdefault("HYPERLITE_NODE_NAME", "hv-test")
 os.environ["HYPERLITE_CFS_SOCKET"] = "/nonexistent/hyperlite-cfs-tests/socket"
 # Never the host's own watchdog either: armed and left unfed, it would reset the machine running the suite.
 os.environ["HYPERLITE_WATCHDOG_DEVICE"] = "/nonexistent/hyperlite-watchdog-tests"
+# Nor the host's initial admin password files (app/core/initial_password.py): a password change in a test removes them.
+os.environ["HYPERLITE_INITIAL_PASSWORD_ROOT"] = "/nonexistent/hyperlite-initial-password-tests"
 
 import pytest
 
