@@ -124,3 +124,5 @@ A single node is the same without steps 2 and 5.
 3. The migration is also tested on a copy of serveur-antho's database, on the lab only, deleted after the test.
 4. This change comes first: HA steps 2-4, the clean package, phase E and leaving `/root` are written after it, once,
    with the new names.
+5. The read-only role is `viewer` (today `observateur`; the French dashboard still shows « Observateur »).
+6. `snapshots` everywhere (never `instantanes`, never `checkpoints`, which replication already uses).
