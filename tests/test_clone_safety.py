@@ -112,3 +112,12 @@ def test_two_clones_never_write_the_same_new_disks(env, client, auth_headers):
     with vm_locks.claim("copy", "a clone"):
         r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert r.status_code == 409 and env["conn"].defined == []
+
+
+def test_a_clone_that_would_not_fit_is_refused_before_any_copy(env, client, auth_headers, monkeypatch):
+    monkeypatch.setattr(clone.disk_space, "allocated_bytes", lambda path: 50 * 1024**3)
+    monkeypatch.setattr(clone.disk_space.shutil, "disk_usage", lambda path: type("U", (), {"free": 20 * 1024**3})())
+    r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
+    assert r.status_code == 409 and "Not enough space for this clone" in r.json()["detail"]
+    assert list(env["images"].iterdir()) == [] and env["conn"].defined == []
+    assert env["task"]()["statut"] == "echec"
