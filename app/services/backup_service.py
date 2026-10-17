@@ -5,6 +5,7 @@ import contextlib
 import shutil
 from pathlib import Path
 
+from app.core import backup_use
 from app.repositories import registry
 
 
@@ -42,6 +43,7 @@ def delete(backup_id):
     row = store.get(backup_id)
     if not row:
         raise BackupNotFound(backup_id)
+    backup_use.refuse_if_in_use(backup_id)
     shutil.rmtree(row["chemin"], ignore_errors=True)
     # <target>/<vm>/<timestamp>: the VM's directory goes with its last backup (rmdir leaves a non-empty one).
     with contextlib.suppress(OSError):
