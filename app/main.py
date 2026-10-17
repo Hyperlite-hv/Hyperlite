@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -288,6 +289,22 @@ def serve_ui(request: Request, path: str = ""):
         status_code=503,
         content={"detail": "The web interface is not built (run npm run build in dashboard/)."},
     )
+
+
+# Requests that change nothing in the cluster's configuration, or must work to see why it is read-only: signing in and
+# out. Everything else that changes something is refused on a node that lost the quorum (cluster_lead.read_only_reason).
+_READ_ONLY_EXEMPT = ("/auth/login", "/auth/logout")
+
+
+@app.middleware("http")
+async def read_only_without_quorum(request: Request, call_next):
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not request.url.path.startswith(_READ_ONLY_EXEMPT):
+        from app.core import cluster_lead
+
+        reason = await run_in_threadpool(cluster_lead.read_only_reason)
+        if reason:
+            return JSONResponse(status_code=503, content={"detail": reason})
+    return await call_next(request)
 
 
 @app.exception_handler(NoId)

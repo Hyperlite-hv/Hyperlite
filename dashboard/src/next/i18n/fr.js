@@ -337,6 +337,7 @@ export default {
   "inv.retry": "Réessayer",
   "inv.updated": "Mis à jour {t}",
   "inv.stale": "Les données peuvent être périmées",
+  "ro.banner": "Ce nœud a perdu le quorum du cluster : rien ne peut être modifié depuis lui (VM comprises) tant qu’il ne rejoint pas la majorité des nœuds. La page Cluster montre les nœuds qu’il voit.",
   "inv.poolNote": "Pool = pool de ressources (Sécurité). Les pools de stockage sont sous chaque nœud en mode Serveur.",
   "inv.local": "local",
   "inv.offlineSince": "Hors ligne",
