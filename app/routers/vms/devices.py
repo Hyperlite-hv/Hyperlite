@@ -153,9 +153,11 @@ def _resize_disk(name, target_dev, payload, user):
             log_action(user["username"], "resize_disk", name, "echec", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         try:
-            # qemu-img and libvirt refuse to resize a disk that carries a replication bitmap.
-            checkpoints.release(domain, name)
-            old_bytes, new_bytes, live = disk_resize.grow(conn, domain, target_dev, payload.size_gb)
+            # qemu-img and libvirt refuse to resize a disk that carries a replication bitmap: dropped once the request
+            # is accepted, so a refused one (a smaller size, a busy disk) keeps the replication chain.
+            old_bytes, new_bytes, live = disk_resize.grow(
+                conn, domain, target_dev, payload.size_gb, before_change=lambda: checkpoints.release(domain, name)
+            )
         except disk_resize.ResizeError as e:
             log_action(user["username"], "resize_disk", name, "echec", f"{target_dev}: {e.message}")
             raise HTTPException(status_code=e.status, detail=e.message) from e
