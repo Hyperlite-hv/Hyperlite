@@ -30,7 +30,7 @@ For a request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`), in a cl
    `{"detail": "Changed on another node meanwhile: your change was not applied. Reload and try again.", "code":
    "changed_elsewhere"}` (the code of the API v1 design). The cluster's values are applied back on this node, as
    today, and the audit keeps its `cfs_conflict` entry.
-4. **Slow daemon.** If the copy does not finish within 5 seconds (the daemon is busy or stuck), the answer is **503**
+4. **Slow daemon.** If the copy does not finish within 15 seconds (the daemon is busy or stuck), the answer is **503**
    ("the cluster did not confirm the change in time; it will be copied when it answers") and the change stays in the
    outbox, copied by the loop as today. The Replicated configuration page already shows how many changes
    wait.
@@ -61,8 +61,7 @@ milliseconds on a LAN, tens over Tailscale as between serveur-antho and bico). R
 - Lab: `lab416.py` gets a new check, the rename then delete one second apart: either it works (caught up) or it
   answers 409, never 200 followed by a revert. Run ten times in a row.
 
-## Open questions
+## Answered (Antho, 2026-10-18)
 
-1. The 5-second limit before answering 503: right for you, or longer for a cluster over a slow link?
-2. The `cfs_conflict` notification for background changes: on by default for the administrators' channels, or only
-   for channels that choose it?
+1. The limit before answering 503 is **15 seconds**, for clusters over a slow or distant link.
+2. The `cfs_conflict` notification of a background change is **on by default** for the alert channels.
