@@ -480,6 +480,16 @@ cluster).
 - **Automatic security updates** (node → **Updates**): Debian's security updates every night, 03:30 by default; never
   Hyperlite, never a reboot.
 
+### A cluster, node after node
+
+**Administration › Replicated configuration › Cluster update** updates every node of a cluster without stopping the
+VMs. The plan comes first: each node's version, its Debian packages, whether it will need a reboot, and the VMs that
+will move. Then one node at a time: maintenance mode, its running VMs live-migrated to the other nodes, the update,
+a reboot when one is needed (VMs that cannot move, with local disks or passthrough, are stopped for it only if you
+chose so in the plan; otherwise that node's reboot is left for later), and the end of maintenance before the next
+node. VMs are not moved back. The node you are signed in to goes last. If a node fails, the update stops there: that
+node stays in maintenance for you to look at, and the nodes already updated stay updated.
+
 ### A node without network
 
 Every version publishes an update file next to the ISO, `hyperlite-update-amd64.tar`: Hyperlite, the Debian packages
