@@ -2,6 +2,9 @@
 it (a root-only file, the service's .env, the copy the service writes in data/) removed once the admin account has a
 password of its own. The console banner (scripts/write-motd.sh) shows it only while that file exists."""
 
+import threading
+import time
+
 import pytest
 
 from app.core import initial_password, seed
@@ -98,3 +101,20 @@ def test_a_node_that_cannot_write_at_start_still_starts(database, copies, monkey
     monkeypatch.setattr(registry.accounts().sync, "flag_must_change", read_only)
     initial_password.settle()  # no exception
     assert registry.accounts().sync.get("admin")["must_change_password"] == 0  # the write was really refused
+
+
+def test_a_node_whose_copy_went_stale_elsewhere_removes_it_at_its_next_check(database, copies, monkeypatch):
+    """In a cluster the password is changed on one node: another node's own copy goes at its next check."""
+    files, env = copies
+    monkeypatch.setenv("HYPERLITE_INITIAL_ADMIN_PASSWORD", "Initial-Pass-123")
+    seed.seed_admin()
+    registry.accounts().sync.update("admin", hashed_password=hash_password("Changed-on-another-node-1"))
+    assert all(path.exists() for path in files)  # the change came through the cluster: nothing ran here
+    monkeypatch.setattr(initial_password, "CHECK_S", 0.01)
+    monkeypatch.setattr(initial_password, "_stop", threading.Event())
+    initial_password.start()
+    deadline = time.time() + 5
+    while any(path.exists() for path in files) and time.time() < deadline:
+        time.sleep(0.02)
+    initial_password._stop.set()
+    assert not any(path.exists() for path in files) and "INITIAL_ADMIN_PASSWORD" not in env.read_text()
