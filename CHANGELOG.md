@@ -142,6 +142,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A clone that would not fit in the images directory (on the system disk by default) is refused before the first byte is copied, with what is free and what is needed.
+
 - A restore that would not fit is refused before anything is written, with what is free and what is needed: a restore over a VM writes the backup's images next to its disks before swapping them, so it needs room for both, and a full system disk also stops Hyperlite's database, the journal and libvirt. A restore refused because the VM's disks no longer match the backup no longer resets the VM's replication, which then had to copy the whole VM again.
 
 - Two VMs created at the same time on one network could get the same first free address: libvirt refused the second reservation and that VM was created without its fixed address, with nothing said. Addresses are now handed out one at a time, moving on to the next one when an address was taken meanwhile. A network whose IPv6 subnet is listed before its IPv4 one no longer fails every creation on it. A new VM's MAC address is also checked against the node's stopped VMs and the networks' reservations, not only the active leases.
