@@ -134,20 +134,42 @@ def check_pair(src, dst):
     return checks
 
 
+def _unknown_model(dst, cpu_xml):
+    """The CPU model of `cpu_xml` when the destination does not know it, else None. Asked of the destination (the
+    models it knows), never read from an error message: libvirtd writes those in the server's language ("Modèle de
+    CPU inconnu" on a French one), so matching the English text missed the case."""
+    root = ET.fromstring(cpu_xml)
+    model = root.findtext("model")
+    if not model:
+        return None
+    try:
+        known = dst.getCPUModelNames(root.findtext("arch") or "x86_64", 0)
+    except libvirt.libvirtError:
+        return None  # cannot tell: compareCPU decides
+    return model if known and model not in known else None
+
+
+def _unknown_model_result(id_, what, model):
+    # A REAL case seen between two machines running different QEMU/libvirt versions: this is neither a proven block
+    # nor proven compatibility, because the destination does not know the model.
+    return _c(
+        id_,
+        WARNING,
+        f"{what}: model unknown to the destination ({model}); the CPU model databases differ, compatibility cannot be demonstrated",
+        action="use a generic CPU (e.g. qemu64 without svm/vmx) for VMs meant to migrate between these nodes",
+    )
+
+
 def _cpu_result(id_, dst, cpu_xml, what):
+    model = _unknown_model(dst, cpu_xml)
+    if model:
+        return _unknown_model_result(id_, what, model)
     try:
         r = dst.compareCPU(cpu_xml, 0)
     except libvirt.libvirtError as e:
-        if "Unknown CPU model" in str(e):
-            # A REAL case seen between two machines running different QEMU/libvirt
-            # versions: this is neither a proven block nor proven compatibility, because the
-            # destination does not know the model.
-            return _c(
-                id_,
-                WARNING,
-                f"{what}: model unknown to the destination ({str(e).split('Unknown CPU model')[-1].strip()}); the CPU model databases differ, compatibility cannot be demonstrated",
-                action="use a generic CPU (e.g. qemu64 without svm/vmx) for VMs meant to migrate between these nodes",
-            )
+        # The CPU driver's internal error is how libvirt reports a model it cannot resolve (in any language).
+        if e.get_error_domain() == libvirt.VIR_FROM_CPU and e.get_error_code() == libvirt.VIR_ERR_INTERNAL_ERROR:
+            return _unknown_model_result(id_, what, ET.fromstring(cpu_xml).findtext("model") or "?")
         raise
     if r == libvirt.VIR_CPU_COMPARE_INCOMPATIBLE:
         return _c(
