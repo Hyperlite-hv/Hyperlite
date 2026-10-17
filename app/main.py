@@ -334,6 +334,9 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 def on_startup():
     pwd = seed_admin()
+    from app.core import access_log
+
+    access_log.start()  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
     if pwd:
         # Never log the password: store it in a root-only file and log only where it is.
         pw_file = Path(__file__).resolve().parent.parent / "data" / "initial-admin-password.txt"
