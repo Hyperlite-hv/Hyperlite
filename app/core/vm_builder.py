@@ -1,4 +1,6 @@
+import contextlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -227,18 +229,52 @@ def create_disk_from_import(vm_name, source_path, target_dir=None):
     return disk_path
 
 
+def hash_guest_password(password):
+    """The SHA-512 crypt of a guest password, as /etc/shadow holds it (as Proxmox puts it on its cloud-init drive). The
+    drive stays attached to the VM, in its pool and its copies: it never holds the password in clear. Through openssl
+    (a dependency of the package; Python 3.13 has no crypt module), the password on its standard input, never on a
+    command line."""
+    if any(c in password for c in ("\n", "\r")):
+        raise ValueError("The password must not contain a line break")
+    r = subprocess.run(
+        ["openssl", "passwd", "-6", "-stdin"], input=password, capture_output=True, text=True, check=True
+    )
+    hashed = r.stdout.strip()
+    if not hashed.startswith("$6$"):
+        raise RuntimeError("The password could not be hashed")
+    return hashed
+
+
+def protect_drive(path):
+    """A cloud-init drive is private to root (libvirt hands it to QEMU when the VM starts): it holds the account's
+    name, its SSH keys and its password's hash."""
+    with contextlib.suppress(OSError):  # an NFS share that does not let root change modes keeps its own
+        os.chmod(path, 0o600)
+
+
+def protect_existing_drives(roots=None):
+    """At start: the cloud-init drives written before they were made private (world-readable, 0644) become private
+    too. Their content stays as it was (a drive made before passwords were hashed holds one in clear until the VM's
+    password is changed: Cloud-Init tab). Returns how many were changed."""
+    roots = roots or [IMAGES_DIR, Path("/var/lib/libvirt/hyperlite-pools")]
+    changed = 0
+    for root in roots:
+        for drive in Path(root).glob("**/*-cloudinit.iso"):
+            with contextlib.suppress(OSError):
+                if drive.stat().st_mode & 0o077:
+                    drive.chmod(0o600)
+                    changed += 1
+    return changed
+
+
 def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_dir=None):
-    # Temporary directory with restricted permissions (0700, created by mkdtemp),
-    # always cleaned up afterwards: user-data contains the VM's plain-text password
-    # and must not outlive this function on the host disk.
+    # Temporary directory with restricted permissions (0700, created by mkdtemp), always cleaned up afterwards.
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-"))
     try:
         user_data = workdir / "user-data"
         meta_data = workdir / "meta-data"
 
-        if any(c in password for c in ("\n", "\r")):
-            raise ValueError("The password must not contain a line break")
-        pwd_quoted = "'" + password.replace("'", "''") + "'"
+        pwd_quoted = "'" + hash_guest_password(password) + "'"
         ud = [
             "#cloud-config",
             f"hostname: {vm_name}",
@@ -247,7 +283,7 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_di
             f"  - name: {username}",
             "    sudo: ALL=(ALL) NOPASSWD:ALL",
             "    shell: /bin/bash",
-            f"    plain_text_passwd: {pwd_quoted}",
+            f"    hashed_passwd: {pwd_quoted}",
             "    lock_passwd: false",
         ]
         if ssh_pubkey:
@@ -267,13 +303,15 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_di
         user_data.write_text("\n".join(ud) + "\n")
         meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
 
-        iso_path = (target_dir or IMAGES_DIR) / f"{vm_name}-cloudinit.iso"
+        # safe_child: the name comes from a request; the drive is written, then its mode changed, in that directory only.
+        iso_path = safe_child(target_dir or IMAGES_DIR, f"{vm_name}-cloudinit.iso")
         subprocess.run(
             ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
             check=True,
             capture_output=True,
             text=True,
         )
+        protect_drive(iso_path)
         return iso_path
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

@@ -1,5 +1,6 @@
 import ipaddress
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from app.core.tasks import close_interrupted_tasks
 from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.update_check import start_update_check_scheduler
 from app.core.vm_boot import start_boot_sequence
+from app.core.vm_builder import protect_existing_drives
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.core.vm_crash_watch import start_vm_crash_watch
 from app.repositories.cfs.ids import NoId
@@ -361,6 +363,8 @@ def on_startup():
     start_lead_loop()
     recover_interrupted_k8s_clusters()
     start_boot_sequence()
+    # Cloud-init drives written before they were private (they hold the account and its password's hash).
+    threading.Thread(target=protect_existing_drives, daemon=True, name="protect-cloudinit-drives").start()
 
     # The iptables rules of the network firewall do not survive a host reboot
     # (unlike the per-VM firewall's nwfilter, which libvirt itself manages):

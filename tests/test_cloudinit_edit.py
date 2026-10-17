@@ -1,5 +1,6 @@
 """Cloud-init edited after creation: the account's keys and password, applied at the VM's next boot."""
 
+import re
 import shutil
 import subprocess
 
@@ -48,7 +49,13 @@ def test_the_user_data_keeps_host_keys_and_the_automation_key_and_quotes_what_us
     assert "- default" not in text  # never creates the distribution's default account
     text = cloudinit_edit.user_data("web", "ana", "it's: a #secret", [AUTOMATION], AUTOMATION)
     assert text.count(AUTOMATION) == 1
-    assert "      password: 'it''s: a #secret'" in text and "      type: text" in text
+    # Never in clear on the drive: the SHA-512 hash of exactly what was typed, quotes and all.
+    assert "it''s: a #secret" not in text and "a #secret" not in text and "      type: hash" in text
+    hashed = re.search(r"      password: '(\$6\$[^']+)'", text).group(1)
+    salt = hashed.split("$")[2]
+    again = subprocess.run(["openssl", "passwd", "-6", "-salt", salt, "-stdin"], input="it's: a #secret",
+                           capture_output=True, text=True, check=True).stdout.strip()  # fmt: skip
+    assert again == hashed
 
 
 def test_what_users_type_is_validated():
