@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from app.core import file_restore
+from app.core import cluster_view, file_restore
 from app.core.audit import log_action
 from app.core.security import require_role
 
@@ -24,8 +24,16 @@ def restore_status(user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/backups/{backup_id}/files")
-def open_backup_files(backup_id: int, user: dict = Depends(require_role("admin"))):
-    """Open the backup's disks for browsing (the first request of a session takes seconds: the reader starts)."""
+def open_backup_files(backup_id: int, on: str | None = None, user: dict = Depends(require_role("admin"))):
+    """Open the backup's disks for browsing (the first request of a session takes seconds: the reader starts).
+    on: the node that holds the backup in a cluster. Its files are browsed from that node's own dashboard: the
+    downloads are files, which are not sent through another node."""
+    try:
+        holder = cluster_view.peer(on)
+    except LookupError:
+        holder = {"name": on}
+    if holder is not None:
+        raise HTTPException(status_code=409, detail=f"Open the dashboard of {holder['name']} to browse this backup")
     try:
         s = file_restore.open_session(backup_id, user["username"])
     except file_restore.RestoreError as e:

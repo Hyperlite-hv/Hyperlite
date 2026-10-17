@@ -105,6 +105,9 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   // they would act on a local VM of the same name, so they are unavailable, with the reason.
   const remote = isRemoteVm(vm);
   const localOnly = (state) => (remote ? { enabled: false, reason: "menu.reason.localOnly" } : state);
+  // A VM of another cluster member is backed up by that member, through this node; a node driven over SSH keeps none.
+  const member = remote && Boolean(nodes.find((n) => n.id === vm.node)?.membre);
+  const onMember = (state) => (member ? state : localOnly(state));
   const known = (value) => (value === undefined ? { enabled: false, reason: "menu.reason.loading" } : value === null ? { enabled: false, reason: "menu.reason.unknown" } : admin());
   const fail = (title, e) => pushToast({ kind: "error", title, message: errorMessage(e) });
 
@@ -131,7 +134,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
     catch (e) { fail(t("vx.tplFailed"), e); }
   }
   async function backupNow() {
-    try { await createBackup(vm.nom); pushToast({ kind: "success", title: t("vb.started"), message: vm.nom }); if (followBackup) openTab("backup"); }
+    try { await createBackup(vm.nom, null, vm.node); pushToast({ kind: "success", title: t("vb.started"), message: vm.nom }); if (followBackup) openTab("backup"); }
     catch (e) { fail(t("vb.startFailed"), e); }
   }
   async function doExport() {
@@ -179,7 +182,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       <hr />
       <MenuGroup label={t("vx.g.protection")} />
       {item("snapshot", Camera, t("vx.snapshot"), localOnly(admin()), snapshot)}
-      {item("backup", Archive, t("vb.now"), localOnly(admin()), backupNow)}
+      {item("backup", Archive, t("vb.now"), onMember(admin()), backupNow)}
       {item("ha", Heart, ha ? t("vx.haProtected") : t("vx.haMenu"), localOnly(caps.admin ? known(ha) : admin()), toggleHa)}
       <hr />
       <MenuGroup label={t("vx.g.lifecycle")} />

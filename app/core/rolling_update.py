@@ -69,12 +69,13 @@ class PeerUnreachable(RollingError):
     pass
 
 
-def _ssh(node, args, stdin=None, timeout=60):
+def _ssh(node, args, stdin=None, timeout=60, connect_timeout=10):
     import subprocess
 
     target = f"{node['ssh_user']}@{node['hostname']}"
+    options = cluster.node_ssh_options(["-o", f"ConnectTimeout={int(connect_timeout)}"])
     return subprocess.run(
-        ["ssh", *cluster.node_ssh_options(["-o", "ConnectTimeout=10"]), "-p", str(node["ssh_port"]), target, *args],
+        ["ssh", *options, "-p", str(node["ssh_port"]), target, *args],
         input=stdin,
         capture_output=True,
         text=True,
@@ -82,7 +83,7 @@ def _ssh(node, args, stdin=None, timeout=60):
     )
 
 
-def peer_api(node, username, method, path, body=None, timeout=60):
+def peer_api(node, username, method, path, body=None, timeout=60, connect_timeout=10):
     """(status, decoded body) of a call to `node`'s own API. Status 0: the API did not answer (restarting)."""
     request = {
         "url": API_URL + path,
@@ -95,7 +96,13 @@ def peer_api(node, username, method, path, body=None, timeout=60):
         # One argument: ssh joins its arguments with spaces into one command line for the remote shell, which would
         # split the script.
         command = shlex.join(["python3", "-I", "-c", _PEER_CALL])
-        r = _ssh(node, [command], stdin=json.dumps(request), timeout=timeout + 30)
+        r = _ssh(
+            node,
+            [command],
+            stdin=json.dumps(request),
+            timeout=timeout + 20 + connect_timeout,
+            connect_timeout=connect_timeout,
+        )
     except Exception as e:  # ssh missing, timed out: the node is not reachable
         raise PeerUnreachable(f"{node['name']} is not reachable over SSH: {e}") from None
     if r.returncode != 0:

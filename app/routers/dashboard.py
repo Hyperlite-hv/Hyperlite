@@ -1,6 +1,7 @@
 import libvirt
 from fastapi import APIRouter, Depends
 
+from app.core import cluster_lead
 from app.core.libvirt_utils import ensure_default_pool, open_conn
 from app.core.metrics import get_node_live
 from app.core.security import get_current_user
@@ -69,6 +70,9 @@ def dashboard(user: dict = Depends(get_current_user)):
                 "disponible_go": round(available / (1024**3), 2) if available else None,
             },
             "etat_infrastructure": "ok" if connected else "degrade",
+            # Why this node changes nothing right now (a cluster node that lost the quorum), or None: the dashboard
+            # shows it above every page (app/core/cluster_lead.py).
+            "lecture_seule": cluster_lead.read_only_reason(),
             # Latest load and identity of this host (CPU %, memory, cores, model, kernel,
             # OS, address, versions), recorded by the metrics collector.
             "live": get_node_live("local"),

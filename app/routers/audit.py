@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
+from app.core import cluster_view
 from app.core.audit import log_action
 from app.core.csv_export import csv_lines
 from app.core.security import require_role
@@ -20,9 +22,17 @@ async def list_audit(
     resource: str | None = None,
     depuis: str | None = None,  # ISO 8601, filters on timestamp >= depuis
     jusqu_a: str | None = None,
+    # In a cluster: every member's entries, each marked with the node that holds it ("on"), and the members that
+    # did not answer (app/core/cluster_view.py). Outside a cluster: this node's entries, in the same shape.
+    cluster: bool = False,
     user: dict = Depends(require_role("admin")),
 ):
-    return await audit_service.query(audit_service.filters(action, result, username, resource, depuis, jusqu_a), limit)
+    f = audit_service.filters(action, result, username, resource, depuis, jusqu_a)
+    rows = await audit_service.query(f, limit)
+    if not cluster:
+        return rows
+    answers, missing = await run_in_threadpool(cluster_view.gather, user["username"], "/audit", {**f, "limit": limit})
+    return {"items": cluster_view.merge(rows, answers, "timestamp", limit=limit), "unreachable": missing}
 
 
 @router.get("/count")
@@ -33,21 +43,33 @@ async def count_audit(
     resource: str | None = None,
     depuis: str | None = None,
     jusqu_a: str | None = None,
+    cluster: bool = False,
     user: dict = Depends(require_role("admin")),
 ):
     """Number of entries matching the same filters as GET /audit, which only returns the
-    most recent ones: lets the page say "300 entries, showing the 100 most recent"."""
-    return {
-        "total": await audit_service.count(audit_service.filters(action, result, username, resource, depuis, jusqu_a))
-    }
+    most recent ones: lets the page say "300 entries, showing the 100 most recent". cluster: every member's, summed
+    over the members that answered."""
+    f = audit_service.filters(action, result, username, resource, depuis, jusqu_a)
+    total = await audit_service.count(f)
+    if cluster:
+        answers, _ = await run_in_threadpool(cluster_view.gather, user["username"], "/audit/count", f)
+        total += sum(int(b.get("total") or 0) for b in answers.values() if isinstance(b, dict))
+    return {"total": total}
 
 
 @router.get("/actions")
-async def list_audit_actions(user: dict = Depends(require_role("admin"))):
+async def list_audit_actions(cluster: bool = False, user: dict = Depends(require_role("admin"))):
     """Distinct action types already seen in the log. Feeds the "Action type"
     filter in the frontend without a hard-coded list that would drift as new
-    endpoints are added."""
-    return await audit_service.actions()
+    endpoints are added. cluster: seen on any member."""
+    actions = await audit_service.actions()
+    if not cluster:
+        return actions
+    answers, _ = await run_in_threadpool(cluster_view.gather, user["username"], "/audit/actions", {})
+    seen = set(actions)
+    for body in answers.values():
+        seen |= {a for a in body if isinstance(a, str)} if isinstance(body, list) else set()
+    return sorted(seen)
 
 
 @router.get("/export.csv")

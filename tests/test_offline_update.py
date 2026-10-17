@@ -43,12 +43,13 @@ def _build(tmp, env, version="1.0.1", debian="13", notes=True):
     if notes:
         (notes_dir / f"{version}.en.md").write_text("What is new")
         (notes_dir / f"{version}.fr.md").write_text("Nouveautés")
-    out = tmp / "hyperlite-update-amd64.tar"
+    # Relative paths, run from tmp, as scripts/ci-publish.sh calls it from the repository.
     subprocess.run(
-        ["bash", str(ROOT / "scripts/build-update-file.sh"), version, str(deb), str(bundle), str(notes_dir), str(out)],
-        check=True, env=env, capture_output=True,
+        ["bash", str(ROOT / "scripts/build-update-file.sh"), version, "pkg.deb", "bundle", "notes",
+         "hyperlite-update-amd64.tar"],
+        check=True, env=env, capture_output=True, cwd=tmp,
     )  # fmt: skip
-    return out
+    return tmp / "hyperlite-update-amd64.tar"
 
 
 @pytest.fixture()
