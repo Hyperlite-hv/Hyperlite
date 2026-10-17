@@ -142,6 +142,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A live migration that succeeded could be shown as failed, and then leave the VM's HA protection, tags and start at boot on the node it had left, when a step after the move failed (cleaning its old disks or addresses on the source node, for instance). HA could later restart a second copy of the VM on that node. The VM's HA protection now moves first, each step after the move runs whatever happened to the one before, and a step that fails is a warning on the finished task.
+
 - **Security:** a VM's password was written in clear on its cloud-init drive, a file that stays attached to the VM, readable by every local account of the node (and from inside the VM, through its CD-ROM drive), and copied with the VM's pool. It is now written as a SHA-512 hash, as Proxmox does, at creation and when changed from the Cloud-Init tab, and the drives are private to root. Drives made before keep their content until the VM's password is changed: change it from the Cloud-Init tab to remove it.
 
 - **Backups:** a backup that had just succeeded was marked failed and deleted when the retention that follows it hit an error; it now stays, and the error is reported. Corrupted backups no longer take the place of good ones in the retention, so newer corrupted copies can no longer push out the last good one. A backup that would not fit on its target (the system disk by default) is refused before anything is written, with 1 GiB kept free, instead of filling the disk.
