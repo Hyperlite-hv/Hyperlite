@@ -38,10 +38,13 @@ TIMEOUT_S = 60
 FEED_S = 5
 # When the node is reset at the latest after its last feed. Many watchdogs reset at the second expiry, not the first:
 # Intel's iTCO (most PCs, and QEMU's q35) reset the lab node 110-120 s after its last feed with a 60 s timeout. The
-# leader waits this long, plus its margin, before restarting the node's VMs elsewhere (#333 step 3).
-RESET_WITHIN_S = 2 * TIMEOUT_S + FEED_S
+# leader waits this long (reset_within() of the device's real timeout), plus its margin, before restarting the node's
+# VMs elsewhere (#333 step 3).
 STATE_DIR = "/cluster/watchdog"
 WDIOC_SETTIMEOUT = 0xC0045706  # _IOWR('W', 6, int), linux/watchdog.h
+WDIOC_GETTIMEOUT = 0x80045707  # _IOR('W', 7, int)
+# A shorter timeout than this resets a node whose feeding round was merely slow.
+MIN_TIMEOUT_S = 3 * FEED_S
 
 
 def device():
@@ -56,6 +59,7 @@ class _State:
     def __init__(self):
         self.lock = threading.Lock()
         self.fd = None  # the open watchdog: armed
+        self.timeout = None  # its real timeout, as its driver reports it (None: the driver does not say)
         self.problem = None  # why it could not be armed, for the administrator
         self.starving = False  # armed but not fed: the quorum is lost
         self.stop = threading.Event()
@@ -92,8 +96,9 @@ def _publish(armed):
 
     entry = {
         "arme": armed,
-        "delai_s": TIMEOUT_S,
-        "reinitialise_sous_s": RESET_WITHIN_S,
+        "delai_s": state.timeout,
+        # None: the reset time is unknown, and the node's VMs are never restarted elsewhere without an administrator.
+        "reinitialise_sous_s": reset_within(state.timeout),
         "le": datetime.now(UTC).isoformat(),
     }
     path = f"{STATE_DIR}/{shadow.component(self_node.name())}"
@@ -111,7 +116,22 @@ def published(node):
         return None
 
 
+def _timeout_of(fd):
+    """The watchdog's timeout in seconds as its driver reports it, or None when it does not say."""
+    try:
+        return struct.unpack("i", fcntl.ioctl(fd, WDIOC_GETTIMEOUT, struct.pack("i", 0)))[0]
+    except OSError:
+        return None
+
+
+def reset_within(timeout):
+    """When a node whose watchdog has `timeout` is reset at the latest after its last feed (None: unknown)."""
+    return 2 * timeout + FEED_S if timeout else None
+
+
 def _open():
+    """Open and arm the watchdog: (fd, its real timeout). Some drivers refuse TIMEOUT_S and keep their own, which
+    is read back: the reset time the cluster waits for must be the device's, not the one asked for."""
     path = device()
     if not path.exists() and path == Path("/dev/watchdog"):
         subprocess.run(
@@ -120,7 +140,7 @@ def _open():
     fd = os.open(path, os.O_WRONLY)
     with contextlib.suppress(OSError):  # a driver without a settable timeout keeps its own (softdog: soft_margin)
         fcntl.ioctl(fd, WDIOC_SETTIMEOUT, struct.pack("i", TIMEOUT_S))
-    return fd
+    return fd, _timeout_of(fd)
 
 
 def _feed(fd):
@@ -151,7 +171,8 @@ def tick():
         # Cut off from the majority: not fed, the node resets TIMEOUT_S after its last feed. Never disarmed here: this
         # node cannot tell the cluster, and the leader counts on it.
         logger.warning(
-            "No quorum: the watchdog is not fed, this node resets within %s s unless it comes back", TIMEOUT_S
+            "No quorum: the watchdog is not fed, this node resets within %s s unless it comes back",
+            reset_within(state.timeout) or "an unknown time",
         )
         return
     if not writable:
@@ -165,18 +186,34 @@ def tick():
     with state.lock:
         if needed and state.fd is None:
             try:
-                state.fd = _open()
+                fd, timeout = _open()
             except OSError as e:
                 state.problem = f"The watchdog could not be armed ({device()}: {e.strerror})"
                 logger.warning("%s: this node's HA VMs can only be recovered by hand", state.problem)
                 return
-            state.problem = None
+            if timeout is not None and timeout < MIN_TIMEOUT_S:
+                _close(fd)
+                state.problem = (
+                    f"The watchdog's timeout is {timeout} s, too short to be fed every {FEED_S} s safely "
+                    f"(at least {MIN_TIMEOUT_S} s), and its driver refuses {TIMEOUT_S} s"
+                )
+                logger.warning("%s: this node's HA VMs can only be recovered by hand", state.problem)
+                return
+            state.fd, state.timeout = fd, timeout
+            state.problem = (
+                None
+                if timeout
+                else f"The watchdog's driver does not report its timeout ({device()}): it is armed, but this node's "
+                "HA VMs are only restarted elsewhere by hand"
+            )
+            if timeout and timeout != TIMEOUT_S:
+                logger.warning("The watchdog keeps its own timeout, %s s instead of %s s", timeout, TIMEOUT_S)
             _feed(state.fd)
             logger.info("Watchdog armed: this node runs HA VMs")
             publish = True
         elif not needed and state.fd is not None:
             _close(state.fd)
-            state.fd = None
+            state.fd = state.timeout = None
             logger.info("Watchdog disarmed: no HA VM runs here any more")
             publish = False
     if publish is not None:
@@ -192,14 +229,15 @@ def stop():
     with state.lock:
         if state.fd is not None:
             _close(state.fd)
-            state.fd = None
+            state.fd = state.timeout = None
             logger.info("Watchdog disarmed: the service stops")
 
 
 def report():
     with state.lock:
+        timeout = state.timeout if state.fd is not None else TIMEOUT_S
         return {"arme": state.fd is not None, "sans_quorum": state.starving, "probleme": state.problem,
-                "delai_s": TIMEOUT_S, "reinitialise_sous_s": RESET_WITHIN_S, "actif": enabled()}  # fmt: skip
+                "delai_s": timeout, "reinitialise_sous_s": reset_within(timeout), "actif": enabled()}  # fmt: skip
 
 
 def _loop():
