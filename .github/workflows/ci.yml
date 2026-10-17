@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: |
             requirements.txt
@@ -29,7 +29,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
             meson ninja-build libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        # Two commands: requirements.txt carries hashes, which pip would then demand of the development tools too.
+        run: pip install -r requirements.txt && pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
       - name: Format check
@@ -106,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ["debian:12", "debian:13", "ubuntu:24.04"]
+        image: ["debian:13"]  # the only system of 1.0 (docs/design/clean-package.md)
     steps:
       - uses: actions/checkout@v7
       - run: bash installer/test-package.sh "${{ matrix.image }}"
@@ -123,7 +124,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -171,7 +172,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements.txt
       - uses: actions/setup-node@v7
