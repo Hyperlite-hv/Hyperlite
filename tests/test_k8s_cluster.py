@@ -299,3 +299,23 @@ def test_flannel_is_given_the_interface_that_holds_the_node_address(database, mo
         monkeypatch.setattr(k8s_cluster, "vm_run", lambda vm, script, secret="", timeout=0, c=case: answers[c])
         with pytest.raises(RuntimeError, match="no network interface"):
             k8s_cluster.interface_of("demo-server", "192.168.100.10")
+
+
+def test_a_cluster_shown_ready_can_be_deleted_at_once(k8s, client, auth_headers, monkeypatch):
+    """Its creation still records its task when it shows ready: the deletion must not be refused as "being created"."""
+    from app.core import k8s_cluster
+    from app.routers.vms import lifecycle
+
+    finished = k8s_cluster.finish_task
+
+    def slow_finish(task_id, status, *args):
+        time.sleep(0.5)  # the window the deletion used to fall in
+        finished(task_id, status, *args)
+
+    monkeypatch.setattr(k8s_cluster, "finish_task", slow_finish)
+    monkeypatch.setattr(lifecycle, "delete_vm", lambda vm, confirm, node, user: None)
+    admin = auth_headers("admin")
+    client.post("/kubernetes/clusters", json={"nom": "demo", "workers": 1}, headers=admin)
+    assert _wait_status(client, admin, "demo")["statut"] == "pret"
+    r = client.delete("/kubernetes/clusters/demo?confirm=true", headers=admin)
+    assert r.status_code == 200, r.text
