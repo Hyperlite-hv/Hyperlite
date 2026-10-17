@@ -181,3 +181,21 @@ def test_a_change_this_database_refuses_is_reported_and_nothing_is_applied(clust
     assert inbound.apply() is None
     assert "groups" in inbound.report()["probleme"]
     assert rows("SELECT * FROM groups") == []  # all or nothing
+
+
+def test_a_sign_out_on_one_node_revokes_the_session_on_every_node(cluster):
+    from app.core import security
+
+    # Signed out here: the revocation goes out, so another node refuses the token too.
+    token = security.create_access_token({"sub": "ana"})
+    assert security.revoke_session(token)
+    shadow.drain()
+    jti = security._decode_session(token)["jti"]
+    assert any(p.startswith("/db/revoked_sessions/") for p in cluster.files)
+
+    # Signed out on another node: this node refuses the token once the tree is applied.
+    other = security._decode_session(security.create_access_token({"sub": "ana"}))
+    assert not security._session_revoked(other["jti"])
+    cluster.remote(f"/db/revoked_sessions/{other['jti']}", {"jti": other["jti"], "expires_at": other["exp"]})
+    assert inbound.apply() == 1
+    assert security._session_revoked(other["jti"]) and security._session_revoked(jti)
