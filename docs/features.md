@@ -48,6 +48,16 @@ Every backup has a manifest (`manifest.json`: each file with its role, size and 
 
 Two sites: each site backs its VMs up to a storage of the other one, and **Backups › Recovery of another site** restores a lost site's VMs as new VMs on the surviving site, from their latest backup, after an integrity check. See [site recovery](site-recovery.md). **Replication to another site** copies VMs to the other site every few minutes (incremental, QEMU dirty bitmaps, a full copy each day), so the surviving site loses at most one interval of changes.
 
+## Updates
+
+- One update per node for Hyperlite and the node's Debian packages together. Before it starts: the new version and its release notes, the Debian packages that change (security ones counted) and whether a reboot will be needed. The node is backed up first; a watchdog puts the previous version back when the new one does not answer after the restart. Running VMs keep running, and a reboot is never done for you.
+- **Go back to** the version before the last update (its package is kept on the node, so it also works offline).
+- A channel per node: `stable`, the releases, or `test`, every change merged for the next release. Going back to stable never installs an older version.
+- Debian's security updates every night (03:30 by default, per node, or off): security packages only, never Hyperlite, never a reboot; a pending reboot is notified.
+- A node without network: every version publishes a signed update file (`hyperlite-update-amd64.tar`: Hyperlite, the Debian packages it needs and the release notes). The node checks the signature and every file before showing what will change.
+- Rolling update of a cluster (**Administration › Replicated configuration › Cluster update**): a plan read from every node first, then one node after the other, each put in maintenance and emptied by live migration, updated, rebooted when needed (VMs that cannot move are stopped for it only if chosen in the plan), and taken out of maintenance before the next one. A failure stops the run on that node, which stays in maintenance.
+- Versions follow semver from 1.0.0 (`1.x.y`, the package carrying the epoch `1:` so APT upgrades from the dated versions).
+
 ## Observability and automation
 
 Continuous host and VM metrics with history (Prometheus text format available), an audit journal with filters, persisted tasks with progress, a small job engine to run commands on hosts or VMs, and outgoing notifications (webhook, SMTP email) for significant events.
