@@ -140,6 +140,8 @@ All notable changes to this project are documented here. The format is based on 
 
 - In a cluster, the HA alert about a node that went down (its protected VMs) could be lost when that node was the one leading the cluster: the node taking over had often seen it go down before it led, and only the leader of that moment reports. It now reports it as soon as it leads, if the node is still down.
 
+- In a cluster, a node cut off from the others (no quorum) could still change the configuration, and once back its changes overwrote the ones the majority made meanwhile, without a word. As on Proxmox, such a node now changes nothing until the quorum is back: the dashboard and the API refuse every change there (VM start and stop included; reading and signing in still work), scheduled backups, replication and the automatic deletion of VMs wait, and VMs set to start at boot start once the node has the quorum. A change still on its way when a node is cut off is dropped if the others changed the same thing meanwhile: the majority's version is kept, and the conflict is in the audit log.
+
 - Deleting a Kubernetes cluster right after it showed as ready could be refused as "being created": it was shown ready a moment before its creation let go of it. Both now happen at once.
 
 - In a cluster, signing out now signs the session out on every node. A session token is valid on any node, but the sign-out was only known to the node that received it, so a copy of the token (another tab, a stolen token) kept working on the other nodes until it expired.

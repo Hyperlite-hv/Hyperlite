@@ -137,7 +137,8 @@ def _check_vm(conn, row):
 def _loop():
     while True:
         try:
-            check_once()
+            if not cluster_lead.paused("Automatic deletion of VMs"):
+                check_once()
         except Exception:
             logger.exception("Automatic deletion cycle failed")
         time.sleep(CHECK_INTERVAL_S)

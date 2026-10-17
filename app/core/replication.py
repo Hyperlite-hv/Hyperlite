@@ -523,9 +523,12 @@ TICK_S = 30
 
 
 def _loop():
+    from app.core import cluster_lead  # late import, as in run_due
+
     while True:
         try:
-            run_due(_now())
+            if not cluster_lead.paused("Replication"):
+                run_due(_now())
         except Exception:
             logger.exception("Replication scheduler tick failed")
         time.sleep(TICK_S)

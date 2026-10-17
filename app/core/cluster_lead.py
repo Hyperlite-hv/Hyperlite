@@ -68,6 +68,57 @@ def mode(record=True):
     return current
 
 
+QUORUM_TTL_S = 2.0
+NO_QUORUM = (
+    "This node has lost the cluster's quorum: nothing can be changed from it until the quorum is back (Administration "
+    "> Cluster shows the members it reaches)"
+)
+NO_DAEMON = "The cluster service of this node does not answer: nothing can be changed from it until it does"
+_quorum_lock = threading.Lock()
+_quorum = (0.0, None)
+
+
+def read_only_reason():
+    """None when this node may change things; else why not, for the person who tried. In a cluster, as on Proxmox, a
+    node that lost the quorum (or whose hyperlite-cfs does not answer) changes nothing at all: its configuration would
+    diverge from the majority's, and its VMs may be taken over elsewhere. Outside a cluster: always None."""
+    global _quorum
+    if mode() != "cluster":
+        return None
+    now = time.monotonic()
+    with _quorum_lock:
+        at, reason = _quorum
+        if now - at < QUORUM_TTL_S:
+            return reason
+    try:
+        reason = None if _shadow()._get_client().status().quorate else NO_QUORUM
+    except (CfsError, OSError):
+        reason = NO_DAEMON
+    with _quorum_lock:
+        _quorum = (now, reason)
+    return reason
+
+
+_paused = set()
+
+
+def paused(what):
+    """True while this node may change nothing (read_only_reason): the background work named `what` (scheduled
+    backups, replication, automatic deletion, start at boot) waits, as on Proxmox. Said once in the log per pause."""
+    reason = read_only_reason()
+    with _quorum_lock:
+        was = what in _paused
+        if reason:
+            _paused.add(what)
+        else:
+            _paused.discard(what)
+    if reason and not was:
+        logger.warning("%s paused: %s", what, reason)
+    elif was and not reason:
+        logger.info("%s resumed: the cluster's quorum is back", what)
+    return bool(reason)
+
+
 def in_cluster():
     """True when other nodes may run Hyperlite on the same configuration."""
     if not _shadow().enabled():
@@ -109,9 +160,11 @@ def renew():
 
 def forget():
     """Drop what is known of the daemon (tests, and after shadow mode was turned on or off)."""
-    global _mode, _mode_at, _leading_until
+    global _mode, _mode_at, _leading_until, _quorum
     with _lock:
         _mode, _mode_at, _leading_until = None, 0.0, 0.0
+    with _quorum_lock:
+        _quorum = (0.0, None)
 
 
 def _loop():
