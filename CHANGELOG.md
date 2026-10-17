@@ -135,6 +135,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- The Account security window (two-factor authentication and API tokens, from the user menu) was in English whatever the language chosen; it is now in French too, as are the disk and ISO upload areas, whose sizes and speeds also mixed French and English units. A network error during a disk or ISO upload no longer breaks the upload area.
+
 - In a cluster, VMs on the per-node NAT networks no longer get the same address: an address is handed out only when it is free on the network of the same name of every node, and a migrated VM keeps its address (its reservation goes to the destination and leaves the source). A migration is refused, before anything changes, when another machine holds that address on the destination (#410).
 
 - Live migration between two other nodes (a drain or a rolling update driven from a third one) lost the VM's cloud-init drive: it was fetched to the driving node instead of the destination, which refused the VM. It is now carried from the source to the destination.
