@@ -55,7 +55,16 @@ def forget():
 
 def settle():
     """At start: an installation from before these rules may still keep the initial password. Already changed, its
-    copies go; still the admin account's password, it is changed at the next sign-in."""
+    copies go; still the admin account's password, it is changed at the next sign-in. Never raises: a node of a
+    cluster that starts without the quorum cannot write the flag, and must start all the same (it is tried again at
+    the next start)."""
+    try:
+        _settle()
+    except Exception:
+        logger.warning("The initial admin password could not be checked at start", exc_info=True)
+
+
+def _settle():
     files, _env = _paths()
     try:
         password = files[0].read_text().strip()

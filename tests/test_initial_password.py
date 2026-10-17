@@ -85,3 +85,16 @@ def test_an_initial_password_still_in_use_is_changed_at_the_next_sign_in(databas
     initial_password.settle()
     assert registry.accounts().sync.get("admin")["must_change_password"] == 1
     assert all(path.exists() for path in files)  # still the way in, until it is changed
+
+
+def test_a_node_that_cannot_write_at_start_still_starts(database, copies, monkeypatch):
+    """A cluster node starting without the quorum: the flag cannot be written, the service starts all the same."""
+    monkeypatch.setenv("HYPERLITE_INITIAL_ADMIN_PASSWORD", "Initial-Pass-123")
+    seed.seed_admin(must_change=False)
+
+    def read_only(username):
+        raise RuntimeError("This node has lost the cluster's quorum")
+
+    monkeypatch.setattr(registry.accounts().sync, "flag_must_change", read_only)
+    initial_password.settle()  # no exception
+    assert registry.accounts().sync.get("admin")["must_change_password"] == 0  # the write was really refused
