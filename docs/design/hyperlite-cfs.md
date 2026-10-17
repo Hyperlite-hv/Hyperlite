@@ -218,6 +218,17 @@ lifted once above the first node's ids (`/cluster/id-offset`); without the daemo
 members, Corosync's key and the members' SSH keys live in the tree, and a joining node receives the encryption and
 signing keys of `.env` from the member that lets it in, over HTTPS pinned to that member's certificate.
 
+Quorum and conflicts (found in the lab, 2026-10-17). A node cut off from the majority accepted configuration changes
+in its SQLite, and once back its outbox went out first and overwrote what the majority changed meanwhile. Now:
+- as on Proxmox, a cluster node without the quorum (or whose daemon no longer answers) changes nothing: the API
+  refuses every change, VM start and stop included (the maintainer's choice), the scheduled backups, replication and
+  automatic deletion wait, and VMs start at boot once the node has the quorum (`cluster_lead.read_only_reason`,
+  `paused`);
+- the outbox writes with compare-and-set against the version this node last saw of each entry (`cfs_base`, recorded
+  when the tree is applied, after its own writes and at start): an entry the cluster changed meanwhile keeps the
+  cluster's version, the cluster's value is applied back and the conflict audited (`cfs_conflict`). This covers the
+  two seconds a change takes to go out as well. Outside a cluster there is one writer and nothing is compared.
+
 ### 8.1 Phase B, step by step
 
 | Step | Content | State |

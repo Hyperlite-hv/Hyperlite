@@ -1,5 +1,8 @@
 # Taking over when the controller is lost
 
+This page is for hosts driven over SSH from one controller (a host across a WAN, where Corosync cannot run). In a
+cluster created from the **Cluster** page, every node is equal: there is no controller and nothing to take over.
+
 Hyperlite runs on one controller host; the other nodes are driven over SSH. If the controller host is lost, the VMs
 on the other nodes keep running, but there is no dashboard, and nothing runs that needs the controller (HA watching,
 scheduled backups, jobs, notifications). This page is how another node takes over. It is option (a) of the
