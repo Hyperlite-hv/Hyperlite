@@ -2949,6 +2949,7 @@ export default {
   "cfs.domainName.users": "Comptes utilisateurs",
   "cfs.domainName.webauthn_credentials": "Clés de sécurité",
   "cfs.domainName.api_tokens": "Jetons d’API",
+  "cfs.domainName.revoked_sessions": "Sessions révoquées",
   "cfs.domainName.groups": "Groupes",
   "cfs.domainName.group_members": "Membres des groupes",
   "cfs.domainName.custom_roles": "Rôles personnalisés",
