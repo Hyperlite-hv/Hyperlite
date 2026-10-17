@@ -182,7 +182,10 @@ export default function Workspace({ children }) {
     if (n) { e.preventDefault(); goTop(n); requestAnimationFrame(() => document.getElementById(`nx-top-${n.id}`)?.focus()); }
   }
   const useSubnav = isObj && top.pages.length > 1;
-  const localOnly = selection.type === "vm" && isRemoteVm(resource) && LOCAL_ONLY_VM_PAGES.has(tab);
+  // A VM of another cluster member is backed up by that member, through this node (app/routers/backups.py); the other
+  // pages still read this host only, and a node driven over SSH keeps no backups.
+  const localOnly = selection.type === "vm" && isRemoteVm(resource) && LOCAL_ONLY_VM_PAGES.has(tab)
+    && !(tab === "backup" && vmNode?.membre);
   const pageEl = localOnly
     ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.nom || resource.node })} />
     : Active ? <Active resource={resource} selection={selection} /> : null;

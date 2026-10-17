@@ -17,11 +17,13 @@ class Peers:
 
     def __init__(self):
         self.calls = []
+        self.bodies = []
         self.answers = {}  # (node, path without query) -> (status, body)
         self.down = set()
 
     def api(self, node, username, method, path, body=None, timeout=60, connect_timeout=10):
         self.calls.append((node["name"], username, method, path))
+        self.bodies.append(body)
         if node["name"] in self.down:
             raise rolling_update.PeerUnreachable(f"{node['name']} is not reachable over SSH")
         return self.answers.get((node["name"], path.split("?")[0]), (404, {"detail": "Task not found"}))
@@ -147,3 +149,94 @@ def test_the_audit_log_of_every_member(client, auth_headers, peers):
     assert client.get("/audit/count?cluster=true", headers=headers).json()["total"] == local + 41
     assert "delete_vm" in client.get("/audit/actions?cluster=true", headers=headers).json()
     assert isinstance(client.get("/audit", headers=headers).json(), list)  # the plain list is unchanged
+
+
+# ---- Backups: kept by the node that hosts the VM, acted on there ----
+
+
+def test_a_backup_of_another_members_vm_is_made_there(client, auth_headers, peers):
+    headers = auth_headers("ana")
+    peers.answers[("pve-a", "/vms/web/backups")] = (202, {"message": "Backup of 'web' started in the background"})
+    r = client.post("/vms/web/backups?node=pve-a", json={"target_dir": None}, headers=headers)
+    assert r.status_code == 202 and "started" in r.json()["message"]
+    assert peers.calls == [("pve-a", "ana", "POST", "/vms/web/backups")]
+    assert peers.bodies == [{"target_dir": None}]
+
+    peers.answers[("pve-a", "/vms/web/backups")] = (200, [{"id": 3, "vm_name": "web"}])
+    assert client.get("/vms/web/backups?node=pve-a", headers=headers).json() == [{"id": 3, "vm_name": "web"}]
+
+
+def test_a_backup_held_by_another_member_is_restored_verified_and_deleted_there(client, auth_headers, peers):
+    headers = auth_headers("ana")
+    peers.answers[("pve-a", "/backups/3/restore")] = (202, {"message": "Restore started in the background"})
+    peers.answers[("pve-a", "/backups/3/verify")] = (202, {"task_id": TASK_A, "backup": 3})
+    peers.answers[("pve-a", "/backups/3")] = (409, {"detail": "A restore of this backup is running"})
+    r = client.post("/backups/3/restore?on=pve-a", json={"mode": "new", "new_name": "web2"}, headers=headers)
+    assert r.status_code == 202
+    assert peers.bodies[-1] == {"mode": "new", "new_name": "web2"}
+    assert client.post("/backups/3/verify?on=pve-a", headers=headers).json()["task_id"] == TASK_A
+    r = client.delete("/backups/3?on=pve-a&confirm=true", headers=headers)
+    assert r.status_code == 409 and "restore" in r.json()["detail"]
+    assert peers.calls[-1] == ("pve-a", "ana", "DELETE", "/backups/3?confirm=true")
+
+
+def test_what_is_checked_here_before_anything_is_sent(client, auth_headers, peers):
+    headers = auth_headers("ana")
+    # A node registered over SSH only: refused, never backed up here under the same name.
+    r = client.post("/vms/web/backups?node=pve-old", json={}, headers=headers)
+    assert r.status_code == 409 and "pve-old is not a member" in r.json()["detail"]
+    # Rights are checked here first: an observer cannot delete another member's backup.
+    viewer = auth_headers("olga", "observateur")
+    assert client.delete("/backups/3?on=pve-a&confirm=true", headers=viewer).status_code == 403
+    assert peers.calls == []
+    # A member that refuses the session, or does not answer: 502, never a 401.
+    peers.answers[("pve-a", "/vms/web/backups")] = (401, {"detail": "Could not validate credentials"})
+    assert client.get("/vms/web/backups?node=pve-a", headers=headers).status_code == 502
+    peers.down.add("pve-a")
+    r = client.get("/vms/web/backups?node=pve-a", headers=headers)
+    assert r.status_code == 502 and "pve-a" in r.json()["detail"]
+    # A holder that is not a member (it left the cluster): refused, never this node's backup with the same id.
+    r = client.delete("/backups/3?on=pve-old&confirm=true", headers=headers)
+    assert r.status_code == 409 and "pve-old is not a member" in r.json()["detail"]
+    assert client.post("/backups/3/restore?on=gone", json={"mode": "overwrite"}, headers=headers).status_code == 409
+    # Browsing another member's backup is done from its own dashboard (downloads are files).
+    r = client.post("/backups/3/files?on=pve-b", headers=headers)
+    assert r.status_code == 409 and "pve-b" in r.json()["detail"]
+
+
+def test_every_members_backups_in_one_list(client, auth_headers, peers):
+    headers = auth_headers("ana")
+    peers.answers[("pve-a", "/backups")] = (200, [{"id": 3, "vm_name": "web", "cree_le": "2999-01-01T00:00:00"}])
+    peers.down.add("pve-b")
+    r = client.get("/backups?cluster=true", headers=headers).json()
+    assert r["items"] == [{"id": 3, "vm_name": "web", "cree_le": "2999-01-01T00:00:00", "on": "pve-a"}]
+    assert r["unreachable"] == ["pve-b"]
+    assert client.get("/vms/web/backups?node=local", headers=headers).json() == []  # this node: read here
+
+
+def test_the_node_list_says_which_nodes_are_members(client, auth_headers, peers, monkeypatch):
+    from app.services import node_service
+
+    async def listed():
+        return [{**n, "live": None} for n in peers.nodes]
+
+    monkeypatch.setattr(node_service, "list_with_live", listed)
+    nodes = client.get("/nodes", headers=auth_headers("ana")).json()
+    assert {n["name"]: n["membre"] for n in nodes} == {"pve-a": True, "pve-b": True, "pve-old": False}
+
+
+def test_outside_a_cluster_no_node_is_a_member(client, auth_headers, monkeypatch):
+    from app.services import node_service
+
+    async def listed():
+        return [{**_node("nico"), "live": None}]
+
+    monkeypatch.setattr(node_service, "list_with_live", listed)
+    assert client.get("/nodes", headers=auth_headers("ana")).json()[0]["membre"] is False
+    # This node's own name, as the backups list marks its rows: handled here (no such backup).
+    headers = auth_headers("carl")
+    assert client.delete("/backups/99?on=hv-test&confirm=true", headers=headers).status_code == 404
+    assert client.get("/backups?cluster=true", headers=headers).json() == {"items": [], "unreachable": []}
+    # A backup of that node's VM is refused, never made on this host under the same name.
+    r = client.post("/vms/web/backups?node=nico", json={}, headers=auth_headers("bob"))
+    assert r.status_code == 409 and "nico is not a member" in r.json()["detail"]

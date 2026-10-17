@@ -10,6 +10,7 @@ Each row says which node holds it ("on"), so that its detail, its log or its can
 Outside a cluster nothing changes: the lists are this node's own.
 """
 
+import json
 import logging
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -119,3 +120,83 @@ def merge(local, answers, key, reverse=True, limit=None):
         rows += [{**r, "on": name} for r in body if isinstance(r, dict)] if isinstance(body, list) else []
     rows.sort(key=lambda r: (r.get(key) is not None, r.get(key) or ""), reverse=reverse)
     return rows[:limit] if limit else rows
+
+
+# ---- Requests about another member's guests or history ----
+#
+# What a node keeps for itself (its backups, the VMs it hosts) is acted on by that node: a request that names another
+# member is sent to it, in the name of the same user, and its answer comes back as it is. That member checks the
+# rights again and records the audit entry and the task. This node checked the session first.
+
+MAX_BODY = 1 << 20  # JSON bodies only (a backup request, a restore): uploads are never forwarded
+
+
+class Forwarded(Exception):  # not an error: the answer of another member, returned by app/main.py
+    """Another member's answer to a forwarded request."""
+
+    def __init__(self, status, body):
+        super().__init__(status)
+        self.status, self.body = status, body
+
+
+def answer(status, body, node_name):
+    """(status, body) for the browser. Never a 401, which would sign the dashboard out of this node, and a member
+    that fails or does not answer reads as a 502 naming it."""
+    if status == 401 or status >= 500:
+        return 502, {"detail": f"{node_name} refused the request ({status})"}
+    if status == 0:
+        return 502, {"detail": f"{node_name} does not answer"}
+    return status, body
+
+
+def forward_to(param, refuse_others=None):
+    """A FastAPI dependency: when the query parameter `param` names another member, the whole request goes to it
+    (minus that parameter) and its answer is returned (Forwarded, app/main.py). This node, nothing, or outside a
+    cluster: the endpoint runs here. A node that is not a member (registered over SSH only, no Hyperlite on it):
+    refused with `refuse_others` (a sentence) when given, else the endpoint runs here and handles it its own way."""
+    from fastapi import Depends, HTTPException, Request
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.core.security import get_current_user
+
+    async def dependency(request: Request, user: dict = Depends(get_current_user)):
+        name = request.query_params.get(param)
+        try:
+            node = peer(name)
+        except LookupError:
+            if refuse_others:
+                raise HTTPException(status_code=409, detail=refuse_others.format(node=name)) from None
+            return None
+        if node is None:
+            return None
+        query = urllib.parse.urlencode([(k, v) for k, v in request.query_params.multi_items() if k != param])
+        path = request.scope.get("raw_path", b"").decode("latin-1") or urllib.parse.quote(request.url.path)
+        path = path.split("?", 1)[0] + (f"?{query}" if query else "")
+        body = None
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            raw = await request.body()
+            if len(raw) > MAX_BODY:
+                raise HTTPException(status_code=413, detail="Request too large to send to another node")
+            if raw:
+                try:
+                    body = json.loads(raw)
+                except ValueError:
+                    raise HTTPException(status_code=422, detail="Invalid JSON body") from None
+        try:
+            status, reply = await run_in_threadpool(
+                rolling_update_call, node, user["username"], request.method, path, body
+            )
+        except PeerError:
+            status, reply = 0, None
+        raise Forwarded(*answer(status, reply, node["name"]))
+
+    return dependency
+
+
+def rolling_update_call(node, username, method, path, body):
+    from app.core import rolling_update
+
+    try:
+        return rolling_update.peer_api(node, username, method, path, body=body, timeout=60, connect_timeout=5)
+    except rolling_update.PeerUnreachable as e:
+        raise PeerError(str(e)) from None
