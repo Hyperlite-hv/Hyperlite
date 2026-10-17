@@ -115,9 +115,11 @@ def _refresh_pool_of(conn, path):
     refresh_pools_for_paths(conn, [path])
 
 
-def grow(conn, domain, target_dev, size_gb):
+def grow(conn, domain, target_dev, size_gb, before_change=None):
     """Grow disk `target_dev` of `domain` to `size_gb` GiB. Returns (old_bytes, new_bytes, live). Raises
-    ResizeError when the disk is missing, cannot be grown, the size is not larger, or the operation fails."""
+    ResizeError when the disk is missing, cannot be grown, the size is not larger, or the operation fails.
+    `before_change`: run once every check passed, right before the disk changes (dropping the replication
+    checkpoints, which a refused request must leave in place)."""
     disk_el = find_disk(domain, target_dev)
     if disk_el is None:
         raise ResizeError(f"Disk '{target_dev}' not found on VM '{domain.name()}'", 404)
@@ -151,6 +153,12 @@ def grow(conn, domain, target_dev, size_gb):
             raise ResizeError(
                 f"A block job (backup, migration or copy) is running on '{target_dev}': retry when it ends", 409
             )
+
+    if before_change is not None:
+        try:
+            before_change()
+        except Exception as e:
+            raise ResizeError(f"The disk could not be prepared for the resize: {describe_exception(e)}", 500) from e
 
     if how["kind"] == "zvol":
         try:

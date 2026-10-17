@@ -219,3 +219,23 @@ def test_the_disk_list_says_which_disks_can_be_grown(api):
     assert r.status_code == 200, r.text
     codes = {d["cible"]: d["non_agrandissable"] for d in r.json()}
     assert codes == {"vda": None, "vdb": None, "vdc": None, "vdd": "iscsi", "vde": "non_gere", "sdz": "non_gere"}
+
+
+def test_a_refused_resize_keeps_the_replication_chain(api, monkeypatch):
+    """Code review (#448): the checkpoints were dropped before the request was checked, so asking for a smaller size
+    still forced the next replication to copy the whole VM again."""
+    released = []
+    monkeypatch.setattr(devices.checkpoints, "release", lambda domain, name: released.append(name))
+    post = lambda size: api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": size}, headers=api["headers"])  # noqa: E731
+    assert post(4).status_code == 422 and released == []
+    assert post(32).status_code == 200 and released == ["vm1"]
+
+
+def test_checkpoints_that_cannot_be_dropped_are_a_reported_failure(api, monkeypatch):
+    def broken(domain, name):
+        raise RuntimeError("Cannot remove the replication bitmap hl-1 of /pool/vm1.qcow2")
+
+    monkeypatch.setattr(devices.checkpoints, "release", broken)
+    r = api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": 32}, headers=api["headers"])
+    assert r.status_code == 500 and "replication bitmap" in r.json()["detail"]
+    assert api["commands"]["qemu_img"] == []
