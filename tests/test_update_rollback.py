@@ -76,3 +76,20 @@ def test_the_database_schema_only_grows():
     assert not re.search(r"DROP\s+COLUMN|RENAME\s+COLUMN", source, re.I)
     for m in re.finditer(r"(?:DROP\s+TABLE|RENAME\s+TO)\s+(\w+)", source, re.I):
         assert "_pre_" in m.group(1), m.group(0)
+
+
+def test_a_version_that_cannot_be_kept_leaves_no_older_one_offered(node, monkeypatch):
+    """The installed version is not on the mirror (a node installed from the offline ISO, updated from a file, or
+    without network): the return is not offered, rather than one to a much older version kept earlier."""
+    update.PREVIOUS_DIR.mkdir(parents=True)
+    (update.PREVIOUS_DIR / "hyperlite_0.9.0_amd64.deb").write_text("an older version kept by an earlier update")
+
+    def run(cmd, cwd=None, **k):
+        node["run"].append(cmd)
+        return subprocess.CompletedProcess(cmd, 100, "", "E: Version '1:1.0.1' for 'hyperlite' was not found")
+
+    monkeypatch.setattr(update.subprocess, "run", run)
+    update._keep_previous("t1")
+    assert list(update.PREVIOUS_DIR.glob("hyperlite_*.deb")) == []
+    assert update._previous() is None
+    assert any("will not be offered" in line for line in node["logs"])

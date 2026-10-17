@@ -138,6 +138,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- "Go back to the previous version" could offer a much older version than the one just replaced: when the replaced version's package could not be kept (a node installed from the offline ISO, updated from a file, or without network), the package kept by an earlier update stayed. The return is now simply not offered then, as the update's log says.
+
 - In a cluster, every node refreshed the HA definition of every protected VM each minute, so the nodes kept overwriting each other (a conflict a minute in the audit log), and any node that did not find a VM could turn its protection off for the whole cluster. Each node now refreshes the protected VMs it hosts, and only writes a definition that changed. Two nodes writing the very same value no longer count as a conflict.
 
 - In a cluster, the HA alert about a node that went down (its protected VMs) could be lost when that node was the one leading the cluster: the node taking over had often seen it go down before it led, and only the leader of that moment reports. It now reports it as soon as it leads, if the node is still down.
