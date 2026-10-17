@@ -387,6 +387,66 @@ def run_backup(vm_name, target_dir=None, job_id=None, username="system", claim=N
         return _run_backup_locked(vm_name, target_dir, job_id, username)
 
 
+# What a backup leaves free on its target's filesystem: by default the system disk (data/backups), where a full disk
+# would also stop Hyperlite's database, the journal and libvirt.
+FREE_RESERVE_BYTES = 1 << 30
+
+
+def _allocated_bytes(path):
+    """What a disk occupies with its backing chain: qemu-img convert writes the chain flattened, unused blocks left
+    out, so its output is at most this."""
+    r = subprocess.run(
+        ["qemu-img", "info", "--backing-chain", "--output=json", "-U", str(path)],
+        capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    if r.returncode == 0:
+        try:
+            return sum(int(layer.get("actual-size") or 0) for layer in json.loads(r.stdout))
+        except (ValueError, TypeError, AttributeError):
+            pass
+    try:
+        return os.stat(path).st_blocks * 512
+    except OSError:
+        return 0
+
+
+def check_free_space(target_root, disk_paths):
+    """Refuse a backup that would not fit on its target with FREE_RESERVE_BYTES to spare. A check only: it creates
+    nothing, and measures the filesystem of the target's nearest existing directory (where the backup will land)."""
+    from app.core.backup_groups import validate_target  # late import: backup_groups imports this module
+
+    needed = sum(_allocated_bytes(p) for p in disk_paths)
+    target = os.path.normpath((validate_target(str(target_root)) if target_root else None) or DEFAULT_BACKUP_DIR)
+    if not target.startswith("/"):  # validate_target already refuses it; spelled out for the path analysis
+        raise RuntimeError(f"Invalid backup directory: {target_root}")
+    existing = next((d for d in (Path(target), *Path(target).parents) if d.is_dir()), Path("/"))
+    free = shutil.disk_usage(existing).free
+    if free < needed + FREE_RESERVE_BYTES:
+        gib = 1024**3
+        raise RuntimeError(
+            f"Not enough space for this backup in {target_root}: {free / gib:.1f} GiB free, about {needed / gib:.1f} "
+            f"GiB needed and {FREE_RESERVE_BYTES / gib:.0f} GiB kept free"
+        )
+
+
+def check_space_for(vm_name, target_dir=None):
+    """Before a manual backup starts: refused at once (RuntimeError) when it would not fit, rather than reported as
+    started and failing in its task. A check only: when the VM cannot be read, the backup's task reports why."""
+    try:
+        conn = open_conn()
+    except libvirt.libvirtError:
+        return
+    try:
+        domain = conn.lookupByName(vm_name)
+        check_free_space(
+            Path(target_dir) if target_dir else DEFAULT_BACKUP_DIR, [s for _d, s in domain_disk_paths(domain)]
+        )
+    except libvirt.libvirtError:
+        return  # the backup itself says the VM is not found
+    finally:
+        conn.close()
+
+
 def _run_backup_locked(vm_name, target_dir, job_id, username):
     target_root = Path(target_dir) if target_dir else DEFAULT_BACKUP_DIR
     conn = open_conn()
@@ -411,6 +471,9 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         backup_id = _store().create(vm_name, job_id, str(dest_dir), mode, _now().isoformat(), task_id)
 
         try:
+            # In the task: a backup refused for want of space is a failed task, audited and notified (a scheduled one
+            # has nobody watching), and nothing is left in its folder.
+            check_free_space(target_root, [src for _dev, src in domain_disk_paths(domain)])
             if mode == "froid":
                 dest_paths = backup_cold(domain, vm_name, dest_dir, task_id)
             else:
@@ -431,16 +494,6 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             log_action(
                 username, "backup_vm", vm_name, "succes", f"{kind}, {total_size / 1024**3:.1f} GiB in {dest_dir}"
             )
-            # Retention (retention_count, part of the schema) is applied HERE, in the same
-            # place for manual and scheduled backups, and on ALL the backups of this VM (not
-            # only those of the same job_id): a retention_count configured for a VM must cap
-            # the total number of its backups, not just those coming from one specific job.
-            # It does nothing when no backup_jobs row exists for this VM (no configured
-            # policy means no imposed limit, so a 100% manual usage without scheduling is
-            # unchanged).
-            job_row = _store().get_schedule(vm_name)
-            if job_row:
-                _apply_retention(vm_name, backup_retention.policy_of(job_row))
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
             _store().mark_failed(backup_id, msg)
@@ -448,6 +501,18 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             log_action(username, "backup_vm", vm_name, "echec", msg)
             shutil.rmtree(dest_dir, ignore_errors=True)
             raise
+        # Retention is applied HERE, in the same place for manual and scheduled backups, and on ALL the backups of
+        # this VM (not only those of the same job_id): a retention configured for a VM caps the total number of its
+        # backups. It does nothing when no backup_jobs row exists for this VM (no policy, no limit). Outside the try
+        # above: an error in it is reported and the backup just made stays as it is (it used to be marked failed and
+        # deleted).
+        try:
+            job_row = _store().get_schedule(vm_name)
+            if job_row:
+                _apply_retention(vm_name, backup_retention.policy_of(job_row))
+        except Exception as e:
+            logger.exception("Retention of %s's backups failed", vm_name)
+            log_action(username, "backup_retention", vm_name, "echec", str(e)[:300])
         return backup_id
     finally:
         conn.close()
@@ -760,13 +825,21 @@ def _apply_retention(vm_name, policy):
     """Per VM, not per job_id (see the comment in run_backup): the policy (app/core/backup_retention.py) applies
     to ALL the finished backups of the VM, whether they come from a schedule or from a manual trigger."""
     rows = _store().finished_of(vm_name)
-    keep = backup_retention.kept(
-        [(r["id"], r["cree_le"]) for r in rows],
-        policy["last"],
-        policy["daily"],
-        policy["weekly"],
-        policy["monthly"],
-    )
+
+    def kept(selection):
+        return backup_retention.kept(
+            [(r["id"], r["cree_le"]) for r in selection],
+            policy["last"],
+            policy["daily"],
+            policy["weekly"],
+            policy["monthly"],
+        )
+
+    # A backup found corrupted never takes the place of a good one: the policy picks among the good ones, so newer
+    # corrupted copies cannot push the last good one out. Corrupted ones are kept only where the policy over all of
+    # them would keep them (to be looked at), and removed beyond.
+    corrupted = {r["id"] for r in rows if r["verification"] == "corrompu"}
+    keep = kept([r for r in rows if r["id"] not in corrupted]) | (kept(rows) & corrupted)
     for row in rows:
         if row["id"] not in keep:
             if backup_use.holder(row["id"]):
