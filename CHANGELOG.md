@@ -144,6 +144,8 @@ All notable changes to this project are documented here. The format is based on 
 
 - On a server in a language other than English, the migration compatibility check failed instead of warning when the destination did not know the source's CPU model: libvirt writes its errors in the server's language, and the check looked for the English message. The destination's known models are now asked instead. Hyperlite also runs its tools in a fixed locale (C.UTF-8), so reading their output no longer depends on the server's language.
 
+- **Security:** the API tokens of a deleted account stayed in the database and were found by their owner's name, so they worked again for any account later created under the same name (a former employee's script signing in as a new colleague, with the new colleague's rights), and so could a session of the former account opened shortly before. Deleting an account now deletes its tokens, a new account starts without any left by a former one, and every session is bound to the account itself, not only to its name.
+
 - In a cluster, when Corosync stopped on a node (an upgrade, a crash), that node's `hyperlite-cfs` kept running without it: it spun on a processor core and answered no request, so the node stayed read-only until the daemon was restarted by hand. It now exits, and systemd restarts it until Corosync is back, however long that takes.
 
 - "Go back to the previous version" could offer a much older version than the one just replaced: when the replaced version's package could not be kept (a node installed from the offline ISO, updated from a file, or without network), the package kept by an earlier update stayed. The return is now simply not offered then, as the update's log says.
