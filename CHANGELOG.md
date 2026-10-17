@@ -142,6 +142,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- **Security:** a VM's password was written in clear on its cloud-init drive, a file that stays attached to the VM, readable by every local account of the node (and from inside the VM, through its CD-ROM drive), and copied with the VM's pool. It is now written as a SHA-512 hash, as Proxmox does, at creation and when changed from the Cloud-Init tab, and the drives are private to root. Drives made before keep their content until the VM's password is changed: change it from the Cloud-Init tab to remove it.
+
 - On a server in a language other than English, the migration compatibility check failed instead of warning when the destination did not know the source's CPU model: libvirt writes its errors in the server's language, and the check looked for the English message. The destination's known models are now asked instead. Hyperlite also runs its tools in a fixed locale (C.UTF-8), so reading their output no longer depends on the server's language.
 
 - **Security:** the API tokens of a deleted account stayed in the database and were found by their owner's name, so they worked again for any account later created under the same name (a former employee's script signing in as a new colleague, with the new colleague's rights), and so could a session of the former account opened shortly before. Deleting an account now deletes its tokens, a new account starts without any left by a former one, and every session is bound to the account itself, not only to its name.
