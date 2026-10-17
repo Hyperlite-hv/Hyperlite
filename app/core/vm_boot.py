@@ -15,6 +15,7 @@ from pathlib import Path
 
 import libvirt
 
+from app.core import vm_locks
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
 
@@ -94,6 +95,12 @@ def run_sequence(node=None, sleep=time.sleep):
                 continue
             if domain.isActive():
                 results.append((name, "deja_active"))
+                continue
+            busy = vm_locks.running(name, None if _node_key(node) == LOCAL else node)
+            if busy:  # its disks are being copied or replaced: started meanwhile, it would write to them
+                logger.warning("Start at boot: VM %s is busy (%s), not started", name, busy)
+                log_action("system", "autostart_vm", name, "echec", f"busy: {busy} in progress")
+                results.append((name, "occupee"))
                 continue
             try:
                 domain.create()
