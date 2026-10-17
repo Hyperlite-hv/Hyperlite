@@ -143,8 +143,18 @@ def sync_protected_vms():
     requested once it is unreachable) and automatically disables the protection
     if the storage is no longer shared (configuration changed in the meantime).
     A cleanly disabled protection with a clear audit trace is better than a
-    protection that would silently lie about its guarantees."""
+    protection that would silently lie about its guarantees.
+
+    In a cluster, each node refreshes the VMs it hosts, from its own libvirt: the rows are shared, and every node
+    rewriting every row each minute made them compete (a conflict a minute, app/repositories/cfs/shadow.py), and let
+    any node that did not find a VM turn its protection off for the whole cluster. Outside a cluster, the controller
+    refreshes them all, as before."""
+    from app.core import cluster_lead
+
+    own_only = cluster_lead.in_cluster()
     for row in list_protected():
+        if own_only and row["node"] not in (None, "local"):
+            continue
         try:
             conn = open_conn(_conn_key(row["node"]))
         except Exception:

@@ -284,3 +284,13 @@ def test_a_single_node_writes_as_before(cluster):
     write("UPDATE groups SET name = 'mine' WHERE id = 7")
     assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "mine"
     assert shadow.report()["conflits"] == 0
+
+
+def test_both_sides_wrote_the_same_value_is_no_conflict(cluster):
+    cluster.remote("/db/groups/7", {"id": 7, "name": "ops"})
+    inbound.apply()
+    cluster.remote("/db/groups/7", {"id": 7, "name": "same"})  # another node wrote it...
+    write("UPDATE groups SET name = 'same' WHERE id = 7")  # ...to the value this node wrote too
+    assert shadow.drain() == 1 and shadow.report()["conflits"] == 0
+    write("UPDATE groups SET name = 'next' WHERE id = 7")  # and its next change starts from that version
+    assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "next"
