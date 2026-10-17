@@ -345,7 +345,7 @@ def on_startup():
         with os.fdopen(fd, "w") as f:
             f.write(pwd + "\n")
         print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
-    initial_password.settle()
+    initial_password.start()
     encrypt_stored_totp_secrets()
     # Before anything starts new tasks: the ones still "running" belonged to the previous process.
     close_interrupted_tasks()

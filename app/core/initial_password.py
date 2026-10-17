@@ -5,6 +5,7 @@ is one more way in for anyone who later reads that file or a backup of it."""
 
 import logging
 import os
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -55,15 +56,34 @@ def forget():
         tmp.unlink(missing_ok=True)
 
 
+CHECK_S = 600
+
+
 def settle():
-    """At start: an installation from before these rules may still keep the initial password. Already changed, its
-    copies go; still the admin account's password, it is changed at the next sign-in. Never raises: a node of a
-    cluster that starts without the quorum cannot write the flag, and must start all the same (it is tried again at
-    the next start)."""
+    """At start, then every CHECK_S: an installation from before these rules may still keep the initial password.
+    Already changed, its copies go; still the admin account's password, it is changed at the next sign-in. In a
+    cluster the password is changed on one node: the others find their own copy stale at their next check (seen in
+    the lab: hlc1 kept its file after the change made on hlc2). Never raises: a node without the quorum cannot write
+    the flag, and must run all the same (it is tried again at the next check)."""
     try:
         _settle()
     except Exception:
-        logger.warning("The initial admin password could not be checked at start", exc_info=True)
+        logger.warning("The initial admin password could not be checked", exc_info=True)
+
+
+def start():
+    settle()
+
+    def loop():
+        while not _stop.wait(CHECK_S):
+            if not _paths()[0][0].exists():
+                return  # nothing left to check on this node
+            settle()
+
+    threading.Thread(target=loop, daemon=True, name="initial-password").start()
+
+
+_stop = threading.Event()
 
 
 def _settle():
