@@ -137,6 +137,8 @@ All notable changes to this project are documented here. The format is based on 
 
 - A backup can no longer be deleted while it is being read: during a restore, a verification or a file-restore session, deleting it is refused and says what holds it, and a schedule's retention keeps it until its next run. Deleting it during a restore made the restore fail half way, and during the copy could have left a VM half restored.
 
+- The Account security window (two-factor authentication and API tokens, from the user menu) was in English whatever the language chosen; it is now in French too, as are the disk and ISO upload areas, whose sizes and speeds also mixed French and English units. A network error during a disk or ISO upload no longer breaks the upload area.
+
 - In a cluster, VMs on the per-node NAT networks no longer get the same address: an address is handed out only when it is free on the network of the same name of every node, and a migrated VM keeps its address (its reservation goes to the destination and leaves the source). A migration is refused, before anything changes, when another machine holds that address on the destination (#410).
 
 - Live migration between two other nodes (a drain or a rolling update driven from a third one) lost the VM's cloud-init drive: it was fetched to the driving node instead of the destination, which refused the VM. It is now carried from the source to the destination.
