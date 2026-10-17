@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 import threading
 import xml.etree.ElementTree as ET
@@ -14,7 +15,9 @@ from app.core import (
     ha,
     iscsi,
     maintenance,
+    network_alloc,
     object_meta,
+    self_node,
     snapshot_carry,
     vm_boot,
     vm_locks,
@@ -161,6 +164,19 @@ def _copy_file_to_node(local_path, node_name, remote_path):
         raise RuntimeError(f"Copy of '{Path(local_path).name}' to {node_name} failed: {scp_r.stderr.strip()[:300]}")
 
 
+def _relay_file(source_node, target_node, path):
+    """A file of one remote node copied to the same path on another, through a private temporary file here."""
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(prefix="hyperlite-relay-")
+    os.close(fd)
+    try:
+        _copy_file_from_node(source_node, path, tmp)
+        _copy_file_to_node(tmp, target_node, path)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
 def _copy_file_from_node(node_name, remote_path, local_path):
     """Mirror of _copy_file_to_node: scp of a file from a remote node to the LOCAL
     host, with the same SSH key dedicated to the cluster. Needed for migration
@@ -222,15 +238,40 @@ def _ensure_networks_active(conn, network_names):
             net.setAutostart(True)
 
 
-def _local_migrate_uri_host():
-    """Address through which THIS node (the local host, never a row of the `nodes`
-    table: it is the host running Hyperlite itself) is reachable by ANOTHER node
-    for the QEMU data stream of a migration. Only useful when the local host is
-    the DESTINATION of a migration (the far more frequent direction, TOWARDS a
-    registered remote node, does not need it, see below). It queries Tailscale
-    (already used by this project) rather than guessing or hard-coding an IP.
-    Best-effort: None if unavailable, and the migration then tries without an
-    explicit migrate_uri instead of failing here."""
+def _local_migrate_uri_host(source_node=None):
+    """Address through which THIS node is reachable by another node for the QEMU data stream of a migration, when
+    this node is the destination. In order: its address in the cluster's configuration (the network the members
+    talk on), else the address this host uses to reach the source node (its route), else Tailscale (the first
+    multi-site setups). Found in the lab: only Tailscale was asked, so a cluster without it could never migrate a
+    VM to the node driving the migration. None when nothing is found."""
+    import ipaddress
+    import socket
+
+    from app.core import cluster_setup, self_node
+
+    try:
+        conf = cluster_setup.shared_conf()
+        me = self_node.name()
+        for member in (conf or {}).get("membres", []):
+            if member.get("nom") == me and member.get("adresse"):
+                return member["adresse"]
+    except Exception:
+        logger.debug("No cluster address for this node", exc_info=True)
+    if source_node and source_node != "local":
+        try:
+            from app.core.cluster import get_node
+
+            node = get_node(source_node)
+            if node:
+                peer = socket.getaddrinfo(node["hostname"], None, socket.AF_INET)[0][4][0]
+                r = subprocess.run(["ip", "-4", "route", "get", peer], capture_output=True, text=True, timeout=5)
+                words = r.stdout.split()
+                if r.returncode == 0 and "src" in words:
+                    src = words[words.index("src") + 1]
+                    if not ipaddress.IPv4Address(src).is_loopback:
+                        return src
+        except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+            logger.debug("No route to the source node", exc_info=True)
     try:
         r = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
         if r.returncode == 0 and r.stdout.strip():
@@ -271,6 +312,11 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         dest_conn = open_conn(dest_node_key)
 
         _ensure_networks_active(dest_conn, _domain_network_names(domain))
+        # The VM keeps its addresses on the per-node NAT networks: reserved on the destination first, refused when
+        # another machine holds one there (#410).
+        moved_reservations, added_reservations = network_alloc.carry_reservations(
+            src_conn, dest_conn, domain.XMLDesc(0)
+        )
 
         # Paths of the SOURCE disks, captured BEFORE the migration: needed to clean up the
         # original disk AFTER a successful migration on non-shared storage (see below).
@@ -326,6 +372,12 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
                 if Path(cdrom_path).exists():
                     _copy_file_to_node(cdrom_path, target_node, cdrom_path)
                     copied_cdrom_paths.append(cdrom_path)
+        elif dest_node_key is not None:
+            # Between two other nodes (a drain or a rolling update driven from here): through this host, which has
+            # the SSH trust of both. Found in the lab: the ISO was fetched here and the destination never had it.
+            for cdrom_path in _cdrom_source_paths(domain):
+                _relay_file(source_node, target_node, cdrom_path)
+                copied_cdrom_paths.append(cdrom_path)
         else:
             for cdrom_path in _cdrom_source_paths(domain):
                 try:
@@ -368,7 +420,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         # providing migrate_uri explicitly, with the address already verified reachable
         # (the same registered `hostname` used for the qemu+ssh:// connection itself).
         if dest_node_key is None:
-            local_addr = _local_migrate_uri_host()
+            local_addr = _local_migrate_uri_host(source_node)
             if source_node and source_node != "local":
                 # Migration from a remote node to the local host (see
                 # cluster.py::ensure_reverse_trust). A plain "qemu:///system" would be interpreted
@@ -382,9 +434,20 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
                 if not local_addr:
                     raise RuntimeError(
-                        "Tailscale address of the local host not found: migration from a remote node to the local host is impossible without it"
+                        "No address of this node reachable from the source node (cluster configuration, route, "
+                        "Tailscale): migration from a remote node to this node is impossible without it"
                     )
-                dest_uri = f"qemu+ssh://root@{local_addr}/system?keyfile={get_reverse_key_remote_path()}&no_verify=1&sshauth=privkey"
+                from app.core import cluster_lead
+                from app.core.cluster import get_cluster_private_key_path
+
+                # In a cluster every member trusts the others' cluster key (they join with it, and every node drives
+                # the others with it): the source connects back with its own. The dedicated reverse key is the older
+                # single-controller setup's, never installed on members that joined a cluster (found in the lab).
+                if cluster_lead.mode() == "cluster":
+                    keyfile = get_cluster_private_key_path()
+                else:
+                    keyfile = get_reverse_key_remote_path()
+                dest_uri = f"qemu+ssh://root@{local_addr}/system?keyfile={keyfile}&no_verify=1&sshauth=privkey"
             else:
                 dest_uri = "qemu:///system"
             migrate_params = {"migrate_uri": f"tcp://{local_addr}"} if local_addr else {}
@@ -405,6 +468,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         try:
             domain.migrateToURI3(dest_uri, migrate_params, flags)
         except libvirt.libvirtError:
+            network_alloc.release_reservations(dest_conn, added_reservations)
             lost = snapshot_carry.restore(domain, stashed)
             if lost:
                 logger.error("Snapshots of %s not defined again after a failed migration: %s", vm_name, lost)
@@ -414,6 +478,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             if lost:
                 task_log(task_id, f"Snapshots not carried (their data stays in the disks): {', '.join(lost)}")
         task_log(task_id, "Migration done, cleaning up")
+        network_alloc.release_reservations(src_conn, moved_reservations)
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
         # but NEVER deletes the original file, so every migration on non-shared storage
@@ -447,8 +512,14 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             "migrate_vm",
             vm_name,
             "succes",
-            f"{source_node} -> {target_node} ({'shared' if shared else 'copied'} storage)",
+            # The local node has no name of its own in source_node (None): the audit log said "None -> hlc2".
+            f"{source_node or self_node.name()} -> {target_node} ({'shared' if shared else 'copied'} storage)",
         )
+    except network_alloc.AddressInUse as e:
+        stop_event.set()
+        msg = f"Migration refused: {e}. Free that address on {target_node}, or give the VM another one."
+        finish_task(task_id, "echec", msg)
+        log_action(username, "migrate_vm", vm_name, "echec", msg)
     except libvirt.libvirtError as e:
         stop_event.set()
         msg = describe_exception(e)

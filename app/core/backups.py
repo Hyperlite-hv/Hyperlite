@@ -39,6 +39,7 @@ import libvirt
 from app.core import (
     backup_integrity,
     backup_retention,
+    backup_use,
     checkpoints,
     cluster_lead,
     firmware,
@@ -577,6 +578,12 @@ def _restore_overwrite(conn, domain, images, task_id):
 
 
 def restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None):
+    """See _restore_backup; the backup is marked as being read meanwhile, so it cannot be deleted under the restore."""
+    with backup_use.reading(backup_id, "a restore"):
+        return _restore_backup(backup_id, mode, new_name, username, claim, network)
+
+
+def _restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None):
     """mode='overwrite': replace the disks of the original VM (it must be stopped). mode='new': define a new VM from
     the backup, with a new UUID/MAC (the same logic as cloning). `network` (mode 'new' only) replaces the network
     recorded in the backup: a backup made on another site may name a network this node does not have.
@@ -698,6 +705,12 @@ def restore_backup(backup_id, mode, new_name=None, username="system", claim=None
 
 
 def verify_backup(backup_id, username="system", task_id=None):
+    """See _verify_backup; the backup is marked as being read meanwhile."""
+    with backup_use.reading(backup_id, "a verification"):
+        return _verify_backup(backup_id, username, task_id)
+
+
+def _verify_backup(backup_id, username="system", task_id=None):
     """Check one backup (checksums of every file, qemu-img check of the images) and record the result. Returns
     {"verification", "problemes"}. A corrupted backup is audited and notified."""
     row = _store().get(backup_id)
@@ -756,6 +769,8 @@ def _apply_retention(vm_name, policy):
     )
     for row in rows:
         if row["id"] not in keep:
+            if backup_use.holder(row["id"]):
+                continue  # being restored or read: the next run of the schedule removes it
             shutil.rmtree(row["chemin"], ignore_errors=True)
             _store().delete(row["id"])
 

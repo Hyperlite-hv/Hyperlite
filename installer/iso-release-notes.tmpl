@@ -8,6 +8,8 @@ This is the moving 'latest' build. Versioned, immutable releases are published s
 
 Once installed, the appliance manages itself through apt (the same repository as above, see dists/): the 'Check for updates' button of the dashboard works normally from the first boot, regardless of the date of this ISO.
 
+Nodes without network: hyperlite-update-amd64.tar is the update file of this version (Hyperlite, the Debian packages it needs and the release notes, signed with the repository key). Download it from a machine that has access, then on the node: account menu > Update > From a file.
+
 Installation:
 sudo dd if=hyperlite-appliance-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
 (or Rufus / balenaEtcher on Windows)

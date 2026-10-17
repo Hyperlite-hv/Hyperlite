@@ -465,9 +465,38 @@ Remote desktop (RDP) also carries the clipboard, drives and USB devices for Wind
 
 ## 18. Updating Hyperlite
 
-**Account → Check for updates** (administrators) shows whether a new version is available and installs it. The update
-is backed up first and rolled back automatically if the new version does not start. The node's other packages are
-updated from the node's **Updates** tab.
+**Account → Check for updates** (administrators) updates this node: Hyperlite and the node's Debian packages
+together. Before anything starts, the dialog shows the new version and its release notes, how many Debian packages
+change (security ones counted), and whether the node will need a reboot. Running VMs keep running. The node is backed
+up first, and the previous version of Hyperlite is put back automatically if the new one does not start. A reboot is
+never done for you: the node page says when one is needed, and you choose the moment (maintenance mode first, in a
+cluster).
+
+- **Go back to …**: installs the version before the last update again, with the same backup and safety net. One step
+  back, Hyperlite only.
+- **Channel** (node → **Updates**): **Stable**, the releases (the default), or **Test**, every change merged for the
+  next release as soon as it is merged. Going back to Stable never installs an older version: the node keeps its test
+  build until a release is newer.
+- **Automatic security updates** (node → **Updates**): Debian's security updates every night, 03:30 by default; never
+  Hyperlite, never a reboot.
+
+### A cluster, node after node
+
+**Administration › Replicated configuration › Cluster update** updates every node of a cluster without stopping the
+VMs. The plan comes first: each node's version, its Debian packages, whether it will need a reboot, and the VMs that
+will move. Then one node at a time: maintenance mode, its running VMs live-migrated to the other nodes, the update,
+a reboot when one is needed (VMs that cannot move, with local disks or passthrough, are stopped for it only if you
+chose so in the plan; otherwise that node's reboot is left for later), and the end of maintenance before the next
+node. VMs are not moved back. The node you are signed in to goes last. If a node fails, the update stops there: that
+node stays in maintenance for you to look at, and the nodes already updated stay updated.
+
+### A node without network
+
+Every version publishes an update file next to the ISO, `hyperlite-update-amd64.tar`: Hyperlite, the Debian packages
+it needs and the release notes, signed with the repository key. Download it from a machine that has access, bring it
+to the node's network, then **Check for updates → From a file…** and choose it. The node checks the signature and every
+file before showing what will change; **Update from this file** then runs the same update as above, from the file's
+packages only. A file for another Debian release, or older than the installed version, is refused.
 
 ## 19. Troubleshooting
 
