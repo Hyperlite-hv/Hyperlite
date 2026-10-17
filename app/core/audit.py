@@ -37,17 +37,35 @@ logger = logging.getLogger(__name__)
 # still recorded (an unknown VM, a refused access: worth seeing).
 READ_ACTION_PREFIXES = ("list_", "get_")
 
-# How long the audit log keeps its entries (days); HYPERLITE_AUDIT_RETENTION_DAYS, 0 = forever.
+# How long the audit log keeps its entries (days), 0 = forever: Activity > Audit log > Retention (the cluster's
+# setting), else HYPERLITE_AUDIT_RETENTION_DAYS, else DEFAULT_RETENTION_DAYS. Its entries hold the users' addresses.
 DEFAULT_RETENTION_DAYS = 365
+MAX_RETENTION_DAYS = 3650
+RETENTION_KEY = "audit_days"
 PURGE_INTERVAL_S = 86400
 _last_purge = 0.0
 
 
 def retention_days():
-    raw = (os.environ.get("HYPERLITE_AUDIT_RETENTION_DAYS") or "").strip()
-    if raw.isdigit():
-        return int(raw)
+    from app.repositories import registry
+
+    try:
+        raw = registry.settings().sync.app_setting(RETENTION_KEY)
+    except Exception:  # the database is not there (yet): the environment's value
+        raw = None
+    if raw is None:
+        raw = (os.environ.get("HYPERLITE_AUDIT_RETENTION_DAYS") or "").strip()
+    if str(raw).isdigit():
+        return min(int(raw), MAX_RETENTION_DAYS)
     return DEFAULT_RETENTION_DAYS
+
+
+def set_retention_days(value):
+    if not isinstance(value, int) or not 0 <= value <= MAX_RETENTION_DAYS:
+        raise ValueError(f"The audit log is kept between 1 and {MAX_RETENTION_DAYS} days, or 0 for ever")
+    from app.repositories import registry
+
+    registry.settings().sync.set_app_setting(RETENTION_KEY, str(value))
 
 
 def purge_old_entries(now=None):
