@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import firmware, iscsi, maintenance, vm_locks
+from app.core import disk_space, firmware, iscsi, maintenance, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
@@ -107,6 +107,15 @@ def _clone_vm(name, payload, user):
         if not disk_els:
             log_action(user["username"], "clone_vm", name, "echec", "source disk not found", task_id=task_id)
             raise HTTPException(status_code=500, detail="Source disk not found")
+
+        # Every copy lands in the images directory, on the system disk by default: refused before the first byte when
+        # it would not fit (app/core/disk_space.py), rather than filling it hours later.
+        sources = [d.find("source").get("file") for d in disk_els if d.find("source") is not None]
+        try:
+            disk_space.ensure_room(IMAGES_DIR, sum(disk_space.allocated_bytes(p) for p in sources if p), "this clone")
+        except disk_space.NotEnoughSpace as e:
+            log_action(user["username"], "clone_vm", name, "echec", str(e), task_id=task_id)
+            raise HTTPException(status_code=409, detail=str(e)) from None
 
         # Clone ALL the disks (not only the first one, see the note above).
         for i, disk_el in enumerate(disk_els):
