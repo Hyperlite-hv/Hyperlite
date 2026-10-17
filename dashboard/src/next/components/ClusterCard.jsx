@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Copy, KeyRound, Network, Trash2, UserPlus } from "lucide-react";
-import { clusterJoinInformation, createCluster, fetchCluster, joinCluster, removeClusterMember } from "../../api/client";
+import { Copy, KeyRound, Network, Star, Trash2, UserPlus } from "lucide-react";
+import { clusterJoinInformation, createCluster, fetchCluster, joinCluster, removeClusterMember, setClusterPrimary } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
@@ -66,6 +66,14 @@ export default function ClusterCard() {
     if (done) setInfo(done);
   }
 
+  // The primary node keeps the quorum alone with one other node: that node never makes it read-only.
+  async function onPrimary(member) {
+    const unset = member.voix > 1;
+    const title = t(unset ? "cl.unsetPrimaryTitle" : "cl.primaryTitle", { name: member.nom });
+    if (!(await confirmAction({ title, message: t(unset ? "cl.unsetPrimaryMsg" : "cl.primaryMsg", { name: member.nom }), confirmLabel: t(unset ? "cl.unsetPrimary" : "cl.makePrimary") }))) return;
+    await run(() => setClusterPrimary(unset ? null : member.nom), () => ({ title: t(unset ? "cl.unsetPrimaryDone" : "cl.primaryDone", { name: member.nom }) }));
+  }
+
   async function onRemove(member) {
     if (!(await confirmAction({ title: t("cl.removeTitle", { name: member.nom }), message: t("cl.removeMsg"), confirmLabel: t("cl.remove") }))) return;
     await run(() => removeClusterMember(member.nom), () => ({ title: t("cl.removed", { name: member.nom }) }));
@@ -82,16 +90,20 @@ export default function ClusterCard() {
         <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t(state.quorum ? "cl.quorate" : "cl.noQuorum")}</p>
         <TableWrap label={t("cl.members")}>
           <table className="nx-table">
-            <thead><tr><th scope="col">{t("cl.member")}</th><th scope="col">{t("cl.nodeid")}</th><th scope="col">{t("cl.address")}</th><th scope="col"><span className="nx-sr">{t("cl.actions")}</span></th></tr></thead>
+            <thead><tr><th scope="col">{t("cl.member")}</th><th scope="col">{t("cl.nodeid")}</th><th scope="col">{t("cl.address")}</th><th scope="col">{t("cl.votes")}</th><th scope="col"><span className="nx-sr">{t("cl.actions")}</span></th></tr></thead>
             <tbody>
               {state.membres.map((m) => (
                 <tr key={m.nom}>
                   <th scope="row">{m.nom}{m.nom === state.noeud && <span className="nx-f-h"> — {t("cl.thisNode")}</span>}</th>
                   <td>{m.nodeid}</td>
                   <td className="nx-mono">{m.adresse}</td>
-                  <td>{m.nom !== state.noeud && (
+                  <td>{m.voix > 1 ? <span className="nx-chip" data-tone="info" title={t("cl.primaryHelp")}><Star size={12} aria-hidden="true" /> {t("cl.primary")} · {m.voix}</span> : (m.voix ?? 1)}</td>
+                  <td><div className="nx-ra">
+                    <button type="button" className="nx-btn" disabled={busy} onClick={() => onPrimary(m)}>{t(m.voix > 1 ? "cl.unsetPrimary" : "cl.makePrimary")}</button>
+                    {m.nom !== state.noeud && (
                     <button type="button" className="nx-btn" disabled={busy} onClick={() => onRemove(m)} aria-label={t("cl.removeLabel", { name: m.nom })}><Trash2 size={15} aria-hidden="true" />{t("cl.remove")}</button>
-                  )}</td>
+                    )}
+                  </div></td>
                 </tr>
               ))}
             </tbody>
