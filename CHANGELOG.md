@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
+- A primary node in a cluster (**Cluster** page, **Make primary**): it counts twice in the quorum, so with one other node it keeps working when that node is off or cut off, and that node alone becomes read-only. For a main machine paired with one that is often off or reached over a slower link, without a third machine as an arbiter. Proxmox allows it only by editing `corosync.conf`.
+
 - In a cluster, a node that runs VMs with HA turned on fences itself when it is cut off from the majority, as on Proxmox: it arms its watchdog (a hardware one, or the kernel's softdog) and feeds it while it has the quorum, and without it the node is reset, so its VMs can be restarted elsewhere safely (the next step of automatic HA). A node without HA VMs never arms it, and a normal restart of the service (an update) disarms it first.
 
 - In a cluster, a VM hosted by another node is backed up, restored, verified and scheduled from whichever node the dashboard is open on: the request goes to the node that hosts it, which keeps its backups. The Backups page lists every node's backups, with their node. Browsing a backup's files stays on the dashboard of the node that holds it. A node registered over SSH only keeps no backups: a backup of one of its VMs is refused instead of being taken from a VM of the same name on this node.

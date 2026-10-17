@@ -48,6 +48,9 @@ from app.core.cfs_client import CfsError, NotFound
 logger = logging.getLogger(__name__)
 
 COROSYNC_CONF = Path("/etc/corosync/corosync.conf")
+# The primary node counts twice in the quorum: with one other node, it keeps the quorum alone, so that node (a machine
+# that is often off, or reached over a slower link) never makes it read-only. Proxmox allows it by editing quorum_votes.
+PRIMARY_VOTES = 2
 COROSYNC_KEY = Path("/etc/corosync/authkey")
 COROSYNC_BIN = "/usr/sbin/corosync"
 CFS_DEFAULTS = Path("/etc/default/hyperlite-cfs")
@@ -159,7 +162,7 @@ def render(conf):
         "  node {\n"
         f"    name: {m['nom']}\n"
         f"    nodeid: {int(m['nodeid'])}\n"
-        "    quorum_votes: 1\n"
+        f"    quorum_votes: {int(m.get('voix', 1))}\n"
         f"    ring0_addr: {m['adresse']}\n"
         "  }\n"
         for m in sorted(conf["membres"], key=lambda m: int(m["nodeid"]))
@@ -185,12 +188,22 @@ def _check_conf(conf):
     try:
         checked = {"cluster": _cluster_name(conf["cluster"]), "version": int(conf["version"]), "membres": []}
         for m in conf["membres"]:
+            votes = int(m.get("voix", 1))  # a configuration from before the primary node had none: one each
+            if votes not in (1, PRIMARY_VOTES):
+                raise ValueError(votes)
             checked["membres"].append(
-                {"nom": _node_name(m["nom"]), "nodeid": int(m["nodeid"]), "adresse": _address(m["adresse"])}
+                {
+                    "nom": _node_name(m["nom"]),
+                    "nodeid": int(m["nodeid"]),
+                    "adresse": _address(m["adresse"]),
+                    "voix": votes,
+                }
             )
     except (KeyError, TypeError, ValueError):
         raise ClusterError("The cluster's configuration is not valid") from None
     if not checked["membres"] or not 0 < checked["version"] < 2**31:
+        raise ClusterError("The cluster's configuration is not valid")
+    if sum(m["voix"] == PRIMARY_VOTES for m in checked["membres"]) > 1:
         raise ClusterError("The cluster's configuration is not valid")
     ids = [m["nodeid"] for m in checked["membres"]]
     if len(set(ids)) != len(ids) or len({m["nom"] for m in checked["membres"]}) != len(ids):
@@ -698,6 +711,29 @@ def remove_member(name, confirmation, username):
         sync()
     SqliteNodeStore().delete(name)
     log_action(username, "cluster_remove_member", name, "succes", conf["cluster"])
+    return state()
+
+
+def set_primary(name, username):
+    """Make `name` the primary node (it counts PRIMARY_VOTES times in the quorum), or none when `name` is None: one vote
+    each again. Applied on every member from the shared configuration (sync)."""
+    from app.core.audit import log_action
+
+    if name is not None:
+        name = _node_name(name)
+    with _members_lock:
+        client = _client()
+        conf = shared_conf()
+        if not conf:
+            raise ClusterError("This node is not in a cluster")
+        if name is not None and not any(m["nom"] == name for m in conf["membres"]):
+            raise ClusterError(f"{name} is not a member of the cluster")
+        for m in conf["membres"]:
+            m["voix"] = PRIMARY_VOTES if m["nom"] == name else 1
+        conf["version"] += 1
+        client.put(CONF_PATH, json.dumps(conf).encode())
+        sync()
+    log_action(username, "cluster_primary", name or "none", "succes", conf["cluster"])
     return state()
 
 

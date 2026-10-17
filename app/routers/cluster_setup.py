@@ -33,6 +33,10 @@ class MemberRequest(BaseModel):
     cle_ssh: str = Field(max_length=200)
 
 
+class PrimaryRequest(BaseModel):
+    nom: str | None = Field(None, max_length=63)  # None: no primary node, one vote each
+
+
 class RemoveRequest(BaseModel):
     confirmation: str = Field(max_length=63)
 
@@ -94,6 +98,15 @@ def accept_member(payload: MemberRequest):
     except (CfsError, OSError) as e:
         logger.warning("Letting %s in failed: %s", payload.nom[:63], e)
         raise HTTPException(status_code=503, detail="hyperlite-cfs does not answer on this member") from None
+
+
+@router.post("/principal")
+def set_primary(payload: PrimaryRequest, user: dict = Depends(require_role("admin"))):
+    """The primary node counts twice in the quorum: with one other node, it keeps the quorum alone."""
+    try:
+        return cluster_setup.set_primary(payload.nom, user["username"])
+    except (cluster_setup.ClusterError, CfsError, OSError) as e:
+        _failed(user, "cluster_primary", payload.nom or "none", e)
 
 
 @router.post("/membres/{nom}/retirer")

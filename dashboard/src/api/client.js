@@ -1309,6 +1309,10 @@ export async function clusterJoinInformation() {
 export async function joinCluster({ information, adresse, confirmation }) {
   return realFetch("/cluster/rejoindre", { method: "POST", ...jsonBody({ information: information.trim(), adresse: adresse.trim(), confirmation: confirmation.trim() }) });
 }
+// The primary node counts twice in the quorum (null: one vote each).
+export async function setClusterPrimary(name) {
+  return realFetch("/cluster/principal", { method: "POST", ...jsonBody({ nom: name }) });
+}
 export async function removeClusterMember(name) {
   return realFetch(`/cluster/membres/${encodeURIComponent(name)}/retirer`, { method: "POST", ...jsonBody({ confirmation: name }) });
 }
