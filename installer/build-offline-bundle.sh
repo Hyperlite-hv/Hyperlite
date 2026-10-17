@@ -86,9 +86,8 @@ log "Python wheels"
 venv=$(mktemp -d)
 python3 -m venv "$venv"
 "$venv/bin/pip" install -q --upgrade pip wheel setuptools
-"$venv/bin/pip" wheel -q -r "$ROOT/requirements.txt" -w "$OUT/wheels"
-# postinst upgrades pip in the new venv first: carry it too.
-"$venv/bin/pip" download -q --only-binary=:all: pip -d "$OUT/wheels"
+# Every download checked against the hashes of requirements.txt (pip included, so postinst finds the pinned one).
+"$venv/bin/pip" wheel -q --require-hashes -r "$ROOT/requirements.txt" -w "$OUT/wheels"
 rm -rf "$venv"
 if find "$OUT/wheels" -type f ! -name '*.whl' | grep -q .; then
     fail "a requirement did not become a wheel: $(find "$OUT/wheels" -type f ! -name '*.whl' -printf '%f ')"
