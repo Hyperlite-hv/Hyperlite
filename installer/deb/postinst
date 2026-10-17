@@ -39,8 +39,18 @@ log "Python environment (venv)"
 if [ ! -x "$APP_DIR/venv/bin/python3" ]; then
     python3 -m venv "$APP_DIR/venv"
 fi
-"$APP_DIR/venv/bin/pip" install --no-input --upgrade pip --quiet
-"$APP_DIR/venv/bin/pip" install --no-input -r "$APP_DIR/requirements.txt" --quiet
+# requirements.txt pins every package, pip included, with its hashes (generated from requirements.in): what is
+# installed is what CI tested, and a file whose hash differs is refused. From the offline bundle (the ISO, the offline
+# update: PIP_NO_INDEX) the wheels were built and checked against these hashes in CI, and the bundle is signed; a wheel
+# built from a source package (libvirt-python) cannot have the source's hash, so they are installed by version only.
+if [ -n "${PIP_NO_INDEX:-}" ]; then
+    REQS=$(mktemp)
+    sed -E -e 's/[[:space:]]*\\$//' -e '/^[[:space:]]*--hash=/d' "$APP_DIR/requirements.txt" > "$REQS"
+    "$APP_DIR/venv/bin/pip" install --no-input -r "$REQS" --quiet
+    rm -f "$REQS"
+else
+    "$APP_DIR/venv/bin/pip" install --no-input --require-hashes -r "$APP_DIR/requirements.txt" --quiet
+fi
 # python-jose (and its vulnerable ecdsa dependency) was replaced by PyJWT and passlib by bcrypt; drop them from venvs created by older versions.
 "$APP_DIR/venv/bin/pip" uninstall -y python-jose ecdsa passlib >/dev/null 2>&1 || true
 

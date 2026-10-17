@@ -32,6 +32,17 @@ npm ci
 cd ..
 ```
 
+Python dependencies are listed in `requirements.in`. `requirements.txt` is generated from it with every package
+pinned and hashed, for the Python of Debian 13 (3.13), and is what nodes install. After a change to
+`requirements.in`:
+
+```bash
+pip install pip-tools
+pip-compile --no-strip-extras --generate-hashes --allow-unsafe --output-file requirements.txt requirements.in
+```
+
+`tests/test_requirements_lock.py` fails when the two files disagree. Dependabot updates both.
+
 Run a throw-away instance (HTTP, local only):
 
 ```bash

@@ -1,7 +1,7 @@
 [project]
 name = "hyperlite"
 description = "Self-hosted KVM/QEMU hypervisor with a web dashboard"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dynamic = ["version"]
 
 [tool.pytest.ini_options]
@@ -9,7 +9,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 120
 extend-exclude = ["dashboard", "venv", "installer/deb-build", "installer/apt-repo"]
 
