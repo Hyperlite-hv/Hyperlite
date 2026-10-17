@@ -15,6 +15,7 @@ from app.core import (
     ha,
     iscsi,
     maintenance,
+    network_alloc,
     object_meta,
     self_node,
     snapshot_carry,
@@ -311,6 +312,11 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         dest_conn = open_conn(dest_node_key)
 
         _ensure_networks_active(dest_conn, _domain_network_names(domain))
+        # The VM keeps its addresses on the per-node NAT networks: reserved on the destination first, refused when
+        # another machine holds one there (#410).
+        moved_reservations, added_reservations = network_alloc.carry_reservations(
+            src_conn, dest_conn, domain.XMLDesc(0)
+        )
 
         # Paths of the SOURCE disks, captured BEFORE the migration: needed to clean up the
         # original disk AFTER a successful migration on non-shared storage (see below).
@@ -462,6 +468,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         try:
             domain.migrateToURI3(dest_uri, migrate_params, flags)
         except libvirt.libvirtError:
+            network_alloc.release_reservations(dest_conn, added_reservations)
             lost = snapshot_carry.restore(domain, stashed)
             if lost:
                 logger.error("Snapshots of %s not defined again after a failed migration: %s", vm_name, lost)
@@ -471,6 +478,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             if lost:
                 task_log(task_id, f"Snapshots not carried (their data stays in the disks): {', '.join(lost)}")
         task_log(task_id, "Migration done, cleaning up")
+        network_alloc.release_reservations(src_conn, moved_reservations)
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
         # but NEVER deletes the original file, so every migration on non-shared storage
@@ -507,6 +515,11 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             # The local node has no name of its own in source_node (None): the audit log said "None -> hlc2".
             f"{source_node or self_node.name()} -> {target_node} ({'shared' if shared else 'copied'} storage)",
         )
+    except network_alloc.AddressInUse as e:
+        stop_event.set()
+        msg = f"Migration refused: {e}. Free that address on {target_node}, or give the VM another one."
+        finish_task(task_id, "echec", msg)
+        log_action(username, "migrate_vm", vm_name, "echec", msg)
     except libvirt.libvirtError as e:
         stop_event.set()
         msg = describe_exception(e)

@@ -135,6 +135,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- In a cluster, VMs on the per-node NAT networks no longer get the same address: an address is handed out only when it is free on the network of the same name of every node, and a migrated VM keeps its address (its reservation goes to the destination and leaves the source). A migration is refused, before anything changes, when another machine holds that address on the destination (#410).
+
 - Live migration between two other nodes (a drain or a rolling update driven from a third one) lost the VM's cloud-init drive: it was fetched to the driving node instead of the destination, which refused the VM. It is now carried from the source to the destination.
 - Live migration from another node to this one required a Tailscale address and a dedicated "reverse" SSH key, which a cluster made by joining never has: it now uses this node's cluster address (or its route to the source) and, in a cluster, the source's own cluster key.
 - Rolling update: its plan judged every VM as unable to move, the other nodes were not reachable (the command sent over SSH was split by the remote shell), a node already up to date was emptied and updated for nothing, and VMs were not sent to a node already on the new version when one was.
