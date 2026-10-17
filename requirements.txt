@@ -1,4 +1,4 @@
-fastapi==0.142.2
+fastapi==0.143.0
 uvicorn[standard]==0.54.0
 libvirt-python==12.8.0
 python-multipart==0.0.32
