@@ -200,6 +200,8 @@ export async function fetchNodes() {
     version: `Hyperlite (${d.hyperviseur.type})`,
     vms_actives: d.vms.actives,
     vms_arretees: d.vms.arretees,
+    // Why this node changes nothing right now (a cluster node that lost the quorum), or null.
+    lecture_seule: d.lecture_seule ?? null,
   };
 
   // Registered remote nodes. They used to be missing here: this function only ever

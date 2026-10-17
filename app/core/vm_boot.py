@@ -145,6 +145,19 @@ def boot_if_new(node, boot_id):
         return []
 
 
+QUORUM_WAIT_S = 10
+
+
+def _boot_when_writable():
+    # In a cluster, a node that just started often has no quorum yet: its VMs start once it has (as Proxmox's
+    # pve-guests waits for it), never on a node cut off from the others. The boot id is claimed only then.
+    from app.core import cluster_lead
+
+    while cluster_lead.paused("Start at boot"):
+        time.sleep(QUORUM_WAIT_S)
+    boot_if_new(LOCAL, _local_boot_id())
+
+
 def start_boot_sequence():
     """This host: at service start. Registered nodes: see cluster._poll_nodes (when a node is seen online)."""
-    threading.Thread(target=lambda: boot_if_new(LOCAL, _local_boot_id()), daemon=True, name="vm-start-at-boot").start()
+    threading.Thread(target=_boot_when_writable, daemon=True, name="vm-start-at-boot").start()

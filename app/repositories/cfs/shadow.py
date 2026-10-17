@@ -23,8 +23,10 @@ from datetime import UTC, datetime
 from app.core.cfs_client import (
     DEFAULT_SOCKET,
     FORBIDDEN,
+    MUST_NOT_EXIST,
     CfsClient,
     CfsError,
+    Conflict,
     NotFound,
     ReadOnly,
     Synchronising,
@@ -170,6 +172,10 @@ def install_triggers(db):
     db.execute(
         "CREATE TABLE IF NOT EXISTS cfs_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, pk TEXT NOT NULL)"
     )
+    # The version of each entry as this node last saw it (applied from the tree, or written itself): in a cluster a change
+    # goes out only if the entry is still at that version, so a change made here never overwrites a newer one made by
+    # the others (a node cut off from the cluster, or the 2 s before a change goes out). Each node keeps its own.
+    db.execute("CREATE TABLE IF NOT EXISTS cfs_base (path TEXT PRIMARY KEY, version INTEGER NOT NULL)")
     for (name,) in db.execute(
         "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'cfs!_%' ESCAPE '!'"
     ):
@@ -203,6 +209,7 @@ class _Stats:
         self.lock = threading.Lock()
         self.copies = 0
         self.failures = 0
+        self.conflicts = 0  # changes of this node dropped because the cluster changed the entry meanwhile
         self.last_error = None
         self.last_error_at = None
 
@@ -259,9 +266,53 @@ def pending():
         return db.execute("SELECT COUNT(*) FROM cfs_outbox").fetchone()[0]
 
 
+class _Dropped(Exception):
+    """The cluster changed the entry since this node last saw it: this node's change is dropped, the cluster's kept."""
+
+
+def _write_checked(client, path, data, base):
+    """In a cluster: write `data` (None: delete) only if the entry is still at `base`, the version this node last saw
+    (None: never seen). Returns the entry's version afterwards (None: absent). Raises _Dropped when the cluster changed
+    it meanwhile: the majority's version wins, as on Proxmox."""
+    try:
+        if base is None:
+            try:
+                current = client.get(path)
+            except NotFound:
+                return None if data is None else client.put(path, data, MUST_NOT_EXIST)
+            if data is not None and current.data == data:
+                return current.version  # the cluster already holds this very value
+            raise _Dropped(path)  # an entry this node never saw: not this node's to change
+        if data is None:
+            with contextlib.suppress(NotFound):  # already absent: the state wanted
+                client.delete(path, base)
+            return None
+        return client.put(path, data, base)
+    except (Conflict, NotFound):
+        raise _Dropped(path) from None
+
+
+def _dropped(paths):
+    """Report the changes of this node the cluster overrode, and have the cluster's values applied here again."""
+    from app.core.audit import log_action
+    from app.repositories.cfs import inbound  # imports this module
+
+    with _stats.lock:
+        _stats.conflicts += len(paths)
+    for path in paths:
+        logger.warning("hyperlite-cfs shadow: %s changed in the cluster meanwhile: this node's change is dropped", path)
+        log_action(
+            "system", "cfs_conflict", path, "echec",
+            "Changed on this node while the cluster changed it too (this node was cut off, or both changed it at "
+            "once): the cluster's version is kept",
+        )  # fmt: skip
+    inbound.reapply()
+
+
 def drain(limit=500):
     """Copy what the outbox lists, oldest first; returns how many entries were copied. Stops at the first failure and
-    keeps the rest for the next call, so the daemon receives the changes in the order SQLite made them."""
+    keeps the rest for the next call, so the daemon receives the changes in the order SQLite made them. In a cluster,
+    an entry the cluster changed since this node last saw it keeps the cluster's version (_write_checked)."""
     if not enabled():
         with _db() as db:  # shadow mode off: nothing is owed to the daemon
             db.execute("DELETE FROM cfs_outbox")
@@ -269,6 +320,7 @@ def drain(limit=500):
         return 0
     with _db() as db:
         rows = db.execute("SELECT id, tbl, pk FROM cfs_outbox ORDER BY id LIMIT ?", (limit,)).fetchall()
+        bases = dict(db.execute("SELECT path, version FROM cfs_base").fetchall()) if rows else {}
     if not rows:
         return 0
     known = tables()
@@ -279,28 +331,52 @@ def drain(limit=500):
         last[(r["tbl"], r["pk"])] = r["id"]
     done = []
     copied = 0
+    seen = {}  # path -> version after this drain (None: absent)
+    dropped = []
     try:
         client = _get_client()
     except (CfsError, OSError) as e:
         _failed("hyperlite-cfs", e)
+        return 0
+    try:
+        # One writer outside a cluster: the daemon holds what this node wrote, nothing to compare.
+        cluster = client.status().mode == "cluster"
+    except (CfsError, OSError) as e:
+        # Nothing goes out without knowing whether the cluster's versions must be checked; the error names the change
+        # that waits.
+        tbl, pk = next(iter(last))
+        table = known.get(tbl)
+        _failed(table.path(json.loads(pk)) if table else "hyperlite-cfs", e)
         return 0
     for (tbl, pk), _ in last.items():
         table = known.get(tbl)
         if table is not None:
             path, data = table.entry(json.loads(pk))
             try:
-                _write(client, path, data)
+                if cluster:
+                    seen[path] = _write_checked(client, path, data, bases.get(path))
+                else:
+                    _write(client, path, data)
+                copied += 1
+            except _Dropped:
+                dropped.append(path)
             except (CfsError, OSError) as e:
                 _failed(path, e)
                 break
-            copied += 1
         done += [r["id"] for r in rows if (r["tbl"], r["pk"]) == (tbl, pk)]
-    if done:
+    if done or seen:
         with _db() as db:
             db.executemany("DELETE FROM cfs_outbox WHERE id = ?", [(i,) for i in done])
+            db.executemany(
+                "INSERT INTO cfs_base (path, version) VALUES (?, ?) ON CONFLICT(path) DO UPDATE SET version = excluded.version",
+                [(p, v) for p, v in seen.items() if v is not None],
+            )
+            db.executemany("DELETE FROM cfs_base WHERE path = ?", [(p,) for p, v in seen.items() if v is None])
             db.commit()
     with _stats.lock:
         _stats.copies += copied
+    if dropped:
+        _dropped(dropped)
     return copied
 
 
@@ -321,8 +397,8 @@ def start_shadow_copy():
     threading.Thread(target=_loop, daemon=True, name="cfs-shadow").start()
 
 
-def _read_tree(client, prefix):
-    """{path: data} of every file under `prefix`."""
+def _read_tree_versions(client, prefix):
+    """{path: (data, version)} of every file under `prefix`."""
     out = {}
     try:
         children = client.list(prefix)
@@ -331,13 +407,40 @@ def _read_tree(client, prefix):
     for child in children:
         path = f"{prefix}/{child.name}"
         if child.is_dir:
-            out.update(_read_tree(client, path))
+            out.update(_read_tree_versions(client, path))
         else:
             try:
-                out[path] = client.get(path).data
+                entry = client.get(path)
             except NotFound:
                 continue  # deleted between the listing and the read: absent, as the next report will show
+            out[path] = (entry.data, entry.version)
     return out
+
+
+def _read_tree(client, prefix):
+    """{path: data} of every file under `prefix`."""
+    return {p: data for p, (data, _) in _read_tree_versions(client, prefix).items()}
+
+
+def record_bases(db, versions):
+    """The tree's versions as this node now holds them (after it applied the tree, or copied itself into it)."""
+    db.execute("DELETE FROM cfs_base")
+    db.executemany("INSERT INTO cfs_base (path, version) VALUES (?, ?)", list(versions.items()))
+
+
+def refresh_bases(client=None):
+    """Record the version of every entry this node holds exactly as the tree does (at start, and after a seed). An
+    entry that differs gets no version: a change of it here is dropped, unless the tree lacks it."""
+    client = client or _get_client()
+    with _db() as db:
+        versions = {}
+        for table in tables().values():
+            local = table.all(db)
+            for path, (data, version) in _read_tree_versions(client, table.prefix).items():
+                if local.get(path) == data:
+                    versions[path] = version
+        record_bases(db, versions)
+        db.commit()
 
 
 def _sync(client, domain):
@@ -465,6 +568,7 @@ def report():
             "socket": socket_path(),
             "copies": _stats.copies,
             "echecs": _stats.failures,
+            "conflits": _stats.conflicts,
             "derniere_erreur": _stats.last_error,
             "derniere_erreur_le": _stats.last_error_at,
             "en_attente": pending(),

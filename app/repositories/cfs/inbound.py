@@ -37,6 +37,7 @@ class _State:
         self.applied = 0  # rows written by the last applies
         self.last_at = None
         self.problem = None
+        self.again = False  # apply the tree even if its version did not move: a change of this node was dropped
 
 
 state = _State()
@@ -97,7 +98,9 @@ def apply():
         return None
     with shadow._db() as db:
         last = _applied_version(db)
-    if status.version == last:
+    with state.lock:
+        again = state.again
+    if status.version == last and not again:
         return None
     if status.version < last:
         _problem(
@@ -106,7 +109,8 @@ def apply():
         )
         return None
     tables = shadow.tables()
-    trees = {name: shadow._read_tree(client, t.prefix) for name, t in tables.items()}
+    versioned = {name: shadow._read_tree_versions(client, t.prefix) for name, t in tables.items()}
+    trees = {name: {p: data for p, (data, _) in tree.items()} for name, tree in versioned.items()}
     if client.status().version != status.version:
         return None  # changed while it was read: the next round reads it again
     if not any(trees.values()) and any(t.all() for t in tables.values()):
@@ -148,6 +152,8 @@ def apply():
                 (APPLIED, str(status.version)),
             )
             db.execute("DELETE FROM cfs_outbox WHERE id > ?", (top,))  # what was just written came from the tree
+            # This node now holds every entry as the tree does: their versions are the ones its changes start from.
+            shadow.record_bases(db, {p: v for tree in versioned.values() for p, (_, v) in tree.items()})
             db.commit()
         except sqlite3.IntegrityError as e:
             db.rollback()
@@ -163,8 +169,16 @@ def apply():
     with state.lock:
         state.applied += written
         state.last_at = datetime.now(UTC).isoformat()
+        state.again = False
     _problem(None)
     return written
+
+
+def reapply():
+    """A change of this node was dropped for the cluster's (shadow.drain): bring the cluster's values back here at the
+    next round, even if the tree's version did not move."""
+    with state.lock:
+        state.again = True
 
 
 def mark_applied():
@@ -181,6 +195,10 @@ def mark_applied():
         )
         db.execute("DELETE FROM cfs_outbox WHERE tbl = 'app_settings'")
         db.commit()
+    try:
+        shadow.refresh_bases()  # the tree holds what SQLite holds: every entry starts from its current version
+    except (CfsError, OSError) as e:
+        logger.warning("hyperlite-cfs: versions after the copy unknown: %s", e)
     _problem(None)
 
 
@@ -190,6 +208,14 @@ def report():
 
 
 def _loop():
+    # At start, the versions this node's changes start from: the entries it holds as the tree does.
+    try:
+        if shadow.enabled() and shadow._get_client().status().mode == "cluster":
+            shadow.refresh_bases()
+    except (CfsError, OSError) as e:
+        logger.debug("hyperlite-cfs versions not read at start: %s", e)
+    except Exception:
+        logger.exception("hyperlite-cfs: reading the versions at start failed")
     while True:
         time.sleep(INTERVAL_S)
         try:
