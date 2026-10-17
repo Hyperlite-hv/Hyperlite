@@ -135,6 +135,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Publishing a version stopped before the ISO and the update file for nodes without network were released: the update file was written to a path relative to a temporary directory. The APT repository was already up to date.
+
 - A backup can no longer be deleted while it is being read: during a restore, a verification or a file-restore session, deleting it is refused and says what holds it, and a schedule's retention keeps it until its next run. Deleting it during a restore made the restore fail half way, and during the copy could have left a VM half restored.
 
 - The Account security window (two-factor authentication and API tokens, from the user menu) was in English whatever the language chosen; it is now in French too, as are the disk and ISO upload areas, whose sizes and speeds also mixed French and English units. A network error during a disk or ISO upload no longer breaks the upload area.
