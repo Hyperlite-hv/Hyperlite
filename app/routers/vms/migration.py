@@ -473,19 +473,59 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             if lost:
                 logger.error("Snapshots of %s not defined again after a failed migration: %s", vm_name, lost)
             raise
-        if stashed:
+        # From here the VM runs on target_node: nothing that follows may fail the task, or skip the steps after it.
+        # What says where the VM is goes first, HA above all: a protection left on the node the VM just left would
+        # let a recovery start a second copy of it there (#448, F11). Each step that fails is a warning on the task.
+        warnings = []
+
+        def after(what, step):
+            try:
+                step()
+            except Exception as e:  # one failed step never stops the next ones
+                logger.exception("After migrating %s to %s: %s failed", vm_name, target_node, what)
+                warnings.append(f"{what}: {describe_exception(e)}")
+                task_log(task_id, f"Warning: {what} failed: {describe_exception(e)}")
+
+        def follow_ha():
+            if ha.follow_migration(vm_name, target_node):
+                log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")
+
+        after("moving its HA protection", follow_ha)
+        if warnings:  # the first step: any warning is its own
+            log_action(
+                username, "ha_follow", vm_name, "echec",
+                f"The VM runs on {target_node} but its HA protection still names {source_node or self_node.name()}: "
+                "disable and enable it again in the HA tab",
+            )  # fmt: skip
+        after("moving its tags and notes", lambda: object_meta.follow_migration(vm_name, source_node, target_node))
+
+        def follow_boot():
+            if vm_boot.follow_migration(vm_name, source_node, target_node):
+                log_action(
+                    username, "autostart_follow", vm_name, "succes", f"Start at boot follows the VM to {target_node}"
+                )
+
+        after("moving its start at boot", follow_boot)
+
+        def carry_snapshots():
             lost = snapshot_carry.restore(dest_conn.lookupByName(vm_name), stashed)
             if lost:
                 task_log(task_id, f"Snapshots not carried (their data stays in the disks): {', '.join(lost)}")
+
+        if stashed:
+            after("defining its snapshots again", carry_snapshots)
         task_log(task_id, "Migration done, cleaning up")
-        network_alloc.release_reservations(src_conn, moved_reservations)
+        after(
+            "releasing its addresses on the source node",
+            lambda: network_alloc.release_reservations(src_conn, moved_reservations),
+        )
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
         # but NEVER deletes the original file, so every migration on non-shared storage
         # systematically left an orphan qcow2 on the source node with nothing to signal it.
         # Only if `not shared`: a disk on SHARED storage must obviously never be deleted
         # (it is the SAME file seen by both nodes).
-        if not shared:
+        def clean_source():
             _delete_paths_on_node(source_disk_paths, source_node)
             # cdrom files copied above (only the local host -> remote node direction, see
             # copied_cdrom_paths): the source file (on the local host, so always a LOCAL
@@ -496,24 +536,20 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
             refresh_pools_for_paths(src_conn, source_disk_paths)
             refresh_pools_for_paths(dest_conn, source_disk_paths)
 
-        if ha.follow_migration(vm_name, target_node):
-            log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")
-        object_meta.follow_migration(vm_name, source_node, target_node)
-        if vm_boot.follow_migration(vm_name, source_node, target_node):
-            log_action(
-                username, "autostart_follow", vm_name, "succes", f"Start at boot follows the VM to {target_node}"
-            )
+        if not shared:
+            after("deleting its old disks on the source node", clean_source)
 
         stop_event.set()
         update_task_progress(task_id, 100)
-        finish_task(task_id, "termine")
+        finish_task(task_id, "termine", "; ".join(warnings) or None)
         log_action(
             username,
             "migrate_vm",
             vm_name,
             "succes",
             # The local node has no name of its own in source_node (None): the audit log said "None -> hlc2".
-            f"{source_node or self_node.name()} -> {target_node} ({'shared' if shared else 'copied'} storage)",
+            f"{source_node or self_node.name()} -> {target_node} ({'shared' if shared else 'copied'} storage)"
+            + (f", with warnings: {'; '.join(warnings)}" if warnings else ""),
         )
     except network_alloc.AddressInUse as e:
         stop_event.set()
