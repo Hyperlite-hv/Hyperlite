@@ -57,6 +57,9 @@ class FakeConn:
     def compareCPU(self, xml, flags):
         return self.cpu_result
 
+    def getCPUModelNames(self, arch, flags):
+        return getattr(self, "cpu_models", None)  # None: the model list is not consulted
+
     def lookupByName(self, name):
         if name in self.existing_vms:
             return object()
@@ -245,3 +248,25 @@ def test_a_disk_on_shared_storage_based_on_a_local_image_is_refused(monkeypatch)
 
     checks = by_id(cc.check_vm_migration(FakeConn(), FakeConn(), Domain(chain)))
     assert checks["disque:vda"]["statut"] == cc.BLOCKING and "only this node has" in checks["disque:vda"]["message"]
+
+
+def test_a_cpu_model_unknown_to_the_destination_is_found_in_any_language():
+    """libvirtd writes its errors in the server's language ("Modèle de CPU inconnu" on a French one): the destination's
+    model list is asked instead, and the CPU driver's error is recognised by its code."""
+    xml = "<cpu><arch>x86_64</arch><model>Sapphire-Rapids</model></cpu>"
+    dst = FakeConn()
+    dst.cpu_models = ["qemu64", "Skylake-Client"]
+    r = cc._cpu_result("cpu", dst, xml, "Physical CPU of the source")
+    assert r["statut"] == cc.WARNING and "Sapphire-Rapids" in r["message"]
+
+    class FrenchDst(FakeConn):
+        def compareCPU(self, xml, flags):
+            e = libvirt.libvirtError("erreur interne : Modèle de CPU inconnu Sapphire-Rapids")
+            e.err = (libvirt.VIR_ERR_INTERNAL_ERROR, libvirt.VIR_FROM_CPU, e.args[0], 2, "", None, None, 0, 0)
+            raise e
+
+    r = cc._cpu_result("cpu", FrenchDst(), xml, "Physical CPU of the source")
+    assert r["statut"] == cc.WARNING and "Sapphire-Rapids" in r["message"]
+
+    dst.cpu_models = ["qemu64", "Sapphire-Rapids"]  # known: compared as before
+    assert cc._cpu_result("cpu", dst, xml, "Physical CPU of the source")["statut"] == cc.OK
