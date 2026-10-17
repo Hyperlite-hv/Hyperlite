@@ -148,3 +148,15 @@ def test_the_space_check_creates_nothing_and_accepts_the_default_directory(tmp_p
     from app.core.backup_groups import validate_target
 
     assert validate_target("/root/hyperlite/data/backups") == "/root/hyperlite/data/backups"  # the installed default
+
+
+def test_the_estimate_falls_back_to_the_files_blocks_without_qemu_img(tmp_path, monkeypatch):
+    """Seen on CI, which has no qemu-img: the estimate raised instead of measuring the file itself."""
+    disk = tmp_path / "web.qcow2"
+    disk.write_bytes(b"x" * 8192)
+
+    def missing(*a, **k):
+        raise FileNotFoundError(2, "No such file or directory", "qemu-img")
+
+    monkeypatch.setattr(backups.subprocess, "run", missing)
+    assert backups._allocated_bytes(disk) == disk.stat().st_blocks * 512 > 0
