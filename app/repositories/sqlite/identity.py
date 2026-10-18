@@ -50,7 +50,7 @@ class SqliteIdentityStore:
     def list_keys(self, username):
         with get_conn() as db:
             rows = db.execute(
-                "SELECT id, nom, rp_id, cree_le, utilise_le FROM webauthn_credentials WHERE username = ? ORDER BY cree_le",
+                "SELECT id, name, rp_id, created_at, used_at FROM webauthn_credentials WHERE username = ? ORDER BY created_at",
                 (username,),
             ).fetchall()
         return [dict(r) for r in rows]
@@ -83,7 +83,7 @@ class SqliteIdentityStore:
             if db.execute("SELECT 1 FROM webauthn_credentials WHERE credential_id = ?", (credential_id,)).fetchone():
                 return None
             cur = db.execute(
-                "INSERT INTO webauthn_credentials (username, nom, credential_id, public_key, sign_count, rp_id, cree_le) "
+                "INSERT INTO webauthn_credentials (username, name, credential_id, public_key, sign_count, rp_id, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (username, name, credential_id, public_key, sign_count, rp_id, created_at),
             )
@@ -92,14 +92,14 @@ class SqliteIdentityStore:
 
     def record_key_use(self, key_id, sign_count, used_at):
         _write(
-            "UPDATE webauthn_credentials SET sign_count = ?, utilise_le = ? WHERE id = ?", (sign_count, used_at, key_id)
+            "UPDATE webauthn_credentials SET sign_count = ?, used_at = ? WHERE id = ?", (sign_count, used_at, key_id)
         )
 
     def store_challenge(self, username, purpose, challenge, rp_id, origin, expires_at, now):
         with get_conn() as db:
-            db.execute("DELETE FROM webauthn_challenges WHERE expire_le < ?", (now,))
+            db.execute("DELETE FROM webauthn_challenges WHERE expires_at < ?", (now,))
             db.execute(
-                "INSERT INTO webauthn_challenges (username, but, challenge, rp_id, origin, expire_le) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO webauthn_challenges (username, purpose, challenge, rp_id, origin, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (username, purpose, challenge, rp_id, origin, expires_at),
             )
             db.commit()
@@ -108,7 +108,7 @@ class SqliteIdentityStore:
         """The challenge's expiry, consumed (single use), or None when it is unknown."""
         with get_conn() as db:
             row = db.execute(
-                "SELECT id, expire_le FROM webauthn_challenges WHERE username = ? AND but = ? AND challenge = ? "
+                "SELECT id, expires_at FROM webauthn_challenges WHERE username = ? AND purpose = ? AND challenge = ? "
                 "AND rp_id = ? AND origin = ?",
                 (username, purpose, challenge, rp_id, origin),
             ).fetchone()
@@ -116,7 +116,7 @@ class SqliteIdentityStore:
                 return None
             db.execute("DELETE FROM webauthn_challenges WHERE id = ?", (row["id"],))
             db.commit()
-        return row["expire_le"]
+        return row["expires_at"]
 
     # ---- SSO ----
 

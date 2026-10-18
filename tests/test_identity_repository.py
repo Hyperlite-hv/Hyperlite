@@ -30,7 +30,7 @@ def test_security_keys(repo, make_user):
     assert store.credential_ids("alice", "other.lan") == []
     store.record_key_use(key, 7, "2026-01-03")
     assert store.credential("alice", "cred-1", "hv.lan")["sign_count"] == 7
-    assert [k["utilise_le"] for k in run(repo.list_keys("alice"))] == ["2026-01-03"]
+    assert [k["used_at"] for k in run(repo.list_keys("alice"))] == ["2026-01-03"]
     assert not store.delete_key("bob", key) and store.delete_key("alice", key)
     store.add_credential("alice", "Second", "cred-2", "pk", 0, "hv.lan", "2026-01-04")
     store.delete_all_keys("alice")

@@ -29,6 +29,10 @@ def get_conn():
 
 def init_db():
     with get_conn() as conn:
+        # API v1: the old French names renamed first, before any statement below uses the new ones (app/core/schema_v1.py).
+        from app.core import schema_v1
+
+        schema_v1.migrate(conn, DB_PATH)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,13 +110,13 @@ def init_db():
             CREATE TABLE IF NOT EXISTS webauthn_credentials (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
-                nom TEXT NOT NULL,
+                name TEXT NOT NULL,
                 credential_id TEXT NOT NULL UNIQUE,
                 public_key TEXT NOT NULL,
                 sign_count INTEGER NOT NULL DEFAULT 0,
                 rp_id TEXT NOT NULL,
-                cree_le TEXT NOT NULL,
-                utilise_le TEXT
+                created_at TEXT NOT NULL,
+                used_at TEXT
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials(username, rp_id)")
@@ -120,11 +124,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS webauthn_challenges (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
-                but TEXT NOT NULL,
+                purpose TEXT NOT NULL,
                 challenge TEXT NOT NULL,
                 rp_id TEXT NOT NULL,
                 origin TEXT NOT NULL,
-                expire_le TEXT NOT NULL
+                expires_at TEXT NOT NULL
             )
         """)
 
