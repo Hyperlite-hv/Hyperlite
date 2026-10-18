@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: |
             requirements.txt
@@ -29,7 +29,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
             meson ninja-build libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        # Two commands: requirements.txt carries hashes, which pip would then demand of the development tools too.
+        run: pip install -r requirements.txt && pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
       - name: Format check
@@ -99,17 +100,18 @@ jobs:
           done
 
   package:
-    # The package's system side on each distribution it is installed on: its dependencies resolve there, the postinst's
-    # build of hyperlite-cfs works against that distribution's libraries, and the daemon's unit is valid.
+    # What the package ships, built as the publication builds it (installer/build-runtime.sh in debian:13: hyperlite-cfs,
+    # the Python environment and its wheels), then checked on Debian 13: dependencies, the daemon, the environment, and
+    # its rebuild from the wheels without network (installer/test-package-inside.sh).
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        image: ["debian:12", "debian:13", "ubuntu:24.04"]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - run: bash installer/test-package.sh "${{ matrix.image }}"
+      - name: Build the runtime in debian:13
+        run: |
+          docker run --rm -v "$PWD:/src" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" debian:13 \
+            bash /src/installer/build-runtime.sh /src /src/installer/runtime
+      - run: bash installer/test-package.sh debian:13 installer/runtime
 
   cfs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
@@ -123,7 +125,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -171,7 +173,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements.txt
       - uses: actions/setup-node@v7

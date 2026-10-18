@@ -34,10 +34,8 @@ def _build(tmp, env, version="1.0.1", debian="13", notes=True):
     deb, bundle, notes_dir = tmp / "pkg.deb", tmp / "bundle", tmp / "notes"
     deb.write_bytes(b"a debian package")
     (bundle / "debs").mkdir(parents=True, exist_ok=True)
-    (bundle / "wheels").mkdir(exist_ok=True)
     (bundle / "debs" / "packages.index").write_text("Package: libvirt0\n")
     (bundle / "debs" / "libvirt0.deb").write_bytes(b"libvirt")
-    (bundle / "wheels" / "fastapi.whl").write_bytes(b"wheel")
     (bundle / "bundle-info").write_text(f"debian={debian} (trixie)\n")
     notes_dir.mkdir(exist_ok=True)
     if notes:
@@ -92,7 +90,7 @@ def test_a_published_file_is_accepted_and_extracted(node):
     assert offline_update.stored()["version"] == "1.0.1"
     version, package, bundle = offline_update.extract()
     assert version == "1.0.1" and package.read_bytes() == b"a debian package"
-    assert (bundle / "wheels" / "fastapi.whl").read_bytes() == b"wheel"
+    assert not (bundle / "wheels").exists()  # the hyperlite package carries its Python environment
     opts = offline_update.local_apt_options(bundle)
     assert (bundle / "debs" / "Packages").read_text() == "Package: libvirt0\n"
     assert (
@@ -228,7 +226,7 @@ def test_the_update_uses_the_file_packages_only(node, database, monkeypatch):
     full, install = commands
     assert local in full and "full-upgrade" in full
     assert local in install and install[-1].endswith("hyperlite_1.0.1_amd64.deb")
-    for cmd in commands:
-        assert "PIP_NO_INDEX=1" in cmd and any(c.startswith("PIP_FIND_LINKS=") for c in cmd)
+    for cmd in commands:  # the package's postinst runs no pip: nothing to point at the file's wheels
+        assert not any(c.startswith("PIP_") for c in cmd)
     assert spawned == ["hyperlite-update-watchdog", "hyperlite-update-restart"]
     assert not offline_update.WORK_DIR.exists()  # applied: removed

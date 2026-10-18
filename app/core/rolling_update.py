@@ -84,13 +84,21 @@ def _ssh(node, args, stdin=None, timeout=60, connect_timeout=10):
 
 
 def peer_api(node, username, method, path, body=None, timeout=60, connect_timeout=10):
-    """(status, decoded body) of a call to `node`'s own API. Status 0: the API did not answer (restarting)."""
+    """(status, decoded body) of a call to `node`'s own API. Status 0: the API did not answer (restarting).
+    Over HTTPS to the member, its certificate pinned (app/core/peer_https.py); over SSH when that cannot be done."""
+    from app.core import peer_https
+
+    token = create_access_token({"sub": username, "role": "admin"})
+    try:
+        return peer_https.call(node, token, method, path, body=body, timeout=timeout, connect_timeout=connect_timeout)
+    except peer_https.Unavailable as e:
+        logger.debug("%s: over SSH (%s)", node.get("name"), e)
     request = {
         "url": API_URL + path,
         "method": method,
         "body": body,
         "timeout": timeout,
-        "token": create_access_token({"sub": username, "role": "admin"}),
+        "token": token,
     }
     try:
         # One argument: ssh joins its arguments with spaces into one command line for the remote shell, which would

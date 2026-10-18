@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds the update file of a release, for nodes without network (app/core/offline_update.py,
 # docs/design/updates-1.0.md step 6): an uncompressed tar of the hyperlite package, the ISO's offline bundle
-# (installer/build-offline-bundle.sh: the Debian packages and the Python wheels), the release notes, and a manifest
+# (installer/build-offline-bundle.sh: the Debian packages; the hyperlite package carries its Python environment), the release notes, and a manifest
 # of every file with its SHA-256, signed by the key of the APT repository, which every node already trusts.
 #
 # Usage: build-update-file.sh VERSION DEB BUNDLE_DIR NOTES_DIR OUT
@@ -28,7 +28,7 @@ printf '%s' "${HYPERLITE_GPG_PASSPHRASE:-}" > "$PASSFILE"
 
 cp "$DEB" "$STAGE/hyperlite_${VERSION}_amd64.deb"
 mkdir -p "$STAGE/offline"
-cp -r "$BUNDLE/debs" "$BUNDLE/wheels" "$BUNDLE/bundle-info" "$STAGE/offline/"
+cp -r "$BUNDLE/debs" "$BUNDLE/bundle-info" "$STAGE/offline/"
 for lang in en fr; do
     if [ -f "$NOTES/$VERSION.$lang.md" ]; then
         mkdir -p "$STAGE/notes"
@@ -56,7 +56,7 @@ KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exi
 gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PASSFILE" --default-key "$KEY_ID" \
     --detach-sign -o "$STAGE/manifest.json.sig" "$STAGE/manifest.json"
 
-# Uncompressed: the packages and wheels already are, and the node reads the manifest without unpacking anything.
+# Uncompressed: the packages already are, and the node reads the manifest without unpacking anything.
 # The manifest first, so a node checks the signature without reading through the whole archive.
 ( cd "$STAGE" && tar --owner=0 --group=0 --numeric-owner -cf "$OUT" manifest.json manifest.json.sig \
     $(find . -mindepth 1 -maxdepth 1 ! -name 'manifest.json*' -printf '%P\n' | sort) )

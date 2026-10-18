@@ -35,6 +35,8 @@ enum cfs_op {
     CFS_OP_UNLOCK = 7,
     CFS_OP_NEXT_ID = 8,
     CFS_OP_STATUS = 9,
+    CFS_OP_STAT_PUT = 10, /* this node's status (hyperlite-statd), sent to every node, kept in memory */
+    CFS_OP_STAT_GET = 11, /* every node's latest status */
 };
 
 /* Expected-version values with a special meaning; any positive value must equal the entry's version. */
@@ -50,6 +52,7 @@ enum cfs_op {
 #define CFS_FIRST_ID 100                 /* guest ids start where Proxmox's do */
 #define CFS_LOCK_TTL_MAX 3600u           /* seconds */
 #define CFS_LOCKS_MAX 1024               /* locks held at once */
+#define CFS_STAT_MAX (512u * 1024u)       /* one node's status: about 3,000 VMs' summaries, compressed */
 #define CFS_MEMBERS_MAX 64               /* nodes in one cluster (Proxmox reports clusters of over 50) */
 #define CFS_CHECKSUM_LEN 32              /* SHA-256 */
 

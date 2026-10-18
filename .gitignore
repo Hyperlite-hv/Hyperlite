@@ -23,6 +23,7 @@ installer/hyperlite-update-amd64.tar*
 installer/.iso-cache/
 installer/*.deb
 installer/deb-build/
+installer/runtime/
 installer/apt-repo/
 installer/offline-bundle/
 .last-published-commit

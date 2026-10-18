@@ -6,7 +6,8 @@ The file is an uncompressed tar archive of:
 - manifest.json.sig: a detached signature of manifest.json by the key of the Hyperlite APT repository, which every
   node already trusts (KEYRING, written by the installation);
 - hyperlite_<version>_amd64.deb;
-- offline/debs/ and offline/wheels/: the Debian packages and Python wheels of the ISO's bundle
+- offline/debs/: the Debian packages of the ISO's bundle (the hyperlite package carries its Python environment;
+  files of older versions also carry offline/wheels/, unused)
   (installer/build-offline-bundle.sh), so the node's own packages are brought up to date too;
 - notes/<version>.en.md (and .fr.md): the release notes, shown before updating.
 

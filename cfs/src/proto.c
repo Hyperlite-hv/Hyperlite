@@ -225,6 +225,13 @@ int cfs_decode_request(const uint8_t *body, size_t len, cfs_request *req)
     case CFS_OP_NEXT_ID:
     case CFS_OP_STATUS:
         break;
+    case CFS_OP_STAT_PUT:
+        /* Bounded by the frame only, as PUT: the table refuses one over CFS_STAT_MAX with CFS_TOO_LARGE. */
+        req->data = cfs_read_blob(&r, CFS_FRAME_MAX, &req->data_len);
+        break;
+    case CFS_OP_STAT_GET:
+        req->node = cfs_read_u32(&r);
+        break;
     default:
         return CFS_INVALID;
     }
