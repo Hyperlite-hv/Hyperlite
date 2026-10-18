@@ -66,9 +66,9 @@ change message. 100 nodes of 10 VMs: under 2 KB per node every 10 s.
 3. `GET /vms?cluster=true` from the table, the dashboard on it; then the other lists (containers, storage).
 4. The scale test again; the old per-node calls kept one version for a mixed cluster during a rolling update.
 
-## Open questions
+## Answered (Antho, 2026-10-18)
 
-1. The period: **10 s** as Proxmox (and the accepted cfs design), or shorter (5 s) for fresher CPU and memory figures
-   at a little more network traffic?
-2. During a rolling update, nodes of the old version send no status: their VMs listed the old way (one call per node)
-   until they are updated. Agreed?
+1. The period is **10 s**, the events sending a change at once.
+2. During a rolling update, the nodes not updated yet are listed the old way until they are; the old path is removed
+   one version later.
+3. Approved: the code starts with step 1.
