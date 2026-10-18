@@ -644,7 +644,7 @@ export function uploadUpdateFile(file, lang, onProgress) {
     const fd = new FormData();
     fd.append("file", file);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/update/offline?lang=${encodeURIComponent(lang)}`);
+    xhr.open("POST", apiPath(`/update/offline?lang=${encodeURIComponent(lang)}`));
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.addEventListener("progress", (ev) => { if (ev.lengthComputable) onProgress?.(Math.round((ev.loaded / ev.total) * 100)); });
     xhr.addEventListener("load", () => {

@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // The node's HTTPS certificate on its System page: shown, a PEM pair imported (after a confirmation that the service
@@ -18,7 +18,7 @@ test("certificate: import a PEM pair, and a failed Let's Encrypt request shows c
   await page.route(/\/host\/certificate(\/[a-z-]+)?$/, (r) => {
     if (!api(r)) return r.fallback();
     if (r.request().method() === "GET") return r.fulfill(json(cert));
-    const path = new URL(r.request().url()).pathname;
+    const path = apiRoute(r.request().url());
     posted.push([path, r.request().postDataJSON()]);
     if (path.endsWith("/acme")) return r.fulfill(json({ detail: "certbot failed:\nTimeout during connect (likely firewall problem)" }, 502));
     cert = { ...selfSigned, source: "import", self_signed: false, previous: true, subject: "hv1.example.org", issuer: "CN=Example CA", names: ["hv1.example.org"], days_left: 12 };

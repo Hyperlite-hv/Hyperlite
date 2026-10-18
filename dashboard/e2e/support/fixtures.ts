@@ -40,6 +40,8 @@ export async function goTo(page: Page, label: string) {
 
 /** The API's own prefix (app/main.py): tests name a route as the API documents it ("/vms"), as the dashboard does. */
 export const API = "/api/v1";
+/** The route a request named, without the API's prefix: what a test compares ("/ldap/test"). */
+export const apiRoute = (url: string) => new URL(url).pathname.replace(/^\/api\/v1(?=\/)/, "");
 export const apiPath = (url: string) => (url.startsWith("/") && !url.startsWith("/api/") && url !== "/health" ? API + url : url);
 
 function prefixed(request: APIRequestContext): APIRequestContext {

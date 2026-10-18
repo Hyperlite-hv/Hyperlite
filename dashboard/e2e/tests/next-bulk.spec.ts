@@ -1,4 +1,4 @@
-import { expect, goTo, test, uiLogin } from "../support/fixtures";
+import { expect, goTo, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Page, Route } from "@playwright/test";
 
 // Bulk actions on the VM list. The VMs are served by the test (as in degraded.spec.ts): creating several real
@@ -17,7 +17,7 @@ async function serveVms(page: Page, initial: Record<string, string>, refuse: str
   await page.route(/\/vms(\?.*)?$/, (r: Route) => (api(r) && r.request().method() === "GET" ? r.fulfill(json(Object.entries(states).map(([n, e]) => vm(n, e)))) : r.fallback()));
   await page.route(/\/vms\/([^/?]+)\/(start|stop|restart)(\?.*)?$/, (r: Route) => {
     if (!api(r)) return r.fallback();
-    const [, encoded, action] = new URL(r.request().url()).pathname.match(/\/vms\/([^/]+)\/(\w+)$/) ?? [];
+    const [, encoded, action] = apiRoute(r.request().url()).match(/\/vms\/([^/]+)\/(\w+)$/) ?? [];
     const name = decodeURIComponent(encoded);
     calls.push(`${action} ${name}`);
     if (refuse.includes(name)) return r.fulfill(json({ detail: `${name} refused by the test` }, 409));

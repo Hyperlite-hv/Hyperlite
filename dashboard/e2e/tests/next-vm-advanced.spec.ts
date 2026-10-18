@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // Advanced hardware settings under a VM's Hardware tab. The VM is served by the test; the libvirt side is covered by
@@ -24,7 +24,7 @@ test("advanced hardware: disk options, boot order, ballooning and machine type",
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm])) : r.fallback()));
   await page.route(new RegExp(`/vms/${NAME}/(hardware-options|disks/vda/options|boot-order|balloon|machine)$`), (r) => {
     if (!api(r)) return r.fallback();
-    const path = new URL(r.request().url()).pathname.split(`/vms/${NAME}/`)[1];
+    const path = apiRoute(r.request().url()).split(`/vms/${NAME}/`)[1];
     if (r.request().method() === "PUT") {
       const body = r.request().postDataJSON();
       calls.push([path, body]);

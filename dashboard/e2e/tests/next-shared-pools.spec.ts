@@ -1,4 +1,4 @@
-import { expect, goTo, test, uiLogin } from "../support/fixtures";
+import { expect, goTo, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // Shared storage on several nodes, as on Proxmox. The test host is a single node: a remote node, the creation
@@ -9,7 +9,7 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
-    const path = new URL(req.url()).pathname;
+    const path = apiRoute(req.url());
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" }]);
     if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_running: 0, vms_stopped: 0 });
     return route.fallback();
