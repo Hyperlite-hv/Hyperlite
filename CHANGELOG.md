@@ -147,6 +147,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- In a cluster, the VM list of the dashboard no longer asks the other nodes: every node sends a summary of its VMs to every node every 10 seconds, and at once after a change made through Hyperlite, and the list is read from it, as Proxmox does. A change made outside Hyperlite (a guest shutting itself down) shows within 10 seconds. Measured on the lab with 1,001 VMs over 3 nodes: the list from 600 ms (p95) to under 50 ms, and 20 users at once from 2 s to 0.3 s, without errors. A node whose summary is late is shown as such, one that stopped sending as not answering.
+
 - In a cluster, the dashboard's VM list and the views of every node are much faster and no longer fail under load: another member's VMs come from that member in one call (they were read one by one through libvirt over SSH), and members call each other over HTTPS on kept connections, each one's certificate pinned through the cluster's configuration, instead of a new SSH connection per call, which sshd refused past 10 at once. Measured on the lab with 1,001 VMs: the views of every node from 230 ms to 30 ms, the VM list from 270 ms to 70 ms, and 20 users at once without errors. A node that does not answer is named instead of failing the request.
 
 - Creating a VM on a NAT network of a large cluster no longer waits for every node in turn to say which addresses it uses: they are asked at once (100 simulated nodes: from 20 s to under 1 s).

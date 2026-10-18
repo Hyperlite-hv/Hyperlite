@@ -339,7 +339,10 @@ def on_startup():
     access_log.start()
     from app.core import peer_https
 
-    peer_https.start()  # this node's certificate fingerprint, for the other members' HTTPS calls  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
+    peer_https.start()  # this node's certificate fingerprint, for the other members' HTTPS calls
+    from app.core import statd
+
+    statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
     if pwd:
         # Never log the password: store it in a root-only file and log only where it is.
         pw_file = Path(__file__).resolve().parent.parent / "data" / "initial-admin-password.txt"

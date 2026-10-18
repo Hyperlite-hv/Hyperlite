@@ -154,22 +154,29 @@ def _stats(samples):
 
 
 def ui_vm_list(api):
-    """The VM list as the dashboard loads it (dashboard/src/api/client.js, fetchVMs): this node's VMs and the nodes,
-    then every other node's VMs at once. Returns (seconds, VMs, errors)."""
+    """The VM list as the dashboard loads it (dashboard/src/api/client.js, fetchVMs): every member's VMs in one request
+    (GET /vms?cluster=true, phase E) and the nodes, then the nodes registered over SSH only. A node without the cluster
+    view answers a bare list: then every other node is asked, as the dashboard did before. Returns (seconds, VMs,
+    errors)."""
     t0 = time.perf_counter()
     errors, total = [], 0
     with cf.ThreadPoolExecutor(2) as pool:
-        local, remote = pool.submit(api.call, "GET", "/vms"), pool.submit(api.call, "GET", "/nodes")
-        (s1, vms), (s2, others) = local.result(), remote.result()
+        listed, nodes_call = pool.submit(api.call, "GET", "/vms?cluster=true"), pool.submit(api.call, "GET", "/nodes")
+        (s1, data), (s2, nodes_list) = listed.result(), nodes_call.result()
     if s1 != 200:
-        errors.append(("/vms", s1))
-    total += len(vms or [])
-    others = [n["name"] for n in (others or []) if isinstance(n, dict) and n.get("name")] if s2 == 200 else []
+        errors.append(("/vms?cluster=true", s1))
+    nodes_list = [n for n in (nodes_list or []) if isinstance(n, dict) and n.get("name")] if s2 == 200 else []
+    if isinstance(data, dict):
+        total += len(data.get("items") or [])
+        others = [n["name"] for n in nodes_list if not n.get("membre")]
+    else:
+        total += len(data or [])
+        others = [n["name"] for n in nodes_list]
     with cf.ThreadPoolExecutor(max(1, len(others))) as pool:
-        for s, data in pool.map(lambda n: api.call("GET", f"/vms?node={urllib.parse.quote(n)}"), others):
+        for s, vms in pool.map(lambda n: api.call("GET", f"/vms?node={urllib.parse.quote(n)}"), others):
             if s != 200:
                 errors.append(("/vms?node", s))
-            total += len(data or []) if s == 200 else 0
+            total += len(vms or []) if s == 200 else 0
     return time.perf_counter() - t0, total, errors
 
 
