@@ -22,7 +22,7 @@ test measures every place where the number of VMs or nodes shows:
 
 - **1,000 VMs defined in libvirt**, 333 per node, created through Hyperlite's API like a user (so its records exist
   too), each with a tiny thin disk (a few KB used) and no operating system. Stopped: a defined VM costs no memory.
-- **30 VMs running** (10 per node), 32 MB each, booting nothing (they sit in the firmware): enough for the live data
+- **15 VMs running** (5 per node), 256 MB each (Hyperlite's minimum), booting nothing (they sit in the firmware): enough for the live data
   (state, CPU, memory) that a running VM adds to every listing. The lab nodes have 2 GB each; they get 3 GB for the
   test (this host has 7 GB free, the Minecraft VM stays off).
 - Load: `perf.sh` (latency of every list endpoint, min/median/p95/max), a small load generator (20 simulated users,
@@ -32,8 +32,7 @@ test measures every place where the number of VMs or nodes shows:
 
 ## Part 2: the simulation (100 nodes)
 
-The lab cannot have 100 nodes. A test harness (`tests/scale/`, not run by CI by default: `pytest -m scale`) starts the
-real application with:
+The lab cannot have 100 nodes. A harness (`lab/scale/simulate.py`, not run by CI) starts the real application in uvicorn with:
 
 - a fake libvirt per node (the fakes of the unit tests, grown: N VMs with states and statistics);
 - `rolling_update.peer_api` (node-to-node calls over SSH) replaced by a call that waits a realistic delay: 30 ms on a
