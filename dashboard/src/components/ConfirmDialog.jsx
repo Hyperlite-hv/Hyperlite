@@ -7,7 +7,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// Radix's AlertDialog provides the focus trap / Escape-to-cancel behavior, purpose its
+// Radix's AlertDialog provides the focus trap / Escape-to-cancel behavior, but its
 // own focus-restore-on-close only works when Radix's own <AlertDialogTrigger>
 // opened it. Every caller here opens it by flipping an externally-owned `open`
 // prop instead (a button somewhere else in a list, a delete icon, ...), so Radix

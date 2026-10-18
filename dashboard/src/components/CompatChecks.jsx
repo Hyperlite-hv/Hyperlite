@@ -7,7 +7,7 @@ const LABELS = {
   toggle: (show, n) => `${show ? "Hide" : "Show"} the ${n} passed check(s)`,
 };
 
-// List of compatibility checks (shape {status, message, action?} from
+// List of compatibility checks (shape {statut, message, action?} from
 // app/core/cluster_compat.py): unsatisfied items first, the OK ones collapsible so
 // they do not drown out the essentials.
 export default function CompatChecks({ report, labels }) {

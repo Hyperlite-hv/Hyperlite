@@ -181,10 +181,35 @@ def _javascript(text, renames, path):
     )
 
 
+def _javascript_tokens(paths, renames):
+    """JavaScript and TypeScript by tokens (rewrite_js.cjs, with the dashboard's own parser)."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(renames, f)
+    done = subprocess.run(
+        ["node", str(Path(__file__).with_name("rewrite_js.cjs")), f.name, *map(str, paths)],
+        cwd=ROOT / "dashboard",
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    Path(f.name).unlink()
+    return done.stdout, done.stderr
+
+
 def rename_names():
     renames = _all_names()
     report, changed = [], {}
+    scripts = [p for p in files() if p.suffix in (".js", ".jsx", ".ts", ".tsx") and "/i18n/" not in str(p)]
+    out, err = _javascript_tokens(scripts, renames)
+    report += err.splitlines()
+    for line in out.splitlines():
+        count, name = line.split("\t")
+        changed[str(Path(name).resolve().relative_to(ROOT))] = int(count)
     for path in files():
+        if path in scripts:
+            continue
         rel = str(path.relative_to(ROOT))
         text = path.read_text()
         if path.suffix == ".py":

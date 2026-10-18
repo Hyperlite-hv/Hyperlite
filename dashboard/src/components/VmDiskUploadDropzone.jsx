@@ -14,7 +14,7 @@ function formatEta(seconds) {
 }
 
 // The same mechanism as IsoUploadDropzone.jsx (XMLHttpRequest + upload progress
-// event) purpose to POST /vm-disks: disk files (qcow2/raw/vmdk/vdi/vhd) meant for VM
+// event) but to POST /vm-disks: disk files (qcow2/raw/vmdk/vdi/vhd) meant for VM
 // import, distinct from ISOs (installation media).
 export default function VmDiskUploadDropzone({ onDone, labels = {} }) {
   const [dragOver, setDragOver] = useState(false);

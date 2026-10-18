@@ -19,7 +19,7 @@ function localhostUrl(baseURL: string | undefined, path = "/") {
 async function signIn(page: Page, baseURL: string | undefined) {
   await page.addInitScript(() => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "en"); } });
   await page.goto(localhostUrl(baseURL));
-  await page.getByLabel(/Username|Nom d.user/).fill(USER);
+  await page.getByLabel(/Username|Nom d.utilisateur/).fill(USER);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(PASSWORD);
   await page.getByRole("button", { name: /^(Sign in|Se connecter)$/ }).click();
 }
@@ -90,7 +90,7 @@ test("the sign-in step on an IP address says why a key cannot be used there", as
   await page.route(/\/auth\/login$/, (route) => route.fulfill({ json: { require_2fa: true, preauth_token: "x", methods: ["webauthn", "totp"] } }));
   await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "fr"); });
   await page.goto("/");
-  await page.getByLabel(/Nom d.user/).fill(USER);
+  await page.getByLabel(/Nom d.utilisateur/).fill(USER);
   await page.getByLabel(/^Mot de passe$/).fill(PASSWORD);
   await page.getByRole("button", { name: "Se connecter" }).click();
   await expect(page.getByRole("button", { name: "Utiliser une clé de sécurité" })).toBeDisabled();

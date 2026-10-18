@@ -23,7 +23,7 @@ export function splitSelection(action, vms, caps, targetNode = null) {
   return { apply, skip };
 }
 
-// Run `fn` on every item, `limit` at a time: a host serves several requests at once, purpose fifty starts fired
+// Run `fn` on every item, `limit` at a time: a host serves several requests at once, but fifty starts fired
 // together would all compete for the same disks. One failure never stops the others; every result is kept.
 export async function runBulk(items, fn, limit = 3) {
   const ok = [];

@@ -19,7 +19,7 @@ test.afterAll(async ({ request }) => {
 async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
@@ -83,7 +83,7 @@ test("French labels and no overflow on a phone", async ({ page }) => {
 // Moved from settings.spec.ts: every test that writes the SSO configuration lives in this serial file, so files
 // running in parallel never change it under each other.
 test.describe("SSO settings persist and the secret is never returned", () => {
-  test("the SSO client secret is stored purpose never sent back", async ({ request }) => {
+  test("the SSO client secret is stored but never sent back", async ({ request }) => {
     const put = await request.put("/auth/sso/config", { headers: auth(), data: { enabled: false, issuer: "https://idp.example.invalid", client_id: "hyperlite", client_secret: "super-secret-value", redirect_uri: "https://hyperlite.example.invalid/auth/sso/callback", scope: "openid profile email groups", group_claim: "groups", admin_groups: "admins" } });
     expect(put.ok()).toBe(true);
     const cfg = await request.get("/auth/sso/config", { headers: auth() });

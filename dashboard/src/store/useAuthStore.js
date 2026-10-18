@@ -29,7 +29,7 @@ export const useAuthStore = create((set, get) => ({
   role: null,
   totpEnabled: false,
   authSource: "local", // "local" or "sso" (an SSO account's password is managed by the identity provider)
-  // The password no longer meets the policy: the server refuses everything purpose changing it (App shows that screen).
+  // The password no longer meets the policy: the server refuses everything but changing it (App shows that screen).
   mustChangePassword: false,
   status: "checking", // "checking" | "authenticated" | "anonymous"
   error: null,
@@ -117,7 +117,7 @@ export const useAuthStore = create((set, get) => ({
       set({ error: msg });
       throw new Error(msg);
     }
-    // 2FA: the password is correct purpose a TOTP code is still required. No session is
+    // 2FA: the password is correct but a TOTP code is still required. No session is
     // opened right away, the intermediate token is returned to the caller
     // (LoginScreen), which shows the code entry step and then calls loginWith2FA.
     if (data.require_2fa) {

@@ -24,7 +24,7 @@ async function login(page: Page, { theme, lang }: { theme: string; lang: string 
     }
   }, [theme, lang]);
   await page.goto("/");
-  await page.getByLabel(lang === "fr" ? /Nom d.user|Username/ : "Username").fill(ADMIN.username);
+  await page.getByLabel(lang === "fr" ? /Nom d.utilisateur|Username/ : "Username").fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });

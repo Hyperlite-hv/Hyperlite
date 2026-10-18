@@ -176,7 +176,7 @@ function CreateClusterDialog({ onClose, onStarted }) {
           </select>
         </label>
         {networksError && <InlineError message={networksError} onRetry={loadNetworks} />}
-        {/* wire value of an isolated libvirt network: "isolated" (see app/routers/network.py) */}
+        {/* wire value of an isolated libvirt network: "isole" (see app/routers/network.py) */}
         {net?.type === "isolated" && <div className="nx-bn" data-tone="warning" role="status"><span className="nx-bn-t">{t("k8s.isolatedWarn")}</span></div>}
         <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("k8s.total", { n: nodesCount, vcpu: nodesCount * Number(form.vcpu), mem: new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format((nodesCount * Number(form.memory_mb)) / 1024), disk: nodesCount * Number(form.disk_gb) })}</p>
         {error && <div className="nx-bn" data-tone="danger" role="alert"><span className="nx-bn-t">{error}</span></div>}

@@ -22,7 +22,7 @@ test.beforeAll(async ({ request }) => {
 test.describe("Storage pools (real libvirt backend)", () => {
   const POOL = `${PREFIX}pool-${stamp}`;
   test.afterAll(async ({ request }) => {
-    await request.delete(`/storage/${POOL}?confirm=true&detach=true`, { headers: auth() });
+    await request.delete(`/storage/${POOL}?confirm=true&detacher=true`, { headers: auth() });
     rmSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`, { recursive: true, force: true });
   });
 
@@ -197,7 +197,7 @@ test.describe("Account security", () => {
 });
 
 test.describe("Settings persist and secrets are never returned", () => {
-  test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM purpose the host's threads", async ({ page, request }) => {
+  test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM but the host's threads", async ({ page, request }) => {
     const limits = (await (await request.get("/host/limits", { headers: auth() })).json()) as Record<string, { source?: string; max?: number }>;
     for (const key of ["memory_mb", "disk_gb", "disks"]) expect(limits[key].source, key).toBe("technique");
     // A VM's vCPUs stop at the host's CPU threads, as on Proxmox.

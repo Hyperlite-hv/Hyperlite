@@ -26,7 +26,7 @@ export default function SiteRecovery() {
   const [found, setFound] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [chosen, setChosen] = useState({}); // vm -> {on, name}
+  const [chosen, setChosen] = useState({}); // vm -> {on, nom}
   const [network, setNetwork] = useState("");
 
   const localPools = (pools || []).filter((p) => p.node === "local" && p.path);

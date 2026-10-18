@@ -100,14 +100,14 @@ test("French labels and no horizontal overflow at a narrow width", async ({ page
   await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "fr"); });
   await mockApi(page);
   await page.goto("/");
-  await page.getByLabel(/Nom d.user|Username/).fill(ADMIN.username);
+  await page.getByLabel(/Nom d.utilisateur|Username/).fill(ADMIN.username);
   await page.getByLabel(/Mot de passe|Password/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Se connecter|Sign in/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=containers");
   const main = page.getByRole("main");
-  await expect(main.getByRole("button", { name: "Créer un container" })).toBeVisible();
-  await main.getByRole("button", { name: "Créer un container" }).click();
+  await expect(main.getByRole("button", { name: "Créer un conteneur" })).toBeVisible();
+  await main.getByRole("button", { name: "Créer un conteneur" }).click();
   await expect(page.getByRole("dialog").getByText("Distribution généraliste")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

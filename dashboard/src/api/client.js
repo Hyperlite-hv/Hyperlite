@@ -64,7 +64,7 @@ async function realFetch(path, opts = {}) {
   return data;
 }
 
-// /health answers everyone purpose reports versions and host details only to a signed-in
+// /health answers everyone but reports versions and host details only to a signed-in
 // caller. Plain fetch rather than realFetch: it is polled while the service restarts,
 // where a failure is expected and must not sign the user out.
 // This node's system settings (local node, admin): package updates, DNS, time, remote syslog.
@@ -106,7 +106,7 @@ export async function fetchHostTimezones() {
 export async function setHostTime(payload) {
   return realFetch("/host/system/time", { method: "PUT", ...jsonBody(payload) });
 }
-// Rename this node: its host name and its /etc/hosts line (administrators). { name, old }.
+// Rename this node: its host name and its /etc/hosts line (administrators). { nom, ancien }.
 export async function renameLocalHost(name) {
   return realFetch("/host/system/hostname", { method: "PUT", ...jsonBody({ name: name }) });
 }
@@ -116,7 +116,7 @@ export async function fetchHostSyslog() {
 export async function setHostSyslog(payload) {
   return realFetch("/host/system/syslog", { method: "PUT", ...jsonBody(payload) });
 }
-// This node's HTTPS certificate; every change restarts the service (`restart`).
+// This node's HTTPS certificate; every change restarts the service (`redemarrage`).
 export async function fetchCertificate() {
   return realFetch("/host/certificate");
 }
@@ -150,7 +150,7 @@ export function ejectVMDriversIso(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/cdrom?target_dev=hdd`, { method: "DELETE" });
 }
 
-// Which VM firmwares this host can build: { uefi, uefi_secure, reason }.
+// Which VM firmwares this host can build: { uefi, uefi_secure, raison }.
 export function fetchHostFirmware() {
   return realFetch("/host/firmware");
 }
@@ -185,7 +185,7 @@ export async function fetchNodes() {
   const d = await fetchDashboardSummary();
   const localNode = {
     // "local" is an internal SENTINEL identifier for "the host running this Hyperlite
-    // instance", never a real machine name. The real name (d.hyperviseur.name) is
+    // instance", never a real machine name. The real name (d.hyperviseur.nom) is
     // displayed everywhere; only this `id` is used for internal comparisons.
     id: "local",
     name: d.hyperviseur.name,
@@ -232,7 +232,7 @@ export async function fetchNodes() {
         vms_actives: s?.vms_actives ?? 0,
         vms_stopped: s?.vms_stopped ?? 0,
         distant: true,
-        // A member of this node's cluster: it runs Hyperlite and keeps its VMs' backups (GET /nodes, "member").
+        // A member of this node's cluster: it runs Hyperlite and keeps its VMs' backups (GET /nodes, "membre").
         member: Boolean(n.member),
       };
     }));
@@ -255,7 +255,7 @@ function mapVm(v, nodeId) {
     ip: v.ip, ssh_user: v.ssh_user, uuid: v.uuid,
     os: v.os, uptime_s: v.uptime_s,
     // This mapping whitelists the fields, so a field added on the backend
-    // (zfs_storage, see app/routers/vms.py::_domain_summary) is silently dropped
+    // (stockage_zfs, see app/routers/vms.py::_domain_summary) is silently dropped
     // here unless it is listed: VMSnapshotsTab.jsx would always receive `undefined`.
     zfs_storage: v.zfs_storage,
     iscsi_storage: v.iscsi_storage,
@@ -289,7 +289,7 @@ export async function fetchVMs() {
 function mapPool(p, nodeId) {
   // `type` used to be hard-coded to "dir" here. That was harmless as long as
   // GET /storage never returned a real `type` field (all existing pools really were
-  // "dir"), purpose it would have silently masked the new real field once NFS pools
+  // "dir"), but it would have silently masked the new real field once NFS pools
   // existed on the backend.
   return { name: p.name, node: nodeId, type: p.type, state: p.state, capacity_gb: p.capacity_gb, available_gb: p.available_gb, path: p.path ?? null };
 }
@@ -329,7 +329,7 @@ export async function deleteNetwork(name) {
 export async function fetchHostInterfaces() {
   return realFetch("/networks/host-interfaces");
 }
-// Subnet, DHCP range and mode of a NAT/isolated network; `needs_restart` when the change waits for its restart.
+// Subnet, DHCP range and mode of a NAT/isolated network; `a_redemarrer` when the change waits for its restart.
 export async function editNetwork(name, payload) {
   return realFetch(`/networks/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
 }
@@ -399,7 +399,7 @@ export async function verifyBackup(id, on) {
 // Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
 // then restored here as new VMs.
 export async function scanSiteBackups(path) {
-  return realFetch(`/backups/site-recovery/scan?path=${encodeURIComponent(path)}`);
+  return realFetch(`/backups/site-recovery/scan?chemin=${encodeURIComponent(path)}`);
 }
 export async function startSiteRecovery(elements, network) {
   return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, network: network || null }) });
@@ -439,7 +439,7 @@ export async function fetchIsoTemplates() {
 export async function deleteIso(filename, node = "local") {
   return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true&node=${encodeURIComponent(node)}`, { method: "DELETE" });
 }
-// Every node's ISO library ({ isos, unreachable }), and copying one image to other nodes.
+// Every node's ISO library ({ isos, injoignables }), and copying one image to other nodes.
 export async function fetchClusterIsos() {
   return realFetch("/isos/cluster");
 }
@@ -1197,7 +1197,7 @@ export async function stopContainer(name, force = false) {
 export async function deleteContainer(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
 }
-// What a Docker (application) container's process printed: { active, available, lines }.
+// What a Docker (application) container's process printed: { actif, disponible, lignes }.
 export async function fetchContainerLogs(name, lines = 300) {
   return realFetch(`/containers/${encodeURIComponent(name)}/logs?lines=${lines}`);
 }

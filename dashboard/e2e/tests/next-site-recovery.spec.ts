@@ -36,7 +36,7 @@ test.afterAll(() => rmSync(share, { recursive: true, force: true }));
 async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
@@ -82,7 +82,7 @@ test("in French, the card says what it does", async ({ page }) => {
   await open(page, "fr");
   const card = page.getByRole("region", { name: "Reprise d’un autre site" });
   await expect(card.getByText(/un site mort et un lien coupé se ressemblent/)).toBeVisible({ timeout: 20_000 });
-  await card.getByLabel("Dossier des backups de l’autre site").fill(join(share, "nothing-here"));
-  await card.getByRole("button", { name: "Chercher les backups" }).click();
+  await card.getByLabel("Dossier des sauvegardes de l’autre site").fill(join(share, "nothing-here"));
+  await card.getByRole("button", { name: "Chercher les sauvegardes" }).click();
   await expect(card.getByText(/n.est pas un dossier|is not a directory/)).toBeVisible({ timeout: 20_000 });
 });

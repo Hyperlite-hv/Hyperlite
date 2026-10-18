@@ -21,7 +21,7 @@ export default function IsoUploadDropzone({ onDone, labels = {} }) {
   const lang = useLangStore((s) => s.lang);
   // Sizes and speeds in the units of the language shown (Ko/Mo/Go in French), like the rest of the dashboard.
   const formatBytes = (bytes) => (bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} ${lang === "fr" ? "Ko" : "KB"}` : formatSizeMb(bytes / 1024 / 1024, lang));
-  const [upload, setUpload] = useState(null); // { file, loaded, speed, etaS, status }
+  const [upload, setUpload] = useState(null); // { file, loaded, speed, etaS, statut }
   const inputRef = useRef(null);
   const addTask = useInfraStore((s) => s.addTask);
   const updateTaskProgress = useInfraStore((s) => s.updateTaskProgress);

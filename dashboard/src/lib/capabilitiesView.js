@@ -73,7 +73,7 @@ export function flattenCapabilities(c) {
   return rows;
 }
 
-// Features derived from the profile: { id, label, state: "active"|"limite"|"unknown", detail }
+// Features derived from the profile: { id, label, etat: "actif"|"limite"|"unknown", detail }
 export function deriveFeatures(c) {
   if (!c) return [];
   const f = [];

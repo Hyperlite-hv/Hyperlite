@@ -22,7 +22,7 @@ export default function UpdateDialog({ onClose }) {
   const [after, setAfter] = useState(null); // the check once the update is done: is a reboot needed now?
   const [restarted, setRestarted] = useState(false); // Hyperlite itself changed: the page must be reloaded
   const [fromFile, setFromFile] = useState(false); // the "from a file" panel is open
-  const [file, setFile] = useState(null); // the update file received by the node: {version, notes, oldest…}
+  const [file, setFile] = useState(null); // the update file received by the node: {version, notes, plus_ancienne…}
   const [sending, setSending] = useState(null); // upload progress, 0-100, while a file is sent
   const opener = useRef(typeof document !== "undefined" ? document.activeElement : null);
   const dialog = useRef(null);

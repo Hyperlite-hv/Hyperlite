@@ -19,7 +19,7 @@ const isSequence = (low) => SEQUENCES.some((seq) => {
   const wrapped = seq.repeat(3);
   return wrapped.includes(low) || [...wrapped].reverse().join("").includes(low);
 });
-// Trims everything purpose letters from both ends with a plain scan, like the server (a trailing-run regular
+// Trims everything but letters from both ends with a plain scan, like the server (a trailing-run regular
 // expression backtracks quadratically, and JavaScript's \W would also strip accented letters).
 const isLetter = (c) => /\p{L}/u.test(c);
 const baseWord = (low) => {

@@ -71,7 +71,7 @@ export const useInfraStore = create((set, get) => ({
   },
 
   // ---- Silent refresh (background polling) ----
-  // The same requests as loadAll, purpose never touching `loading`/`error`: polling that
+  // The same requests as loadAll, but never touching `loading`/`error`: polling that
   // triggered the big full-screen spinner every 6 s (or wiped the display on a
   // one-off network failure) would be worse than no refresh at all. The goal is to
   // see the changes made by another user (or from another tab) without having to
@@ -204,11 +204,11 @@ export const useInfraStore = create((set, get) => ({
       // not when the VM has really shut down (which can take a while, or never happen if
       // the guest does not handle ACPI, e.g. stuck on an installer screen). So we rely
       // on the state actually returned by the API instead of optimistically assuming
-      // "stopped": otherwise the interface shows a wrong state, which then makes the
+      // "arrete": otherwise the interface shows a wrong state, which then makes the
       // following actions fail (e.g. deletion, which rightly refuses a VM still running
       // on the server side) with nothing explaining why to the user.
       //
-      // node: it used to be resolved above (const node = vm?.node) purpose never passed to
+      // node: it used to be resolved above (const node = vm?.node) but never passed to
       // the API call itself, so a VM displayed as remote ALWAYS acted on the local host
       // by mistake (silently: the VM name could simply not exist locally, giving a 404,
       // or worse, coincide with a homonymous local VM).

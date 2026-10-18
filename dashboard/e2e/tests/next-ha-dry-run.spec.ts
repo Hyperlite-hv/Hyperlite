@@ -11,7 +11,7 @@ const json = (route: Route, body: unknown) => route.fulfill({ status: 200, conte
 async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
@@ -73,7 +73,7 @@ test("a protected VM on a failed node shows what automatic HA would have done", 
   }])));
   await open(page, "fr");
   const main = page.getByRole("main");
-  await expect(main.getByText("HA automatic : mode attempt.")).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByText("HA automatique : mode essai.")).toBeVisible({ timeout: 20_000 });
   const row = main.getByRole("row", { name: /e2e-ha-db/ });
   await expect(row.getByText("En panne", { exact: true })).toBeVisible();
   await expect(row.getByText("Manual recovery: Two nodes and no witness")).toBeVisible();

@@ -28,7 +28,7 @@ test("creating a cluster, then copying the join information and removing a membe
   await page.route(/\/cluster$/, (route) => route.fulfill({ json: state }));
   await page.route(/\/cluster\/creer$/, (route) => { bodies.push(route.request().postDataJSON()); state = IN_CLUSTER; return route.fulfill({ json: state }); });
   await page.route(/\/cluster\/adhesion$/, (route) => route.fulfill({ json: { information: "eyJjbHVzdGVyIjoicHJvZCJ9", cluster: "prod", expire: "2026-10-02T13:00:00+00:00" } }));
-  await page.route(/\/cluster\/members\/pve-b\/retirer$/, (route) => {
+  await page.route(/\/cluster\/membres\/pve-b\/retirer$/, (route) => {
     bodies.push(route.request().postDataJSON());
     state = { ...IN_CLUSTER, members: IN_CLUSTER.members.slice(0, 1) };
     return route.fulfill({ json: state });
@@ -68,7 +68,7 @@ test("joining needs the cluster's name typed back, in English and in French", as
   await goTo(page, "Cluster");
   const main = page.getByRole("main");
   const join = main.getByRole("form", { name: "Join a cluster" });
-  // base64url of {"cluster":"prod","address":"192.0.2.10"}
+  // base64url of {"cluster":"prod","adresse":"192.0.2.10"}
   const information = btoa(JSON.stringify({ cluster: "prod", address: "192.0.2.10" })).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
   await join.getByLabel("Join information").fill(information);
   await join.getByLabel("Address of this node on the cluster network").fill("192.0.2.11");

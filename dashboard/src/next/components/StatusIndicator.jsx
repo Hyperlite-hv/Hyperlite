@@ -15,7 +15,7 @@ const SHAPES = {
   arrows: <path d="M1 4h9M8 1.5 10.5 4 8 6.5M11 8H2M4 5.5 1.5 8 4 10.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />,
 };
 
-// State = shape + accessible text + colour. `compact` hides the visible label purpose keeps it
+// State = shape + accessible text + colour. `compact` hides the visible label but keeps it
 // available to assistive technology.
 export default function StatusIndicator({ kind = "vm", wire, override, compact = false, className = "" }) {
   const t = useT();

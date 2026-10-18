@@ -144,12 +144,12 @@ test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "fr"); });
   await page.goto("/");
-  await page.getByLabel(/Nom d.user|Username/).fill(ADMIN.username);
+  await page.getByLabel(/Nom d.utilisateur|Username/).fill(ADMIN.username);
   await page.getByLabel(/Mot de passe|Password/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Se connecter|Sign in/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
   await page.goto("/datacenter?tab=permissions");
   for (const name of [/^Utilisateurs/, /^Groupes/, /^Rôles/, /^Pools de VM/, /^Attributions/]) await expect(page.getByRole("main").getByRole("tab", { name })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("main").getByRole("button", { name: "Créer un user" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("button", { name: "Créer un utilisateur" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

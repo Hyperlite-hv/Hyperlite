@@ -25,7 +25,7 @@ describe("inventory refresh", () => {
   it("drops an answer that started before a local change", async () => {
     useInfraStore.setState({ vms: [{ name: "web", node: "local", state: "active" }], mutations: 0 });
     const refresh = refreshInventory();
-    // The VM is stopped while the refresh is on its way; its answer still says "active".
+    // The VM is stopped while the refresh is on its way; its answer still says "actif".
     useInfraStore.setState((s) => ({ mutations: s.mutations + 1, vms: [{ name: "web", node: "local", state: "stopped" }] }));
     answerAll([{ name: "web", node: "local", state: "active" }]);
     await refresh;
