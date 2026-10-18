@@ -1,0 +1,19 @@
+# The dependencies of Hyperlite, as people edit them. requirements.txt is generated from this file, every package
+# pinned with its hashes (docs/design/clean-package.md):
+#   pip-compile --no-strip-extras --generate-hashes --allow-unsafe --output-file requirements.txt requirements.in
+# with the Python of Debian 13 (3.13). Dependabot updates both.
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+libvirt-python==12.8.0
+python-multipart==0.0.32
+PyJWT==2.15.1
+bcrypt==5.0.0
+asyncssh==2.24.1
+pyotp==2.10.0
+webauthn==3.0.1
+qrcode==8.2
+cryptography==50.0.2
+ldap3==2.9.1
+pyasn1==0.6.4
+# pip itself, pinned too: the package installs it first, from this file, instead of the newest one of the day.
+pip==26.2.1

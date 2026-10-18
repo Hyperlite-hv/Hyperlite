@@ -44,6 +44,7 @@ core = static_library(
   'src/store.c',
   'src/handler.c',
   'src/node.c',
+  'src/status.c',
   dependencies: deps,
 )
 
@@ -60,7 +61,7 @@ executable(
 )
 
 if get_option('tests')
-  foreach t : ['path', 'proto', 'store', 'handler', 'node']
+  foreach t : ['path', 'proto', 'store', 'handler', 'node', 'status']
     test(
       t,
       executable('test_' + t, 'tests/test_' + t + '.c', link_with: core, dependencies: deps,

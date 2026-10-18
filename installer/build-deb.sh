@@ -43,7 +43,7 @@ log "copying the files tracked by Git"
         installer/packages.list|installer/preseed-*.cfg|installer/hyperlite-questions.sh|installer/hyperlite.templates) continue ;;
         docs/*|lab/*|dashboard/*|cli/*) continue ;;
         README.md|CHANGELOG.md|CONTRIBUTING.md|CODE_OF_CONDUCT.md|SECURITY.md|*/README.md) continue ;;
-        cfs/fuzz/*) continue ;;
+        cfs/*|scripts/build-cfs.sh) continue ;;  # built in CI (installer/build-runtime.sh): no sources to build on a node
         installer/build-*.sh|installer/test-package.sh|installer/iso-release-notes.tmpl) continue ;;
         installer/hyperlite-apt-repo.nginx.conf) continue ;;
         scripts/ci-publish.sh|scripts/publish-gh-pages.sh|scripts/release.sh|scripts/release-notes.sh|scripts/sign-iso.sh) continue ;;
@@ -60,6 +60,20 @@ cp -r "$REPO_DIR/dashboard/dist" "$STAGE/root/hyperlite/dashboard/dist"
 log "adding the workstation client (cli/dist, not tracked by Git)"
 mkdir -p "$STAGE/root/hyperlite/cli"  # its sources are not shipped, so the copy loop did not create it
 cp -r "$REPO_DIR/cli/dist" "$STAGE/root/hyperlite/cli/dist"
+
+# What a node used to build for itself (docs/design/clean-package.md): hyperlite-cfs, the ready Python environment
+# and the wheels it is made of, from installer/build-runtime.sh (CI: the debian:13 container).
+RUNTIME_DIR="${HYPERLITE_RUNTIME:-$REPO_DIR/installer/runtime}"
+for f in hyperlite-cfs venv.tar.xz wheels/requirements.txt; do
+    [ -e "$RUNTIME_DIR/$f" ] || { echo "[build-deb] ERROR: $RUNTIME_DIR/$f missing: run installer/build-runtime.sh first" >&2; exit 1; }
+done
+cmp -s "$RUNTIME_DIR/wheels/requirements.txt" "$REPO_DIR/requirements.txt" ||
+    { echo "[build-deb] ERROR: $RUNTIME_DIR was built from another requirements.txt: build it again" >&2; exit 1; }
+log "adding the runtime built in CI ($RUNTIME_DIR)"
+mkdir -p "$STAGE/usr/lib/hyperlite"
+install -m 755 "$RUNTIME_DIR/hyperlite-cfs" "$STAGE/usr/lib/hyperlite/hyperlite-cfs"
+install -m 644 "$RUNTIME_DIR/venv.tar.xz" "$STAGE/usr/lib/hyperlite/venv.tar.xz"
+cp -r "$RUNTIME_DIR/wheels" "$STAGE/usr/lib/hyperlite/wheels"
 
 # VERSION is copied explicitly (not only through `git ls-files`): the file may
 # not be tracked yet, in which case it would be missing from the package

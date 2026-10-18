@@ -18,6 +18,9 @@ import libvirt
 logger = logging.getLogger(__name__)
 
 
+# How many nodes cluster_used_ips asks at once: one connection each, so no node is asked more than once.
+USED_IPS_WORKERS = 32
+
 # One allocation at a time on this node: two creations at once read the same free addresses and picked the same one.
 _alloc_lock = threading.Lock()
 
@@ -91,28 +94,36 @@ def cluster_used_ips(network_name):
 
     Each node runs its own NAT network (same name, same subnet, its own dnsmasq), so a VM created on one node could get
     the address of a VM of another node, and the two collided as soon as one was migrated next to the other (#410).
-    Best effort: a node that does not answer is skipped, it never blocks a creation."""
+    Best effort: a node that does not answer is skipped, it never blocks a creation. The nodes are asked at once
+    (USED_IPS_WORKERS at a time): one after the other, 100 nodes took 20 s (docs/scale-results.md)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     from app.core.cluster import list_nodes
     from app.core.libvirt_utils import open_conn
 
-    used = set()
     try:
         names = [None, *(n["name"] for n in list_nodes())]
     except Exception:
         logger.debug("cluster_used_ips: node list unavailable", exc_info=True)
         names = [None]
-    for name in names:
+
+    def of(name):
         try:
             conn = open_conn(name)
         except Exception:
             logger.debug("cluster_used_ips: node %s unreachable", name, exc_info=True)
-            continue
+            return set()
         try:
-            used |= _used_ips(conn.networkLookupByName(network_name))
+            return _used_ips(conn.networkLookupByName(network_name))
         except libvirt.libvirtError:
-            pass  # no network of that name on that node
+            return set()  # no network of that name on that node
         finally:
             conn.close()
+
+    used = set()
+    with ThreadPoolExecutor(max_workers=min(USED_IPS_WORKERS, len(names))) as pool:
+        for found in pool.map(of, names):
+            used |= found
     return used
 
 

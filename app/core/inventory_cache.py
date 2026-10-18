@@ -27,6 +27,9 @@ def invalidate():
     with _lock:
         _generation += 1
         _entries.clear()
+    from app.core import statd
+
+    statd.changed()  # the cluster's status (phase E) shows the change within a second, not at the next period
 
 
 def get(key, compute):

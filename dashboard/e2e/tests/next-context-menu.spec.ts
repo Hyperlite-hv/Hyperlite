@@ -6,10 +6,13 @@ import { expect, goTo, test, uiLogin } from "../support/fixtures";
 const FAKE = { nom: "e2e-ctx-demo", etat: "arrete", vcpu: 1, memoire_mo: 512, ip: null, uuid: "00000000-0000-0000-0000-0000000c7c70", os: null, uptime_s: null };
 
 test("right click on a VM row opens its actions at the pointer", async ({ page }) => {
-  await page.route("**/vms", async (route) => {
+  // The dashboard asks GET /vms?cluster=true ({items: [...]}, phase E); a bare list is the older shape.
+  await page.route(/\/vms(\?cluster=true)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.continue();
     const res = await route.fetch();
-    return route.fulfill({ response: res, json: [...(await res.json()), FAKE] });
+    const body = await res.json();
+    const json = Array.isArray(body) ? [...body, FAKE] : { ...body, items: [...(body.items || []), { ...FAKE, node: "local" }] };
+    return route.fulfill({ response: res, json });
   });
   await uiLogin(page);
   await goTo(page, "Virtual Machines");

@@ -82,7 +82,10 @@ fi
 # The release notes the update dialog shows (GET /update/check), next to the repository.
 bash scripts/release-notes.sh "$VERSION" installer/apt-repo/notes
 
-# 2. Package, then the signed repository.
+# 2. Package, then the signed repository. What a node used to build for itself is built here, in the Debian the
+#    package is for (installer/build-runtime.sh, docs/design/clean-package.md).
+docker run --rm -v "$PWD:/src" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" debian:13 \
+    bash /src/installer/build-runtime.sh /src /src/installer/runtime
 bash installer/build-deb.sh
 bash installer/build-apt-repo.sh
 

@@ -240,3 +240,35 @@ def test_outside_a_cluster_no_node_is_a_member(client, auth_headers, monkeypatch
     # A backup of that node's VM is refused, never made on this host under the same name.
     r = client.post("/vms/web/backups?node=nico", json={}, headers=auth_headers("bob"))
     assert r.status_code == 409 and "nico is not a member" in r.json()["detail"]
+
+
+def test_another_members_vms_come_from_it_in_one_call(client, auth_headers, peers, monkeypatch):
+    """docs/scale-results.md: read through libvirt over SSH they cost one round trip per VM (7 s for 333 VMs over
+    Tailscale); the member answers from its own inventory cache."""
+    from app.routers.vms import inventory
+
+    def no_libvirt(node=None):
+        raise AssertionError("another member's VMs must not be read through libvirt here")
+
+    monkeypatch.setattr(inventory, "open_conn", no_libvirt)
+    peers.answers[("pve-a", "/vms")] = (200, [{"nom": "web", "etat": "actif"}])
+    r = client.get("/vms?node=pve-a", headers=auth_headers("ana"))
+    assert r.status_code == 200 and r.json() == [{"nom": "web", "etat": "actif"}]
+    assert peers.calls == [("pve-a", "ana", "GET", "/vms")]
+
+
+def test_a_node_that_does_not_answer_is_named_not_an_error_500(client, auth_headers, peers, monkeypatch):
+    import libvirt
+
+    from app.routers.vms import inventory
+
+    def unreachable(node=None):
+        raise libvirt.libvirtError("Cannot recv data: kex_exchange_identification: Connection reset by peer")
+
+    monkeypatch.setattr(inventory, "open_conn", unreachable)
+    headers = auth_headers("ana")
+    r = client.get("/vms?node=pve-old", headers=headers)  # registered over SSH only: read via libvirt
+    assert r.status_code == 502 and "pve-old does not answer" in r.json()["detail"]
+    peers.down.add("pve-a")
+    r = client.get("/vms?node=pve-a", headers=headers)
+    assert r.status_code == 502 and "pve-a does not answer" in r.json()["detail"]

@@ -4,7 +4,7 @@
 # system from the CD.
 #
 # The installation needs no network, as with Proxmox: the ISO carries every
-# Debian package the appliance needs and the Python wheels of Hyperlite
+# Debian package the appliance needs (Hyperlite's package carries its own Python environment)
 # (installer/build-offline-bundle.sh, in offline/), and the hyperlite package
 # itself. This script installs them from there, then writes the Debian and
 # Hyperlite APT sources the machine updates from once it has a network.
@@ -83,9 +83,6 @@ if [ -s "$OFFLINE/debs/packages.index" ]; then
     if [ -n "$virt" ] && [ "$virt" != none ]; then
         PACKAGES="$PACKAGES qemu-guest-agent"
     fi
-    # pip installs the Python requirements from the wheels of the ISO (the
-    # package postinst reads these variables through apt and dpkg).
-    export PIP_NO_INDEX=1 PIP_FIND_LINKS="$OFFLINE/wheels"
 else
     log "no offline bundle on the ISO: installing from the Debian mirror and PyPI"
     APT=(apt-get)
@@ -121,7 +118,6 @@ else
     apt-get update || { log "ERROR: cannot read the Hyperlite repository $HYPERLITE_APT_URL"; exit 1; }
     DEBIAN_FRONTEND=noninteractive apt-get install -y hyperlite
 fi
-unset PIP_NO_INDEX PIP_FIND_LINKS
 
 log "=== 3/6: Hyperlite admin account ==="
 # The Linux root password is the one chosen by the person running the installer

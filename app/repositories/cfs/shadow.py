@@ -54,7 +54,7 @@ class ShadowDisabled(Exception):
 # Turned on from Administration > Replicated configuration (app_settings), or forced by HYPERLITE_CFS_SHADOW=1.
 SETTING = "cfs_shadow"
 SERVICE = "hyperlite-cfs.service"
-BINARY = "/usr/local/sbin/hyperlite-cfs"  # installed by the package (scripts/build-cfs.sh)
+BINARY = "/usr/lib/hyperlite/hyperlite-cfs"  # shipped by the package, built in CI (installer/build-runtime.sh)
 START_WAIT_S = 10
 
 

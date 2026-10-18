@@ -18,7 +18,8 @@ MUST_NOT_EXIST = 0
 # Wire values; they mirror enum cfs_status and enum cfs_op in cfs/src/cfs.h.
 OK, NOT_FOUND, CONFLICT, INVALID, TOO_LARGE, FORBIDDEN, LOCKED, READ_ONLY, SYNCHRONISING, INTERNAL = range(10)
 UNCERTAIN = 10
-_GET, _PUT, _DELETE, _LIST, _RENAME, _LOCK, _UNLOCK, _NEXT_ID, _STATUS = range(1, 10)
+_GET, _PUT, _DELETE, _LIST, _RENAME, _LOCK, _UNLOCK, _NEXT_ID, _STATUS, _STAT_PUT, _STAT_GET = range(1, 12)
+STAT_MAX = 512 * 1024  # one node's status (cfs/src/cfs.h, CFS_STAT_MAX)
 
 FRAME_MAX = 1024 * 1024 + 4096
 
@@ -81,6 +82,15 @@ class Child:
     is_dir: bool
     version: int
     size: int
+
+
+@dataclass(frozen=True)
+class NodeStatus:
+    """A node's latest status (phase E): its Corosync node id, how old it is, and the status itself."""
+
+    node: int
+    age_ms: int
+    data: bytes
 
 
 @dataclass(frozen=True)
@@ -233,3 +243,21 @@ class CfsClient:
         quorate = bool(r.u8())
         mode = "local" if r.u8() == 0 else "cluster"
         return Status(version=version, checksum=checksum, quorate=quorate, mode=mode, entries=r.i64(), bytes=r.i64())
+
+    def stat_put(self, data):
+        """Send this node's status to every node (phase E, docs/design/phase-e-statd.md). Root only."""
+        self._call(_STAT_PUT, _string(data))
+
+    def stat_get(self):
+        """Every node's latest status, as [NodeStatus]: the list first, then each status (one answer could not hold
+        them all)."""
+        r = self._call(_STAT_GET, struct.pack("<I", 0))
+        listed = [(r.u32(), r.i64(), r.u32()) for _ in range(r.u32())]
+        out = []
+        for node, _, _ in listed:
+            try:
+                one = self._call(_STAT_GET, struct.pack("<I", node))
+            except NotFound:
+                continue  # replaced by a newer node meanwhile
+            out.append(NodeStatus(node=node, age_ms=one.i64(), data=bytes(one.blob())))
+        return out
