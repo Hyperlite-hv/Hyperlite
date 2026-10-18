@@ -1,0 +1,3909 @@
+{
+ "a_chaud": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 1
+ },
+ "a_des_notes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/object_meta.py"
+  ],
+  "seen": 1
+ },
+ "a_faire": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py",
+   "app/routers/cluster_update.py"
+  ],
+  "seen": 2
+ },
+ "a_jour": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py",
+   "app/core/update_check.py",
+   "app/routers/update.py"
+  ],
+  "seen": 3
+ },
+ "a_redemarrer": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/container_config.py",
+   "app/core/vm_hardware_opts.py",
+   "app/routers/containers.py",
+   "app/routers/network.py"
+  ],
+  "seen": 4
+ },
+ "absente": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_boot.py"
+  ],
+  "seen": 1
+ },
+ "accepte": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ldap_auth.py"
+  ],
+  "seen": 1
+ },
+ "acces": {
+  "kinds": [
+   "field",
+   "path",
+   "string"
+  ],
+  "where": [
+   "app/routers/api_docs.py"
+  ],
+  "seen": 1
+ },
+ "actif": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/guest_agent.py",
+   "app/core/ha_selffence.py",
+   "app/core/ha_watch.py",
+   "app/core/host_capabilities.py",
+   "app/core/host_system.py"
+  ],
+  "seen": 30
+ },
+ "activer": {
+  "kinds": [
+   "path"
+  ],
+  "where": [
+   "app/routers/cfs.py"
+  ],
+  "seen": 1
+ },
+ "actualise_le": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py"
+  ],
+  "seen": 1
+ },
+ "actuel": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_pending.py",
+   "app/routers/vms/snapshots.py"
+  ],
+  "seen": 2
+ },
+ "administrateur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/password_policy.py"
+  ],
+  "seen": 1
+ },
+ "adresse": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/core/ha_fencing.py",
+   "app/core/network_edit.py",
+   "app/core/passthrough.py",
+   "app/repositories/sqlite/settings.py",
+   "app/routers/cluster_setup.py"
+  ],
+  "seen": 12
+ },
+ "adresses": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_interfaces.py",
+   "app/core/node_hardware.py"
+  ],
+  "seen": 2
+ },
+ "ajoutee_le": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/iso_share.py"
+  ],
+  "seen": 1
+ },
+ "ajoutes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 1
+ },
+ "alert_seuil_depasse": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/metrics.py"
+  ],
+  "seen": 1
+ },
+ "alimentation": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_fencing.py"
+  ],
+  "seen": 1
+ },
+ "allocation_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/metrics.py",
+   "app/core/zfs_storage.py",
+   "app/routers/storage.py"
+  ],
+  "seen": 3
+ },
+ "alloue_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 1
+ },
+ "ancien": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/routers/host_system.py",
+   "app/routers/isos.py"
+  ],
+  "seen": 3
+ },
+ "ancien_controleur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/config_copy.py"
+  ],
+  "seen": 1
+ },
+ "ancienne_taille_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 1
+ },
+ "annulable": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/services/task_service.py"
+  ],
+  "seen": 1
+ },
+ "annule_par": {
+  "kinds": [
+   "column"
+  ],
+  "where": [
+   "table tasks"
+  ],
+  "seen": 1
+ },
+ "arbre_propre": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "arme": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_selffence.py"
+  ],
+  "seen": 1
+ },
+ "arret_force_apres_s": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py"
+  ],
+  "seen": 1
+ },
+ "arret_propre": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/services/task_service.py"
+  ],
+  "seen": 1
+ },
+ "arrete": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py",
+   "app/routers/vms/_shared.py",
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 3
+ },
+ "arretee": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/templates.py",
+   "app/routers/vms/clone.py",
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 3
+ },
+ "arretees": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/dashboard.py"
+  ],
+  "seen": 1
+ },
+ "arreter_bloquees": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/cluster_update.py"
+  ],
+  "seen": 1
+ },
+ "arreter_invites": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py",
+   "app/routers/host_system.py"
+  ],
+  "seen": 2
+ },
+ "auto_signe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tls_certs.py"
+  ],
+  "seen": 1
+ },
+ "automatique": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py"
+  ],
+  "seen": 1
+ },
+ "autorise": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/api_docs.py"
+  ],
+  "seen": 1
+ },
+ "avertissement": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "backup_job_echec": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backups.py"
+  ],
+  "seen": 1
+ },
+ "ballon": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_pending.py"
+  ],
+  "seen": 1
+ },
+ "baux_dhcp": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/network.py"
+  ],
+  "seen": 1
+ },
+ "bibliotheque_websocket": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "bienvenue": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/password_policy.py"
+  ],
+  "seen": 1
+ },
+ "bloquant": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/maintenance.py",
+   "app/core/preflight.py",
+   "app/routers/vms/migration.py"
+  ],
+  "seen": 3
+ },
+ "bloque": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py",
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 2
+ },
+ "branche": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "canaux": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "capacite_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/metrics.py",
+   "app/core/zfs_storage.py",
+   "app/routers/dashboard.py",
+   "app/routers/storage.py"
+  ],
+  "seen": 4
+ },
+ "cellule": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cpu_pinning.py"
+  ],
+  "seen": 1
+ },
+ "cellules": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cpu_pinning.py"
+  ],
+  "seen": 1
+ },
+ "certificat": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/certificate.py"
+  ],
+  "seen": 1
+ },
+ "chaine": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py",
+   "app/repositories/sqlite/replication.py",
+   "app/routers/certificate.py",
+   "table replication_state"
+  ],
+  "seen": 4
+ },
+ "changements": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 1
+ },
+ "chaque_cible": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/jobs.py",
+   "app/services/automation_service.py"
+  ],
+  "seen": 2
+ },
+ "chaud": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backups.py",
+   "app/core/replication.py",
+   "app/core/site_recovery.py"
+  ],
+  "seen": 3
+ },
+ "chemin": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backups.py",
+   "app/core/file_restore.py",
+   "app/core/passthrough.py",
+   "app/core/site_recovery.py",
+   "app/core/zfs_storage.py",
+   "app/repositories/sqlite/backups.py"
+  ],
+  "seen": 12
+ },
+ "cible": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_integrity.py",
+   "app/core/backups.py",
+   "app/core/host_system.py",
+   "app/core/jobs.py",
+   "app/core/vm_hardware_opts.py",
+   "app/repositories/sqlite/automation.py"
+  ],
+  "seen": 20
+ },
+ "cible_dir": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backups.py",
+   "app/core/replication.py",
+   "app/core/site_recovery.py",
+   "app/repositories/sqlite/backups.py",
+   "app/repositories/sqlite/replication.py"
+  ],
+  "seen": 13
+ },
+ "cible_type": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/jobs.py",
+   "app/repositories/sqlite/automation.py",
+   "app/routers/jobs.py",
+   "app/services/automation_service.py",
+   "table job_steps"
+  ],
+  "seen": 5
+ },
+ "cibles": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/isos.py"
+  ],
+  "seen": 1
+ },
+ "classe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py"
+  ],
+  "seen": 1
+ },
+ "cle": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/vm_pending.py",
+   "app/repositories/cfs/tables.py",
+   "app/repositories/sqlite/ha.py",
+   "app/routers/certificate.py",
+   "table app_settings",
+   "table ha_settings"
+  ],
+  "seen": 6
+ },
+ "cle_corosync": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py"
+  ],
+  "seen": 1
+ },
+ "cle_ssh": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/routers/cluster_setup.py"
+  ],
+  "seen": 2
+ },
+ "cles": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/core/passthrough.py",
+   "app/routers/auth.py",
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 4
+ },
+ "cles_securite": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/auth.py"
+  ],
+  "seen": 1
+ },
+ "cles_ssh": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/cloudinit_edit.py",
+   "app/core/cluster_setup.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 3
+ },
+ "coeur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cpu_pinning.py"
+  ],
+  "seen": 1
+ },
+ "coeurs_logiques": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "coeurs_par_socket": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/node_hardware.py"
+  ],
+  "seen": 1
+ },
+ "commande": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/jobs.py",
+   "app/repositories/sqlite/automation.py",
+   "app/routers/jobs.py",
+   "table job_run_logs",
+   "table job_steps"
+  ],
+  "seen": 5
+ },
+ "compatibilite": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/nodes.py"
+  ],
+  "seen": 1
+ },
+ "complet": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py"
+  ],
+  "seen": 1
+ },
+ "compte": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "condition_valeur": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/jobs.py",
+   "app/repositories/sqlite/automation.py",
+   "app/routers/jobs.py",
+   "table job_steps"
+  ],
+  "seen": 4
+ },
+ "conflits": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 1
+ },
+ "connecte": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py",
+   "app/routers/dashboard.py"
+  ],
+  "seen": 2
+ },
+ "connexion": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ldap_auth.py"
+  ],
+  "seen": 1
+ },
+ "conteneur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py"
+  ],
+  "seen": 1
+ },
+ "conteneurs_lxc_disponibles": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "controles": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py",
+   "app/core/maintenance.py",
+   "app/core/preflight.py",
+   "app/routers/vms/migration.py"
+  ],
+  "seen": 4
+ },
+ "controleur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/config_copy.py"
+  ],
+  "seen": 1
+ },
+ "copie_iso": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/create.py"
+  ],
+  "seen": 1
+ },
+ "copie_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/config_copy.py",
+   "table config_copies"
+  ],
+  "seen": 2
+ },
+ "corosync_installe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py"
+  ],
+  "seen": 1
+ },
+ "corrompu": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_integrity.py",
+   "app/core/backups.py"
+  ],
+  "seen": 2
+ },
+ "cree_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_integrity.py",
+   "app/core/backups.py",
+   "app/core/config_copy.py",
+   "app/core/site_recovery.py",
+   "app/core/templates_store.py",
+   "app/repositories/sqlite/tasks.py"
+  ],
+  "seen": 14
+ },
+ "cree_par": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/templates_store.py",
+   "table k8s_clusters",
+   "table shared_pools"
+  ],
+  "seen": 3
+ },
+ "creer": {
+  "kinds": [
+   "path"
+  ],
+  "where": [
+   "app/routers/cluster_setup.py"
+  ],
+  "seen": 1
+ },
+ "debut_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/tasks.py",
+   "table tasks"
+  ],
+  "seen": 2
+ },
+ "deja_active": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_boot.py"
+  ],
+  "seen": 1
+ },
+ "delai_s": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_selffence.py",
+   "app/core/vm_boot.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 3
+ },
+ "demarrage": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_pending.py",
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 2
+ },
+ "demarrage_auto": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/vm_boot.py",
+   "app/routers/containers.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 3
+ },
+ "demarree": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_boot.py"
+  ],
+  "seen": 1
+ },
+ "dependances_python": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "depuis": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/repositories/sqlite/audit.py",
+   "app/repositories/sqlite/tasks.py",
+   "app/routers/audit.py",
+   "app/routers/tasks.py",
+   "app/services/audit_service.py"
+  ],
+  "seen": 6
+ },
+ "dernier_envoi": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/tables.py",
+   "table metric_servers"
+  ],
+  "seen": 2
+ },
+ "dernier_ok_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py",
+   "app/repositories/sqlite/replication.py",
+   "table replication_state"
+  ],
+  "seen": 3
+ },
+ "dernier_point": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py",
+   "app/repositories/sqlite/replication.py",
+   "table replication_state"
+  ],
+  "seen": 3
+ },
+ "derniere_action": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/tables.py",
+   "table ha_protected_vms"
+  ],
+  "seen": 2
+ },
+ "derniere_action_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/tables.py",
+   "table ha_protected_vms"
+  ],
+  "seen": 2
+ },
+ "derniere_application": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/inbound.py"
+  ],
+  "seen": 1
+ },
+ "derniere_erreur": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "app/repositories/cfs/tables.py",
+   "table metric_servers"
+  ],
+  "seen": 3
+ },
+ "derniere_erreur_le": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 1
+ },
+ "derniere_execution": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/tables.py",
+   "table backup_group_jobs",
+   "table backup_jobs",
+   "table replication_jobs"
+  ],
+  "seen": 4
+ },
+ "derniere_verification": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/domain/node.py",
+   "app/repositories/cfs/tables.py",
+   "app/repositories/sqlite/nodes.py",
+   "table nodes"
+  ],
+  "seen": 4
+ },
+ "desactive": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/api_docs.py",
+   "app/routers/api_docs.py"
+  ],
+  "seen": 2
+ },
+ "desactiver": {
+  "kinds": [
+   "path"
+  ],
+  "where": [
+   "app/routers/cfs.py"
+  ],
+  "seen": 1
+ },
+ "detacher": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "differents": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 1
+ },
+ "disponible": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/file_restore.py",
+   "app/core/host_system.py",
+   "app/routers/containers.py",
+   "app/routers/update.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 5
+ },
+ "disponible_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/zfs_storage.py",
+   "app/routers/dashboard.py",
+   "app/routers/storage.py"
+  ],
+  "seen": 3
+ },
+ "disponible_mo": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "disque": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_integrity.py",
+   "app/core/backups.py",
+   "app/core/file_restore.py",
+   "app/core/site_recovery.py",
+   "app/core/vm_pending.py"
+  ],
+  "seen": 5
+ },
+ "disque_application": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "disque_go": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/vm_limits.py",
+   "app/routers/kubernetes.py",
+   "table k8s_clusters"
+  ],
+  "seen": 3
+ },
+ "disque_seul": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/snapshots.py"
+  ],
+  "seen": 1
+ },
+ "disque_vm": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "disques": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py",
+   "app/core/node_hardware.py",
+   "app/core/site_recovery.py",
+   "app/core/vm_hardware_opts.py",
+   "app/core/vm_limits.py",
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 6
+ },
+ "dm": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py"
+  ],
+  "seen": 1
+ },
+ "docker": {
+  "kinds": [
+   "path"
+  ],
+  "where": [
+   "app/routers/containers.py"
+  ],
+  "seen": 1
+ },
+ "domaine": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/certificate.py"
+  ],
+  "seen": 1
+ },
+ "doudou": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/password_policy.py"
+  ],
+  "seen": 1
+ },
+ "echec": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/audit.py",
+   "app/core/backup_groups.py",
+   "app/core/backups.py",
+   "app/core/cluster.py",
+   "app/core/config_copy.py",
+   "app/core/ha.py"
+  ],
+  "seen": 60
+ },
+ "echecs": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 2
+ },
+ "ecrits": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "app/routers/cfs.py"
+  ],
+  "seen": 2
+ },
+ "ecriture_ko_s": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 1
+ },
+ "ejecte": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 1
+ },
+ "emetteur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tls_certs.py"
+  ],
+  "seen": 1
+ },
+ "empreinte": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/core/config_copy.py",
+   "table config_copies"
+  ],
+  "seen": 3
+ },
+ "empreinte_sha256": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tls_certs.py"
+  ],
+  "seen": 1
+ },
+ "en": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/offline_update.py",
+   "app/routers/cluster_update.py",
+   "app/routers/update.py"
+  ],
+  "seen": 3
+ },
+ "en_arret": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py",
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 2
+ },
+ "en_attente": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tasks.py",
+   "app/repositories/cfs/shadow.py",
+   "app/repositories/sqlite/tasks.py",
+   "app/services/task_service.py"
+  ],
+  "seen": 4
+ },
+ "en_cluster": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py"
+  ],
+  "seen": 1
+ },
+ "en_construction": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "en_cours": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/replication.py",
+   "app/core/tasks.py",
+   "app/repositories/sqlite/tasks.py",
+   "app/routers/backup_groups.py",
+   "app/routers/replication.py"
+  ],
+  "seen": 11
+ },
+ "en_ligne": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py",
+   "app/core/cluster_setup.py",
+   "app/core/ha_watch.py",
+   "app/domain/node.py",
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 5
+ },
+ "en_maintenance": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/nodes.py"
+  ],
+  "seen": 1
+ },
+ "en_marche": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/hardware_opts.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 2
+ },
+ "en_panne": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py"
+  ],
+  "seen": 1
+ },
+ "en_pause": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py",
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 2
+ },
+ "en_retard": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py"
+  ],
+  "seen": 1
+ },
+ "en_trop": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 1
+ },
+ "envoyes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/metric_servers.py"
+  ],
+  "seen": 1
+ },
+ "erreur": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/core/config_copy.py",
+   "app/core/iso_share.py",
+   "app/core/rolling_update.py",
+   "app/core/update_check.py",
+   "app/repositories/cfs/tables.py"
+  ],
+  "seen": 17
+ },
+ "espace_disque": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py"
+  ],
+  "seen": 1
+ },
+ "essai": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py"
+  ],
+  "seen": 1
+ },
+ "etat": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "app/core/host_capabilities.py",
+   "app/core/host_interfaces.py",
+   "app/core/node_hardware.py",
+   "app/core/zfs_storage.py",
+   "app/routers/containers.py"
+  ],
+  "seen": 11
+ },
+ "etat_ha": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/tables.py",
+   "table ha_protected_vms"
+  ],
+  "seen": 2
+ },
+ "etat_infrastructure": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/dashboard.py"
+  ],
+  "seen": 1
+ },
+ "etat_vm": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py",
+   "app/routers/vms/snapshots.py"
+  ],
+  "seen": 2
+ },
+ "etoiles": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/docker_hub.py"
+  ],
+  "seen": 1
+ },
+ "exclues": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/replication.py",
+   "app/repositories/sqlite/backups.py",
+   "app/repositories/sqlite/renames.py",
+   "app/repositories/sqlite/replication.py",
+   "app/routers/backup_groups.py"
+  ],
+  "seen": 9
+ },
+ "exemples": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 1
+ },
+ "existe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "existe_ici": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/site_recovery.py"
+  ],
+  "seen": 1
+ },
+ "expire_dans_s": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/api_docs.py",
+   "app/routers/containers.py",
+   "app/routers/host.py",
+   "app/routers/vm_export.py",
+   "app/routers/vms/console.py",
+   "app/routers/vms/tunnel.py"
+  ],
+  "seen": 6
+ },
+ "expire_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/identity.py",
+   "table webauthn_challenges"
+  ],
+  "seen": 2
+ },
+ "fabricant": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py",
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 2
+ },
+ "famille": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/tasks.py",
+   "app/routers/tasks.py"
+  ],
+  "seen": 2
+ },
+ "fichier": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/routers/update.py"
+  ],
+  "seen": 2
+ },
+ "fichiers": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_integrity.py",
+   "app/core/backups.py",
+   "app/core/file_restore.py",
+   "app/core/site_recovery.py"
+  ],
+  "seen": 4
+ },
+ "fin_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/tasks.py",
+   "table tasks"
+  ],
+  "seen": 2
+ },
+ "fonctionnalite": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "fonctionnalites_desactivees": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "forcer_apres": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/vms/lifecycle.py"
+  ],
+  "seen": 1
+ },
+ "frequence": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backups.py",
+   "app/repositories/sqlite/backups.py",
+   "app/routers/backup_groups.py",
+   "app/routers/backups.py",
+   "table backup_group_jobs"
+  ],
+  "seen": 7
+ },
+ "freres": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cpu_pinning.py"
+  ],
+  "seen": 1
+ },
+ "froid": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backups.py",
+   "app/core/replication.py",
+   "app/core/site_recovery.py"
+  ],
+  "seen": 3
+ },
+ "fuseau": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/routers/host_system.py"
+  ],
+  "seen": 2
+ },
+ "garder_jours": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backup_retention.py",
+   "app/repositories/sqlite/backups.py",
+   "app/routers/backup_groups.py",
+   "app/routers/backups.py",
+   "table backup_group_jobs"
+  ],
+  "seen": 7
+ },
+ "garder_mois": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backup_retention.py",
+   "app/repositories/sqlite/backups.py",
+   "app/routers/backup_groups.py",
+   "app/routers/backups.py",
+   "table backup_group_jobs"
+  ],
+  "seen": 7
+ },
+ "garder_semaines": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backup_retention.py",
+   "app/repositories/sqlite/backups.py",
+   "app/routers/backup_groups.py",
+   "app/routers/backups.py",
+   "table backup_group_jobs"
+  ],
+  "seen": 7
+ },
+ "generer": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/image_env.py"
+  ],
+  "seen": 1
+ },
+ "gere_par": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py"
+  ],
+  "seen": 1
+ },
+ "gestionnaire": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/permissions.py"
+  ],
+  "seen": 1
+ },
+ "git": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/routers/update.py"
+  ],
+  "seen": 2
+ },
+ "graphique": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_pending.py"
+  ],
+  "seen": 1
+ },
+ "groupe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py"
+  ],
+  "seen": 1
+ },
+ "groupe_id": {
+  "kinds": [
+   "column"
+  ],
+  "where": [
+   "table backups"
+  ],
+  "seen": 1
+ },
+ "groupe_iommu": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py"
+  ],
+  "seen": 1
+ },
+ "groupes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ldap_auth.py"
+  ],
+  "seen": 1
+ },
+ "hebdomadaire": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backups.py",
+   "app/routers/backups.py"
+  ],
+  "seen": 3
+ },
+ "heure": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backups.py",
+   "app/core/host_system.py",
+   "app/repositories/sqlite/backups.py",
+   "app/routers/backup_groups.py",
+   "app/routers/backups.py"
+  ],
+  "seen": 9
+ },
+ "hl_docs": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/api_docs.py"
+  ],
+  "seen": 1
+ },
+ "hl_sso_binding": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/sso.py"
+  ],
+  "seen": 1
+ },
+ "hl_sso_handoff": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/sso.py"
+  ],
+  "seen": 1
+ },
+ "hors_ligne": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py",
+   "app/core/cluster_view.py",
+   "app/core/config_copy.py",
+   "app/core/rolling_update.py",
+   "app/domain/node.py"
+  ],
+  "seen": 5
+ },
+ "hote": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/core/metric_export.py",
+   "app/core/passthrough.py",
+   "app/repositories/sqlite/metrics.py",
+   "app/routers/host_system.py",
+   "app/routers/metric_servers.py"
+  ],
+  "seen": 7
+ },
+ "hyperlite_a_jour": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py"
+  ],
+  "seen": 1
+ },
+ "ignorer_verifications": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/vms/migration.py"
+  ],
+  "seen": 1
+ },
+ "importe_de": {
+  "kinds": [
+   "column"
+  ],
+  "where": [
+   "table backups"
+  ],
+  "seen": 1
+ },
+ "inactif": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/guest_agent.py",
+   "app/routers/storage.py"
+  ],
+  "seen": 2
+ },
+ "inchange": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py"
+  ],
+  "seen": 1
+ },
+ "inconnu": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/node_hardware.py",
+   "app/domain/node.py",
+   "app/routers/containers.py",
+   "app/routers/storage.py",
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 6
+ },
+ "injoignables": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/iso_share.py"
+  ],
+  "seen": 1
+ },
+ "installe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 2
+ },
+ "installee": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "installer": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "instantanes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py"
+  ],
+  "seen": 1
+ },
+ "intervalle_minutes": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py",
+   "app/repositories/sqlite/replication.py",
+   "app/routers/replication.py",
+   "table replication_jobs"
+  ],
+  "seen": 4
+ },
+ "invites_mis_a_jour": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/network.py"
+  ],
+  "seen": 1
+ },
+ "isole": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "app/core/network_edit.py",
+   "app/routers/network.py"
+  ],
+  "seen": 3
+ },
+ "jamais": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/replication.py"
+  ],
+  "seen": 1
+ },
+ "jeton": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/k8s_cluster.py",
+   "app/core/metric_export.py",
+   "app/repositories/sqlite/settings.py",
+   "app/routers/metric_servers.py",
+   "table k8s_clusters",
+   "table metric_servers"
+  ],
+  "seen": 6
+ },
+ "jeton_defini": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/metric_export.py"
+  ],
+  "seen": 1
+ },
+ "jours_restants": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tls_certs.py"
+  ],
+  "seen": 1
+ },
+ "jusqu_a": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/audit.py",
+   "app/routers/audit.py",
+   "app/services/audit_service.py"
+  ],
+  "seen": 3
+ },
+ "kubeconfig_disponible": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/k8s_cluster.py"
+  ],
+  "seen": 1
+ },
+ "langue": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "le": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_selffence.py"
+  ],
+  "seen": 1
+ },
+ "lecteur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/permissions.py"
+  ],
+  "seen": 1
+ },
+ "lecture_seule": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/dashboard.py"
+  ],
+  "seen": 1
+ },
+ "libvirt_injoignable": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py"
+  ],
+  "seen": 1
+ },
+ "lignes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py"
+  ],
+  "seen": 1
+ },
+ "logiciel": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "loulou": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/password_policy.py"
+  ],
+  "seen": 1
+ },
+ "machines_plus_recentes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/hardware_opts.py"
+  ],
+  "seen": 1
+ },
+ "maj_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/replication.py",
+   "table replication_state"
+  ],
+  "seen": 2
+ },
+ "manquants": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 1
+ },
+ "membre": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/nodes.py"
+  ],
+  "seen": 1
+ },
+ "membres": {
+  "kinds": [
+   "path",
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/core/cluster_view.py",
+   "app/repositories/sqlite/access.py",
+   "app/routers/cluster_setup.py",
+   "app/routers/groups.py",
+   "app/routers/vms/migration.py"
+  ],
+  "seen": 6
+ },
+ "memoire": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py",
+   "app/core/host_capabilities.py",
+   "app/core/preflight.py",
+   "app/core/vm_pending.py"
+  ],
+  "seen": 4
+ },
+ "memoire_allouee_mo": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 1
+ },
+ "memoire_disponible_mo": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/dashboard.py"
+  ],
+  "seen": 1
+ },
+ "memoire_mo": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/cpu_pinning.py",
+   "app/core/templates_store.py",
+   "app/core/vm_hardware_opts.py",
+   "app/core/vm_limits.py",
+   "app/routers/containers.py",
+   "app/routers/kubernetes.py"
+  ],
+  "seen": 8
+ },
+ "memoire_utilisee_mo": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 1
+ },
+ "mensuel": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backups.py",
+   "app/routers/backups.py"
+  ],
+  "seen": 3
+ },
+ "mesure_le": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 1
+ },
+ "methode": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_fencing.py",
+   "app/core/ha_watch.py",
+   "app/routers/ha.py",
+   "table node_fencing"
+  ],
+  "seen": 4
+ },
+ "minimum_mo": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/vm_hardware_opts.py",
+   "app/routers/vms/hardware_opts.py"
+  ],
+  "seen": 2
+ },
+ "modele": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/node_hardware.py",
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 3
+ },
+ "modifie_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/cloudinit_edit.py",
+   "app/core/vm_export.py",
+   "app/routers/vms/settings.py",
+   "table node_fencing"
+  ],
+  "seen": 4
+ },
+ "modifie_par": {
+  "kinds": [
+   "column"
+  ],
+  "where": [
+   "table node_fencing"
+  ],
+  "seen": 1
+ },
+ "mot_de_passe": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 1
+ },
+ "mtime_disques": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/replication.py",
+   "app/repositories/sqlite/replication.py",
+   "table replication_state"
+  ],
+  "seen": 3
+ },
+ "node_statut_change": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py",
+   "app/core/notifications.py"
+  ],
+  "seen": 2
+ },
+ "noeud": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/routers/storage.py"
+  ],
+  "seen": 2
+ },
+ "noeud_local": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/config_copy.py"
+  ],
+  "seen": 1
+ },
+ "noeuds": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "app/core/rolling_update.py",
+   "app/core/shared_pools.py",
+   "app/repositories/sqlite/renames.py",
+   "app/repositories/sqlite/settings.py",
+   "app/routers/cluster_update.py"
+  ],
+  "seen": 8
+ },
+ "nom": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/backup_integrity.py",
+   "app/core/backups.py",
+   "app/core/cluster_setup.py",
+   "app/core/cluster_view.py",
+   "app/core/docker_hub.py"
+  ],
+  "seen": 55
+ },
+ "nom_libre": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py"
+  ],
+  "seen": 1
+ },
+ "noms": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tls_certs.py",
+   "app/routers/update.py"
+  ],
+  "seen": 2
+ },
+ "notification_echec": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/notifications.py"
+  ],
+  "seen": 1
+ },
+ "numa_cellule": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cpu_pinning.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 2
+ },
+ "numa_noeuds": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "numero": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py"
+  ],
+  "seen": 1
+ },
+ "objet": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/vm_pending.py",
+   "app/repositories/sqlite/tasks.py",
+   "app/routers/tasks.py"
+  ],
+  "seen": 3
+ },
+ "observateur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ldap_auth.py",
+   "app/core/permissions.py",
+   "app/core/sso.py",
+   "app/routers/auth.py"
+  ],
+  "seen": 4
+ },
+ "occupee": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_boot.py"
+  ],
+  "seen": 1
+ },
+ "officielle": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/docker_hub.py"
+  ],
+  "seen": 1
+ },
+ "operateur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/permissions.py"
+  ],
+  "seen": 1
+ },
+ "ordre": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/jobs.py",
+   "app/core/vm_boot.py",
+   "app/routers/tasks.py",
+   "app/routers/vms/hardware_opts.py",
+   "app/routers/vms/settings.py",
+   "table job_steps"
+  ],
+  "seen": 6
+ },
+ "ordre_demarrage": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_hardware_opts.py"
+  ],
+  "seen": 1
+ },
+ "orpheline": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/services/task_service.py"
+  ],
+  "seen": 1
+ },
+ "outils_installation": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "ouvert": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/network.py"
+  ],
+  "seen": 1
+ },
+ "paquets": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/core/rolling_update.py",
+   "app/routers/host_system.py",
+   "app/routers/update.py"
+  ],
+  "seen": 4
+ },
+ "paquets_redemarrage": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py"
+  ],
+  "seen": 1
+ },
+ "pare_feu": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 1
+ },
+ "partage": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "partout": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "peripheriques": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py"
+  ],
+  "seen": 1
+ },
+ "personnalisation_invite": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/clone.py"
+  ],
+  "seen": 1
+ },
+ "pilote": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py"
+  ],
+  "seen": 1
+ },
+ "plante": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py",
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 2
+ },
+ "plus_ancienne": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "pont": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/host_interfaces.py",
+   "app/core/network_firewall.py",
+   "app/routers/network.py"
+  ],
+  "seen": 4
+ },
+ "pool_defaut_disponible_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "pool_defaut_total_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "pools_partages": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/nodes.py"
+  ],
+  "seen": 1
+ },
+ "pre_auth_token": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/routers/auth.py",
+   "app/routers/sso.py"
+  ],
+  "seen": 2
+ },
+ "precedente": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "prefixe": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/metric_export.py",
+   "app/repositories/sqlite/metrics.py",
+   "app/routers/metric_servers.py",
+   "table metric_servers"
+  ],
+  "seen": 4
+ },
+ "pret": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/k8s_cluster.py"
+  ],
+  "seen": 1
+ },
+ "prive": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/network.py"
+  ],
+  "seen": 1
+ },
+ "probleme": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_selffence.py",
+   "app/repositories/cfs/inbound.py"
+  ],
+  "seen": 2
+ },
+ "problemes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backups.py",
+   "app/core/rolling_update.py",
+   "app/routers/cluster_update.py"
+  ],
+  "seen": 3
+ },
+ "prochain": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/vm_pending.py"
+  ],
+  "seen": 1
+ },
+ "prochaine_execution": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/schedule_state.py",
+   "table backup_group_jobs",
+   "table backup_jobs",
+   "table replication_jobs",
+   "table schedule_state"
+  ],
+  "seen": 5
+ },
+ "prochaine_partagee": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/replication.py",
+   "app/repositories/sqlite/schedule_state.py"
+  ],
+  "seen": 3
+ },
+ "produit": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/passthrough.py",
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 2
+ },
+ "progres": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/sqlite/tasks.py",
+   "table tasks"
+  ],
+  "seen": 2
+ },
+ "protocole": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/routers/host_system.py"
+  ],
+  "seen": 2
+ },
+ "python_interpreteur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "quotidien": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/routers/backups.py"
+  ],
+  "seen": 2
+ },
+ "raison": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/file_restore.py",
+   "app/core/firmware.py",
+   "app/core/ha_watch.py",
+   "app/core/maintenance.py",
+   "app/core/passthrough.py"
+  ],
+  "seen": 5
+ },
+ "recharge_a_chaud": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 1
+ },
+ "redemarrage": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py",
+   "app/core/rolling_update.py",
+   "app/routers/certificate.py"
+  ],
+  "seen": 3
+ },
+ "redemarrage_auto_possible": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py"
+  ],
+  "seen": 1
+ },
+ "redemarrage_prevu": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py",
+   "app/routers/update.py"
+  ],
+  "seen": 2
+ },
+ "redemarrage_requis": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/core/rolling_update.py",
+   "app/routers/update.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 4
+ },
+ "reglages": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py"
+  ],
+  "seen": 1
+ },
+ "regles_appliquees": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/network_firewall.py"
+  ],
+  "seen": 1
+ },
+ "reinitialise_sous_s": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_selffence.py"
+  ],
+  "seen": 1
+ },
+ "rejoindre": {
+  "kinds": [
+   "path"
+  ],
+  "where": [
+   "app/routers/cluster_setup.py"
+  ],
+  "seen": 1
+ },
+ "renomme": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "requises": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/image_env.py"
+  ],
+  "seen": 1
+ },
+ "reseau": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py",
+   "app/core/container_config.py",
+   "app/core/host_capabilities.py",
+   "app/core/preflight.py",
+   "app/repositories/sqlite/renames.py",
+   "app/routers/backups.py"
+  ],
+  "seen": 10
+ },
+ "reseaux": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_compat.py",
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 2
+ },
+ "reseaux_libvirt": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "resultat": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/routers/tasks.py",
+   "table job_runs"
+  ],
+  "seen": 2
+ },
+ "resultats": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/nodes.py",
+   "app/routers/storage.py"
+  ],
+  "seen": 2
+ },
+ "retirer": {
+  "kinds": [
+   "path"
+  ],
+  "where": [
+   "app/routers/cluster_setup.py"
+  ],
+  "seen": 1
+ },
+ "reussi": {
+  "kinds": [
+   "column"
+  ],
+  "where": [
+   "table job_run_logs"
+  ],
+  "seen": 1
+ },
+ "rota": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/node_hardware.py"
+  ],
+  "seen": 1
+ },
+ "sante": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/node_hardware.py"
+  ],
+  "seen": 1
+ },
+ "sauvegarde": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/config_copy.py"
+  ],
+  "seen": 1
+ },
+ "sauvegardes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/site_recovery.py"
+  ],
+  "seen": 1
+ },
+ "secret_defini": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_fencing.py"
+  ],
+  "seen": 1
+ },
+ "securite": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/host_system.py",
+   "app/routers/update.py"
+  ],
+  "seen": 3
+ },
+ "serveur": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/k8s_cluster.py",
+   "app/repositories/sqlite/renames.py",
+   "table k8s_clusters"
+  ],
+  "seen": 3
+ },
+ "serveurs": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/routers/host_system.py"
+  ],
+  "seen": 2
+ },
+ "serveurs_ntp": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/routers/host_system.py"
+  ],
+  "seen": 2
+ },
+ "seuil_panne": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "app/routers/ha.py"
+  ],
+  "seen": 2
+ },
+ "seuil_suspect": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "app/routers/ha.py"
+  ],
+  "seen": 2
+ },
+ "soleil": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/password_policy.py"
+  ],
+  "seen": 1
+ },
+ "source_supprimee": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/disk_move.py",
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 2
+ },
+ "statut": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backups.py",
+   "app/core/cluster_compat.py",
+   "app/core/cluster_view.py",
+   "app/core/config_copy.py",
+   "app/core/file_restore.py",
+   "app/core/ha_watch.py"
+  ],
+  "seen": 31
+ },
+ "statut_noeud": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/ha.py"
+  ],
+  "seen": 1
+ },
+ "step_ordre": {
+  "kinds": [
+   "column"
+  ],
+  "where": [
+   "table job_run_logs"
+  ],
+  "seen": 1
+ },
+ "stockage": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/routers/containers.py",
+   "app/routers/dashboard.py"
+  ],
+  "seen": 3
+ },
+ "stockage_capacite_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py"
+  ],
+  "seen": 1
+ },
+ "stockage_disponible_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py"
+  ],
+  "seen": 1
+ },
+ "stockage_iscsi": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 1
+ },
+ "stockage_zfs": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 1
+ },
+ "succes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/audit.py",
+   "app/core/backup_groups.py",
+   "app/core/backups.py",
+   "app/core/cluster.py",
+   "app/core/cluster_setup.py",
+   "app/core/ha.py"
+  ],
+  "seen": 68
+ },
+ "sujet": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tls_certs.py",
+   "app/routers/certificate.py"
+  ],
+  "seen": 2
+ },
+ "supprime": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/isos.py",
+   "app/routers/kubernetes.py",
+   "app/routers/replication.py",
+   "app/routers/storage.py",
+   "app/routers/templates.py",
+   "app/routers/vm_disks.py"
+  ],
+  "seen": 7
+ },
+ "supprimes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "app/routers/cfs.py"
+  ],
+  "seen": 2
+ },
+ "suspendu": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py",
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 2
+ },
+ "synchronise": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py"
+  ],
+  "seen": 1
+ },
+ "systeme": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py",
+   "app/routers/containers.py",
+   "app/routers/update.py"
+  ],
+  "seen": 3
+ },
+ "tache": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/host_system.py"
+  ],
+  "seen": 1
+ },
+ "taches": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/isos.py"
+  ],
+  "seen": 1
+ },
+ "taille": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_integrity.py",
+   "app/core/backups.py",
+   "app/core/site_recovery.py",
+   "table config_copies"
+  ],
+  "seen": 4
+ },
+ "taille_go": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/node_hardware.py",
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 2
+ },
+ "taille_mo": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/iso_share.py",
+   "app/core/offline_update.py",
+   "app/routers/isos.py",
+   "app/routers/update.py",
+   "app/routers/vm_disks.py"
+  ],
+  "seen": 5
+ },
+ "taille_octets": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/site_recovery.py",
+   "app/core/vm_export.py",
+   "table backups",
+   "table container_backups"
+  ],
+  "seen": 4
+ },
+ "telechargements": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/docker_hub.py"
+  ],
+  "seen": 1
+ },
+ "temoin": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "app/routers/ha.py"
+  ],
+  "seen": 2
+ },
+ "temoin_joignable": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py"
+  ],
+  "seen": 1
+ },
+ "termine": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/audit.py",
+   "app/core/backups.py",
+   "app/core/file_restore.py",
+   "app/core/iso_share.py",
+   "app/core/jobs.py",
+   "app/core/k8s_cluster.py"
+  ],
+  "seen": 20
+ },
+ "texte": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/update.py"
+  ],
+  "seen": 1
+ },
+ "threads_par_coeur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/node_hardware.py"
+  ],
+  "seen": 1
+ },
+ "tls_non_verifie": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_fencing.py",
+   "app/routers/ha.py",
+   "table node_fencing"
+  ],
+  "seen": 3
+ },
+ "topologie": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 1
+ },
+ "totale_mo": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/vm_limits.py"
+  ],
+  "seen": 2
+ },
+ "tous": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/api_docs.py",
+   "app/routers/api_docs.py"
+  ],
+  "seen": 2
+ },
+ "tous_les_noeuds": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/shared_pools.py",
+   "app/routers/storage.py",
+   "table shared_pools"
+  ],
+  "seen": 3
+ },
+ "toutes": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/replication.py"
+  ],
+  "seen": 2
+ },
+ "tri": {
+  "kinds": [
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/routers/tasks.py"
+  ],
+  "seen": 1
+ },
+ "uefi_inconnu": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/preflight.py"
+  ],
+  "seen": 2
+ },
+ "utiles": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/image_env.py"
+  ],
+  "seen": 1
+ },
+ "utilisable": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_interfaces.py",
+   "app/routers/network.py"
+  ],
+  "seen": 2
+ },
+ "utilisateur": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/cloudinit_edit.py",
+   "app/core/ha_fencing.py",
+   "app/core/ldap_auth.py",
+   "app/routers/containers.py",
+   "app/routers/ha.py",
+   "app/routers/vms/console.py"
+  ],
+  "seen": 8
+ },
+ "utilisateur_ssh": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/containers.py",
+   "app/routers/vms/_shared.py"
+  ],
+  "seen": 2
+ },
+ "utilise": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/storage.py"
+  ],
+  "seen": 1
+ },
+ "utilise_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/tables.py",
+   "table webauthn_credentials"
+  ],
+  "seen": 2
+ },
+ "valeur": {
+  "kinds": [
+   "column",
+   "field",
+   "string"
+  ],
+  "where": [
+   "app/core/backup_groups.py",
+   "app/core/replication.py",
+   "app/repositories/sqlite/backups.py",
+   "app/repositories/sqlite/ha.py",
+   "app/repositories/sqlite/replication.py",
+   "app/repositories/sqlite/settings.py"
+  ],
+  "seen": 12
+ },
+ "verifie": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/backup_integrity.py"
+  ],
+  "seen": 1
+ },
+ "verifie_le": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "table backups"
+  ],
+  "seen": 2
+ },
+ "virtualisation_materielle": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/preflight.py"
+  ],
+  "seen": 2
+ },
+ "vlan": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/host_interfaces.py",
+   "app/routers/network.py",
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 4
+ },
+ "vlan_tag": {
+  "kinds": [
+   "field"
+  ],
+  "where": [
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 1
+ },
+ "vms_a_migrer": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py"
+  ],
+  "seen": 1
+ },
+ "vms_arretees": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py"
+  ],
+  "seen": 1
+ },
+ "vms_bloquees": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py"
+  ],
+  "seen": 1
+ },
+ "voix": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster_setup.py"
+  ],
+  "seen": 1
+ },
+ "votants": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py"
+  ],
+  "seen": 1
+ },
+ "zfs_disponible": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "zfs_installe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ }
+}
