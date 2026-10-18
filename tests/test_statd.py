@@ -97,3 +97,20 @@ def test_a_member_without_a_status_that_does_not_answer_is_named(client, auth_he
     cluster["members"][1]["name"] = "pve-b-down"
     r = client.get("/vms?cluster=true", headers=auth_headers("ana"))
     assert r.status_code == 200 and r.json()["unreachable"] == ["pve-b-down"]
+
+
+def test_this_nodes_vms_come_from_its_own_status_when_current(client, auth_headers, cfs, cluster, monkeypatch):
+    """Antho, 2026-10-18: as Proxmox, this node's VMs are read from its status too; live only without a current one."""
+
+    def no_libvirt(node=None):
+        raise AssertionError("this node's VMs must come from its status")
+
+    cfs.statuses = [
+        status("hv-test", [{"nom": "mine-from-status"}], age_ms=3_000, nodeid=1),
+        status("pve-a", [{"nom": "web"}], nodeid=2),
+        status("pve-b", [{"nom": "db"}], nodeid=3),
+    ]
+    monkeypatch.setattr(inventory, "open_conn", no_libvirt)
+    body = client.get("/vms?cluster=true", headers=auth_headers("ana")).json()
+    assert ("mine-from-status", "local") in [(v["nom"], v["node"]) for v in body["items"]]
+    assert cluster["asked"] == []  # nothing asked of anyone

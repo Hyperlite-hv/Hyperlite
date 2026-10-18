@@ -27,14 +27,21 @@ def _cluster_vms(username):
     not answer is named."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from app.core import statd
+    from app.core import self_node, statd
 
-    conn = open_conn()
-    try:
-        items = [{**v, "node": "local"} for v in _domain_summaries(conn, None)]
-    finally:
-        conn.close()
     table = statd.table()
+    # This node's own VMs from its status too, as Proxmox does (Antho, 2026-10-18): a change made through Hyperlite
+    # is sent again within a second (statd.changed), one made outside it within statd.PERIOD_S. Read live when there
+    # is no current status (outside a cluster, hyperlite-cfs not answering).
+    own = table.get(self_node.name())
+    if own and not own["stale"]:
+        items = [{**v, "node": "local"} for v in own["vms"]]
+    else:
+        conn = open_conn()
+        try:
+            items = [{**v, "node": "local"} for v in _domain_summaries(conn, None)]
+        finally:
+            conn.close()
     stale, unreachable, ask = [], [], []
     for member in cluster_view.members():
         status = table.get(member["name"])
