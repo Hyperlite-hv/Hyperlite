@@ -54,7 +54,7 @@ export default function BackupFileBrowser({ backup, onClose }) {
   const fsLabel = (f) => `${f.device} · ${f.type}${f.label ? ` · ${f.label}` : ""}${f.size ? ` · ${formatSizeMb(f.size / 1048576, lang)}` : ""}`;
 
   return (
-    <SideDrawer open title={t("fr.title", { name: backup.vm_name || "", date: formatDateTime(backup.cree_le, lang) })} onClose={onClose}>
+    <SideDrawer open title={t("fr.title", { name: backup.vm_name || "", date: formatDateTime(backup.created_at, lang) })} onClose={onClose}>
       {error ? <ErrorState message={error} /> : !session ? (
         <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("fr.opening")}</p>
       ) : session.filesystems.length === 0 ? (

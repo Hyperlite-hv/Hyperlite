@@ -68,7 +68,7 @@ test("automation: step validation, dry run, real run behind a confirmation that 
 
 test("templates: deploy asks for a valid, unused name; deletion is confirmed", async ({ page }) => {
   const deployed: unknown[] = []; const deleted: string[] = [];
-  const tpls = [{ nom: "tpl-web", vm_source: "web-src", vcpu: 2, memoire_mo: 2048, cree_par: "admin", cree_le: "2026-09-25" }];
+  const tpls = [{ name: "tpl-web", vm_source: "web-src", vcpu: 2, memory_mb: 2048, created_by: "admin", created_at: "2026-09-25" }];
   await page.route(/\/templates(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request(); if (req.resourceType() === "document") return route.fallback();
     const ok = (b: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(b) });

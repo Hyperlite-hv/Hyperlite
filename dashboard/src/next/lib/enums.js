@@ -2,25 +2,25 @@ import { translate, useLangStore } from "../i18n";
 // Wire values (French, immutable contracts) -> presentation: shape + tone + i18n key.
 // A state is always carried by shape + text + colour, never colour alone.
 const VM_STATES = {
-  actif: { key: "state.running", shape: "dot", tone: "success" },
-  arrete: { key: "state.stopped", shape: "square", tone: "offline" },
-  en_arret: { key: "state.shuttingdown", shape: "square", tone: "offline" },
-  en_pause: { key: "state.paused", shape: "pause", tone: "info" },
-  suspendu: { key: "state.suspended", shape: "half", tone: "info" },
-  bloque: { key: "state.blocked", shape: "triangle", tone: "warning" },
-  plante: { key: "state.crashed", shape: "diamond", tone: "danger" },
+  active: { key: "state.running", shape: "dot", tone: "success" },
+  stopped: { key: "state.stopped", shape: "square", tone: "offline" },
+  shutting_down: { key: "state.shuttingdown", shape: "square", tone: "offline" },
+  paused: { key: "state.paused", shape: "pause", tone: "info" },
+  suspended: { key: "state.suspended", shape: "half", tone: "info" },
+  blocked: { key: "state.blocked", shape: "triangle", tone: "warning" },
+  crashed: { key: "state.crashed", shape: "diamond", tone: "danger" },
   unknown: { key: "state.unknown", shape: "ring", tone: "unknown" },
 };
 const NODE_STATES = {
   online: { key: "state.online", shape: "dot", tone: "success" },
-  erreur: { key: "state.offline", shape: "ring", tone: "offline" },
+  error: { key: "state.offline", shape: "ring", tone: "offline" },
 };
 const POOL_STATES = {
-  actif: { key: "state.active", shape: "dot", tone: "success" },
+  active: { key: "state.active", shape: "dot", tone: "success" },
   degrade: { key: "state.degraded", shape: "triangle", tone: "warning" },
-  inactif: { key: "state.inactive", shape: "square", tone: "offline" },
+  inactive: { key: "state.inactive", shape: "square", tone: "offline" },
   inaccessible: { key: "state.unreachable", shape: "diamond", tone: "danger" },
-  en_construction: { key: "state.building", shape: "ring", tone: "info" },
+  building: { key: "state.building", shape: "ring", tone: "info" },
   unknown: { key: "state.unknown", shape: "ring", tone: "unknown" },
 };
 const TASK_STATES = {

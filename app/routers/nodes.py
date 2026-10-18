@@ -57,11 +57,11 @@ async def _require(name):
 @router.get("")
 async def list_nodes(user: dict = Depends(get_current_user)):
     """Registered remote nodes, each with its latest live figures ("live", None until the
-    metrics collector has reached it once). "membre": a member of this node's cluster (it runs Hyperlite and keeps
+    metrics collector has reached it once). "member": a member of this node's cluster (it runs Hyperlite and keeps
     its own backups and history, app/core/cluster_view.py), not a node driven over SSH only."""
     nodes = await node_service.list_with_live()
     members = {n["name"] for n in await run_in_threadpool(cluster_view.members)}
-    return [{**n, "membre": n["name"] in members} for n in nodes]
+    return [{**n, "member": n["name"] in members} for n in nodes]
 
 
 class NodeTest(BaseModel):
@@ -143,13 +143,13 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     try:
         from app.routers.storage import apply_shared_pools
 
-        node = {**node, "pools_partages": apply_shared_pools(payload.name, user["username"])}
+        node = {**node, "shared_pools": apply_shared_pools(payload.name, user["username"])}
     except Exception:
         logger.warning("Shared storage not applied to the new node %s", payload.name, exc_info=True)
     # Compatibility diagnostic from the local host to the new node: informational, it
     # never cancels the registration.
     try:
-        node = {**node, "compatibilite": _compat_with_local(payload.name)}
+        node = {**node, "compatibility": _compat_with_local(payload.name)}
     except Exception:
         logger.warning("Compatibility diagnostic for the new node is unavailable", exc_info=True)
     return node
@@ -170,7 +170,7 @@ def config_copy_now(user: dict = Depends(require_role("admin"))):
 
     results = config_copy.copy_now(force=True, username=user["username"])
     log_action(user["username"], "config_copy", "cluster", "success", f"{len(results)} node(s)")
-    return {"resultats": results, "copies": config_copy.status()}
+    return {"results": results, "copies": config_copy.status()}
 
 
 @router.get("/{name}/summary")
@@ -411,7 +411,7 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
             # A node that is down is still worth marking: it must not become a migration or HA target.
             log_action(user["username"], "enter_maintenance", source, "success", "node unreachable, nothing migrated")
             raise HTTPException(
-                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, but no VM was migrated"
+                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, purpose no VM was migrated"
             ) from e
         if result["migrables"]:
             task_id = create_task("drain_node", source, node=source, username=user["username"])
@@ -430,7 +430,7 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
     )
     if task_id:
         _run_in_background(_drain_job, task_id, user["username"], source, target, result["migrables"])
-    return {"node": source, "en_maintenance": True, "task_id": task_id, **result}
+    return {"node": source, "in_maintenance": True, "task_id": task_id, **result}
 
 
 @router.delete("/{name}/maintenance")
@@ -439,4 +439,4 @@ def leave_maintenance(name: str, user: dict = Depends(require_role("admin"))):
     if not maintenance.leave(source):
         raise HTTPException(status_code=404, detail=f"Node '{source}' is not in maintenance")
     log_action(user["username"], "leave_maintenance", source, "success")
-    return {"node": source, "en_maintenance": False}
+    return {"node": source, "in_maintenance": False}

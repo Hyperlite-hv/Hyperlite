@@ -34,11 +34,11 @@ def _snapshot_summary(snap):
     except libvirt.libvirtError:
         parent_nom = None
     return {
-        "nom": snap.getName(),
+        "name": snap.getName(),
         "description": desc_elem.text if desc_elem is not None else None,
         "date_creation": creation_elem.text if creation_elem is not None else None,
-        "etat_vm": state_elem.text if state_elem is not None else None,
-        "actuel": snap.isCurrent() == 1,
+        "vm_state": state_elem.text if state_elem is not None else None,
+        "current": snap.isCurrent() == 1,
         "parent": parent_nom,
     }
 
@@ -62,11 +62,11 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
             pool0, name0 = zvol_specs[0]
             result = [
                 {
-                    "nom": s["nom"],
+                    "name": s["name"],
                     "description": None,
                     "date_creation": str(s["creation_epoch"]),
-                    "etat_vm": "disque_seul",
-                    "actuel": False,
+                    "vm_state": "disk_only",
+                    "current": False,
                     "parent": None,
                 }
                 for s in zfs_storage.list_zvol_snapshots(pool0, name0)
@@ -165,7 +165,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             except BaseException:
                 claim.release()
                 raise
-            return {"task_id": task_id, "nom": payload.name, "statut": "running"}
+            return {"task_id": task_id, "name": payload.name, "status": "running"}
 
         # QEMU cannot save a running VM's state while its firmware is in pflash (every UEFI VM): libvirt would fail
         # the task after the fact with "internal snapshots of a VM with pflash based firmware are not supported".
@@ -204,7 +204,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             claim.release()
             raise
 
-        return {"task_id": task_id, "nom": payload.name, "statut": "running"}
+        return {"task_id": task_id, "name": payload.name, "status": "running"}
     finally:
         conn.close()
 
@@ -295,7 +295,7 @@ def restore_snapshot(
                 raise
             return {
                 "task_id": task_id,
-                "statut": "running",
+                "status": "running",
                 "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
             }
 
@@ -330,7 +330,7 @@ def restore_snapshot(
 
         return {
             "task_id": task_id,
-            "statut": "running",
+            "status": "running",
             "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
         }
     finally:

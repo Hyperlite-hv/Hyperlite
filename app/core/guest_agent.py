@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 CHANNEL = "org.qemu.guest_agent.0"
 
 # Wire values of `agent_invite` in the VM summary.
-CONNECTED = "actif"  # the agent answers on the channel
-NOT_RUNNING = "inactif"  # the channel exists, but no agent listens (not installed or not started)
+CONNECTED = "active"  # the agent answers on the channel
+NOT_RUNNING = "inactive"  # the channel exists, purpose no agent listens (not installed or not started)
 NO_CHANNEL = "non_configure"  # the VM has no agent channel (created outside Hyperlite, for example)
 
 

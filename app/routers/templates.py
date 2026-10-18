@@ -205,7 +205,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
 
         refresh_pools_for_paths(conn, [new_disk_path, *([reseed_iso] if reseed_iso else [])])
         log_action(user["username"], "deploy_template", template_name, "success", f"-> {payload.new_name}")
-        return {"template": template_name, "vm": new_domain.name(), "etat": "arretee"}
+        return {"template": template_name, "vm": new_domain.name(), "state": "stopped"}
     finally:
         conn.close()
 
@@ -244,4 +244,4 @@ def delete_template_endpoint(template_name: str, confirm: bool = False, user: di
         raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
     templates_store.delete_template(template_name)
     log_action(user["username"], "delete_template", template_name, "success")
-    return {"template": template_name, "supprime": True}
+    return {"template": template_name, "deleted": True}

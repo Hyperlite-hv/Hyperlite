@@ -11,7 +11,7 @@ from app.core import backup_integrity, replication
 
 
 def job_payload(**over):
-    return {"nom": "to site B", "selection": "all", "cible_dir": "/mnt/site-b", "intervalle_minutes": 15, **over}
+    return {"name": "to site B", "selection": "all", "target_dir": "/mnt/site-b", "interval_minutes": 15, **over}
 
 
 @pytest.fixture()
@@ -24,13 +24,13 @@ def vms(monkeypatch):
 @pytest.mark.parametrize(
     ("over", "text"),
     [
-        ({"cible_dir": "/etc/x"}, "cannot be written"),
-        ({"cible_dir": ""}, "directory"),
-        ({"intervalle_minutes": 2}, "5 to 1440"),
-        ({"intervalle_minutes": 2000}, "5 to 1440"),
-        ({"nom": "bad/name"}, "Invalid name"),
+        ({"target_dir": "/etc/x"}, "cannot be written"),
+        ({"target_dir": ""}, "directory"),
+        ({"interval_minutes": 2}, "5 to 1440"),
+        ({"interval_minutes": 2000}, "5 to 1440"),
+        ({"name": "bad/name"}, "Invalid name"),
         ({"selection": "x"}, "selection"),
-        ({"selection": "pool", "valeur": "999"}, "pool"),
+        ({"selection": "pool", "value": "999"}, "pool"),
     ],
 )
 def test_invalid_jobs_are_refused(database, vms, over, text):
@@ -39,22 +39,22 @@ def test_invalid_jobs_are_refused(database, vms, over, text):
 
 
 def test_a_job_lists_its_vms_and_names_are_unique(database, vms):
-    job = replication.save_job(job_payload(exclues=["db"]))
-    assert job["vms"] == ["web"] and job["intervalle_minutes"] == 15 and job["running"] is False
+    job = replication.save_job(job_payload(excluded=["db"]))
+    assert job["vms"] == ["web"] and job["interval_minutes"] == 15 and job["running"] is False
     with pytest.raises(replication.ReplicationError, match="already named"):
         replication.save_job(job_payload())
-    assert replication.save_job(job_payload(nom="other"), job_id=9999) is None
+    assert replication.save_job(job_payload(name="other"), job_id=9999) is None
 
 
 def test_due_jobs_start_in_the_background_and_move_their_next_run(database, vms, monkeypatch):
     started = []
-    monkeypatch.setattr(replication, "start_job", lambda job, user: started.append(job["nom"]))
+    monkeypatch.setattr(replication, "start_job", lambda job, user: started.append(job["name"]))
     job = replication.save_job(job_payload())
     now = datetime.now(UTC) + timedelta(seconds=1)
     replication.run_due(now)
     assert started == ["to site B"]
     stored = replication._store().get_job(job["id"])
-    assert stored["prochaine_execution"] == (now + timedelta(minutes=15)).isoformat()
+    assert stored["next_run"] == (now + timedelta(minutes=15)).isoformat()
     replication.run_due(now)  # not due again before its interval
     assert started == ["to site B"]
 
@@ -75,14 +75,14 @@ def test_the_status_flags_a_vm_without_a_recent_copy(database, vms):
     now = datetime.now(UTC)
     store = replication._store()
     store.save_state(
-        "web", cible_dir="/mnt/site-b", statut="ok", dernier_ok_le=(now - timedelta(minutes=10)).isoformat()
+        "web", target_dir="/mnt/site-b", status="ok", last_success_at=(now - timedelta(minutes=10)).isoformat()
     )
     store.save_state(
-        "db", cible_dir="/mnt/site-b", statut="ok", dernier_ok_le=(now - timedelta(minutes=45)).isoformat()
+        "db", target_dir="/mnt/site-b", status="ok", last_success_at=(now - timedelta(minutes=45)).isoformat()
     )
     rows = {r["vm_name"]: r for r in replication.status(now)}
-    assert rows["web"]["en_retard"] is False and rows["web"]["intervalle_minutes"] == 15
-    assert rows["db"]["en_retard"] is True and rows["db"]["age_s"] == 45 * 60
+    assert rows["web"]["late"] is False and rows["web"]["interval_minutes"] == 15
+    assert rows["db"]["late"] is True and rows["db"]["age_s"] == 45 * 60
 
 
 def point(root, vm, stamp, kind, chain, parent=None, extra=None):
@@ -91,16 +91,16 @@ def point(root, vm, stamp, kind, chain, parent=None, extra=None):
     (d / "vda.qcow2").write_bytes(b"x")
     files = [
         {
-            "nom": "vda.qcow2",
-            "role": "disque",
-            "cible": "vda",
-            "taille": 1,
+            "name": "vda.qcow2",
+            "role": "disk",
+            "target": "vda",
+            "size": 1,
             "sha256": backup_integrity.sha256_of(d / "vda.qcow2"),
         }
     ]
-    manifest = {"version": 1, "vm": vm, "mode": "live", "fichiers": files}
+    manifest = {"version": 1, "vm": vm, "mode": "live", "files": files}
     if kind:
-        manifest["replication"] = {"type": kind, "chaine": chain, "parent": parent}
+        manifest["replication"] = {"type": kind, "chain": chain, "parent": parent}
     manifest.update(extra or {})
     (d / "manifest.json").write_text(json.dumps(manifest))
     return d
@@ -108,7 +108,7 @@ def point(root, vm, stamp, kind, chain, parent=None, extra=None):
 
 def test_pruning_keeps_the_newest_chains_and_never_an_ordinary_backup(tmp_path):
     for chain in ("20261001T000000Z", "20261002T000000Z", "20261003T000000Z"):
-        point(tmp_path, "web", chain, "complet", chain)
+        point(tmp_path, "web", chain, "full", chain)
         point(tmp_path, "web", chain[:-2] + "1Z", "incremental", chain, parent=chain)
     point(tmp_path, "web", "20260101T000000Z", None, None)  # a backup, not a replication point
     replication._prune(tmp_path / "web", "20261003T000000Z")
@@ -118,7 +118,7 @@ def test_pruning_keeps_the_newest_chains_and_never_an_ordinary_backup(tmp_path):
 
 def test_verification_follows_the_chain_and_refuses_a_parent_outside_it(tmp_path, monkeypatch):
     monkeypatch.setattr(backup_integrity, "_qemu_img_check", lambda path: None)
-    full = point(tmp_path, "web", "a", "complet", "a")
+    full = point(tmp_path, "web", "a", "full", "a")
     inc = point(tmp_path, "web", "b", "incremental", "a", parent="a")
     assert backup_integrity.verify(inc)[0] == backup_integrity.VERIFIED
     (full / "vda.qcow2").write_bytes(b"y")  # the base changed: every point after it is corrupt too
@@ -158,11 +158,12 @@ def test_the_api_is_for_administrators(client, auth_headers, vms, monkeypatch):
     assert r.status_code == 201, r.text
     job_id = r.json()["id"]
     assert (
-        client.post("/replication/jobs", json=job_payload(nom="x", cible_dir="/etc"), headers=admin).status_code == 422
+        client.post("/replication/jobs", json=job_payload(name="x", target_dir="/etc"), headers=admin).status_code
+        == 422
     )
     assert (
-        client.put(f"/replication/jobs/{job_id}", json=job_payload(intervalle_minutes=60), headers=admin).json()[
-            "intervalle_minutes"
+        client.put(f"/replication/jobs/{job_id}", json=job_payload(interval_minutes=60), headers=admin).json()[
+            "interval_minutes"
         ]
         == 60
     )

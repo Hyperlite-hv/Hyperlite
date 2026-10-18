@@ -27,14 +27,17 @@ def test_formats_escape_names_and_skip_missing_values():
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
-        ({"nom": "a", "type": "statsd"}, "type must be"),
-        ({"nom": "", "type": "graphite", "hote": "g"}, "Invalid name"),
-        ({"nom": "a", "type": "influxdb", "url": "file:///etc/passwd", "org": "o", "bucket": "b"}, "Unsupported URL"),
-        ({"nom": "a", "type": "influxdb", "url": "http://i:8086?x=1", "org": "o", "bucket": "b"}, "without a query"),
-        ({"nom": "a", "type": "influxdb", "url": "http://i:8086", "org": "o&x", "bucket": "b"}, "Invalid organization"),
-        ({"nom": "a", "type": "graphite", "hote": "bad host"}, "Invalid host"),
-        ({"nom": "a", "type": "graphite", "hote": "g", "port": 70000}, "port"),
-        ({"nom": "a", "type": "graphite", "hote": "g", "prefixe": "a..b"}, "Invalid prefix"),
+        ({"name": "a", "type": "statsd"}, "type must be"),
+        ({"name": "", "type": "graphite", "host": "g"}, "Invalid name"),
+        ({"name": "a", "type": "influxdb", "url": "file:///etc/passwd", "org": "o", "bucket": "b"}, "Unsupported URL"),
+        ({"name": "a", "type": "influxdb", "url": "http://i:8086?x=1", "org": "o", "bucket": "b"}, "without a query"),
+        (
+            {"name": "a", "type": "influxdb", "url": "http://i:8086", "org": "o&x", "bucket": "b"},
+            "Invalid organization",
+        ),
+        ({"name": "a", "type": "graphite", "host": "bad host"}, "Invalid host"),
+        ({"name": "a", "type": "graphite", "host": "g", "port": 70000}, "port"),
+        ({"name": "a", "type": "graphite", "host": "g", "prefix": "a..b"}, "Invalid prefix"),
     ],
 )
 def test_bad_definitions_are_refused(payload, message):
@@ -69,11 +72,11 @@ def influx():
 
 def test_api_manages_servers_and_pushes_to_influxdb(client, auth_headers, influx):
     admin = auth_headers("root", "admin")
-    body = {"nom": "influx", "type": "influxdb", "url": influx + "/", "org": "lab", "bucket": "hv", "jeton": "s3cret"}
+    body = {"name": "influx", "type": "influxdb", "url": influx + "/", "org": "lab", "bucket": "hv", "token": "s3cret"}
     r = client.post("/metric-servers", json=body, headers=admin)
     assert r.status_code == 201, r.text
     server = r.json()
-    assert server["url"] == influx and server["jeton_defini"] is True and "jeton" not in server
+    assert server["url"] == influx and server["token_set"] is True and "token" not in server
     assert client.post("/metric-servers", json=body, headers=admin).status_code == 422  # same name
     assert client.get("/metric-servers", headers=auth_headers("watcher", "viewer")).status_code == 403
 
@@ -81,14 +84,14 @@ def test_api_manages_servers_and_pushes_to_influxdb(client, auth_headers, influx
     path, auth, sent = _Influx.received[-1]
     assert path == "/api/v2/write?org=lab&bucket=hv&precision=s" and auth == "Token s3cret"
     assert sent.startswith("hyperlite,scope=host,target=host cpu_pct=12.5")
-    assert client.get("/metric-servers", headers=admin).json()[0]["dernier_envoi"]
+    assert client.get("/metric-servers", headers=admin).json()[0]["last_sent_at"]
 
     _Influx.status = 401
     r = client.post(f"/metric-servers/{server['id']}/test", headers=admin)
     assert r.status_code == 502 and "InfluxDB answered 401" in r.json()["detail"]
-    assert "unauthorized" in client.get("/metric-servers", headers=admin).json()[0]["derniere_erreur"]
+    assert "unauthorized" in client.get("/metric-servers", headers=admin).json()[0]["last_error"]
 
-    r = client.put(f"/metric-servers/{server['id']}", json=body | {"jeton": "", "bucket": "hv2"}, headers=admin)
+    r = client.put(f"/metric-servers/{server['id']}", json=body | {"token": "", "bucket": "hv2"}, headers=admin)
     assert r.status_code == 200 and r.json()["bucket"] == "hv2"
     _Influx.status = 204
     me.push(ROWS, 1700000000)
@@ -111,16 +114,16 @@ def test_graphite_receives_plaintext_and_an_unreachable_server_is_recorded(datab
 
     t = threading.Thread(target=accept, daemon=True)
     t.start()
-    me.save_server({"nom": "graphite", "type": "graphite", "hote": "127.0.0.1", "port": port, "prefixe": "lab"})
+    me.save_server({"name": "graphite", "type": "graphite", "host": "127.0.0.1", "port": port, "prefix": "lab"})
     closed = socket.socket()
     closed.bind(("127.0.0.1", 0))
     dead_port = closed.getsockname()[1]
     closed.close()
-    me.save_server({"nom": "dead", "type": "graphite", "hote": "127.0.0.1", "port": dead_port})
+    me.save_server({"name": "dead", "type": "graphite", "host": "127.0.0.1", "port": dead_port})
     me.push(ROWS[:1], 1700000000)
     t.join(3)
     listener.close()
     assert got[0].splitlines()[0] == "lab.host.host.cpu_pct 12.5 1700000000"
-    servers = {s["nom"]: s for s in me.list_servers()}
-    assert servers["graphite"]["derniere_erreur"] is None and servers["graphite"]["dernier_envoi"]
-    assert servers["dead"]["derniere_erreur"] and servers["dead"]["dernier_envoi"] is None
+    servers = {s["name"]: s for s in me.list_servers()}
+    assert servers["graphite"]["last_error"] is None and servers["graphite"]["last_sent_at"]
+    assert servers["dead"]["last_error"] and servers["dead"]["last_sent_at"] is None

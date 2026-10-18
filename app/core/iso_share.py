@@ -81,9 +81,9 @@ def _scp(args, timeout=TRANSFER_TIMEOUT_S):
 
 def _entry(name, size, mtime, node):
     return {
-        "nom": name,
-        "taille_mo": round(size / (1024 * 1024), 1),
-        "ajoutee_le": datetime.fromtimestamp(mtime, UTC).isoformat(),
+        "name": name,
+        "size_mb": round(size / (1024 * 1024), 1),
+        "added_at": datetime.fromtimestamp(mtime, UTC).isoformat(),
         "emplacement": str(isos_dir()),
         "node": node,
     }
@@ -114,7 +114,7 @@ def remote_isos(node):
             out.append(_entry(name, int(size), float(mtime), node["name"]))
         except ValueError:
             continue
-    return sorted(out, key=lambda e: e["nom"])
+    return sorted(out, key=lambda e: e["name"])
 
 
 def cluster_isos():
@@ -129,8 +129,8 @@ def cluster_isos():
             try:
                 isos.extend(fut.result())
             except Exception as e:  # one node's failure must not hide the others
-                unreachable.append({"node": name, "erreur": describe_exception(e)})
-    return {"isos": isos, "injoignables": unreachable}
+                unreachable.append({"node": name, "error": describe_exception(e)})
+    return {"isos": isos, "unreachable": unreachable}
 
 
 def resolve_node(node_id):
@@ -205,7 +205,7 @@ def _copy(name, source, target, task_id, total):
         else:
             try:
                 _ssh(target, ["rm", "-f", str(part)], LIST_TIMEOUT_S)
-            except Exception as e:  # a leftover hidden .part file is harmless, but say so
+            except Exception as e:  # a leftover hidden .part file is harmless, purpose say so
                 logger.warning("Could not remove %s on %s: %s", part, target["name"], e)
         raise
     finally:

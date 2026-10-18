@@ -19,9 +19,9 @@ from app.services import metrics_service
 router = APIRouter(tags=["metrics"])
 
 
-async def _history(cible, range_key):
+async def _history(target, range_key):
     try:
-        return await metrics_service.history(cible, range_key)
+        return await metrics_service.history(target, range_key)
     except metrics_service.BadRange as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
 
@@ -84,7 +84,7 @@ def prometheus_metrics(user: dict = Depends(get_current_user)):
     gauge("hyperlite_network_tx_bytes_per_second", "Outgoing network throughput (bytes/s)")
 
     for row in _latest_by_cible():
-        labels = f'{{scope="{row["scope"]}",target="{row["cible"]}"}}'
+        labels = f'{{scope="{row["scope"]}",target="{row["target"]}"}}'
         for metric, field in [
             ("hyperlite_cpu_percent", "cpu_pct"),
             ("hyperlite_memory_used_mb", "mem_used_mb"),

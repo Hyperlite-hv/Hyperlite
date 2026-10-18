@@ -5,7 +5,7 @@ import type { Route } from "@playwright/test";
 // first only when asked. The power endpoint is served by the test (the backend part: tests/test_host_system.py).
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { nom: "e2e-power-web", etat: "actif", id: 3, uuid: "e2e-power-web", vcpu: 1, memoire_mo: 512, ip: null, utilisateur_ssh: null, uptime_s: 60, os: "Debian", stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios" };
+const vm = { name: "e2e-power-web", state: "active", id: 3, uuid: "e2e-power-web", vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
 
 test("node reboot: typed name, running VMs shut down first", async ({ page }) => {
   const sent: unknown[] = [];
@@ -15,7 +15,7 @@ test("node reboot: typed name, running VMs shut down first", async ({ page }) =>
   await page.route(/\/host\/system\/power$/, (r) => {
     if (!api(r)) return r.fallback();
     sent.push(r.request().postDataJSON());
-    return r.fulfill(json({ tache: "t1" }, 202));
+    return r.fulfill(json({ task: "t1" }, 202));
   });
 
   await page.goto("/node/local");
@@ -31,5 +31,5 @@ test("node reboot: typed name, running VMs shut down first", async ({ page }) =>
   await go.click();
   await expect(page.getByText("Reboot requested")).toBeVisible();
   await expect(page).toHaveURL(/tab=tasks/);
-  expect(sent).toEqual([{ action: "reboot", confirmation: "hv-e2e", arreter_invites: true }]);
+  expect(sent).toEqual([{ action: "reboot", confirmation: "hv-e2e", stop_guests: true }]);
 });

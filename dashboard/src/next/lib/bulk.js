@@ -8,7 +8,7 @@ export const BULK_ACTIONS = ["start", "stop", "force-stop", "restart", "migrate"
 // needs a destination other than the VM's own node.
 export function bulkEligible(action, vm, caps, targetNode = null) {
   if (action === "migrate") {
-    if (!caps.admin || vm.etat !== "actif") return false;
+    if (!caps.admin || vm.state !== "active") return false;
     return targetNode == null || vm.node !== targetNode;
   }
   return vmActionState(action, vm, caps).enabled;
@@ -46,6 +46,6 @@ export async function runBulk(items, fn, limit = 3) {
 
 // "a, b, c and 4 more": the names a confirmation shows without growing into a wall of text.
 export function nameList(vms, more, max = 8) {
-  const names = vms.slice(0, max).map((v) => v.nom);
+  const names = vms.slice(0, max).map((v) => v.name);
   return vms.length > max ? `${names.join(", ")} ${more(vms.length - max)}` : names.join(", ");
 }

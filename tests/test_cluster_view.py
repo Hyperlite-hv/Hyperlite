@@ -35,8 +35,8 @@ class Peers:
         return None
 
 
-def _node(name, statut="online"):
-    return {"name": name, "hostname": f"{name}.lan", "ssh_user": "root", "ssh_port": 22, "statut": statut}
+def _node(name, status="online"):
+    return {"name": name, "hostname": f"{name}.lan", "ssh_user": "root", "ssh_port": 22, "status": status}
 
 
 @pytest.fixture()
@@ -45,9 +45,9 @@ def peers(database, monkeypatch):
     # Only this view sees a cluster: the rest of the application (the ids of new rows) stays on a single node.
     monkeypatch.setattr(cluster_view, "_mode", lambda: "cluster")
     members = [
-        {"nom": n, "nodeid": i, "adresse": f"10.0.0.{i}"} for i, n in enumerate(("hv-test", "pve-a", "pve-b"), 1)
+        {"name": n, "nodeid": i, "address": f"10.0.0.{i}"} for i, n in enumerate(("hv-test", "pve-a", "pve-b"), 1)
     ]
-    monkeypatch.setattr(cluster_setup, "shared_conf", lambda: {"cluster": "lab", "version": 3, "membres": members})
+    monkeypatch.setattr(cluster_setup, "shared_conf", lambda: {"cluster": "lab", "version": 3, "members": members})
     # pve-old is registered over SSH only (no Hyperlite on it): not a member, never asked.
     nodes = [_node("pve-a"), _node("pve-b"), _node("pve-old")]
     monkeypatch.setattr(cluster, "list_nodes", lambda: nodes)
@@ -56,9 +56,9 @@ def peers(database, monkeypatch):
     return fake
 
 
-def _task_row(task_id, created, node, cible="web"):
-    return {"id": task_id, "type": "backup", "cible": cible, "node": node, "username": "system", "statut": "succeeded",
-            "progres": 100, "cree_le": created, "debut_le": created, "fin_le": created, "erreur": None}  # fmt: skip
+def _task_row(task_id, created, node, target="web"):
+    return {"id": task_id, "type": "backup", "target": target, "node": node, "username": "system", "status": "succeeded",
+            "progress": 100, "created_at": created, "started_at": created, "finished_at": created, "error": None}  # fmt: skip
 
 
 def test_outside_a_cluster_the_lists_are_this_nodes_own(client, auth_headers, monkeypatch):
@@ -92,7 +92,7 @@ def test_the_tasks_of_every_member_newest_first(client, auth_headers, peers):
 def test_a_member_down_or_offline_is_named_and_offline_ones_are_not_asked(client, auth_headers, peers):
     headers = auth_headers("ana")
     peers.down.add("pve-a")
-    peers.nodes[1]["statut"] = "offline"
+    peers.nodes[1]["status"] = "offline"
     rows = client.get("/tasks?cluster=true", headers=headers).json()
     assert sorted(rows["unreachable"]) == ["pve-a", "pve-b"]
     assert [c[0] for c in peers.calls] == ["pve-a"]
@@ -206,10 +206,10 @@ def test_what_is_checked_here_before_anything_is_sent(client, auth_headers, peer
 
 def test_every_members_backups_in_one_list(client, auth_headers, peers):
     headers = auth_headers("ana")
-    peers.answers[("pve-a", "/backups")] = (200, [{"id": 3, "vm_name": "web", "cree_le": "2999-01-01T00:00:00"}])
+    peers.answers[("pve-a", "/backups")] = (200, [{"id": 3, "vm_name": "web", "created_at": "2999-01-01T00:00:00"}])
     peers.down.add("pve-b")
     r = client.get("/backups?cluster=true", headers=headers).json()
-    assert r["items"] == [{"id": 3, "vm_name": "web", "cree_le": "2999-01-01T00:00:00", "on": "pve-a"}]
+    assert r["items"] == [{"id": 3, "vm_name": "web", "created_at": "2999-01-01T00:00:00", "on": "pve-a"}]
     assert r["unreachable"] == ["pve-b"]
     assert client.get("/vms/web/backups?node=local", headers=headers).json() == []  # this node: read here
 
@@ -222,7 +222,7 @@ def test_the_node_list_says_which_nodes_are_members(client, auth_headers, peers,
 
     monkeypatch.setattr(node_service, "list_with_live", listed)
     nodes = client.get("/nodes", headers=auth_headers("ana")).json()
-    assert {n["name"]: n["membre"] for n in nodes} == {"pve-a": True, "pve-b": True, "pve-old": False}
+    assert {n["name"]: n["member"] for n in nodes} == {"pve-a": True, "pve-b": True, "pve-old": False}
 
 
 def test_outside_a_cluster_no_node_is_a_member(client, auth_headers, monkeypatch):
@@ -232,7 +232,7 @@ def test_outside_a_cluster_no_node_is_a_member(client, auth_headers, monkeypatch
         return [{**_node("nico"), "live": None}]
 
     monkeypatch.setattr(node_service, "list_with_live", listed)
-    assert client.get("/nodes", headers=auth_headers("ana")).json()[0]["membre"] is False
+    assert client.get("/nodes", headers=auth_headers("ana")).json()[0]["member"] is False
     # This node's own name, as the backups list marks its rows: handled here (no such backup).
     headers = auth_headers("carl")
     assert client.delete("/backups/99?on=hv-test&confirm=true", headers=headers).status_code == 404
@@ -251,9 +251,9 @@ def test_another_members_vms_come_from_it_in_one_call(client, auth_headers, peer
         raise AssertionError("another member's VMs must not be read through libvirt here")
 
     monkeypatch.setattr(inventory, "open_conn", no_libvirt)
-    peers.answers[("pve-a", "/vms")] = (200, [{"nom": "web", "etat": "actif"}])
+    peers.answers[("pve-a", "/vms")] = (200, [{"name": "web", "state": "active"}])
     r = client.get("/vms?node=pve-a", headers=auth_headers("ana"))
-    assert r.status_code == 200 and r.json() == [{"nom": "web", "etat": "actif"}]
+    assert r.status_code == 200 and r.json() == [{"name": "web", "state": "active"}]
     assert peers.calls == [("pve-a", "ana", "GET", "/vms")]
 
 

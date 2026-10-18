@@ -52,7 +52,7 @@ export default function CompatibilityPage() {
   }, [nodeKey, admin]);
   const remote = nodes.filter((n) => n.id !== "local");
   const verdict = (report) => {
-    const c = report?.resume?.compte || {};
+    const c = report?.resume?.account || {};
     if (c.blocking) return { ...VERDICT.blocking, n: c.blocking };
     const w = (c.warning || 0) + (c.disabled || 0);
     return w ? { ...VERDICT.check, n: w } : VERDICT.ok;
@@ -62,7 +62,7 @@ export default function CompatibilityPage() {
   const rows = useMemo(() => compareNodes(Object.fromEntries(loaded.map((n) => [n.id, profiles[n.id]]))).map((r) => ({ ...capRow(t, { ...r, value: null }), values: r.values })), [loaded, profiles, t]);
   const shown = onlyDiff && loaded.length > 1 ? rows.filter((r) => r.differe) : rows;
   const differences = rows.filter((r) => r.differe && !r.informatif);
-  const nameOf = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const nameOf = (id) => nodes.find((n) => n.id === id)?.name || id;
   const cell = (v) => (v === NA ? <span className="nx-muted">{t("ns.notReported")}</span>
     : yes(v) ? <span className="nx-st nx-tone-success"><Check size={14} aria-hidden="true" />{t("cp.yes")}</span>
     : no(v) ? <span className="nx-st" data-tone="offline"><X size={14} aria-hidden="true" />{t("cp.no")}</span>
@@ -86,7 +86,7 @@ export default function CompatibilityPage() {
           ) : (
             <div className="nx-tablewrap" role="region" aria-label={t("cp.title")} tabIndex={0}>
               <table className="nx-table">
-                <thead><tr><th scope="col">{t("cp.capability")}</th>{loaded.map((n) => <th scope="col" key={n.id}>{n.nom}</th>)}</tr></thead>
+                <thead><tr><th scope="col">{t("cp.capability")}</th>{loaded.map((n) => <th scope="col" key={n.id}>{n.name}</th>)}</tr></thead>
                 <tbody>
                   {shown.map((r) => (
                     <tr key={r.key} className={r.differe && !r.informatif ? "is-diff" : ""}>
@@ -109,7 +109,7 @@ export default function CompatibilityPage() {
                   <li key={n.id}>
                     {v ? <StatusIndicator override={v.state} compact /> : null}
                     <div className="nx-list2-main">
-                      <b>{n.nom}</b>
+                      <b>{n.name}</b>
                       <div className="nx-list2-sub">{p?.error ? <span className="nx-f-h is-error">{p.error}</span> : v ? t(v.text, { n: v.n }) : t("cp.detecting")}</div>
                     </div>
                     <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("node", n.id, "compat")}>{t("cp.migDetails")}</button>

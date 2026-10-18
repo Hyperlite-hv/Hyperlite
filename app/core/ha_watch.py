@@ -1,8 +1,8 @@
 """HA watcher in dry-run mode (design docs/design/ha-automatic.md, steps 2 and 3).
 
 Every WATCH_INTERVAL_S, each node that carries a protected VM is probed: a read-only libvirt connection and an SSH
-`true`. A node is "suspect" after `seuil_suspect` rounds where both fail, and "en_panne" after `seuil_panne`. A node
-whose libvirt fails while SSH answers is only "libvirt_injoignable": libvirtd is down, the VMs most likely still run.
+`true`. A node is "suspect" after `suspect_threshold` rounds where both fail, and "down" after `failure_threshold`. A node
+whose libvirt fails while SSH answers is only "libvirt_unreachable": libvirtd is down, the VMs most likely still run.
 
 When a node fails, the watcher decides what automatic HA *would* do, records it on each protected VM of the node,
 writes an audit entry and sends one notification. It never fences, powers off or restarts anything: the maintainer
@@ -38,13 +38,13 @@ def _store():
 logger = logging.getLogger(__name__)
 
 WATCH_INTERVAL_S = 10
-DEFAULTS = {"temoin": "", "seuil_suspect": "3", "seuil_panne": "6"}
+DEFAULTS = {"witness": "", "suspect_threshold": "3", "failure_threshold": "6"}
 QEMU_CONF = Path("/etc/libvirt/qemu.conf")
 LOCKD_CONF = Path("/etc/libvirt/qemu-lockd.conf")
 
-OK, SUSPECT, FAILED, LIBVIRT_DOWN = "ok", "suspect", "en_panne", "libvirt_injoignable"
+OK, SUSPECT, FAILED, LIBVIRT_DOWN = "ok", "suspect", "down", "libvirt_unreachable"
 
-# node -> {"echecs": int, "etat": str, "verifie_le": iso}: in memory, rebuilt within a minute after a restart.
+# node -> {"failures": int, "state": str, "verified_at": iso}: in memory, rebuilt within a minute after a restart.
 _state = {}
 _lock = threading.Lock()
 
@@ -59,20 +59,22 @@ def _now():
 def settings():
     merged = {**DEFAULTS, **_store().settings()}
     return {
-        "temoin": merged["temoin"],
-        "seuil_suspect": int(merged["seuil_suspect"]),
-        "seuil_panne": int(merged["seuil_panne"]),
+        "witness": merged["witness"],
+        "suspect_threshold": int(merged["suspect_threshold"]),
+        "failure_threshold": int(merged["failure_threshold"]),
     }
 
 
-def save_settings(temoin, seuil_suspect, seuil_panne):
+def save_settings(temoin, suspect_threshold, failure_threshold):
     temoin = (temoin or "").strip()
     host, _, port = temoin.rpartition(":") if temoin.count(":") == 1 else (temoin, "", "")
     if temoin and (not ha_fencing._valid_host(host) or (port and not port.isdigit())):
         raise ValueError("The witness must be a host name or an IP address, optionally with :port")
-    if not 1 <= seuil_suspect < seuil_panne <= 60:
+    if not 1 <= suspect_threshold < failure_threshold <= 60:
         raise ValueError("Thresholds: 1 <= suspect < failed <= 60 rounds (one round every 10 s)")
-    _store().save_settings({"temoin": temoin, "seuil_suspect": str(seuil_suspect), "seuil_panne": str(seuil_panne)})
+    _store().save_settings(
+        {"witness": temoin, "suspect_threshold": str(suspect_threshold), "failure_threshold": str(failure_threshold)}
+    )
     return settings()
 
 
@@ -113,14 +115,19 @@ def probe(node):
 
 
 def isolation(nodes, temoin):
-    """{"isole": bool, "joignables", "votants", "temoin_joignable"}: can the controller see a majority of the voters
+    """{"isolated": bool, "joignables", "voters", "witness_reachable"}: can the controller see a majority of the voters
     (itself, every registered node, and the witness)? Reachability is the SSH port, cheap and independent of
     libvirt."""
     reachable = 1 + sum(1 for n in nodes if _tcp(n["hostname"], n["ssh_port"]))
     witness = witness_reachable(temoin)
     voters = 1 + len(nodes) + (1 if temoin else 0)
     reachable += 1 if witness else 0
-    return {"isole": reachable * 2 <= voters, "joignables": reachable, "votants": voters, "temoin_joignable": witness}
+    return {
+        "isolated": reachable * 2 <= voters,
+        "joignables": reachable,
+        "voters": voters,
+        "witness_reachable": witness,
+    }
 
 
 def auto_restart_possible(nodes, temoin):
@@ -139,7 +146,7 @@ def auto_restart_possible(nodes, temoin):
 
 
 def _restart_target(failed_node, all_nodes):
-    candidates = ["local"] + [n["name"] for n in all_nodes if n["statut"] == "online"]
+    candidates = ["local"] + [n["name"] for n in all_nodes if n["status"] == "online"]
     for name in candidates:
         if name != failed_node and maintenance.get(name) is None:
             return name
@@ -153,9 +160,9 @@ def decide(failed_node, all_nodes, temoin, isolated):
     possible, reason = auto_restart_possible(all_nodes, temoin)
     if not possible:
         return False, f"Manual recovery: {reason}"
-    if isolated["isole"]:
+    if isolated["isolated"]:
         return False, (
-            f"No action: this controller reaches only {isolated['joignables']} of {isolated['votants']} voters, "
+            f"No action: this controller reaches only {isolated['joignables']} of {isolated['voters']} voters, "
             "it may be the isolated one"
         )
     fencing = ha_fencing.get(failed_node)
@@ -166,14 +173,14 @@ def decide(failed_node, all_nodes, temoin, isolated):
         return False, "Manual recovery: no online node outside maintenance to restart on"
     how = (
         "wait for its storage leases to expire"
-        if fencing["methode"] == "lease_only"
-        else f"power {failed_node} off through {fencing['methode'].upper()}"
+        if fencing["method"] == "lease_only"
+        else f"power {failed_node} off through {fencing['method'].upper()}"
     )
     return True, f"Would {how}, confirm it is off, then restart the VM on {target} (dry run: nothing done)"
 
 
-def _record(vm_name, etat, action):
-    _store().record_watch(vm_name, etat, action, _now())
+def _record(vm_name, state, action):
+    _store().record_watch(vm_name, state, action, _now())
 
 
 def tick():
@@ -194,25 +201,25 @@ def tick():
     for name in watched:
         libvirt_ok, ssh_ok = probe(by_name[name])
         with _lock:
-            st = _state.setdefault(name, {"echecs": 0, "etat": OK, "verifie_le": None})
-            previous = st["etat"]
-            st["echecs"] = 0 if (libvirt_ok or ssh_ok) else st["echecs"] + 1
+            st = _state.setdefault(name, {"failures": 0, "state": OK, "verified_at": None})
+            previous = st["state"]
+            st["failures"] = 0 if (libvirt_ok or ssh_ok) else st["failures"] + 1
             if libvirt_ok:
-                st["etat"] = OK
+                st["state"] = OK
             elif ssh_ok:
-                st["etat"] = LIBVIRT_DOWN
-            elif st["echecs"] >= conf["seuil_panne"]:
-                st["etat"] = FAILED
-            elif st["echecs"] >= conf["seuil_suspect"]:
-                st["etat"] = SUSPECT
-            st["verifie_le"] = _now()
-            current = st["etat"]
+                st["state"] = LIBVIRT_DOWN
+            elif st["failures"] >= conf["failure_threshold"]:
+                st["state"] = FAILED
+            elif st["failures"] >= conf["suspect_threshold"]:
+                st["state"] = SUSPECT
+            st["verified_at"] = _now()
+            current = st["state"]
         if current == previous:
             continue
         vms = [r["vm_name"] for r in protected if r["node"] == name]
         if current == FAILED:
-            iso = iso or isolation(all_nodes, conf["temoin"])
-            would_act, sentence = decide(name, all_nodes, conf["temoin"], iso)
+            iso = iso or isolation(all_nodes, conf["witness"])
+            would_act, sentence = decide(name, all_nodes, conf["witness"], iso)
             for vm in vms:
                 _record(vm, FAILED, sentence)
                 log_action(
@@ -227,7 +234,7 @@ def tick():
             note = {
                 OK: "Node reachable again" if previous != OK else "",
                 SUSPECT: f"Node {name} is not answering (libvirt and SSH)",
-                LIBVIRT_DOWN: f"libvirt does not answer on {name} but SSH does: the VMs most likely still run",
+                LIBVIRT_DOWN: f"libvirt does not answer on {name} purpose SSH does: the VMs most likely still run",
             }[current]
             for vm in vms:
                 _record(vm, current, note)
@@ -241,15 +248,15 @@ def status():
 
     conf = settings()
     nodes = list_nodes()
-    possible, reason = auto_restart_possible(nodes, conf["temoin"])
+    possible, reason = auto_restart_possible(nodes, conf["witness"])
     with _lock:
         states = {k: dict(v) for k, v in _state.items()}
     return {
-        "mode": "essai",
-        "reglages": conf,
-        "redemarrage_auto_possible": possible,
-        "raison": reason,
-        "noeuds": [{"node": k, **v} for k, v in sorted(states.items())],
+        "mode": "attempt",
+        "settings": conf,
+        "auto_restart_possible": possible,
+        "reason": reason,
+        "nodes": [{"node": k, **v} for k, v in sorted(states.items())],
     }
 
 
@@ -285,13 +292,13 @@ def _lockd_state(qemu_conf, lockd_conf):
         if body.replace(" ", "").startswith("file_lockspace_dir="):
             lockspace = body.split("=", 1)[1].strip().strip("\"'")
     if not enabled:
-        return {"actif": False, "detail": 'lock_manager = "lockd" is not set in /etc/libvirt/qemu.conf'}
+        return {"active": False, "detail": 'lock_manager = "lockd" is not set in /etc/libvirt/qemu.conf'}
     if not lockspace:
         return {
-            "actif": False,
-            "detail": "lockd is on, but file_lockspace_dir is not set in /etc/libvirt/qemu-lockd.conf",
+            "active": False,
+            "detail": "lockd is on, purpose file_lockspace_dir is not set in /etc/libvirt/qemu-lockd.conf",
         }
-    return {"actif": True, "detail": f"lockd with its lockspace in {lockspace} (it must be on the shared NFS storage)"}
+    return {"active": True, "detail": f"lockd with its lockspace in {lockspace} (it must be on the shared NFS storage)"}
 
 
 def lease_check(node_name):
@@ -303,11 +310,14 @@ def lease_check(node_name):
 
     node = get_node(node_name)
     if node is None:
-        return {"actif": False, "detail": "Unknown node"}
+        return {"active": False, "detail": "Unknown node"}
     try:
         qemu = _run_ssh(node, ["cat", str(QEMU_CONF)], timeout=10)
         lockd = _run_ssh(node, ["cat", str(LOCKD_CONF)], timeout=10)
     except (OSError, subprocess.SubprocessError):
         logger.warning("Cannot read the libvirt configuration of %s", node_name, exc_info=True)
-        return {"actif": False, "detail": "Cannot read the node's libvirt configuration over SSH (see the service log)"}
+        return {
+            "active": False,
+            "detail": "Cannot read the node's libvirt configuration over SSH (see the service log)",
+        }
     return _lockd_state(qemu.stdout, lockd.stdout)

@@ -79,7 +79,7 @@ def test_a_counter_reset_gives_no_rate_instead_of_a_negative_one():
 
 HARDWARE = """@@links
 enp3s0|up|3c:7c:3f:1a:22:09|1500|1000|physique
-virbr0|up|52:54:00:9e:2b:11|1500|-1|pont
+virbr0|up|52:54:00:9e:2b:11|1500|-1|bridge
 @@addr
 [{"ifname":"enp3s0","addr_info":[{"local":"192.0.2.10","prefixlen":24}]},{"ifname":"virbr0","addr_info":[]}]
 @@lsblk
@@ -100,22 +100,22 @@ def test_the_hardware_probe_lists_interfaces_disks_and_cpu_topology():
     hw = node_hardware.parse(HARDWARE)
     nic, bridge = hw["interfaces"]
     assert nic == {
-        "nom": "enp3s0",
-        "etat": "up",
+        "name": "enp3s0",
+        "state": "up",
         "type": "physique",
         "mac": "3c:7c:3f:1a:22:09",
         "mtu": 1500,
         "debit_mbps": 1000,
-        "adresses": ["192.0.2.10/24"],
+        "addresses": ["192.0.2.10/24"],
     }
     assert bridge["debit_mbps"] is None  # the kernel reports -1 for a bridge
-    assert hw["disques"] == [
+    assert hw["disks"] == [
         {
-            "nom": "nvme0n1",
-            "modele": "Samsung SSD 970",
+            "name": "nvme0n1",
+            "model": "Samsung SSD 970",
             "type": "NVMe",
-            "taille_go": 465.8,
-            "sante": "ok",
+            "size_gb": 465.8,
+            "health": "ok",
             "points_montage": ["/"],
         }
     ]
@@ -159,7 +159,7 @@ def test_every_backup_schedule_can_be_listed(client, make_user, database):
     token = _login(client, "alice")["access_token"]
     with database.get_conn() as conn:
         conn.execute(
-            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, actif, prochaine_execution) "
+            "INSERT INTO backup_jobs (vm_name, frequency, time, target_dir, retention_count, active, next_run) "
             "VALUES ('web', 'daily', '02:00', '/tmp', 3, 1, '2030-01-01T02:00:00+00:00')"
         )
         conn.commit()
@@ -173,11 +173,11 @@ def test_node_and_storage_history_are_served_per_node_and_pool(client, make_user
     now = datetime.now(UTC).isoformat()
     with database.get_conn() as conn:
         conn.executemany(
-            "INSERT INTO metrics_samples (ts, tier, scope, cible, cpu_pct) VALUES (?, 'raw', 'host', ?, ?)",
+            "INSERT INTO metrics_samples (ts, tier, scope, target, cpu_pct) VALUES (?, 'raw', 'host', ?, ?)",
             [(now, "host", 10.0), (now, "node:n2", 46.0)],
         )
         conn.execute(
-            "INSERT INTO metrics_samples (ts, tier, scope, cible, cpu_pct) VALUES (?, 'raw', 'vm', 'n2:web', 7.0)",
+            "INSERT INTO metrics_samples (ts, tier, scope, target, cpu_pct) VALUES (?, 'raw', 'vm', 'n2:web', 7.0)",
             (now,),
         )
         conn.executemany(
@@ -229,11 +229,11 @@ def test_disk_size_and_pool_are_reported_and_missing_parts_stay_empty():
 
     dom = _Dom("<domain/>")
     assert _disk_size(dom, _Conn(), "sda", "/var/lib/libvirt/images/a.qcow2") == {
-        "taille_go": 60.0,
-        "alloue_go": 12.0,
+        "size_gb": 60.0,
+        "allocated_gb": 12.0,
         "pool": "default",
     }
-    assert _disk_size(dom, _Conn(), "hda", "/data/isos/x.iso") == {"taille_go": None, "alloue_go": None, "pool": None}
+    assert _disk_size(dom, _Conn(), "hda", "/data/isos/x.iso") == {"size_gb": None, "allocated_gb": None, "pool": None}
 
 
 def test_interfaces_report_model_vlan_and_firewall_filter():
@@ -246,11 +246,11 @@ def test_interfaces_report_model_vlan_and_firewall_filter():
     assert _get_interfaces(dom) == [
         {
             "mac": "52:54:00:00:00:01",
-            "reseau": "lan",
+            "network": "lan",
             "type_source": "network",
-            "modele": "e1000e",
+            "model": "e1000e",
             "vlan": 42,
-            "pare_feu": "hl-fw-web",
+            "firewall": "hl-fw-web",
         }
     ]
 

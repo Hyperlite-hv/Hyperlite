@@ -143,8 +143,8 @@ def test_tunnel_ticket_checks_port_privilege_and_state(client, auth_headers, mon
 def test_scoped_operator_role_grants_the_tunnel():
     from app.core.permissions import ROLES
 
-    assert "vm.tunnel" in ROLES["operateur"]["privileges"] and "vm.tunnel" in ROLES["gestionnaire"]["privileges"]
-    assert "vm.tunnel" not in ROLES["lecteur"]["privileges"]
+    assert "vm.tunnel" in ROLES["operator"]["privileges"] and "vm.tunnel" in ROLES["manager"]["privileges"]
+    assert "vm.tunnel" not in ROLES["drive"]["privileges"]
 
 
 def _echo_server():

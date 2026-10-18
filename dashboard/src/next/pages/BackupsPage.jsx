@@ -37,7 +37,7 @@ export default function BackupsPage() {
   const vms = useInfraStore((s) => s.vms);
   // VMs a grouped job covers count as scheduled too (known to administrators, who alone read the jobs).
   const [grouped, setGrouped] = useState(new Set());
-  const onGroups = useCallback((jobs) => setGrouped(new Set(jobs.filter((j) => j.actif).flatMap((j) => j.vms))), []);
+  const onGroups = useCallback((jobs) => setGrouped(new Set(jobs.filter((j) => j.active).flatMap((j) => j.vms))), []);
 
   const load = useCallback(async () => {
     // In a cluster, every member's backups, each with the node that holds it ("on"), and the members that did not answer.
@@ -53,9 +53,9 @@ export default function BackupsPage() {
       .catch((e) => setScheduleError(errorMessage(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
-  const running = Boolean(rows?.some((b) => !STATUS[b.statut]));
+  const running = Boolean(rows?.some((b) => !STATUS[b.status]));
   usePolling(load, running ? 4000 : 15000);
-  const unprotected = scheduled ? vms.filter((v) => !scheduled.has(v.nom) && !grouped.has(v.nom)).length : 0;
+  const unprotected = scheduled ? vms.filter((v) => !scheduled.has(v.name) && !grouped.has(v.name)).length : 0;
 
   async function remove(b) {
     if (!(await confirmAction({ title: t("vb.deleteTitle", { id: b.id }), message: t("bk.deleteHelp"), confirmLabel: t("vx.delete"), danger: true }))) return;
@@ -67,7 +67,7 @@ export default function BackupsPage() {
   const rowKey = (b) => `${b.on}/${b.id}`;
   const several = unreachable.length > 0 || new Set((rows || []).map((b) => b.on)).size > 1;
   // The VM a backup belongs to: the one of the node that holds it when that node is another member, else this host's.
-  const vmOf = (b) => (vms.some((v) => v.nom === b.vm_name && v.node === b.on) ? `${b.vm_name}@${b.on}` : b.vm_name);
+  const vmOf = (b) => (vms.some((v) => v.name === b.vm_name && v.node === b.on) ? `${b.vm_name}@${b.on}` : b.vm_name);
 
   return (
     <>
@@ -88,14 +88,14 @@ export default function BackupsPage() {
                 <tbody>
                   {rows.map((b) => (
                     <tr key={rowKey(b)} className={ctx.is("bk", rowKey(b)) ? "is-ctx" : undefined} onContextMenu={ctx.open("bk", b, rowKey(b))}>
-                      <td><StatusIndicator kind="task" wire={b.statut === "succeeded" ? "succeeded" : b.statut === "failed" ? "failed" : "running"} /></td>
-                      <td className="nx-mono">{fmt(b.cree_le)}</td>
+                      <td><StatusIndicator kind="task" wire={b.status === "succeeded" ? "succeeded" : b.status === "failed" ? "failed" : "running"} /></td>
+                      <td className="nx-mono">{fmt(b.created_at)}</td>
                       <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmOf(b), "backup")}>{b.vm_name}</button></th>
                       {several && <td>{b.on}</td>}
                       <td>{b.mode === "live" ? t("bk.hot") : t("bk.cold")}</td>
-                      <td className="nx-num nx-mono">{b.taille_octets ? formatSizeMb(b.taille_octets / 1048576, lang) : "—"}</td>
-                      <td className="nx-mono nx-wrapcell">{b.erreur ? <span className="nx-tone-danger">{b.erreur}</span> : b.chemin}</td>
-                      <td><div className="nx-ra">{caps.admin && b.statut === "failed" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("vx.delete")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}</div></td>
+                      <td className="nx-num nx-mono">{b.size_bytes ? formatSizeMb(b.size_bytes / 1048576, lang) : "—"}</td>
+                      <td className="nx-mono nx-wrapcell">{b.error ? <span className="nx-tone-danger">{b.error}</span> : b.path}</td>
+                      <td><div className="nx-ra">{caps.admin && b.status === "failed" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("vx.delete")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}</div></td>
                     </tr>
                   ))}
                 </tbody>
@@ -108,10 +108,10 @@ export default function BackupsPage() {
       {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><SiteRecovery /></div>}
       <ActionsContextMenu ctx={ctx} label={(b) => t("ctx.menuOf", { name: `${b.vm_name} #${b.id}` })} entries={(b) => [
         { key: "vm", icon: "open", label: t("ctx.vmBackups"), run: () => navigateTo("vm", vmOf(b), "backup") },
-        b.chemin && b.statut === "succeeded" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.chemin) },
+        b.path && b.status === "succeeded" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.path) },
         "-",
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(b),
-          disabled: !caps.admin || b.statut !== "failed", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.onlyFailed") },
+          disabled: !caps.admin || b.status !== "failed", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.onlyFailed") },
       ]} />
     </>
   );

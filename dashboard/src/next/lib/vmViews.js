@@ -63,14 +63,14 @@ export function deleteView(views, name) {
 // name. `withEmpty` keeps the nodes without VM (nothing filtered: every machine appears).
 export function groupVms(shown, mode, { nodes = [], tagsOf = () => [], pools = [], withEmpty = false, noneLabel = "" } = {}) {
   if (mode === "node") {
-    const groups = nodes.map((n) => ({ key: `node:${n.id}`, kind: "node", node: n, label: n.nom, vms: shown.filter((v) => v.node === n.id) }))
+    const groups = nodes.map((n) => ({ key: `node:${n.id}`, kind: "node", node: n, label: n.name, vms: shown.filter((v) => v.node === n.id) }))
       .filter((g) => g.vms.length > 0 || withEmpty);
     const orphans = shown.filter((v) => !nodes.some((n) => n.id === v.node));
-    if (orphans.length) groups.push({ key: "node:?", kind: "node", node: { id: "?", nom: noneLabel }, label: noneLabel, vms: orphans });
+    if (orphans.length) groups.push({ key: "node:?", kind: "node", node: { id: "?", name: noneLabel }, label: noneLabel, vms: orphans });
     return groups;
   }
   if (mode === "tag" || mode === "pool") {
-    const keysOf = mode === "tag" ? tagsOf : (v) => pools.filter((p) => (p.vms || []).includes(v.nom) && (!v.node || v.node === "local")).map((p) => p.name);
+    const keysOf = mode === "tag" ? tagsOf : (v) => pools.filter((p) => (p.vms || []).includes(v.name) && (!v.node || v.node === "local")).map((p) => p.name);
     const byKey = new Map();
     const loose = [];
     for (const v of shown) {

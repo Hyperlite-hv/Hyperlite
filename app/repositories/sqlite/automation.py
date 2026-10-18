@@ -10,7 +10,9 @@ from app.domain.common import AlreadyExists
 
 def _job_with_steps(db, job):
     d = dict(job)
-    d["steps"] = [dict(s) for s in db.execute("SELECT * FROM job_steps WHERE job_id = ? ORDER BY ordre", (job["id"],))]
+    d["steps"] = [
+        dict(s) for s in db.execute("SELECT * FROM job_steps WHERE job_id = ? ORDER BY position", (job["id"],))
+    ]
     return d
 
 
@@ -26,7 +28,7 @@ class SqliteAutomationStore:
             return _job_with_steps(db, job) if job else None
 
     def create_job(self, name, description, username, created_at, steps):
-        """steps: dicts with cible_type, cible, commande, condition_type, condition_valeur. Returns the id."""
+        """steps: dicts with target_type, target, command, condition_type, condition_value. Returns the id."""
         with get_conn() as db:
             try:
                 cur = db.execute(
@@ -38,9 +40,9 @@ class SqliteAutomationStore:
             job_id = cur.lastrowid
             for i, s in enumerate(steps):
                 db.execute(
-                    "INSERT INTO job_steps (job_id, ordre, cible_type, cible, commande, condition_type, condition_valeur) "
+                    "INSERT INTO job_steps (job_id, position, target_type, target, command, condition_type, condition_value) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (job_id, i, s["cible_type"], s["cible"], s["commande"], s["condition_type"], s["condition_valeur"]),
+                    (job_id, i, s["target_type"], s["target"], s["command"], s["condition_type"], s["condition_value"]),
                 )
             db.commit()
         return job_id
@@ -71,26 +73,26 @@ class SqliteAutomationStore:
     def create_run(self, run_id, job_id, task_id, dry_run, targets_json, started_at):
         with get_conn() as db:
             db.execute(
-                "INSERT INTO job_runs (id, job_id, task_id, dry_run, targets, statut, started_at) "
+                "INSERT INTO job_runs (id, job_id, task_id, dry_run, targets, status, started_at) "
                 "VALUES (?, ?, ?, ?, ?, 'running', ?)",
                 (run_id, job_id, task_id, int(dry_run), targets_json, started_at),
             )
             db.commit()
 
-    def log_step(self, run_id, step_ordre, cible, commande, stdout, stderr, exit_code, reussi, at):
+    def log_step(self, run_id, step_position, target, command, stdout, stderr, exit_code, succeeded, at):
         with get_conn() as db:
             db.execute(
-                "INSERT INTO job_run_logs (run_id, step_ordre, cible, commande, stdout, stderr, exit_code, reussi, horodatage) "
+                "INSERT INTO job_run_logs (run_id, step_position, target, command, stdout, stderr, exit_code, succeeded, timestamp) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (run_id, step_ordre, cible, commande, stdout, stderr, exit_code, int(reussi), at),
+                (run_id, step_position, target, command, stdout, stderr, exit_code, int(succeeded), at),
             )
             db.commit()
 
-    def close_run(self, run_id, statut, finished_at, resultat):
+    def close_run(self, run_id, status, finished_at, result):
         with get_conn() as db:
             db.execute(
-                "UPDATE job_runs SET statut = ?, finished_at = ?, resultat = ? WHERE id = ?",
-                (statut, finished_at, resultat, run_id),
+                "UPDATE job_runs SET status = ?, finished_at = ?, result = ? WHERE id = ?",
+                (status, finished_at, result, run_id),
             )
             db.commit()
 

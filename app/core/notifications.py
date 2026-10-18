@@ -29,7 +29,7 @@ def _store():
 
 
 NOTIFY_EVENTS = {
-    "node_statut_change": "Node state change",
+    "node_status_change": "Node state change",
     "ha_alert": "HA alert (protected node down)",
     "hyperlite_update": "Hyperlite update",
     "update_available": "New Hyperlite version available (to be applied)",
@@ -209,4 +209,4 @@ def notify(event, title, message, result="success"):
             # cycle if so.
             from app.core.audit import log_action
 
-            log_action("system", "notification_echec", channel["name"], "failed", str(e)[:300])
+            log_action("system", "notification_failed", channel["name"], "failed", str(e)[:300])

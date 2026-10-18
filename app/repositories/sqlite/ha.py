@@ -77,23 +77,23 @@ class SqliteHaStore:
             > 0
         )
 
-    def record_watch(self, vm_name, etat, action, now):
+    def record_watch(self, vm_name, state, action, now):
         _write(
-            "UPDATE ha_protected_vms SET etat_ha = ?, derniere_action = ?, derniere_action_le = ? WHERE vm_name = ?",
-            (etat, action, now, vm_name),
+            "UPDATE ha_protected_vms SET ha_state = ?, last_action = ?, last_action_at = ? WHERE vm_name = ?",
+            (state, action, now, vm_name),
         )
 
     # ---- Watcher settings ----
 
     def settings(self):
-        return {r["cle"]: r["valeur"] for r in _rows("SELECT cle, valeur FROM ha_settings")}
+        return {r["key"]: r["value"] for r in _rows("SELECT key, value FROM ha_settings")}
 
     def save_settings(self, values):
         with get_conn() as db:
             for key, value in values.items():
                 db.execute(
-                    "INSERT INTO ha_settings (cle, valeur) VALUES (?, ?) "
-                    "ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+                    "INSERT INTO ha_settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     (key, value),
                 )
             db.commit()
@@ -108,14 +108,14 @@ class SqliteHaStore:
     def fenced_nodes(self):
         return [self_node.from_db(r["node"]) for r in _rows("SELECT node FROM node_fencing ORDER BY node")]
 
-    def save_fencing(self, node, methode, adresse, port, utilisateur, secret, tls_non_verifie, username, now):
+    def save_fencing(self, node, method, address, port, user, secret, tls_unverified, username, now):
         _write(
-            "INSERT INTO node_fencing (node, methode, adresse, port, utilisateur, secret, tls_non_verifie, "
-            "modifie_par, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(node) DO UPDATE SET "
-            "methode=excluded.methode, adresse=excluded.adresse, port=excluded.port, utilisateur=excluded.utilisateur, "
-            "secret=excluded.secret, tls_non_verifie=excluded.tls_non_verifie, modifie_par=excluded.modifie_par, "
-            "modifie_le=excluded.modifie_le",
-            (self_node.to_db(node), methode, adresse, port, utilisateur, secret, tls_non_verifie, username, now),
+            "INSERT INTO node_fencing (node, method, address, port, user, secret, tls_unverified, "
+            "modified_by, modified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(node) DO UPDATE SET "
+            "method=excluded.method, address=excluded.address, port=excluded.port, user=excluded.user, "
+            "secret=excluded.secret, tls_unverified=excluded.tls_unverified, modified_by=excluded.modified_by, "
+            "modified_at=excluded.modified_at",
+            (self_node.to_db(node), method, address, port, user, secret, tls_unverified, username, now),
         )
 
     def delete_fencing(self, node):

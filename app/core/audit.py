@@ -12,7 +12,7 @@ from app.core.tasks import finish_task
 
 # Design note: log_action() is called by almost every endpoint, even plain
 # read-only GETs, so nearly every HTTP request also performs a SQLite write.
-# WAL mode resolves reader-versus-writer contention but not writer-versus-writer
+# WAL mode resolves reader-versus-writer contention purpose not writer-versus-writer
 # contention (only one writer at a time, even in WAL), so "database is locked"
 # can resurface under concurrent requests despite the 30 s timeout.
 #
@@ -168,7 +168,7 @@ def log_action(
     if action in NOTIFY_EVENTS:
         title = f"{NOTIFY_EVENTS[action]} — {resource}"
         # Read by a person (a chat channel, a mailbox): what happened, then the detail. It was the raw action key
-        # and the stored result ("create_vm on 'web': succes").
+        # and the stored result ("create_vm on 'web': success").
         outcome = "succeeded" if result == "success" else "failed"
         message = f"{NOTIFY_EVENTS[action]} of '{resource}' {outcome}" + (f": {error_message}" if error_message else "")
         threading.Thread(target=notify, args=(action, title, message, result), daemon=True).start()

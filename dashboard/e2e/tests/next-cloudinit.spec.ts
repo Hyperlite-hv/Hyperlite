@@ -7,10 +7,10 @@ const NAME = "e2e-ci-web";
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj0bXkPZ1d5bDx2eH1 ana@laptop";
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { nom: NAME, etat: "actif", id: 1, uuid: NAME, vcpu: 1, memoire_mo: 512, ip: null, utilisateur_ssh: "debian", uptime_s: 60, os: "Debian", stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "active", id: 1, uuid: NAME, vcpu: 1, memory_mb: 512, ip: null, ssh_user: "debian", uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
 
 test("cloud-init: keys and password validated, saved for the next boot, password never shown back", async ({ page }) => {
-  let state = { disponible: true, en_marche: true, utilisateur: "debian", cles_ssh: [] as string[], modifie_le: null as string | null };
+  let state = { available: true, running: true, user: "debian", ssh_keys: [] as string[], modified_at: null as string | null };
   const saved: unknown[] = [];
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm])) : r.fallback()));
@@ -19,9 +19,9 @@ test("cloud-init: keys and password validated, saved for the next boot, password
     if (r.request().method() === "PUT") {
       const body = r.request().postDataJSON();
       saved.push(body);
-      state = { ...state, utilisateur: body.utilisateur, cles_ssh: body.cles_ssh, modifie_le: new Date().toISOString() };
+      state = { ...state, user: body.user, ssh_keys: body.ssh_keys, modified_at: new Date().toISOString() };
     }
-    return r.fulfill(json({ ...state, recharge_a_chaud: true }));
+    return r.fulfill(json({ ...state, hot_reload: true }));
   });
 
   await page.goto(`/vm/${NAME}?tab=cloudinit`);
@@ -40,7 +40,7 @@ test("cloud-init: keys and password validated, saved for the next boot, password
   await save.click();
 
   await expect(page.getByText("Applied at the VM's next boot (restart it to apply now).")).toBeVisible();
-  expect(saved).toEqual([{ utilisateur: "debian", cles_ssh: [KEY], mot_de_passe: "correct horse battery" }]);
+  expect(saved).toEqual([{ user: "debian", ssh_keys: [KEY], password: "correct horse battery" }]);
   await expect(card.getByLabel("New password")).toHaveValue(""); // never kept in the page after saving
   await expect(card.getByText(/last changed/)).toBeVisible();
 });
@@ -48,7 +48,7 @@ test("cloud-init: keys and password validated, saved for the next boot, password
 test("cloud-init: a VM installed from an ISO says why there is nothing to edit", async ({ page }) => {
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm])) : r.fallback()));
-  await page.route(new RegExp(`/vms/${NAME}/cloud-init$`), (r) => (api(r) ? r.fulfill(json({ disponible: false, en_marche: true, utilisateur: null, cles_ssh: [], modifie_le: null })) : r.fallback()));
+  await page.route(new RegExp(`/vms/${NAME}/cloud-init$`), (r) => (api(r) ? r.fulfill(json({ available: false, running: true, user: null, ssh_keys: [], modified_at: null })) : r.fallback()));
   await page.goto(`/vm/${NAME}?tab=cloudinit`);
   await expect(page.getByText(/installed from an ISO image, not made from a cloud image/)).toBeVisible();
 });

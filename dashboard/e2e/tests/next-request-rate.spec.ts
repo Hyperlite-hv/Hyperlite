@@ -3,7 +3,7 @@ import { expect, test, uiLogin } from "../support/fixtures";
 // A page left open asks the server at its polling pace, not at each render: a load effect depending on a function
 // recreated at each render once made the network page call GET /networks hundreds of times a second (each call
 // audited). Every page here stays under a few requests per endpoint over a few seconds.
-const PAGES = ["/datacenter?tab=reseau", "/datacenter?tab=storage", "/datacenter?tab=backups", "/datacenter?tab=permissions", "/datacenter?tab=vms", "/datacenter?tab=metrics", "/node/local?tab=system"];
+const PAGES = ["/datacenter?tab=network", "/datacenter?tab=storage", "/datacenter?tab=backups", "/datacenter?tab=permissions", "/datacenter?tab=vms", "/datacenter?tab=metrics", "/node/local?tab=system"];
 
 test("pages do not flood the server with requests", async ({ page }) => {
   await uiLogin(page);

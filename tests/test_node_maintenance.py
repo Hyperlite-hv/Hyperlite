@@ -55,8 +55,8 @@ def compat(monkeypatch):
 
     def check(src, dst, domain):
         if domain.blocked:
-            return [{"id": "cpu", "statut": BLOCKING, "message": "CPU model not available on the target"}]
-        return [{"id": "cpu", "statut": OK, "message": "ok"}]
+            return [{"id": "cpu", "status": BLOCKING, "message": "CPU model not available on the target"}]
+        return [{"id": "cpu", "status": OK, "message": "ok"}]
 
     monkeypatch.setattr(cluster_compat, "check_vm_migration", check)
 
@@ -75,7 +75,7 @@ def source_conn():
 def test_the_plan_moves_running_vms_and_explains_every_vm_that_stays(database, compat):
     result = maintenance.plan(source_conn(), FakeConn(FakeDomain("twin", active=False)), "n2")
     assert result["migrables"] == ["db", "web"]
-    reasons = {b["nom"]: b["raison"] for b in result["non_migrables"]}
+    reasons = {b["name"]: b["reason"] for b in result["non_migrables"]}
     assert reasons["stopped"].startswith("Stopped")
     assert "iSCSI" in reasons["lun"]
     assert "CPU model" in reasons["oldcpu"]
@@ -85,13 +85,13 @@ def test_the_plan_moves_running_vms_and_explains_every_vm_that_stays(database, c
 def test_without_a_target_every_vm_stays(database, compat):
     result = maintenance.plan(source_conn(), None, None)
     assert result["migrables"] == []
-    assert all(b["raison"] for b in result["non_migrables"]) and len(result["non_migrables"]) == 6
+    assert all(b["reason"] for b in result["non_migrables"]) and len(result["non_migrables"]) == 6
 
 
 def _add_node(database, name):
     with database.get_conn() as db:
         db.execute(
-            "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, added_at) "
+            "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, status, added_at) "
             "VALUES (?, ?, 'root', 22, 'online', ?)",
             (name, f"{name}.example", datetime.now(UTC).isoformat()),
         )
@@ -118,7 +118,7 @@ def cluster(client, auth_headers, database, monkeypatch, compat):
 
 def _tasks(database, type_):
     with database.get_conn() as db:
-        return [dict(r) for r in db.execute("SELECT * FROM tasks WHERE type = ? ORDER BY cree_le", (type_,))]
+        return [dict(r) for r in db.execute("SELECT * FROM tasks WHERE type = ? ORDER BY created_at", (type_,))]
 
 
 def test_draining_marks_the_node_then_migrates_each_vm_as_its_own_task(cluster):
@@ -130,11 +130,11 @@ def test_draining_marks_the_node_then_migrates_each_vm_as_its_own_task(cluster):
     r = c.post("/nodes/local/maintenance", json={"target_node": "n2"}, headers=h)
     assert r.status_code == 202, r.text
     body = r.json()
-    assert body["en_maintenance"] is True and body["migrables"] == ["db", "web"] and len(body["non_migrables"]) == 4
+    assert body["in_maintenance"] is True and body["migrables"] == ["db", "web"] and len(body["non_migrables"]) == 4
     assert cluster["migrated"] == [(None, "n2", "db"), (None, "n2", "web")]
-    assert [t["cible"] for t in _tasks(cluster["db"], "migrate_vm")] == ["db", "web"]
+    assert [t["target"] for t in _tasks(cluster["db"], "migrate_vm")] == ["db", "web"]
     drain = _tasks(cluster["db"], "drain_node")
-    assert len(drain) == 1 and drain[0]["id"] == body["task_id"] and drain[0]["statut"] == "succeeded"
+    assert len(drain) == 1 and drain[0]["id"] == body["task_id"] and drain[0]["status"] == "succeeded"
     assert [m["node"] for m in c.get("/nodes/maintenance", headers=h).json()] == ["local"]
 
 
@@ -142,7 +142,7 @@ def test_a_failed_migration_fails_the_drain_task_with_its_name(cluster):
     cluster["fail"].add("web")
     r = cluster["client"].post("/nodes/local/maintenance", json={"target_node": "n2"}, headers=cluster["headers"])
     drain = _tasks(cluster["db"], "drain_node")[0]
-    assert r.status_code == 202 and drain["statut"] == "failed" and "failed: web" in drain["erreur"]
+    assert r.status_code == 202 and drain["status"] == "failed" and "failed: web" in drain["error"]
 
 
 def test_maintenance_without_a_target_only_marks_the_node(cluster):
@@ -177,7 +177,7 @@ def test_a_node_in_maintenance_receives_no_vm_and_is_no_target(cluster):
 def test_ending_the_maintenance(cluster):
     c, h = cluster["client"], cluster["headers"]
     maintenance.enter("n2", "admin1")
-    assert c.delete("/nodes/n2/maintenance", headers=h).json() == {"node": "n2", "en_maintenance": False}
+    assert c.delete("/nodes/n2/maintenance", headers=h).json() == {"node": "n2", "in_maintenance": False}
     assert c.delete("/nodes/n2/maintenance", headers=h).status_code == 404
     assert c.get("/nodes/maintenance", headers=h).json() == []
 

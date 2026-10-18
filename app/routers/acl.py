@@ -13,7 +13,7 @@ router = APIRouter(prefix="/acl", tags=["acl"])
 class AclCreate(BaseModel):
     subject_type: str  # "user" | "group"
     subject_id: str  # username, or group id (as text)
-    role: str  # "lecteur" | "operateur" | "gestionnaire" | "custom:<id>"
+    role: str  # "drive" | "operator" | "manager" | "custom:<id>"
     resource_type: str  # "vm" | "pool" | "container" (containers are not grouped by pool for now)
     resource_id: str  # VM/container name, or pool id (as text)
 

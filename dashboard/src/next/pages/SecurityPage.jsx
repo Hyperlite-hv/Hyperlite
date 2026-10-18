@@ -228,11 +228,11 @@ function GroupsTab({ t, run, data, drawer, closeDrawer }) {
             <section key={g.id} className="nx-card2" aria-label={g.name}>
               <div className="nx-card2-h"><h2>{g.name}</h2><div className="nx-card2-acts"><IconBtn icon={PencilLine} label={t("rn.labelX", { name: g.name })} onClick={() => renameLabel(t, run, g.name, (n) => renameGroup(g.id, n))} /><IconBtn label={t("a11y.delete_group_x", { v: g.name })} title={del(t)} onClick={() => removeGroup(g)} /></div></div>
               <div className="nx-card2-b nx-stack">
-                <Chips t={t} list={g.membres} label={`${t("sec.members")} ${g.name}`} none={t("sec.noMembers")} onRemove={(m) => removeMember(g, m)} />
+                <Chips t={t} list={g.members} label={`${t("sec.members")} ${g.name}`} none={t("sec.noMembers")} onRemove={(m) => removeMember(g, m)} />
                 <div className="nx-inline">
                   <select className="nx-sel" aria-label={`${t("sec.addMember")} ${g.name}`} value={member[g.id] || ""} onChange={(e) => setMember((s) => ({ ...s, [g.id]: e.target.value }))}>
                     <option value="">{t("sec.chooseUser")}</option>
-                    {data.users.filter((u) => !g.membres.includes(u.username)).map((u) => <option key={u.username} value={u.username}>{u.username}</option>)}
+                    {data.users.filter((u) => !g.members.includes(u.username)).map((u) => <option key={u.username} value={u.username}>{u.username}</option>)}
                   </select>
                   <button type="button" className="nx-btn nx-btn--sm" disabled={!member[g.id]} onClick={() => addMember(g)}>{t("sec.add")}</button>
                 </div>
@@ -256,7 +256,7 @@ function PoolsTab({ t, run, data, vms, drawer, closeDrawer }) {
       {data.pools.length === 0 ? <div className="nx-card2"><Empty icon={Layers} title={t("sec.noPools")} text={t("sec.poolsHelp")} /></div> : (
         <div className="nx-cols2 nx-cols2--even">
           {data.pools.map((p) => {
-            const available = vms.filter((v) => !p.vms.includes(v.nom));
+            const available = vms.filter((v) => !p.vms.includes(v.name));
             return (
               <section key={p.id} className="nx-card2" aria-label={p.name}>
                 <div className="nx-card2-h"><h2>{p.name}</h2><div className="nx-card2-acts"><IconBtn icon={PencilLine} label={t("rn.labelX", { name: p.name })} onClick={() => renameLabel(t, run, p.name, (n) => renameVmPool(p.id, n))} /><IconBtn label={t("a11y.delete_vmpool_x", { v: p.name })} title={del(t)} onClick={() => removePool(p)} /></div></div>
@@ -266,7 +266,7 @@ function PoolsTab({ t, run, data, vms, drawer, closeDrawer }) {
                     <div className="nx-inline">
                       <select className="nx-sel" aria-label={`${t("sec.addVm")} ${p.name}`} value={pick[p.id] || ""} onChange={(e) => setPick((s) => ({ ...s, [p.id]: e.target.value }))}>
                         <option value="">{t("sec.chooseVm")}</option>
-                        {available.map((v) => <option key={v.nom} value={v.nom}>{v.nom}</option>)}
+                        {available.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
                       </select>
                       <button type="button" className="nx-btn nx-btn--sm" disabled={!pick[p.id]} onClick={() => run(() => addPoolMember(p.id, pick[p.id]), { fail: t("sec.addFailed") })}>{t("sec.add")}</button>
                     </div>
@@ -332,7 +332,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
   const [f, setF] = useState({ subjectType: "user", subjectId: "", role: Object.keys(allRoles)[0] || "", resourceType: "vm", resourceId: "" });
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value, ...(k === "subjectType" ? { subjectId: "" } : {}), ...(k === "resourceType" ? { resourceId: "" } : {}) }));
   const role = allRoles[f.role] ? f.role : Object.keys(allRoles)[0];
-  const resources = f.resourceType === "vm" ? vms.map((v) => [v.nom, v.nom]) : f.resourceType === "pool" ? data.pools.map((p) => [String(p.id), p.name]) : data.containers.map((c) => [c.nom, c.nom]);
+  const resources = f.resourceType === "vm" ? vms.map((v) => [v.name, v.name]) : f.resourceType === "pool" ? data.pools.map((p) => [String(p.id), p.name]) : data.containers.map((c) => [c.name, c.name]);
   async function create() {
     if (await run(() => createAcl({ subject_type: f.subjectType, subject_id: f.subjectId, role, resource_type: f.resourceType, resource_id: f.resourceId }), { ok: { title: t("sec.assigned") }, fail: t("sec.assignFailed") })) { setF((x) => ({ ...x, subjectId: "", resourceId: "" })); closeDrawer(); }
   }

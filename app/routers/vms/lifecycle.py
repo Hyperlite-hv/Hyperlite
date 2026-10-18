@@ -93,7 +93,7 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
 # A guest may ignore the shutdown request (the ACPI button pressed while it is still booting, or just after a live
 # migration: twice in a 24 h lab run, the guest healthy and stopping at once on a second request): the VM then kept
 # running, and the request said nothing. The request is sent again after ASK_AGAIN_S while the VM runs; asked with
-# forcer_apres, the VM still running at the end is stopped by force, as Proxmox's shutdown timeout with forceStop.
+# force_after, the VM still running at the end is stopped by force, as Proxmox's shutdown timeout with forceStop.
 FORCE_AFTER_RANGE = (10, 3600)
 ASK_AGAIN_S = (30, 90)
 
@@ -141,13 +141,13 @@ def _watch_stop(name, node, username, force_after=None):
 def stop_vm(
     name: str,
     force: bool = False,
-    forcer_apres: int | None = None,
+    force_after: int | None = None,
     node: str | None = None,
     user: dict = Depends(require_vm_privilege("vm.power")),
 ):
-    if forcer_apres is not None and not FORCE_AFTER_RANGE[0] <= forcer_apres <= FORCE_AFTER_RANGE[1]:
+    if force_after is not None and not FORCE_AFTER_RANGE[0] <= force_after <= FORCE_AFTER_RANGE[1]:
         raise HTTPException(
-            status_code=422, detail=f"forcer_apres: between {FORCE_AFTER_RANGE[0]} and {FORCE_AFTER_RANGE[1]} seconds"
+            status_code=422, detail=f"force_after: between {FORCE_AFTER_RANGE[0]} and {FORCE_AFTER_RANGE[1]} seconds"
         )
     conn = open_conn(node)
     action_name = "force_stop_vm" if force else "stop_vm"
@@ -173,9 +173,9 @@ def stop_vm(
             raise HTTPException(status_code=500, detail=f"Unable to stop the VM: {msg}") from e
         detail = f"via {method}" if method else None
         if not force:
-            if forcer_apres:
-                detail = f"{detail}, forced after {forcer_apres} s if still running"
-            threading.Thread(target=_watch_stop, args=(name, node, user["username"], forcer_apres), daemon=True).start()
+            if force_after:
+                detail = f"{detail}, forced after {force_after} s if still running"
+            threading.Thread(target=_watch_stop, args=(name, node, user["username"], force_after), daemon=True).start()
         log_action(user["username"], action_name, name, "success", detail, task_id=task_id)
         return _domain_summary(domain)
     finally:
@@ -229,7 +229,7 @@ def _perform_vm_deletion(conn, domain, name, node=None):
 
     `node`: None = local VM (the historical behaviour, files removed through
     the LOCAL Path.unlink()). On a REMOTE node, `conn` is a qemu+ssh://
-    connection but disk paths remain paths on the REMOTE FILESYSTEM: a local
+    connection purpose disk paths remain paths on the REMOTE FILESYSTEM: a local
     unlink() could delete the wrong file (or nothing at all) on the local host.
     Remote deletion therefore goes through SSH (the same cluster key as the rest,
     see _copy_file_to_node) rather than unlink()."""

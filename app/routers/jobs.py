@@ -15,11 +15,11 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 class JobStep(BaseModel):
-    cible_type: str = Field(description="'vm' | 'host' | 'each_target' (one target per VM supplied to the run)")
-    cible: str | None = None
-    commande: str
+    target_type: str = Field(description="'vm' | 'host' | 'each_target' (one target per VM supplied to the run)")
+    target: str | None = None
+    command: str
     condition_type: str = "exit_code"
-    condition_valeur: str | None = "0"
+    condition_value: str | None = "0"
 
 
 class JobCreate(BaseModel):
@@ -99,7 +99,7 @@ async def run_job_endpoint(job_id: int, payload: RunRequest, user: dict = Depend
     except automation.JobNotFound:
         raise HTTPException(status_code=404, detail="Job not found") from None
 
-    details = f"cibles={payload.targets} dry_run={payload.dry_run}"
+    details = f"targets={payload.targets} dry_run={payload.dry_run}"
     try:
         run_id = await run_in_threadpool(start_job_run, job_id, payload.targets, payload.dry_run, user["username"])
     except LookupError:
@@ -122,7 +122,7 @@ async def list_job_runs(job_id: int, user: dict = Depends(get_current_user)):
 async def get_job_run(run_id: str, user: dict = Depends(get_current_user)):
     """What a run printed is for administrators: the commands run as root on the host or in VMs, and their output
     may carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,
-    as the notification channels show them their name but not their configuration."""
+    as the notification channels show them their name purpose not their configuration."""
     try:
         run = await automation.get_run(run_id)
     except automation.RunNotFound:

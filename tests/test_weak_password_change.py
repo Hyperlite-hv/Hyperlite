@@ -67,8 +67,8 @@ def test_the_2fa_step_reports_it_too(client, make_user, database):
     with database.get_conn() as conn:
         conn.execute("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE username = 'dan'", (secret,))
         conn.commit()
-    pre = _login(client, "dan", WEAK).json()["pre_auth_token"]
-    done = client.post("/auth/login/2fa", json={"pre_auth_token": pre, "code": pyotp.TOTP(secret).now()})
+    pre = _login(client, "dan", WEAK).json()["preauth_token"]
+    done = client.post("/auth/login/2fa", json={"preauth_token": pre, "code": pyotp.TOTP(secret).now()})
     assert done.status_code == 200 and done.json()["password_change_required"] is True
 
 

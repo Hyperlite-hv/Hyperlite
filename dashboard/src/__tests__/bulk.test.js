@@ -4,22 +4,22 @@ import { capabilities } from "../next/lib/capabilities";
 
 const admin = capabilities("admin");
 const viewer = capabilities("viewer");
-const vm = (nom, etat, node = "local") => ({ nom, etat, node });
+const vm = (name, state, node = "local") => ({ name, state, node });
 
 describe("bulk actions", () => {
   it("applies each action with the rules of the VM's own menu", () => {
-    const sel = [vm("a", "actif"), vm("b", "arrete"), vm("c", "actif", "n2")];
-    expect(splitSelection("start", sel, admin).apply.map((v) => v.nom)).toEqual(["b"]);
-    expect(splitSelection("stop", sel, admin).apply.map((v) => v.nom)).toEqual(["a", "c"]);
+    const sel = [vm("a", "active"), vm("b", "stopped"), vm("c", "active", "n2")];
+    expect(splitSelection("start", sel, admin).apply.map((v) => v.name)).toEqual(["b"]);
+    expect(splitSelection("stop", sel, admin).apply.map((v) => v.name)).toEqual(["a", "c"]);
     expect(splitSelection("delete", sel, admin)).toEqual({ apply: [sel[1]], skip: [sel[0], sel[2]] });
     expect(splitSelection("start", sel, viewer).apply).toEqual([]);
   });
 
   it("migrates only running VMs, and never to the node they already run on", () => {
-    expect(bulkEligible("migrate", vm("a", "actif"), admin)).toBe(true);
-    expect(bulkEligible("migrate", vm("a", "arrete"), admin)).toBe(false);
-    expect(bulkEligible("migrate", vm("a", "actif", "n2"), admin, "n2")).toBe(false);
-    expect(bulkEligible("migrate", vm("a", "actif"), viewer)).toBe(false);
+    expect(bulkEligible("migrate", vm("a", "active"), admin)).toBe(true);
+    expect(bulkEligible("migrate", vm("a", "stopped"), admin)).toBe(false);
+    expect(bulkEligible("migrate", vm("a", "active", "n2"), admin, "n2")).toBe(false);
+    expect(bulkEligible("migrate", vm("a", "active"), viewer)).toBe(false);
   });
 
   it("runs every item, keeps going after a failure and never exceeds the limit", async () => {
@@ -39,7 +39,7 @@ describe("bulk actions", () => {
   });
 
   it("names a long selection without listing every VM", () => {
-    const many = Array.from({ length: 11 }, (_, i) => vm(`vm${i}`, "actif"));
+    const many = Array.from({ length: 11 }, (_, i) => vm(`vm${i}`, "active"));
     expect(nameList(many.slice(0, 2), (n) => `+${n}`)).toBe("vm0, vm1");
     expect(nameList(many, (n) => `and ${n} more`, 3)).toBe("vm0, vm1, vm2 and 8 more");
   });

@@ -74,8 +74,8 @@ def format_cpuset(cpus):
 
 
 def host_topology(conn):
-    """{"cpus": [{"id", "socket", "coeur", "cellule", "freres"}], "cellules": [{"id", "cpus", "memoire_mo"}]} from
-    libvirt's host capabilities. "freres" lists the hyperthreads sharing the physical core."""
+    """{"cpus": [{"id", "socket", "core", "cell", "siblings"}], "cells": [{"id", "cpus", "memory_mb"}]} from
+    libvirt's host capabilities. "siblings" lists the hyperthreads sharing the physical core."""
     root = ET.fromstring(conn.getCapabilities())
     cpus, cells = [], []
     for cell in root.findall("./host/topology/cells/cell"):
@@ -92,19 +92,19 @@ def host_topology(conn):
                 {
                     "id": cpu_id,
                     "socket": int(cpu.get("socket_id")),
-                    "coeur": int(cpu.get("core_id") or 0),
-                    "cellule": cell_id,
-                    "freres": parse_cpuset(siblings),
+                    "core": int(cpu.get("core_id") or 0),
+                    "cell": cell_id,
+                    "siblings": parse_cpuset(siblings),
                 }
             )
         memory = cell.find("memory")
         memory_mb = round(int(memory.text) / 1024) if memory is not None and memory.text else None
-        cells.append({"id": cell_id, "cpus": format_cpuset(ids), "memoire_mo": memory_mb})
-    return {"cpus": sorted(cpus, key=lambda c: c["id"]), "cellules": cells}
+        cells.append({"id": cell_id, "cpus": format_cpuset(ids), "memory_mb": memory_mb})
+    return {"cpus": sorted(cpus, key=lambda c: c["id"]), "cells": cells}
 
 
 def read(domain):
-    """The pinning in the VM's persistent definition: {"cpuset": "4-7"|None, "strict": bool, "numa_cellule": id|None}."""
+    """The pinning in the VM's persistent definition: {"cpuset": "4-7"|None, "strict": bool, "numa_cell": id|None}."""
     root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
     vcpu_el = root.find("vcpu")
     nvcpu = int((vcpu_el.text or "1").strip()) if vcpu_el is not None else 1
@@ -123,17 +123,17 @@ def read(domain):
     return {
         "cpuset": format_cpuset(parse_cpuset(cpuset)) if cpuset else None,
         "strict": strict,
-        "numa_cellule": numa_cell,
+        "numa_cell": numa_cell,
     }
 
 
 def plan(topology, nvcpu, cpuset_text, strict):
-    """Validate a request against the host. Returns {"cpus": [...], "strict", "numa_cellule"} or raises PinningError.
+    """Validate a request against the host. Returns {"cpus": [...], "strict", "numa_cell"} or raises PinningError.
     cpuset_text None means no pinning."""
     if not cpuset_text:
         if strict:
             raise PinningError("Strict pinning needs a list of host CPUs")
-        return {"cpus": None, "strict": False, "numa_cellule": None}
+        return {"cpus": None, "strict": False, "numa_cell": None}
     cpus = parse_cpuset(cpuset_text)
     known = {c["id"]: c for c in topology["cpus"]}
     missing = [c for c in cpus if c not in known]
@@ -143,11 +143,11 @@ def plan(topology, nvcpu, cpuset_text, strict):
         )
     if strict and len(cpus) < nvcpu:
         raise PinningError(
-            f"Strict pinning puts each vCPU on its own host CPU: this VM has {nvcpu} vCPUs but only {len(cpus)} CPUs are listed"
+            f"Strict pinning puts each vCPU on its own host CPU: this VM has {nvcpu} vCPUs purpose only {len(cpus)} CPUs are listed"
         )
-    cells = {known[c]["cellule"] for c in cpus}
-    numa_cell = cells.pop() if len(topology["cellules"]) > 1 and len(cells) == 1 else None
-    return {"cpus": cpus, "strict": strict, "numa_cellule": numa_cell}
+    cells = {known[c]["cell"] for c in cpus}
+    numa_cell = cells.pop() if len(topology["cells"]) > 1 and len(cells) == 1 else None
+    return {"cpus": cpus, "strict": strict, "numa_cell": numa_cell}
 
 
 def apply_to_xml(root, nvcpu, how):
@@ -177,9 +177,9 @@ def apply_to_xml(root, nvcpu, how):
             for vcpu in range(nvcpu):
                 ET.SubElement(cputune, "vcpupin", {"vcpu": str(vcpu), "cpuset": str(how["cpus"][vcpu])})
         ET.SubElement(cputune, "emulatorpin", {"cpuset": cpuset})
-        if how["numa_cellule"] is not None:
+        if how["numa_cell"] is not None:
             numatune = ET.Element("numatune")
-            ET.SubElement(numatune, "memory", {"mode": "strict", "nodeset": str(how["numa_cellule"])})
+            ET.SubElement(numatune, "memory", {"mode": "strict", "nodeset": str(how["numa_cell"])})
             root.insert(list(root).index(cputune) + 1, numatune)
     if cputune is not None and len(cputune) == 0 and not cputune.attrib:
         root.remove(cputune)

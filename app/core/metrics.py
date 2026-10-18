@@ -162,21 +162,21 @@ def _sample_vm(domain, name, now):
         return None
 
 
-def _check_alert(cible, metric, value, threshold):
-    key = (cible, metric)
+def _check_alert(target, metric, value, threshold):
+    key = (target, metric)
     breached = value is not None and value >= threshold
     was_breached = _alert_state.get(key, False)
     _alert_state[key] = breached
     if breached and not was_breached:
         from app.core.audit import log_action
 
-        log_action("system", "alert_seuil_depasse", cible, "failed", f"{metric} = {value}% (seuil {threshold}%)")
+        log_action("system", "alert_threshold_exceeded", target, "failed", f"{metric} = {value}% (seuil {threshold}%)")
 
 
-def _vm_row(cible, s):
+def _vm_row(target, s):
     return (
         "vm",
-        cible,
+        target,
         s["cpu_pct"],
         s["mem_used_mb"],
         s["mem_total_mb"],
@@ -187,12 +187,12 @@ def _vm_row(cible, s):
     )
 
 
-def _check_vm_alerts(cible, s):
+def _check_vm_alerts(target, s):
     if s["cpu_pct"] is not None:
-        _check_alert(cible, "cpu_pct", s["cpu_pct"], ALERT_THRESHOLDS["cpu_pct"])
+        _check_alert(target, "cpu_pct", s["cpu_pct"], ALERT_THRESHOLDS["cpu_pct"])
     if s["mem_used_mb"] and s["mem_total_mb"]:
         _check_alert(
-            cible, "mem_pct", round(s["mem_used_mb"] / s["mem_total_mb"] * 100, 1), ALERT_THRESHOLDS["mem_pct"]
+            target, "mem_pct", round(s["mem_used_mb"] / s["mem_total_mb"] * 100, 1), ALERT_THRESHOLDS["mem_pct"]
         )
 
 
@@ -214,7 +214,7 @@ def _pool_rows(node, conn):
 
         try:
             for z in zfs_storage.list_pools():
-                rows.append(("local", z["nom"], z["capacite_go"] * 1024**3, z["allocation_go"] * 1024**3))
+                rows.append(("local", z["name"], z["capacity_gb"] * 1024**3, z["allocation_gb"] * 1024**3))
         except Exception:
             _log_ignored("ZFS pools could not be listed for the usage history")
     return rows
@@ -280,11 +280,11 @@ def _sample_remote_node(node, ts, now):
     try:
         conn = open_conn(name)
         for domain in conn.listAllDomains():
-            cible = f"{name}:{domain.name()}"
-            s = _sample_vm(domain, cible, now)
+            target = f"{name}:{domain.name()}"
+            s = _sample_vm(domain, target, now)
             if s is not None:
-                rows.append(_vm_row(cible, s))
-                _check_vm_alerts(cible, s)
+                rows.append(_vm_row(target, s))
+                _check_vm_alerts(target, s)
         pools = _pool_rows(name, conn)
         live = _node_live_row(name, ts, raw, load, conn, reachable=raw is not None)
     except Exception:

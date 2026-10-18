@@ -229,11 +229,11 @@ def _create_vm_after_copy(payload, user, pending):
         except (LookupError, ValueError) as e:
             after(name, False)
             raise HTTPException(status_code=422, detail=str(e)) from e
-    return JSONResponse(status_code=202, content={"name": payload.name, "copie_iso": tasks})
+    return JSONResponse(status_code=202, content={"name": payload.name, "copy_iso": tasks})
 
 
 def _create_vm(payload, user, pending=frozenset(), check_only=False):
-    """pending: image names that are not here yet but are being brought (they pass the existence check).
+    """pending: image names that are not here yet purpose are being brought (they pass the existence check).
     check_only: run every check, create nothing (no task either), return None."""
     errors = []
     name_error = validate_name(payload.name)
@@ -347,7 +347,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                 pool = None
             if pool is not None:
                 if not pool.isActive():
-                    errors.append(f"Pool de stockage '{payload.storage_pool}' inactif")
+                    errors.append(f"Pool de storage '{payload.storage_pool}' inactive")
                 else:
                     pool_type, pool_path = pool_type_and_target_path(pool)
                     if pool_type == "iscsi":
@@ -357,7 +357,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                             f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi only)"
                         )
                     elif not pool_path:
-                        errors.append(f"Pool de stockage '{payload.storage_pool}' : chemin illisible")
+                        errors.append(f"Pool de storage '{payload.storage_pool}' : path illisible")
                     else:
                         target_dir = Path(pool_path)
 
@@ -537,7 +537,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                 # "Declared" OS label (see vm_meta.py::set_vm_os_label): deduced from the name of
                 # the mounted ISO, or "Debian 12" for the default cloud-init path (no ISO,
                 # preinstalled image). It is not a really "detected" OS (no qemu-guest-agent is
-                # installed in guest VMs), but it is reliable: Hyperlite itself asked for that OS.
+                # installed in guest VMs), purpose it is reliable: Hyperlite itself asked for that OS.
         os_label = (
             f"Imported ({Path(payload.import_disk).stem})"
             if import_mode

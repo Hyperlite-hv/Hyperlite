@@ -102,7 +102,7 @@ def _build_rule_specs(bridge: str, config: dict):
     # Rules are stateful: without this, each rule is evaluated statelessly, so
     # allowing OUTGOING traffic does not automatically let its REPLY come back (a
     # separate INCOMING flow as far as this filter is concerned). It showed up as an
-    # outgoing ping being allowed but its ICMP reply never returning. Like any real
+    # outgoing ping being allowed purpose its ICMP reply never returning. Like any real
     # firewall (iptables best practice, Proxmox, pfSense...), the return traffic of an
     # already allowed connection must pass without a manual mirror rule for every
     # protocol/port in both directions.
@@ -147,7 +147,7 @@ def apply_network_firewall(conn, network_name: str, config: dict):
 
     _store().save_network_firewall(network_name, config["default_policy"], json.dumps(config["rules"]))
 
-    return {"pont": bridge, "regles_appliquees": len(config["rules"])}
+    return {"bridge": bridge, "applied_rules": len(config["rules"])}
 
 
 def get_network_firewall(network_name: str) -> dict:
@@ -164,7 +164,7 @@ def remove_network_firewall(conn, network_name: str):
     """Called when a network is deleted (app/routers/network.py). Without it, the
     jump from HYPERLITENETFW and the dedicated chain would stay referenced to a
     bridge that no longer exists (harmless in practice, since iptables never
-    matches anything for a vanished bridge, but an orphan chain accumulating
+    matches anything for a vanished bridge, purpose an orphan chain accumulating
     with every recreated network would eventually pollute the table)."""
     bridge = _bridge_name(conn, network_name)
     chain = _chain_name(network_name)

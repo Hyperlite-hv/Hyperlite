@@ -131,7 +131,7 @@ def drop_nvram(root):
 
 
 def host_support(conn):
-    """What this host can offer: {"uefi": bool, "uefi_secure": bool, "raison": str|None}, "raison" explaining the
+    """What this host can offer: {"uefi": bool, "uefi_secure": bool, "reason": str|None}, "reason" explaining the
     first missing piece. Read from libvirt's domain capabilities for q35, so it reflects what libvirt will really
     accept (the OVMF firmware descriptors, a Secure Boot build, swtpm), not a guess from file paths."""
     caps = None
@@ -142,7 +142,7 @@ def host_support(conn):
         except libvirt.libvirtError:
             logger.debug("No %s domain capabilities for q35", virt_type, exc_info=True)
     if caps is None:
-        return {"uefi": False, "uefi_secure": False, "raison": "This host's QEMU does not offer the q35 machine"}
+        return {"uefi": False, "uefi_secure": False, "reason": "This host's QEMU does not offer the q35 machine"}
     firmwares = {v.text for v in caps.findall("./os/enum[@name='firmware']/value")}
     secure_values = {v.text for v in caps.findall("./os/loader/enum[@name='secure']/value")}
     smm = caps.find("./features/smm")
@@ -154,7 +154,7 @@ def host_support(conn):
         return {
             "uefi": False,
             "uefi_secure": False,
-            "raison": "No UEFI firmware on this host: install the ovmf package",
+            "reason": "No UEFI firmware on this host: install the ovmf package",
         }
     reason = None
     if "yes" not in secure_values:
@@ -165,7 +165,7 @@ def host_support(conn):
         reason = "No software TPM on this host: install the swtpm and swtpm-tools packages"
     elif tpm_versions and "2.0" not in tpm_versions:
         reason = "This host's software TPM does not offer TPM 2.0"
-    return {"uefi": True, "uefi_secure": reason is None, "raison": reason}
+    return {"uefi": True, "uefi_secure": reason is None, "reason": reason}
 
 
 def check_choice(conn, firmware):
@@ -174,7 +174,7 @@ def check_choice(conn, firmware):
         return None
     support = host_support(conn)
     if firmware == UEFI and not support["uefi"]:
-        return support["raison"]
+        return support["reason"]
     if firmware == UEFI_SECURE and not support["uefi_secure"]:
-        return support["raison"]
+        return support["reason"]
     return None

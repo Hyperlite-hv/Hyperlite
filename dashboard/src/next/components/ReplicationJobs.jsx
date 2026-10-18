@@ -14,7 +14,7 @@ import { isRemoteVm } from "../lib/vmId";
 import { ErrorState } from "./States";
 import { Card, Chip, Empty, Field, Loading, SideDrawer, TableWrap } from "./ui";
 
-const EMPTY = { id: null, nom: "", selection: "all", valeur: "", exclues: [], cible_dir: "", intervalle_minutes: 15, actif: true };
+const EMPTY = { id: null, name: "", selection: "all", value: "", excluded: [], target_dir: "", interval_minutes: 15, active: true };
 
 function age(t, seconds) {
   if (seconds == null) return t("rep.never");
@@ -48,39 +48,39 @@ export default function ReplicationJobs() {
   useEffect(() => { load(); loadMeta(); fetchPools().then(setPools).catch(() => setPools([])); }, [load, loadMeta]);
   usePolling(load, jobs?.some((j) => j.running) ? 5000 : 30000);
 
-  const localVms = vms.filter((v) => !isRemoteVm(v)).map((v) => v.nom).sort();
+  const localVms = vms.filter((v) => !isRemoteVm(v)).map((v) => v.name).sort();
   const tags = allTags(byKey, "vm");
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value, ...(k === "selection" ? { valeur: "" } : {}) }));
-  const interval = Number(form?.intervalle_minutes);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value, ...(k === "selection" ? { value: "" } : {}) }));
+  const interval = Number(form?.interval_minutes);
   const bad = form ? {
-    nom: !form.nom.trim(), cible: !form.cible_dir.trim().startsWith("/"),
+    name: !form.name.trim(), target: !form.target_dir.trim().startsWith("/"),
     intervalle: !Number.isInteger(interval) || interval < 5 || interval > 1440,
-    valeur: form.selection !== "all" && !form.valeur,
+    value: form.selection !== "all" && !form.value,
   } : {};
   const invalid = Object.values(bad).some(Boolean);
-  const selectionLabel = (j) => (j.selection === "all" ? t("bg.sel.all") : j.selection === "tag" ? t("bg.tagX", { tag: j.valeur })
-    : t("bg.poolX", { pool: pools.find((p) => String(p.id) === String(j.valeur))?.name || `#${j.valeur}` }));
+  const selectionLabel = (j) => (j.selection === "all" ? t("bg.sel.all") : j.selection === "tag" ? t("bg.tagX", { tag: j.value })
+    : t("bg.poolX", { pool: pools.find((p) => String(p.id) === String(j.value))?.name || `#${j.value}` }));
 
   async function save() {
     setBusy(true);
-    const payload = { nom: form.nom.trim(), selection: form.selection, valeur: form.selection === "all" ? null : form.valeur, exclues: form.exclues,
-      cible_dir: form.cible_dir.trim(), intervalle_minutes: interval, actif: form.actif };
+    const payload = { name: form.name.trim(), selection: form.selection, value: form.selection === "all" ? null : form.value, excluded: form.excluded,
+      target_dir: form.target_dir.trim(), interval_minutes: interval, active: form.active };
     try {
       await (form.id ? updateReplicationJob(form.id, payload) : createReplicationJob(payload));
-      pushToast({ kind: "success", title: t("rep.saved"), message: payload.nom });
+      pushToast({ kind: "success", title: t("rep.saved"), message: payload.name });
       setForm(null); await load();
     } catch (e) { pushToast({ kind: "error", title: t("rep.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   async function run(j) {
-    try { await runReplicationJob(j.id); pushToast({ kind: "success", title: t("rep.started"), message: j.nom }); await load(); }
+    try { await runReplicationJob(j.id); pushToast({ kind: "success", title: t("rep.started"), message: j.name }); await load(); }
     catch (e) { pushToast({ kind: "error", title: t("rep.runFailed"), message: errorMessage(e) }); }
   }
   async function remove(j) {
-    if (!(await confirmAction({ title: t("rep.deleteTitle", { name: j.nom }), message: t("rep.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
+    if (!(await confirmAction({ title: t("rep.deleteTitle", { name: j.name }), message: t("rep.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
     try { await deleteReplicationJob(j.id); await load(); } catch (e) { pushToast({ kind: "error", title: t("rep.deleteFailed"), message: errorMessage(e) }); }
   }
-  const edit = (j) => setForm({ ...EMPTY, ...j, valeur: j.valeur || "" });
-  const late = states.filter((s) => s.en_retard);
+  const edit = (j) => setForm({ ...EMPTY, ...j, value: j.value || "" });
+  const late = states.filter((s) => s.late);
 
   return (
     <>
@@ -91,15 +91,15 @@ export default function ReplicationJobs() {
               <thead><tr><th scope="col">{t("bg.name")}</th><th scope="col">{t("bg.selection")}</th><th scope="col">{t("rep.target")}</th><th scope="col">{t("rep.every")}</th><th scope="col">{t("vb.next")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>{jobs.map((j) => (
                 <tr key={j.id}>
-                  <th scope="row">{j.nom}{!j.actif && <> <Chip>{t("mx.paused")}</Chip></>}{j.running && <> <Chip tone="info">{t("bg.running")}</Chip></>}</th>
+                  <th scope="row">{j.name}{!j.active && <> <Chip>{t("mx.paused")}</Chip></>}{j.running && <> <Chip tone="info">{t("bg.running")}</Chip></>}</th>
                   <td className="nx-wrapcell"><span title={j.vms.join(", ")}>{selectionLabel(j)} · {t("bg.nVms", { n: j.vms.length })}</span></td>
-                  <td className="nx-mono nx-wrapcell">{j.cible_dir}</td>
-                  <td>{t("rep.everyN", { n: j.intervalle_minutes })}</td>
-                  <td className="nx-mono">{j.actif ? formatDateTime(j.prochaine_execution, lang) : "—"}</td>
+                  <td className="nx-mono nx-wrapcell">{j.target_dir}</td>
+                  <td>{t("rep.everyN", { n: j.interval_minutes })}</td>
+                  <td className="nx-mono">{j.active ? formatDateTime(j.next_run, lang) : "—"}</td>
                   <td><div className="nx-ra">
-                    <button type="button" className="nx-btn nx-btn--ghost" disabled={j.running || j.vms.length === 0} aria-label={t("rep.runX", { name: j.nom })} onClick={() => run(j)}><Play size={14} aria-hidden="true" />{t("rep.run")}</button>
-                    <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("mx.editX", { name: j.nom })} onClick={() => edit(j)}>{t("mx.edit")}</button>
-                    <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" aria-label={t("mx.deleteX", { name: j.nom })} onClick={() => remove(j)}><Trash2 size={15} aria-hidden="true" /></button>
+                    <button type="button" className="nx-btn nx-btn--ghost" disabled={j.running || j.vms.length === 0} aria-label={t("rep.runX", { name: j.name })} onClick={() => run(j)}><Play size={14} aria-hidden="true" />{t("rep.run")}</button>
+                    <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("mx.editX", { name: j.name })} onClick={() => edit(j)}>{t("mx.edit")}</button>
+                    <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" aria-label={t("mx.deleteX", { name: j.name })} onClick={() => remove(j)}><Trash2 size={15} aria-hidden="true" /></button>
                   </div></td>
                 </tr>
               ))}</tbody>
@@ -115,9 +115,9 @@ export default function ReplicationJobs() {
               <tbody>{states.map((s) => (
                 <tr key={s.vm_name}>
                   <th scope="row">{s.vm_name}</th>
-                  <td>{age(t, s.age_s)}{s.en_retard && <> <Chip tone="warning">{t("rep.lateChip")}</Chip></>}</td>
+                  <td>{age(t, s.age_s)}{s.late && <> <Chip tone="warning">{t("rep.lateChip")}</Chip></>}</td>
                   <td>{t("rep.points", { n: s.points })}</td>
-                  <td className="nx-wrapcell">{s.statut === "failed" ? <span className="nx-tone-danger">{s.erreur}</span> : s.statut === "ok" ? t("rep.ok") : t("rep.never")}</td>
+                  <td className="nx-wrapcell">{s.status === "failed" ? <span className="nx-tone-danger">{s.error}</span> : s.status === "ok" ? t("rep.ok") : t("rep.never")}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -130,25 +130,25 @@ export default function ReplicationJobs() {
       </>}>
         {form && <>
           <p className="nx-muted" style={{ margin: 0 }}>{t("rep.help")}</p>
-          <Field label={t("bg.name")}>{(p) => <input {...p} className="nx-inp" value={form.nom} onChange={set("nom")} placeholder={t("rep.namePh")} />}</Field>
+          <Field label={t("bg.name")}>{(p) => <input {...p} className="nx-inp" value={form.name} onChange={set("name")} placeholder={t("rep.namePh")} />}</Field>
           <div className="nx-fg">
             <Field label={t("bg.selection")}>{(p) => <select {...p} className="nx-inp" value={form.selection} onChange={set("selection")}>
               <option value="all">{t("bg.sel.all")}</option><option value="tag">{t("bg.sel.tag")}</option><option value="pool">{t("bg.sel.pool")}</option>
             </select>}</Field>
-            {form.selection === "tag" && <Field label={t("bg.tag")} hint={tags.length ? null : t("bg.noTags")}>{(p) => <select {...p} className="nx-inp" value={form.valeur} onChange={set("valeur")}><option value="">{t("sec.choose")}</option>{tags.map((tg) => <option key={tg} value={tg}>{tg}</option>)}</select>}</Field>}
-            {form.selection === "pool" && <Field label={t("bg.pool")} hint={pools.length ? null : t("bg.noPools")}>{(p) => <select {...p} className="nx-inp" value={form.valeur} onChange={set("valeur")}><option value="">{t("sec.choose")}</option>{pools.map((pl) => <option key={pl.id} value={String(pl.id)}>{pl.name}</option>)}</select>}</Field>}
+            {form.selection === "tag" && <Field label={t("bg.tag")} hint={tags.length ? null : t("bg.noTags")}>{(p) => <select {...p} className="nx-inp" value={form.value} onChange={set("value")}><option value="">{t("sec.choose")}</option>{tags.map((tg) => <option key={tg} value={tg}>{tg}</option>)}</select>}</Field>}
+            {form.selection === "pool" && <Field label={t("bg.pool")} hint={pools.length ? null : t("bg.noPools")}>{(p) => <select {...p} className="nx-inp" value={form.value} onChange={set("value")}><option value="">{t("sec.choose")}</option>{pools.map((pl) => <option key={pl.id} value={String(pl.id)}>{pl.name}</option>)}</select>}</Field>}
           </div>
           {localVms.length > 0 && (
             <fieldset className="nx-fs">
               <legend>{t("bg.exclude")}</legend>
               <div className="nx-checks">{localVms.map((v) => (
-                <label key={v} className="nx-check"><input type="checkbox" checked={form.exclues.includes(v)} onChange={(e) => setForm((f) => ({ ...f, exclues: e.target.checked ? [...f.exclues, v] : f.exclues.filter((x) => x !== v) }))} /> {v}</label>
+                <label key={v} className="nx-check"><input type="checkbox" checked={form.excluded.includes(v)} onChange={(e) => setForm((f) => ({ ...f, excluded: e.target.checked ? [...f.excluded, v] : f.excluded.filter((x) => x !== v) }))} /> {v}</label>
               ))}</div>
             </fieldset>
           )}
-          <Field label={t("rep.target")} hint={t("rep.targetHint")} error={form.cible_dir && bad.cible ? t("rep.targetRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.cible_dir} placeholder="/var/lib/libvirt/hyperlite-pools/site-b" onChange={set("cible_dir")} />}</Field>
-          <Field label={t("rep.interval")} hint={t("rep.intervalHint")} unit="min" error={bad.intervalle ? t("rep.intervalRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={5} max={1440} value={form.intervalle_minutes} onChange={set("intervalle_minutes")} />}</Field>
-          <label className="nx-check"><input type="checkbox" checked={form.actif} onChange={set("actif")} /> {t("bg.active")}</label>
+          <Field label={t("rep.target")} hint={t("rep.targetHint")} error={form.target_dir && bad.target ? t("rep.targetRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.target_dir} placeholder="/var/lib/libvirt/hyperlite-pools/site-b" onChange={set("target_dir")} />}</Field>
+          <Field label={t("rep.interval")} hint={t("rep.intervalHint")} unit="min" error={bad.intervalle ? t("rep.intervalRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={5} max={1440} value={form.interval_minutes} onChange={set("interval_minutes")} />}</Field>
+          <label className="nx-check"><input type="checkbox" checked={form.active} onChange={set("active")} /> {t("bg.active")}</label>
         </>}
       </SideDrawer>
     </>

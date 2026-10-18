@@ -39,11 +39,11 @@ def _node_key(node):
 
 
 def get_setting(vm_name, node=None):
-    """{"demarrage_auto": bool, "ordre": int|None, "delai_s": int} of a VM."""
+    """{"autostart": bool, "position": int|None, "delay_s": int} of a VM."""
     row = _store().boot_setting(_node_key(node), vm_name)
     if not row:
-        return {"demarrage_auto": False, "ordre": None, "delai_s": 0}
-    return {"demarrage_auto": bool(row["autostart"]), "ordre": row["boot_order"], "delai_s": row["delay_s"]}
+        return {"autostart": False, "position": None, "delay_s": 0}
+    return {"autostart": bool(row["autostart"]), "position": row["boot_order"], "delay_s": row["delay_s"]}
 
 
 def set_setting(vm_name, autostart, order, delay_s, node=None):
@@ -64,10 +64,10 @@ def sequence(node=None):
     """The VMs of a node to start at boot, in order: by their order number (none last), then by name."""
     return sorted(
         (
-            {"nom": r["vm_name"], "ordre": r["boot_order"], "delai_s": r["delay_s"]}
+            {"name": r["vm_name"], "position": r["boot_order"], "delay_s": r["delay_s"]}
             for r in _store().autostart_vms(_node_key(node))
         ),
-        key=lambda v: (v["ordre"] is None, v["ordre"] or 0, v["nom"]),
+        key=lambda v: (v["position"] is None, v["position"] or 0, v["name"]),
     )
 
 
@@ -86,21 +86,21 @@ def run_sequence(node=None, sleep=time.sleep):
     conn = open_conn(None if _node_key(node) == LOCAL else node)
     try:
         for step in steps:
-            name = step["nom"]
+            name = step["name"]
             try:
                 domain = conn.lookupByName(name)
             except libvirt.libvirtError:
                 logger.warning("Start at boot: VM %s is no longer on %s", name, _node_key(node))
-                results.append((name, "absente"))
+                results.append((name, "missing"))
                 continue
             if domain.isActive():
-                results.append((name, "deja_active"))
+                results.append((name, "already_enabled"))
                 continue
             busy = vm_locks.running(name, None if _node_key(node) == LOCAL else node)
             if busy:  # its disks are being copied or replaced: started meanwhile, it would write to them
                 logger.warning("Start at boot: VM %s is busy (%s), not started", name, busy)
                 log_action("system", "autostart_vm", name, "failed", f"busy: {busy} in progress")
-                results.append((name, "occupee"))
+                results.append((name, "busy"))
                 continue
             try:
                 domain.create()
@@ -109,10 +109,10 @@ def run_sequence(node=None, sleep=time.sleep):
                 log_action("system", "autostart_vm", name, "failed", str(e))
                 results.append((name, "failed"))
                 continue
-            log_action("system", "autostart_vm", name, "success", f"{_node_key(node)}: order {step['ordre']}")
-            results.append((name, "demarree"))
-            if step["delai_s"]:
-                sleep(step["delai_s"])
+            log_action("system", "autostart_vm", name, "success", f"{_node_key(node)}: order {step['position']}")
+            results.append((name, "started"))
+            if step["delay_s"]:
+                sleep(step["delay_s"])
     finally:
         conn.close()
     return results

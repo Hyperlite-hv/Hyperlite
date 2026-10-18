@@ -50,4 +50,4 @@ def test_a_network_deleted_during_listing_is_skipped_not_a_500(database, monkeyp
     monkeypatch.setattr(network, "ensure_isolated_network", lambda _c: None)
     monkeypatch.setattr(network, "log_action", lambda *a, **k: None)
     result = network.list_networks(user={"username": "tester"})
-    assert [n["nom"] for n in result] == ["kept", "also-kept"]
+    assert [n["name"] for n in result] == ["kept", "also-kept"]

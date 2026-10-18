@@ -5,8 +5,8 @@ export default function OverallocationNote({ limits, vcpu, memoryMb, diskGb }) {
   if (!phys) return null;
   const over = [];
   if (phys.vcpu != null && vcpu > phys.vcpu) over.push(`${vcpu} vCPU for ${phys.vcpu} cores`);
-  if (phys.memoire_mo != null && memoryMb > phys.memoire_mo) over.push(`${memoryMb} MB for ${phys.memoire_mo} MB of RAM`);
-  if (phys.disque_go != null && diskGb > phys.disque_go) over.push(`${diskGb} GB for ${phys.disque_go} GB free (thin disk)`);
+  if (phys.memory_mb != null && memoryMb > phys.memory_mb) over.push(`${memoryMb} MB for ${phys.memory_mb} MB of RAM`);
+  if (phys.disk_gb != null && diskGb > phys.disk_gb) over.push(`${diskGb} GB for ${phys.disk_gb} GB free (thin disk)`);
   if (over.length === 0) return null;
   return (
     <div className="rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-status-warning">

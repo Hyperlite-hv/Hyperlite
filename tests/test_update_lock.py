@@ -33,6 +33,6 @@ def test_a_stale_task_left_running_by_a_crash_does_not_block_forever(database):
     task_id = create_task("hyperlite_update", "hyperlite", username="alice")
     old = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     with database.get_conn() as conn:
-        conn.execute("UPDATE tasks SET cree_le = ? WHERE id = ?", (old, task_id))
+        conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (old, task_id))
         conn.commit()
     assert update._update_in_progress() is None

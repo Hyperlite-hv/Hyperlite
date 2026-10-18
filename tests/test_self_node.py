@@ -30,11 +30,11 @@ def test_rows_store_the_node_name_and_read_back_as_local(database):
 
     assert object_meta.get("vm", "web", None)["notes"] == "Front"
     assert object_meta.get("node", "local", None)["notes"] == "This one"
-    assert {(m["kind"], m["node"], m["nom"]) for m in object_meta.list_all()} == {
+    assert {(m["kind"], m["node"], m["name"]) for m in object_meta.list_all()} == {
         ("vm", "local", "web"),
         ("node", None, "local"),
     }
-    assert vm_boot.get_setting("web", None)["demarrage_auto"]
+    assert vm_boot.get_setting("web", None)["autostart"]
     assert maintenance.get("local") is not None
 
 
@@ -60,7 +60,7 @@ def test_local_rows_written_before_the_upgrade_are_renamed_at_start(database):
         db.execute("INSERT INTO object_meta (kind, node, name, notes) VALUES ('node', '', 'local', 'Mine')")
         db.execute("INSERT INTO node_maintenance (node, started_by, started_at) VALUES ('local', 'bob', 't')")
         db.execute(
-            "INSERT INTO shared_pools (nom, definition, noeuds) VALUES ('nfs', '{}', ?)",
+            "INSERT INTO shared_pools (name, definition, nodes) VALUES ('nfs', '{}', ?)",
             (json.dumps(["local", "pve-b"]),),
         )
         db.execute("DELETE FROM cfs_outbox")
@@ -75,7 +75,7 @@ def test_local_rows_written_before_the_upgrade_are_renamed_at_start(database):
         ("vm", "hv-test", "web"),
     ]
     assert _rows(database, "SELECT node FROM node_maintenance") == [("hv-test",)]
-    assert json.loads(_rows(database, "SELECT noeuds FROM shared_pools")[0][0]) == ["hv-test", "pve-b"]
+    assert json.loads(_rows(database, "SELECT nodes FROM shared_pools")[0][0]) == ["hv-test", "pve-b"]
     assert object_meta.get("vm", "web", None)["notes"] == "Old"
     assert maintenance.get("local")["started_by"] == "bob"
     # The renamed rows go to hyperlite-cfs like any other change.
@@ -87,12 +87,12 @@ def test_the_name_comes_from_the_host_once_then_stays(database, monkeypatch):
 
     monkeypatch.delenv("HYPERLITE_NODE_NAME")
     with database.get_conn() as db:  # a database that never recorded a name
-        db.execute("DELETE FROM app_settings WHERE cle = 'node_name'")
+        db.execute("DELETE FROM app_settings WHERE key = 'node_name'")
         db.commit()
     monkeypatch.setattr(self_node.socket, "gethostname", lambda: "PVE_A.example.org")
     self_node.forget()
     assert self_node.name() == "pve-a"
-    assert _rows(database, "SELECT valeur FROM app_settings WHERE cle = 'node_name'") == [("pve-a",)]
+    assert _rows(database, "SELECT value FROM app_settings WHERE key = 'node_name'") == [("pve-a",)]
 
     monkeypatch.setattr(self_node.socket, "gethostname", lambda: "renamed")
     self_node.forget()
@@ -151,10 +151,10 @@ def test_a_task_names_its_node_and_this_node_finds_it_as_local(database):
     create_task("stop_vm", "web", node="local")
     create_task("start_vm", "db", node="pve-b")  # a registered node keeps its name
 
-    assert _rows(database, "SELECT node FROM tasks ORDER BY cible, type") == [("pve-b",), ("hv-test",), ("hv-test",)]
+    assert _rows(database, "SELECT node FROM tasks ORDER BY target, type") == [("pve-b",), ("hv-test",), ("hv-test",)]
     store = SqliteTaskStore()
-    assert sorted(t["cible"] for t in store.list({"node": "local"})) == ["web", "web"]
-    assert [t["cible"] for t in store.list({"node": "pve-b"})] == ["db"]
+    assert sorted(t["target"] for t in store.list({"node": "local"})) == ["web", "web"]
+    assert [t["target"] for t in store.list({"node": "pve-b"})] == ["db"]
 
 
 def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
@@ -162,10 +162,10 @@ def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
 
     with database.get_conn() as db:
         db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('pve-b', '192.0.2.2', 't')")
-        db.execute("DELETE FROM app_settings WHERE cle = ?", (self_node.TASKS_SETTING,))
+        db.execute("DELETE FROM app_settings WHERE key = ?", (self_node.TASKS_SETTING,))
         for i, node in enumerate(("hyperlite.home", None, "local", "pve-b", "hv-test")):
             db.execute(
-                "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES (?, 'start_vm', ?, ?, 'succeeded', 100, 't')",
+                "INSERT INTO tasks (id, type, target, node, status, progress, created_at) VALUES (?, 'start_vm', ?, ?, 'succeeded', 100, 't')",
                 (f"t{i}", f"vm{i}", node),
             )
         db.commit()
@@ -173,7 +173,7 @@ def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
     self_node.forget()
     database.init_db()  # the next start
 
-    assert _rows(database, "SELECT cible, node FROM tasks ORDER BY cible") == [
+    assert _rows(database, "SELECT target, node FROM tasks ORDER BY target") == [
         ("vm0", "hv-test"),
         ("vm1", "hv-test"),
         ("vm2", "hv-test"),
@@ -183,7 +183,7 @@ def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
     # Once only: a later task of a node that left the cluster keeps its name.
     with database.get_conn() as db:
         db.execute(
-            "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES ('t9', 'start_vm', 'vm9', 'gone', 'succeeded', 100, 't')"
+            "INSERT INTO tasks (id, type, target, node, status, progress, created_at) VALUES ('t9', 'start_vm', 'vm9', 'gone', 'succeeded', 100, 't')"
         )
         db.commit()
     self_node.forget()

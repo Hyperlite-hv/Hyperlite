@@ -68,14 +68,14 @@ def make_backup(path, with_firmware=False):
 
 def test_the_manifest_lists_every_file_with_its_role_size_and_checksum(tmp_path):
     manifest = make_backup(tmp_path / "b", with_firmware=True)
-    roles = {f["nom"]: (f["role"], f.get("cible")) for f in manifest["fichiers"]}
+    roles = {f["name"]: (f["role"], f.get("target")) for f in manifest["files"]}
     assert roles == {
-        "sda.qcow2": ("disque", "sda"),
-        "sdb.qcow2": ("disque", "sdb"),
+        "sda.qcow2": ("disk", "sda"),
+        "sdb.qcow2": ("disk", "sdb"),
         "nvram.fd": ("nvram", None),
         "vm-config.json": ("config", None),
     }
-    assert all(len(f["sha256"]) == 64 and f["taille"] > 0 for f in manifest["fichiers"])
+    assert all(len(f["sha256"]) == 64 and f["size"] > 0 for f in manifest["files"])
     assert json.loads((tmp_path / "b" / "manifest.json").read_text())["firmware"] == "uefi_secure"
 
 
@@ -90,7 +90,7 @@ def test_an_intact_backup_is_verified(tmp_path):
         (lambda d: (d / "sdb.qcow2").unlink(), "sdb.qcow2: missing"),
         (lambda d: (d / "sda.qcow2").write_bytes(b"x"), "size differs"),
         (lambda d: (d / "sda.qcow2").write_bytes(b"disk-A" * 1000), "checksum differs"),
-        (lambda d: (d / "manifest.json").write_text('{"fichiers": []}'), "lists no disk"),
+        (lambda d: (d / "manifest.json").write_text('{"files": []}'), "lists no disk"),
     ],
 )
 def test_a_damaged_backup_is_corrupt_with_the_reason(tmp_path, damage, text):
@@ -111,7 +111,7 @@ def test_a_manifest_cannot_point_outside_its_backup(tmp_path):
     make_backup(tmp_path / "b")
     (tmp_path / "secret").write_text("x")
     manifest = json.loads((tmp_path / "b" / "manifest.json").read_text())
-    manifest["fichiers"].append({"nom": "../secret", "role": "config", "taille": 1, "sha256": "0"})
+    manifest["files"].append({"name": "../secret", "role": "config", "size": 1, "sha256": "0"})
     (tmp_path / "b" / "manifest.json").write_text(json.dumps(manifest))
     _status, problems, _ = bi.verify(tmp_path / "b")
     assert "secret: missing" in problems  # read as a name inside the backup, never followed
@@ -171,11 +171,11 @@ def test_a_tpm_archive_cannot_write_outside_the_vm_state(tmp_path, fw_dirs):
 # --- Recorded results, the endpoint and the weekly run ---------------------------------------------------------
 
 
-def _insert(database, path, verifie_le=None, statut="succeeded", cree_le="2026-01-01T00:00:00+00:00"):
+def _insert(database, path, verified_at=None, status="succeeded", created_at="2026-01-01T00:00:00+00:00"):
     with database.get_conn() as db:
         cur = db.execute(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut, verifie_le) VALUES ('vm1', ?, 'cold', ?, ?, ?)",
-            (str(path), cree_le, statut, verifie_le),
+            "INSERT INTO backups (vm_name, path, mode, created_at, status, verified_at) VALUES ('vm1', ?, 'cold', ?, ?, ?)",
+            (str(path), created_at, status, verified_at),
         )
         db.commit()
         return cur.lastrowid
@@ -193,9 +193,9 @@ def test_a_corrupt_backup_is_recorded_audited_and_notified(database, tmp_path, m
     monkeypatch.setattr("app.core.notifications.notify", lambda *a, **k: sent.append(a))
     backup_id = _insert(database, tmp_path / "b")
     result = backups.verify_backup(backup_id, username="admin")
-    assert result["verification"] == "corrompu"
+    assert result["verification"] == "corrupted"
     row = _row(database, backup_id)
-    assert row["verification"] == "corrompu" and "sda.qcow2" in row["verification_detail"] and row["verifie_le"]
+    assert row["verification"] == "corrupted" and "sda.qcow2" in row["verification_detail"] and row["verified_at"]
     assert sent and sent[0][0] == "verify_backup"
 
 
@@ -222,32 +222,32 @@ def test_the_endpoint_verifies_as_a_task_admins_only(client, auth_headers, datab
     monkeypatch.setattr(router.threading, "Thread", Inline)
     r = client.post(f"/backups/{backup_id}/verify", headers=admin)
     assert r.status_code == 202 and r.json()["task_id"]
-    assert _row(database, backup_id)["verification"] == "verifie"
+    assert _row(database, backup_id)["verification"] == "verified"
     with database.get_conn() as db:
-        assert db.execute("SELECT statut FROM tasks WHERE id = ?", (r.json()["task_id"],)).fetchone()[0] == "succeeded"
+        assert db.execute("SELECT status FROM tasks WHERE id = ?", (r.json()["task_id"],)).fetchone()[0] == "succeeded"
     watcher = auth_headers("watcher", role="viewer")
     assert client.post(f"/backups/{backup_id}/verify", headers=watcher).status_code == 403
     assert client.post("/backups/999/verify", headers=admin).status_code == 404
-    running = _insert(database, tmp_path / "b", statut="running")
+    running = _insert(database, tmp_path / "b", status="running")
     assert client.post(f"/backups/{running}/verify", headers=admin).status_code == 409
 
 
 def test_the_weekly_run_takes_the_oldest_unverified_one_and_waits_for_running_backups(database, tmp_path):
     for name in ("recent", "never", "stale"):
         make_backup(tmp_path / name)
-    recent = _insert(database, tmp_path / "recent", verifie_le=backups._now().isoformat())
+    recent = _insert(database, tmp_path / "recent", verified_at=backups._now().isoformat())
     never = _insert(database, tmp_path / "never")
-    stale = _insert(database, tmp_path / "stale", verifie_le="2020-01-01T00:00:00+00:00")
-    assert backups._verify_due_backup()["verification"] == "verifie"
-    assert _row(database, never)["verifie_le"] and _row(database, stale)["verifie_le"].startswith("2020")
+    stale = _insert(database, tmp_path / "stale", verified_at="2020-01-01T00:00:00+00:00")
+    assert backups._verify_due_backup()["verification"] == "verified"
+    assert _row(database, never)["verified_at"] and _row(database, stale)["verified_at"].startswith("2020")
     backups._verify_due_backup()
-    assert not _row(database, stale)["verifie_le"].startswith("2020")
+    assert not _row(database, stale)["verified_at"].startswith("2020")
     assert backups._verify_due_backup() is None  # everything verified this week
     assert _row(database, recent)["verification"] is None
 
     with database.get_conn() as db:
-        db.execute("UPDATE backups SET verifie_le = NULL WHERE id = ?", (recent,))
+        db.execute("UPDATE backups SET verified_at = NULL WHERE id = ?", (recent,))
         db.commit()
     with backups._backup_lock:
         assert backups._verify_due_backup() is None
-    assert _row(database, recent)["verifie_le"] is None
+    assert _row(database, recent)["verified_at"] is None

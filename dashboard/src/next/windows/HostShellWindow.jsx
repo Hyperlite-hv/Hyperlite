@@ -14,7 +14,7 @@ export default function HostShellWindow() {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
   const [host, setHost] = useState("");
-  useEffect(() => { fetchDashboardSummary().then((d) => setHost(d?.hyperviseur?.nom || "")).catch(() => {}); }, []);
+  useEffect(() => { fetchDashboardSummary().then((d) => setHost(d?.hyperviseur?.name || "")).catch(() => {}); }, []);
   const getUrl = useCallback(async () => `/host/terminal?ticket=${encodeURIComponent((await createHostTerminalTicket()).ticket)}`, []);
   const title = host ? `${t("nn.shell")} · ${host}` : t("nn.shell");
   return (

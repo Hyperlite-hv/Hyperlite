@@ -62,17 +62,17 @@ def describe_xml(xml):
     mode = forward.get("mode", "nat") if forward is not None else None
     ip_el = _ipv4(root)
     if ip_el is None or mode not in (None, "nat"):
-        return {"modifiable": False, "mode": mode, "adresse": None, "masque": None, "dhcp": None, "reservations": []}
+        return {"modifiable": False, "mode": mode, "address": None, "masque": None, "dhcp": None, "reservations": []}
     iface = _subnet(ip_el)
     rng = ip_el.find("dhcp/range")
     return {
         "modifiable": True,
-        "mode": "nat" if mode == "nat" else "isole",
-        "adresse": str(iface.ip),
+        "mode": "nat" if mode == "nat" else "isolated",
+        "address": str(iface.ip),
         "masque": str(iface.netmask),
         "dhcp": {"debut": rng.get("start"), "fin": rng.get("end")} if rng is not None else None,
         "reservations": [
-            {"mac": (h.get("mac") or "").lower(), "ip": h.get("ip"), "nom": h.get("name")}
+            {"mac": (h.get("mac") or "").lower(), "ip": h.get("ip"), "name": h.get("name")}
             for h in ip_el.findall("dhcp/host")
         ],
     }
@@ -93,8 +93,8 @@ def _usable(net, ip, label):
 def edit_xml(xml, *, mode, address, netmask, dhcp, other_subnets=()):
     """New definition with the subnet, DHCP range (None to turn DHCP off) and mode changed. The reservations are
     kept and must stay inside the new subnet and outside the new DHCP range's conflicts: they are named otherwise."""
-    if mode not in ("nat", "isole"):
-        raise EditError("mode must be 'nat' or 'isole'")
+    if mode not in ("nat", "isolated"):
+        raise EditError("mode must be 'nat' or 'isolated'")
     root = ET.fromstring(xml)
     ip_el = _ipv4(root)
     current = describe_xml(xml)
@@ -134,7 +134,7 @@ def edit_xml(xml, *, mode, address, netmask, dhcp, other_subnets=()):
     if mode == "nat" and forward is None:
         forward = ET.Element("forward", {"mode": "nat"})
         root.insert(list(root).index(root.find("name")) + 1, forward)
-    elif mode == "isole" and forward is not None:
+    elif mode == "isolated" and forward is not None:
         root.remove(forward)
 
     for key in ("address", "netmask", "prefix"):
@@ -157,7 +157,7 @@ def edit_xml(xml, *, mode, address, netmask, dhcp, other_subnets=()):
 def _essentials(xml):
     # What a running network only takes at its restart; the DHCP range itself can change live.
     d = describe_xml(xml)
-    return (d["mode"], d["adresse"], d["masque"], d["dhcp"] is not None)
+    return (d["mode"], d["address"], d["masque"], d["dhcp"] is not None)
 
 
 def pending(net):
@@ -262,7 +262,7 @@ def delete_reservation(net, mac):
                 libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE,
                 libvirt.VIR_NETWORK_SECTION_IP_DHCP_HOST,
                 -1,
-                _host_xml(r["mac"], r["ip"], r["nom"]),
+                _host_xml(r["mac"], r["ip"], r["name"]),
                 _flags(net),
             )
             return True

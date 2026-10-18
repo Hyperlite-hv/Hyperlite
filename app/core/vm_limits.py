@@ -20,14 +20,14 @@ MEMORY_MIN_MB = 256  # functional floor for a Linux VM, not a host limit
 _TTL_S = 30
 
 # Beyond these values the request is a typo, not a sizing decision.
-TECHNICAL_MAX = {"vcpu": 4096, "memoire_mo": 16 * 1024 * 1024, "disque_go": 1_000_000, "disques": 64}
+TECHNICAL_MAX = {"vcpu": 4096, "memory_mb": 16 * 1024 * 1024, "disk_gb": 1_000_000, "disks": 64}
 ENV_CAPS = {
     "vcpu": "HYPERLITE_VM_MAX_VCPU",
-    "memoire_mo": "HYPERLITE_VM_MAX_MEMORY_MB",
-    "disque_go": "HYPERLITE_VM_MAX_DISK_GB",
-    "disques": "HYPERLITE_VM_MAX_DISKS",
+    "memory_mb": "HYPERLITE_VM_MAX_MEMORY_MB",
+    "disk_gb": "HYPERLITE_VM_MAX_DISK_GB",
+    "disks": "HYPERLITE_VM_MAX_DISKS",
 }
-MINIMUMS = {"vcpu": 1, "memoire_mo": MEMORY_MIN_MB, "disque_go": 1, "disques": 1}
+MINIMUMS = {"vcpu": 1, "memory_mb": MEMORY_MIN_MB, "disk_gb": 1, "disks": 1}
 
 _cache = {"at": 0.0, "value": None}
 
@@ -84,8 +84,8 @@ def compute_limits(force=False):
     disk_free = _detect_disk_free_gb()
     value["physique"] = {
         "vcpu": os.cpu_count(),
-        "memoire_mo": _memory_capabilities_local().get("totale_mo"),
-        "disque_go": int(disk_free) if disk_free is not None else None,
+        "memory_mb": _memory_capabilities_local().get("total_mb"),
+        "disk_gb": int(disk_free) if disk_free is not None else None,
     }
     _cache.update(at=now, value=value)
     return value
@@ -106,10 +106,10 @@ def validate_vm_resources(vcpu=None, memory_mb=None, disk_sizes=None):
             errors.append(f"{label}: {value}{unit} is out of limits ({lim['min']}-{lim['max']}{unit}, {origine})")
 
     check("vCPU", vcpu, limits["vcpu"], "")
-    check("Memory", memory_mb, limits["memoire_mo"], " MB")
+    check("Memory", memory_mb, limits["memory_mb"], " MB")
     if disk_sizes is not None:
-        if len(disk_sizes) > limits["disques"]["max"]:
-            errors.append(f"Disks: {len(disk_sizes)} requested, maximum {limits['disques']['max']}")
+        if len(disk_sizes) > limits["disks"]["max"]:
+            errors.append(f"Disks: {len(disk_sizes)} requested, maximum {limits['disks']['max']}")
         for i, size in enumerate(disk_sizes):
-            check(f"Disk {i + 1}", size, limits["disque_go"], " GB")
+            check(f"Disk {i + 1}", size, limits["disk_gb"], " GB")
     return errors

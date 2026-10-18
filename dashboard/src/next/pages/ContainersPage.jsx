@@ -53,26 +53,26 @@ export default function ContainersPage() {
   const nameCheck = (v) => (NAME_RE.test(v) ? "" : t("ct.nameRule"));
 
   async function act(fn, ct, ok) {
-    try { await fn(ct.nom); pushToast({ kind: "success", title: ok, message: ct.nom }); await reload(); }
+    try { await fn(ct.name); pushToast({ kind: "success", title: ok, message: ct.name }); await reload(); }
     catch (err) { fail(t("action.failed", { action: ok }))(err); }
   }
   async function stop(ct) {
-    if (!(await confirmAction({ title: t("ct.stopTitle", { name: ct.nom }), message: t("ct.stopMsg"), confirmLabel: t("ct.stop") }))) return;
+    if (!(await confirmAction({ title: t("ct.stopTitle", { name: ct.name }), message: t("ct.stopMsg"), confirmLabel: t("ct.stop") }))) return;
     act(stopContainer, ct, t("ct.stopRequested"));
   }
   async function remove(ct) {
-    if (!(await confirmAction({ title: t("ct.deleteTitle", { name: ct.nom }), message: t("ct.deleteMsg", { name: ct.nom }), confirmLabel: t("menu.delete").replace("…", ""), danger: true }))) return;
-    try { await deleteContainer(ct.nom); pushToast({ kind: "success", title: t("ct.deleted"), message: ct.nom }); await reload(); }
+    if (!(await confirmAction({ title: t("ct.deleteTitle", { name: ct.name }), message: t("ct.deleteMsg", { name: ct.name }), confirmLabel: t("menu.delete").replace("…", ""), danger: true }))) return;
+    try { await deleteContainer(ct.name); pushToast({ kind: "success", title: t("ct.deleted"), message: ct.name }); await reload(); }
     catch (err) { fail(t("ct.deleteFailed"))(err); }
   }
   async function clone(ct) {
-    const n = await promptText({ title: t("ct.cloneTitle", { name: ct.nom }), label: t("ct.copyName"), defaultValue: `${ct.nom}-clone`, confirmLabel: t("ct.clone"), validate: nameCheck });
+    const n = await promptText({ title: t("ct.cloneTitle", { name: ct.name }), label: t("ct.copyName"), defaultValue: `${ct.name}-clone`, confirmLabel: t("ct.clone"), validate: nameCheck });
     if (!n || !n.trim()) return;
-    try { await cloneContainer(ct.nom, n.trim()); pushToast({ kind: "success", title: t("ct.cloned"), message: `${ct.nom} → ${n.trim()}` }); await reload(); }
+    try { await cloneContainer(ct.name, n.trim()); pushToast({ kind: "success", title: t("ct.cloned"), message: `${ct.name} → ${n.trim()}` }); await reload(); }
     catch (err) { fail(t("ct.cloneFailed"))(err); }
   }
   async function backup(ct) {
-    try { await createContainerBackup(ct.nom); pushToast({ kind: "success", title: t("ct.backupStarted"), message: ct.nom }); setTimeout(reloadBackups, 2000); }
+    try { await createContainerBackup(ct.name); pushToast({ kind: "success", title: t("ct.backupStarted"), message: ct.name }); setTimeout(reloadBackups, 2000); }
     catch (err) { fail(t("ct.backupFailed"))(err); }
   }
   async function restore(b) {
@@ -87,7 +87,7 @@ export default function ContainersPage() {
     catch (err) { fail(t("ct.deleteFailed"))(err); }
   }
   const [logsOf, setLogsOf] = useState(null);
-  const openTerminal = (ct) => window.open(`/container-terminal/${encodeURIComponent(ct.nom)}`, `hyperlite-ct-terminal-${ct.nom}`, "width=1000,height=700,noopener");
+  const openTerminal = (ct) => window.open(`/container-terminal/${encodeURIComponent(ct.name)}`, `hyperlite-ct-terminal-${ct.name}`, "width=1000,height=700,noopener");
   async function rename(ct) { if (await renameContainerFlow(ct, t, pushToast)) await reload(); }
 
   const list = containers || [];
@@ -108,26 +108,26 @@ export default function ContainersPage() {
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col">{t("ct.type")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">IP</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {list.map((ct) => {
-                    const on = ct.etat === "actif";
+                    const on = ct.state === "active";
                     return (
-                      <tr key={ct.nom} className={ctx.is("ct", ct.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
-                        <td><StatusIndicator kind="vm" wire={on ? "actif" : "arrete"} /></td>
-                        <th scope="row" className="nx-mono"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("container", ct.nom, "summary")}>{ct.nom}</button></th>
+                      <tr key={ct.name} className={ctx.is("ct", ct.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
+                        <td><StatusIndicator kind="vm" wire={on ? "active" : "stopped"} /></td>
+                        <th scope="row" className="nx-mono"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("container", ct.name, "summary")}>{ct.name}</button></th>
                         <td>{ct.mode === "application"
                           ? <><Chip tone="info">Docker</Chip> <span className="nx-mono nx-muted">{ct.image}</span></>
                           : <Chip>LXC</Chip>}</td>
                         <td className="nx-num nx-mono">{ct.vcpu}</td>
-                        <td className="nx-num nx-mono">{formatSizeMb(ct.memoire_mo, lang)}</td>
+                        <td className="nx-num nx-mono">{formatSizeMb(ct.memory_mb, lang)}</td>
                         <td className="nx-mono">{ct.ip || <span className="nx-muted">{t("ct.noIp")}</span>}</td>
                         <td><div className="nx-ra">
-                          {ct.mode === "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("ct.logsX", { name: ct.nom })} onClick={() => setLogsOf(ct.nom)}>{t("ct.logs")}</button>}
-                          {caps.admin && on && ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.terminal_x", { v: ct.nom })} onClick={() => openTerminal(ct)}>{t("ct.terminal")}</button>}
-                          {caps.admin && on && ct.mode === "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("ct.shellX", { name: ct.nom })} onClick={() => openShell(ct.nom)}>{t("ct.shell")}</button>}
-                          {caps.admin && !on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.start_x", { v: ct.nom })} onClick={() => act(startContainer, ct, t("ct.started"))}>{t("ct.start")}</button>}
-                          {caps.admin && on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.stop_x", { v: ct.nom })} onClick={() => stop(ct)}>{t("ct.stop")}</button>}
-                          {caps.admin && !on && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.clone_x", { v: ct.nom })} onClick={() => clone(ct)}>{t("ct.clone")}</button>}
-                          {caps.admin && !on && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.back_up_container_x", { v: ct.nom })} onClick={() => backup(ct)}>{t("ct.backup")}</button>}
-                          {caps.admin && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_container_x", { v: ct.nom })} title={del} onClick={() => remove(ct)}><Trash2 size={15} aria-hidden="true" /></button>}
+                          {ct.mode === "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("ct.logsX", { name: ct.name })} onClick={() => setLogsOf(ct.name)}>{t("ct.logs")}</button>}
+                          {caps.admin && on && ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.terminal_x", { v: ct.name })} onClick={() => openTerminal(ct)}>{t("ct.terminal")}</button>}
+                          {caps.admin && on && ct.mode === "application" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("ct.shellX", { name: ct.name })} onClick={() => openShell(ct.name)}>{t("ct.shell")}</button>}
+                          {caps.admin && !on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.start_x", { v: ct.name })} onClick={() => act(startContainer, ct, t("ct.started"))}>{t("ct.start")}</button>}
+                          {caps.admin && on && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.stop_x", { v: ct.name })} onClick={() => stop(ct)}>{t("ct.stop")}</button>}
+                          {caps.admin && !on && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.clone_x", { v: ct.name })} onClick={() => clone(ct)}>{t("ct.clone")}</button>}
+                          {caps.admin && !on && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.back_up_container_x", { v: ct.name })} onClick={() => backup(ct)}>{t("ct.backup")}</button>}
+                          {caps.admin && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_container_x", { v: ct.name })} title={del} onClick={() => remove(ct)}><Trash2 size={15} aria-hidden="true" /></button>}
                         </div></td>
                       </tr>
                     );
@@ -148,12 +148,12 @@ export default function ContainersPage() {
                 <tbody>
                   {backups.map((b) => (
                     <tr key={b.id}>
-                      <td><StatusIndicator kind="task" wire={backupWire(b.statut)} /></td>
+                      <td><StatusIndicator kind="task" wire={backupWire(b.status)} /></td>
                       <th scope="row" className="nx-mono">{b.container_name}</th>
-                      <td>{new Date(b.cree_le).toLocaleString(lang)}</td>
-                      <td className="nx-num nx-mono">{b.taille_octets ? formatSizeMb(b.taille_octets / 1048576, lang) : "—"}</td>
+                      <td>{new Date(b.created_at).toLocaleString(lang)}</td>
+                      <td className="nx-num nx-mono">{b.size_bytes ? formatSizeMb(b.size_bytes / 1048576, lang) : "—"}</td>
                       <td><div className="nx-ra">
-                        {b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
+                        {b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
                         <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={del} onClick={() => removeBackup(b)}><Trash2 size={15} aria-hidden="true" /></button>
                       </div></td>
                     </tr>
@@ -165,15 +165,15 @@ export default function ContainersPage() {
         </Card>
       )}
       <ContainerLogs name={logsOf} onClose={() => setLogsOf(null)} />
-      <ActionsContextMenu ctx={ctx} label={(ct) => t("ctx.menuOf", { name: ct.nom })} entries={(ct) => {
-        const on = ct.etat === "actif";
+      <ActionsContextMenu ctx={ctx} label={(ct) => t("ctx.menuOf", { name: ct.name })} entries={(ct) => {
+        const on = ct.state === "active";
         const admin = { disabled: !caps.admin, reason: t("menu.reason.admin") };
         return [
           on ? { key: "terminal", icon: "terminal", label: t("ct.terminal"), run: () => openTerminal(ct), ...(ct.mode === "application" ? { disabled: true, reason: t("ct.noTerminalApp") } : admin) }
             : { key: "start", icon: "start", label: t("ct.start"), run: () => act(startContainer, ct, t("ct.started")), ...admin },
-          on && { key: "shell", icon: "terminal", label: t("ct.shell"), run: () => openShell(ct.nom), ...admin },
+          on && { key: "shell", icon: "terminal", label: t("ct.shell"), run: () => openShell(ct.name), ...admin },
           on && { key: "stop", icon: "stop", label: t("ct.stop"), run: () => stop(ct), ...admin },
-          ct.mode === "application" && { key: "logs", icon: "details", label: t("ct.logs"), run: () => setLogsOf(ct.nom) },
+          ct.mode === "application" && { key: "logs", icon: "details", label: t("ct.logs"), run: () => setLogsOf(ct.name) },
           "-",
           { key: "rename", icon: "rename", label: t("ct.rename"), run: () => rename(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
           { key: "clone", icon: "clone", label: t("ct.clone"), run: () => clone(ct), disabled: !caps.admin || on, reason: !caps.admin ? t("menu.reason.admin") : t("menu.reason.mustStop") },
@@ -206,11 +206,11 @@ export function ContainerLogs({ name, onClose }) {
     <SideDrawer open={Boolean(name)} title={t("ct.logsTitle", { name: name || "" })} onClose={onClose}>
       {error ? <div className="nx-bn" data-tone="danger" role="alert"><span className="nx-bn-t">{error}</span></div>
         : !data ? <Loading />
-        : !data.disponible ? <p className="nx-muted">{t("ct.logsUnavailable")}</p>
+        : !data.available ? <p className="nx-muted">{t("ct.logsUnavailable")}</p>
         : (<>
-          <p className="nx-muted" role="status" style={{ margin: 0 }}>{t(data.actif ? "ct.logsRunning" : "ct.logsStopped")}</p>
+          <p className="nx-muted" role="status" style={{ margin: 0 }}>{t(data.active ? "ct.logsRunning" : "ct.logsStopped")}</p>
           <pre className="nx-mono" tabIndex={0} aria-label={t("ct.logsTitle", { name })} style={{ margin: 0, padding: "var(--space-3)", background: "var(--color-bg-sunken, var(--color-bg-surface))", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", fontSize: "var(--fs-12)", whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: "70vh", overflow: "auto" }}>
-            {data.lignes.length ? data.lignes.join("\n") : t("ct.logsEmpty")}
+            {data.lines.length ? data.lines.join("\n") : t("ct.logsEmpty")}
           </pre>
         </>)}
     </SideDrawer>

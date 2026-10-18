@@ -95,7 +95,7 @@ def test_shadow_mode_is_off_unless_turned_on(database, monkeypatch):
     object_meta.put("vm", "web", "Front of the shop", ["prod"])
     assert shadow.drain() == 0 and fake.files == {}
     assert shadow.pending() == 0  # nothing is kept for a daemon that is not used
-    assert shadow.report()["actif"] is False
+    assert shadow.report()["active"] is False
     with pytest.raises(shadow.ShadowDisabled):
         shadow.seed()
 
@@ -194,17 +194,17 @@ def test_a_daemon_that_is_down_never_fails_the_write_and_is_caught_up_on(cfs):
     assert object_meta.get("vm", "web")["tags"] == ["prod"]
     assert shadow.drain() == 0 and shadow.pending() == 1
     state = shadow.report()
-    assert state["joignable"] is False and state["echecs"] == 1 and state["pending"] == 1
-    assert "/db/object_meta/vm/hv-test/web" in state["derniere_erreur"]
+    assert state["reachable"] is False and state["failures"] == 1 and state["pending"] == 1
+    assert "/db/object_meta/vm/hv-test/web" in state["last_error"]
 
     cfs.down = False
     assert shadow.drain() == 1 and shadow.pending() == 0  # the daemon answers again: the copy goes through
     cfs.files["/db/object_meta/vm/hv-test/gone"] = b"{}"  # left over from elsewhere
     state = shadow.report()
-    assert state["ecarts"] == 1 and state["domaines"]["object_meta"]["exemples"]["en_trop"] == [
+    assert state["ecarts"] == 1 and state["domaines"]["object_meta"]["examples"]["extra"] == [
         "/db/object_meta/vm/hv-test/gone"
     ]
-    assert shadow.seed()["supprimes"] == 1
+    assert shadow.seed()["deleted"] == 1
     assert shadow.report()["ecarts"] == 0
 
 
@@ -217,8 +217,8 @@ def test_errors_reach_the_client_as_fixed_sentences_not_exception_text(cfs, monk
     assert shadow.drain() == 0 and shadow.pending() == 1
     state = shadow.report()
     assert "internal detail" not in json.dumps(state)
-    assert state["erreur"] == "hyperlite-cfs is not running: nothing answers on its socket"
-    assert state["derniere_erreur"] == "hyperlite-cfs: hyperlite-cfs is not running: nothing answers on its socket"
+    assert state["error"] == "hyperlite-cfs is not running: nothing answers on its socket"
+    assert state["last_error"] == "hyperlite-cfs: hyperlite-cfs is not running: nothing answers on its socket"
 
 
 def test_a_copy_that_differs_is_reported(cfs):
@@ -226,7 +226,7 @@ def test_a_copy_that_differs_is_reported(cfs):
     shadow.drain()
     cfs.files["/db/object_meta/vm/hv-test/web"] = b'{"notes":"Front","tags":"[]"}'
     report = shadow.report()["domaines"]["object_meta"]
-    assert report["differents"] == 1 and report["exemples"]["differents"] == ["/db/object_meta/vm/hv-test/web"]
+    assert report["different"] == 1 and report["examples"]["different"] == ["/db/object_meta/vm/hv-test/web"]
 
 
 def test_the_report_and_the_seed_are_for_administrators(client, auth_headers, cfs):
@@ -237,9 +237,9 @@ def test_the_report_and_the_seed_are_for_administrators(client, auth_headers, cf
 
     admin = auth_headers("root", "admin")
     body = client.get("/cfs/shadow", headers=admin).json()
-    assert body["actif"] is True and body["ecarts"] >= 3 and body["pending"] >= 3  # the note and two accounts
+    assert body["active"] is True and body["ecarts"] >= 3 and body["pending"] >= 3  # the note and two accounts
     seeded = client.post("/cfs/shadow/seed", headers=admin).json()
-    assert seeded["ecrits"] >= 3 and seeded["supprimes"] == 0
+    assert seeded["written"] >= 3 and seeded["deleted"] == 0
     assert client.get("/cfs/shadow", headers=admin).json()["ecarts"] == 0
 
     cfs.down = True
@@ -285,7 +285,7 @@ def test_against_the_real_daemon(database, tmp_path, monkeypatch):
         object_meta.put("node", "pve-a", "Rack 2", [])
         assert shadow.drain() == 2
         state = shadow.report()
-        assert state["joignable"] and state["demon"]["mode"] == "local"
+        assert state["reachable"] and state["demon"]["mode"] == "local"
         assert state["domaines"]["object_meta"]["entrees"] == 2 and state["ecarts"] == 0
         # /priv is served to root only: run as another user (the CI), those tables are marked, not failed.
         assert state["domaines"]["users"].get("illisible", False) is (os.geteuid() != 0)
@@ -294,11 +294,11 @@ def test_against_the_real_daemon(database, tmp_path, monkeypatch):
 
     object_meta.put("vm", "db", "", ["prod"])  # the daemon is gone: SQLite still takes it, the copy waits
     assert shadow.drain() == 0 and shadow.pending() == 1
-    assert shadow.report()["joignable"] is False and shadow.report()["echecs"] == 1
+    assert shadow.report()["reachable"] is False and shadow.report()["failures"] == 1
 
     proc = _start(BIN, tmp_path)  # same database: what it held survived the restart
     try:
-        assert shadow.report()["domaines"]["object_meta"]["exemples"]["manquants"] == ["/db/object_meta/vm/hv-test/db"]
+        assert shadow.report()["domaines"]["object_meta"]["examples"]["missing"] == ["/db/object_meta/vm/hv-test/db"]
         assert shadow.drain() == 1  # caught up on without a seed
         assert shadow.report()["ecarts"] == 0
     finally:
@@ -334,16 +334,16 @@ def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, au
     admin = auth_headers("root", "admin")
     assert client.post("/cfs/shadow/activer", headers=auth_headers("watcher", "viewer")).status_code == 403
 
-    assert client.post("/cfs/shadow/activer", headers=admin).json()["supprimes"] == 0
+    assert client.post("/cfs/shadow/activer", headers=admin).json()["deleted"] == 0
     assert switch.calls == [("enable", "--now")]
     assert shadow.enabled() and "/db/object_meta/vm/hv-test/web" in switch.files
     object_meta.put("vm", "db", "", ["prod"])  # from now on every change is copied
     shadow.drain()
     assert "/db/object_meta/vm/hv-test/db" in switch.files
     body = client.get("/cfs/shadow", headers=admin).json()
-    assert body["actif"] and not body["force"] and body["installe"] and body["ecarts"] == 0
+    assert body["active"] and not body["force"] and body["installed"] and body["ecarts"] == 0
 
-    assert client.post("/cfs/shadow/desactiver", headers=admin).json() == {"actif": False}
+    assert client.post("/cfs/shadow/desactiver", headers=admin).json() == {"active": False}
     assert switch.calls[-1] == ("disable", "--now")
     assert not shadow.enabled()
     object_meta.put("vm", "cache", "", ["prod"])
@@ -361,7 +361,7 @@ def test_the_button_says_why_it_cannot_turn_shadow_mode_on(client, auth_headers,
     switch.binary.unlink()
     response = client.post("/cfs/shadow/activer", headers=admin)
     assert response.status_code == 503 and "not installed" in response.json()["detail"]
-    assert client.get("/cfs/shadow", headers=admin).json()["installe"] is False
+    assert client.get("/cfs/shadow", headers=admin).json()["installed"] is False
 
 
 def test_shadow_mode_forced_in_env_cannot_be_turned_off_from_the_page(client, auth_headers, switch, monkeypatch):

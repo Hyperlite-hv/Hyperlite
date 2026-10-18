@@ -43,7 +43,7 @@ def members():
     except Exception as e:  # the daemon does not answer: this node's own lists only, said in the log
         logger.warning("Cluster members unknown: %s", e)
         return []
-    names = {m["nom"] for m in conf.get("membres", [])} - {self_node.name()}
+    names = {m["name"] for m in conf.get("members", [])} - {self_node.name()}
     return sorted((n for n in cluster.list_nodes() if n["name"] in names), key=lambda n: n["name"])
 
 
@@ -72,7 +72,7 @@ def gather(username, path, params):
     answers, missing = {}, []
 
     def ask(node):
-        if node.get("statut") == "offline":
+        if node.get("status") == "offline":
             return node["name"], None
         try:
             status, body = _call(node, username, "GET", full)

@@ -87,8 +87,8 @@ def _now():
 def _row(r):
     d = dict(r)
     d["workers"] = json.loads(d["workers"] or "[]")
-    d.pop("jeton", None)
-    d["kubeconfig_disponible"] = bool(d.pop("kubeconfig", None))
+    d.pop("token", None)
+    d["kubeconfig_available"] = bool(d.pop("kubeconfig", None))
     return d
 
 
@@ -433,7 +433,7 @@ def _provision(name, server, agents, vcpu, memory_mb, disk_gb, network, username
 
         step = "creating the VMs"
         token = secrets.token_hex(32)
-        _update(name, jeton=encrypt(token))
+        _update(name, token=encrypt(token))
         password = secrets.token_urlsafe(24)
         for i, vm in enumerate((server, *agents)):
             _create_vm(vm, vcpu, memory_mb, disk_gb, network, password, username)
@@ -460,14 +460,14 @@ def _provision(name, server, agents, vcpu, memory_mb, disk_gb, network, username
         # Ready and free in one step, under the lock delete_cluster checks: a cluster shown ready can be deleted at
         # once (it was refused as "being created" until this thread reached its finally).
         with _busy_lock:
-            _update(name, statut="ready", erreur=None, adresse=ips[server], kubeconfig=encrypt(kubeconfig))
+            _update(name, status="ready", error=None, address=ips[server], kubeconfig=encrypt(kubeconfig))
             _busy.discard(name)
         finish_task(task_id, "succeeded")
         log_action(username, "create_k8s_cluster", name, "success", task_id=task_id)
     except Exception as e:
         msg = f"{step}: {describe_exception(e)}"
         logger.warning("Kubernetes cluster '%s' failed while %s", name, msg)
-        _update(name, statut="failed", erreur=msg)
+        _update(name, status="failed", error=msg)
         finish_task(task_id, "failed", msg)
         log_action(username, "create_k8s_cluster", name, "failed", msg, task_id=task_id)
     finally:
@@ -491,10 +491,10 @@ def delete_cluster(name, username):
         _busy.add(name)
     task_id = create_task("delete_k8s_cluster", name, username=username)
     try:
-        _update(name, statut="deleting")
+        _update(name, status="deleting")
         conn = open_conn()
         try:
-            for vm in (cluster["serveur"], *cluster["workers"]):
+            for vm in (cluster["server"], *cluster["workers"]):
                 try:
                     domain = conn.lookupByName(vm)
                 except libvirt.libvirtError:
@@ -509,7 +509,7 @@ def delete_cluster(name, username):
         log_action(username, "delete_k8s_cluster", name, "success", task_id=task_id)
     except Exception as e:
         msg = describe_exception(e) if not hasattr(e, "detail") else str(e.detail)
-        _update(name, statut="failed", erreur=f"deletion: {msg}")
+        _update(name, status="failed", error=f"deletion: {msg}")
         finish_task(task_id, "failed", msg)
         log_action(username, "delete_k8s_cluster", name, "failed", msg, task_id=task_id)
         raise

@@ -17,14 +17,14 @@ async function open(page: Page, tab: string) {
 const json = (route: import("@playwright/test").Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
 test("Nodes: this host is listed and opens its page, add form sends the SSH port, failure is reported, removal is confirmed", async ({ page }) => {
-  const remote = [{ id: 7, name: "peer", hostname: "10.0.0.9", ssh_user: "root", ssh_port: 2222, statut: "offline" }];
+  const remote = [{ id: 7, name: "peer", hostname: "10.0.0.9", ssh_user: "root", ssh_port: 2222, status: "offline" }];
   let added: unknown = null; const removed: string[] = [];
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request(); if (req.resourceType() === "document") return route.fallback();
     const path = new URL(req.url()).pathname;
     if (req.method() === "GET" && /\/nodes$/.test(path) && added === "list") return json(route, remote);
     if (req.method() === "POST" && /\/nodes$/.test(path)) { added = req.postDataJSON(); return json(route, { detail: "SSH connection refused" }, 400); }
-    if (req.method() === "GET" && /\/summary$/.test(path)) return json(route, { vms_actives: 3, vms_arretees: 1, stockage_capacite_go: 500, stockage_disponible_go: 120 });
+    if (req.method() === "GET" && /\/summary$/.test(path)) return json(route, { vms_actives: 3, vms_stopped: 1, storage_capacity_gb: 500, storage_available_gb: 120 });
     if (req.method() === "DELETE") { removed.push(path.split("/").pop()!); remote.length = 0; return json(route, { ok: true }); }
     return route.fallback();
   });
@@ -68,7 +68,7 @@ test("HA: empty state, then a down node offers a manual recovery that stays disa
   await open(page, "ha");
   const main = page.getByRole("main");
   await expect(main.getByText("No protected VM")).toBeVisible();
-  rows = [{ vm_name: "vm-ha", node: "ghost", statut_noeud: "offline", last_synced_at: null }];
+  rows = [{ vm_name: "vm-ha", node: "ghost", node_status: "offline", last_synced_at: null }];
   await main.getByRole("button", { name: "Refresh" }).click();
   const row = main.getByRole("row", { name: /vm-ha/ });
   await expect(row).toContainText("Never");

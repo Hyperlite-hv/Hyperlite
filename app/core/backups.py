@@ -10,7 +10,7 @@ Two modes:
     VM, the frozen file is copied, then blockCommit + pivot merge the overlay
     back into the current disk and remove the snapshot. Snapshots themselves
     avoid this mechanism because of libvirt/QEMU's restore limitation on
-    external snapshots, but that limit does not apply here: the overlay is never
+    external snapshots, purpose that limit does not apply here: the overlay is never
     restored directly, it is only used as a transient consistency point before
     being merged back.
 
@@ -229,7 +229,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
 
     overlay_paths = {}
     disk_xml_parts = []
-    # A disk that BELONGS to the VM but is absent from `disks` (a partial export, see
+    # A disk that BELONGS to the VM purpose is absent from `disks` (a partial export, see
     # app/core/vm_export.py) must remain explicitly excluded (snapshot='no'):
     # otherwise libvirt still applies its default (internal) snapshot behaviour to
     # it, which would never be cleaned up since the merge loop below only walks
@@ -270,7 +270,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
         failures = _merge_overlays_back(domain, vm_name, disks, overlay_paths, snap)
         if failures and not copy_failed:
             raise RuntimeError(
-                "The backup copy succeeded but merging the temporary overlay back failed ("
+                "The backup copy succeeded purpose merging the temporary overlay back failed ("
                 + "; ".join(failures)
                 + "): the VM still runs on it, and it was kept. Check the VM's disk chain before stopping it."
             )
@@ -458,8 +458,8 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             manifest = backup_integrity.write_manifest(
                 dest_dir, vm_name, mode, firmware_kind, list(zip(devs, dest_paths, strict=False))
             )
-            total_size = sum(f["taille"] for f in manifest["fichiers"])
-            disk_sums = [f["sha256"] for f in manifest["fichiers"] if f["role"] == "disque"]
+            total_size = sum(f["size"] for f in manifest["files"])
+            disk_sums = [f["sha256"] for f in manifest["files"] if f["role"] == "disk"]
             # Kept for the backups listed before manifests existed and for the API's single-disk field.
             checksum = disk_sums[0] if len(disk_sums) == 1 else None
             _store().mark_done(backup_id, total_size, checksum)
@@ -498,9 +498,9 @@ def _backup_images(src_dir):
     manifest = backup_integrity.read_manifest(src_dir)
     if manifest:
         return [
-            (e["cible"], Path(src_dir) / Path(str(e["nom"])).name)
-            for e in manifest.get("fichiers") or []
-            if e.get("role") == "disque" and e.get("cible")
+            (e["target"], Path(src_dir) / Path(str(e["name"])).name)
+            for e in manifest.get("files") or []
+            if e.get("role") == "disk" and e.get("target")
         ]
     return [(p.stem, p) for p in sorted(Path(src_dir).glob("*.qcow2"))]
 
@@ -550,7 +550,7 @@ def _check_before_restore(row, task_id, username):
     """Verify the backup NOW, whatever an earlier verification said: a restore replaces good data, so it must not
     start from a backup whose files changed or are damaged. The result is recorded like a manual verification."""
     status, problems, _count = backup_integrity.verify(
-        row["chemin"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, int(pct * 0.2))
+        row["path"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, int(pct * 0.2))
     )
     _store().set_verification(row["id"], status, _now().isoformat(), "; ".join(problems) or None)
     if status != backup_integrity.VERIFIED:
@@ -651,7 +651,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
     row = _store().get(backup_id)
     if not row:
         raise RuntimeError("Backup not found")
-    if row["statut"] != "succeeded":
+    if row["status"] != "succeeded":
         raise RuntimeError("This backup is not in a restorable state (failed or in progress)")
     if mode not in ("overwrite", "new"):
         raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
@@ -660,7 +660,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
         claim = vm_locks.claim(target_name or "", "a backup restore")
 
     with claim:
-        src_dir = Path(row["chemin"])
+        src_dir = Path(row["path"])
         conn = open_conn()
         task_id = create_task("restore_backup", target_name, node=None, username=username)
         new_disk_paths = []
@@ -771,18 +771,18 @@ def verify_backup(backup_id, username="system", task_id=None):
 
 def _verify_backup(backup_id, username="system", task_id=None):
     """Check one backup (checksums of every file, qemu-img check of the images) and record the result. Returns
-    {"verification", "problemes"}. A corrupted backup is audited and notified."""
+    {"verification", "problems"}. A corrupted backup is audited and notified."""
     row = _store().get(backup_id)
     if not row:
         raise RuntimeError("Backup not found")
-    if row["statut"] != "succeeded":
+    if row["status"] != "succeeded":
         raise RuntimeError("Only a finished backup can be verified")
     own_task = task_id is None
     if own_task:
         task_id = create_task("verify_backup", row["vm_name"], username=username)
     try:
         status, problems, _count = backup_integrity.verify(
-            row["chemin"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, pct)
+            row["path"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, pct)
         )
     except Exception as e:
         if own_task:
@@ -799,7 +799,7 @@ def _verify_backup(backup_id, username="system", task_id=None):
         notify("verify_backup", f"Corrupted backup of {row['vm_name']}", detail, result="failed")
     else:
         log_action(username, "verify_backup", row["vm_name"], "success", f"backup #{backup_id}")
-    return {"verification": status, "problemes": problems}
+    return {"verification": status, "problems": problems}
 
 
 def _verify_due_backup():
@@ -822,7 +822,7 @@ def _apply_retention(vm_name, policy):
 
     def kept(selection):
         return backup_retention.kept(
-            [(r["id"], r["cree_le"]) for r in selection],
+            [(r["id"], r["created_at"]) for r in selection],
             policy["last"],
             policy["daily"],
             policy["weekly"],
@@ -832,26 +832,26 @@ def _apply_retention(vm_name, policy):
     # A backup found corrupted never takes the place of a good one: the policy picks among the good ones, so newer
     # corrupted copies cannot push the last good one out. Corrupted ones are kept only where the policy over all of
     # them would keep them (to be looked at), and removed beyond.
-    corrupted = {r["id"] for r in rows if r["verification"] == "corrompu"}
+    corrupted = {r["id"] for r in rows if r["verification"] == "corrupted"}
     keep = kept([r for r in rows if r["id"] not in corrupted]) | (kept(rows) & corrupted)
     for row in rows:
         if row["id"] not in keep:
             if backup_use.holder(row["id"]):
                 continue  # being restored or read: the next run of the schedule removes it
-            shutil.rmtree(row["chemin"], ignore_errors=True)
+            shutil.rmtree(row["path"], ignore_errors=True)
             _store().delete(row["id"])
 
 
-def _next_run(frequence, heure, from_time=None):
+def _next_run(frequency, time, from_time=None):
     base = from_time or _now()
-    hh, mm = (int(x) for x in heure.split(":"))
+    hh, mm = (int(x) for x in time.split(":"))
     candidate = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
     if candidate <= base:
         candidate += timedelta(days=1)
-    if frequence == "weekly":
+    if frequency == "weekly":
         while candidate.weekday() != 0:  # execute le lundi
             candidate += timedelta(days=1)
-    elif frequence == "monthly":
+    elif frequency == "monthly":
         candidate = candidate.replace(day=1)
         if candidate <= base:
             month = candidate.month % 12 + 1
@@ -877,12 +877,12 @@ def run_due_schedules(now):
         try:
             # Retention is now applied INSIDE run_backup() itself (see its body), which also
             # covers the manual backups of this VM, not only those of the scheduler.
-            run_backup(job["vm_name"], job["cible_dir"], job_id=job["id"], username="scheduler")
+            run_backup(job["vm_name"], job["target_dir"], job_id=job["id"], username="scheduler")
         except vm_locks.VmBusy:
             continue  # another operation runs on this VM: the job stays due and is retried next tick
         except Exception as e:
-            log_action("scheduler", "backup_job_echec", job["vm_name"], "failed", str(e))
-        next_run = _next_run(job["frequence"], job["heure"], now)
+            log_action("scheduler", "backup_job_failed", job["vm_name"], "failed", str(e))
+        next_run = _next_run(job["frequency"], job["time"], now)
         _store().record_schedule_run(job["id"], now.isoformat(), next_run.isoformat())
 
 

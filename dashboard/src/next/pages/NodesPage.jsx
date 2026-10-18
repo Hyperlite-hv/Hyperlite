@@ -100,9 +100,9 @@ function ConfigCopyCard({ nodes }) {
     setBusy(true);
     try {
       const r = await copyConfigNow(); setCopies(r.copies);
-      const failed = r.resultats.filter((x) => x.statut !== "ok");
-      if (failed.length) pushToast({ kind: "error", title: t("cfc.failed"), message: failed.map((x) => `${x.node}: ${x.erreur}`).join(" · ") });
-      else pushToast({ kind: "success", title: t("cfc.done"), message: t("cfc.doneMsg", { n: r.resultats.length }) });
+      const failed = r.results.filter((x) => x.status !== "ok");
+      if (failed.length) pushToast({ kind: "error", title: t("cfc.failed"), message: failed.map((x) => `${x.node}: ${x.error}`).join(" · ") });
+      else pushToast({ kind: "success", title: t("cfc.done"), message: t("cfc.doneMsg", { n: r.results.length }) });
     } catch (e) { pushToast({ kind: "error", title: t("cfc.failed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   return (
@@ -116,10 +116,10 @@ function ConfigCopyCard({ nodes }) {
               const c = byNode[n.id];
               return (
                 <tr key={n.id}>
-                  <th scope="row" className="nx-mono">{n.nom}</th>
-                  <td>{!c ? <span className="nx-muted">{t("cfc.never")}</span> : c.statut === "ok"
-                    ? <><Chip tone="success">{t("cfc.ok")}</Chip> <span className="nx-mono nx-muted">{formatDateTime(c.copie_le, lang)}</span></>
-                    : <><Chip tone="danger">{t("cfc.ko")}</Chip> <span className="nx-f-h is-error">{c.erreur}</span></>}</td>
+                  <th scope="row" className="nx-mono">{n.name}</th>
+                  <td>{!c ? <span className="nx-muted">{t("cfc.never")}</span> : c.status === "ok"
+                    ? <><Chip tone="success">{t("cfc.ok")}</Chip> <span className="nx-mono nx-muted">{formatDateTime(c.copied_at, lang)}</span></>
+                    : <><Chip tone="danger">{t("cfc.ko")}</Chip> <span className="nx-f-h is-error">{c.error}</span></>}</td>
                 </tr>
               );
             })}
@@ -142,8 +142,8 @@ export default function NodesPage() {
   useIntent("node", () => caps.admin && setAdding(true));
 
   async function remove(n) {
-    if (!(await confirmAction({ title: t("nd.removeTitle", { name: n.nom }), message: t("nd.removeMsg"), confirmLabel: t("nd.remove"), danger: true }))) return;
-    try { await deleteRemoteNode(n.nom); pushToast({ kind: "success", title: t("nd.removed"), message: n.nom }); await refreshInventory(); }
+    if (!(await confirmAction({ title: t("nd.removeTitle", { name: n.name }), message: t("nd.removeMsg"), confirmLabel: t("nd.remove"), danger: true }))) return;
+    try { await deleteRemoteNode(n.name); pushToast({ kind: "success", title: t("nd.removed"), message: n.name }); await refreshInventory(); }
     catch (err) { pushToast({ kind: "error", title: t("action.failed", { action: t("nd.remove") }), message: errorMessage(err) }); }
   }
 
@@ -164,29 +164,29 @@ export default function NodesPage() {
               {nodes.map((n) => {
                 const local = n.id === "local";
                 const nodeVms = vms.filter((v) => v.node === n.id);
-                const run = nodeVms.length ? nodeVms.filter((v) => v.etat === "actif").length : n.vms_actives ?? 0;
-                const total = nodeVms.length || (n.vms_actives ?? 0) + (n.vms_arretees ?? 0);
-                const lib = formatVersionInt(n.version_libvirt);
+                const run = nodeVms.length ? nodeVms.filter((v) => v.state === "active").length : n.vms_actives ?? 0;
+                const total = nodeVms.length || (n.vms_actives ?? 0) + (n.vms_stopped ?? 0);
+                const lib = formatVersionInt(n.libvirt_version);
                 return (
                   <tr key={n.id} className={ctx.is("node", n.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("node", n)}>
-                    <td><StatusIndicator kind="node" wire={n.etat} /></td>
+                    <td><StatusIndicator kind="node" wire={n.state} /></td>
                     <th scope="row" className="nx-nm">
-                      <button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.nom}</button>
+                      <button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.name}</button>
                       <small>{[n.cpu_coeurs && t("nd.cores", { n: n.cpu_coeurs }), n.memoire_totale_mo && formatSizeMb(n.memoire_totale_mo, lang)].filter(Boolean).join(" · ") || (local ? t("nd.thisHost") : "")}</small>
                     </th>
                     <td>
                       <Chip tone={local ? "accent" : undefined}>{local ? t("node.roleLocal") : t("node.roleMember")}</Chip>{" "}
                       <span className="nx-mono nx-muted">{local ? t("nd.localConn") : `${n.ssh_user || "root"}@${n.ip}:${n.ssh_port || 22}`}</span>
                     </td>
-                    <td><Meter value={n.cpu_utilisation} label={`${t("ns.cpu")} ${n.nom}`} /></td>
-                    <td><Meter value={pct(n.memoire_utilisee_mo, n.memoire_totale_mo)} label={`${t("ns.memory")} ${n.nom}`} /></td>
-                    <td><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${t("ns.storage")} ${n.nom}`} /></td>
+                    <td><Meter value={n.cpu_utilisation} label={`${t("ns.cpu")} ${n.name}`} /></td>
+                    <td><Meter value={pct(n.used_memory_mb, n.memoire_totale_mo)} label={`${t("ns.memory")} ${n.name}`} /></td>
+                    <td><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${t("ns.storage")} ${n.name}`} /></td>
                     <td className="nx-num nx-mono">{run} / {total}</td>
                     <td className="nx-mono">{lib ? `libvirt ${lib}` : <span className="nx-muted">—</span>}</td>
                     <td className="nx-mono nx-muted">{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
                     <td><div className="nx-ra">
-                      {caps.admin && !local && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.remove_node_x", { v: n.nom })} title={t("nd.remove")} onClick={() => remove(n)}><Trash2 size={15} aria-hidden="true" /></button>}
-                      <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("nd.open", { name: n.nom })} onClick={() => navigateTo("node", n.id, "summary")}><ChevronRight size={15} aria-hidden="true" /></button>
+                      {caps.admin && !local && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.remove_node_x", { v: n.name })} title={t("nd.remove")} onClick={() => remove(n)}><Trash2 size={15} aria-hidden="true" /></button>}
+                      <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("nd.open", { name: n.name })} onClick={() => navigateTo("node", n.id, "summary")}><ChevronRight size={15} aria-hidden="true" /></button>
                     </div></td>
                   </tr>
                 );

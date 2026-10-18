@@ -60,7 +60,7 @@ def test_a_chain_of_points_follows_every_write_and_restores_anywhere(vm, tmp_pat
     domain, disk, target = vm
     qemu_io(disk, "write -P 0x11 0 64k")
     domain.create()
-    assert replication.replicate(VM, str(target)) == "complet"
+    assert replication.replicate(VM, str(target)) == "full"
     domain.destroy()
     qemu_io(disk, "write -P 0x22 1048576 64k")  # written while stopped: the bitmap in the qcow2 tracks it
     domain.create()
@@ -68,7 +68,7 @@ def test_a_chain_of_points_follows_every_write_and_restores_anywhere(vm, tmp_pat
     domain.destroy()
     assert replication.replicate(VM, str(target)) == "incremental"  # it ran since: started paused for its copy
     assert not domain.isActive()  # and stopped again, the guest never ran
-    assert replication.replicate(VM, str(target)) == "inchange"
+    assert replication.replicate(VM, str(target)) == "unchanged"
     domain.create()
     domain.destroy()
     qemu_io(disk, "write -P 0x33 2097152 64k")

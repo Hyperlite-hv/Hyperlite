@@ -158,19 +158,19 @@ def eject_vm_cdrom(
             raise HTTPException(status_code=500, detail=f"Eject failed: {exc}") from exc
 
         log_action(user["username"], "eject_vm_cdrom", name, "success")
-        return {"vm": name, "ejecte": True}
+        return {"vm": name, "ejected": True}
     finally:
         conn.close()
 
 
 def _stopped_metrics():
     return {
-        "etat": "arrete",
+        "state": "stopped",
         "cpu_pourcent": None,
-        "memoire_allouee_mo": None,
-        "memoire_utilisee_mo": None,
-        "disques": [],
-        "reseaux": [],
+        "allocated_memory_mb": None,
+        "used_memory_mb": None,
+        "disks": [],
+        "networks": [],
     }
 
 
@@ -241,37 +241,37 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
 
         nvcpu = info[3] or 1
         cpu_pourcent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
-        memoire_allouee_mo = round(info[2] / 1024, 1)
+        allocated_memory_mb = round(info[2] / 1024, 1)
 
-        memoire_utilisee_mo = None
+        used_memory_mb = None
         try:
             mem_stats = domain.memoryStats()
             if "available" in mem_stats and "unused" in mem_stats:
-                memoire_utilisee_mo = round((mem_stats["available"] - mem_stats["unused"]) / 1024, 1)
+                used_memory_mb = round((mem_stats["available"] - mem_stats["unused"]) / 1024, 1)
             elif "rss" in mem_stats:
-                memoire_utilisee_mo = round(mem_stats["rss"] / 1024, 1)
+                used_memory_mb = round(mem_stats["rss"] / 1024, 1)
         except libvirt.libvirtError:
             logger.debug("Ignored exception in get_vm_metrics()", exc_info=True)
 
-        disques = []
+        disks = []
         for dev in disk_devs:
             if dev in disk1 and dev in disk2:
                 rd_rate = max(0, (disk2[dev][1] - disk1[dev][1]) / elapsed)
                 wr_rate = max(0, (disk2[dev][3] - disk1[dev][3]) / elapsed)
-                disques.append(
+                disks.append(
                     {
-                        "cible": dev,
+                        "target": dev,
                         "lecture_ko_s": round(rd_rate / 1024, 1),
-                        "ecriture_ko_s": round(wr_rate / 1024, 1),
+                        "write_kb_s": round(wr_rate / 1024, 1),
                     }
                 )
 
-        reseaux = []
+        networks = []
         for dev in iface_devs:
             if dev in net1 and dev in net2:
                 rx_rate = max(0, (net2[dev][0] - net1[dev][0]) / elapsed)
                 tx_rate = max(0, (net2[dev][4] - net1[dev][4]) / elapsed)
-                reseaux.append(
+                networks.append(
                     {
                         "interface": dev,
                         "reception_ko_s": round(rx_rate / 1024, 1),
@@ -281,12 +281,12 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
 
         log_action(user["username"], "get_vm_metrics", name, "success")
         return {
-            "etat": "actif",
+            "state": "active",
             "cpu_pourcent": cpu_pourcent,
-            "memoire_allouee_mo": memoire_allouee_mo,
-            "memoire_utilisee_mo": memoire_utilisee_mo,
-            "disques": disques,
-            "reseaux": reseaux,
+            "allocated_memory_mb": allocated_memory_mb,
+            "used_memory_mb": used_memory_mb,
+            "disks": disks,
+            "networks": networks,
         }
     finally:
         conn.close()
@@ -322,7 +322,7 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
         if task_id:
             finish_task(task_id, "failed", reason)
         log_action(user["username"], "auto_install", name, "failed", reason)
-        return {"provisioning": False, "failed": True, "erreur": reason}
+        return {"provisioning": False, "failed": True, "error": reason}
 
     conn = open_conn()
     try:
@@ -338,11 +338,11 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
             return _fail(f"Timeout: SSH still unreachable after {elapsed_s // 60} minutes")
 
         if not domain.isActive():
-            return {"provisioning": True, "phase": "arretee", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
+            return {"provisioning": True, "phase": "stopped", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
 
         ip = _get_ip(domain)
         if not ip:
-            return {"provisioning": True, "phase": "demarrage", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
+            return {"provisioning": True, "phase": "boot", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
 
         username = get_vm_ssh_user(name)
         key_path = get_automation_private_key_path()

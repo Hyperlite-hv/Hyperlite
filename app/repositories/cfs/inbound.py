@@ -58,7 +58,7 @@ def _problem(text):
 
 
 def _applied_version(db):
-    row = db.execute("SELECT valeur FROM app_settings WHERE cle = ?", (APPLIED,)).fetchone()
+    row = db.execute("SELECT value FROM app_settings WHERE key = ?", (APPLIED,)).fetchone()
     return int(row[0]) if row and str(row[0]).isdigit() else 0
 
 
@@ -162,7 +162,7 @@ def apply():
                     _upsert(db, table, _fill(table, row))
                 written += 1
             db.execute(
-                "INSERT INTO app_settings (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (APPLIED, str(status.version)),
             )
             db.execute("DELETE FROM cfs_outbox WHERE id > ?", (top,))  # what was just written came from the tree
@@ -204,7 +204,7 @@ def mark_applied():
         return
     with shadow._db() as db:
         db.execute(
-            "INSERT INTO app_settings (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (APPLIED, str(version)),
         )
         db.execute("DELETE FROM cfs_outbox WHERE tbl = 'app_settings'")
@@ -218,7 +218,7 @@ def mark_applied():
 
 def report():
     with state.lock:
-        return {"appliques": state.applied, "derniere_application": state.last_at, "probleme": state.problem}
+        return {"appliques": state.applied, "last_applied": state.last_at, "problem": state.problem}
 
 
 def _loop():

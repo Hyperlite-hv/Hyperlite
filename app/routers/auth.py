@@ -149,7 +149,7 @@ class UserUpdate(BaseModel):
 
 
 class Login2FA(BaseModel):
-    pre_auth_token: str
+    preauth_token: str
     code: str
 
 
@@ -163,11 +163,11 @@ class TwoFADisable(BaseModel):
 
 
 class LoginWebAuthnOptions(BaseModel):
-    pre_auth_token: str
+    preauth_token: str
 
 
 class LoginWebAuthn(BaseModel):
-    pre_auth_token: str
+    preauth_token: str
     credential: dict
 
 
@@ -247,7 +247,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
             log_action(user["username"], "login", "auth", "success", "Weak password: a change is required")
         user["must_change_password"] = 1
 
-    # Correct password but a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
+    # Correct password purpose a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
     # intermediate token (see create_preauth_token) that the frontend exchanges for
     # the real token through /auth/login/2fa after the TOTP code. The account's
     # failures are cleared only once the code is right too: clearing them here would
@@ -258,7 +258,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     if methods:
         pre_auth = create_preauth_token(user["username"], remember)
         log_action(user["username"], "login", "auth", "success", "Password validated, second factor required")
-        return {"require_2fa": True, "pre_auth_token": pre_auth, "methods": methods}
+        return {"require_2fa": True, "preauth_token": pre_auth, "methods": methods}
 
     _login_clear_failures(user["username"], ip)
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=remember)
@@ -292,7 +292,7 @@ def _refuse_if_locked(request, username, action):
 @router.post("/login/webauthn/options")
 def login_webauthn_options(request: Request, payload: LoginWebAuthnOptions):
     """Second step with a security key: the challenge for this sign-in, after a valid password."""
-    username, _claims = _preauth_username(payload.pre_auth_token)
+    username, _claims = _preauth_username(payload.preauth_token)
     _refuse_if_locked(request, username, "login")
     try:
         return webauthn_keys.authentication_options(username, request.headers.get("origin"))
@@ -302,7 +302,7 @@ def login_webauthn_options(request: Request, payload: LoginWebAuthnOptions):
 
 @router.post("/login/webauthn")
 def login_webauthn(request: Request, payload: LoginWebAuthn):
-    username, claims = _preauth_username(payload.pre_auth_token)
+    username, claims = _preauth_username(payload.preauth_token)
     ip = _refuse_if_locked(request, username, "login")
     user = get_user(username)
     if not user:
@@ -339,7 +339,7 @@ def login_2fa(request: Request, payload: Login2FA):
             detail=f"Too many failed attempts from this address, try again in {LOGIN_IP_WINDOW_S // 60} minutes",
         )
     try:
-        claims = jwt.decode(payload.pre_auth_token, SECRET_KEY, algorithms=[ALGORITHM])
+        claims = jwt.decode(payload.preauth_token, SECRET_KEY, algorithms=[ALGORITHM])
     except PyJWTError:
         raise HTTPException(status_code=401, detail="Login session expired, sign in again") from None
     username = claims.get("sub")
@@ -383,8 +383,8 @@ def me(user: dict = Depends(get_current_user_pending_ok)):
 
 # --- Self-service 2FA: each user manages their own 2FA, no need to be an admin
 # (require_role). Two-step flow: /2fa/setup generates a secret and ALREADY stores
-# it in the database, but totp_enabled stays 0. Until /2fa/confirm has verified a
-# real code, 2FA is NOT active, so a secret that was generated but never
+# it in the database, purpose totp_enabled stays 0. Until /2fa/confirm has verified a
+# real code, 2FA is NOT active, so a secret that was generated purpose never
 # confirmed (e.g. the user closes the tab while scanning the QR code) blocks no
 # one at the next login.
 @router.post("/2fa/setup")
@@ -616,7 +616,7 @@ def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))
     if problem:
         raise HTTPException(status_code=422, detail=problem)
     if payload.role not in ("admin", "viewer"):
-        raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
+        raise HTTPException(status_code=422, detail="Invalid role (admin or viewer)")
     try:
         account_service.create(payload.username, hash_password(payload.password), payload.role)
     except account_service.UserExists as e:
@@ -649,7 +649,7 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
             raise HTTPException(status_code=422, detail=problem)
     if payload.role is not None:
         if payload.role not in ("admin", "viewer"):
-            raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
+            raise HTTPException(status_code=422, detail="Invalid role (admin or viewer)")
         if existing["role"] == "admin" and payload.role != "admin" and username == user["username"]:
             raise HTTPException(status_code=400, detail="You cannot remove your own admin rights")
     # Role and password in one transaction (set_password), or the role alone.

@@ -31,21 +31,21 @@ def test_on_by_default_at_half_past_three_security_only(apt):
     assert conf.index("#clear Unattended-Upgrade::Origins-Pattern;") < conf.index("Origins-Pattern {")
     assert "OnCalendar=*-*-* 03:30" in host_system.AUTO_TIMERS["apt-daily-upgrade.timer"].read_text()
     assert "OnCalendar=*-*-* 03:00" in host_system.AUTO_TIMERS["apt-daily.timer"].read_text()  # lists first
-    assert host_system.auto_updates()["actif"] is True and host_system.auto_updates()["heure"] == "03:30"
+    assert host_system.auto_updates()["active"] is True and host_system.auto_updates()["time"] == "03:30"
     assert ["systemctl", "daemon-reload"] in runs
     # A node that chose is left alone.
     host_system.set_auto_updates(False, "00:15")
     host_system.ensure_auto_updates_default()
-    assert host_system.auto_updates()["actif"] is False and host_system.auto_updates()["heure"] == "00:15"
+    assert host_system.auto_updates()["active"] is False and host_system.auto_updates()["time"] == "00:15"
     assert "OnCalendar=*-*-* 23:45" in host_system.AUTO_TIMERS["apt-daily.timer"].read_text()  # across midnight
 
 
 def test_the_api(apt, client, auth_headers):
     admin = auth_headers("root")
-    r = client.put("/host/system/auto-updates", json={"actif": True, "heure": "02:10"}, headers=admin)
-    assert r.status_code == 200 and r.json()["heure"] == "02:10"
+    r = client.put("/host/system/auto-updates", json={"active": True, "time": "02:10"}, headers=admin)
+    assert r.status_code == 200 and r.json()["time"] == "02:10"
     assert (
-        client.put("/host/system/auto-updates", json={"actif": True, "heure": "25:00"}, headers=admin).status_code
+        client.put("/host/system/auto-updates", json={"active": True, "time": "25:00"}, headers=admin).status_code
         == 422
     )
     assert client.get("/host/system/auto-updates", headers=auth_headers("eve", role="viewer")).status_code == 403

@@ -13,19 +13,19 @@ from app.repositories.sqlite.export import newest_first
 MAX_LOG_LINES = 500
 RUNNING = ("running", "pending")
 # Columns allowed for sorting: an allowlist, the SQL text never contains request data.
-SORT_COLUMNS = {c: c for c in ("cree_le", "debut_le", "fin_le", "statut", "type", "cible", "username")}
+SORT_COLUMNS = {c: c for c in ("created_at", "started_at", "finished_at", "status", "type", "target", "username")}
 EXPORT_COLUMNS = (
     "id",
-    "cree_le",
+    "created_at",
     "type",
-    "cible",
+    "target",
     "node",
     "username",
-    "statut",
-    "progres",
-    "debut_le",
-    "fin_le",
-    "erreur",
+    "status",
+    "progress",
+    "started_at",
+    "finished_at",
+    "error",
 )
 
 
@@ -37,40 +37,38 @@ def _log_in(conn, task_id, message, at):
 
 
 def _clauses(filters):
-    """filters: statut, type, username, node (exact), cible (part of a name), depuis (cree_le >=), objet (exact
-    target), famille ("vm" or "container")."""
+    """filters: status, type, username, node (exact), target (part of a name), since (created_at >=), object (exact
+    target), family ("vm" or "container")."""
     from app.core import self_node
 
     clauses, params = [], []
-    for column in ("statut", "type", "username", "node"):
+    for column in ("status", "type", "username", "node"):
         if filters.get(column):
             clauses.append(f"{column} = ?")
             # The tasks record this node under its name (app/core/tasks.py): "local" asks for it.
             params.append(self_node.to_db(filters[column]) if column == "node" else filters[column])
-    if filters.get("cible"):
-        clauses.append("cible LIKE ?")
-        params.append(f"%{filters['cible']}%")
-    if filters.get("depuis"):
-        clauses.append("cree_le >= ?")
-        params.append(filters["depuis"])
-    if filters.get("objet"):
-        clauses.append("cible = ?")
-        params.append(filters["objet"])
-    if filters.get("famille"):
+    if filters.get("target"):
+        clauses.append("target LIKE ?")
+        params.append(f"%{filters['target']}%")
+    if filters.get("since"):
+        clauses.append("created_at >= ?")
+        params.append(filters["since"])
+    if filters.get("object"):
+        clauses.append("target = ?")
+        params.append(filters["object"])
+    if filters.get("family"):
         # Container task types all name the container (create_container, clone_container, backup_container...).
-        clauses.append(
-            "type LIKE '%container%'" if filters["famille"] == "container" else "type NOT LIKE '%container%'"
-        )
+        clauses.append("type LIKE '%container%'" if filters["family"] == "container" else "type NOT LIKE '%container%'")
     return clauses, params
 
 
 class SqliteTaskStore:
-    def create(self, task_id, type_, cible, node, username, now):
+    def create(self, task_id, type_, target, node, username, now):
         with get_conn() as conn:
             conn.execute(
-                "INSERT INTO tasks (id, type, cible, node, username, statut, progres, cree_le, debut_le) "
+                "INSERT INTO tasks (id, type, target, node, username, status, progress, created_at, started_at) "
                 "VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?)",
-                (task_id, type_, cible, node, username, now, now),
+                (task_id, type_, target, node, username, now, now),
             )
             _log_in(conn, task_id, f"Started by {username or 'the system'}", now)
             conn.commit()
@@ -82,13 +80,13 @@ class SqliteTaskStore:
 
     def status(self, task_id):
         with get_conn() as conn:
-            row = conn.execute("SELECT statut FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        return row["statut"] if row else None
+            row = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return row["status"] if row else None
 
-    def list(self, filters, sort="cree_le", order="desc", limit=200):
+    def list(self, filters, sort="created_at", order="desc", limit=200):
         clauses, params = _clauses(filters)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        sort = SORT_COLUMNS.get(sort, "cree_le")
+        sort = SORT_COLUMNS.get(sort, "created_at")
         order_sql = "ASC" if str(order).lower() == "asc" else "DESC"
         with get_conn() as conn:
             rows = conn.execute(
@@ -101,21 +99,21 @@ class SqliteTaskStore:
         clauses, params = _clauses(filters)
         return newest_first("tasks", EXPORT_COLUMNS, clauses, params)
 
-    def update_progress(self, task_id, progres):
+    def update_progress(self, task_id, progress):
         with get_conn() as conn:
-            conn.execute("UPDATE tasks SET progres = ? WHERE id = ?", (progres, task_id))
+            conn.execute("UPDATE tasks SET progress = ? WHERE id = ?", (progress, task_id))
             conn.commit()
 
-    def finish(self, task_id, statut, error_message, cancelled_by, now):
+    def finish(self, task_id, status, error_message, cancelled_by, now):
         with get_conn() as conn:
             conn.execute(
-                "UPDATE tasks SET statut = ?, progres = 100, fin_le = ?, erreur = ?, annule_par = ? WHERE id = ?",
-                (statut, now, error_message, cancelled_by, task_id),
+                "UPDATE tasks SET status = ?, progress = 100, finished_at = ?, error = ?, cancelled_by = ? WHERE id = ?",
+                (status, now, error_message, cancelled_by, task_id),
             )
             _log_in(
                 conn,
                 task_id,
-                ("Failed: " + error_message if error_message else "Failed") if statut == "failed" else "Finished",
+                ("Failed: " + error_message if error_message else "Failed") if status == "failed" else "Finished",
                 now,
             )
             conn.commit()
@@ -126,7 +124,7 @@ class SqliteTaskStore:
         with get_conn() as conn:
             _log_in(conn, task_id, message, now)
             conn.execute(
-                "UPDATE tasks SET statut = 'failed', progres = 100, fin_le = ?, erreur = ?, annule_par = ? WHERE id = ?",
+                "UPDATE tasks SET status = 'failed', progress = 100, finished_at = ?, error = ?, cancelled_by = ? WHERE id = ?",
                 (now, message, username, task_id),
             )
             conn.commit()
@@ -134,11 +132,11 @@ class SqliteTaskStore:
     def close_interrupted(self, now):
         reason = "Interrupted: the Hyperlite service restarted while it ran"
         with get_conn() as conn:
-            rows = conn.execute("SELECT id FROM tasks WHERE statut IN ('running', 'pending')").fetchall()
+            rows = conn.execute("SELECT id FROM tasks WHERE status IN ('running', 'pending')").fetchall()
             for row in rows:
                 _log_in(conn, row["id"], reason, now)
             conn.execute(
-                "UPDATE tasks SET statut = 'failed', progres = 100, fin_le = ?, erreur = ? WHERE statut IN ('running', 'pending')",
+                "UPDATE tasks SET status = 'failed', progress = 100, finished_at = ?, error = ? WHERE status IN ('running', 'pending')",
                 (now, reason),
             )
             conn.commit()
@@ -165,20 +163,20 @@ class SqliteTaskStore:
         """The username behind the newest running task of this type created after `since`, or None."""
         with get_conn() as conn:
             row = conn.execute(
-                "SELECT username FROM tasks WHERE type = ? AND statut = 'running' AND cree_le > ? "
-                "ORDER BY cree_le DESC LIMIT 1",
+                "SELECT username FROM tasks WHERE type = ? AND status = 'running' AND created_at > ? "
+                "ORDER BY created_at DESC LIMIT 1",
                 (type_, since),
             ).fetchone()
         return (row["username"] or "") if row else None
 
     def stats(self):
         with get_conn() as conn:
-            running = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'running'").fetchone()["n"]
+            running = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE status = 'running'").fetchone()["n"]
             total = conn.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"]
-            failed = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'failed'").fetchone()["n"]
+            failed = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE status = 'failed'").fetchone()["n"]
             avg = conn.execute(
-                "SELECT AVG((julianday(fin_le) - julianday(debut_le)) * 86400) AS avg_s "
-                "FROM tasks WHERE statut = 'succeeded' AND fin_le IS NOT NULL"
+                "SELECT AVG((julianday(finished_at) - julianday(started_at)) * 86400) AS avg_s "
+                "FROM tasks WHERE status = 'succeeded' AND finished_at IS NOT NULL"
             ).fetchone()["avg_s"]
         return {
             "running": running,
@@ -195,7 +193,7 @@ class SqliteTaskRepository:
     async def get(self, task_id):
         return await asyncio.to_thread(self.sync.get, task_id)
 
-    async def list(self, filters, sort="cree_le", order="desc", limit=200):
+    async def list(self, filters, sort="created_at", order="desc", limit=200):
         return await asyncio.to_thread(self.sync.list, filters, sort, order, limit)
 
     def export_rows(self, filters):

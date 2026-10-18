@@ -12,13 +12,13 @@ router = APIRouter(prefix="/replication", tags=["backups"])
 
 
 class ReplicationJob(BaseModel):
-    nom: str = Field(max_length=64)
+    name: str = Field(max_length=64)
     selection: str  # "all" | "tag" | "pool"
-    valeur: str | None = Field(None, max_length=128)
-    exclues: list[str] = Field(default_factory=list, max_length=2000)
-    cible_dir: str = Field(max_length=4096)
-    intervalle_minutes: int = replication.DEFAULT_INTERVAL
-    actif: bool = True
+    value: str | None = Field(None, max_length=128)
+    excluded: list[str] = Field(default_factory=list, max_length=2000)
+    target_dir: str = Field(max_length=4096)
+    interval_minutes: int = replication.DEFAULT_INTERVAL
+    active: bool = True
 
 
 @router.get("/jobs")
@@ -32,7 +32,7 @@ def create_job(payload: ReplicationJob, user: dict = Depends(require_role("admin
         job = replication.save_job(payload.model_dump())
     except replication.ReplicationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
-    log_action(user["username"], "create_replication_job", job["nom"], "success", job["cible_dir"])
+    log_action(user["username"], "create_replication_job", job["name"], "success", job["target_dir"])
     return job
 
 
@@ -44,7 +44,7 @@ def update_job(job_id: int, payload: ReplicationJob, user: dict = Depends(requir
         raise HTTPException(status_code=422, detail=str(e)) from None
     if job is None:
         raise HTTPException(status_code=404, detail="Replication job not found")
-    log_action(user["username"], "update_replication_job", job["nom"], "success", job["cible_dir"])
+    log_action(user["username"], "update_replication_job", job["name"], "success", job["target_dir"])
     return job
 
 
@@ -53,7 +53,7 @@ def delete_job(job_id: int, user: dict = Depends(require_role("admin"))):
     if not replication.delete_job(job_id):
         raise HTTPException(status_code=404, detail="Replication job not found")
     log_action(user["username"], "delete_replication_job", str(job_id), "success")
-    return {"supprime": True}
+    return {"deleted": True}
 
 
 @router.post("/jobs/{job_id}/run", status_code=202)
@@ -64,8 +64,8 @@ def run_job(job_id: int, user: dict = Depends(require_role("admin"))):
     if job["running"]:
         raise HTTPException(status_code=409, detail="This job is already running")
     replication.start_job(job, user["username"])
-    log_action(user["username"], "run_replication_job", job["nom"], "success")
-    return {"message": f"Replication '{job['nom']}' started"}
+    log_action(user["username"], "run_replication_job", job["name"], "success")
+    return {"message": f"Replication '{job['name']}' started"}
 
 
 @router.get("/status")

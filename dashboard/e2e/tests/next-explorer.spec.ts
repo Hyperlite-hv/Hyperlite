@@ -24,7 +24,7 @@ async function nextLogin(page: Page, { theme = "dark", lang = "en" } = {}) {
 // "templates" is the historical id of the Library page (ISO images and templates).
 const DATACENTER_PAGES: Record<string, string> = {
   summary: "Home", activity: "Activity", storage: "Storage", templates: "ISO images and templates", library: "ISO images and templates",
-  backups: "Backups", exports: "Exports", permissions: "Users and access", reseau: "Network", automation: "Automation", containers: "Containers",
+  backups: "Backups", exports: "Exports", permissions: "Users and access", network: "Network", automation: "Automation", containers: "Containers",
   nodes: "Nodes", ha: "High availability", compat: "Compatibility", notifications: "Notifications", sso: "Users and access",
   journal: "Activity", vms: "Virtual machines", snapshots: "Snapshots", metrics: "Metrics",
 };

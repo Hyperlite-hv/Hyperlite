@@ -106,7 +106,7 @@ def test_smtp_password_is_encrypted_at_rest(database):
 
 
 def test_an_audited_event_reads_as_a_sentence(database, monkeypatch):
-    """It was the raw action key and the stored result: "create_vm on 'web': succes"."""
+    """It was the raw action key and the stored result: "create_vm on 'web': success"."""
     from app.core import audit
     from app.core.notifications import notify as audit_notify
 

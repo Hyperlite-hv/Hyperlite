@@ -86,22 +86,22 @@ def test_the_list_reads_each_xml_once_and_the_leases_once(database, fake_agent):
     set_vm_ssh_user("web", "antho")
     set_vm_os_label("old", "Debian 13")
     conn = make_conn()
-    by_name = {v["nom"]: v for v in _shared._domain_summaries(conn)}
+    by_name = {v["name"]: v for v in _shared._domain_summaries(conn)}
 
     assert [d.xml_reads for d in conn.domains] == [1, 1, 1]
     assert conn.lease_reads == 1
     web, db, old = by_name["web"], by_name["db"], by_name["old"]
-    assert web["ip"] == "192.0.2.10" and web["agent_invite"] == "inactif" and web["utilisateur_ssh"] == "antho"
-    assert web["vcpu"] == 2 and web["memoire_mo"] == 2048.0 and web["firmware"] == "uefi_secure"
-    assert db["ip"] == "198.51.100.7" and db["agent_invite"] == "actif"
-    assert old["etat"] == "arrete" and old["ip"] is None and old["agent_invite"] is None and old["id"] is None
-    assert old["os"] == "Debian 13" and old["stockage_zfs"] is True and old["vcpu"] == 1
+    assert web["ip"] == "192.0.2.10" and web["agent_invite"] == "inactive" and web["ssh_user"] == "antho"
+    assert web["vcpu"] == 2 and web["memory_mb"] == 2048.0 and web["firmware"] == "uefi_secure"
+    assert db["ip"] == "198.51.100.7" and db["agent_invite"] == "active"
+    assert old["state"] == "stopped" and old["ip"] is None and old["agent_invite"] is None and old["id"] is None
+    assert old["os"] == "Debian 13" and old["zfs_storage"] is True and old["vcpu"] == 1
 
 
 def test_one_vm_gets_the_same_summary_as_in_the_list(database, monkeypatch, fake_agent):
     monkeypatch.setattr(_shared, "get_vm_uptime_s", lambda name: 42)
     conn = make_conn()
-    listed = {v["nom"]: v for v in _shared._domain_summaries(conn)}
+    listed = {v["name"]: v for v in _shared._domain_summaries(conn)}
     for domain in conn.domains:
         assert _shared._domain_summary(domain) == listed[domain.name()]
 
@@ -113,4 +113,4 @@ def test_a_vm_undefined_while_listing_is_left_out(database):
         raise libvirt.libvirtError("Domain not found")
 
     conn.domains[0].XMLDesc = gone
-    assert [v["nom"] for v in _shared._domain_summaries(conn)] == ["db", "old"]
+    assert [v["name"] for v in _shared._domain_summaries(conn)] == ["db", "old"]

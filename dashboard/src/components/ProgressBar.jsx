@@ -5,12 +5,12 @@
 // (e.g. snapshot creation/restore: verified that libvirt exposes no progress stat
 // for this precise operation), rather than inventing a fake value that would
 // advance arbitrarily. Shows an animated (pulsing) segment instead of a fill.
-export default function ProgressBar({ value, statut = "running", size = "md", indeterminate = false }) {
+export default function ProgressBar({ value, status = "running", size = "md", indeterminate = false }) {
   const pct = Math.max(0, Math.min(100, value ?? 0));
   const height = size === "sm" ? "h-1.5" : "h-2.5";
   const colorClass =
-    statut === "failed" ? "bg-status-error"
-    : statut === "succeeded" ? "bg-status-running"
+    status === "failed" ? "bg-status-error"
+    : status === "succeeded" ? "bg-status-running"
     : "bg-accent-blue";
 
   if (indeterminate) {

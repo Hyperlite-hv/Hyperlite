@@ -222,7 +222,7 @@ def sso_exchange(request: Request):
         return response
     methods = [m for m, on in (("totp", user["totp_enabled"]), ("webauthn", webauthn_keys.has_keys(username))) if on]
     if methods:
-        body = {"require_2fa": True, "pre_auth_token": create_preauth_token(username), "methods": methods}
+        body = {"require_2fa": True, "preauth_token": create_preauth_token(username), "methods": methods}
         log_action(username, "login", "auth", "success", "SSO validated, second factor required")
     else:
         token = create_access_token({"sub": username, "role": user["role"]})

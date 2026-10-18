@@ -147,30 +147,30 @@ export const useInfraStore = create((set, get) => ({
   addTask(task) {
     const full = {
       id: task.id ?? makeTaskId(),
-      statut: "running",
-      progres: 0,
+      status: "running",
+      progress: 0,
       debut: Date.now(),
       fin: null,
-      utilisateur: "admin",
+      user: "admin",
       ...task,
     };
     set((s) => ({ tasks: [full, ...s.tasks] }));
     return full.id;
   },
-  updateTaskProgress(id, progres) {
-    set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, progres } : t)) }));
+  updateTaskProgress(id, progress) {
+    set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, progress } : t)) }));
   },
-  completeTask(id, statut = "succeeded", erreur = null) {
+  completeTask(id, status = "succeeded", error = null) {
     set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === id ? { ...t, statut, progres: 100, fin: Date.now(), erreur } : t)),
+      tasks: s.tasks.map((t) => (t.id === id ? { ...t, status, progress: 100, fin: Date.now(), error } : t)),
     }));
     const task = get().tasks.find((t) => t.id === id);
     if (task) {
       const label = TASK_LABELS[task.type] || task.type;
       get().pushToast({
-        kind: statut === "succeeded" ? "success" : "error",
-        title: statut === "succeeded" ? `${label} finished` : `${label} failed`,
-        message: statut === "succeeded" ? task.cible : (erreur || "An error occurred"),
+        kind: status === "succeeded" ? "success" : "error",
+        title: status === "succeeded" ? `${label} finished` : `${label} failed`,
+        message: status === "succeeded" ? task.target : (error || "An error occurred"),
       });
     }
   },
@@ -184,13 +184,13 @@ export const useInfraStore = create((set, get) => ({
   // that name, and acting on the first match stopped or deleted the wrong machine.
   async runVMAction(key, action, { force = false, forceAfter = null } = {}) {
     const vm = findVm(get().vms, key);
-    if (!vm) throw new Error(`VM '${parseVmKey(key).nom}' not found`);
-    const vmName = vm.nom;
+    if (!vm) throw new Error(`VM '${parseVmKey(key).name}' not found`);
+    const vmName = vm.name;
     const node = vm.node;
     const isThis = (v) => sameVm(v, vm);
     const typeMap = { start: "start_vm", stop: "stop_vm", restart: "restart_vm", delete: "delete_vm" };
     const taskType = typeMap[action];
-    const taskId = get().addTask({ type: taskType, cible: vmName, node });
+    const taskId = get().addTask({ type: taskType, target: vmName, node });
 
     const apiFn = { start: startVM, stop: stopVM, restart: restartVM, delete: deleteVM }[action];
     try {
@@ -217,7 +217,7 @@ export const useInfraStore = create((set, get) => ({
         : await apiFn(vmName, node);
       set((s) => ({
         mutations: s.mutations + 1,
-        vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: result.etat, ip: result.ip } : v))
+        vms: s.vms.map((v) => (isThis(v) ? { ...v, state: result.state, ip: result.ip } : v))
           .filter((v) => !(action === "delete" && isThis(v))),
       }));
       get().completeTask(taskId, "succeeded");
@@ -226,11 +226,11 @@ export const useInfraStore = create((set, get) => ({
       // request): a single deferred recheck is enough to refresh the display without
       // reloading the page, for the common case where the guest finishes shutting down
       // within the following seconds.
-      if (action === "stop" && result.etat === "actif") {
+      if (action === "stop" && result.state === "active") {
         setTimeout(async () => {
           try {
             const fresh = await fetchVM(vmName, node);
-            set((s) => ({ mutations: s.mutations + 1, vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: fresh.etat, ip: fresh.ip } : v)) }));
+            set((s) => ({ mutations: s.mutations + 1, vms: s.vms.map((v) => (isThis(v) ? { ...v, state: fresh.state, ip: fresh.ip } : v)) }));
           } catch { /* the VM may have been deleted in the meantime, no consequence */ }
         }, 4000);
       }
@@ -246,15 +246,15 @@ export const useInfraStore = create((set, get) => ({
   // local VM of the same name being changed.
   async updateVMResources(key, payload) {
     const vm = findVm(get().vms, key);
-    if (!vm) throw new Error(`VM '${parseVmKey(key).nom}' not found`);
+    if (!vm) throw new Error(`VM '${parseVmKey(key).name}' not found`);
     if (isRemoteVm(vm)) throw new Error("Only the VMs of this host can be reconfigured here");
-    const vmName = vm.nom;
-    const taskId = get().addTask({ type: "update_vm", cible: vmName, node: vm.node });
+    const vmName = vm.name;
+    const taskId = get().addTask({ type: "update_vm", target: vmName, node: vm.node });
     try {
       const updated = await updateVM(vmName, payload);
       set((s) => ({
         mutations: s.mutations + 1,
-        vms: s.vms.map((v) => (sameVm(v, vm) ? { ...v, vcpu: updated.vcpu, memoire_mo: updated.memoire_mo } : v)),
+        vms: s.vms.map((v) => (sameVm(v, vm) ? { ...v, vcpu: updated.vcpu, memory_mb: updated.memory_mb } : v)),
       }));
       get().completeTask(taskId, "succeeded");
     } catch (e) {

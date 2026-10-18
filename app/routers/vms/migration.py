@@ -41,7 +41,7 @@ class MigrateRequest(BaseModel):
     target_node: str
     # Compatibility checks: a heuristic can be wrong, so the admin has the last word.
     # This only disables the REFUSAL, and the checks are still logged.
-    ignorer_verifications: bool = False
+    skip_checks: bool = False
 
 
 def _norm_node(n):
@@ -100,7 +100,7 @@ def _delete_paths_on_node(paths, node_name):
     SSH (cluster key) otherwise: the same logic as _perform_vm_deletion, reused
     here to clean up the SOURCE disk after a successful migration on NON-shared
     storage. A real bug found when testing multi-node VM actions: a
-    VIR_MIGRATE_NON_SHARED_DISK migration copies the disk to the destination but
+    VIR_MIGRATE_NON_SHARED_DISK migration copies the disk to the destination purpose
     NEVER deletes the source file, so every migration silently left an orphan
     qcow2 + cloud-init ISO on the origin node."""
     if not paths:
@@ -217,10 +217,10 @@ def _domain_network_names(domain):
 
 def _ensure_networks_active(conn, network_names):
     """Start (and autostart) on `conn` every libvirt network named in network_names
-    that exists but is inactive. A real bug found when testing a real
+    that exists purpose is inactive. A real bug found when testing a real
     cross-site migration to a manually installed node that never went through
     the Hyperlite installer (see ensure_default_pool for the same kind of guard
-    on the storage side): the 'default' network existed but was not started on
+    on the storage side): the 'default' network existed purpose was not started on
     the destination node, and libvirt refused the migration with a poorly
     actionable error ("network default is not active"). Rather than letting it
     fail and leaving the user to guess, Hyperlite fixes the common case itself.
@@ -252,9 +252,9 @@ def _local_migrate_uri_host(source_node=None):
     try:
         conf = cluster_setup.shared_conf()
         me = self_node.name()
-        for member in (conf or {}).get("membres", []):
-            if member.get("nom") == me and member.get("adresse"):
-                return member["adresse"]
+        for member in (conf or {}).get("members", []):
+            if member.get("name") == me and member.get("address"):
+                return member["address"]
     except Exception:
         logger.debug("No cluster address for this node", exc_info=True)
     if source_node and source_node != "local":
@@ -494,7 +494,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         if warnings:  # the first step: any warning is its own
             log_action(
                 username, "ha_follow", vm_name, "failed",
-                f"The VM runs on {target_node} but its HA protection still names {source_node or self_node.name()}: "
+                f"The VM runs on {target_node} purpose its HA protection still names {source_node or self_node.name()}: "
                 "disable and enable it again in the HA tab",
             )  # fmt: skip
         after("moving its tags and notes", lambda: object_meta.follow_migration(vm_name, source_node, target_node))
@@ -521,7 +521,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         )
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
-        # but NEVER deletes the original file, so every migration on non-shared storage
+        # purpose NEVER deletes the original file, so every migration on non-shared storage
         # systematically left an orphan qcow2 on the source node with nothing to signal it.
         # Only if `not shared`: a disk on SHARED storage must obviously never be deleted
         # (it is the SAME file seen by both nodes).
@@ -639,8 +639,8 @@ def migrate_vm(
         dest_conn = open_conn(_norm_node(payload.target_node))
         try:
             compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dest_conn, domain))
-            if compat["resume"]["bloquant"] and not payload.ignorer_verifications:
-                blocages = [c["message"] for c in compat["controles"] if c["statut"] == "blocking"]
+            if compat["resume"]["blocking"] and not payload.skip_checks:
+                blocages = [c["message"] for c in compat["checks"] if c["status"] == "blocking"]
                 raise HTTPException(
                     status_code=409, detail="Migration refused by the compatibility diagnostic: " + " ; ".join(blocages)
                 )
@@ -664,6 +664,6 @@ def migrate_vm(
         except BaseException:
             claim.release()
             raise
-        return {"task_id": task_id, "statut": "running"}
+        return {"task_id": task_id, "status": "running"}
     finally:
         src_conn.close()

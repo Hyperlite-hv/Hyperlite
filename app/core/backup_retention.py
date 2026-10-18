@@ -44,9 +44,9 @@ def policy_of(row):
     """The policy stored on a backup_jobs or backup_group_jobs row."""
     return {
         "last": row["retention_count"],
-        "daily": row["garder_jours"],
-        "weekly": row["garder_semaines"],
-        "monthly": row["garder_mois"],
+        "daily": row["keep_days"],
+        "weekly": row["keep_weeks"],
+        "monthly": row["keep_months"],
     }
 
 

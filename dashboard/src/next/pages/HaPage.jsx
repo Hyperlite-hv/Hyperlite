@@ -44,7 +44,7 @@ export default function HaPage() {
   async function recover(vm) {
     const to = target[vm];
     if (!to) return;
-    const toName = nodes.find((n) => n.id === to)?.nom || to;
+    const toName = nodes.find((n) => n.id === to)?.name || to;
     if (!(await confirmAction({ title: t("ha.recoverTitle", { vm, node: toName }), message: t("ha.recoverMsg"), confirmLabel: t("ha.recover"), danger: true }))) return;
     setBusy(vm);
     try { await recoverHa(vm, to); pushToast({ kind: "success", title: t("ha.recovered"), message: `${vm} → ${toName}` }); reload(); }
@@ -53,7 +53,7 @@ export default function HaPage() {
   }
   const fmt = (iso) => (iso ? new Date(iso).toLocaleString(lang, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null);
 
-  const online = nodes.filter((n) => n.etat === "online").length;
+  const online = nodes.filter((n) => n.state === "online").length;
   const shared = pools.filter((p) => p.type === "netfs").length;
   const list = rows || [];
 
@@ -74,21 +74,21 @@ export default function HaPage() {
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">VM</th><th scope="col">{t("ha.node")}</th><th scope="col">{t("ha.sync")}</th><th scope="col">{t("hw.state")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {list.map((r) => {
-                    const down = r.statut_noeud === "offline";
-                    const targets = nodes.filter((n) => n.id !== r.node && n.etat === "online");
+                    const down = r.node_status === "offline";
+                    const targets = nodes.filter((n) => n.id !== r.node && n.state === "online");
                     return (
                       <tr key={r.vm_name} className={ctx.is("ha", r.vm_name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ha", r, r.vm_name)}>
-                        <td><StatusIndicator kind="node" wire={down ? "erreur" : "online"} /></td>
+                        <td><StatusIndicator kind="node" wire={down ? "error" : "online"} /></td>
                         <th scope="row"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("vm", r.vm_name, "summary")}>{r.vm_name}</button></th>
-                        <td className="nx-mono">{nodes.find((n) => n.id === r.node)?.nom || r.node}</td>
+                        <td className="nx-mono">{nodes.find((n) => n.id === r.node)?.name || r.node}</td>
                         <td className="nx-mono">{fmt(r.last_synced_at) || <span className="nx-muted">{t("ha.never")}</span>}</td>
-                        <td className="nx-wrapcell">{r.etat_ha ? <span className="nx-chip" data-tone={{ ok: "success", suspect: "warning", en_panne: "danger", libvirt_injoignable: "warning" }[r.etat_ha]}>{t(`hw.s.${r.etat_ha}`)}</span> : <span className="nx-muted">—</span>}{r.derniere_action && <div className="nx-f-h" title={fmt(r.derniere_action_le) || undefined}>{r.derniere_action}</div>}</td>
+                        <td className="nx-wrapcell">{r.ha_state ? <span className="nx-chip" data-tone={{ ok: "success", suspect: "warning", down: "danger", libvirt_unreachable: "warning" }[r.ha_state]}>{t(`hw.s.${r.ha_state}`)}</span> : <span className="nx-muted">—</span>}{r.last_action && <div className="nx-f-h" title={fmt(r.last_action_at) || undefined}>{r.last_action}</div>}</td>
                         <td><div className="nx-ra">
                           {caps.admin && down && (
                             <>
                               <select className="nx-sel" aria-label={`${t("ha.recoveryNode")} ${r.vm_name}`} value={target[r.vm_name] || ""} onChange={(e) => setTarget({ ...target, [r.vm_name]: e.target.value })}>
                                 <option value="">{t("ha.recoverOn")}</option>
-                                {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+                                {targets.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
                               </select>
                               <button type="button" className="nx-btn nx-btn--danger nx-btn--sm" disabled={!target[r.vm_name] || busy === r.vm_name} aria-label={t("a11y.recover_x", { v: r.vm_name })} onClick={() => recover(r.vm_name)}>{busy === r.vm_name ? "…" : t("ha.recover")}</button>
                             </>

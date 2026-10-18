@@ -97,15 +97,15 @@ def test_knowing_the_password_does_not_reset_the_2fa_lock(client, totp_user):
     username, secret = totp_user("dora")
     bad = _wrong_code(secret)
     for _ in range(5):  # sign in again with the right password before every wrong code
-        pre = _login(client, username).json()["pre_auth_token"]
-        assert client.post("/auth/login/2fa", json={"pre_auth_token": pre, "code": bad}).status_code == 401
+        pre = _login(client, username).json()["preauth_token"]
+        assert client.post("/auth/login/2fa", json={"preauth_token": pre, "code": bad}).status_code == 401
     assert _login(client, username).status_code == 429
 
 
 def test_removing_2fa_needs_the_password_and_a_current_code(client, totp_user, database):
     username, secret = totp_user("eve")
-    pre = _login(client, username).json()["pre_auth_token"]
-    token = client.post("/auth/login/2fa", json={"pre_auth_token": pre, "code": pyotp.TOTP(secret).now()}).json()
+    pre = _login(client, username).json()["preauth_token"]
+    token = client.post("/auth/login/2fa", json={"preauth_token": pre, "code": pyotp.TOTP(secret).now()}).json()
     session = _bearer(token["access_token"])
     no_code = client.post("/auth/2fa/disable", headers=session, json={"password": PASSWORD})
     assert no_code.status_code == 400 and "2FA" in no_code.json()["detail"]
@@ -122,8 +122,8 @@ def test_removing_2fa_needs_the_password_and_a_current_code(client, totp_user, d
 
 def test_removing_2fa_locks_out_after_repeated_failures(client, totp_user, database):
     username, secret = totp_user("finn")
-    pre = _login(client, username).json()["pre_auth_token"]
-    token = client.post("/auth/login/2fa", json={"pre_auth_token": pre, "code": pyotp.TOTP(secret).now()}).json()
+    pre = _login(client, username).json()["preauth_token"]
+    token = client.post("/auth/login/2fa", json={"preauth_token": pre, "code": pyotp.TOTP(secret).now()}).json()
     session = _bearer(token["access_token"])
     bad = _wrong_code(secret)
     for _ in range(5):
@@ -175,9 +175,9 @@ def test_a_guessing_attack_spread_over_many_addresses_still_locks_the_account(cl
 
 def test_failed_sign_ins_do_not_stop_the_owner_from_securing_the_account(client, totp_user, database):
     username, secret = totp_user("jade")
-    pre = _login(client, username).json()["pre_auth_token"]
+    pre = _login(client, username).json()["preauth_token"]
     session = _bearer(
-        client.post("/auth/login/2fa", json={"pre_auth_token": pre, "code": pyotp.TOTP(secret).now()}).json()[
+        client.post("/auth/login/2fa", json={"preauth_token": pre, "code": pyotp.TOTP(secret).now()}).json()[
             "access_token"
         ]
     )
@@ -196,10 +196,10 @@ def test_a_totp_code_is_accepted_once(client, totp_user):
     username, secret = totp_user("kai")
     code = pyotp.TOTP(secret).now()
     first = client.post(
-        "/auth/login/2fa", json={"pre_auth_token": _login(client, username).json()["pre_auth_token"], "code": code}
+        "/auth/login/2fa", json={"preauth_token": _login(client, username).json()["preauth_token"], "code": code}
     )
     assert first.status_code == 200
     replay = client.post(
-        "/auth/login/2fa", json={"pre_auth_token": _login(client, username).json()["pre_auth_token"], "code": code}
+        "/auth/login/2fa", json={"preauth_token": _login(client, username).json()["preauth_token"], "code": code}
     )
     assert replay.status_code == 401

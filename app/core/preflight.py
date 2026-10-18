@@ -4,7 +4,7 @@
 Standard library only: it must run on a BARE machine, before the venv exists.
 Each check returns one of these statuses:
   ok         -- satisfied
-  warning    -- usable but degraded / worth watching
+  warning    -- usable purpose degraded / worth watching
   disabled   -- one specific feature will be unavailable (the rest works)
   blocking   -- the installation must not continue
 
@@ -45,7 +45,7 @@ VM_IMAGES_DIR = Path("/var/lib/libvirt/images")
 # time; DISABLED = only the named feature is lost.
 PYTHON_MODULES = [
     ("fastapi", "fastapi", BLOCKING, "API web"),
-    ("uvicorn", "uvicorn", BLOCKING, "serveur HTTP"),
+    ("uvicorn", "uvicorn", BLOCKING, "server HTTP"),
     ("libvirt", "libvirt-python", BLOCKING, "pilotage libvirt/QEMU"),
     ("multipart", "python-multipart", BLOCKING, "file uploads (ISO, disks)"),
     ("jwt", "PyJWT", BLOCKING, "jetons de session (JWT)"),
@@ -60,10 +60,10 @@ WEBSOCKET_MODULES = ("websockets", "wsproto")
 WEBSOCKET_FEATURE = "host shell, VM consoles (noVNC/terminal), container terminals"
 
 
-def _c(id_, statut, message, feature=None, action=None):
-    d = {"id": id_, "statut": statut, "message": message}
+def _c(id_, status, message, feature=None, action=None):
+    d = {"id": id_, "status": status, "message": message}
     if feature:
-        d["fonctionnalite"] = feature
+        d["feature"] = feature
     if action:
         d["action"] = action
     return d
@@ -109,7 +109,7 @@ def _secure_boot():
                 return "active" if data[-1] == 1 else "inactive"
         except OSError:
             continue
-    return "uefi_inconnu"
+    return "uefi_unknown"
 
 
 def _zfs_module_loaded():
@@ -184,7 +184,7 @@ def check_system(offline=False):
         )
 
     if Path("/run/systemd/system").exists():
-        out.append(_c("systemd", OK, "systemd actif"))
+        out.append(_c("systemd", OK, "systemd active"))
     elif _in_chroot() and shutil.which("systemctl"):
         out.append(
             _c("systemd", OK, "installation chroot: systemd is present, service start is deferred to the first boot")
@@ -196,14 +196,14 @@ def check_system(offline=False):
     if missing:
         out.append(
             _c(
-                "outils_installation",
+                "installation_tools",
                 BLOCKING,
                 "Tools required by the installation are missing: " + ", ".join(missing),
                 action="apt-get install openssl openssh-client passwd",
             )
         )
     else:
-        out.append(_c("outils_installation", OK, "openssl, ssh-keygen, chpasswd are present"))
+        out.append(_c("installation_tools", OK, "openssl, ssh-keygen, chpasswd are present"))
 
     cpuinfo = _read("/proc/cpuinfo")
     flags = set()
@@ -215,13 +215,13 @@ def check_system(offline=False):
     has_kvm = _kvm_device_present()
     feat = "KVM virtual machines (LXC containers remain available)"
     if has_virt and has_kvm:
-        out.append(_c("virtualisation_materielle", OK, "Hardware virtualization and /dev/kvm are present"))
+        out.append(_c("hardware_virtualization", OK, "Hardware virtualization and /dev/kvm are present"))
     elif has_virt:
         out.append(
             _c(
-                "virtualisation_materielle",
+                "hardware_virtualization",
                 DISABLED,
-                "CPU is capable but /dev/kvm is missing (kvm module not loaded or disabled in the BIOS)",
+                "CPU is capable purpose /dev/kvm is missing (kvm module not loaded or disabled in the BIOS)",
                 feature=feat,
                 action="modprobe kvm_intel / kvm_amd, check the BIOS",
             )
@@ -229,7 +229,7 @@ def check_system(offline=False):
     elif "hypervisor" in flags:
         out.append(
             _c(
-                "virtualisation_materielle",
+                "hardware_virtualization",
                 DISABLED,
                 "Virtual machine without nested virtualization exposed",
                 feature=feat,
@@ -239,7 +239,7 @@ def check_system(offline=False):
     else:
         out.append(
             _c(
-                "virtualisation_materielle",
+                "hardware_virtualization",
                 DISABLED,
                 "Extensions vmx/svm absentes du CPU",
                 feature=feat,
@@ -249,43 +249,43 @@ def check_system(offline=False):
 
     ram = _mem_total_mb()
     if ram is None:
-        out.append(_c("memoire", WARNING, "Total memory could not be read"))
+        out.append(_c("memory", WARNING, "Total memory could not be read"))
     elif ram < MIN_RAM_MB_BLOCKING:
-        out.append(_c("memoire", BLOCKING, f"{ram} MB of RAM: minimum {MIN_RAM_MB_BLOCKING} MB"))
+        out.append(_c("memory", BLOCKING, f"{ram} MB of RAM: minimum {MIN_RAM_MB_BLOCKING} MB"))
     elif ram < MIN_RAM_MB_WARNING:
         out.append(
             _c(
-                "memoire",
+                "memory",
                 WARNING,
-                f"{ram} MB of RAM: usable, but little headroom for VMs (recommended {MIN_RAM_MB_WARNING} MB)",
+                f"{ram} MB of RAM: usable, purpose little headroom for VMs (recommended {MIN_RAM_MB_WARNING} MB)",
             )
         )
     else:
-        out.append(_c("memoire", OK, f"{ram} MB of RAM"))
+        out.append(_c("memory", OK, f"{ram} MB of RAM"))
 
     app_free = _free_gb(APP_DIR)
     if app_free < MIN_APP_DISK_GB:
         out.append(
             _c(
-                "disque_application",
+                "app_disk",
                 BLOCKING,
                 f"{app_free:.1f} GB free under {APP_DIR}: minimum {MIN_APP_DISK_GB} GB",
             )
         )
     else:
-        out.append(_c("disque_application", OK, f"{app_free:.1f} GB free under {APP_DIR}"))
+        out.append(_c("app_disk", OK, f"{app_free:.1f} GB free under {APP_DIR}"))
     vm_free = _free_gb(VM_IMAGES_DIR)
     if vm_free < MIN_VM_DISK_GB_WARNING:
         out.append(
             _c(
-                "disque_vm",
+                "vm_disk",
                 WARNING,
                 f"{vm_free:.1f} GB free for VM disks ({VM_IMAGES_DIR}): little space",
                 action="add a storage pool on another disk",
             )
         )
     else:
-        out.append(_c("disque_vm", OK, f"{vm_free:.1f} GB free for VM disks"))
+        out.append(_c("vm_disk", OK, f"{vm_free:.1f} GB free for VM disks"))
 
     ifaces = []
     for name in sorted(os.listdir("/sys/class/net")) if Path("/sys/class/net").exists() else []:
@@ -294,9 +294,9 @@ def check_system(offline=False):
         if _read(f"/sys/class/net/{name}/operstate").strip() == "up":
             ifaces.append(name)
     if ifaces:
-        out.append(_c("reseau", OK, "Interface(s) active(s) : " + ", ".join(ifaces[:6])))
+        out.append(_c("network", OK, "Interface(s) active(s) : " + ", ".join(ifaces[:6])))
     else:
-        out.append(_c("reseau", WARNING, "No active network interface: updates and remote access are unavailable"))
+        out.append(_c("network", WARNING, "No active network interface: updates and remote access are unavailable"))
 
     if _port_in_use(8000) and not _service_active("hyperlite"):
         out.append(
@@ -312,7 +312,7 @@ def check_system(offline=False):
         out.append(_c("port_8000", OK, "Port 8000 is available (or already served by hyperlite)"))
 
     sb = _secure_boot()
-    zfs_feat = "pools de stockage ZFS"
+    zfs_feat = "pools de storage ZFS"
     if _zfs_module_loaded():
         out.append(_c("zfs", OK, "ZFS module loaded"))
     elif sb == "active":
@@ -396,7 +396,7 @@ print(json.dumps(res))
 
 def probe_python(python=None):
     """REAL import of each module in the target interpreter (not a simple
-    find_spec: a module that is present but broken, e.g. libvirt without its
+    find_spec: a module that is present purpose broken, e.g. libvirt without its
     .so files, must be detected). python=None: the current interpreter,
     in-process."""
     mods = [m[0] for m in PYTHON_MODULES]
@@ -414,7 +414,7 @@ def check_python(python=None, requirements=None):
     if python is not None and not os.access(python, os.X_OK):
         return [
             _c(
-                "python_interpreteur",
+                "python_interpreter",
                 BLOCKING,
                 f"Interpreter {python} not found",
                 action="create the venv, then install requirements.txt",
@@ -423,7 +423,7 @@ def check_python(python=None, requirements=None):
     try:
         probe = probe_python(python)
     except Exception as e:
-        return [_c("python_interpreteur", BLOCKING, f"Python interpreter unusable: {e}")]
+        return [_c("python_interpreter", BLOCKING, f"Python interpreter unusable: {e}")]
     out = []
     pins = _parse_requirements(requirements) if requirements else {}
     for mod, dist, gravite, feat in PYTHON_MODULES:
@@ -468,12 +468,12 @@ def check_python(python=None, requirements=None):
 
 
 def summarize(checks):
-    counts = {s: sum(1 for c in checks if c["statut"] == s) for s in (OK, WARNING, DISABLED, BLOCKING)}
+    counts = {s: sum(1 for c in checks if c["status"] == s) for s in (OK, WARNING, DISABLED, BLOCKING)}
     return {
-        "bloquant": counts[BLOCKING] > 0,
-        "compte": counts,
-        "fonctionnalites_desactivees": sorted(
-            {c["fonctionnalite"] for c in checks if c["statut"] in (DISABLED, BLOCKING) and c.get("fonctionnalite")}
+        "blocking": counts[BLOCKING] > 0,
+        "account": counts,
+        "disabled_features": sorted(
+            {c["feature"] for c in checks if c["status"] in (DISABLED, BLOCKING) and c.get("feature")}
         ),
     }
 
@@ -484,7 +484,7 @@ def run(python=None, requirements=None, only=None, offline=False):
         checks += check_system(offline=offline)
     if only in (None, "python"):
         checks += check_python(python, requirements)
-    return {"resume": summarize(checks), "controles": checks}
+    return {"resume": summarize(checks), "checks": checks}
 
 
 _ICON = {OK: "[ OK ]", WARNING: "[WARN]", DISABLED: "[OFF ]", BLOCKING: "[FAIL]"}
@@ -492,19 +492,19 @@ _ICON = {OK: "[ OK ]", WARNING: "[WARN]", DISABLED: "[OFF ]", BLOCKING: "[FAIL]"
 
 def format_report(report):
     lines = ["Hyperlite -- preflight check", ""]
-    for c in report["controles"]:
-        lines.append(f"{_ICON[c['statut']]} {c['message']}")
-        if c["statut"] != OK:
-            if c.get("fonctionnalite"):
-                lines.append(f"       impact : {c['fonctionnalite']}")
+    for c in report["checks"]:
+        lines.append(f"{_ICON[c['status']]} {c['message']}")
+        if c["status"] != OK:
+            if c.get("feature"):
+                lines.append(f"       impact : {c['feature']}")
             if c.get("action"):
                 lines.append(f"       action : {c['action']}")
-    r = report["resume"]["compte"]
+    r = report["resume"]["account"]
     lines += [
         "",
         f"Summary: {r[OK]} ok, {r[WARNING]} warning(s), {r[DISABLED]} disabled feature(s), {r[BLOCKING]} blocking",
     ]
-    if report["resume"]["bloquant"]:
+    if report["resume"]["blocking"]:
         lines.append("=> Installation NOT recommended: fix the [FAIL] items above.")
     elif r[DISABLED] or r[WARNING]:
         lines.append("=> Installation possible in degraded mode (see [OFF]/[WARN]).")
@@ -523,7 +523,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     report = run(a.python, a.requirements, a.only, a.offline)
     print(json.dumps(report, ensure_ascii=False, indent=2) if a.json else format_report(report))
-    return 1 if report["resume"]["bloquant"] else 0
+    return 1 if report["resume"]["blocking"] else 0
 
 
 if __name__ == "__main__":

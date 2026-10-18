@@ -79,10 +79,10 @@ def test_the_form_learns_which_variables_to_ask(client, auth_headers):
     headers = auth_headers("alice")
     r = client.get("/containers/image-env", params={"image": "postgres:16"}, headers=headers)
     assert r.status_code == 200
-    first = r.json()["requises"][0][0]
-    assert first["nom"] == "POSTGRES_PASSWORD" and first["secret"] and first["generer"]
-    assert {v["nom"] for v in r.json()["utiles"]} >= {"POSTGRES_USER", "POSTGRES_DB"}
-    assert client.get("/containers/image-env", params={"image": "nginx"}, headers=headers).json()["requises"] == []
+    first = r.json()["required"][0][0]
+    assert first["name"] == "POSTGRES_PASSWORD" and first["secret"] and first["generate"]
+    assert {v["name"] for v in r.json()["useful"]} >= {"POSTGRES_USER", "POSTGRES_DB"}
+    assert client.get("/containers/image-env", params={"image": "nginx"}, headers=headers).json()["required"] == []
 
 
 # ---- Records that follow a rename ----
@@ -97,20 +97,20 @@ def test_a_renamed_vm_keeps_its_settings_and_history(database):
         db.execute("INSERT INTO pool_members (pool_id, vm_name) VALUES (1, 'web')")
         db.execute(
             "INSERT INTO acl (subject_type, subject_id, role, resource_type, resource_id) "
-            "VALUES ('user', 'bob', 'operateur', 'vm', 'web')"
+            "VALUES ('user', 'bob', 'operator', 'vm', 'web')"
         )
         db.execute(
             "INSERT INTO ha_protected_vms (vm_name, node, domain_xml, enabled_by, enabled_at) "
             "VALUES ('web', 'local', '<domain><name>web</name></domain>', 'admin', 'now')"
         )
         db.execute(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('web', '/b/web.qcow2', 'cold', 'x', 'succeeded')"
+            "INSERT INTO backups (vm_name, path, mode, created_at, status) VALUES ('web', '/b/web.qcow2', 'cold', 'x', 'succeeded')"
         )
         db.execute(
-            "INSERT INTO metrics_samples (ts, tier, scope, cible) VALUES ('t', 'raw', 'vm', 'web'), ('t', 'raw', 'vm', 'webx')"
+            "INSERT INTO metrics_samples (ts, tier, scope, target) VALUES ('t', 'raw', 'vm', 'web'), ('t', 'raw', 'vm', 'webx')"
         )
         db.execute(
-            "INSERT INTO backup_group_jobs (nom, selection, exclues, frequence, heure, cible_dir, prochaine_execution) "
+            "INSERT INTO backup_group_jobs (name, selection, excluded, frequency, time, target_dir, next_run) "
             "VALUES ('all', 'all', '[\"web\", \"db\"]', 'daily', '01:00', '/b', 'x')"
         )
         db.commit()
@@ -121,7 +121,7 @@ def test_a_renamed_vm_keeps_its_settings_and_history(database):
     renaming.vm_records("web", "shop")
 
     assert get_vm_ssh_user("shop") == "nico" and get_vm_ssh_user("web") is None
-    assert vm_boot.get_setting("shop")["demarrage_auto"]
+    assert vm_boot.get_setting("shop")["autostart"]
     assert object_meta.get("vm", "shop")["tags"] == ["prod"]
     with database.get_conn() as db:
         assert db.execute("SELECT vm_name FROM pool_members").fetchone()[0] == "shop"
@@ -129,19 +129,19 @@ def test_a_renamed_vm_keeps_its_settings_and_history(database):
         ha = db.execute("SELECT vm_name, domain_xml FROM ha_protected_vms").fetchone()
         assert ha["vm_name"] == "shop" and ET.fromstring(ha["domain_xml"]).findtext("name") == "shop"
         assert db.execute("SELECT vm_name FROM backups").fetchone()[0] == "shop"
-        assert sorted(r[0] for r in db.execute("SELECT cible FROM metrics_samples")) == ["shop", "webx"]
-        assert json.loads(db.execute("SELECT exclues FROM backup_group_jobs").fetchone()[0]) == ["db", "shop"]
+        assert sorted(r[0] for r in db.execute("SELECT target FROM metrics_samples")) == ["shop", "webx"]
+        assert json.loads(db.execute("SELECT excluded FROM backup_group_jobs").fetchone()[0]) == ["db", "shop"]
 
 
 def test_a_vm_of_a_remote_node_keeps_its_metrics(database):
     from app.core import renaming
 
     with database.get_conn() as db:
-        db.execute("INSERT INTO metrics_samples (ts, tier, scope, cible) VALUES ('t', 'raw', 'vm', 'n2:web')")
+        db.execute("INSERT INTO metrics_samples (ts, tier, scope, target) VALUES ('t', 'raw', 'vm', 'n2:web')")
         db.commit()
     renaming.vm_records("web", "shop", node="n2")
     with database.get_conn() as db:
-        assert db.execute("SELECT cible FROM metrics_samples").fetchone()[0] == "n2:shop"
+        assert db.execute("SELECT target FROM metrics_samples").fetchone()[0] == "n2:shop"
 
 
 def test_a_renamed_container_keeps_its_records(database):
@@ -173,7 +173,7 @@ def test_a_renamed_node_keeps_its_vms_settings_and_metrics(database):
         db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('n2', '10.0.0.2', 'now')")
         db.execute("INSERT INTO node_maintenance (node, started_by, started_at) VALUES ('n2', 'admin', 'now')")
         db.execute(
-            "INSERT INTO metrics_samples (ts, tier, scope, cible) VALUES "
+            "INSERT INTO metrics_samples (ts, tier, scope, target) VALUES "
             "('t', 'raw', 'host', 'node:n2'), ('t', 'raw', 'vm', 'n2:web'), ('t', 'raw', 'vm', 'n22:web')"
         )
         db.commit()
@@ -183,14 +183,14 @@ def test_a_renamed_node_keeps_its_vms_settings_and_metrics(database):
 
     renaming.node_records("n2", "rack3")
 
-    assert vm_boot.get_setting("web", "rack3")["demarrage_auto"]
+    assert vm_boot.get_setting("web", "rack3")["autostart"]
     assert object_meta.get("node", "rack3")["notes"] == "rack 3"
     assert object_meta.get("vm", "web", "rack3")["tags"] == ["prod"]
     with database.get_conn() as db:
         assert db.execute("SELECT name FROM nodes").fetchone()[0] == "rack3"
         assert db.execute("SELECT node FROM node_maintenance").fetchone()[0] == "rack3"
-        cibles = sorted(r[0] for r in db.execute("SELECT cible FROM metrics_samples"))
-        assert cibles == ["n22:web", "node:rack3", "rack3:web"]  # another node sharing a prefix is left alone
+        targets = sorted(r[0] for r in db.execute("SELECT target FROM metrics_samples"))
+        assert targets == ["n22:web", "node:rack3", "rack3:web"]  # another node sharing a prefix is left alone
 
 
 def test_the_reverse_key_follows_a_renamed_node(tmp_path, monkeypatch):
@@ -280,7 +280,7 @@ def vm_routes(monkeypatch):
 
     def install(conn):
         monkeypatch.setattr(rename, "open_conn", lambda node=None: conn)
-        monkeypatch.setattr(rename, "_domain_summary", lambda d: {"nom": d.renamed_to or d.name()})
+        monkeypatch.setattr(rename, "_domain_summary", lambda d: {"name": d.renamed_to or d.name()})
         monkeypatch.setattr(rename, "refresh_pools_for_paths", lambda conn, paths: None)
         return conn
 
@@ -298,7 +298,7 @@ def test_a_vm_is_renamed_only_when_stopped_and_without_snapshots(client, auth_he
     assert post("web", "web").status_code == 422
     assert post("nope", "nope2").status_code == 404
     r = post("web", "shop")
-    assert r.status_code == 200 and r.json()["nom"] == "shop"
+    assert r.status_code == 200 and r.json()["name"] == "shop"
 
 
 def test_renaming_a_vm_is_for_administrators(client, auth_headers, vm_routes):
@@ -310,7 +310,7 @@ def test_renaming_a_vm_is_for_administrators(client, auth_headers, vm_routes):
 def test_a_kubernetes_vm_keeps_its_name(client, auth_headers, vm_routes, database):
     with database.get_conn() as db:
         db.execute(
-            "INSERT INTO k8s_clusters (nom, reseau, serveur, workers, vcpu, memoire_mo, disque_go, statut, cree_le) "
+            "INSERT INTO k8s_clusters (name, network, server, workers, vcpu, memory_mb, disk_gb, status, created_at) "
             "VALUES ('k', 'default', 'k-server', '[\"k-worker-1\"]', 2, 2048, 20, 'ready', 'now')"
         )
         db.commit()
@@ -356,7 +356,7 @@ def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, 
     )
     set_container_app("pg", "postgres:16", {"args": ["postgres"]}, "192.168.100.10", "isolated")
     r = client.post("/containers/pg/stop", headers=auth_headers("alice"))
-    assert r.status_code == 200 and r.json()["arret_force_apres_s"] == containers.STOP_GRACE_S["application"]
+    assert r.status_code == 200 and r.json()["force_stop_after_s"] == containers.STOP_GRACE_S["application"]
     assert domain.shutdown_flags == libvirt.VIR_DOMAIN_SHUTDOWN_SIGNAL
     assert started == [("pg", 4242, containers.STOP_GRACE_S["application"])]  # forced after the grace period
 
@@ -390,13 +390,13 @@ def test_a_container_rename_moves_its_filesystem(client, auth_headers, monkeypat
     domain.undefine = lambda: None
     conn = _Conn(domain)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: conn)
-    monkeypatch.setattr(containers, "_summary", lambda d: {"nom": d.name()})
+    monkeypatch.setattr(containers, "_summary", lambda d: {"name": d.name()})
     autostart = []
     monkeypatch.setattr(_Domain, "setAutostart", lambda self, v: autostart.append(v), raising=False)
     headers = auth_headers("alice")
 
     r = client.post("/containers/web/rename", json={"new_name": "shop"}, headers=headers)
-    assert r.status_code == 200 and r.json()["nom"] == "shop"
+    assert r.status_code == 200 and r.json()["name"] == "shop"
     assert not rootfs.exists() and (tmp_path / "shop" / "etc" / "hostname").read_text() == "shop\n"
     assert "127.0.1.1\tshop" in (tmp_path / "shop" / "etc" / "hosts").read_text()
     assert ET.fromstring(conn.defined[-1]).find("devices/filesystem/source").get("dir") == str(tmp_path / "shop")

@@ -31,7 +31,7 @@ export function MaintenanceDialog({ node, targets, onClose }) {
     setBusy(true);
     try {
       const r = await enterNodeMaintenance(node.id, target || null);
-      pushToast({ kind: "success", title: t("mt.entered"), message: t("mt.enteredMsg", { name: node.nom, n: r.migrables.length }) });
+      pushToast({ kind: "success", title: t("mt.entered"), message: t("mt.enteredMsg", { name: node.name, n: r.migrables.length }) });
       onClose();
       refreshAll?.();
     } catch (e) {
@@ -44,12 +44,12 @@ export function MaintenanceDialog({ node, targets, onClose }) {
   return (
     <div className="nx-scrim" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="nx-dialog" role="dialog" aria-modal="true" aria-labelledby="mt-title" onKeyDown={(e) => { if (e.key === "Escape" && !busy) { e.stopPropagation(); onClose(); } }}>
-        <h2 id="mt-title">{t("mt.title", { name: node.nom })}</h2>
+        <h2 id="mt-title">{t("mt.title", { name: node.name })}</h2>
         <p className="nx-muted" style={{ margin: 0 }}>{t("mt.help")}</p>
         <label className="nx-dialog-field">{t("mt.target")}
           <select ref={first} className="nx-input" value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
             <option value="">{t("mt.noTarget")}</option>
-            {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+            {targets.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
           </select>
         </label>
         {plan?.loading && <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("mt.checking")}</p>}
@@ -64,7 +64,7 @@ export function MaintenanceDialog({ node, targets, onClose }) {
             <section aria-labelledby="mt-stay">
               <h3 id="mt-stay" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("mt.willStay", { n: data.non_migrables.length })}</h3>
               {data.non_migrables.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("mt.none")}</p>
-                : <ul className="nx-list2" aria-labelledby="mt-stay">{data.non_migrables.map((v) => <li key={v.nom}><div className="nx-list2-main"><span className="nx-mono">{v.nom}</span><div className="nx-list2-sub">{v.raison}</div></div></li>)}</ul>}
+                : <ul className="nx-list2" aria-labelledby="mt-stay">{data.non_migrables.map((v) => <li key={v.name}><div className="nx-list2-main"><span className="nx-mono">{v.name}</span><div className="nx-list2-sub">{v.reason}</div></div></li>)}</ul>}
             </section>
           </>
         )}
@@ -78,10 +78,10 @@ export function MaintenanceDialog({ node, targets, onClose }) {
 }
 
 export async function leaveMaintenance(node, t, pushToast, refreshAll) {
-  if (!(await confirmAction({ title: t("mt.leaveTitle", { name: node.nom }), message: t("mt.leaveMsg"), confirmLabel: t("mt.leave") }))) return;
+  if (!(await confirmAction({ title: t("mt.leaveTitle", { name: node.name }), message: t("mt.leaveMsg"), confirmLabel: t("mt.leave") }))) return;
   try {
     await leaveNodeMaintenance(node.id);
-    pushToast({ kind: "success", title: t("mt.left"), message: node.nom });
+    pushToast({ kind: "success", title: t("mt.left"), message: node.name });
     refreshAll?.();
   } catch (e) { pushToast({ kind: "error", title: t("mt.leaveFailed"), message: errorMessage(e) }); }
 }
@@ -98,6 +98,6 @@ export default function MaintenanceHost() {
   }, []);
   const node = nodes.find((n) => n.id === nodeId);
   if (!node) return null;
-  const targets = nodes.filter((n) => n.id !== node.id && n.etat === "online" && !n.maintenance);
+  const targets = nodes.filter((n) => n.id !== node.id && n.state === "online" && !n.maintenance);
   return <MaintenanceDialog node={node} targets={targets} onClose={() => setNodeId(null)} />;
 }

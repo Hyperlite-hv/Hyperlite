@@ -82,7 +82,7 @@ def create_tunnel_ticket(
         raise HTTPException(status_code=409, detail="The VM has no known IP address yet (still booting?).")
     ticket = workstation.issue_tunnel_ticket(name, ip, port, user["username"])
     log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "success")
-    return {"ticket": ticket, "expire_dans_s": workstation.TUNNEL_TICKET_TTL}
+    return {"ticket": ticket, "expires_in_s": workstation.TUNNEL_TICKET_TTL}
 
 
 @router.websocket("/{name}/tunnel")

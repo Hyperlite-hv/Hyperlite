@@ -157,16 +157,16 @@ def test_a_reset_or_empty_daemon_is_not_applied(cluster):
     cluster.files.clear()
     cluster.version = 0  # the daemon's database was replaced: older than what this node applied
     assert inbound.apply() is None
-    assert "older than" in inbound.report()["probleme"]
+    assert "older than" in inbound.report()["problem"]
     assert object_meta.get("vm", "web")["notes"] == "kept"
 
-    cluster.version = 10_000  # newer, but empty
+    cluster.version = 10_000  # newer, purpose empty
     assert inbound.apply() is None
-    assert "no configuration" in inbound.report()["probleme"]
+    assert "no configuration" in inbound.report()["problem"]
     assert object_meta.get("vm", "web")["notes"] == "kept"
 
     shadow.seed()  # an administrator copies this node's database: the safeguard is lifted
-    assert inbound.report()["probleme"] is None and inbound.apply() is None
+    assert inbound.report()["problem"] is None and inbound.apply() is None
 
 
 def test_in_local_mode_nothing_is_applied(cluster):
@@ -190,7 +190,7 @@ def test_a_change_this_database_refuses_is_reported_and_nothing_is_applied(clust
     cluster.remote("/db/groups/1", {"id": 1, "name": "ops"})
     cluster.remote("/db/groups/2", {"id": 2, "name": "ops"})  # two groups with one name: the unique column refuses
     assert inbound.apply() is None
-    assert "groups" in inbound.report()["probleme"]
+    assert "groups" in inbound.report()["problem"]
     assert rows("SELECT * FROM groups") == []  # all or nothing
 
 
@@ -232,7 +232,7 @@ def test_a_change_made_here_never_overwrites_a_newer_one_of_the_cluster(cluster)
     assert json.loads(cluster.files["/db/groups/7"])["name"] == "by-the-majority"
     assert inbound.apply() == 1  # the cluster's version comes back here, though the tree did not move since
     assert rows("SELECT name FROM groups WHERE id = 7") == [{"name": "by-the-majority"}]
-    assert shadow.report()["conflits"] == 1
+    assert shadow.report()["conflicts"] == 1
     audit._AUDIT_QUEUE.join()
     assert rows("SELECT resource FROM audit_log WHERE action = 'cfs_conflict'") == [{"resource": "/db/groups/7"}]
 
@@ -244,7 +244,7 @@ def test_a_change_of_an_entry_nobody_else_changed_goes_out(cluster):
     assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "ops2"
     write("UPDATE groups SET name = 'ops3' WHERE id = 7")  # its own write is the version the next one starts from
     assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "ops3"
-    assert shadow.report()["conflits"] == 0
+    assert shadow.report()["conflicts"] == 0
 
 
 def test_an_entry_another_node_created_first_is_not_overwritten(cluster):
@@ -283,7 +283,7 @@ def test_a_single_node_writes_as_before(cluster):
     cluster.remote("/db/groups/7", {"id": 7, "name": "stale"})
     write("UPDATE groups SET name = 'mine' WHERE id = 7")
     assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "mine"
-    assert shadow.report()["conflits"] == 0
+    assert shadow.report()["conflicts"] == 0
 
 
 def test_both_sides_wrote_the_same_value_is_no_conflict(cluster):
@@ -291,7 +291,7 @@ def test_both_sides_wrote_the_same_value_is_no_conflict(cluster):
     inbound.apply()
     cluster.remote("/db/groups/7", {"id": 7, "name": "same"})  # another node wrote it...
     write("UPDATE groups SET name = 'same' WHERE id = 7")  # ...to the value this node wrote too
-    assert shadow.drain() == 1 and shadow.report()["conflits"] == 0
+    assert shadow.drain() == 1 and shadow.report()["conflicts"] == 0
     write("UPDATE groups SET name = 'next' WHERE id = 7")  # and its next change starts from that version
     assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "next"
 
@@ -304,7 +304,7 @@ def test_a_change_made_at_start_before_the_copy_loop_goes_out(cluster):
     write("UPDATE groups SET name = 'set-at-start' WHERE id = 7")  # the service restarts and writes before copying
     shadow.refresh_bases()  # the apply loop's first step
     assert shadow.drain() == 1 and json.loads(cluster.files["/db/groups/7"])["name"] == "set-at-start"
-    assert shadow.report()["conflits"] == 0
+    assert shadow.report()["conflicts"] == 0
 
 
 def test_a_change_made_at_start_still_loses_to_the_clusters_newer_one(cluster):

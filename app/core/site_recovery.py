@@ -7,7 +7,7 @@ the lost site's VMs from those backups:
 
   1. `scan(directory)` lists the backups found there, laid out as Hyperlite writes them (<dir>/<vm>/<timestamp>/ with
      a manifest.json), whether or not this node's catalogue knows them;
-  2. `register(path)` adds one of them to this node's catalogue (`backups.importe_de` names the host that made it),
+  2. `register(path)` adds one of them to this node's catalogue (`backups.imported_from` names the host that made it),
      so the ordinary restore, with its integrity check first, applies to it;
   3. `recover(...)` restores a selection as new VMs, one after another, in one background task.
 
@@ -57,8 +57,8 @@ def _allowed_roots():
 
     roots = [*MOUNT_ROOTS, str(DEFAULT_BACKUP_DIR)]
     # The jobs' rows straight from their stores: list_jobs() would also ask libvirt for each job's VMs.
-    roots += [dict(row).get("cible_dir") for row in backup_groups._store().list_group_jobs()]
-    roots += [dict(row).get("cible_dir") for row in replication._store().list_jobs()]
+    roots += [dict(row).get("target_dir") for row in backup_groups._store().list_group_jobs()]
+    roots += [dict(row).get("target_dir") for row in replication._store().list_jobs()]
     try:
         conn = open_conn()
         try:
@@ -103,31 +103,31 @@ def _directory(path):
 
 
 def _summary(backup_dir, manifest, known):
-    files = manifest.get("fichiers") or []
-    disks = [f for f in files if f.get("role") == "disque"]
+    files = manifest.get("files") or []
+    disks = [f for f in files if f.get("role") == "disk"]
     path = str(backup_dir)
     row = known.get(path)
     return {
-        "chemin": path,
-        "cree_le": manifest.get("cree_le"),
+        "path": path,
+        "created_at": manifest.get("created_at"),
         "mode": manifest.get("mode") if manifest.get("mode") in ("live", "cold") else "cold",
         "firmware": manifest.get("firmware") or "bios",
         "source": manifest.get("source"),
-        "disques": len(disks),
-        "taille_octets": sum(int(f.get("taille") or 0) for f in files),
+        "disks": len(disks),
+        "size_bytes": sum(int(f.get("size") or 0) for f in files),
         "backup_id": row["id"] if row else None,
     }
 
 
 def scan(directory):
-    """[{"vm", "existe_ici", "sauvegardes": [newest first]}] for every VM with at least one complete backup (a
+    """[{"vm", "exists_here", "backups": [newest first]}] for every VM with at least one complete backup (a
     manifest listing at least one disk) under `directory`. Symbolic links are not followed: a link planted on a
     shared storage must not make this node read elsewhere."""
     from app.core.libvirt_utils import open_conn
     from app.core.vm_builder import validate_name
 
     root = _directory(directory)
-    known = {r["chemin"]: r for r in _store().list_all(limit=100000)}
+    known = {r["path"]: r for r in _store().list_all(limit=100000)}
     vms = []
     try:
         vm_dirs = sorted(os.scandir(root), key=lambda e: e.name)
@@ -150,12 +150,12 @@ def scan(directory):
             manifest = backup_integrity.read_manifest(stamp.path)
             if not isinstance(manifest, dict) or manifest.get("vm") != vm_entry.name:
                 continue
-            if not any(f.get("role") == "disque" for f in manifest.get("fichiers") or []):
+            if not any(f.get("role") == "disk" for f in manifest.get("files") or []):
                 continue
             backups.append(_summary(Path(stamp.path), manifest, known))
         if backups:
-            backups.sort(key=lambda b: b["cree_le"] or "", reverse=True)
-            vms.append({"vm": vm_entry.name, "sauvegardes": backups})
+            backups.sort(key=lambda b: b["created_at"] or "", reverse=True)
+            vms.append({"vm": vm_entry.name, "backups": backups})
 
     conn = open_conn()
     try:
@@ -163,7 +163,7 @@ def scan(directory):
     finally:
         conn.close()
     for vm in vms:
-        vm["existe_ici"] = vm["vm"] in local
+        vm["exists_here"] = vm["vm"] in local
     return vms
 
 
@@ -172,7 +172,7 @@ def _backup_dir(path):
     holding a manifest of a backup with at least one disk."""
     backup_dir = _allowed(path)
     manifest = backup_integrity.read_manifest(str(backup_dir))
-    if not isinstance(manifest, dict) or not any(f.get("role") == "disque" for f in manifest.get("fichiers") or []):
+    if not isinstance(manifest, dict) or not any(f.get("role") == "disk" for f in manifest.get("files") or []):
         raise RecoveryError(f"No Hyperlite backup in {backup_dir}")
     return backup_dir, manifest
 
@@ -190,14 +190,14 @@ def register(path, username="system"):
     if validate_name(vm):
         raise RecoveryError("The backup's manifest names an invalid VM")
     summary = _summary(backup_dir, manifest, {})
-    disks = [f for f in manifest.get("fichiers") or [] if f.get("role") == "disque"]
+    disks = [f for f in manifest.get("files") or [] if f.get("role") == "disk"]
     checksum = disks[0].get("sha256") if len(disks) == 1 else None
     backup_id = _store().register_imported(
         vm,
         str(backup_dir),
         summary["mode"],
-        summary["cree_le"] or "",
-        summary["taille_octets"],
+        summary["created_at"] or "",
+        summary["size_bytes"],
         checksum,
         str(manifest.get("source") or "")[:255] or None,
     )
@@ -217,8 +217,8 @@ def plan(items, network):
         raise RecoveryError("Too many VMs in one recovery")
     pairs, names = [], set()
     for item in items:
-        backup_dir, _manifest = _backup_dir(item.get("chemin") or "")
-        name = (item.get("nom") or "").strip()
+        backup_dir, _manifest = _backup_dir(item.get("path") or "")
+        name = (item.get("name") or "").strip()
         error = validate_name(name)
         if error:
             raise RecoveryError(f"{name or '(empty)'}: {error}")
@@ -266,7 +266,7 @@ def _run(task_id, pairs, network, username):
 
 
 def recover(items, network, username):
-    """Start the restore of `items` ([{"chemin", "nom"}]) as new VMs, one after another. Returns the task id."""
+    """Start the restore of `items` ([{"path", "name"}]) as new VMs, one after another. Returns the task id."""
     from app.core.audit import log_action
 
     pairs = plan(items, network)

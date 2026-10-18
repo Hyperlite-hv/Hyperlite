@@ -16,7 +16,7 @@ const SINCE = { all: null, "1h": 3600, "24h": 86400, "7d": 604800 };
 const STUCK_S = 900; // a task "running" for more than 15 minutes is flagged (no cleanup after a crash)
 const RUNNING = ["running", "pending"];
 // The status tabs filter the loaded tasks in the page, so that their counts stay right whichever tab is open.
-const VIEWS = { all: () => true, running: (r) => RUNNING.includes(r.statut), failed: (r) => r.statut === "failed" };
+const VIEWS = { all: () => true, running: (r) => RUNNING.includes(r.status), failed: (r) => r.status === "failed" };
 
 function duration(start, end, now) {
   if (!start) return "—";
@@ -28,7 +28,7 @@ function duration(start, end, now) {
 
 // Which task the journal shows when nothing was picked: the first running one, else the last failure, else the latest.
 function defaultTask(rows) {
-  return rows.find((r) => RUNNING.includes(r.statut)) || rows.find((r) => r.statut === "failed") || rows[0] || null;
+  return rows.find((r) => RUNNING.includes(r.status)) || rows.find((r) => r.status === "failed") || rows[0] || null;
 }
 
 // Tasks: every persisted task with the filters the API supports (type, target, node, user, period), status tabs,
@@ -38,8 +38,8 @@ function defaultTask(rows) {
 export default function ActivityPage({ selection, embedded = false }) {
   const nodeId = selection?.type === "node" ? selection.id : undefined;
   // A VM's or a container's own history: its exact name, among the tasks of its kind.
-  const own = selection?.type === "vm" ? { objet: parseVmKey(selection.id).nom, famille: "vm" }
-    : selection?.type === "container" ? { objet: selection.id, famille: "container" } : null;
+  const own = selection?.type === "vm" ? { object: parseVmKey(selection.id).name, family: "vm" }
+    : selection?.type === "container" ? { object: selection.id, family: "container" } : null;
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const navigateTo = useInfraStore((s) => s.navigateTo);
@@ -48,7 +48,7 @@ export default function ActivityPage({ selection, embedded = false }) {
   const [rows, setRows] = useState(null);
   const [unreachable, setUnreachable] = useState([]);
   const [error, setError] = useState(null);
-  const EMPTY_F = { type: "", cible: "", username: "", node: "", since: "24h" };
+  const EMPTY_F = { type: "", target: "", username: "", node: "", since: "24h" };
   const [f, setF] = useState(EMPTY_F);
   const [view, setView] = useState("all");
   const [now, setNow] = useState(() => Date.now());
@@ -58,13 +58,13 @@ export default function ActivityPage({ selection, embedded = false }) {
   const [exporting, setExporting] = useState(false);
   const pushToast = useInfraStore((s) => s.pushToast);
   const filters = useCallback(() => {
-    const depuis = SINCE[f.since] ? new Date(Date.now() - SINCE[f.since] * 1000).toISOString() : undefined;
-    return { node: nodeId ?? (f.node || undefined), type: f.type, cible: f.cible, username: f.username, depuis, ...own };
-  }, [f, nodeId, own?.objet, own?.famille]); // eslint-disable-line react-hooks/exhaustive-deps
+    const since = SINCE[f.since] ? new Date(Date.now() - SINCE[f.since] * 1000).toISOString() : undefined;
+    return { node: nodeId ?? (f.node || undefined), type: f.type, target: f.target, username: f.username, since, ...own };
+  }, [f, nodeId, own?.object, own?.family]); // eslint-disable-line react-hooks/exhaustive-deps
   const load = useCallback(async () => {
     try {
       // In a cluster, every member's tasks (each with the node that holds it) and the members that did not answer.
-      const r = await fetchClusterTasks({ ...filters(), limit: 200, tri: "cree_le", ordre: "desc" });
+      const r = await fetchClusterTasks({ ...filters(), limit: 200, sort: "created_at", position: "desc" });
       setRows(listOf(r)); setUnreachable(Array.isArray(r?.unreachable) ? r.unreachable : []);
       setNow(Date.now()); setError(null);
     } catch (e) { setError(normalizeDetail(e.message)); }
@@ -100,13 +100,13 @@ export default function ActivityPage({ selection, embedded = false }) {
   // Every matching task, from the server: the page itself only holds the 200 most recent.
   const download = async () => {
     setExporting(true);
-    try { await downloadTasksCsv({ ...filters(), statut: view === "failed" ? "failed" : view === "running" ? "running" : "" }); }
+    try { await downloadTasksCsv({ ...filters(), status: view === "failed" ? "failed" : view === "running" ? "running" : "" }); }
     catch (e) { pushToast({ kind: "error", title: t("act.exportFailed"), message: errorMessage(e) }); }
     finally { setExporting(false); }
   };
 
   const dirty = JSON.stringify(f) !== JSON.stringify(EMPTY_F) || view !== "all";
-  const nodeName = (id) => nodes.find((n) => n.id === id || n.nom === id)?.nom || id;
+  const nodeName = (id) => nodes.find((n) => n.id === id || n.name === id)?.name || id;
   const period = t(`act.over.${f.since}`);
 
   const tabs = (
@@ -125,25 +125,25 @@ export default function ActivityPage({ selection, embedded = false }) {
           <thead><tr><th scope="col">{t("act.task")}</th><th scope="col">{t("act.target")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("task.status")}</th><th scope="col">{t("act.started")}</th><th scope="col">{t("act.duration")}</th></tr></thead>
           <tbody>
             {shown.map((r) => {
-              const stuck = r.statut === "running" && (now - new Date(r.debut_le || r.cree_le).getTime()) / 1000 > STUCK_S;
-              const isVm = vms.some((v) => v.nom === r.cible);
+              const stuck = r.status === "running" && (now - new Date(r.started_at || r.created_at).getTime()) / 1000 > STUCK_S;
+              const isVm = vms.some((v) => v.name === r.target);
               const selected = current?.id === r.id;
-              const pct = Math.max(0, Math.min(100, Number(r.progres) || 0));
+              const pct = Math.max(0, Math.min(100, Number(r.progress) || 0));
               return (
                 <tr key={r.id} className={`nx-rowlink${selected ? " is-selected" : ""}`} aria-selected={selected} onClick={() => setPicked(r.id)}>
                   <th scope="row"><button type="button" className="nx-lnk nx-tasks-name" aria-controls="nx-task-journal" aria-pressed={selected} onClick={(e) => { e.stopPropagation(); setPicked(r.id); }}>{taskLabel(r.type)}</button>{stuck && <span className="nx-tone-warning" title={t("act.stuckHelp")}> ▲ {t("act.stuck")}</span>}</th>
-                  <td>{isVm ? <button type="button" className="nx-lnk nx-mono" onClick={(e) => { e.stopPropagation(); navigateTo("vm", r.cible, "summary"); }}>{r.cible}</button> : <span className="nx-mono">{r.cible || "—"}</span>}</td>
+                  <td>{isVm ? <button type="button" className="nx-lnk nx-mono" onClick={(e) => { e.stopPropagation(); navigateTo("vm", r.target, "summary"); }}>{r.target}</button> : <span className="nx-mono">{r.target || "—"}</span>}</td>
                   <td className="nx-mono nx-muted">{r.node ? nodeName(r.node) : "—"}</td>
                   <td>
                     <span className="nx-tasks-state">
-                      <StatePill kind="task" wire={r.statut} />
-                      {r.statut === "running" && pct > 0 && pct < 100 && (
+                      <StatePill kind="task" wire={r.status} />
+                      {r.status === "running" && pct > 0 && pct < 100 && (
                         <span className="nx-tasks-bar" role="progressbar" aria-label={t("act.progress")} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct}%` }} /></span>
                       )}
                     </span>
                   </td>
-                  <td className="nx-mono nx-muted">{fmt(r.debut_le || r.cree_le)}</td>
-                  <td className="nx-mono">{r.debut_le ? duration(r.debut_le, r.fin_le, now) : "—"}</td>
+                  <td className="nx-mono nx-muted">{fmt(r.started_at || r.created_at)}</td>
+                  <td className="nx-mono">{r.started_at ? duration(r.started_at, r.finished_at, now) : "—"}</td>
                 </tr>
               );
             })}
@@ -156,8 +156,8 @@ export default function ActivityPage({ selection, embedded = false }) {
   const journal = current && (
     <section className="nx-card2 nx-journal" id="nx-task-journal" aria-labelledby="nx-task-journal-h">
       <header className="nx-journal-h">
-        <h2 id="nx-task-journal-h">{t("act.journal")} · {taskLabel(current.type)}{current.cible ? ` ${current.cible}` : ""}</h2>
-        <StatePill kind="task" wire={current.statut} />
+        <h2 id="nx-task-journal-h">{t("act.journal")} · {taskLabel(current.type)}{current.target ? ` ${current.target}` : ""}</h2>
+        <StatePill kind="task" wire={current.status} />
         <span className="nx-sp" />
         <span className="nx-mono nx-muted nx-journal-id" title={t("act.taskId")}>{current.username ? `${current.username} · ` : ""}{current.id}</span>
       </header>
@@ -190,9 +190,9 @@ export default function ActivityPage({ selection, embedded = false }) {
       {header}
       <div className="nx-bar" role="group" aria-label={t("act.filters")}>
         {nodeId && tabs}
-        <label className="nx-search2"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t("act.target")} value={f.cible} onChange={upd("cible")} placeholder={t("act.searchPh")} /></label>
+        <label className="nx-search2"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t("act.target")} value={f.target} onChange={upd("target")} placeholder={t("act.searchPh")} /></label>
         <select className="nx-sel" aria-label={t("act.type")} value={f.type} onChange={upd("type")}><option value="">{t("act.allTypes")}</option>{Object.keys(TASK_LABEL_KEYS).map((k) => <option key={k} value={k}>{taskLabel(k)}</option>)}</select>
-        {!nodeId && nodes.length > 1 && <select className="nx-sel" aria-label={t("ns.node")} value={f.node} onChange={upd("node")}><option value="">{t("act.allNodes")}</option>{nodes.map((n) => <option key={n.id} value={n.id === "local" ? n.nom : n.id}>{n.nom}</option>)}</select>}
+        {!nodeId && nodes.length > 1 && <select className="nx-sel" aria-label={t("ns.node")} value={f.node} onChange={upd("node")}><option value="">{t("act.allNodes")}</option>{nodes.map((n) => <option key={n.id} value={n.id === "local" ? n.name : n.id}>{n.name}</option>)}</select>}
         <select className="nx-sel" aria-label={t("task.user")} value={f.username} onChange={upd("username")}><option value="">{t("act.allUsers")}</option>{users.map((u) => <option key={u} value={u}>{u}</option>)}</select>
         <select className="nx-sel" aria-label={t("act.period")} value={f.since} onChange={upd("since")}>{Object.keys(SINCE).map((k) => <option key={k} value={k}>{t(`act.since.${k}`)}</option>)}</select>
         {dirty && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => { setF(EMPTY_F); setView("all"); }}>{t("act.clear")}</button>}

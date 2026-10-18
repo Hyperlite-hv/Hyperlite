@@ -20,7 +20,7 @@ def _node(row):
     return Node(
         id=row["id"],
         spec=NodeSpec(name=row["name"], hostname=row["hostname"], ssh_user=row["ssh_user"], ssh_port=row["ssh_port"]),
-        status=NodeStatus(statut=row["statut"], derniere_verification=row["derniere_verification"]),
+        status=NodeStatus(status=row["status"], last_verification=row["last_verification"]),
         added_at=row["added_at"],
     )
 
@@ -31,8 +31,8 @@ def _maintenance(row):
 
 def _live(row):
     d = dict(row)
-    d["joignable"] = bool(d["joignable"])
-    d["mesure_le"] = d.pop("ts")
+    d["reachable"] = bool(d["reachable"])
+    d["measured_at"] = d.pop("ts")
     d.pop("name", None)
     return d
 
@@ -57,16 +57,16 @@ class SqliteNodeStore:
 
     def list_online(self):
         with get_conn() as db:
-            rows = db.execute("SELECT * FROM nodes WHERE statut = ? ORDER BY name", (ONLINE,)).fetchall()
+            rows = db.execute("SELECT * FROM nodes WHERE status = ? ORDER BY name", (ONLINE,)).fetchall()
         return [_node(r) for r in rows if not self_node.is_self(r["name"])]
 
-    def create(self, spec, added_at, statut):
+    def create(self, spec, added_at, status):
         with get_conn() as db:
             try:
                 db.execute(
-                    "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, derniere_verification, added_at) "
+                    "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, status, last_verification, added_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (spec.name, spec.hostname, spec.ssh_user, spec.ssh_port, statut, added_at, added_at),
+                    (spec.name, spec.hostname, spec.ssh_user, spec.ssh_port, status, added_at, added_at),
                 )
                 db.commit()
             except sqlite3.IntegrityError as e:
@@ -79,14 +79,12 @@ class SqliteNodeStore:
             db.commit()
         return cur.rowcount > 0
 
-    def update_status(self, node_id, statut, checked_at):
+    def update_status(self, node_id, status, checked_at):
         with get_conn() as db:
-            prev = db.execute("SELECT statut FROM nodes WHERE id = ?", (node_id,)).fetchone()
-            db.execute(
-                "UPDATE nodes SET statut = ?, derniere_verification = ? WHERE id = ?", (statut, checked_at, node_id)
-            )
+            prev = db.execute("SELECT status FROM nodes WHERE id = ?", (node_id,)).fetchone()
+            db.execute("UPDATE nodes SET status = ?, last_verification = ? WHERE id = ?", (status, checked_at, node_id))
             db.commit()
-        return prev["statut"] if prev else None
+        return prev["status"] if prev else None
 
     def live(self, name=None):
         with get_conn() as db:
@@ -98,8 +96,8 @@ class SqliteNodeStore:
     def write_live(self, rows):
         with get_conn() as db:
             db.executemany(
-                "INSERT OR REPLACE INTO node_live (name, ts, joignable, cpu_pct, mem_used_mb, mem_total_mb, uptime_s, "
-                "cores, cpu_model, kernel, os, address, version_hyperviseur, version_libvirt) "
+                "INSERT OR REPLACE INTO node_live (name, ts, reachable, cpu_pct, mem_used_mb, mem_total_mb, uptime_s, "
+                "cores, cpu_model, kernel, os, address, hypervisor_version, libvirt_version) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
@@ -144,14 +142,14 @@ class SqliteNodeRepository:
     async def list_online(self):
         return await asyncio.to_thread(self.sync.list_online)
 
-    async def create(self, spec, added_at, statut):
-        return await asyncio.to_thread(self.sync.create, spec, added_at, statut)
+    async def create(self, spec, added_at, status):
+        return await asyncio.to_thread(self.sync.create, spec, added_at, status)
 
     async def delete(self, name):
         return await asyncio.to_thread(self.sync.delete, name)
 
-    async def update_status(self, node_id, statut, checked_at):
-        return await asyncio.to_thread(self.sync.update_status, node_id, statut, checked_at)
+    async def update_status(self, node_id, status, checked_at):
+        return await asyncio.to_thread(self.sync.update_status, node_id, status, checked_at)
 
     async def live(self, name=None):
         return await asyncio.to_thread(self.sync.live, name)

@@ -19,19 +19,19 @@ def test_the_debian_side_of_the_check(monkeypatch):
         host_system,
         "updates",
         lambda refresh=False: {
-            "disponible": True,
-            "paquets": [
-                {"nom": "hyperlite", "securite": False},
-                {"nom": "openssl", "securite": True},
-                {"nom": "linux-image-amd64", "securite": True},
-                {"nom": "vim", "securite": False},
+            "available": True,
+            "packages": [
+                {"name": "hyperlite", "security": False},
+                {"name": "openssl", "security": True},
+                {"name": "linux-image-amd64", "security": True},
+                {"name": "vim", "security": False},
             ],
-            "redemarrage_requis": False,
+            "restart_required": False,
         },
     )
     s = update._system_summary()
-    assert (s["paquets"], s["securite"], s["redemarrage_prevu"]) == (3, 2, ["linux-image-amd64"])
-    assert "hyperlite" not in s["noms"]
+    assert (s["packages"], s["security"], s["restart_scheduled"]) == (3, 2, ["linux-image-amd64"])
+    assert "hyperlite" not in s["names"]
 
 
 @pytest.fixture()
@@ -58,7 +58,7 @@ def job(database, monkeypatch, tmp_path):
         task_id = create_task("hyperlite_update", "hyperlite", username="alice")
         update._run_update_job_apt(task_id, "alice")
         with database.get_conn() as conn:
-            return conn.execute("SELECT statut FROM tasks WHERE id = ?", (task_id,)).fetchone()[0]
+            return conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()[0]
 
     return run, calls
 

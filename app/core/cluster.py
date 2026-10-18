@@ -229,7 +229,7 @@ def ensure_reverse_trust(node):
     address: a key stolen from one node can only be reused from that same
     node's address, not from anywhere.
 
-    Fully best-effort: called automatically when a node is registered, but a
+    Fully best-effort: called automatically when a node is registered, purpose a
     failure here must NEVER make the registration itself fail (the local host ->
     node direction, by far the most used, keeps working independently)."""
     REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -391,11 +391,11 @@ def node_summary(node_name):
             capacity = available = None
         return {
             "hostname": conn.getHostname(),
-            "connecte": conn.isAlive() == 1,
+            "connected": conn.isAlive() == 1,
             "vms_actives": active,
-            "vms_arretees": len(domains) - active,
-            "stockage_capacite_go": round(capacity / (1024**3), 1) if capacity else None,
-            "stockage_disponible_go": round(available / (1024**3), 1) if available else None,
+            "vms_stopped": len(domains) - active,
+            "storage_capacity_gb": round(capacity / (1024**3), 1) if capacity else None,
+            "storage_available_gb": round(available / (1024**3), 1) if available else None,
         }
     finally:
         conn.close()
@@ -450,7 +450,7 @@ def _poll_once():
         if ok and not cluster_lead.in_cluster():  # a member of a cluster starts its own VMs
             _check_node_boot(node)
         if prev and prev != new_statut:
-            log_action("system", "node_statut_change", node["name"], "success" if ok else "failed", new_statut)
+            log_action("system", "node_status_change", node["name"], "success" if ok else "failed", new_statut)
         if ok:
             _unreported.discard(node["name"])
             continue

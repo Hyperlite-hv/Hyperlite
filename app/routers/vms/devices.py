@@ -170,10 +170,10 @@ def _resize_disk(name, target_dev, payload, user):
             f"{target_dev}: {old_gb} GB -> {new_gb} GB ({'live' if live else 'stopped'})",
         )
         return {
-            "cible": target_dev,
-            "ancienne_taille_go": old_gb,
-            "taille_go": new_gb,
-            "a_chaud": live,
+            "target": target_dev,
+            "old_size_gb": old_gb,
+            "size_gb": new_gb,
+            "live": live,
             "message": f"Disk '{target_dev}' of '{name}' grown to {new_gb} GB",
         }
     finally:
@@ -211,7 +211,7 @@ def _move_disk_job(task_id, username, name, target_dev, dest_pool, delete_source
             name,
             "success",
             f"{target_dev}: {result['source']} -> {result['destination']} "
-            f"({'live' if how['live'] else 'stopped'}; source {'deleted' if result['source_supprimee'] else 'kept'})",
+            f"({'live' if how['live'] else 'stopped'}; source {'deleted' if result['source_deleted'] else 'kept'})",
         )
     except disk_move.MoveError as e:
         finish_task(task_id, "failed", e.message)
@@ -258,7 +258,7 @@ def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depend
     except BaseException:
         claim.release()
         raise
-    return {"task_id": task_id, "statut": "running", "destination": how["dest"], "a_chaud": how["live"]}
+    return {"task_id": task_id, "status": "running", "destination": how["dest"], "live": how["live"]}
 
 
 def _get_interfaces(domain):
@@ -274,14 +274,14 @@ def _get_interfaces(domain):
         result.append(
             {
                 "mac": mac_elem.get("address") if mac_elem is not None else None,
-                "reseau": source_elem.get("network") if source_elem is not None else None,
+                "network": source_elem.get("network") if source_elem is not None else None,
                 "type_source": iface.get("type"),
-                "modele": model_elem.get("type") if model_elem is not None else None,
+                "model": model_elem.get("type") if model_elem is not None else None,
                 "vlan": int(vlan_elem.get("id"))
                 if vlan_elem is not None and (vlan_elem.get("id") or "").isdigit()
                 else None,
                 # The per-VM firewall is an nwfilter referenced by the interface.
-                "pare_feu": filter_elem.get("filter") if filter_elem is not None else None,
+                "firewall": filter_elem.get("filter") if filter_elem is not None else None,
             }
         )
     return result
@@ -290,12 +290,12 @@ def _get_interfaces(domain):
 def _disk_size(domain, conn, target, source):
     """Virtual size, space used on the host and pool of one disk. Each part is
     best-effort: an empty CD drive or a path outside any pool only lacks that part."""
-    out = {"taille_go": None, "alloue_go": None, "pool": None}
+    out = {"size_gb": None, "allocated_gb": None, "pool": None}
     if target:
         try:
             capacity, allocation, _physical = domain.blockInfo(target)
-            out["taille_go"] = round(capacity / 1024**3, 2)
-            out["alloue_go"] = round(allocation / 1024**3, 2)
+            out["size_gb"] = round(capacity / 1024**3, 2)
+            out["allocated_gb"] = round(allocation / 1024**3, 2)
         except libvirt.libvirtError:
             logger.debug("No block info for %s", target, exc_info=True)
     if source:
@@ -327,7 +327,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
             path = (source.get("file") or source.get("dev")) if source is not None else None
             disks.append(
                 {
-                    "cible": dev,
+                    "target": dev,
                     "bus": target.get("bus") if target is not None else None,
                     "type": disk.get("device"),
                     "source": path,
@@ -336,7 +336,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
                     **(
                         _disk_size(domain, conn, dev, path)
                         if path
-                        else {"taille_go": None, "alloue_go": None, "pool": None}
+                        else {"size_gb": None, "allocated_gb": None, "pool": None}
                     ),
                 }
             )
@@ -557,14 +557,14 @@ def _hostdev_entries(conn, domain):
             by_key[key] = dev
     out = []
     for item in passthrough.attached(domain):
-        dev = next((by_key[k] for k in item["cles"] if k in by_key), None)
+        dev = next((by_key[k] for k in item["keys"] if k in by_key), None)
         out.append(
             {
-                "id": dev["id"] if dev else item["cles"][0],
+                "id": dev["id"] if dev else item["keys"][0],
                 "type": item["type"],
-                "adresse": dev["adresse"] if dev else None,
-                "fabricant": dev["fabricant"] if dev else None,
-                "produit": dev["produit"] if dev else None,
+                "address": dev["address"] if dev else None,
+                "vendor": dev["vendor"] if dev else None,
+                "product": dev["product"] if dev else None,
                 # A USB device can be unplugged; a PCI one can vanish after a hardware change.
                 "present": dev is not None,
                 "xml": item["xml"],
@@ -626,8 +626,8 @@ def attach_vm_hostdev(name: str, payload: HostDeviceAttach, user: dict = Depends
             msg = describe_exception(e)
             log_action(user["username"], "attach_hostdev", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Device attach error: {msg}") from e
-        log_action(user["username"], "attach_hostdev", name, "success", ", ".join(d["adresse"] for d, _ in plan))
-        return {"vm": name, "ajoutes": [d["id"] for d, _ in plan], "hostdevs": _hostdev_listing(conn, domain)}
+        log_action(user["username"], "attach_hostdev", name, "success", ", ".join(d["address"] for d, _ in plan))
+        return {"vm": name, "added": [d["id"] for d, _ in plan], "hostdevs": _hostdev_listing(conn, domain)}
     finally:
         conn.close()
 

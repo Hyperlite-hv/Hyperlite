@@ -5,7 +5,7 @@ test("a running job run shows its log, is cancelled from the task list and ends 
   const token = await apiLogin(request);
   const auth = { Authorization: `Bearer ${token}` };
   const name = `${PREFIX}slow-${Date.now().toString().slice(-6)}`;
-  const created = await request.post("/jobs", { headers: auth, data: { name, steps: [{ cible_type: "host", commande: "sleep 30" }] } });
+  const created = await request.post("/jobs", { headers: auth, data: { name, steps: [{ target_type: "host", command: "sleep 30" }] } });
   expect(created.status()).toBe(201);
   const jobId = (await created.json()).id;
   expect((await request.post(`/jobs/${jobId}/run`, { headers: auth, data: { targets: [], dry_run: false } })).status()).toBe(202);

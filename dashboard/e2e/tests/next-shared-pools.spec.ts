@@ -10,8 +10,8 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
     const path = new URL(req.url()).pathname;
-    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "online" }]);
-    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0 });
+    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" }]);
+    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_actives: 0, vms_stopped: 0 });
     return route.fallback();
   });
   await page.route("**/storage/support", (route) => json(route, { nfs: "ok", zfs: "ok", iscsi: "ok", iscsi_initiator: null }));
@@ -19,9 +19,9 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
   await page.route(/\/storage(\?.*)?$/, async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     sent.push(route.request().postDataJSON());
-    return json(route, { nom: "nas", partage: true, tous_les_noeuds: true, resultats: [
-      { noeud: "local", etat: "cree", detail: null, avertissement: null },
-      { noeud: "peer", etat: "failed", detail: "mount.nfs: access denied by server", avertissement: null },
+    return json(route, { name: "nas", shared: true, all_nodes: true, results: [
+      { node: "local", state: "cree", detail: null, warning: null },
+      { node: "peer", state: "failed", detail: "mount.nfs: access denied by server", warning: null },
     ] }, 201);
   });
   await uiLogin(page);
@@ -45,5 +45,5 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
   await expect(page.getByText("Pool nas created on 1 node(s)")).toBeVisible();
   await expect(page.getByText("Failed on 1 node(s)")).toBeVisible();
   await expect(page.getByText(/access denied by server/).first()).toBeVisible();
-  expect(sent[0]).toMatchObject({ name: "nas", type: "netfs", tous_les_noeuds: true });
+  expect(sent[0]).toMatchObject({ name: "nas", type: "netfs", all_nodes: true });
 });

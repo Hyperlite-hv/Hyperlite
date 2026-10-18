@@ -31,26 +31,30 @@ def test_describe_reads_subnet_range_and_reservations():
     assert d == {
         "modifiable": True,
         "mode": "nat",
-        "adresse": "10.9.0.1",
+        "address": "10.9.0.1",
         "masque": "255.255.255.0",
         "dhcp": {"debut": "10.9.0.100", "fin": "10.9.0.200"},
-        "reservations": [{"mac": "52:54:00:00:00:01", "ip": "10.9.0.10", "nom": "web"}],
+        "reservations": [{"mac": "52:54:00:00:00:01", "ip": "10.9.0.10", "name": "web"}],
     }
     assert ne.describe_xml(BRIDGE)["modifiable"] is False
 
 
 def test_edit_changes_range_and_mode_and_keeps_reservations():
-    d = ne.describe_xml(edit(mode="isole", netmask="255.255.0.0"))
-    assert (d["mode"], d["masque"], d["dhcp"]) == ("isole", "255.255.0.0", {"debut": "10.9.0.50", "fin": "10.9.0.60"})
+    d = ne.describe_xml(edit(mode="isolated", netmask="255.255.0.0"))
+    assert (d["mode"], d["masque"], d["dhcp"]) == (
+        "isolated",
+        "255.255.0.0",
+        {"debut": "10.9.0.50", "fin": "10.9.0.60"},
+    )
     assert d["reservations"][0]["ip"] == "10.9.0.10"
-    root = ET.fromstring(edit(mode="isole"))
+    root = ET.fromstring(edit(mode="isolated"))
     assert root.find("forward") is None and root.find("bridge").get("name") == "virbr9"
     assert (
         ET.fromstring(
             edit(
                 ne.edit_xml(
                     NAT,
-                    mode="isole",
+                    mode="isolated",
                     address="10.9.0.1",
                     netmask="255.255.255.0",
                     dhcp={"debut": "10.9.0.50", "fin": "10.9.0.60"},
@@ -163,20 +167,20 @@ def test_range_change_is_live_and_subnet_change_waits_for_restart(client, auth_h
     admin = auth_headers("root", "admin")
     body = {
         "mode": "nat",
-        "adresse": "10.9.0.1",
+        "address": "10.9.0.1",
         "masque": "255.255.255.0",
         "dhcp": {"debut": "10.9.0.20", "fin": "10.9.0.90"},
     }
     r = client.patch("/networks/lab", json=body, headers=admin)
-    assert r.status_code == 200 and r.json()["a_redemarrer"] is False
+    assert r.status_code == 200 and r.json()["needs_restart"] is False
     assert ne.describe_xml(conn.net.live)["dhcp"] == {"debut": "10.9.0.20", "fin": "10.9.0.90"}
 
     r = client.patch("/networks/lab", json=body | {"masque": "255.255.0.0"}, headers=admin)
-    assert r.json()["a_redemarrer"] is True
+    assert r.json()["needs_restart"] is True
     assert r.json()["ipam"]["masque"] == "255.255.0.0"
     assert ne.describe_xml(conn.net.live)["masque"] == "255.255.255.0"
 
-    r = client.patch("/networks/lab", json=body | {"adresse": "10.9.0.20"}, headers=admin)
+    r = client.patch("/networks/lab", json=body | {"address": "10.9.0.20"}, headers=admin)
     assert r.status_code == 422 and "inside the DHCP range" in r.json()["detail"]
     assert client.patch("/networks/lab", json=body, headers=auth_headers("watcher", "viewer")).status_code == 403
 
@@ -184,10 +188,10 @@ def test_range_change_is_live_and_subnet_change_waits_for_restart(client, auth_h
 def test_reservations_are_added_live_and_removed(client, auth_headers, conn):
     admin = auth_headers("root", "admin")
     r = client.post(
-        "/networks/lab/reservations", json={"mac": "52:54:00:00:00:09", "ip": "10.9.0.150", "nom": "db"}, headers=admin
+        "/networks/lab/reservations", json={"mac": "52:54:00:00:00:09", "ip": "10.9.0.150", "name": "db"}, headers=admin
     )
     assert r.status_code == 201
-    assert {"mac": "52:54:00:00:00:09", "ip": "10.9.0.150", "nom": "db"} in r.json()["reservations"]
+    assert {"mac": "52:54:00:00:00:09", "ip": "10.9.0.150", "name": "db"} in r.json()["reservations"]
     assert conn.net.updates[-1][3] == libvirt.VIR_NETWORK_UPDATE_AFFECT_CONFIG | libvirt.VIR_NETWORK_UPDATE_AFFECT_LIVE
 
     for bad, message in [
@@ -196,13 +200,13 @@ def test_reservations_are_added_live_and_removed(client, auth_headers, conn):
         ({"mac": "52:54:00:00:00:0a", "ip": "10.9.0.1"}, "gateway"),
         ({"mac": "52:54:00:00:00:0a", "ip": "10.9.1.1"}, "not a usable address"),
         ({"mac": "zz", "ip": "10.9.0.11"}, "Invalid MAC"),
-        ({"mac": "52:54:00:00:00:0a", "ip": "10.9.0.11", "nom": "bad name'/>"}, "Invalid name"),
+        ({"mac": "52:54:00:00:00:0a", "ip": "10.9.0.11", "name": "bad name'/>"}, "Invalid name"),
     ]:
         r = client.post("/networks/lab/reservations", json=bad, headers=admin)
         assert r.status_code == 422 and message in r.json()["detail"], bad
 
     detail = client.get("/networks/lab", headers=admin).json()
-    assert detail["baux_dhcp"][0]["expire"] == 1900000000
+    assert detail["dhcp_leases"][0]["expire"] == 1900000000
     assert len(detail["ipam"]["reservations"]) == 2
 
     assert client.delete("/networks/lab/reservations/52:54:00:00:00:09", headers=admin).status_code == 200

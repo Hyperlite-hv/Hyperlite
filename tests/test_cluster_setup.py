@@ -95,9 +95,9 @@ def test_the_configuration_corosync_gets(host):
     conf = {
         "cluster": "prod",
         "version": 3,
-        "membres": [
-            {"nom": "pve-b", "nodeid": 2, "adresse": "192.0.2.12"},
-            {"nom": "hv-test", "nodeid": 1, "adresse": ADDRESS},
+        "members": [
+            {"name": "pve-b", "nodeid": 2, "address": "192.0.2.12"},
+            {"name": "hv-test", "nodeid": 1, "address": ADDRESS},
         ],
     }
     text = cluster_setup.render(cluster_setup._check_conf(conf))
@@ -106,9 +106,9 @@ def test_the_configuration_corosync_gets(host):
     assert text.index("name: hv-test") < text.index("name: pve-b")  # by node id
     for bad in (
         {**conf, "cluster": "bad name"},
-        {**conf, "membres": [{"nom": "x;rm", "nodeid": 1, "adresse": ADDRESS}]},
-        {**conf, "membres": [{"nom": "pve-c", "nodeid": 1, "adresse": "not-an-ip\n}"}]},
-        {**conf, "membres": conf["membres"] + [{"nom": "pve-c", "nodeid": 2, "adresse": "192.0.2.13"}]},
+        {**conf, "members": [{"name": "x;rm", "nodeid": 1, "address": ADDRESS}]},
+        {**conf, "members": [{"name": "pve-c", "nodeid": 1, "address": "not-an-ip\n}"}]},
+        {**conf, "members": conf["members"] + [{"name": "pve-c", "nodeid": 2, "address": "192.0.2.13"}]},
         {**conf, "version": 0},
     ):
         with pytest.raises(cluster_setup.ClusterError):
@@ -137,8 +137,8 @@ def _create(host):
 
 def test_creating_a_cluster(host):
     state = _create(host)
-    assert state["en_cluster"] and state["nom"] == "prod" and state["quorum"]
-    assert state["membres"] == [{"nom": "hv-test", "nodeid": 1, "adresse": ADDRESS, "voix": 1}]
+    assert state["in_cluster"] and state["name"] == "prod" and state["quorum"]
+    assert state["members"] == [{"name": "hv-test", "nodeid": 1, "address": ADDRESS, "votes": 1}]
 
     key = cluster_setup.COROSYNC_KEY
     assert len(key.read_bytes()) == 256 and oct(key.stat().st_mode & 0o777) == "0o400"
@@ -168,16 +168,16 @@ def _information(host):
 def test_the_join_information_lets_one_node_in_once(host):
     _create(host)
     _info, decoded = _information(host)
-    assert decoded["cluster"] == "prod" and decoded["adresse"] == ADDRESS and decoded["port"] == 8000
-    assert decoded["empreinte"] == cluster_setup._certificate_fingerprint()
+    assert decoded["cluster"] == "prod" and decoded["address"] == ADDRESS and decoded["port"] == 8000
+    assert decoded["fingerprint"] == cluster_setup._certificate_fingerprint()
 
     with pytest.raises(PermissionError):
         cluster_setup.accept_member("x" * 43, "pve-b", "192.0.2.12", KEY_B)  # a wrong ticket also spends nothing
     answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
     assert answer["configuration"]["version"] == 2
-    assert answer["configuration"]["membres"][1] == {"nom": "pve-b", "nodeid": 2, "adresse": "192.0.2.12"}
-    assert set(answer["cles"]) == {"HYPERLITE_SECRET_KEY", "HYPERLITE_ENCRYPTION_KEY"}
-    assert answer["cles_ssh"] == {"hv-test": KEY_A, "pve-b": KEY_B}
+    assert answer["configuration"]["members"][1] == {"name": "pve-b", "nodeid": 2, "address": "192.0.2.12"}
+    assert set(answer["keys"]) == {"HYPERLITE_SECRET_KEY", "HYPERLITE_ENCRYPTION_KEY"}
+    assert answer["ssh_keys"] == {"hv-test": KEY_A, "pve-b": KEY_B}
     # This node's Corosync knows the new member before it calls, and it may reach it over SSH.
     assert "name: pve-b" in cluster_setup.COROSYNC_CONF.read_text() and "corosync-cfgtool -R" in host.commands
     assert ("B" * 68) in (host.tmp / "authorized_keys").read_text()
@@ -211,26 +211,26 @@ def _answer(me="hv-test", address="192.0.2.11"):
         "configuration": {
             "cluster": "prod",
             "version": 2,
-            "membres": [
-                {"nom": "pve-a", "nodeid": 1, "adresse": "192.0.2.20"},
-                {"nom": me, "nodeid": 2, "adresse": address},
+            "members": [
+                {"name": "pve-a", "nodeid": 1, "address": "192.0.2.20"},
+                {"name": me, "nodeid": 2, "address": address},
             ],
         },
-        "cle_corosync": base64.b64encode(b"k" * 256).decode(),
-        "cles": {
+        "corosync_key": base64.b64encode(b"k" * 256).decode(),
+        "keys": {
             "HYPERLITE_SECRET_KEY": "the-clusters-secret-key-0123456789",
             "HYPERLITE_ENCRYPTION_KEY": "the-clusters-fernet-key-0123456789ab=",
         },
-        "cles_ssh": {"pve-a": KEY_B, me: KEY_A},
+        "ssh_keys": {"pve-a": KEY_B, me: KEY_A},
     }
 
 
 def _blob(**over):
     info = {
         "cluster": "prod",
-        "adresse": "192.0.2.20",
+        "address": "192.0.2.20",
         "port": 8000,
-        "empreinte": "ab" * 32,
+        "fingerprint": "ab" * 32,
         "ticket": "t" * 43,
         **over,
     }
@@ -250,17 +250,17 @@ def test_joining_replaces_this_nodes_configuration_by_the_clusters(host, monkeyp
     with pytest.raises(cluster_setup.ClusterError, match="Type the cluster's name"):
         cluster_setup.join(_blob(), "192.0.2.11", "wrong", "alice")
     with pytest.raises(cluster_setup.ClusterError, match="not valid"):
-        cluster_setup.join(_blob(empreinte="zz"), "192.0.2.11", "prod", "alice")
+        cluster_setup.join(_blob(fingerprint="zz"), "192.0.2.11", "prod", "alice")
     assert sent == []
 
     done = cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
-    assert done == {"cluster": "prod", "redemarrage": True} and host.restarts == [1]
+    assert done == {"cluster": "prod", "restart": True} and host.restarts == [1]
     info, body = sent[0]
-    assert info["adresse"] == "192.0.2.20" and body == {
+    assert info["address"] == "192.0.2.20" and body == {
         "ticket": "t" * 43,
-        "nom": "hv-test",
-        "adresse": "192.0.2.11",
-        "cle_ssh": KEY_A,
+        "name": "hv-test",
+        "address": "192.0.2.11",
+        "ssh_key": KEY_A,
     }
     env = (host.tmp / ".env").read_text()
     assert "HYPERLITE_SECRET_KEY=the-clusters-secret-key-0123456789" in env and "OTHER=1" in env
@@ -280,7 +280,7 @@ def test_joining_replaces_this_nodes_configuration_by_the_clusters(host, monkeyp
     database.init_db()
     with get_conn() as db:
         assert db.execute("SELECT COUNT(*) FROM cfs_outbox").fetchone()[0] == 0
-        settings = dict(db.execute("SELECT cle, valeur FROM app_settings").fetchall())
+        settings = dict(db.execute("SELECT key, value FROM app_settings").fetchall())
     assert "cfs_join_pending" not in settings and "cfs_applied_version" not in settings
 
 
@@ -295,7 +295,7 @@ def test_an_answer_that_does_not_name_this_node_changes_nothing(host, monkeypatc
 def test_each_node_follows_the_shared_configuration(host):
     _create(host)
     conf = json.loads(host.files[cluster_setup.CONF_PATH])
-    conf["membres"].append({"nom": "pve-c", "nodeid": 3, "adresse": "192.0.2.13"})
+    conf["members"].append({"name": "pve-c", "nodeid": 3, "address": "192.0.2.13"})
     conf["version"] = 5
     host.files[cluster_setup.CONF_PATH] = json.dumps(conf).encode()
     host.files["/cluster/ssh/pve-c"] = KEY_B.encode()
@@ -316,7 +316,7 @@ def test_removing_a_member(host):
     with pytest.raises(cluster_setup.ClusterError, match="to confirm"):
         cluster_setup.remove_member("pve-b", "nope", "alice")
     state = cluster_setup.remove_member("pve-b", "pve-b", "alice")
-    assert [m["nom"] for m in state["membres"]] == ["hv-test"]
+    assert [m["name"] for m in state["members"]] == ["hv-test"]
     assert "pve-b" not in cluster_setup.COROSYNC_CONF.read_text() and "/cluster/ssh/pve-b" not in host.files
     with get_conn() as db:
         assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test"}
@@ -347,12 +347,12 @@ def test_the_member_is_reached_only_through_the_certificate_of_the_join_informat
     server.socket = context.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        info = {"adresse": "127.0.0.1", "port": server.server_address[1], "empreinte": "00" * 32}
+        info = {"address": "127.0.0.1", "port": server.server_address[1], "fingerprint": "00" * 32}
         _Member.received.clear()
         with pytest.raises(cluster_setup.ClusterError, match="does not match"):
             cluster_setup._call_member(info, {"ticket": "secret"})
         assert _Member.received == []  # nothing was sent to a certificate that does not match
-        info["empreinte"] = cluster_setup.hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
+        info["fingerprint"] = cluster_setup.hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
         assert cluster_setup._call_member(info, {"ticket": "secret"}) == {"ok": True}
         assert _Member.received == [{"ticket": "secret"}]
     finally:
@@ -362,18 +362,18 @@ def test_the_member_is_reached_only_through_the_certificate_of_the_join_informat
 def test_the_api(host, client, auth_headers):
     admin, viewer = auth_headers("alice"), auth_headers("olga", role="viewer")
     assert client.get("/cluster", headers=viewer).status_code == 403
-    assert client.get("/cluster", headers=admin).json()["en_cluster"] is False
-    r = client.post("/cluster/creer", json={"nom": "prod", "adresse": "192.0.2.99"}, headers=admin)
+    assert client.get("/cluster", headers=admin).json()["in_cluster"] is False
+    r = client.post("/cluster/creer", json={"name": "prod", "address": "192.0.2.99"}, headers=admin)
     assert r.status_code == 409 and "not an address of this node" in r.json()["detail"]
-    r = client.post("/cluster/creer", json={"nom": "prod", "adresse": ADDRESS}, headers=admin)
-    assert r.status_code == 200 and r.json()["nom"] == "prod"
+    r = client.post("/cluster/creer", json={"name": "prod", "address": ADDRESS}, headers=admin)
+    assert r.status_code == 200 and r.json()["name"] == "prod"
     assert client.post("/cluster/adhesion", headers=viewer).status_code == 403
     info = client.post("/cluster/adhesion", headers=admin).json()
     ticket = json.loads(base64.urlsafe_b64decode(info["information"] + "=="))["ticket"]
     # The joining node has no session here: the ticket is what lets it in.
-    bad = {"ticket": "x" * 43, "nom": "pve-b", "adresse": "192.0.2.12", "cle_ssh": KEY_B}
-    assert client.post("/cluster/membres", json=bad).status_code == 403
-    r = client.post("/cluster/membres", json={**bad, "ticket": ticket})
+    bad = {"ticket": "x" * 43, "name": "pve-b", "address": "192.0.2.12", "ssh_key": KEY_B}
+    assert client.post("/cluster/members", json=bad).status_code == 403
+    r = client.post("/cluster/members", json={**bad, "ticket": ticket})
     assert r.status_code == 200 and r.json()["configuration"]["version"] == 2
 
 
@@ -384,7 +384,7 @@ def test_a_join_whose_services_do_not_start_keeps_this_nodes_keys(host, monkeypa
         cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
     assert "a-secret-key-of-this-node" in (host.tmp / ".env").read_text()  # its database stays readable
     with get_conn() as db:
-        assert db.execute("SELECT valeur FROM app_settings WHERE cle = 'cfs_join_pending'").fetchone() is None
+        assert db.execute("SELECT value FROM app_settings WHERE key = 'cfs_join_pending'").fetchone() is None
     assert host.restarts == []
 
 
@@ -416,8 +416,8 @@ def test_the_first_member_is_registered_before_corosync_drops_the_quorum(host, m
     monkeypatch.setattr(cluster_setup, "_run", reloading)
 
     answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
-    assert reloaded and answer["configuration"]["membres"][1]["nom"] == "pve-b"
-    assert answer["cles_ssh"] == {"hv-test": KEY_A, "pve-b": KEY_B} and answer["cle_corosync"]
+    assert reloaded and answer["configuration"]["members"][1]["name"] == "pve-b"
+    assert answer["ssh_keys"] == {"hv-test": KEY_A, "pve-b": KEY_B} and answer["corosync_key"]
     with get_conn() as db:
         assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test", "pve-b"}
 
@@ -454,13 +454,13 @@ def test_a_member_that_never_encrypted_anything_sends_a_new_encryption_key(host,
     _create(host)
     _info, decoded = _information(host)
     answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
-    key = answer["cles"]["HYPERLITE_ENCRYPTION_KEY"]
+    key = answer["keys"]["HYPERLITE_ENCRYPTION_KEY"]
     assert key and f"HYPERLITE_ENCRYPTION_KEY={key}" in env.read_text()
 
 
 def test_an_answer_without_the_clusters_keys_changes_nothing(host, monkeypatch):
     answer = _answer()
-    del answer["cles"]["HYPERLITE_ENCRYPTION_KEY"]
+    del answer["keys"]["HYPERLITE_ENCRYPTION_KEY"]
     monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: answer)
     with pytest.raises(cluster_setup.ClusterError, match=r"did not send the cluster's keys.*remove hv-test there"):
         cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
@@ -507,7 +507,7 @@ def test_a_join_that_fails_puts_this_node_back_as_it_was(host, monkeypatch):
     assert "systemctl disable hyperlite-cfs.service" in tail and "systemctl restart corosync" in tail
     assert "systemctl restart hyperlite-cfs.service" not in tail
     with get_conn() as db:
-        settings = dict(db.execute("SELECT cle, valeur FROM app_settings").fetchall())
+        settings = dict(db.execute("SELECT key, value FROM app_settings").fetchall())
     assert "cfs_join_pending" not in settings and settings.get("cfs_shadow") != "1"
     assert host.restarts == []
 
@@ -517,7 +517,7 @@ def test_a_join_that_fails_puts_this_node_back_as_it_was(host, monkeypatch):
 
 def _add_member(host, name="pve-b", nodeid=2, address="192.0.2.11"):
     conf = json.loads(host.files[cluster_setup.CONF_PATH])
-    conf["membres"].append({"nom": name, "nodeid": nodeid, "adresse": address})
+    conf["members"].append({"name": name, "nodeid": nodeid, "address": address})
     host.files[cluster_setup.CONF_PATH] = json.dumps(conf).encode()
 
 
@@ -526,16 +526,16 @@ def test_a_primary_node_counts_twice_and_alone_keeps_the_quorum_with_one_other(h
     _add_member(host)  # a member from a configuration without votes: one each
     assert "quorum_votes: 1" in cluster_setup.render(cluster_setup.shared_conf())
     state = cluster_setup.set_primary("hv-test", "admin")
-    assert {m["nom"]: m["voix"] for m in state["membres"]} == {"hv-test": 2, "pve-b": 1}
+    assert {m["name"]: m["votes"] for m in state["members"]} == {"hv-test": 2, "pve-b": 1}
     conf = cluster_setup.COROSYNC_CONF.read_text()
     assert "name: hv-test\n    nodeid: 1\n    quorum_votes: 2" in conf  # 2 of 3: quorate alone
     assert "name: pve-b\n    nodeid: 2\n    quorum_votes: 1" in conf
     version = cluster_setup.shared_conf()["version"]
     state = cluster_setup.set_primary("pve-b", "admin")  # one primary at most: the other goes back to one vote
-    assert {m["nom"]: m["voix"] for m in state["membres"]} == {"hv-test": 1, "pve-b": 2}
+    assert {m["name"]: m["votes"] for m in state["members"]} == {"hv-test": 1, "pve-b": 2}
     assert cluster_setup.shared_conf()["version"] == version + 1  # every member writes corosync.conf again (sync)
     state = cluster_setup.set_primary(None, "admin")
-    assert {m["voix"] for m in state["membres"]} == {1}
+    assert {m["votes"] for m in state["members"]} == {1}
 
 
 def test_a_primary_must_be_a_member_and_a_configuration_with_two_is_refused(host):
@@ -544,11 +544,11 @@ def test_a_primary_must_be_a_member_and_a_configuration_with_two_is_refused(host
         cluster_setup.set_primary("pve-z", "admin")
     _add_member(host)
     conf = json.loads(host.files[cluster_setup.CONF_PATH])
-    for m in conf["membres"]:
-        m["voix"] = 2
+    for m in conf["members"]:
+        m["votes"] = 2
     with pytest.raises(cluster_setup.ClusterError):
         cluster_setup._check_conf(conf)  # never written from such a configuration
-    conf["membres"][0]["voix"] = 7
+    conf["members"][0]["votes"] = 7
     with pytest.raises(cluster_setup.ClusterError):
         cluster_setup._check_conf(conf)
 
@@ -556,7 +556,7 @@ def test_a_primary_must_be_a_member_and_a_configuration_with_two_is_refused(host
 def test_setting_the_primary_is_for_administrators(client, auth_headers, host):
     _create(host)
     viewer = auth_headers("olga", "viewer")
-    assert client.post("/cluster/principal", json={"nom": "hv-test"}, headers=viewer).status_code == 403
+    assert client.post("/cluster/principal", json={"name": "hv-test"}, headers=viewer).status_code == 403
     admin = auth_headers("root")
-    r = client.post("/cluster/principal", json={"nom": "hv-test"}, headers=admin)
-    assert r.status_code == 200 and r.json()["membres"][0]["voix"] == 2
+    r = client.post("/cluster/principal", json={"name": "hv-test"}, headers=admin)
+    assert r.status_code == 200 and r.json()["members"][0]["votes"] == 2

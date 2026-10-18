@@ -17,7 +17,7 @@ import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
 import { askNewName } from "../lib/rename";
 
-const EMPTY = { name: "", type: "dir", node: "local", scope: "tous", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
+const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
 // The same rules as the API (app/routers/storage.py, app/core/iscsi.py), checked before the request.
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -73,7 +73,7 @@ function CreatePoolDrawer({ open, onClose }) {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const shared = SHARED.includes(form.type) && nodes.length > 1;
   const scope = shared ? form.scope : "un";
-  const targets = scope === "tous" ? nodes.map((n) => n.id) : scope === "choix" ? form.chosen : [form.node];
+  const targets = scope === "all" ? nodes.map((n) => n.id) : scope === "choix" ? form.chosen : [form.node];
   // The local host only: a remote node reports its own error when the pool is created.
   const local = targets.includes("local");
   const blocker = !local || !support ? null
@@ -96,21 +96,21 @@ function CreatePoolDrawer({ open, onClose }) {
         : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host.trim(), nfs_export_path: form.nfs_export_path.trim(), nfs_version: form.nfs_version }
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host.trim(), iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user.trim() || null, chap_password: form.chap_user.trim() ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
-      const where = scope === "tous" ? { tous_les_noeuds: true } : scope === "choix" ? { noeuds: form.chosen } : {};
+      const where = scope === "all" ? { all_nodes: true } : scope === "choix" ? { nodes: form.chosen } : {};
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
       const created = await createStoragePool({ ...payload, ...where }, scope === "un" && form.node !== "local" ? form.node : undefined);
-      const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
-      if (created?.resultats) {
+      const nodeName = (id) => nodes.find((n) => n.id === id)?.name || id;
+      if (created?.results) {
         // One line per node: created, already there, or why it failed there (the others went on).
-        const ok = created.resultats.filter((r) => r.etat !== "failed");
-        const failed = created.resultats.filter((r) => r.etat === "failed");
-        pushToast({ kind: "success", title: t("stor.createdOn", { name: form.name, n: ok.length }), message: ok.map((r) => `${nodeName(r.noeud)}${r.etat === "existe" ? ` (${t("stor.alreadyThere")})` : ""}`).join(", ") });
-        if (failed.length) pushToast({ kind: "error", title: t("stor.failedOn", { n: failed.length }), message: failed.map((r) => `${nodeName(r.noeud)} : ${r.detail}`).join("\n"), duration: Infinity });
-        for (const r of created.resultats) if (r.avertissement) pushToast({ kind: "error", title: `${t("stor.nfsPermTitle")} · ${nodeName(r.noeud)}`, message: r.avertissement, duration: Infinity });
+        const ok = created.results.filter((r) => r.state !== "failed");
+        const failed = created.results.filter((r) => r.state === "failed");
+        pushToast({ kind: "success", title: t("stor.createdOn", { name: form.name, n: ok.length }), message: ok.map((r) => `${nodeName(r.node)}${r.state === "exists" ? ` (${t("stor.alreadyThere")})` : ""}`).join(", ") });
+        if (failed.length) pushToast({ kind: "error", title: t("stor.failedOn", { n: failed.length }), message: failed.map((r) => `${nodeName(r.node)} : ${r.detail}`).join("\n"), duration: Infinity });
+        for (const r of created.results) if (r.warning) pushToast({ kind: "error", title: `${t("stor.nfsPermTitle")} · ${nodeName(r.node)}`, message: r.warning, duration: Infinity });
       } else {
         pushToast({ kind: "success", title: t("stor.created"), message: form.name });
         // Mounted is not enough: an export with root_squash leaves QEMU unable to open its disks there.
-        if (created?.avertissement) pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: created.avertissement, duration: Infinity });
+        if (created?.warning) pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: created.warning, duration: Infinity });
       }
       setForm(EMPTY); close(); refreshAll();
     } catch (er) { pushToast({ kind: "error", title: t("stor.createFailed"), message: errorMessage(er) }); }
@@ -136,20 +136,20 @@ function CreatePoolDrawer({ open, onClose }) {
       {shared ? (
         <fieldset className="nx-fieldset">
           <legend>{t("stor.nodes")}</legend>
-          {[["tous", t("stor.scope.all")], ["un", t("stor.scope.one")], ["choix", t("stor.scope.some")]].map(([v, label]) => (
+          {[["all", t("stor.scope.all")], ["un", t("stor.scope.one")], ["choix", t("stor.scope.some")]].map(([v, label]) => (
             <label key={v} className="nx-check"><input type="radio" name="pool-scope" checked={form.scope === v} onChange={() => setForm((f) => ({ ...f, scope: v }))} /> {label}</label>
           ))}
-          {form.scope === "un" && <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select>}</Field>}
+          {form.scope === "un" && <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select>}</Field>}
           {form.scope === "choix" && (
             <div role="group" aria-label={t("stor.nodes")} style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2) var(--space-4)", paddingInlineStart: "var(--space-5)" }}>
-              {nodes.map((n) => <label key={n.id} className="nx-check"><input type="checkbox" checked={form.chosen.includes(n.id)} onChange={(e) => setForm((f) => ({ ...f, chosen: e.target.checked ? [...f.chosen, n.id] : f.chosen.filter((x) => x !== n.id) }))} /> {n.nom}</label>)}
+              {nodes.map((n) => <label key={n.id} className="nx-check"><input type="checkbox" checked={form.chosen.includes(n.id)} onChange={(e) => setForm((f) => ({ ...f, chosen: e.target.checked ? [...f.chosen, n.id] : f.chosen.filter((x) => x !== n.id) }))} /> {n.name}</label>)}
             </div>
           )}
           {err("chosen") && <span className="nx-f-h is-error" role="alert">{err("chosen")}</span>}
-          <span className="nx-f-h">{t(form.scope === "tous" ? "stor.scope.allHelp" : "stor.scope.help")}</span>
+          <span className="nx-f-h">{t(form.scope === "all" ? "stor.scope.allHelp" : "stor.scope.help")}</span>
         </fieldset>
       ) : (
-        <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select>}</Field>
+        <Field label={t("ns.node")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.node")} value={form.node} onChange={set("node")}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select>}</Field>
       )}
       {blocker && <div className="nx-bn" data-tone="warning" role="status"><span className="nx-bn-t">{blocker}</span></div>}
       {form.type === "dir" && <Field label={t("stor.path")} hint={t("stor.pathHelp")} error={err("path")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.local_path_optional")} value={form.path} onChange={set("path")} placeholder={ex("/var/lib/libvirt/hyperlite-pools/…")} />}</Field>}
@@ -201,68 +201,68 @@ export default function StoragePage() {
   const ctx = useContextTarget(); // right click on a pool: its actions
   // Pools declared for several nodes: marked in the list, and removed from every node together.
   const [shared, setShared] = useState({});
-  useEffect(() => { fetchSharedPools().then((r) => setShared(Object.fromEntries((Array.isArray(r) ? r : []).map((x) => [x.nom, x])))).catch(() => setShared({})); }, [pools]);
+  useEffect(() => { fetchSharedPools().then((r) => setShared(Object.fromEntries((Array.isArray(r) ? r : []).map((x) => [x.name, x])))).catch(() => setShared({})); }, [pools]);
 
   async function loadVolumes(p) {
-    const key = `${p.node}:${p.nom}`;
+    const key = `${p.node}:${p.name}`;
     setVolumeErrors((x) => ({ ...x, [key]: null }));
-    try { const v = await fetchVolumes(p.nom); setVolumes((x) => ({ ...x, [key]: Array.isArray(v) ? v : [] })); }
+    try { const v = await fetchVolumes(p.name); setVolumes((x) => ({ ...x, [key]: Array.isArray(v) ? v : [] })); }
     // A failed read is not an empty pool: say so, with a retry.
     catch (e) { setVolumes((x) => ({ ...x, [key]: undefined })); setVolumeErrors((x) => ({ ...x, [key]: errorMessage(e) })); }
   }
   async function toggleVolumes(p) {
-    const key = `${p.node}:${p.nom}`;
+    const key = `${p.node}:${p.name}`;
     setOpen(open === key ? null : key);
     if (open !== key && p.node === "local" && !volumes[key]) loadVolumes(p);
   }
   // Volumes are files (or zvols) of a pool of this host; an iSCSI pool's LUNs are managed on the storage side.
   const volumesEditable = (p) => caps.admin && p.node === "local" && p.type !== "iscsi";
   async function newVolume(p) {
-    const name = await promptText({ title: t("stor.newVolumeTitle", { name: p.nom }), label: t("stor.volName"), confirmLabel: t("wz.next"), validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v.replace(/\.qcow2$/, "")) ? "" : t("wz.e.name")) });
+    const name = await promptText({ title: t("stor.newVolumeTitle", { name: p.name }), label: t("stor.volName"), confirmLabel: t("wz.next"), validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(v.replace(/\.qcow2$/, "")) ? "" : t("wz.e.name")) });
     if (!name) return;
-    const size = await promptText({ title: t("stor.newVolumeTitle", { name: p.nom }), label: t("stor.volSize"), defaultValue: "10", confirmLabel: t("stor.createVolume"), validate: (v) => (/^[1-9][0-9]{0,5}$/.test(v) ? "" : t("stor.volSizeRule")) });
+    const size = await promptText({ title: t("stor.newVolumeTitle", { name: p.name }), label: t("stor.volSize"), defaultValue: "10", confirmLabel: t("stor.createVolume"), validate: (v) => (/^[1-9][0-9]{0,5}$/.test(v) ? "" : t("stor.volSizeRule")) });
     if (!size) return;
-    try { await createVolume(p.nom, name, Number(size)); pushToast({ kind: "success", title: t("stor.volCreated"), message: name }); loadVolumes(p); refreshAll(); }
+    try { await createVolume(p.name, name, Number(size)); pushToast({ kind: "success", title: t("stor.volCreated"), message: name }); loadVolumes(p); refreshAll(); }
     catch (e) { pushToast({ kind: "error", title: t("stor.volCreateFailed"), message: errorMessage(e) }); }
   }
   async function removeVolume(p, v) {
-    const ok = await confirmAction({ title: t("stor.volDeleteTitle", { name: v.nom }), message: t("stor.volDeleteMsg", { pool: p.nom }), confirmLabel: t("action.confirm"), danger: true });
+    const ok = await confirmAction({ title: t("stor.volDeleteTitle", { name: v.name }), message: t("stor.volDeleteMsg", { pool: p.name }), confirmLabel: t("action.confirm"), danger: true });
     if (!ok) return;
-    try { await deleteVolume(p.nom, v.nom); pushToast({ kind: "success", title: t("stor.volDeleted"), message: v.nom }); loadVolumes(p); refreshAll(); }
+    try { await deleteVolume(p.name, v.name); pushToast({ kind: "success", title: t("stor.volDeleted"), message: v.name }); loadVolumes(p); refreshAll(); }
     catch (e) { pushToast({ kind: "error", title: t("stor.volDeleteFailed"), message: errorMessage(e) }); }
   }
   async function checkPerm(p) {
     try {
-      const r = await checkPoolPermissions(p.nom);
-      if (r.ok) pushToast({ kind: "success", title: t("stor.nfsPermOk"), message: p.nom });
+      const r = await checkPoolPermissions(p.name);
+      if (r.ok) pushToast({ kind: "success", title: t("stor.nfsPermOk"), message: p.name });
       else pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: r.message, duration: Infinity });
     } catch (e) { pushToast({ kind: "error", title: t("stor.nfsPermFailed"), message: errorMessage(e) }); }
   }
   async function renamePool(p) {
-    const everywhere = Boolean(shared[p.nom]);
-    const name = await askNewName(t, { title: t("rn.poolTitle", { name: p.nom }), message: t(everywhere ? "rn.poolSharedMsg" : "rn.poolMsg"), current: p.nom });
+    const everywhere = Boolean(shared[p.name]);
+    const name = await askNewName(t, { title: t("rn.poolTitle", { name: p.name }), message: t(everywhere ? "rn.poolSharedMsg" : "rn.poolMsg"), current: p.name });
     if (!name) return;
     try {
-      const r = await renameStoragePool(p.nom, name, p.node, everywhere);
-      const failed = (r?.resultats || []).filter((x) => x.etat === "failed");
-      if (failed.length) pushToast({ kind: "error", title: t("rn.failedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.noeud)?.nom || x.noeud} : ${x.detail}`).join("\n"), duration: Infinity });
-      else pushToast({ kind: "success", title: t("rn.done"), message: `${p.nom} → ${name}` });
+      const r = await renameStoragePool(p.name, name, p.node, everywhere);
+      const failed = (r?.results || []).filter((x) => x.state === "failed");
+      if (failed.length) pushToast({ kind: "error", title: t("rn.failedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.node)?.name || x.node} : ${x.detail}`).join("\n"), duration: Infinity });
+      else pushToast({ kind: "success", title: t("rn.done"), message: `${p.name} → ${name}` });
       refreshAll();
     } catch (err) { pushToast({ kind: "error", title: t("rn.failed"), message: errorMessage(err) }); }
   }
   async function removePool(p) {
-    if (p.nom === "default") return;
+    if (p.name === "default") return;
     const fsBacked = p.type === "dir" || p.type === "netfs";
-    const everywhere = Boolean(shared[p.nom]);
-    const base = p.type === "iscsi" ? t("stor.confirmIscsi") : fsBacked ? t("stor.confirmFs", { name: p.nom }) : t("stor.confirmEmpty", { name: p.nom });
+    const everywhere = Boolean(shared[p.name]);
+    const base = p.type === "iscsi" ? t("stor.confirmIscsi") : fsBacked ? t("stor.confirmFs", { name: p.name }) : t("stor.confirmEmpty", { name: p.name });
     const message = everywhere ? `${t("stor.confirmEverywhere")} ${base}` : base;
-    const ok = await confirmAction({ title: t(everywhere ? "stor.confirmTitleEverywhere" : "stor.confirmTitle", { name: p.nom }), message, confirmLabel: t("action.confirm"), danger: true });
+    const ok = await confirmAction({ title: t(everywhere ? "stor.confirmTitleEverywhere" : "stor.confirmTitle", { name: p.name }), message, confirmLabel: t("action.confirm"), danger: true });
     if (!ok) return;
     try {
-      const r = await deleteStoragePool(p.nom, p.node === "local" ? undefined : p.node, fsBacked, everywhere);
-      const failed = (r?.resultats || []).filter((x) => x.etat === "failed");
-      if (failed.length) pushToast({ kind: "error", title: t("stor.deleteFailedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.noeud)?.nom || x.noeud} : ${x.detail}`).join("\n"), duration: Infinity });
-      else pushToast({ kind: "success", title: t("stor.removed"), message: everywhere ? t("stor.removedEverywhere", { name: p.nom }) : p.nom });
+      const r = await deleteStoragePool(p.name, p.node === "local" ? undefined : p.node, fsBacked, everywhere);
+      const failed = (r?.results || []).filter((x) => x.state === "failed");
+      if (failed.length) pushToast({ kind: "error", title: t("stor.deleteFailedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.node)?.name || x.node} : ${x.detail}`).join("\n"), duration: Infinity });
+      else pushToast({ kind: "success", title: t("stor.removed"), message: everywhere ? t("stor.removedEverywhere", { name: p.name }) : p.name });
       refreshAll();
     } catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
@@ -278,23 +278,23 @@ export default function StoragePage() {
               <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("stor.pool")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("stor.usage")}</th><th scope="col" className="nx-num">{t("stor.capacity")}</th><th scope="col" className="nx-num">{t("stor.free")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
                 {pools.map((p) => {
-                  const key = `${p.node}:${p.nom}`;
-                  const r = p.capacite_go ? ((p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go) * 100 : null;
+                  const key = `${p.node}:${p.name}`;
+                  const r = p.capacity_gb ? ((p.capacity_gb - (p.available_gb ?? p.capacity_gb)) / p.capacity_gb) * 100 : null;
                   const vols = volumes[key];
                   return (
                     <Fragment key={key}>
                       <tr className={ctx.is("pool", key) ? "is-ctx" : undefined} onContextMenu={ctx.open("pool", p, key)}>
-                        <td><StatusIndicator kind="pool" wire={p.etat} /></td>
-                        <th scope="row" className="nx-nm">{p.nom}{p.chemin && <small className="nx-mono">{p.chemin}</small>}</th>
-                        <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.nom || p.node}</td>
+                        <td><StatusIndicator kind="pool" wire={p.state} /></td>
+                        <th scope="row" className="nx-nm">{p.name}{p.path && <small className="nx-mono">{p.path}</small>}</th>
+                        <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.name || p.node}</td>
                         <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type)}{p.type === "netfs" && p.nfs_version ? ` v${p.nfs_version}` : ""}</Chip>
-                          {shared[p.nom] && <> <Chip tone="info" title={shared[p.nom].tous_les_noeuds ? t("stor.sharedAllHelp") : t("stor.sharedSomeHelp", { nodes: shared[p.nom].noeuds.map((id) => nodes.find((n) => n.id === id)?.nom || id).join(", ") })}>{shared[p.nom].tous_les_noeuds ? t("stor.sharedAll") : t("stor.shared")}</Chip></>}</td>
-                        <td><Meter value={r} label={`${p.nom} ${t("stor.usage")}`} /></td>
-                        <td className="nx-num nx-mono">{formatSizeGb(p.capacite_go, lang) ?? "—"}</td>
-                        <td className="nx-num nx-mono">{formatSizeGb(p.disponible_go, lang) ?? "—"}</td>
+                          {shared[p.name] && <> <Chip tone="info" title={shared[p.name].all_nodes ? t("stor.sharedAllHelp") : t("stor.sharedSomeHelp", { nodes: shared[p.name].nodes.map((id) => nodes.find((n) => n.id === id)?.name || id).join(", ") })}>{shared[p.name].all_nodes ? t("stor.sharedAll") : t("stor.shared")}</Chip></>}</td>
+                        <td><Meter value={r} label={`${p.name} ${t("stor.usage")}`} /></td>
+                        <td className="nx-num nx-mono">{formatSizeGb(p.capacity_gb, lang) ?? "—"}</td>
+                        <td className="nx-num nx-mono">{formatSizeGb(p.available_gb, lang) ?? "—"}</td>
                         <td><div className="nx-ra">
-                          <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === key} aria-label={t("stor.volumesOf", { name: p.nom })} onClick={() => toggleVolumes(p)}>{t("stor.volumes")}</button>
-                          {caps.admin && p.nom !== "default" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_pool_x", { v: p.nom })} title={t("menu.delete").replace("…", "")} onClick={() => removePool(p)}><Trash2 size={15} aria-hidden="true" /></button>}
+                          <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === key} aria-label={t("stor.volumesOf", { name: p.name })} onClick={() => toggleVolumes(p)}>{t("stor.volumes")}</button>
+                          {caps.admin && p.name !== "default" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_pool_x", { v: p.name })} title={t("menu.delete").replace("…", "")} onClick={() => removePool(p)}><Trash2 size={15} aria-hidden="true" /></button>}
                         </div></td>
                       </tr>
                       {open === key && (
@@ -303,8 +303,8 @@ export default function StoragePage() {
                             <>
                               {vols.length === 0 ? <span className="nx-muted">{t("stor.noVolumes")}</span> : (
                                 <ul className="nx-list nx-list--vols">{vols.map((v) => (
-                                  <li key={v.nom}><span className="nx-mono">{v.nom}</span><span className="nx-mono nx-muted">{formatSizeGb(v.capacite_go, lang)}</span><span className="nx-muted">{v.utilise ? t("stor.inUse") : t("stor.free")}</span>
-                                    {volumesEditable(p) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={v.utilise} title={v.utilise ? t("stor.volInUse") : t("menu.delete").replace("…", "")} aria-label={t("stor.volDeleteAria", { name: v.nom })} onClick={() => removeVolume(p, v)}><Trash2 size={14} aria-hidden="true" /></button>}
+                                  <li key={v.name}><span className="nx-mono">{v.name}</span><span className="nx-mono nx-muted">{formatSizeGb(v.capacity_gb, lang)}</span><span className="nx-muted">{v.used ? t("stor.inUse") : t("stor.free")}</span>
+                                    {volumesEditable(p) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={v.used} title={v.used ? t("stor.volInUse") : t("menu.delete").replace("…", "")} aria-label={t("stor.volDeleteAria", { name: v.name })} onClick={() => removeVolume(p, v)}><Trash2 size={14} aria-hidden="true" /></button>}
                                   </li>
                                 ))}</ul>
                               )}
@@ -322,15 +322,15 @@ export default function StoragePage() {
         )}
       </div>
       <CreatePoolDrawer open={creating} onClose={() => setCreating(false)} />
-      <ActionsContextMenu ctx={ctx} label={(p) => t("ctx.menuOf", { name: p.nom })} entries={(p) => [
+      <ActionsContextMenu ctx={ctx} label={(p) => t("ctx.menuOf", { name: p.name })} entries={(p) => [
         { key: "volumes", icon: "volumes", label: t("stor.volumes"), run: () => toggleVolumes(p) },
-        p.chemin && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.chemin) },
-        p.type === "netfs" && { key: "perm", icon: "admin", label: t("stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.etat !== "actif", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
+        p.path && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.path) },
+        p.type === "netfs" && { key: "perm", icon: "admin", label: t("stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.state !== "active", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
         "-",
-        { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => renamePool(p), disabled: !caps.admin || p.nom === "default" || p.type === "zfs",
+        { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => renamePool(p), disabled: !caps.admin || p.name === "default" || p.type === "zfs",
           reason: !caps.admin ? t("menu.reason.admin") : p.type === "zfs" ? t("rn.zfsNo") : t("rn.defaultNo") },
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => removePool(p),
-          disabled: !caps.admin || p.nom === "default", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.defaultPool") },
+          disabled: !caps.admin || p.name === "default", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.defaultPool") },
       ]} />
     </>
   );

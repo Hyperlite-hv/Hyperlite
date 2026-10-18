@@ -61,7 +61,7 @@ class _State:
         self.fd = None  # the open watchdog: armed
         self.timeout = None  # its real timeout, as its driver reports it (None: the driver does not say)
         self.problem = None  # why it could not be armed, for the administrator
-        self.starving = False  # armed but not fed: the quorum is lost
+        self.starving = False  # armed purpose not fed: the quorum is lost
         self.stop = threading.Event()
 
 
@@ -95,25 +95,28 @@ def _publish(armed):
     from app.repositories.cfs import shadow
 
     entry = {
-        "arme": armed,
-        "delai_s": state.timeout,
+        "armed": armed,
+        "delay_s": state.timeout,
         # None: the reset time is unknown, and the node's VMs are never restarted elsewhere without an administrator.
-        "reinitialise_sous_s": reset_within(state.timeout),
-        "le": datetime.now(UTC).isoformat(),
+        "reset_within_s": reset_within(state.timeout),
+        "at": datetime.now(UTC).isoformat(),
     }
     path = f"{STATE_DIR}/{shadow.component(self_node.name())}"
     shadow._get_client().put(path, json.dumps(entry).encode())
 
 
 def published(node):
-    """What `node` last published: {"arme", "delai_s", "le"} or None."""
+    """What `node` last published: {"armed", "delay_s", "reset_within_s", "at"} or None."""
     from app.core.cfs_client import NotFound
     from app.repositories.cfs import shadow
 
     try:
-        return json.loads(shadow._get_client().get(f"{STATE_DIR}/{shadow.component(node)}").data)
+        entry = json.loads(shadow._get_client().get(f"{STATE_DIR}/{shadow.component(node)}").data)
     except (NotFound, CfsError, OSError, ValueError):
         return None
+    if isinstance(entry, dict) and "le" in entry:  # published before API v1, until the node publishes again
+        entry["at"] = entry.pop("le")
+    return entry
 
 
 def _timeout_of(fd):
@@ -203,7 +206,7 @@ def tick():
             state.problem = (
                 None
                 if timeout
-                else f"The watchdog's driver does not report its timeout ({device()}): it is armed, but this node's "
+                else f"The watchdog's driver does not report its timeout ({device()}): it is armed, purpose this node's "
                 "HA VMs are only restarted elsewhere by hand"
             )
             if timeout and timeout != TIMEOUT_S:
@@ -236,8 +239,8 @@ def stop():
 def report():
     with state.lock:
         timeout = state.timeout if state.fd is not None else TIMEOUT_S
-        return {"arme": state.fd is not None, "sans_quorum": state.starving, "probleme": state.problem,
-                "delai_s": timeout, "reinitialise_sous_s": reset_within(timeout), "actif": enabled()}  # fmt: skip
+        return {"armed": state.fd is not None, "sans_quorum": state.starving, "problem": state.problem,
+                "delay_s": timeout, "reset_within_s": reset_within(timeout), "active": enabled()}  # fmt: skip
 
 
 def _loop():
