@@ -1,7 +1,8 @@
 # Confirmed writes in a cluster
 
-Status: **design, for review**. No code before Antho's approval. Decided by Antho on 2026-10-18 after a lab run
-(code review #448): "écriture confirmée".
+Status: **accepted** (Antho, 2026-10-18), implemented: `app/repositories/cfs/confirm.py`, `shadow.confirm()` and the
+`confirm_writes` middleware (`app/main.py`). Decided by Antho on 2026-10-18 after a lab run (code review #448):
+"écriture confirmée".
 
 ## What happens today
 
@@ -47,6 +48,16 @@ Outside a cluster (a single node, the daemon in local mode): nothing changes.
 - Changes made by background work (a task, a scheduler, the HA watch): no one waits for an answer. Their conflicts are
   audited as today and, new, sent as a notification (event `cfs_conflict`) to the channels that subscribe to it.
 - Changes a node makes while it starts (#465).
+
+### Which changes are the request's
+
+While a request runs, the application's connections (`ids.Connection`) begin each write transaction with `BEGIN
+IMMEDIATE`: no other connection adds to the outbox until it ends, so every outbox id handed out meanwhile (the
+outbox's AUTOINCREMENT counter before and after each statement) is the request's own. Nothing changes outside a
+request.
+
+Before the handler runs, the node first copies its own pending changes, then applies the cluster's (`inbound.apply()`
+applies nothing while this node has changes waiting).
 
 ### Two drains at once
 
