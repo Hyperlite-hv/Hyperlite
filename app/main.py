@@ -108,15 +108,6 @@ _INLINE_SCRIPT_HASHES = inline_script_hashes(f"{DASHBOARD_DIST}/index.html")
 
 
 @app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    headers = security_headers(request.url.path, request.url.scheme, request.headers.get("host"), _INLINE_SCRIPT_HASHES)
-    for name, value in headers.items():
-        response.headers.setdefault(name, value)
-    return response
-
-
-@app.middleware("http")
 async def drop_shared_inventory_on_change(request: Request, call_next):
     """A request that changes something drops the VM listing shared between requests (app/core/inventory_cache.py),
     before and after it runs: the next listing shows the change, even one the request makes without auditing it."""
@@ -369,6 +360,17 @@ async def read_only_without_quorum(request: Request, call_next):
         if reason:
             return JSONResponse(status_code=503, content={"detail": reason})
     return await call_next(request)
+
+
+# Added last, so it is the outermost: the answers the middlewares above make themselves (503 without quorum, 409 and
+# 503 of a change the cluster did not take) get the headers too.
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    headers = security_headers(request.url.path, request.url.scheme, request.headers.get("host"), _INLINE_SCRIPT_HASHES)
+    for name, value in headers.items():
+        response.headers.setdefault(name, value)
+    return response
 
 
 @app.exception_handler(NoId)

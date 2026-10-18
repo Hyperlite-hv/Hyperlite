@@ -69,6 +69,7 @@ def test_another_nodes_change_that_comes_first_is_a_409(client, admin, fake, not
     monkeypatch.setattr("app.main._catch_up", lambda: fake.remote("/db/groups/7", {"id": 7, "name": "theirs"}))
     r = client.patch("/groups/7", json={"name": "mine"}, headers=admin)
     assert r.status_code == 409 and r.json()["code"] == "changed_elsewhere", r.text
+    assert r.headers["x-frame-options"] == "DENY"  # made outside the handler, still with the security headers
     assert json.loads(fake.files["/db/groups/7"])["name"] == "theirs"
     assert rows("SELECT name FROM groups WHERE id = 7") == [{"name": "theirs"}]  # back here before the answer
     audit._AUDIT_QUEUE.join()

@@ -48,7 +48,7 @@ def _top(conn):
 
 def before(conn, sql):
     """Run before each statement of an application connection."""
-    if _current.get() is None:
+    if _current.get() is None or conn.isolation_level is None:  # autocommit: each statement is its own transaction
         return
     if not conn.in_transaction:
         conn.cfs_floor = None  # a transaction starts: what the last one noted is over
