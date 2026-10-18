@@ -147,6 +147,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- In a cluster, the dashboard's VM list and the views of every node are much faster and no longer fail under load: another member's VMs come from that member in one call (they were read one by one through libvirt over SSH), and members call each other over HTTPS on kept connections, each one's certificate pinned through the cluster's configuration, instead of a new SSH connection per call, which sshd refused past 10 at once. Measured on the lab with 1,001 VMs: the views of every node from 230 ms to 30 ms, the VM list from 270 ms to 70 ms, and 20 users at once without errors. A node that does not answer is named instead of failing the request.
+
 - In a cluster, a change a node made to the shared configuration while it started (before its copy to the cluster ran) was dropped as "changed in the cluster meanwhile", which nobody had done: a node leaving maintenance at the end of a rolling update, or the admin account flagged for a password change, could keep the cluster's older value. Such a change now goes out, and still loses to a change the cluster really made meanwhile.
 
 - A clone that would not fit in the images directory (on the system disk by default) is refused before the first byte is copied, with what is free and what is needed.
