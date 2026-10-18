@@ -69,6 +69,13 @@ int cfs_check(const cfs_request *req, uid_t uid, char *reason, size_t cap)
         return CFS_OK;
     case CFS_OP_NEXT_ID:
     case CFS_OP_STATUS:
+    case CFS_OP_STAT_GET:
+        return CFS_OK;
+    case CFS_OP_STAT_PUT:
+        if (uid != 0) {
+            snprintf(reason, cap, "only root publishes this node's status");
+            return CFS_FORBIDDEN;
+        }
         return CFS_OK;
     default:
         snprintf(reason, cap, "unknown operation");

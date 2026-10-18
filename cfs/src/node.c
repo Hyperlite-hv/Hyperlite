@@ -54,6 +54,7 @@ static void xfer_reset(cfs_node *n)
 
 void cfs_node_free(cfs_node *n)
 {
+    cfs_stat_free(&n->stat);
     xfer_reset(n);
     for (size_t i = 0; i < n->nawaiting; i++)
         free(n->awaiting[i].frame);
@@ -286,6 +287,52 @@ static void send_confirmation(cfs_node *n)
 
 /* ---- Client requests ---------------------------------------------------------------------------------------------- */
 
+/* The cluster's status (status.h): outside the replicated tree, so neither ordered with the changes nor refused for
+ * want of quorum. A status is sent to every node of Corosync's status group, this one included (it keeps its own from
+ * the delivery); in local mode, or before the group is joined, it is kept here at once. */
+static void stat_request(cfs_node *n, const cfs_request *req, uint64_t token)
+{
+    cfs_writer payload;
+    cfs_writer_init(&payload);
+    int rc = CFS_OK;
+    const char *reason = "";
+    if (req->op == CFS_OP_STAT_PUT) {
+        if (req->data_len > CFS_STAT_MAX) {
+            rc = CFS_TOO_LARGE;
+            reason = "this node's status is over the size of one status";
+        } else if (n->stat_tr.send) {
+            int sent = n->stat_tr.send(n->stat_tr.arg, req->data, req->data_len);
+            if (sent == 1) {
+                rc = CFS_SYNCHRONISING;
+                reason = "Corosync is busy: send the status again";
+            } else if (sent != 0) {
+                rc = CFS_INTERNAL;
+                reason = "Corosync refused the status, see the hyperlite-cfs log";
+            }
+        } else {
+            rc = cfs_stat_set(&n->stat, n->self, req->data, req->data_len, cfs_stat_now_ms());
+            if (rc != CFS_OK)
+                reason = "the status could not be kept";
+        }
+    } else {
+        rc = cfs_stat_write(&n->stat, req->node, cfs_stat_now_ms(), &payload);
+        if (rc == CFS_NOT_FOUND)
+            reason = "no status from that node";
+        else if (payload.err) {
+            rc = CFS_INTERNAL;
+            reason = "the answer could not be built";
+        }
+    }
+    reply(n, token, req->id, rc, &payload, reason);
+    cfs_writer_free(&payload);
+}
+
+void cfs_node_stat_deliver(cfs_node *n, uint32_t sender, const uint8_t *msg, size_t len)
+{
+    if (cfs_stat_set(&n->stat, sender, msg, len, cfs_stat_now_ms()) != CFS_OK)
+        fprintf(stderr, "hyperlite-cfs: the status of node %u was not kept (%zu bytes)\n", sender, len);
+}
+
 void cfs_node_request(cfs_node *n, const uint8_t *body, size_t len, uid_t uid, uint64_t token, int64_t now)
 {
     cfs_request req;
@@ -297,6 +344,10 @@ void cfs_node_request(cfs_node *n, const uint8_t *body, size_t len, uid_t uid, u
     int rc = cfs_check(&req, uid, reason, sizeof(reason));
     if (rc != CFS_OK) {
         reply(n, token, req.id, rc, NULL, reason);
+        return;
+    }
+    if (req.op == CFS_OP_STAT_PUT || req.op == CFS_OP_STAT_GET) {
+        stat_request(n, &req, token);
         return;
     }
     if (!cfs_op_changes(req.op)) {

@@ -2,7 +2,7 @@
 
 What it shows: a change made on one node is applied by every node; two nodes creating the same entry at once get one
 success and one conflict; many changes from every node leave identical states; a large file crosses Corosync; a node
-cut from the others refuses changes while the majority goes on; the locks of a node that left are released; a node
+cut from the others refuses changes while the majority goes on; every node's status reaches every node; the locks of a node that left are released; a node
 that comes back takes the majority's state.
 
 Needs root, iproute2, corosync and the daemon: set HYPERLITE_CFS_BIN to the binary and HYPERLITE_CFS_CLUSTER=1 (the
@@ -14,7 +14,7 @@ import threading
 import pytest
 from harness import NODES, get, lab, same_everywhere, until
 
-from app.core.cfs_client import ANY_VERSION, MUST_NOT_EXIST, Conflict, ReadOnly
+from app.core.cfs_client import ANY_VERSION, FORBIDDEN, MUST_NOT_EXIST, CfsError, Conflict, ReadOnly
 
 # Written for three nodes; test_two_nodes.py covers the two-node lab.
 pytestmark = pytest.mark.skipif(len(NODES) != 3, reason="needs the three-node lab")
@@ -56,6 +56,26 @@ def test_a_large_file_crosses_corosync(nodes):
     data = os.urandom(1024 * 1024)
     nodes[1].put("/big", data)
     assert until(lambda: get(nodes[2], "/big")).data == data
+
+
+def test_every_nodes_status_reaches_every_node(nodes):
+    """Phase E (docs/design/phase-e-statd.md): each node's status, through Corosync's second group, is read on every
+    node, a large one included; a newer status replaces the older."""
+    sent = {i: f"node{i} ".encode() + os.urandom(200 * 1024) for i in range(3)}
+    try:
+        nodes[0].stat_put(b"old")
+    except CfsError as e:
+        # The VM lab (lab/vm.sh) reaches the daemons through an SSH forward as `debian`: publishing is root only.
+        assert e.status == FORBIDDEN
+        pytest.skip("this lab reaches the daemons as a user that is not root, and only root publishes a status")
+    for i, c in enumerate(nodes):
+        c.stat_put(b"old")
+        c.stat_put(sent[i])
+
+    def everywhere():
+        return all(sorted(s.data for s in c.stat_get()) == sorted(sent.values()) for c in nodes)
+
+    until(everywhere, what="every node's status on every node")
 
 
 def test_a_node_cut_from_the_others_refuses_changes_and_its_locks_are_released(nodes):
