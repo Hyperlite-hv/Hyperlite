@@ -14,17 +14,12 @@ curl
 ca-certificates
 gnupg
 
-# Python and building: hyperlite-cfs is built on the node. libvirt-python comes from the ISO as a wheel; these
-# packages also build it when a later upgrade needs a new version (pkg-config, libvirt-dev, python3-dev).
+# Python: the hyperlite package carries its environment and hyperlite-cfs, built in CI (docs/design/clean-package.md),
+# so nothing is built on the node and no compiler is installed.
 python3
 python3-venv
-python3-pip
-python3-dev
-pkg-config
-build-essential
 
 # Virtualisation
-libvirt-dev
 qemu-kvm
 qemu-utils
 libvirt-daemon-system
