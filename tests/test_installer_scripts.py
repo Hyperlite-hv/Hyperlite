@@ -87,3 +87,14 @@ def test_corosync_is_a_dependency_kept_stopped_until_a_cluster_configures_it():
     assert "corosync" in [d.strip().split(" ")[0] for d in depends[len("Depends:") :].split(",")]
     postinst = (INSTALLER / "deb" / "postinst").read_text()
     assert "systemctl disable --now corosync.service" in postinst and "crypto_cipher" in postinst
+
+
+def test_a_node_installs_no_build_tool():
+    """docs/design/clean-package.md: the package carries hyperlite-cfs and its Python environment, built in CI, so
+    neither its dependencies nor the ISO's package list install a compiler, pip or a development package."""
+    build = re.compile(r"^(gcc|g\+\+|build-essential|make|meson|ninja-build|pkg-config|python3-pip|python3-dev|.*-dev)$")
+    control = (INSTALLER / "deb" / "control.template").read_text()
+    depends = next(line for line in control.splitlines() if line.startswith("Depends:"))
+    names = [d.strip().split(" ")[0] for d in depends[len("Depends:") :].split(",")]
+    listed = [line.split("#")[0].strip() for line in (INSTALLER / "packages.list").read_text().splitlines()]
+    assert [n for n in names + listed if n and build.match(n)] == []
