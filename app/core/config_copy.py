@@ -208,7 +208,7 @@ def copy_now(force=False, username="system"):
     from app.core.audit import log_action
     from app.core.cluster import list_nodes
 
-    nodes = [n for n in list_nodes() if n["statut"] != "hors_ligne"]
+    nodes = [n for n in list_nodes() if n["statut"] != "offline"]
     if not nodes:
         return []
     digest = config_digest()
@@ -242,9 +242,9 @@ def copy_now(force=False, username="system"):
                 # The OS error text stays in the service log; the API gets a sentence.
                 logger.warning("Configuration copy to %s failed", node["name"], exc_info=True)
                 error = "ssh or scp could not run or timed out (see the service log)"
-            _record(node["name"], "echec", erreur=error)
-            log_action(username, "config_copy", node["name"], "echec", error)
-            results.append({"node": node["name"], "statut": "echec", "erreur": error})
+            _record(node["name"], "failed", erreur=error)
+            log_action(username, "config_copy", node["name"], "failed", error)
+            results.append({"node": node["name"], "statut": "failed", "erreur": error})
     finally:
         bundle.unlink(missing_ok=True)
     return results

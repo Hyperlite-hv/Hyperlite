@@ -150,6 +150,5 @@ def test_an_existing_nfs_pool_can_be_checked(database, client, auth_headers, mon
     assert client.post("/storage/off/check-permissions", headers=admin).status_code == 409
     assert client.post("/storage/ghost/check-permissions", headers=admin).status_code == 404
     assert (
-        client.post("/storage/nas/check-permissions", headers=auth_headers("viewer", role="observateur")).status_code
-        == 403
+        client.post("/storage/nas/check-permissions", headers=auth_headers("viewer", role="viewer")).status_code == 403
     )

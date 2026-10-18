@@ -171,7 +171,9 @@ def test_the_mirror_switch_itself_stays_on_each_node(cfs):
 
 
 def test_tables_of_state_and_history_are_not_copied(cfs):
-    sql("INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES ('t', 'ana', 'x', 'y', 'succes')")
+    sql(
+        "INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES ('t', 'ana', 'x', 'y', 'success')"
+    )
     sql("INSERT INTO login_failures (kind, key, at) VALUES ('user', 'ana', 1)")
     assert shadow.pending() == 0
     assert "audit_log" not in shadow.tables() and "users" in shadow.tables()
@@ -192,7 +194,7 @@ def test_a_daemon_that_is_down_never_fails_the_write_and_is_caught_up_on(cfs):
     assert object_meta.get("vm", "web")["tags"] == ["prod"]
     assert shadow.drain() == 0 and shadow.pending() == 1
     state = shadow.report()
-    assert state["joignable"] is False and state["echecs"] == 1 and state["en_attente"] == 1
+    assert state["joignable"] is False and state["echecs"] == 1 and state["pending"] == 1
     assert "/db/object_meta/vm/hv-test/web" in state["derniere_erreur"]
 
     cfs.down = False
@@ -229,13 +231,13 @@ def test_a_copy_that_differs_is_reported(cfs):
 
 def test_the_report_and_the_seed_are_for_administrators(client, auth_headers, cfs):
     object_meta.put("vm", "web", "Front", ["prod"])
-    reader = auth_headers("watcher", "observateur")
+    reader = auth_headers("watcher", "viewer")
     assert client.get("/cfs/shadow", headers=reader).status_code == 403
     assert client.post("/cfs/shadow/seed", headers=reader).status_code == 403
 
     admin = auth_headers("root", "admin")
     body = client.get("/cfs/shadow", headers=admin).json()
-    assert body["actif"] is True and body["ecarts"] >= 3 and body["en_attente"] >= 3  # the note and two accounts
+    assert body["actif"] is True and body["ecarts"] >= 3 and body["pending"] >= 3  # the note and two accounts
     seeded = client.post("/cfs/shadow/seed", headers=admin).json()
     assert seeded["ecrits"] >= 3 and seeded["supprimes"] == 0
     assert client.get("/cfs/shadow", headers=admin).json()["ecarts"] == 0
@@ -330,7 +332,7 @@ def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, au
     object_meta.put("vm", "web", "Front", ["prod"])  # written while shadow mode is off: not copied
     assert switch.files == {}
     admin = auth_headers("root", "admin")
-    assert client.post("/cfs/shadow/activer", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.post("/cfs/shadow/activer", headers=auth_headers("watcher", "viewer")).status_code == 403
 
     assert client.post("/cfs/shadow/activer", headers=admin).json()["supprimes"] == 0
     assert switch.calls == [("enable", "--now")]

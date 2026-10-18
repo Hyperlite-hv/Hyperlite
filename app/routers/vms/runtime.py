@@ -48,7 +48,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_cdrom", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         iso_filename = Path(payload.iso).name
@@ -104,10 +104,10 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
                 )
                 domain.attachDeviceFlags(new_cdrom_xml, flags)
         except libvirt.libvirtError as exc:
-            log_action(user["username"], "set_vm_cdrom", name, "echec", str(exc))
+            log_action(user["username"], "set_vm_cdrom", name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Mount failed: {exc}") from exc
 
-        log_action(user["username"], "set_vm_cdrom", name, "succes", iso_filename)
+        log_action(user["username"], "set_vm_cdrom", name, "success", iso_filename)
         return {"vm": name, "iso": iso_filename}
     finally:
         conn.close()
@@ -124,7 +124,7 @@ def eject_vm_cdrom(
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "eject_vm_cdrom", name, "echec", "VM not found")
+            log_action(user["username"], "eject_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(0))
@@ -154,10 +154,10 @@ def eject_vm_cdrom(
             new_xml = ET.tostring(cdrom, encoding="unicode")
             domain.updateDeviceFlags(new_xml, flags)
         except libvirt.libvirtError as exc:
-            log_action(user["username"], "eject_vm_cdrom", name, "echec", str(exc))
+            log_action(user["username"], "eject_vm_cdrom", name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Eject failed: {exc}") from exc
 
-        log_action(user["username"], "eject_vm_cdrom", name, "succes")
+        log_action(user["username"], "eject_vm_cdrom", name, "success")
         return {"vm": name, "ejecte": True}
     finally:
         conn.close()
@@ -188,7 +188,7 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_metrics", name, "echec", "VM not found")
+            log_action(user["username"], "get_vm_metrics", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if not domain.isActive():
@@ -279,7 +279,7 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
                     }
                 )
 
-        log_action(user["username"], "get_vm_metrics", name, "succes")
+        log_action(user["username"], "get_vm_metrics", name, "success")
         return {
             "etat": "actif",
             "cpu_pourcent": cpu_pourcent,
@@ -320,8 +320,8 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
     def _fail(reason):
         clear_provisioning(name)
         if task_id:
-            finish_task(task_id, "echec", reason)
-        log_action(user["username"], "auto_install", name, "echec", reason)
+            finish_task(task_id, "failed", reason)
+        log_action(user["username"], "auto_install", name, "failed", reason)
         return {"provisioning": False, "failed": True, "erreur": reason}
 
     conn = open_conn()
@@ -394,8 +394,8 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
                 except (libvirt.libvirtError, ET.ParseError):
                     logger.debug("Ignored exception in get_vm_provisioning()", exc_info=True)
             if task_id:
-                finish_task(task_id, "termine")
-            log_action(user["username"], "provisioning_complete", name, "succes")
+                finish_task(task_id, "succeeded")
+            log_action(user["username"], "provisioning_complete", name, "success")
             return {"provisioning": False, "just_finished": True}
         return {
             "provisioning": True,

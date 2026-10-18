@@ -72,9 +72,9 @@ def host_capabilities(user: dict = Depends(get_current_user)):
         result = get_local_capabilities()
     except Exception as e:
         msg = describe_exception(e)
-        log_action(user["username"], "get_host_capabilities", "local", "echec", msg)
+        log_action(user["username"], "get_host_capabilities", "local", "failed", msg)
         raise HTTPException(status_code=500, detail=f"Capability discovery error: {msg}") from e
-    log_action(user["username"], "get_host_capabilities", "local", "succes")
+    log_action(user["username"], "get_host_capabilities", "local", "success")
     return result
 
 
@@ -91,9 +91,9 @@ def host_preflight(user: dict = Depends(require_role("admin"))):
         report = preflight.run(python=sys.executable, requirements=str(preflight.APP_DIR / "requirements.txt"))
     except Exception as e:
         msg = describe_exception(e)
-        log_action(user["username"], "host_preflight", "local", "echec", msg)
+        log_action(user["username"], "host_preflight", "local", "failed", msg)
         raise HTTPException(status_code=500, detail=f"Preflight error: {msg}") from e
-    log_action(user["username"], "host_preflight", "local", "succes")
+    log_action(user["username"], "host_preflight", "local", "success")
     return report
 
 
@@ -114,7 +114,7 @@ def create_host_terminal_ticket(user: dict = Depends(require_role("admin"))):
 
     ticket = secrets.token_urlsafe(24)
     HOST_SHELL_TICKETS[ticket] = (user["username"], now + HOST_SHELL_TICKET_TTL)
-    log_action(user["username"], "create_host_terminal_ticket", socket.gethostname(), "succes")
+    log_action(user["username"], "create_host_terminal_ticket", socket.gethostname(), "success")
     return {"ticket": ticket, "expire_dans_s": HOST_SHELL_TICKET_TTL}
 
 
@@ -134,16 +134,16 @@ async def host_terminal(websocket: WebSocket):
     await websocket.accept()
     hostname = socket.gethostname()
 
-    # A shell session can last hours. Unlike instantaneous VM actions, "termine" at
+    # A shell session can last hours. Unlike instantaneous VM actions, "succeeded" at
     # task closing only means "session closed cleanly" here (see also finish_task
     # below), not a success/failure of an operation in the usual sense.
     task_id = create_task("host_shell", hostname, node=None, username=username)
-    log_action(username, "host_shell_open", hostname, "succes")
+    log_action(username, "host_shell_open", hostname, "success")
 
     shell = os.environ.get("SHELL", "/bin/bash")
     await pty_session.run(websocket, [shell, "-l"], {**os.environ, "TERM": "xterm-256color"})
 
-    finish_task(task_id, "termine")
-    log_action(username, "host_shell_close", hostname, "succes")
+    finish_task(task_id, "succeeded")
+    log_action(username, "host_shell_close", hostname, "success")
     with contextlib.suppress(RuntimeError, WebSocketDisconnect):
         await websocket.close()

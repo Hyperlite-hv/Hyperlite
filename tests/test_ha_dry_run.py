@@ -10,7 +10,7 @@ import pytest
 from app.core import ha_fencing, ha_watch, secrets_crypto
 
 
-def add_node(database, name, statut="en_ligne"):
+def add_node(database, name, statut="online"):
     with database.get_conn() as db:
         db.execute(
             "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, added_at) VALUES (?, ?, 'root', 22, ?, '2026-01-01')",
@@ -245,7 +245,7 @@ def test_fencing_endpoints_are_admin_only_and_hide_the_password(client, auth_hea
     assert client.put("/ha/fencing/ghost", json={"methode": "lease_only"}, headers=admin).status_code == 404
     status = client.get("/ha/status", headers=admin).json()
     assert status["mode"] == "essai" and status["redemarrage_auto_possible"] is False
-    watcher = auth_headers("watcher", role="observateur")
+    watcher = auth_headers("watcher", role="viewer")
     assert client.get("/ha/fencing", headers=watcher).status_code == 403
     assert client.post("/ha/fencing/node2/test", headers=watcher).status_code == 403
     assert client.get("/ha/status", headers=watcher).status_code == 200

@@ -29,7 +29,7 @@ test("a replication job is created with its checks, shows the late VMs and can b
   await page.route(/\/replication\/jobs\/\d+\/run$/, (route) => { runs += 1; return json(route, { message: "started" }, 202); });
   await page.route(/\/replication\/status$/, (route) => json(route, [
     { vm_name: "e2e-rep-web", statut: "ok", points: 12, age_s: 240, en_retard: false, intervalle_minutes: 15, erreur: null },
-    { vm_name: "e2e-rep-db", statut: "echec", points: 3, age_s: 7200, en_retard: true, intervalle_minutes: 15, erreur: "Disk vda is not qcow2: replication needs qcow2 disks" },
+    { vm_name: "e2e-rep-db", statut: "failed", points: 3, age_s: 7200, en_retard: true, intervalle_minutes: 15, erreur: "Disk vda is not qcow2: replication needs qcow2 disks" },
   ]));
   await open(page);
   const card = page.getByRole("region", { name: "Replication to another site" });

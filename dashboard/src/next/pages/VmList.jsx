@@ -24,7 +24,7 @@ import { confirmAction } from "../../store/useConfirmStore";
 const VIEW_KEY = "hyperlite-next-vmview";
 const COLLAPSED_KEY = "hyperlite-next-vmcollapsed";
 const NODE_PILLS_MAX = 6; // beyond this many nodes the filter becomes a select, pills would wrap into a wall
-const PROBLEM = new Set(["plante", "bloque", "inconnu"]);
+const PROBLEM = new Set(["plante", "bloque", "unknown"]);
 function readView() { try { return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "table"; } catch { return "table"; } }
 function readCollapsed() { try { const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); } }
 const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);

@@ -18,7 +18,7 @@ import { PageHeader, KpiStrip, Meter, Card, Spark, Loading, TableWrap } from "..
 import { PerformanceView, useHostHistory } from "./VmPerformance";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
-const PB = new Set(["plante", "bloque", "inconnu"]);
+const PB = new Set(["plante", "bloque", "unknown"]);
 const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);
 const fmtPct = (v, lang) => new Intl.NumberFormat(lang, { maximumFractionDigits: v < 10 ? 1 : 0 }).format(v);
 

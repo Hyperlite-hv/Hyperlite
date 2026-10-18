@@ -125,14 +125,14 @@ def enable_protection(vm_name, node, username):
             )
 
         _store().protect(vm_name, node_label, _portable_xml(domain.XMLDesc(0)), username, _now())
-        log_action(username, "ha_enable", vm_name, "succes", f"node {node_label}")
+        log_action(username, "ha_enable", vm_name, "success", f"node {node_label}")
     finally:
         conn.close()
 
 
 def disable_protection(vm_name, username):
     _store().unprotect(vm_name)
-    log_action(username, "ha_disable", vm_name, "succes")
+    log_action(username, "ha_disable", vm_name, "success")
 
 
 def sync_protected_vms():
@@ -165,11 +165,11 @@ def sync_protected_vms():
                 domain = conn.lookupByName(row["vm_name"])
             except libvirt.libvirtError:
                 disable_protection(row["vm_name"], "system")
-                log_action("system", "ha_auto_disable", row["vm_name"], "echec", "VM not found on the protected node")
+                log_action("system", "ha_auto_disable", row["vm_name"], "failed", "VM not found on the protected node")
                 continue
             if not uses_shared_storage(conn, conn, domain):
                 disable_protection(row["vm_name"], "system")
-                log_action("system", "ha_auto_disable", row["vm_name"], "echec", "storage no longer shared")
+                log_action("system", "ha_auto_disable", row["vm_name"], "failed", "storage no longer shared")
                 continue
             _store().sync_definition(row["vm_name"], _portable_xml(domain.XMLDesc(0)), _now())
         finally:
@@ -184,7 +184,7 @@ def follow_migration(vm_name, target_node):
 
 def alert_for_down_node(node_name):
     """Called by cluster.py::_poll_nodes as soon as a node TRANSITIONS to the
-    'hors_ligne' state. It reports each protected VM that was on it, WITHOUT
+    'offline' state. It reports each protected VM that was on it, WITHOUT
     attempting fencing here (the SSH fencing, see _attempt_ssh_fence() below,
     only happens when an admin actually triggers recover(), not at every
     detection cycle, which would be far more frequent and noisy for no gain as
@@ -196,7 +196,7 @@ def alert_for_down_node(node_name):
             "system",
             "ha_alert",
             row["vm_name"],
-            "echec",
+            "failed",
             f"Node '{node_name}' is offline. Protected VM, manual recovery available (HA tab)",
         )
 
@@ -288,7 +288,7 @@ def recover(vm_name, target_node, username):
         username,
         "ha_fence",
         vm_name,
-        "succes" if fenced else "echec",
+        "success" if fenced else "failed",
         f"Node '{row['node']}': {fence_detail}",
     )
 
@@ -309,6 +309,6 @@ def recover(vm_name, target_node, username):
             raise RuntimeError(f"Recovery failed: {e}") from e
 
         _store().sync_definition(vm_name, _portable_xml(new_domain.XMLDesc(0)), _now(), node=target_node)
-        log_action(username, "ha_recover", vm_name, "succes", f"{row['node']} -> {target_node}")
+        log_action(username, "ha_recover", vm_name, "success", f"{row['node']} -> {target_node}")
     finally:
         conn.close()

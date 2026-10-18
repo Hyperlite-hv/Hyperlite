@@ -15,7 +15,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 class JobStep(BaseModel):
-    cible_type: str = Field(description="'vm' | 'host' | 'chaque_cible' (one target per VM supplied to the run)")
+    cible_type: str = Field(description="'vm' | 'host' | 'each_target' (one target per VM supplied to the run)")
     cible: str | None = None
     commande: str
     condition_type: str = "exit_code"
@@ -51,7 +51,7 @@ async def create_job(payload: JobCreate, user: dict = Depends(require_role("admi
         raise HTTPException(status_code=422, detail=str(e)) from None
     except automation.JobExists as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
-    log_action(user["username"], "create_job", payload.name, "succes")
+    log_action(user["username"], "create_job", payload.name, "success")
     return job
 
 
@@ -71,7 +71,7 @@ def rename_job(job_id: int, payload: JobRename, user: dict = Depends(require_rol
         raise HTTPException(status_code=409, detail=str(e)) from e
     if old is None:
         raise HTTPException(status_code=404, detail="Not found")
-    log_action(user["username"], "rename_job", old, "succes", f"-> {name}")
+    log_action(user["username"], "rename_job", old, "success", f"-> {name}")
     return {"id": job_id, "name": name}
 
 
@@ -83,7 +83,7 @@ async def delete_job(job_id: int, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=404, detail="Job not found") from None
     except automation.JobProtected as e:
         raise HTTPException(status_code=403, detail=str(e)) from None
-    log_action(user["username"], "delete_job", name, "succes")
+    log_action(user["username"], "delete_job", name, "success")
     return {"message": "Job deleted"}
 
 
@@ -105,11 +105,11 @@ async def run_job_endpoint(job_id: int, payload: RunRequest, user: dict = Depend
     except LookupError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except JobRunRefused as e:
-        log_action(user["username"], "run_job_requested", job["name"], "echec", f"{details} : {e}")
+        log_action(user["username"], "run_job_requested", job["name"], "failed", f"{details} : {e}")
         raise HTTPException(status_code=422, detail=str(e)) from None
     # Audited only now that the run exists: its outcome is audited separately
     # ("run_job") when it ends.
-    log_action(user["username"], "run_job_requested", job["name"], "succes", f"{details} run={run_id}")
+    log_action(user["username"], "run_job_requested", job["name"], "success", f"{details} run={run_id}")
     return {"message": f"Run of '{job['name']}' started in the background", "run_id": run_id}
 
 

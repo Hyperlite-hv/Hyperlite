@@ -96,7 +96,7 @@ def test_a_per_vm_backup_job_runs_on_the_node_hosting_the_vm(daemon, monkeypatch
         for vm in ("web", "elsewhere"):
             db.execute(
                 "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, prochaine_execution) "
-                "VALUES (?, 'quotidien', '02:00', '/b', ?)",
+                "VALUES (?, 'daily', '02:00', '/b', ?)",
                 (vm, past),
             )
         db.commit()

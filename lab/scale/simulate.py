@@ -161,7 +161,7 @@ def setup(nodes, per_node):
     with database.get_conn() as db:
         db.execute("DELETE FROM nodes")
         db.executemany(
-            "INSERT INTO nodes (name, hostname, statut, added_at) VALUES (?, ?, 'en_ligne', '2026-10-18T00:00:00+00:00')",
+            "INSERT INTO nodes (name, hostname, statut, added_at) VALUES (?, ?, 'online', '2026-10-18T00:00:00+00:00')",
             [(n, f"10.0.{i // 250}.{i % 250 + 1}") for i, n in enumerate(names)],
         )
         if not db.execute("SELECT 1 FROM users WHERE username = 'admin'").fetchone():

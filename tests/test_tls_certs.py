@@ -74,7 +74,7 @@ def test_import_installs_the_pair_keeps_the_previous_and_restarts(client, auth_h
 
     r = client.post("/host/certificate/previous", headers=admin)
     assert r.json()["sujet"] == "old.example.org" and restarts == [True, True]
-    assert client.get("/host/certificate", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.get("/host/certificate", headers=auth_headers("watcher", "viewer")).status_code == 403
 
 
 @pytest.mark.parametrize(

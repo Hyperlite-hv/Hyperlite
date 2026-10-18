@@ -26,14 +26,14 @@ test.describe("Users and permissions", () => {
   test("an administrator creates a read-only user from the Permissions tab", async ({ page, request, problems }) => {
     await uiLogin(page);
     await goTo(page, "Users and access");
-    await createUser(page, "observateur");
+    await createUser(page, "viewer");
     await expect(page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` })).toBeVisible();
 
     // The user really exists on the backend, with the read-only role.
     const token = await apiLogin(request);
     const users = await (await request.get("/auth/users", { headers: { Authorization: `Bearer ${token}` } })).json();
     const created = users.find((u: { username: string }) => u.username === OBSERVER.username);
-    expect(created?.role).toBe("observateur");
+    expect(created?.role).toBe("viewer");
 
     // The list is still correct after a reload.
     await page.reload();

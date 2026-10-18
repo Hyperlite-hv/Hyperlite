@@ -38,7 +38,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 hashed_password TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('admin', 'observateur'))
+                role TEXT NOT NULL CHECK(role IN ('admin', 'viewer'))
             )
         """)
         # TOTP 2FA: a separate ALTER, because `users` already exists in deployed
@@ -78,7 +78,7 @@ def init_db():
                 cible TEXT,
                 node TEXT,
                 username TEXT,
-                statut TEXT NOT NULL CHECK(statut IN ('en_attente', 'en_cours', 'termine', 'echec')),
+                statut TEXT NOT NULL CHECK(statut IN ('pending', 'running', 'succeeded', 'failed')),
                 progres INTEGER NOT NULL DEFAULT 0,
                 cree_le TEXT NOT NULL,
                 debut_le TEXT,
@@ -137,7 +137,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS config_copies (
                 node TEXT PRIMARY KEY,
                 copie_le TEXT NOT NULL,
-                statut TEXT NOT NULL CHECK(statut IN ('ok', 'echec')),
+                statut TEXT NOT NULL CHECK(statut IN ('ok', 'failed')),
                 taille INTEGER,
                 empreinte TEXT,
                 erreur TEXT
@@ -149,7 +149,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS backup_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 vm_name TEXT NOT NULL UNIQUE,
-                frequence TEXT NOT NULL CHECK(frequence IN ('quotidien', 'hebdomadaire', 'mensuel')),
+                frequence TEXT NOT NULL CHECK(frequence IN ('daily', 'weekly', 'monthly')),
                 heure TEXT NOT NULL,
                 cible_dir TEXT NOT NULL,
                 retention_count INTEGER NOT NULL DEFAULT 7,
@@ -166,9 +166,9 @@ def init_db():
                 chemin TEXT NOT NULL,
                 taille_octets INTEGER,
                 checksum_sha256 TEXT,
-                mode TEXT NOT NULL CHECK(mode IN ('chaud', 'froid')),
+                mode TEXT NOT NULL CHECK(mode IN ('live', 'cold')),
                 cree_le TEXT NOT NULL,
-                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'termine', 'echec')),
+                statut TEXT NOT NULL CHECK(statut IN ('running', 'succeeded', 'failed')),
                 task_id TEXT,
                 erreur TEXT
             )
@@ -198,10 +198,10 @@ def init_db():
             CREATE TABLE IF NOT EXISTS backup_group_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nom TEXT NOT NULL UNIQUE,
-                selection TEXT NOT NULL CHECK(selection IN ('toutes', 'etiquette', 'pool')),
+                selection TEXT NOT NULL CHECK(selection IN ('all', 'tag', 'pool')),
                 valeur TEXT,
                 exclues TEXT NOT NULL DEFAULT '[]',
-                frequence TEXT NOT NULL CHECK(frequence IN ('quotidien', 'hebdomadaire', 'mensuel')),
+                frequence TEXT NOT NULL CHECK(frequence IN ('daily', 'weekly', 'monthly')),
                 heure TEXT NOT NULL,
                 cible_dir TEXT NOT NULL,
                 retention_count INTEGER NOT NULL DEFAULT 7,
@@ -231,7 +231,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS replication_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nom TEXT NOT NULL UNIQUE,
-                selection TEXT NOT NULL CHECK(selection IN ('toutes', 'etiquette', 'pool')),
+                selection TEXT NOT NULL CHECK(selection IN ('all', 'tag', 'pool')),
                 valeur TEXT,
                 exclues TEXT NOT NULL DEFAULT '[]',
                 cible_dir TEXT NOT NULL,
@@ -276,7 +276,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id INTEGER NOT NULL REFERENCES jobs(id),
                 ordre INTEGER NOT NULL,
-                cible_type TEXT NOT NULL CHECK(cible_type IN ('vm', 'host', 'chaque_cible')),
+                cible_type TEXT NOT NULL CHECK(cible_type IN ('vm', 'host', 'each_target')),
                 cible TEXT,
                 commande TEXT NOT NULL,
                 condition_type TEXT NOT NULL DEFAULT 'exit_code' CHECK(condition_type IN ('exit_code', 'stdout_contains')),
@@ -290,7 +290,7 @@ def init_db():
                 task_id TEXT,
                 dry_run INTEGER NOT NULL DEFAULT 0,
                 targets TEXT,
-                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'succes', 'echec')),
+                statut TEXT NOT NULL CHECK(statut IN ('running', 'success', 'failed')),
                 started_at TEXT NOT NULL,
                 finished_at TEXT,
                 resultat TEXT
@@ -321,7 +321,7 @@ def init_db():
                 hostname TEXT NOT NULL,
                 ssh_user TEXT NOT NULL DEFAULT 'root',
                 ssh_port INTEGER NOT NULL DEFAULT 22,
-                statut TEXT NOT NULL DEFAULT 'inconnu' CHECK(statut IN ('en_ligne', 'hors_ligne', 'inconnu')),
+                statut TEXT NOT NULL DEFAULT 'unknown' CHECK(statut IN ('online', 'offline', 'unknown')),
                 derniere_verification TEXT,
                 added_at TEXT NOT NULL
             )
@@ -650,7 +650,7 @@ def init_db():
                 chemin TEXT NOT NULL,
                 taille_octets INTEGER,
                 cree_le TEXT NOT NULL,
-                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'termine', 'echec')),
+                statut TEXT NOT NULL CHECK(statut IN ('running', 'succeeded', 'failed')),
                 task_id TEXT,
                 erreur TEXT
             )
@@ -705,7 +705,7 @@ def init_db():
                 memoire_mo INTEGER NOT NULL,
                 disque_go INTEGER NOT NULL,
                 adresse TEXT,
-                statut TEXT NOT NULL CHECK(statut IN ('creation', 'pret', 'echec', 'suppression')),
+                statut TEXT NOT NULL CHECK(statut IN ('creating', 'ready', 'failed', 'deleting')),
                 erreur TEXT,
                 jeton TEXT,
                 kubeconfig TEXT,
@@ -849,7 +849,7 @@ def init_db():
         # actions (102,073 of 102,926 entries on a host audited before 1.0.0). Nothing writes them any more, so this
         # finds nothing after the first start.
         conn.execute(
-            "DELETE FROM audit_log WHERE result = 'succes' AND (action LIKE 'list\\_%' ESCAPE '\\' "
+            "DELETE FROM audit_log WHERE result = 'success' AND (action LIKE 'list\\_%' ESCAPE '\\' "
             "OR action LIKE 'get\\_%' ESCAPE '\\')"
         )
         conn.commit()

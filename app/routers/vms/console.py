@@ -64,7 +64,7 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_console_ticket", name, "echec", "VM not found")
+            log_action(user["username"], "create_console_ticket", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(0))
@@ -73,22 +73,22 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
 
         if graphics is None:
             if domain.isActive():
-                log_action(user["username"], "create_console_ticket", name, "echec", "no VNC (VM running)")
+                log_action(user["username"], "create_console_ticket", name, "failed", "no VNC (VM running)")
                 raise HTTPException(
                     status_code=409,
                     detail="This VM was created before the console was added. Stop it, then start it once again to enable the console.",
                 )
             ensure_vnc_graphics(conn, domain)
-            log_action(user["username"], "create_console_ticket", name, "echec", "VNC added, VM stopped")
+            log_action(user["username"], "create_console_ticket", name, "failed", "VNC added, VM stopped")
             raise HTTPException(status_code=409, detail="Console enabled on this VM: start it, then try again.")
 
         if not domain.isActive():
-            log_action(user["username"], "create_console_ticket", name, "echec", "VM stopped")
+            log_action(user["username"], "create_console_ticket", name, "failed", "VM stopped")
             raise HTTPException(status_code=409, detail="The VM must be started to open a console")
 
         port = graphics.get("port")
         if not port or port == "-1":
-            log_action(user["username"], "create_console_ticket", name, "echec", "VNC port unavailable")
+            log_action(user["username"], "create_console_ticket", name, "failed", "VNC port unavailable")
             raise HTTPException(status_code=500, detail="VNC port not available yet")
 
         now = time.time()
@@ -98,7 +98,7 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
 
         ticket = secrets.token_urlsafe(24)
         CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL, node)
-        log_action(user["username"], "create_console_ticket", name, "succes")
+        log_action(user["username"], "create_console_ticket", name, "success")
         return {"ticket": ticket, "expire_dans_s": CONSOLE_TICKET_TTL}
     finally:
         conn.close()
@@ -191,21 +191,21 @@ def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depe
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM not found")
+            log_action(user["username"], "create_terminal_ticket", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if not domain.isActive():
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "VM stopped")
+            log_action(user["username"], "create_terminal_ticket", name, "failed", "VM stopped")
             raise HTTPException(status_code=409, detail="The VM must be started to open a terminal")
 
         ip = _get_ip(domain)
         if not ip:
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "IP inconnue")
+            log_action(user["username"], "create_terminal_ticket", name, "failed", "IP inconnue")
             raise HTTPException(status_code=409, detail="VM IP address not known yet (no DHCP lease yet?)")
 
         ssh_user = get_vm_ssh_user(name)
         if not ssh_user:
-            log_action(user["username"], "create_terminal_ticket", name, "echec", "unknown SSH user")
+            log_action(user["username"], "create_terminal_ticket", name, "failed", "unknown SSH user")
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -221,7 +221,7 @@ def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depe
 
         ticket = secrets.token_urlsafe(24)
         TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, node)
-        log_action(user["username"], "create_terminal_ticket", name, "succes")
+        log_action(user["username"], "create_terminal_ticket", name, "success")
         return {"ticket": ticket, "utilisateur": ssh_user, "expire_dans_s": TERMINAL_TICKET_TTL}
     finally:
         conn.close()

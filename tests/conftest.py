@@ -110,7 +110,7 @@ def cluster(database, tmp_path, monkeypatch):
         roots[hostname] = {"root": root, "reachable": reachable, "library": library}
         with database.get_conn() as conn:
             conn.execute(
-                "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, added_at) VALUES (?, ?, 'root', 22, 'en_ligne', ?)",
+                "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, added_at) VALUES (?, ?, 'root', 22, 'online', ?)",
                 (name, hostname, datetime.now(UTC).isoformat()),
             )
             conn.commit()

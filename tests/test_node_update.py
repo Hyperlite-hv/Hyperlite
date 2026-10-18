@@ -65,13 +65,13 @@ def job(database, monkeypatch, tmp_path):
 
 def test_only_debian_changed_hyperlite_keeps_running(job):
     run, calls = job
-    assert run(["1.0.0", "1.0.0"]) == "termine"
+    assert run(["1.0.0", "1.0.0"]) == "succeeded"
     assert "full-upgrade" in calls["upgrade"][0] and calls["spawned"] == []
 
 
 def test_hyperlite_changed_it_restarts_under_its_watchdog_and_a_reboot_is_said(job, database):
     run, calls = job
-    assert run(["1.0.0", "1.0.1"], reboot=True) == "termine"
+    assert run(["1.0.0", "1.0.1"], reboot=True) == "succeeded"
     assert calls["spawned"] == ["hyperlite-update-watchdog", "hyperlite-update-restart"]
     with database.get_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE action = 'host_reboot_required'").fetchone()[0] == 1

@@ -110,7 +110,7 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_firewall", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_firewall", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         filter_name = _firewall_filter_name(name)
@@ -118,7 +118,7 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
             conn.nwfilterDefineXML(_build_nwfilter_xml(name, payload))
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "set_vm_firewall", name, "echec", msg)
+            log_action(user["username"], "set_vm_firewall", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Firewall definition error: {msg}") from e
 
         # Reference the filter on EVERY interface of the VM (not only the first one):
@@ -139,13 +139,17 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
                 applied += 1
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
-                log_action(user["username"], "set_vm_firewall", name, "echec", msg)
+                log_action(user["username"], "set_vm_firewall", name, "failed", msg)
                 raise HTTPException(
                     status_code=500, detail=f"Filter created but not applied to the interface: {msg}"
                 ) from e
 
         log_action(
-            user["username"], "set_vm_firewall", name, "succes", f"{len(payload.rules)} rule(s), {applied} interface(s)"
+            user["username"],
+            "set_vm_firewall",
+            name,
+            "success",
+            f"{len(payload.rules)} rule(s), {applied} interface(s)",
         )
         return {"message": f"Firewall applied to {applied} interface(s)", **payload.model_dump()}
     finally:

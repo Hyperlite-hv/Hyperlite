@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.domain.common import ObjectMeta
 
-ONLINE, OFFLINE, UNKNOWN = "en_ligne", "hors_ligne", "inconnu"
+ONLINE, OFFLINE, UNKNOWN = "online", "offline", "unknown"
 
 
 class NodeSpec(BaseModel):

@@ -11,7 +11,7 @@ from app.core.database import get_conn
 from app.repositories.sqlite.export import newest_first
 
 MAX_LOG_LINES = 500
-RUNNING = ("en_cours", "en_attente")
+RUNNING = ("running", "pending")
 # Columns allowed for sorting: an allowlist, the SQL text never contains request data.
 SORT_COLUMNS = {c: c for c in ("cree_le", "debut_le", "fin_le", "statut", "type", "cible", "username")}
 EXPORT_COLUMNS = (
@@ -69,7 +69,7 @@ class SqliteTaskStore:
         with get_conn() as conn:
             conn.execute(
                 "INSERT INTO tasks (id, type, cible, node, username, statut, progres, cree_le, debut_le) "
-                "VALUES (?, ?, ?, ?, ?, 'en_cours', 0, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?)",
                 (task_id, type_, cible, node, username, now, now),
             )
             _log_in(conn, task_id, f"Started by {username or 'the system'}", now)
@@ -115,7 +115,7 @@ class SqliteTaskStore:
             _log_in(
                 conn,
                 task_id,
-                ("Failed: " + error_message if error_message else "Failed") if statut == "echec" else "Finished",
+                ("Failed: " + error_message if error_message else "Failed") if statut == "failed" else "Finished",
                 now,
             )
             conn.commit()
@@ -126,7 +126,7 @@ class SqliteTaskStore:
         with get_conn() as conn:
             _log_in(conn, task_id, message, now)
             conn.execute(
-                "UPDATE tasks SET statut = 'echec', progres = 100, fin_le = ?, erreur = ?, annule_par = ? WHERE id = ?",
+                "UPDATE tasks SET statut = 'failed', progres = 100, fin_le = ?, erreur = ?, annule_par = ? WHERE id = ?",
                 (now, message, username, task_id),
             )
             conn.commit()
@@ -134,11 +134,11 @@ class SqliteTaskStore:
     def close_interrupted(self, now):
         reason = "Interrupted: the Hyperlite service restarted while it ran"
         with get_conn() as conn:
-            rows = conn.execute("SELECT id FROM tasks WHERE statut IN ('en_cours', 'en_attente')").fetchall()
+            rows = conn.execute("SELECT id FROM tasks WHERE statut IN ('running', 'pending')").fetchall()
             for row in rows:
                 _log_in(conn, row["id"], reason, now)
             conn.execute(
-                "UPDATE tasks SET statut = 'echec', progres = 100, fin_le = ?, erreur = ? WHERE statut IN ('en_cours', 'en_attente')",
+                "UPDATE tasks SET statut = 'failed', progres = 100, fin_le = ?, erreur = ? WHERE statut IN ('running', 'pending')",
                 (now, reason),
             )
             conn.commit()
@@ -165,7 +165,7 @@ class SqliteTaskStore:
         """The username behind the newest running task of this type created after `since`, or None."""
         with get_conn() as conn:
             row = conn.execute(
-                "SELECT username FROM tasks WHERE type = ? AND statut = 'en_cours' AND cree_le > ? "
+                "SELECT username FROM tasks WHERE type = ? AND statut = 'running' AND cree_le > ? "
                 "ORDER BY cree_le DESC LIMIT 1",
                 (type_, since),
             ).fetchone()
@@ -173,12 +173,12 @@ class SqliteTaskStore:
 
     def stats(self):
         with get_conn() as conn:
-            running = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'en_cours'").fetchone()["n"]
+            running = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'running'").fetchone()["n"]
             total = conn.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"]
-            failed = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'echec'").fetchone()["n"]
+            failed = conn.execute("SELECT COUNT(*) AS n FROM tasks WHERE statut = 'failed'").fetchone()["n"]
             avg = conn.execute(
                 "SELECT AVG((julianday(fin_le) - julianday(debut_le)) * 86400) AS avg_s "
-                "FROM tasks WHERE statut = 'termine' AND fin_le IS NOT NULL"
+                "FROM tasks WHERE statut = 'succeeded' AND fin_le IS NOT NULL"
             ).fetchone()["avg_s"]
         return {
             "running": running,

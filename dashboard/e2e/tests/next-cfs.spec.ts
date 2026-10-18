@@ -32,7 +32,7 @@ function report(gaps: number) {
       entrees: 3, manquants: gaps ? 1 : 0, en_trop: gaps ? 1 : 0, differents: 0,
       exemples: gaps ? PATHS : { manquants: [], en_trop: [], differents: [] },
     } },
-    ecarts: gaps, en_attente: 0,
+    ecarts: gaps, pending: 0,
   };
 }
 

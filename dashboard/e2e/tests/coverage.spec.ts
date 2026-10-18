@@ -116,7 +116,7 @@ test.describe("Snapshot restore (real backend)", () => {
 
 test.describe("Two users at the same time", () => {
   test("a user removed by an administrator is signed out on the next action, while the admin session keeps working", async ({ browser, request }) => {
-    const made = await request.post("/auth/users", { headers: auth(), data: { username: USER, password: USER_PASSWORD, role: "observateur" } });
+    const made = await request.post("/auth/users", { headers: auth(), data: { username: USER, password: USER_PASSWORD, role: "viewer" } });
     expect(made.ok(), await made.text()).toBe(true);
     const adminCtx = await browser.newContext({ ignoreHTTPSErrors: true });
     const userCtx = await browser.newContext({ ignoreHTTPSErrors: true });

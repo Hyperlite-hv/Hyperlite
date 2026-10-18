@@ -170,7 +170,7 @@ def _check_alert(cible, metric, value, threshold):
     if breached and not was_breached:
         from app.core.audit import log_action
 
-        log_action("system", "alert_seuil_depasse", cible, "echec", f"{metric} = {value}% (seuil {threshold}%)")
+        log_action("system", "alert_seuil_depasse", cible, "failed", f"{metric} = {value}% (seuil {threshold}%)")
 
 
 def _vm_row(cible, s):

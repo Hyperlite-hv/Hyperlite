@@ -210,7 +210,7 @@ def _create_vm_after_copy(payload, user, pending):
         if not last:
             return
         if failed:
-            log_action(user["username"], "create_vm", payload.name, "echec", f"ISO copy failed: {', '.join(failed)}")
+            log_action(user["username"], "create_vm", payload.name, "failed", f"ISO copy failed: {', '.join(failed)}")
             return
         try:
             _create_vm(payload, user)
@@ -368,7 +368,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
 
         if errors:
             if not check_only:
-                log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
+                log_action(user["username"], "create_vm", payload.name, "failed", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
         if check_only:
             return None
@@ -481,13 +481,13 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                     kernel_cmdline = "autoinstall ---"
         except subprocess.CalledProcessError as e:
             msg = f"Error while preparing the disk/cloud-init: {e.stderr or e}"
-            log_action(user["username"], "create_vm", payload.name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "create_vm", payload.name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=msg) from e
         except zfs_storage.ZfsError as e:
-            log_action(user["username"], "create_vm", payload.name, "echec", e.message, task_id=task_id)
+            log_action(user["username"], "create_vm", payload.name, "failed", e.message, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"ZFS error while preparing the disk: {e.message}") from e
         except ValueError as e:
-            log_action(user["username"], "create_vm", payload.name, "echec", str(e), task_id=task_id)
+            log_action(user["username"], "create_vm", payload.name, "failed", str(e), task_id=task_id)
             raise HTTPException(status_code=422, detail=str(e)) from e
 
         xml = build_domain_xml(
@@ -528,9 +528,9 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                 domain.create()
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
-                finish_task(install_task_id, "echec", f"Automatic start impossible: {msg}")
+                finish_task(install_task_id, "failed", f"Automatic start impossible: {msg}")
                 clear_provisioning(payload.name)
-                log_action(user["username"], "auto_install", payload.name, "echec", msg)
+                log_action(user["username"], "auto_install", payload.name, "failed", msg)
                 # This does not make create_vm fail: the domain is defined, and the admin can
                 # start or diagnose it by hand. A failed automatic start must not make the VM
                 # invisible or lost.
@@ -548,7 +548,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
         set_vm_os_label(payload.name, os_label)
         if payload.auto_cleanup_days:
             set_vm_auto_cleanup(payload.name, payload.auto_cleanup_days)
-        log_action(user["username"], "create_vm", payload.name, "succes", task_id=task_id)
+        log_action(user["username"], "create_vm", payload.name, "success", task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()

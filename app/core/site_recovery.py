@@ -110,7 +110,7 @@ def _summary(backup_dir, manifest, known):
     return {
         "chemin": path,
         "cree_le": manifest.get("cree_le"),
-        "mode": manifest.get("mode") if manifest.get("mode") in ("chaud", "froid") else "froid",
+        "mode": manifest.get("mode") if manifest.get("mode") in ("live", "cold") else "cold",
         "firmware": manifest.get("firmware") or "bios",
         "source": manifest.get("source"),
         "disques": len(disks),
@@ -201,7 +201,7 @@ def register(path, username="system"):
         checksum,
         str(manifest.get("source") or "")[:255] or None,
     )
-    log_action(username, "import_backup", vm, "succes", f"#{backup_id} from {backup_dir}")
+    log_action(username, "import_backup", vm, "success", f"#{backup_id} from {backup_dir}")
     return backup_id
 
 
@@ -259,9 +259,9 @@ def _run(task_id, pairs, network, username):
     summary = f"{len(done)}/{len(pairs)} VM(s) restored"
     if failed:
         summary += "; failed: " + "; ".join(failed)
-    finish_task(task_id, "termine" if not failed else "echec", None if not failed else summary)
+    finish_task(task_id, "succeeded" if not failed else "failed", None if not failed else summary)
     log_action(
-        username, "site_recovery", ", ".join(n for _, n in pairs)[:200], "succes" if not failed else "echec", summary
+        username, "site_recovery", ", ".join(n for _, n in pairs)[:200], "success" if not failed else "failed", summary
     )
 
 
@@ -271,6 +271,6 @@ def recover(items, network, username):
 
     pairs = plan(items, network)
     task_id = create_task("site_recovery", f"{len(pairs)} VM(s)", username=username)
-    log_action(username, "site_recovery_requested", f"{len(pairs)} VM(s)", "succes")
+    log_action(username, "site_recovery_requested", f"{len(pairs)} VM(s)", "success")
     threading.Thread(target=_run, args=(task_id, pairs, network, username), daemon=True).start()
     return task_id

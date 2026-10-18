@@ -60,7 +60,7 @@ function ObjectPermissions({ kind, name }) {
   return (
     <>
       <Card title={t("op.title")} flush>
-        <p className="nx-muted" style={{ margin: "var(--space-3) var(--space-4)", fontSize: "var(--fs-13)" }}>{t("op.global", { admins: byRole("admin"), observers: byRole("observateur") })}</p>
+        <p className="nx-muted" style={{ margin: "var(--space-3) var(--space-4)", fontSize: "var(--fs-13)" }}>{t("op.global", { admins: byRole("admin"), observers: byRole("viewer") })}</p>
         {data.acl.length === 0 ? <p className="nx-muted" style={{ margin: "0 var(--space-4) var(--space-4)" }}>{t(kind === "vm" ? "op.noneVm" : "op.none")}</p> : (
           <TableWrap label={t("op.title")}>
             <table className="nx-table">

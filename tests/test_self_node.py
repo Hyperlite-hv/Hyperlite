@@ -165,7 +165,7 @@ def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
         db.execute("DELETE FROM app_settings WHERE cle = ?", (self_node.TASKS_SETTING,))
         for i, node in enumerate(("hyperlite.home", None, "local", "pve-b", "hv-test")):
             db.execute(
-                "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES (?, 'start_vm', ?, ?, 'termine', 100, 't')",
+                "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES (?, 'start_vm', ?, ?, 'succeeded', 100, 't')",
                 (f"t{i}", f"vm{i}", node),
             )
         db.commit()
@@ -183,7 +183,7 @@ def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
     # Once only: a later task of a node that left the cluster keeps its name.
     with database.get_conn() as db:
         db.execute(
-            "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES ('t9', 'start_vm', 'vm9', 'gone', 'termine', 100, 't')"
+            "INSERT INTO tasks (id, type, cible, node, statut, progres, cree_le) VALUES ('t9', 'start_vm', 'vm9', 'gone', 'succeeded', 100, 't')"
         )
         db.commit()
     self_node.forget()

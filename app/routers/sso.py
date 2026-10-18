@@ -88,7 +88,7 @@ def put_sso_config(payload: SSOConfigIn, user: dict = Depends(require_role("admi
     if payload.client_secret:  # None ou "" -> secret existant conserve
         fields["client_secret"] = payload.client_secret
     sso.set_config(**fields)
-    log_action(user["username"], "update_sso_config", "sso", "succes")
+    log_action(user["username"], "update_sso_config", "sso", "success")
     return {"message": "SSO configuration updated"}
 
 
@@ -117,11 +117,11 @@ def test_sso(user: dict = Depends(require_role("admin"))):
     try:
         doc = sso.discover(issuer)
     except Exception as e:
-        log_action(user["username"], "test_sso", "sso", "echec", describe_exception(e))
+        log_action(user["username"], "test_sso", "sso", "failed", describe_exception(e))
         return {"ok": False, "detail": _discovery_failure(e)}
     missing = [k for k in ("authorization_endpoint", "token_endpoint", "jwks_uri") if not doc.get(k)]
     ok = not missing
-    log_action(user["username"], "test_sso", "sso", "succes" if ok else "echec")
+    log_action(user["username"], "test_sso", "sso", "success" if ok else "failed")
     return {
         "ok": ok,
         "issuer": doc.get("issuer"),
@@ -161,7 +161,7 @@ def sso_callback(
     error_description: str | None = None,
 ):
     if error:
-        log_action("system", "login", "auth", "echec", f"SSO refused by the IdP: {error_description or error}")
+        log_action("system", "login", "auth", "failed", f"SSO refused by the IdP: {error_description or error}")
         return _redirect_error(error_description or error)
     if not code or not state:
         return _redirect_error("Incomplete response from the IdP")
@@ -169,7 +169,7 @@ def sso_callback(
     nonce = sso.consume_state(state, request.cookies.get(BINDING_COOKIE))
     if nonce is None:
         # Expired, replayed, or started from another browser (a callback link someone sent).
-        log_action("system", "login", "auth", "echec", "SSO: unknown, expired or foreign sign-in state")
+        log_action("system", "login", "auth", "failed", "SSO: unknown, expired or foreign sign-in state")
         return _redirect_error("Login session expired, try again")
 
     config = sso.get_config()
@@ -182,10 +182,10 @@ def sso_callback(
         id_token = tokens["id_token"]
         claims = sso.validate_id_token(config, doc, id_token, nonce)
     except (PyJWTError, KeyError) as e:
-        log_action("system", "login", "auth", "echec", f"SSO: invalid identity token ({e})")
+        log_action("system", "login", "auth", "failed", f"SSO: invalid identity token ({e})")
         return _redirect_error("Invalid identity token")
     except Exception as e:
-        log_action("system", "login", "auth", "echec", f"SSO: IdP unreachable or invalid response ({e})")
+        log_action("system", "login", "auth", "failed", f"SSO: IdP unreachable or invalid response ({e})")
         return _redirect_error("Unable to contact the IdP")
 
     username = sso.resolve_username(claims)
@@ -196,13 +196,13 @@ def sso_callback(
     try:
         db_user = sso.provision_user(username, role, subject=claims.get("sub"))
     except sso.LocalAccountConflict:
-        log_action(username, "login", "auth", "echec", "SSO: this name already matches a local account")
+        log_action(username, "login", "auth", "failed", "SSO: this name already matches a local account")
         return _redirect_error("This username already matches a local account")
     except sso.SubjectConflict:
-        log_action(username, "login", "auth", "echec", "SSO: this name belongs to another identity of the provider")
+        log_action(username, "login", "auth", "failed", "SSO: this name belongs to another identity of the provider")
         return _redirect_error("This username belongs to another identity: ask an administrator")
 
-    log_action(db_user["username"], "login", "auth", "succes", "SSO identity validated")
+    log_action(db_user["username"], "login", "auth", "success", "SSO identity validated")
     response = RedirectResponse("/?sso=1")
     response.delete_cookie(BINDING_COOKIE, path=COOKIE_PATH)
     _set_cookie(response, request, HANDOFF_COOKIE, sso.create_handoff(db_user["username"]), sso.HANDOFF_TTL_S)
@@ -223,11 +223,11 @@ def sso_exchange(request: Request):
     methods = [m for m, on in (("totp", user["totp_enabled"]), ("webauthn", webauthn_keys.has_keys(username))) if on]
     if methods:
         body = {"require_2fa": True, "pre_auth_token": create_preauth_token(username), "methods": methods}
-        log_action(username, "login", "auth", "succes", "SSO validated, second factor required")
+        log_action(username, "login", "auth", "success", "SSO validated, second factor required")
     else:
         token = create_access_token({"sub": username, "role": user["role"]})
         account_service.record_login(username)
-        log_action(username, "login", "auth", "succes", "SSO login")
+        log_action(username, "login", "auth", "success", "SSO login")
         body = {
             "access_token": token,
             "token_type": "bearer",

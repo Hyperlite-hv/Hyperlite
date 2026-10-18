@@ -71,7 +71,7 @@ def check_reboot_needed():
         return False
     pkgs = host_system.REBOOT_PKGS.read_text().split() if host_system.REBOOT_PKGS.exists() else []
     detail = f"for {', '.join(sorted(set(pkgs)))[:300]}" if pkgs else None
-    log_action("system", "host_reboot_required", "host", "succes", detail)
+    log_action("system", "host_reboot_required", "host", "success", detail)
     _store().set_app_setting(REBOOT_MARK, boot)
     return True
 
@@ -88,7 +88,7 @@ def check_once():
     # stays behind silently. Alert once (the marker is replaced by the next real version notification).
     if result.get("source_problem"):
         if _get_last_notified() != SOURCE_PROBLEM_MARKER:
-            log_action("system", "update_check_blocked", "hyperlite", "echec", result.get("erreur"))
+            log_action("system", "update_check_blocked", "hyperlite", "failed", result.get("erreur"))
             _mark_notified(SOURCE_PROBLEM_MARKER)
         return
 
@@ -100,7 +100,7 @@ def check_once():
         return  # no usable remote version, or already notified for THIS version
 
     msg = f"New Hyperlite version available: {remote} (current version: {result.get('commit_local')})"
-    log_action("system", "update_available", "hyperlite", "succes", msg)
+    log_action("system", "update_available", "hyperlite", "success", msg)
     _mark_notified(remote)
 
 

@@ -139,7 +139,7 @@ def auto_restart_possible(nodes, temoin):
 
 
 def _restart_target(failed_node, all_nodes):
-    candidates = ["local"] + [n["name"] for n in all_nodes if n["statut"] == "en_ligne"]
+    candidates = ["local"] + [n["name"] for n in all_nodes if n["statut"] == "online"]
     for name in candidates:
         if name != failed_node and maintenance.get(name) is None:
             return name
@@ -215,11 +215,13 @@ def tick():
             would_act, sentence = decide(name, all_nodes, conf["temoin"], iso)
             for vm in vms:
                 _record(vm, FAILED, sentence)
-                log_action("system", "ha_dry_run", vm, "succes" if would_act else "echec", f"{name} failed. {sentence}")
+                log_action(
+                    "system", "ha_dry_run", vm, "success" if would_act else "failed", f"{name} failed. {sentence}"
+                )
             from app.core.notifications import notify
 
             notify(
-                "ha_alert", f"HA: node {name} failed", f"Protected VMs: {', '.join(vms)}. {sentence}", result="echec"
+                "ha_alert", f"HA: node {name} failed", f"Protected VMs: {', '.join(vms)}. {sentence}", result="failed"
             )
         else:
             note = {
@@ -230,7 +232,7 @@ def tick():
             for vm in vms:
                 _record(vm, current, note)
             if current != OK:
-                log_action("system", "ha_watch", name, "echec", note)
+                log_action("system", "ha_watch", name, "failed", note)
     return status()
 
 

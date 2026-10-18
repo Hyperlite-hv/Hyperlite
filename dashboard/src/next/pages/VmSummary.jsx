@@ -131,7 +131,7 @@ export default function VmSummary({ resource: vm }) {
           {remote ? <p className="nx-muted" style={{ margin: 0 }}>{t("vm.remoteLocalOnly")}</p> : (
           <ul className="nx-list2">
             <li><Archive size={16} aria-hidden="true" />
-              <div className="nx-list2-main">{t("vm.lastBackup")}<div className="nx-list2-sub">{backups == null ? "…" : lastBackup ? `${formatDateTime(lastBackup.cree_le, lang)} · ${t(lastBackup.statut === "echec" ? "state.failed" : lastBackup.statut === "termine" || lastBackup.statut === "succes" ? "state.done" : "state.inprogress")}` : t("vm.noBackup")}{schedule ? ` · ${t(`vb.f.${schedule.frequence}`)} ${schedule.heure} UTC` : schedule === null ? ` · ${t("vm.noSchedule")}` : ""}</div></div>
+              <div className="nx-list2-main">{t("vm.lastBackup")}<div className="nx-list2-sub">{backups == null ? "…" : lastBackup ? `${formatDateTime(lastBackup.cree_le, lang)} · ${t(lastBackup.statut === "failed" ? "state.failed" : lastBackup.statut === "succeeded" || lastBackup.statut === "success" ? "state.done" : "state.inprogress")}` : t("vm.noBackup")}{schedule ? ` · ${t(`vb.f.${schedule.frequence}`)} ${schedule.heure} UTC` : schedule === null ? ` · ${t("vm.noSchedule")}` : ""}</div></div>
               <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "backup")}>{schedule ? t("vm.manage") : t("ov.plan")}</button></li>
             <li><Camera size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("tab.snapshots")}<div className="nx-list2-sub">{snaps == null ? "…" : snaps === false ? t("ns.notReported") : snaps.length ? t("vm.snapsN", { n: snaps.length }) : t("vm.snapsNone")}</div></div>

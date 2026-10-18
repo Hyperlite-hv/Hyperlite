@@ -18,7 +18,7 @@ function backup(vm: string, stamp: string, day: string) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "vda.qcow2"), "disk");
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({
-    version: 1, vm, source: "site-a", mode: "froid", cree_le: `2026-10-${day}T03:00:00+00:00`, firmware: "bios",
+    version: 1, vm, source: "site-a", mode: "cold", cree_le: `2026-10-${day}T03:00:00+00:00`, firmware: "bios",
     fichiers: [{ nom: "vda.qcow2", role: "disque", cible: "vda", taille: 4, sha256: "x" }],
   }));
 }

@@ -334,7 +334,7 @@ def create(name, address, username):
     client.put(COROSYNC_KEY_ENTRY, base64.b64encode(key))
     client.put(f"{SSH_DIR}/{shadow.component(me)}", cluster.get_cluster_pubkey().encode())
     _register(me, address)
-    log_action(username, "cluster_create", name, "succes", f"{me} ({address})")
+    log_action(username, "cluster_create", name, "success", f"{me} ({address})")
     return state()
 
 
@@ -345,7 +345,7 @@ def _register(node, address):
     from app.repositories.sqlite.nodes import SqliteNodeStore
 
     with contextlib.suppress(AlreadyExists):
-        SqliteNodeStore().create(NodeSpec(name=node, hostname=address), _now().isoformat(), "en_ligne")
+        SqliteNodeStore().create(NodeSpec(name=node, hostname=address), _now().isoformat(), "online")
 
 
 # ---- Letting a node in ----
@@ -463,7 +463,7 @@ def accept_member(ticket, name, address, ssh_key):
             raise
         answer = {"configuration": conf, "cle_corosync": corosync_key, "cles": keys, "cles_ssh": _member_keys(client)}
         sync()  # last: this node's Corosync knows the new member before it calls, and may lose the quorum until it does
-    log_action("system", "cluster_join", name, "succes", f"{name} ({address}) joined {conf['cluster']}")
+    log_action("system", "cluster_join", name, "success", f"{name} ({address}) joined {conf['cluster']}")
     return answer
 
 
@@ -668,7 +668,7 @@ def join(information, address, confirmation, username):
         _undo_join(files, services, moved)
         reason = str(e) if isinstance(e, ClusterError) else "the join failed (see journalctl -u hyperlite)"
         raise ClusterError(f"{reason}. This node is back as it was. {take_out}") from None
-    log_action(username, "cluster_join", conf["cluster"], "succes", f"{me} ({address})")
+    log_action(username, "cluster_join", conf["cluster"], "success", f"{me} ({address})")
     _restart_service()
     return {"cluster": conf["cluster"], "redemarrage": True}
 
@@ -710,7 +710,7 @@ def remove_member(name, confirmation, username):
             client.delete(f"{SSH_DIR}/{shadow.component(name)}")
         sync()
     SqliteNodeStore().delete(name)
-    log_action(username, "cluster_remove_member", name, "succes", conf["cluster"])
+    log_action(username, "cluster_remove_member", name, "success", conf["cluster"])
     return state()
 
 
@@ -733,7 +733,7 @@ def set_primary(name, username):
         conf["version"] += 1
         client.put(CONF_PATH, json.dumps(conf).encode())
         sync()
-    log_action(username, "cluster_primary", name or "none", "succes", conf["cluster"])
+    log_action(username, "cluster_primary", name or "none", "success", conf["cluster"])
     return state()
 
 

@@ -91,7 +91,7 @@ def _reauth_clear_failures(username):
 
 def _refuse_reauth_if_locked(username, action):
     if _reauth_locked_out(username):
-        log_action(username, action, username, "echec", "Locked out after repeated failures")
+        log_action(username, action, username, "failed", "Locked out after repeated failures")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many failed attempts, try again in {LOGIN_WINDOW_S // 60} minutes",
@@ -116,12 +116,12 @@ def _check_current_password(user, password, action):
             raise HTTPException(status_code=502, detail=f"The directory could not check the password: {e}") from e
         if not ok:
             _reauth_record_failure(username)
-            log_action(username, action, username, "echec", "Incorrect current password")
+            log_action(username, action, username, "failed", "Incorrect current password")
             raise HTTPException(status_code=400, detail="Incorrect current password")
         return
     if not verify_password(password or "", user["hashed_password"]):
         _reauth_record_failure(username)
-        log_action(username, action, username, "echec", "Incorrect password")
+        log_action(username, action, username, "failed", "Incorrect password")
         raise HTTPException(status_code=400, detail="Incorrect password")
 
 
@@ -140,7 +140,7 @@ def _login_ip_record_failure(ip):
 class UserCreate(BaseModel):
     username: str
     password: str
-    role: str = "observateur"
+    role: str = "viewer"
 
 
 class UserUpdate(BaseModel):
@@ -220,7 +220,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
             form_data.username,
             "login",
             "auth",
-            "echec",
+            "failed",
             f"IP locked out ({LOGIN_IP_MAX_ATTEMPTS} recent failures from {ip})",
         )
         raise HTTPException(
@@ -228,7 +228,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
             detail=f"Too many failed attempts from this address, try again in {LOGIN_IP_WINDOW_S // 60} minutes",
         )
     if _login_locked_out(form_data.username, ip):
-        log_action(form_data.username, "login", "auth", "echec", f"Locked out ({LOGIN_MAX_ATTEMPTS} recent failures)")
+        log_action(form_data.username, "login", "auth", "failed", f"Locked out ({LOGIN_MAX_ATTEMPTS} recent failures)")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many failed attempts for this account, try again in {LOGIN_WINDOW_S // 60} minutes",
@@ -237,14 +237,14 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     if not user:
         _login_record_failure(form_data.username, ip)
         _login_ip_record_failure(ip)
-        log_action(form_data.username, "login", "auth", "echec", "Invalid credentials")
+        log_action(form_data.username, "login", "auth", "failed", "Invalid credentials")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     # The only moment the plain password is known: one that no longer meets the policy (set before the policy
     # existed) must be changed before anything else. Checked before the 2FA step so abandoning it changes nothing.
     if user.get("auth_source", "local") == "local" and password_problem(form_data.password, user["username"]):
         if not user.get("must_change_password"):
             flag_weak_password(user["username"])
-            log_action(user["username"], "login", "auth", "succes", "Weak password: a change is required")
+            log_action(user["username"], "login", "auth", "success", "Weak password: a change is required")
         user["must_change_password"] = 1
 
     # Correct password but a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
@@ -257,13 +257,13 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     ]
     if methods:
         pre_auth = create_preauth_token(user["username"], remember)
-        log_action(user["username"], "login", "auth", "succes", "Password validated, second factor required")
+        log_action(user["username"], "login", "auth", "success", "Password validated, second factor required")
         return {"require_2fa": True, "pre_auth_token": pre_auth, "methods": methods}
 
     _login_clear_failures(user["username"], ip)
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=remember)
     _record_login(user["username"])
-    log_action(user["username"], "login", "auth", "succes")
+    log_action(user["username"], "login", "auth", "success")
     return _session_response(token, user)
 
 
@@ -281,7 +281,7 @@ def _preauth_username(token):
 def _refuse_if_locked(request, username, action):
     ip = _client_ip(request)
     if _login_ip_locked_out(ip) or (username and _login_locked_out(username, ip)):
-        log_action(username or "system", action, "auth", "echec", "Locked out after repeated failures")
+        log_action(username or "system", action, "auth", "failed", "Locked out after repeated failures")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many failed attempts, try again in {LOGIN_WINDOW_S // 60} minutes",
@@ -314,12 +314,12 @@ def login_webauthn(request: Request, payload: LoginWebAuthn):
     if not ok:
         _login_record_failure(username, ip)
         _login_ip_record_failure(ip)
-        log_action(username, "login", "auth", "echec", "Security key refused")
+        log_action(username, "login", "auth", "failed", "Security key refused")
         raise HTTPException(status_code=401, detail="Security key refused: try again, or use the code")
     _login_clear_failures(username, ip)
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=bool(claims.get("remember")))
     _record_login(username)
-    log_action(username, "login", "auth", "succes", "Security key validated")
+    log_action(username, "login", "auth", "success", "Security key validated")
     return _session_response(token, user)
 
 
@@ -332,7 +332,7 @@ def login_2fa(request: Request, payload: Login2FA):
     ip = _client_ip(request)
     if _login_ip_locked_out(ip):
         log_action(
-            "system", "login", "auth", "echec", f"IP locked out ({LOGIN_IP_MAX_ATTEMPTS} recent failures from {ip})"
+            "system", "login", "auth", "failed", f"IP locked out ({LOGIN_IP_MAX_ATTEMPTS} recent failures from {ip})"
         )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -347,7 +347,7 @@ def login_2fa(request: Request, payload: Login2FA):
         raise HTTPException(status_code=401, detail="Invalid pre-authentication token")
 
     if _login_locked_out(username, ip):
-        log_action(username, "login", "auth", "echec", f"Locked out ({LOGIN_MAX_ATTEMPTS} recent failures)")
+        log_action(username, "login", "auth", "failed", f"Locked out ({LOGIN_MAX_ATTEMPTS} recent failures)")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many failed attempts for this account, try again in {LOGIN_WINDOW_S // 60} minutes",
@@ -359,13 +359,13 @@ def login_2fa(request: Request, payload: Login2FA):
     if not verify_code(username, user["totp_secret"], payload.code):
         _login_record_failure(username, ip)
         _login_ip_record_failure(ip)
-        log_action(username, "login", "auth", "echec", "Invalid 2FA code")
+        log_action(username, "login", "auth", "failed", "Invalid 2FA code")
         raise HTTPException(status_code=401, detail="Invalid code (a code is accepted once: wait for the next one)")
 
     _login_clear_failures(username, ip)
     token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=bool(claims.get("remember")))
     _record_login(username)
-    log_action(username, "login", "auth", "succes", "2FA validated")
+    log_action(username, "login", "auth", "success", "2FA validated")
     return _session_response(token, user)
 
 
@@ -411,7 +411,7 @@ def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_session_user)):
         # the dashboard treat the session as expired and sign the user out).
         raise HTTPException(status_code=400, detail="Invalid code")
     account_service.enable_totp(user["username"])
-    log_action(user["username"], "enable_2fa", user["username"], "succes")
+    log_action(user["username"], "enable_2fa", user["username"], "success")
     return {"message": "2FA enabled"}
 
 
@@ -425,15 +425,15 @@ def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(ge
     # 400, not 401, for a wrong password or code: the session itself is valid (a 401 signs the dashboard out).
     if not verify_password(payload.password, user["hashed_password"]):
         _reauth_record_failure(username)
-        log_action(username, "disable_2fa", username, "echec", "Incorrect password")
+        log_action(username, "disable_2fa", username, "failed", "Incorrect password")
         raise HTTPException(status_code=400, detail="Incorrect password")
     if user["totp_enabled"] and not verify_code(username, user["totp_secret"], payload.code or ""):
         _reauth_record_failure(username)
-        log_action(username, "disable_2fa", username, "echec", "Invalid 2FA code")
+        log_action(username, "disable_2fa", username, "failed", "Invalid 2FA code")
         raise HTTPException(status_code=400, detail="Invalid 2FA code (a code is accepted once: wait for the next one)")
     _reauth_clear_failures(username)
     account_service.disable_totp(user["username"])
-    log_action(user["username"], "disable_2fa", user["username"], "succes")
+    log_action(user["username"], "disable_2fa", user["username"], "success")
     return {"message": "2FA disabled"}
 
 
@@ -464,9 +464,9 @@ def webauthn_register(request: Request, payload: WebAuthnRegister, user: dict = 
             user["username"], request.headers.get("origin"), payload.credential, payload.name
         )
     except webauthn_keys.WebAuthnError as e:
-        log_action(user["username"], "add_security_key", user["username"], "echec", e.message)
+        log_action(user["username"], "add_security_key", user["username"], "failed", e.message)
         raise HTTPException(status_code=e.status, detail=e.message) from None
-    log_action(user["username"], "add_security_key", user["username"], "succes", payload.name or "Security key")
+    log_action(user["username"], "add_security_key", user["username"], "success", payload.name or "Security key")
     return {"id": key_id, "keys": webauthn_keys.list_keys(user["username"])}
 
 
@@ -478,7 +478,7 @@ def webauthn_delete(request: Request, key_id: int, payload: WebAuthnDelete, user
     if not webauthn_keys.delete_key(username, key_id):
         raise HTTPException(status_code=404, detail="Security key not found")
     _reauth_clear_failures(username)
-    log_action(username, "remove_security_key", username, "succes", f"key #{key_id}")
+    log_action(username, "remove_security_key", username, "success", f"key #{key_id}")
     return {"keys": webauthn_keys.list_keys(username)}
 
 
@@ -506,7 +506,7 @@ def post_api_token(payload: TokenCreate, user: dict = Depends(get_session_user))
         user["username"],
         "create_api_token",
         name,
-        "succes",
+        "success",
         f"expires {expires_at[:10]}" if expires_at else "no expiry",
     )
     # The plain token is returned only HERE, once: it can never be retrieved again
@@ -530,7 +530,7 @@ def rename_api_token(token_id: int, payload: ApiTokenRename, user: dict = Depend
         raise HTTPException(status_code=409, detail=str(e)) from e
     if old is None:
         raise HTTPException(status_code=404, detail="Not found")
-    log_action(user["username"], "rename_api_token", old, "succes", f"-> {name}")
+    log_action(user["username"], "rename_api_token", old, "success", f"-> {name}")
     return {"id": token_id, "name": name}
 
 
@@ -541,7 +541,7 @@ def delete_api_token(token_id: int, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="An API token can only revoke itself: sign in to the dashboard")
     if not revoke_token(user["username"], token_id):
         raise HTTPException(status_code=404, detail="Token not found")
-    log_action(user["username"], "revoke_api_token", str(token_id), "succes")
+    log_action(user["username"], "revoke_api_token", str(token_id), "success")
     return {"message": "Token revoked"}
 
 
@@ -569,11 +569,11 @@ def change_my_password(
     # 400, not 401, for a wrong password or code: the session itself is valid (a 401 signs the dashboard out).
     if not verify_password(payload.current_password, user["hashed_password"]):
         _reauth_record_failure(username)
-        log_action(username, "change_password", username, "echec", "Incorrect current password")
+        log_action(username, "change_password", username, "failed", "Incorrect current password")
         raise HTTPException(status_code=400, detail="Incorrect current password")
     if user["totp_enabled"] and not verify_code(username, user["totp_secret"], payload.code or ""):
         _reauth_record_failure(username)
-        log_action(username, "change_password", username, "echec", "Invalid 2FA code")
+        log_action(username, "change_password", username, "failed", "Invalid 2FA code")
         raise HTTPException(status_code=400, detail="Invalid 2FA code (a code is accepted once: wait for the next one)")
     if payload.new_password == payload.current_password:
         raise HTTPException(status_code=422, detail="The new password must be different from the current one")
@@ -586,7 +586,7 @@ def change_my_password(
     # reset by an administrator. Otherwise a stolen script token kept full, permanent access.
     revoked = revoke_all_tokens(username)
     log_action(
-        username, "change_password", username, "succes", f"Other sessions signed out, {revoked} token(s) revoked"
+        username, "change_password", username, "success", f"Other sessions signed out, {revoked} token(s) revoked"
     )
     fresh = create_access_token({"sub": username, "role": user["role"]}, remember=session_remembered(token))
     return {"access_token": fresh, "token_type": "bearer", "role": user["role"], "revoked_tokens": revoked}
@@ -599,7 +599,7 @@ def logout(token: str = Depends(oauth2_scheme), user: dict = Depends(get_current
     if user.get("api_token_id") is not None:
         raise HTTPException(status_code=400, detail="An API token is revoked from the tokens list, not signed out")
     revoke_session(token)
-    log_action(user["username"], "logout", "auth", "succes")
+    log_action(user["username"], "logout", "auth", "success")
     return {"message": "Signed out"}
 
 
@@ -615,13 +615,13 @@ def create_user(payload: UserCreate, user: dict = Depends(require_role("admin"))
     problem = password_problem(payload.password, payload.username)
     if problem:
         raise HTTPException(status_code=422, detail=problem)
-    if payload.role not in ("admin", "observateur"):
+    if payload.role not in ("admin", "viewer"):
         raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
     try:
         account_service.create(payload.username, hash_password(payload.password), payload.role)
     except account_service.UserExists as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
-    log_action(user["username"], "create_user", payload.username, "succes")
+    log_action(user["username"], "create_user", payload.username, "success")
     return {"username": payload.username, "role": payload.role}
 
 
@@ -648,7 +648,7 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
         if problem:
             raise HTTPException(status_code=422, detail=problem)
     if payload.role is not None:
-        if payload.role not in ("admin", "observateur"):
+        if payload.role not in ("admin", "viewer"):
             raise HTTPException(status_code=422, detail="Invalid role (admin or observateur)")
         if existing["role"] == "admin" and payload.role != "admin" and username == user["username"]:
             raise HTTPException(status_code=400, detail="You cannot remove your own admin rights")
@@ -663,11 +663,11 @@ def update_user(username: str, payload: UserUpdate, user: dict = Depends(require
         # (set_password), its API and workstation tokens go too.
         revoked = revoke_all_tokens(username)
         log_action(
-            user["username"], "reset_password", username, "succes", f"Sessions signed out, {revoked} token(s) revoked"
+            user["username"], "reset_password", username, "success", f"Sessions signed out, {revoked} token(s) revoked"
         )
         result["revoked_tokens"] = revoked
     if payload.role is not None:
-        log_action(user["username"], "update_user", username, "succes")
+        log_action(user["username"], "update_user", username, "success")
     return result
 
 
@@ -685,5 +685,5 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     for group_id in get_user_groups(username):
         remove_group_member(group_id, username)
     delete_acl_for_user(username)
-    log_action(user["username"], "delete_user", username, "succes")
+    log_action(user["username"], "delete_user", username, "success")
     return {"message": "User deleted"}

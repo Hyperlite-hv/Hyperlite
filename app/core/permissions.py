@@ -1,5 +1,5 @@
 """Granular permissions, Proxmox-style: user groups + VM pools + scoped roles +
-assignments (ACLs), on top of the two existing global roles (admin/observateur,
+assignments (ACLs), on top of the two existing global roles (admin/viewer,
 see app/core/security.py, unchanged).
 
 Principle: additive only. An admin remains admin everywhere and an observer
@@ -42,7 +42,7 @@ ALL_PRIVILEGES = {
 }
 
 # Predefined, scoped roles that can be assigned through an ACL (distinct from
-# the global admin/observateur roles): convenient shortcuts over the same
+# the global admin/viewer roles): convenient shortcuts over the same
 # privilege catalog as the custom roles below, not a separate mechanism.
 ROLES = {
     "lecteur": {
@@ -273,11 +273,11 @@ def delete_acl_for_user(username):
 
 def has_privilege(user, vm_name, privilege):
     """True if `user` has the requested privilege on `vm_name`, through their global
-    role (admin/observateur) OR an ACL (direct or through a group) on this VM
+    role (admin/viewer) OR an ACL (direct or through a group) on this VM
     OR on a pool that contains it."""
     if user["role"] == "admin":
         return True
-    if user["role"] == "observateur" and privilege in {"vm.view", "vm.console"}:
+    if user["role"] == "viewer" and privilege in {"vm.view", "vm.console"}:
         return True  # unchanged historical behaviour: read + VNC console at the global read level (not the SSH terminal, which was already admin-only before this system)
 
     group_ids = set(get_user_groups(user["username"]))
@@ -310,7 +310,7 @@ def has_container_privilege(user, container_name, privilege):
     silently absent."""
     if user["role"] == "admin":
         return True
-    if user["role"] == "observateur" and privilege == "container.view":
+    if user["role"] == "viewer" and privilege == "container.view":
         return True  # same principle as vm.view: global read access for observers, not the terminal
 
     group_ids = set(get_user_groups(user["username"]))

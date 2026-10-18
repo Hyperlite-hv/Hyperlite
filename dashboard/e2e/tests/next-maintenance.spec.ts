@@ -41,7 +41,7 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
     if (req.resourceType() === "document") return route.fallback();
     const url = new URL(req.url());
     const path = url.pathname;
-    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "en_ligne" }]);
+    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "online" }]);
     if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0, stockage_capacite_go: 100, stockage_disponible_go: 50 });
     if (req.method() === "GET" && /\/nodes\/maintenance$/.test(path)) return json(route, state);
     if (req.method() === "GET" && /\/nodes\/local\/drain-plan$/.test(path)) return json(route, url.searchParams.get("target_node") === "peer" ? plans.peer : plans.none);

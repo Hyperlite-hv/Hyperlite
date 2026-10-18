@@ -85,5 +85,5 @@ def put_meta(
         saved = object_meta.put(kind, name, payload.notes, payload.tags, node)
     except object_meta.MetaError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], f"update_{kind}_notes", name, "succes", f"tags: {', '.join(saved['tags']) or '-'}")
+    log_action(user["username"], f"update_{kind}_notes", name, "success", f"tags: {', '.join(saved['tags']) or '-'}")
     return saved

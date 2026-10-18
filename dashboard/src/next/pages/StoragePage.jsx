@@ -102,8 +102,8 @@ function CreatePoolDrawer({ open, onClose }) {
       const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
       if (created?.resultats) {
         // One line per node: created, already there, or why it failed there (the others went on).
-        const ok = created.resultats.filter((r) => r.etat !== "echec");
-        const failed = created.resultats.filter((r) => r.etat === "echec");
+        const ok = created.resultats.filter((r) => r.etat !== "failed");
+        const failed = created.resultats.filter((r) => r.etat === "failed");
         pushToast({ kind: "success", title: t("stor.createdOn", { name: form.name, n: ok.length }), message: ok.map((r) => `${nodeName(r.noeud)}${r.etat === "existe" ? ` (${t("stor.alreadyThere")})` : ""}`).join(", ") });
         if (failed.length) pushToast({ kind: "error", title: t("stor.failedOn", { n: failed.length }), message: failed.map((r) => `${nodeName(r.noeud)} : ${r.detail}`).join("\n"), duration: Infinity });
         for (const r of created.resultats) if (r.avertissement) pushToast({ kind: "error", title: `${t("stor.nfsPermTitle")} · ${nodeName(r.noeud)}`, message: r.avertissement, duration: Infinity });
@@ -244,7 +244,7 @@ export default function StoragePage() {
     if (!name) return;
     try {
       const r = await renameStoragePool(p.nom, name, p.node, everywhere);
-      const failed = (r?.resultats || []).filter((x) => x.etat === "echec");
+      const failed = (r?.resultats || []).filter((x) => x.etat === "failed");
       if (failed.length) pushToast({ kind: "error", title: t("rn.failedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.noeud)?.nom || x.noeud} : ${x.detail}`).join("\n"), duration: Infinity });
       else pushToast({ kind: "success", title: t("rn.done"), message: `${p.nom} → ${name}` });
       refreshAll();
@@ -260,7 +260,7 @@ export default function StoragePage() {
     if (!ok) return;
     try {
       const r = await deleteStoragePool(p.nom, p.node === "local" ? undefined : p.node, fsBacked, everywhere);
-      const failed = (r?.resultats || []).filter((x) => x.etat === "echec");
+      const failed = (r?.resultats || []).filter((x) => x.etat === "failed");
       if (failed.length) pushToast({ kind: "error", title: t("stor.deleteFailedOn", { n: failed.length }), message: failed.map((x) => `${nodes.find((n) => n.id === x.noeud)?.nom || x.noeud} : ${x.detail}`).join("\n"), duration: Infinity });
       else pushToast({ kind: "success", title: t("stor.removed"), message: everywhere ? t("stor.removedEverywhere", { name: p.nom }) : p.nom });
       refreshAll();

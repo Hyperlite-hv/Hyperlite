@@ -13,7 +13,7 @@ class TaskNotFound(LookupError):
 
 def _with_cancel(task):
     """Whether a Cancel button makes sense: a running task that can be stopped, or one nobody runs any more."""
-    running = task["statut"] in ("en_cours", "en_attente")
+    running = task["statut"] in ("running", "pending")
     # A clean stop exists; or nobody runs it any more (closing is safe); otherwise it only ends by itself.
     task["arret_propre"] = running and task_core.cancellable(task["id"])
     task["orpheline"] = running and not task_core.is_live(task["id"])

@@ -18,7 +18,7 @@ import BackupGroupJobs from "../components/BackupGroupJobs";
 import SiteRecovery from "../components/SiteRecovery";
 import ReplicationJobs from "../components/ReplicationJobs";
 
-const STATUS = { termine: "termine", echec: "echec" };
+const STATUS = { succeeded: "succeeded", failed: "failed" };
 
 // Backups of every VM in one table. Failed backups can be removed here; restores stay in each VM's
 // Backup tab (they need a target choice), reachable from the VM name.
@@ -88,14 +88,14 @@ export default function BackupsPage() {
                 <tbody>
                   {rows.map((b) => (
                     <tr key={rowKey(b)} className={ctx.is("bk", rowKey(b)) ? "is-ctx" : undefined} onContextMenu={ctx.open("bk", b, rowKey(b))}>
-                      <td><StatusIndicator kind="task" wire={b.statut === "termine" ? "termine" : b.statut === "echec" ? "echec" : "en_cours"} /></td>
+                      <td><StatusIndicator kind="task" wire={b.statut === "succeeded" ? "succeeded" : b.statut === "failed" ? "failed" : "running"} /></td>
                       <td className="nx-mono">{fmt(b.cree_le)}</td>
                       <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmOf(b), "backup")}>{b.vm_name}</button></th>
                       {several && <td>{b.on}</td>}
-                      <td>{b.mode === "chaud" ? t("bk.hot") : t("bk.cold")}</td>
+                      <td>{b.mode === "live" ? t("bk.hot") : t("bk.cold")}</td>
                       <td className="nx-num nx-mono">{b.taille_octets ? formatSizeMb(b.taille_octets / 1048576, lang) : "—"}</td>
                       <td className="nx-mono nx-wrapcell">{b.erreur ? <span className="nx-tone-danger">{b.erreur}</span> : b.chemin}</td>
-                      <td><div className="nx-ra">{caps.admin && b.statut === "echec" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("vx.delete")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}</div></td>
+                      <td><div className="nx-ra">{caps.admin && b.statut === "failed" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("vx.delete")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}</div></td>
                     </tr>
                   ))}
                 </tbody>
@@ -108,10 +108,10 @@ export default function BackupsPage() {
       {caps.admin && <div style={{ marginTop: "var(--space-4)" }}><SiteRecovery /></div>}
       <ActionsContextMenu ctx={ctx} label={(b) => t("ctx.menuOf", { name: `${b.vm_name} #${b.id}` })} entries={(b) => [
         { key: "vm", icon: "open", label: t("ctx.vmBackups"), run: () => navigateTo("vm", vmOf(b), "backup") },
-        b.chemin && b.statut === "termine" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.chemin) },
+        b.chemin && b.statut === "succeeded" && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(b.chemin) },
         "-",
         { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(b),
-          disabled: !caps.admin || b.statut !== "echec", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.onlyFailed") },
+          disabled: !caps.admin || b.statut !== "failed", reason: !caps.admin ? t("menu.reason.admin") : t("ctx.onlyFailed") },
       ]} />
     </>
   );

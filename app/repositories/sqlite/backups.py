@@ -64,7 +64,7 @@ class SqliteBackupStore:
 
     def create(self, vm_name, job_id, chemin, mode, cree_le, task_id):
         return _write(
-            "INSERT INTO backups (vm_name, job_id, chemin, mode, cree_le, statut, task_id) VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
+            "INSERT INTO backups (vm_name, job_id, chemin, mode, cree_le, statut, task_id) VALUES (?, ?, ?, ?, ?, 'running', ?)",
             (vm_name, job_id, chemin, mode, cree_le, task_id),
         ).lastrowid
 
@@ -78,18 +78,18 @@ class SqliteBackupStore:
         """A complete backup found on a storage this node can read, made by another installation."""
         return _write(
             "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut, taille_octets, checksum_sha256, importe_de) "
-            "VALUES (?, ?, ?, ?, 'termine', ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?)",
             (vm_name, chemin, mode, cree_le, size, checksum, source),
         ).lastrowid
 
     def mark_done(self, backup_id, size, checksum):
         _write(
-            "UPDATE backups SET statut = 'termine', taille_octets = ?, checksum_sha256 = ? WHERE id = ?",
+            "UPDATE backups SET statut = 'succeeded', taille_octets = ?, checksum_sha256 = ? WHERE id = ?",
             (size, checksum, backup_id),
         )
 
     def mark_failed(self, backup_id, error):
-        _write("UPDATE backups SET statut = 'echec', erreur = ? WHERE id = ?", (error, backup_id))
+        _write("UPDATE backups SET statut = 'failed', erreur = ? WHERE id = ?", (error, backup_id))
 
     def set_verification(self, backup_id, status, at, detail):
         _write(
@@ -106,13 +106,14 @@ class SqliteBackupStore:
     def finished_of(self, vm_name):
         """(id, chemin, cree_le, verification) of the VM's finished backups, for the retention policy."""
         return _all(
-            "SELECT id, chemin, cree_le, verification FROM backups WHERE vm_name = ? AND statut = 'termine'", (vm_name,)
+            "SELECT id, chemin, cree_le, verification FROM backups WHERE vm_name = ? AND statut = 'succeeded'",
+            (vm_name,),
         )
 
     def next_to_verify(self, older_than):
         """The finished backup verified longest ago (or never), when older than `older_than`; else None."""
         row = _one(
-            "SELECT id FROM backups WHERE statut = 'termine' AND (verifie_le IS NULL OR verifie_le < ?) "
+            "SELECT id FROM backups WHERE statut = 'succeeded' AND (verifie_le IS NULL OR verifie_le < ?) "
             "ORDER BY COALESCE(verifie_le, '') ASC, cree_le ASC LIMIT 1",
             (older_than,),
         )
@@ -220,15 +221,15 @@ class SqliteBackupStore:
 
     def create_container_backup(self, container_name, chemin, cree_le, task_id):
         return _write(
-            "INSERT INTO container_backups (container_name, chemin, cree_le, statut, task_id) VALUES (?, ?, ?, 'en_cours', ?)",
+            "INSERT INTO container_backups (container_name, chemin, cree_le, statut, task_id) VALUES (?, ?, ?, 'running', ?)",
             (container_name, chemin, cree_le, task_id),
         ).lastrowid
 
     def container_backup_done(self, backup_id, size):
-        _write("UPDATE container_backups SET statut = 'termine', taille_octets = ? WHERE id = ?", (size, backup_id))
+        _write("UPDATE container_backups SET statut = 'succeeded', taille_octets = ? WHERE id = ?", (size, backup_id))
 
     def container_backup_failed(self, backup_id, error):
-        _write("UPDATE container_backups SET statut = 'echec', erreur = ? WHERE id = ?", (error, backup_id))
+        _write("UPDATE container_backups SET statut = 'failed', erreur = ? WHERE id = ?", (error, backup_id))
 
     def delete_container_backup(self, backup_id):
         _write("DELETE FROM container_backups WHERE id = ?", (backup_id,))

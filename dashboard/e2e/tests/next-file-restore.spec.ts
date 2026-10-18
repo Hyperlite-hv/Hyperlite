@@ -13,7 +13,7 @@ test("file-level restore: browse a backup and download a file", async ({ page })
   const calls: string[] = [];
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm])) : r.fallback()));
-  await page.route(new RegExp(`/vms/${NAME}/backups$`), (r) => (api(r) ? r.fulfill(json([{ id: 41, vm_name: NAME, statut: "termine", mode: "froid", cree_le: "2026-09-01T02:00:00Z", taille_octets: 1048576, chemin: "/b/41", verification: null }])) : r.fallback()));
+  await page.route(new RegExp(`/vms/${NAME}/backups$`), (r) => (api(r) ? r.fulfill(json([{ id: 41, vm_name: NAME, statut: "succeeded", mode: "cold", cree_le: "2026-09-01T02:00:00Z", taille_octets: 1048576, chemin: "/b/41", verification: null }])) : r.fallback()));
   await page.route(new RegExp(`/vms/${NAME}/backup-schedule$`), (r) => (api(r) ? r.fulfill(json(null)) : r.fallback()));
   await page.route(/\/backups\/41\/files$/, (r) => { calls.push("open"); return r.fulfill(json({ session: "s1", vm: NAME, filesystems: [{ device: "/dev/sda1", type: "ext4", size: 10485760, label: "root" }] })); });
   await page.route(/\/file-restore\/s1\/ls\?.*/, (r) => {

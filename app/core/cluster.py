@@ -343,10 +343,10 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
 
     now = datetime.now(UTC).isoformat()
     try:
-        _nodes().create(NodeSpec(name=name, hostname=hostname, ssh_user=ssh_user, ssh_port=ssh_port), now, "en_ligne")
+        _nodes().create(NodeSpec(name=name, hostname=hostname, ssh_user=ssh_user, ssh_port=ssh_port), now, "online")
     except AlreadyExists:
         raise RuntimeError(f"A node '{name}' already exists") from None
-    log_action(username, "register_node", name, "succes", f"{ssh_user}@{hostname}:{ssh_port}")
+    log_action(username, "register_node", name, "success", f"{ssh_user}@{hostname}:{ssh_port}")
     node = get_node(name)
     # Best-effort (see the ensure_reverse_trust docstring): migration from a remote
     # node to the local host is a secondary feature and must never make the node
@@ -358,7 +358,7 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
             username,
             "register_node",
             name,
-            "succes",
+            "success",
             f"Reverse SSH trust not established (node -> local host migration unavailable): {e}",
         )
     return node
@@ -370,7 +370,7 @@ def remove_node(name, username):
     if node:
         forget_known_host(node)
     revoke_reverse_trust(name)
-    log_action(username, "remove_node", name, "succes")
+    log_action(username, "remove_node", name, "success")
 
 
 def node_summary(node_name):
@@ -445,12 +445,12 @@ def _report_down(name):
 def _poll_once():
     for node in list_nodes():
         ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
-        new_statut = "en_ligne" if ok else "hors_ligne"
+        new_statut = "online" if ok else "offline"
         prev = _nodes().update_status(node["id"], new_statut, datetime.now(UTC).isoformat())
         if ok and not cluster_lead.in_cluster():  # a member of a cluster starts its own VMs
             _check_node_boot(node)
         if prev and prev != new_statut:
-            log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
+            log_action("system", "node_statut_change", node["name"], "success" if ok else "failed", new_statut)
         if ok:
             _unreported.discard(node["name"])
             continue

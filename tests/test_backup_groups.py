@@ -46,7 +46,7 @@ def test_apply_retention_uses_the_policy(database, tmp_path):
             d = tmp_path / str(i)
             d.mkdir()
             conn.execute(
-                "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (?, 'web', ?, 'termine', ?, 'froid')",
+                "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (?, 'web', ?, 'succeeded', ?, 'cold')",
                 (i + 1, str(d), ts),
             )
         conn.commit()
@@ -81,8 +81,8 @@ def test_backup_targets_stay_out_of_system_directories(path, ok):
 def _job(**kw):
     return {
         "nom": "nightly",
-        "selection": "toutes",
-        "frequence": "quotidien",
+        "selection": "all",
+        "frequence": "daily",
         "heure": "02:30",
         "cible_dir": "/srv/bk",
         "retention_count": 7,
@@ -95,14 +95,14 @@ def test_selection_by_tag_pool_and_exclusion(database, monkeypatch):
     object_meta.put("vm", "db", "", ["prod", "sql"])
     pool = permissions.create_pool("team")
     permissions.add_pool_member(pool, "api")
-    tagged = bg.save_job(_job(nom="prod", selection="etiquette", valeur="Prod", exclues=["db"]))
+    tagged = bg.save_job(_job(nom="prod", selection="tag", valeur="Prod", exclues=["db"]))
     assert tagged["valeur"] == "prod" and bg.resolve(tagged) == ["web"]
     pooled = bg.save_job(_job(nom="team", selection="pool", valeur=str(pool)))
     assert bg.resolve(pooled) == ["api"]
     assert bg.resolve(bg.save_job(_job())) == ["api", "db", "web"]
     for bad, message in [
         (_job(nom="x", selection="pool", valeur="999"), "existing pool"),
-        (_job(nom="x", selection="etiquette", valeur=""), "tag"),
+        (_job(nom="x", selection="tag", valeur=""), "tag"),
         (_job(nom="x", heure="25:00"), "time"),
         (_job(nom="x", cible_dir="/etc"), "cannot be written"),
         (_job(nom="x", garder_mois=0), "garder_mois"),
@@ -126,7 +126,7 @@ def test_run_backs_up_each_vm_and_applies_the_job_policy_unless_the_vm_has_its_o
             raise RuntimeError("disk full")
         with get_conn() as conn:
             cur = conn.execute(
-                "INSERT INTO backups (vm_name, chemin, statut, cree_le, mode) VALUES (?, '/x', 'termine', '2026-01-01', 'froid')",
+                "INSERT INTO backups (vm_name, chemin, statut, cree_le, mode) VALUES (?, '/x', 'succeeded', '2026-01-01', 'cold')",
                 (vm,),
             )
             conn.commit()
@@ -136,7 +136,7 @@ def test_run_backs_up_each_vm_and_applies_the_job_policy_unless_the_vm_has_its_o
     monkeypatch.setattr(backups, "_apply_retention", lambda vm, policy: retained.append((vm, policy)))
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, actif, prochaine_execution) VALUES ('d', 'quotidien', '01:00', '/srv', 3, 1, '2099-01-01')"
+            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, actif, prochaine_execution) VALUES ('d', 'daily', '01:00', '/srv', 3, 1, '2099-01-01')"
         )
         conn.commit()
     job = bg.save_job(_job(garder_semaines=4))
@@ -163,7 +163,7 @@ def test_api_is_admin_only_and_due_jobs_move_to_their_next_run(client, auth_head
     assert r.status_code == 201, r.text
     job = r.json()
     assert client.get("/backup-groups", headers=admin).json()[0]["vms"] == ["web"]
-    assert client.get("/backup-groups", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.get("/backup-groups", headers=auth_headers("watcher", "viewer")).status_code == 403
     assert client.post("/backup-groups", json=_job(nom="bad", cible_dir="/etc"), headers=admin).status_code == 422
 
     ran = []
@@ -181,7 +181,7 @@ def test_vm_schedule_accepts_gfs_and_refuses_system_targets(client, auth_headers
 
     monkeypatch.setattr(backups_router, "_vm_exists", lambda name: True)
     admin = auth_headers("root", "admin")
-    body = {"frequence": "quotidien", "heure": "01:00", "retention_count": 3, "garder_semaines": 4, "garder_mois": 6}
+    body = {"frequence": "daily", "heure": "01:00", "retention_count": 3, "garder_semaines": 4, "garder_mois": 6}
     r = client.put("/vms/web/backup-schedule", json=body, headers=admin)
     assert r.status_code == 200 and (r.json()["garder_semaines"], r.json()["garder_mois"]) == (4, 6)
     assert client.put("/vms/web/backup-schedule", json=body | {"cible_dir": "/etc"}, headers=admin).status_code == 422
