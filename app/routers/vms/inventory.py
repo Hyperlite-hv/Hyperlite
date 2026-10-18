@@ -71,21 +71,20 @@ def _cluster_vms(username):
 
 
 @router.get("", dependencies=[Depends(_on_member)])
-def list_vms(
-    node: str | None = None, cluster: bool = False, user: dict = Depends(get_current_user)
-):  # fmt: skip
+def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depends(get_current_user)):
+    """node: the name of a registered remote node, to list ITS VMs instead of those
+    of the local host. Omitted or None = unchanged behaviour (local host).
+    The frontend used to have no way to query a remote node here, so the VMs of
+    a registered node never appeared in the main tree (only the dedicated
+    "Nodes" tab showed them, through /nodes/{name}/summary): a real bug reported
+    when testing with a real second physical node.
+    cluster=true: every member's VMs from the cluster's status (_cluster_vms, phase E)."""
     if cluster:
         result = _cluster_vms(user["username"])
         log_action(user["username"], "list_vms", "vms", "succes")
         # Already JSON-ready (plain dicts from the summaries): FastAPI's generic encoder walked a thousand of them on
         # every request, the largest cost of this list under load (docs/scale-results.md).
         return JSONResponse(result)
-    """node: the name of a registered remote node, to list ITS VMs instead of those
-    of the local host. Omitted or None = unchanged behaviour (local host).
-    The frontend used to have no way to query a remote node here, so the VMs of
-    a registered node never appeared in the main tree (only the dedicated
-    "Nodes" tab showed them, through /nodes/{name}/summary): a real bug reported
-    when testing with a real second physical node."""
     try:
         conn = open_conn(node)
     except libvirt.libvirtError as e:
