@@ -112,7 +112,7 @@ def test_object_acl_lists_own_and_pool_assignments(client, auth_headers):
     admin = auth_headers("root", "admin")
 
     rows = client.get("/acl/object/vm/vm-a", headers=admin).json()
-    assert [(r["subject_id"], r["herite_de"]) for r in rows] == [("bob", None), ("erin", "web")]
+    assert [(r["subject_id"], r["inherited_from"]) for r in rows] == [("bob", None), ("erin", "web")]
     rows = client.get("/acl/object/container/vm-a", headers=admin).json()
     assert [r["subject_id"] for r in rows] == ["ct"]
 

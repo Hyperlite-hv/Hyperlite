@@ -60,7 +60,7 @@ def test_import_installs_the_pair_keeps_the_previous_and_restarts(client, auth_h
     r = client.post("/host/certificate", json={"certificate": signed, "key": signed_key, "chain": chain}, headers=admin)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert (body["subject"], body["names"], body["self_signed"], body["source"], body["precedent"]) == (
+    assert (body["subject"], body["names"], body["self_signed"], body["source"], body["previous"]) == (
         "hv1.example.org",
         ["hv1.example.org"],
         False,

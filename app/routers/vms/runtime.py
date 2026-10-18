@@ -166,7 +166,7 @@ def eject_vm_cdrom(
 def _stopped_metrics():
     return {
         "state": "stopped",
-        "cpu_pourcent": None,
+        "cpu_percent": None,
         "allocated_memory_mb": None,
         "used_memory_mb": None,
         "disks": [],
@@ -240,7 +240,7 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         elapsed = max(t2 - t1, 0.001)
 
         nvcpu = info[3] or 1
-        cpu_pourcent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
+        cpu_percent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
         allocated_memory_mb = round(info[2] / 1024, 1)
 
         used_memory_mb = None
@@ -261,7 +261,7 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
                 disks.append(
                     {
                         "target": dev,
-                        "lecture_ko_s": round(rd_rate / 1024, 1),
+                        "read_kb_s": round(rd_rate / 1024, 1),
                         "write_kb_s": round(wr_rate / 1024, 1),
                     }
                 )
@@ -274,15 +274,15 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
                 networks.append(
                     {
                         "interface": dev,
-                        "reception_ko_s": round(rx_rate / 1024, 1),
-                        "emission_ko_s": round(tx_rate / 1024, 1),
+                        "received_kb_s": round(rx_rate / 1024, 1),
+                        "sent_kb_s": round(tx_rate / 1024, 1),
                     }
                 )
 
         log_action(user["username"], "get_vm_metrics", name, "success")
         return {
             "state": "active",
-            "cpu_pourcent": cpu_pourcent,
+            "cpu_percent": cpu_percent,
             "allocated_memory_mb": allocated_memory_mb,
             "used_memory_mb": used_memory_mb,
             "disks": disks,

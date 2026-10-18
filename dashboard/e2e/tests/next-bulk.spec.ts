@@ -6,7 +6,7 @@ import type { Page, Route } from "@playwright/test";
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const vm = (name: string, state: string) => ({
   name, state, id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian",
-  zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios",
+  zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios",
 });
 
 async function serveVms(page: Page, initial: Record<string, string>, refuse: string[] = []) {

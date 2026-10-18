@@ -239,7 +239,7 @@ def stop():
 def report():
     with state.lock:
         timeout = state.timeout if state.fd is not None else TIMEOUT_S
-        return {"armed": state.fd is not None, "sans_quorum": state.starving, "problem": state.problem,
+        return {"armed": state.fd is not None, "without_quorum": state.starving, "problem": state.problem,
                 "delay_s": timeout, "reset_within_s": reset_within(timeout), "active": enabled()}  # fmt: skip
 
 

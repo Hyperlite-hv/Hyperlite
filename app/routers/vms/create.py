@@ -357,7 +357,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                             f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi only)"
                         )
                     elif not pool_path:
-                        errors.append(f"Pool de storage '{payload.storage_pool}' : path illisible")
+                        errors.append(f"Pool de storage '{payload.storage_pool}' : path unreadable")
                     else:
                         target_dir = Path(pool_path)
 

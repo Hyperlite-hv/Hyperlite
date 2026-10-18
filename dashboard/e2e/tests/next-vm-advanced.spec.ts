@@ -6,7 +6,7 @@ import type { Route } from "@playwright/test";
 const NAME = "e2e-adv-web";
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 2048, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 2048, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" };
 
 test("advanced hardware: disk options, boot order, ballooning and machine type", async ({ page }) => {
   let state = {

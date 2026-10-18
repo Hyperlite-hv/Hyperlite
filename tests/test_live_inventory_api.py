@@ -78,7 +78,7 @@ def test_a_counter_reset_gives_no_rate_instead_of_a_negative_one():
 
 
 HARDWARE = """@@links
-enp3s0|up|3c:7c:3f:1a:22:09|1500|1000|physique
+enp3s0|up|3c:7c:3f:1a:22:09|1500|1000|physical
 virbr0|up|52:54:00:9e:2b:11|1500|-1|bridge
 @@addr
 [{"ifname":"enp3s0","addr_info":[{"local":"192.0.2.10","prefixlen":24}]},{"ifname":"virbr0","addr_info":[]}]
@@ -102,13 +102,13 @@ def test_the_hardware_probe_lists_interfaces_disks_and_cpu_topology():
     assert nic == {
         "name": "enp3s0",
         "state": "up",
-        "type": "physique",
+        "type": "physical",
         "mac": "3c:7c:3f:1a:22:09",
         "mtu": 1500,
-        "debit_mbps": 1000,
+        "throughput_mbps": 1000,
         "addresses": ["192.0.2.10/24"],
     }
-    assert bridge["debit_mbps"] is None  # the kernel reports -1 for a bridge
+    assert bridge["throughput_mbps"] is None  # the kernel reports -1 for a bridge
     assert hw["disks"] == [
         {
             "name": "nvme0n1",
@@ -116,10 +116,10 @@ def test_the_hardware_probe_lists_interfaces_disks_and_cpu_topology():
             "type": "NVMe",
             "size_gb": 465.8,
             "health": "ok",
-            "points_montage": ["/"],
+            "mount_points": ["/"],
         }
     ]
-    assert hw["cpu"]["sockets"] == 1 and hw["cpu"]["threads"] == 8 and hw["cpu"]["virtualisation"] == "VT-x"
+    assert hw["cpu"]["sockets"] == 1 and hw["cpu"]["threads"] == 8 and hw["cpu"]["virtualization"] == "VT-x"
 
 
 def _login(client, username, **extra):

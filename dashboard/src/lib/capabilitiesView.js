@@ -49,8 +49,8 @@ export function flattenCapabilities(c) {
   const mem = c.memory || {};
   add("Hardware", "mem.total", "Total memory", mem.total_mb != null ? `${mem.total_mb} MB` : NA);
   add("Hardware", "mem.avail", "Available memory", mem.available_mb != null ? `${mem.available_mb} MB` : NA);
-  const virt = c.virtualisation || {};
-  add("Virtualization", "virt.type", "Hypervisor", virt.hyperviseur);
+  const virt = c.virtualization || {};
+  add("Virtualization", "virt.type", "Hypervisor", virt.hypervisor);
   add("Virtualisation", "virt.libvirt", "Version libvirt", version(virt.libvirt_version));
   add("Virtualisation", "virt.qemu", "Version QEMU", version(virt.hypervisor_version));
   add("Virtualization", "virt.lxc", "LXC containers", yesNo(virt.lxc_containers_available, "Available", "Unavailable"));
@@ -83,7 +83,7 @@ export function deriveFeatures(c) {
     state: virt == null ? "unknown" : virt ? "active" : "limite",
     detail: virt === false ? "Hardware virtualization missing or disabled (BIOS, nesting): only LXC containers remain usable" : null,
   });
-  const lxc = c.virtualisation?.lxc_containers_available;
+  const lxc = c.virtualization?.lxc_containers_available;
   f.push({
     id: "lxc", label: "LXC containers",
     state: lxc == null ? "unknown" : lxc ? "active" : "limite",

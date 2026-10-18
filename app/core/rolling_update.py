@@ -168,17 +168,17 @@ def node_plan(node, username, local_check=None, target=None):
             if status != 200:
                 raise RollingError(f"{name}: the update check failed ({_detail(check)})")
             _, ch = peer_api(node, username, "GET", "/update/channel")
-            channel = ch.get("canal") if isinstance(ch, dict) else None
+            channel = ch.get("channel") if isinstance(ch, dict) else None
     except RollingError as e:
         return {**out, "reachable": False, "error": str(e)}
     sys_ = check.get("system") or {}
     out.update(
         {
-            "canal": channel,
+            "channel": channel,
             "verifiable": bool(check.get("verifiable")),
             "error": None if check.get("verifiable") else check.get("error"),
             "version": check.get("commit_local"),
-            "candidate": check.get("commit_distant"),
+            "candidate": check.get("remote_commit"),
             "hyperlite_up_to_date": bool(check.get("up_to_date")),
             "packages": sys_.get("packages", 0),
             "restart": bool(sys_.get("restart_scheduled") or sys_.get("restart_required")),
@@ -196,8 +196,8 @@ def node_plan(node, username, local_check=None, target=None):
             conn.close()
             if dst:
                 dst.close()
-        out["vms_to_migrate"] = vms["migrables"]
-        out["vms_blocked"] = vms["non_migrables"]
+        out["vms_to_migrate"] = vms["migratable"]
+        out["vms_blocked"] = vms["not_migratable"]
     except Exception as e:  # libvirt unreachable: the node cannot be emptied
         out["vms_to_migrate"], out["vms_blocked"] = [], []
         out["reachable"] = False
@@ -230,10 +230,10 @@ def cluster_plan(username, local_check):
     for n, node in zip(nodes, [*others, None], strict=False):
         if node is not None and node.get("status") == "offline":
             problems.append(f"{n['name']} is offline")
-    channels = {n.get("canal") for n in nodes if n["reachable"]}
+    channels = {n.get("channel") for n in nodes if n["reachable"]}
     if len(channels) > 1:
         problems.append("The nodes do not follow the same update channel: " + ", ".join(
-            f"{n['name']} {n.get('canal')}" for n in nodes))  # fmt: skip
+            f"{n['name']} {n.get('channel')}" for n in nodes))  # fmt: skip
     if len(nodes) < 2:
         problems.append("This node is not in a cluster with other nodes")
     return {"nodes": nodes, "problems": problems, "to_do": any(n.get("to_do") for n in nodes)}
@@ -301,13 +301,13 @@ def _drain(task_id, username, label, target):
             raise RollingError(f"{label} is already being drained")
         nodes_router._draining.add(label)
     plan = nodes_router._plan(label, target)
-    if not plan["migrables"]:
+    if not plan["migratable"]:
         with nodes_router._draining_lock:
             nodes_router._draining.discard(label)
         return plan
     child = create_task("drain_node", label, node=label, username=username)
-    task_log(task_id, f"Moving {len(plan['migrables'])} VM(s) from {label} to {target}")
-    nodes_router._drain_job(child, username, label, target, plan["migrables"])  # releases the reservation
+    task_log(task_id, f"Moving {len(plan['migratable'])} VM(s) from {label} to {target}")
+    nodes_router._drain_job(child, username, label, target, plan["migratable"])  # releases the reservation
     if task_status(child) != "succeeded":
         raise RollingError(f"{label} could not be emptied: see task {child}")
     return plan
@@ -357,7 +357,7 @@ def _update_peer(task_id, username, node, target, stop_blocked):
     task_log(task_id, f"{name}: Hyperlite {check.get('commit_local')}")
 
     if (check.get("system") or {}).get("restart_required"):
-        if plan["non_migrables"] and not stop_blocked:
+        if plan["not_migratable"] and not stop_blocked:
             task_log(task_id, f"{name}: a reboot is needed, left for later (VMs that cannot move run there)")
             log_action(username, "host_reboot_required", name, "success", "left by the rolling update")
         else:

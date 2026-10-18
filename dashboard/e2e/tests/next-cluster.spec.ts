@@ -24,7 +24,7 @@ test("Nodes: this host is listed and opens its page, add form sends the SSH port
     const path = new URL(req.url()).pathname;
     if (req.method() === "GET" && /\/nodes$/.test(path) && added === "list") return json(route, remote);
     if (req.method() === "POST" && /\/nodes$/.test(path)) { added = req.postDataJSON(); return json(route, { detail: "SSH connection refused" }, 400); }
-    if (req.method() === "GET" && /\/summary$/.test(path)) return json(route, { vms_actives: 3, vms_stopped: 1, storage_capacity_gb: 500, storage_available_gb: 120 });
+    if (req.method() === "GET" && /\/summary$/.test(path)) return json(route, { vms_running: 3, vms_stopped: 1, storage_capacity_gb: 500, storage_available_gb: 120 });
     if (req.method() === "DELETE") { removed.push(path.split("/").pop()!); remote.length = 0; return json(route, { ok: true }); }
     return route.fallback();
   });

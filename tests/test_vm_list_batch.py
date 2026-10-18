@@ -91,10 +91,10 @@ def test_the_list_reads_each_xml_once_and_the_leases_once(database, fake_agent):
     assert [d.xml_reads for d in conn.domains] == [1, 1, 1]
     assert conn.lease_reads == 1
     web, db, old = by_name["web"], by_name["db"], by_name["old"]
-    assert web["ip"] == "192.0.2.10" and web["agent_invite"] == "inactive" and web["ssh_user"] == "antho"
+    assert web["ip"] == "192.0.2.10" and web["guest_agent"] == "inactive" and web["ssh_user"] == "antho"
     assert web["vcpu"] == 2 and web["memory_mb"] == 2048.0 and web["firmware"] == "uefi_secure"
-    assert db["ip"] == "198.51.100.7" and db["agent_invite"] == "active"
-    assert old["state"] == "stopped" and old["ip"] is None and old["agent_invite"] is None and old["id"] is None
+    assert db["ip"] == "198.51.100.7" and db["guest_agent"] == "active"
+    assert old["state"] == "stopped" and old["ip"] is None and old["guest_agent"] is None and old["id"] is None
     assert old["os"] == "Debian 13" and old["zfs_storage"] is True and old["vcpu"] == 1
 
 

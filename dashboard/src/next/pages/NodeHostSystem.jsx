@@ -123,18 +123,18 @@ function ChannelCard() {
   const [d, setD] = useState(null);
   const [f, setF] = useState("stable");
   const [error, setError] = useState(null);
-  const fill = (x) => { setD(x); setF(x.canal ?? "stable"); };
+  const fill = (x) => { setD(x); setF(x.channel ?? "stable"); };
   const load = useCallback(() => fetchUpdateChannel().then((x) => { fill(x); setError(null); }).catch((e) => setError(errorMessage(e))), []);
   useEffect(() => { load(); }, [load]);
   if (error && !d) return <Card title={t("ch.title")}><ErrorState message={error} onRetry={load} /></Card>;
   if (!d) return <Card title={t("ch.title")}><Loading /></Card>;
-  if (!d.canal) return <Card title={t("ch.title")}><p className="nx-muted" style={{ margin: 0 }}>{t("ch.none")}</p></Card>;
+  if (!d.channel) return <Card title={t("ch.title")}><p className="nx-muted" style={{ margin: 0 }}>{t("ch.none")}</p></Card>;
   async function save() {
     try { fill(await setUpdateChannel(f)); pushToast({ kind: "success", title: t("hs.saved") }); }
     catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
   }
   return (
-    <Card title={t("ch.title")} actions={<button type="button" className="nx-btn nx-btn--primary" disabled={f === d.canal} onClick={save}>{t("hs.save")}</button>}>
+    <Card title={t("ch.title")} actions={<button type="button" className="nx-btn nx-btn--primary" disabled={f === d.channel} onClick={save}>{t("hs.save")}</button>}>
       <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
         <legend className="nx-sr">{t("ch.title")}</legend>
         {d.channels.map((c) => (
@@ -144,7 +144,7 @@ function ChannelCard() {
           </label>
         ))}
       </fieldset>
-      {d.canal === "test" && f === "stable" && <p className="nx-banner" role="status">{t("ch.leaveTest")}</p>}
+      {d.channel === "test" && f === "stable" && <p className="nx-banner" role="status">{t("ch.leaveTest")}</p>}
     </Card>
   );
 }
@@ -153,18 +153,18 @@ function DnsCard() {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [d, setD] = useState(null);
-  const [f, setF] = useState({ servers: "", recherche: "" });
+  const [f, setF] = useState({ servers: "", search: "" });
   const [error, setError] = useState(null);
-  const fill = (x) => { setD(x); setF({ servers: x.servers.join(" "), recherche: x.recherche.join(" ") }); };
+  const fill = (x) => { setD(x); setF({ servers: x.servers.join(" "), search: x.search.join(" ") }); };
   const load = useCallback(() => fetchHostDns().then((x) => { fill(x); setError(null); }).catch((e) => setError(errorMessage(e))), []);
   useEffect(() => { load(); }, [load]);
   if (error && !d) return <Card title={t("hs.dns")}><ErrorState message={error} onRetry={load} /></Card>;
   if (!d) return <Card title={t("hs.dns")}><Loading /></Card>;
   const servers = words(f.servers);
-  const bad = { servers: servers.length === 0 || servers.length > 3 || servers.some((s) => !IP.test(s)), recherche: words(f.recherche).some((s) => !HOST.test(s)) };
-  const dirty = f.servers !== d.servers.join(" ") || f.recherche !== d.recherche.join(" ");
+  const bad = { servers: servers.length === 0 || servers.length > 3 || servers.some((s) => !IP.test(s)), search: words(f.search).some((s) => !HOST.test(s)) };
+  const dirty = f.servers !== d.servers.join(" ") || f.search !== d.search.join(" ");
   async function save() {
-    try { fill(await setHostDns({ servers: servers, recherche: words(f.recherche) })); pushToast({ kind: "success", title: t("hs.saved") }); }
+    try { fill(await setHostDns({ servers: servers, search: words(f.search) })); pushToast({ kind: "success", title: t("hs.saved") }); }
     catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
   }
   return (
@@ -172,9 +172,9 @@ function DnsCard() {
       {!d.modifiable && <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("hs.dnsReadOnly")}</p>}
       <div className="nx-fg">
         <Field label={t("hs.dnsServers")} hint={t("hs.dnsServersHint")} error={d.modifiable && bad.servers ? t("hs.dnsServersRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.servers} onChange={(e) => setF((x) => ({ ...x, servers: e.target.value }))} />}</Field>
-        <Field label={t("hs.dnsSearch")} help={t("hlp.dnsSearch")} error={d.modifiable && bad.recherche ? t("hs.dnsSearchRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.recherche} onChange={(e) => setF((x) => ({ ...x, recherche: e.target.value }))} />}</Field>
+        <Field label={t("hs.dnsSearch")} help={t("hlp.dnsSearch")} error={d.modifiable && bad.search ? t("hs.dnsSearchRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.search} onChange={(e) => setF((x) => ({ ...x, search: e.target.value }))} />}</Field>
       </div>
-      {d.modifiable && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.servers || bad.recherche} onClick={save}>{t("hs.save")}</button></div>}
+      {d.modifiable && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.servers || bad.search} onClick={save}>{t("hs.save")}</button></div>}
     </Card>
   );
 }

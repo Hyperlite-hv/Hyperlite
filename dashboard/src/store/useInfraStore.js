@@ -149,8 +149,8 @@ export const useInfraStore = create((set, get) => ({
       id: task.id ?? makeTaskId(),
       status: "running",
       progress: 0,
-      debut: Date.now(),
-      fin: null,
+      start: Date.now(),
+      end: null,
       user: "admin",
       ...task,
     };
@@ -162,7 +162,7 @@ export const useInfraStore = create((set, get) => ({
   },
   completeTask(id, status = "succeeded", error = null) {
     set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === id ? { ...t, status, progress: 100, fin: Date.now(), error } : t)),
+      tasks: s.tasks.map((t) => (t.id === id ? { ...t, status, progress: 100, end: Date.now(), error } : t)),
     }));
     const task = get().tasks.find((t) => t.id === id);
     if (task) {

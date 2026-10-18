@@ -157,7 +157,7 @@ def _run(cmd, cwd=None, timeout=180):
 # Force the C locale for every apt/dpkg command whose OUTPUT is parsed by this
 # file. `apt-cache policy` translates its fields ("Candidat :" instead of
 # "Candidate:") as soon as LANG/LC_ALL is not English, and the parsing in
-# _check_update_apt() then failed SILENTLY (no error, just `commit_distant: null`
+# _check_update_apt() then failed SILENTLY (no error, just `remote_commit: null`
 # and a wrong `up_to_date: false`). dpkg-query -f='...' is not concerned (already
 # machine-readable whatever the locale) purpose is forced here too for consistency.
 def _run_c(cmd, timeout=180):
@@ -385,7 +385,7 @@ def _check_update_apt():
         "verifiable": True,
         "branch": "apt",
         "commit_local": running or installed,
-        "commit_distant": candidate,
+        "remote_commit": candidate,
         "up_to_date": up_to_date,
         "clean_tree": True,  # not applicable in apt mode (no Git working tree)
         "changelog": changelog,
@@ -448,13 +448,13 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
     if _install_method() == "apt":
         result = _check_update_apt()
         if result.get("verifiable") and not result.get("up_to_date"):
-            result["notes"] = _release_notes(result.get("commit_local"), result.get("commit_distant"), lang)
+            result["notes"] = _release_notes(result.get("commit_local"), result.get("remote_commit"), lang)
         if result.get("verifiable"):
             # apt-get update ran above: the Debian side is current too.
             result["system"] = _system_summary()
         previous = _previous()
         result["previous"] = previous["version"] if previous else None
-        result["canal"] = host_system.channel()
+        result["channel"] = host_system.channel()
         return result
 
     branch = _current_branch()
@@ -488,7 +488,7 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
         "verifiable": True,
         "branch": branch,
         "commit_local": local,
-        "commit_distant": remote,
+        "remote_commit": remote,
         "up_to_date": up_to_date,
         "clean_tree": not _is_dirty(),
         "changelog": changelog,
@@ -936,13 +936,13 @@ def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depen
 
 
 class ChannelRequest(BaseModel):
-    canal: str
+    channel: str
 
 
 @router.get("/channel")
 def get_channel(user: dict = Depends(require_role("admin"))):
     """The channel this node updates from: `stable` (releases) or `test` (every merge into the test branch)."""
-    return {"canal": host_system.channel(), "channels": list(host_system.CHANNELS)}
+    return {"channel": host_system.channel(), "channels": list(host_system.CHANNELS)}
 
 
 @router.put("/channel")
@@ -950,12 +950,12 @@ def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admi
     """Moves the node to another channel. Nothing is installed: the next check shows what the channel offers, and
     leaving test keeps the installed build until a stable release is newer (no downgrade)."""
     try:
-        new = host_system.set_channel(payload.canal)
+        new = host_system.set_channel(payload.channel)
     except host_system.SettingError as e:
-        log_action(user["username"], "set_update_channel", payload.canal[:20], "failed", str(e))
+        log_action(user["username"], "set_update_channel", payload.channel[:20], "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
     log_action(user["username"], "set_update_channel", new, "success")
-    return {"canal": new, "channels": list(host_system.CHANNELS)}
+    return {"channel": new, "channels": list(host_system.CHANNELS)}
 
 
 @router.post("/rollback", status_code=202)

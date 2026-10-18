@@ -332,7 +332,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
                     "type": disk.get("device"),
                     "source": path,
                     # null when the disk can be grown, else why not ("iscsi", "non_gere"); see disk_resize.
-                    "non_agrandissable": disk_resize.not_growable_code(disk),
+                    "not_growable": disk_resize.not_growable_code(disk),
                     **(
                         _disk_size(domain, conn, dev, path)
                         if path
@@ -657,6 +657,6 @@ def detach_vm_hostdev(name: str, device_id: str, user: dict = Depends(require_ro
             log_action(user["username"], "detach_hostdev", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Device detach error: {msg}") from e
         log_action(user["username"], "detach_hostdev", name, "success", device_id)
-        return {"vm": name, "retire": device_id}
+        return {"vm": name, "removed": device_id}
     finally:
         conn.close()

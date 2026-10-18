@@ -20,8 +20,8 @@ const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 // "192.168.100.1" + "255.255.255.0" -> "192.168.100.1/24"
 function cidr(r) {
   if (!r?.address) return "—";
-  const bits = (r.masque || "").split(".").reduce((a, o) => a + (Number(o) >>> 0).toString(2).split("1").length - 1, 0);
-  return r.masque ? `${r.address}/${bits}` : r.address;
+  const bits = (r.netmask || "").split(".").reduce((a, o) => a + (Number(o) >>> 0).toString(2).split("1").length - 1, 0);
+  return r.netmask ? `${r.address}/${bits}` : r.address;
 }
 const EMPTY = { name: "", mode: "isolated", subnet_address: "192.168.150.1", dhcp_start: "192.168.150.10", dhcp_end: "192.168.150.100", bridge_name: "" };
 

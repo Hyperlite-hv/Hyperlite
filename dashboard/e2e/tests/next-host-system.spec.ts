@@ -24,7 +24,7 @@ test("node updates and system settings", async ({ page }) => {
       ],
     }));
     if (path === "updates/upgrade") return r.fulfill(json({ task: "t1" }, 202));
-    if (path === "dns") return r.fulfill(json({ managed_by: "file", modifiable: true, servers: method === "PUT" ? ["9.9.9.9"] : ["1.1.1.1"], recherche: [] }));
+    if (path === "dns") return r.fulfill(json({ managed_by: "file", modifiable: true, servers: method === "PUT" ? ["9.9.9.9"] : ["1.1.1.1"], search: [] }));
     if (path === "time/zones") return r.fulfill(json(["Etc/UTC", "Europe/Paris"]));
     if (path === "time") return r.fulfill(json({ timezone: method === "PUT" ? "Europe/Paris" : "Etc/UTC", ntp: true, synced: true, timesyncd: true, ntp_servers: [] }));
     if (path === "syslog") return r.fulfill(json({ available: true, target: method === "PUT" ? { host: "logs.example.org", port: 514, protocol: "udp" } : null }));
@@ -64,7 +64,7 @@ test("node updates and system settings", async ({ page }) => {
 
   expect(sent).toEqual([
     ["POST", "updates/upgrade", { packages: ["openssl"] }],
-    ["PUT", "dns", { servers: ["9.9.9.9"], recherche: [] }],
+    ["PUT", "dns", { servers: ["9.9.9.9"], search: [] }],
     ["PUT", "time", { timezone: "Europe/Paris", ntp: null, ntp_servers: [] }],
     ["PUT", "syslog", { host: "logs.example.org", port: 514, protocol: "udp" }],
   ]);

@@ -102,7 +102,7 @@ export function VmSnapshotsPage({ resource: vm }) {
   const depthOf = (s, seen = new Set()) => { if (!s.parent || seen.has(s.name)) return 0; seen.add(s.name); const p = list.find((x) => x.name === s.parent); return p ? 1 + depthOf(p, seen) : 0; };
   const kind = (s) => (s.vm_state === "disk_only" ? t("vs.zfsDisk") : s.vm_state === "running" ? t("vs.withMemory") : s.vm_state ? t("vs.diskOnly") : "—");
 
-  const sorted = [...list].sort((x, y) => Number(y.date_creation || 0) - Number(x.date_creation || 0));
+  const sorted = [...list].sort((x, y) => Number(y.created_at || 0) - Number(x.created_at || 0));
   return (
     <>
       <PageHeader level={2} title={t("tab.snapshots")} count={snaps ? list.length : null} desc={t("vs.desc")}
@@ -125,7 +125,7 @@ export function VmSnapshotsPage({ resource: vm }) {
                   <div className="nx-inline" style={{ alignItems: "flex-start" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <b className="nx-mono">{s.name}</b> {s.current && <span className="nx-chip" data-tone="accent">{t("vs.current")}</span>}
-                      <div className="nx-tl-m">{[formatDateTime(s.date_creation, lang), kind(s), s.parent ? t("vs.after", { name: s.parent }) : null].filter(Boolean).join(" · ")}</div>
+                      <div className="nx-tl-m">{[formatDateTime(s.created_at, lang), kind(s), s.parent ? t("vs.after", { name: s.parent }) : null].filter(Boolean).join(" · ")}</div>
                       {s.description && <div className="nx-muted" style={{ fontSize: "var(--fs-13)" }}>{s.description}</div>}
                     </div>
                     {caps.admin && <div className="nx-ra">

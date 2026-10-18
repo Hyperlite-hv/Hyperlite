@@ -52,11 +52,11 @@ def test_without_the_quorum_it_is_starved_never_disarmed_and_fed_again_once_back
     ha_selffence.tick()
     ha_selffence.tick()
     assert written(node) == b"\0"  # not fed: the node resets after the timeout
-    assert ha_selffence.report()["armed"] and ha_selffence.report()["sans_quorum"]
+    assert ha_selffence.report()["armed"] and ha_selffence.report()["without_quorum"]
     assert b"V" not in written(node)  # never disarmed while cut off
     node["reason"] = None
     ha_selffence.tick()
-    assert written(node) == b"\0\0" and not ha_selffence.report()["sans_quorum"]
+    assert written(node) == b"\0\0" and not ha_selffence.report()["without_quorum"]
 
 
 def test_disarmed_cleanly_when_no_ha_vm_runs_here_any_more(node):

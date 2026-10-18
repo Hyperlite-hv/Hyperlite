@@ -7,8 +7,8 @@ import type { Route } from "@playwright/test";
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
 const selfSigned = {
-  present: true, source: "auto", certbot: true, precedent: false, subject: "hv1", issuer: "CN=hv1", names: ["hv1", "localhost"],
-  debut: "2026-01-01T00:00:00+00:00", fin: "2036-01-01T00:00:00+00:00", days_left: 3380, self_signed: true, fingerprint_sha256: "AA:BB",
+  present: true, source: "auto", certbot: true, previous: false, subject: "hv1", issuer: "CN=hv1", names: ["hv1", "localhost"],
+  start: "2026-01-01T00:00:00+00:00", end: "2036-01-01T00:00:00+00:00", days_left: 3380, self_signed: true, fingerprint_sha256: "AA:BB",
 };
 
 test("certificate: import a PEM pair, and a failed Let's Encrypt request shows certbot's reason", async ({ page }) => {
@@ -21,7 +21,7 @@ test("certificate: import a PEM pair, and a failed Let's Encrypt request shows c
     const path = new URL(r.request().url()).pathname;
     posted.push([path, r.request().postDataJSON()]);
     if (path.endsWith("/acme")) return r.fulfill(json({ detail: "certbot failed:\nTimeout during connect (likely firewall problem)" }, 502));
-    cert = { ...selfSigned, source: "import", self_signed: false, precedent: true, subject: "hv1.example.org", issuer: "CN=Example CA", names: ["hv1.example.org"], days_left: 12 };
+    cert = { ...selfSigned, source: "import", self_signed: false, previous: true, subject: "hv1.example.org", issuer: "CN=Example CA", names: ["hv1.example.org"], days_left: 12 };
     return r.fulfill(json({ ...cert, restart: true }));
   });
 

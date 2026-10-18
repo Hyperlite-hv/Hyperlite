@@ -32,7 +32,7 @@ def test_the_host_size_caps_a_vms_vcpus_only(small_host):
     errors = vm_limits.validate_vm_resources(vcpu=5)
     assert errors and "4 CPU threads" in errors[0]
     # The hardware is still reported, for the non-blocking warning of the creation form.
-    assert limits["physique"] == {"vcpu": 4, "memory_mb": 16384, "disk_gb": 100}
+    assert limits["physical"] == {"vcpu": 4, "memory_mb": 16384, "disk_gb": 100}
 
 
 def test_an_administrator_cap_in_the_environment_applies_and_is_named(small_host, monkeypatch):

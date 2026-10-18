@@ -31,7 +31,7 @@ export function MaintenanceDialog({ node, targets, onClose }) {
     setBusy(true);
     try {
       const r = await enterNodeMaintenance(node.id, target || null);
-      pushToast({ kind: "success", title: t("mt.entered"), message: t("mt.enteredMsg", { name: node.name, n: r.migrables.length }) });
+      pushToast({ kind: "success", title: t("mt.entered"), message: t("mt.enteredMsg", { name: node.name, n: r.migratable.length }) });
       onClose();
       refreshAll?.();
     } catch (e) {
@@ -57,14 +57,14 @@ export function MaintenanceDialog({ node, targets, onClose }) {
         {data && (
           <>
             <section aria-labelledby="mt-move">
-              <h3 id="mt-move" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("mt.willMove", { n: data.migrables.length })}</h3>
-              {data.migrables.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("mt.none")}</p>
-                : <ul className="nx-list2" aria-labelledby="mt-move">{data.migrables.map((v) => <li key={v}><span className="nx-mono">{v}</span></li>)}</ul>}
+              <h3 id="mt-move" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("mt.willMove", { n: data.migratable.length })}</h3>
+              {data.migratable.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("mt.none")}</p>
+                : <ul className="nx-list2" aria-labelledby="mt-move">{data.migratable.map((v) => <li key={v}><span className="nx-mono">{v}</span></li>)}</ul>}
             </section>
             <section aria-labelledby="mt-stay">
-              <h3 id="mt-stay" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("mt.willStay", { n: data.non_migrables.length })}</h3>
-              {data.non_migrables.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("mt.none")}</p>
-                : <ul className="nx-list2" aria-labelledby="mt-stay">{data.non_migrables.map((v) => <li key={v.name}><div className="nx-list2-main"><span className="nx-mono">{v.name}</span><div className="nx-list2-sub">{v.reason}</div></div></li>)}</ul>}
+              <h3 id="mt-stay" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("mt.willStay", { n: data.not_migratable.length })}</h3>
+              {data.not_migratable.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("mt.none")}</p>
+                : <ul className="nx-list2" aria-labelledby="mt-stay">{data.not_migratable.map((v) => <li key={v.name}><div className="nx-list2-main"><span className="nx-mono">{v.name}</span><div className="nx-list2-sub">{v.reason}</div></div></li>)}</ul>}
             </section>
           </>
         )}

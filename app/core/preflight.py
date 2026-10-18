@@ -484,7 +484,7 @@ def run(python=None, requirements=None, only=None, offline=False):
         checks += check_system(offline=offline)
     if only in (None, "python"):
         checks += check_python(python, requirements)
-    return {"resume": summarize(checks), "checks": checks}
+    return {"summary": summarize(checks), "checks": checks}
 
 
 _ICON = {OK: "[ OK ]", WARNING: "[WARN]", DISABLED: "[OFF ]", BLOCKING: "[FAIL]"}
@@ -499,12 +499,12 @@ def format_report(report):
                 lines.append(f"       impact : {c['feature']}")
             if c.get("action"):
                 lines.append(f"       action : {c['action']}")
-    r = report["resume"]["account"]
+    r = report["summary"]["account"]
     lines += [
         "",
         f"Summary: {r[OK]} ok, {r[WARNING]} warning(s), {r[DISABLED]} disabled feature(s), {r[BLOCKING]} blocking",
     ]
-    if report["resume"]["blocking"]:
+    if report["summary"]["blocking"]:
         lines.append("=> Installation NOT recommended: fix the [FAIL] items above.")
     elif r[DISABLED] or r[WARNING]:
         lines.append("=> Installation possible in degraded mode (see [OFF]/[WARN]).")
@@ -523,7 +523,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     report = run(a.python, a.requirements, a.only, a.offline)
     print(json.dumps(report, ensure_ascii=False, indent=2) if a.json else format_report(report))
-    return 1 if report["resume"]["blocking"] else 0
+    return 1 if report["summary"]["blocking"] else 0
 
 
 if __name__ == "__main__":

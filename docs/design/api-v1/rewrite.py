@@ -28,6 +28,8 @@ SKIP = {
     "app/core/schema_v1.py",  # it holds the old names on purpose, and so do its tests
     "tests/test_schema_v1.py",
     "app/core/password_policy.py",  # French words people use as passwords, refused as such
+    "app/routers/api_docs.py",  # its page has a French paragraph; renamed once by hand
+    "tests/test_cluster_compat.py",  # it imitates libvirt's French messages; renamed once by hand
 }
 GLOBS = ["app", "tests", "dashboard/src", "dashboard/e2e", "cli", "docs/api.md", "lab"]
 
@@ -84,6 +86,10 @@ KEEP = {
     "rejoindre": "a route word: step 3",
     "retirer": "a route word: step 3",
     "installer": "also the installer/ directory: the few French uses by hand",
+    "resume": "also English (libvirt's dom.resume()): the key renamed by hand",
+    "reception": "also English: the key renamed by hand",
+    "retire": "also English: the key renamed by hand",
+    "JetonAPI": "the OpenAPI security scheme, renamed by hand",
     "hl": "not French",
     "vlan": "not French",
 }

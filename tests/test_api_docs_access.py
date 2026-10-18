@@ -26,9 +26,9 @@ def test_administrators_open_swagger_by_default_and_nobody_without_the_button(cl
     page = client.get("/docs", cookies={"hl_docs": cookie})
     assert page.status_code == 200 and "/swagger/swagger-ui-bundle.js" in page.text  # served here, no CDN
     schema = client.get("/openapi.json", cookies={"hl_docs": cookie}).json()
-    assert "/vms" in schema["paths"] and "JetonAPI" in schema["components"]["securitySchemes"]
+    assert "/vms" in schema["paths"] and "ApiToken" in schema["components"]["securitySchemes"]
     # "Authorize" takes a user name and password, or an API token.
-    assert {"JetonAPI": []} in schema["paths"]["/vms"]["get"]["security"]
+    assert {"ApiToken": []} in schema["paths"]["/vms"]["get"]["security"]
 
 
 def test_a_ticket_is_used_once(client, auth_headers):

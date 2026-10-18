@@ -5,7 +5,7 @@ import type { Route } from "@playwright/test";
 // first only when asked. The power endpoint is served by the test (the backend part: tests/test_host_system.py).
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { name: "e2e-power-web", state: "active", id: 3, uuid: "e2e-power-web", vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
+const vm = { name: "e2e-power-web", state: "active", id: 3, uuid: "e2e-power-web", vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" };
 
 test("node reboot: typed name, running VMs shut down first", async ({ page }) => {
   const sent: unknown[] = [];

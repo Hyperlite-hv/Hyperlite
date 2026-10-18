@@ -90,15 +90,15 @@ def _storage_capabilities_local():
     from app.core import zfs_storage
 
     zfs_installed = zfs_storage.is_available()
-    zfs_module_charge = _zfs_module_loaded_local() if zfs_installed else False
+    zfs_module_loaded = _zfs_module_loaded_local() if zfs_installed else False
     result = {
         "zfs_installed": zfs_installed,
-        "zfs_module_charge": zfs_module_charge,
+        "zfs_module_loaded": zfs_module_loaded,
         # "available" = really usable right now, not just installed. This is the field
         # the rest of the code (derived limits, the Compatibility page...) must use to
         # decide whether ZFS can be offered to the user.
-        "zfs_available": zfs_installed and zfs_module_charge,
-        "blocs": None,
+        "zfs_available": zfs_installed and zfs_module_loaded,
+        "blocks": None,
     }
     try:
         proc = subprocess.run(
@@ -108,7 +108,7 @@ def _storage_capabilities_local():
             timeout=5,
         )
         if proc.returncode == 0:
-            result["blocs"] = json.loads(proc.stdout).get("blockdevices")
+            result["blocks"] = json.loads(proc.stdout).get("blockdevices")
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         logger.debug("Ignored exception in _storage_capabilities_local()", exc_info=True)
 
@@ -223,7 +223,7 @@ def _lxc_available_local():
 
 def _virt_capabilities_local(conn):
     return {
-        "hyperviseur": conn.getType(),
+        "hypervisor": conn.getType(),
         "libvirt_version": conn.getLibVersion(),
         "hypervisor_version": conn.getVersion(),
         "lxc_containers_available": _lxc_available_local(),
@@ -241,7 +241,7 @@ def get_local_capabilities():
             "memory": _memory_capabilities_local(),
             "storage": _storage_capabilities_local(),
             "network": _network_capabilities_local(conn),
-            "virtualisation": _virt_capabilities_local(conn),
+            "virtualization": _virt_capabilities_local(conn),
             "security": {"secure_boot": _secure_boot_state_local()},
             "software": _software_capabilities_local(),
         }
@@ -302,7 +302,7 @@ def get_remote_capabilities(node_name):
             "cpu": _cpu_capabilities_local(
                 conn
             ),  # same function: reads ONLY through `conn`, already transparent for remote hosts
-            "virtualisation": _virt_capabilities_local(conn),
+            "virtualization": _virt_capabilities_local(conn),
             "network": {
                 "libvirt_networks": [{"name": n.name(), "active": bool(n.isActive())} for n in conn.listAllNetworks()],
                 "interfaces": None,
@@ -315,7 +315,7 @@ def get_remote_capabilities(node_name):
         "memory": {"total_mb": None, "available_mb": None},
         "security": {"secure_boot": None},
         "software": {},
-        "storage": {"zfs_installed": None, "zfs_module_charge": None, "zfs_available": None, "blocs": None},
+        "storage": {"zfs_installed": None, "zfs_module_loaded": None, "zfs_available": None, "blocks": None},
     }
     try:
         ssh_opts = node_ssh_options()
@@ -352,10 +352,10 @@ def get_remote_capabilities(node_name):
                 for b in ("qemu-img", "virsh", "zfs", "zpool", "git", "gh", "xorriso", "nginx")
             }
             zfs_installed = bool(ssh_part["software"].get("zfs") and ssh_part["software"].get("zpool"))
-            zfs_module_charge = v.get("ZFSMODULE") == "1"
+            zfs_module_loaded = v.get("ZFSMODULE") == "1"
             ssh_part["storage"]["zfs_installed"] = zfs_installed
-            ssh_part["storage"]["zfs_module_charge"] = zfs_module_charge
-            ssh_part["storage"]["zfs_available"] = zfs_installed and zfs_module_charge
+            ssh_part["storage"]["zfs_module_loaded"] = zfs_module_loaded
+            ssh_part["storage"]["zfs_available"] = zfs_installed and zfs_module_loaded
             disk = v.get("DISKUSAGE", "").split()
             if len(disk) == 2 and disk[0].isdigit() and disk[1].isdigit():
                 ssh_part["storage"]["default_pool_total_gb"] = round(int(disk[0]) / (1024**2), 1)
@@ -370,7 +370,7 @@ def get_remote_capabilities(node_name):
         "memory": ssh_part["memory"],
         "storage": ssh_part["storage"],
         "network": libvirt_part["network"],
-        "virtualisation": libvirt_part["virtualisation"],
+        "virtualization": libvirt_part["virtualization"],
         "security": ssh_part["security"],
         "software": ssh_part["software"],
     }

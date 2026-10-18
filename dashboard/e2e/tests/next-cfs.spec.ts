@@ -27,12 +27,12 @@ function report(gaps: number) {
     active: true, socket: "/run/hyperlite-cfs/socket", copies: 12, failures: gaps ? 1 : 0, reachable: true,
     last_error: gaps ? "/db/object_meta/vm/local/e2e-web: hyperlite-cfs is not running: nothing answers on its socket" : null,
     last_error_at: gaps ? "2026-10-02T12:00:00+00:00" : null,
-    demon: { mode: "local", quorum: true, version: 40, entrees: 3 },
-    domaines: { object_meta: {
-      entrees: 3, missing: gaps ? 1 : 0, extra: gaps ? 1 : 0, different: 0,
+    daemon: { mode: "local", quorum: true, version: 40, entries: 3 },
+    domains: { object_meta: {
+      entries: 3, missing: gaps ? 1 : 0, extra: gaps ? 1 : 0, different: 0,
       examples: gaps ? PATHS : { missing: [], extra: [], different: [] },
     } },
-    ecarts: gaps, pending: 0,
+    differences: gaps, pending: 0,
   };
 }
 
@@ -110,8 +110,8 @@ test("the button turns shadow mode on, and off after a confirmation", async ({ p
 test("in a cluster, changes received from other nodes are counted and a held-back apply is shown", async ({ page }) => {
   const problem = "hyperlite-cfs holds version 3, older than the 40 this node applied: its database was reset or replaced.";
   await page.route(/\/cfs\/shadow$/, (route) => route.fulfill({ json: {
-    ...report(0), force: false, installed: true, demon: { mode: "cluster", quorum: true, version: 3, entrees: 3 },
-    reception: { appliques: 7, last_applied: "2026-10-02T12:00:00+00:00", problem: problem },
+    ...report(0), force: false, installed: true, daemon: { mode: "cluster", quorum: true, version: 3, entries: 3 },
+    inbound: { applied: 7, last_applied: "2026-10-02T12:00:00+00:00", problem: problem },
   } }));
   await uiLogin(page);
   await goTo(page, "Cluster");

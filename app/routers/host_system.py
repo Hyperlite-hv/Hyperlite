@@ -89,7 +89,7 @@ def put_auto_updates(payload: AutoUpdates, user: dict = Depends(require_role("ad
 
 class DnsSettings(BaseModel):
     servers: list[str]
-    recherche: list[str] = []
+    search: list[str] = []
 
 
 @router.get("/dns")
@@ -100,7 +100,7 @@ def get_dns(user: dict = Depends(require_role("admin"))):
 @router.put("/dns")
 def put_dns(payload: DnsSettings, user: dict = Depends(require_role("admin"))):
     try:
-        result = host_system.set_dns(payload.servers, payload.recherche)
+        result = host_system.set_dns(payload.servers, payload.search)
     except host_system.SettingError as e:
         raise _refused(user, "host_dns", e) from e
     log_action(user["username"], "host_dns", "host", "success", " ".join(payload.servers))

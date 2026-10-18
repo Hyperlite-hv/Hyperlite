@@ -46,7 +46,7 @@ def create_ticket(user: dict = Depends(get_current_user)):
 _REFUSED = """<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Swagger · Hyperlite</title></head>
 <body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem;line-height:1.5">
 <h1>Swagger</h1><p>Open it from Hyperlite, <b>Administration &rsaquo; API &rsaquo; Open Swagger</b>: access is given to the accounts
-an administrator chose, for a few hours.</p><p>Ouvrez-le depuis Hyperlite, <b>Administration &rsaquo; API &rsaquo; Ouvrir
+an administrator chose, for a few hours.</p><p>Ouvrez-le since Hyperlite, <b>Administration &rsaquo; API &rsaquo; Ouvrir
 Swagger</b> : l'accès est donné aux comptes choisis par un administrateur, pour quelques heures.</p>
 <p><a href="/">Hyperlite</a></p></body></html>"""
 

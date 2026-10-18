@@ -31,7 +31,7 @@ export default function MigrateDialog({ vm, targets, onClose }) {
     return () => { alive = false; };
   }, [target, vm.name, vm.node]);
 
-  const blocked = Boolean(check?.report?.resume?.blocking) && !ignore;
+  const blocked = Boolean(check?.report?.summary?.blocking) && !ignore;
   const name = targets.find((n) => n.id === target)?.name || target;
 
   async function start() {
@@ -61,7 +61,7 @@ export default function MigrateDialog({ vm, targets, onClose }) {
         {check?.loading && <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("mig.checking")}</p>}
         {check?.error && <p className="nx-notice nx-notice--warning" role="status" style={{ margin: 0 }}>{t("mig.checkFailed", { error: check.error })}</p>}
         {check?.report && <CompatChecks report={check.report} labels={{ blocking: t("cc.blocking"), warning: t("cc.warning"), ok: t("cc.ok"), allOk: t("cc.allOk"), action: t("cc.action"), toggle: (show, n) => t(show ? "cc.hideOk" : "cc.showOk", { n }) }} />}
-        {check?.report?.resume?.blocking && (
+        {check?.report?.summary?.blocking && (
           <label className="nx-check"><input type="checkbox" checked={ignore} onChange={(e) => setIgnore(e.target.checked)} disabled={busy} /> {t("mig.ignore")}</label>
         )}
         <div className="nx-dialog-actions">

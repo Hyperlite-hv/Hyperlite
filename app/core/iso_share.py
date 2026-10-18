@@ -84,7 +84,7 @@ def _entry(name, size, mtime, node):
         "name": name,
         "size_mb": round(size / (1024 * 1024), 1),
         "added_at": datetime.fromtimestamp(mtime, UTC).isoformat(),
-        "emplacement": str(isos_dir()),
+        "location": str(isos_dir()),
         "node": node,
     }
 

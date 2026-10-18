@@ -22,10 +22,10 @@ test("the real backend answers a read-only drain plan for this host", async ({ r
   const token = await apiLogin(request);
   const r = await request.get("/nodes/local/drain-plan", { headers: { Authorization: `Bearer ${token}` } });
   expect(r.status(), await r.text()).toBe(200);
-  const plan = (await r.json()) as { migrables: string[]; non_migrables: { name: string; reason: string }[] };
+  const plan = (await r.json()) as { migratable: string[]; not_migratable: { name: string; reason: string }[] };
   // No target: nothing moves, and every VM of the host is listed with a reason.
-  expect(plan.migrables).toEqual([]);
-  for (const vm of plan.non_migrables) expect(vm.reason.length).toBeGreaterThan(0);
+  expect(plan.migratable).toEqual([]);
+  for (const vm of plan.not_migratable) expect(vm.reason.length).toBeGreaterThan(0);
 });
 
 test("enter maintenance: the plan is shown per target, the drain is confirmed, the banner ends it", async ({ page }) => {
@@ -33,8 +33,8 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
   let posted: unknown = null;
   let deleted = 0;
   const plans = {
-    peer: { migrables: ["e2e-web"], non_migrables: [{ name: "e2e-off", reason: "Stopped: only running VMs are live-migrated, it stays on this node" }] },
-    none: { migrables: [], non_migrables: [{ name: "e2e-web", reason: "No target chosen" }, { name: "e2e-off", reason: "Stopped" }] },
+    peer: { migratable: ["e2e-web"], not_migratable: [{ name: "e2e-off", reason: "Stopped: only running VMs are live-migrated, it stays on this node" }] },
+    none: { migratable: [], not_migratable: [{ name: "e2e-web", reason: "No target chosen" }, { name: "e2e-off", reason: "Stopped" }] },
   };
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
@@ -42,7 +42,7 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
     const url = new URL(req.url());
     const path = url.pathname;
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" }]);
-    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_actives: 0, vms_stopped: 0, storage_capacity_gb: 100, storage_available_gb: 50 });
+    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_running: 0, vms_stopped: 0, storage_capacity_gb: 100, storage_available_gb: 50 });
     if (req.method() === "GET" && /\/nodes\/maintenance$/.test(path)) return json(route, state);
     if (req.method() === "GET" && /\/nodes\/local\/drain-plan$/.test(path)) return json(route, url.searchParams.get("target_node") === "peer" ? plans.peer : plans.none);
     if (req.method() === "POST" && /\/nodes\/local\/maintenance$/.test(path)) {

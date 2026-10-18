@@ -36,7 +36,7 @@ def _snapshot_summary(snap):
     return {
         "name": snap.getName(),
         "description": desc_elem.text if desc_elem is not None else None,
-        "date_creation": creation_elem.text if creation_elem is not None else None,
+        "created_at": creation_elem.text if creation_elem is not None else None,
         "vm_state": state_elem.text if state_elem is not None else None,
         "current": snap.isCurrent() == 1,
         "parent": parent_nom,
@@ -64,7 +64,7 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
                 {
                     "name": s["name"],
                     "description": None,
-                    "date_creation": str(s["creation_epoch"]),
+                    "created_at": str(s["creation_epoch"]),
                     "vm_state": "disk_only",
                     "current": False,
                     "parent": None,

@@ -40,7 +40,7 @@ def test_only_interfaces_a_network_can_sit_on_are_listed(sysnet):
     listed = list_host_interfaces(sysnet, addresses={"eno1": ["192.168.3.42/24"]})
     assert [(i["name"], i["type"], i["usable"]) for i in listed] == [
         ("br0", "bridge", True),
-        ("eno1", "physique", True),
+        ("eno1", "physical", True),
         ("bond0", "bond", True),
         ("eno1.20", "vlan", True),
         ("wlp1s0", "wifi", False),

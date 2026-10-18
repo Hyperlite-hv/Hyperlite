@@ -164,8 +164,8 @@ export default function NodesPage() {
               {nodes.map((n) => {
                 const local = n.id === "local";
                 const nodeVms = vms.filter((v) => v.node === n.id);
-                const run = nodeVms.length ? nodeVms.filter((v) => v.state === "active").length : n.vms_actives ?? 0;
-                const total = nodeVms.length || (n.vms_actives ?? 0) + (n.vms_stopped ?? 0);
+                const run = nodeVms.length ? nodeVms.filter((v) => v.state === "active").length : n.vms_running ?? 0;
+                const total = nodeVms.length || (n.vms_running ?? 0) + (n.vms_stopped ?? 0);
                 const lib = formatVersionInt(n.libvirt_version);
                 return (
                   <tr key={n.id} className={ctx.is("node", n.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("node", n)}>

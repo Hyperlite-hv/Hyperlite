@@ -122,7 +122,7 @@ test("hardware: host devices — the real inventory protects the host, a USB key
       return route.fulfill({ status: 201, json: { vm: NAME, added: [dev.id], hostdevs: given } });
     }
     given.splice(0, given.length, ...given.filter((d) => !req.url().endsWith(d.id)));
-    return route.fulfill({ json: { vm: NAME, retire: "x" } });
+    return route.fulfill({ json: { vm: NAME, removed: "x" } });
   });
 
   await open(page, "hardware");
@@ -203,10 +203,10 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN onl
 });
 
 test("hardware: a disk is grown from a drawer, a shrink is refused, the French labels are shown", async ({ page, request }) => {
-  type Disk = { target: string; type: string; size_gb: number | null; non_agrandissable: string | null };
+  type Disk = { target: string; type: string; size_gb: number | null; not_growable: string | null };
   const firstDisk = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as Disk[]).find((d) => d.type === "disk")!;
   const disk = await firstDisk();
-  expect(disk.non_agrandissable).toBeNull();
+  expect(disk.not_growable).toBeNull();
   const target = Math.floor(disk.size_gb ?? 3) + 1;
 
   // The API refuses a shrink and changes nothing.
@@ -236,9 +236,9 @@ test("hardware: a disk is grown from a drawer, a shrink is refused, the French l
 });
 
 test("summary: Hyperlite Tools state is shown, and a stopped VM reports none", async ({ page, request }) => {
-  const vm = (await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { state: string; agent_invite: string | null };
+  const vm = (await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { state: string; guest_agent: string | null };
   expect(vm.state).not.toBe("active");
-  expect(vm.agent_invite).toBeNull();
+  expect(vm.guest_agent).toBeNull();
   await open(page, "summary");
   const main = page.getByRole("main");
   await expect(main.getByText("Hyperlite Tools", { exact: true })).toBeVisible({ timeout: 20_000 });

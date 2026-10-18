@@ -6,7 +6,7 @@ import type { Route } from "@playwright/test";
 const NAME = "e2e-pending-web";
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { name: NAME, state: "active", id: 4, uuid: NAME, vcpu: 2, memory_mb: 2048, ip: null, ssh_user: null, uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "active", id: 4, uuid: NAME, vcpu: 2, memory_mb: 2048, ip: null, ssh_user: null, uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" };
 
 test("pending changes: listed under a running VM's header on every tab", async ({ page }) => {
   let changes = [

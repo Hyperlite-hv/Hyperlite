@@ -103,7 +103,7 @@ def test_another_nodes_changes_reach_this_node(cluster):
     assert rows("SELECT id, name FROM groups") == [{"id": 7, "name": "ops"}]
     assert object_meta.get("vm", "web", "pve-b")["notes"] == "B"
     assert shadow.pending() == 0  # what came from the tree is not sent back
-    assert inbound.apply() is None and shadow.report()["ecarts"] == 0
+    assert inbound.apply() is None and shadow.report()["differences"] == 0
 
     cluster.delete("/db/groups/7")
     assert inbound.apply() == 1 and rows("SELECT * FROM groups") == []

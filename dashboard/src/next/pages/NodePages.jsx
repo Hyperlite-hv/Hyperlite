@@ -63,7 +63,7 @@ export function NodeSystemPage({ resource: node }) {
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
   const qemu = formatVersionInt(node.hypervisor_version);
   const lv = formatVersionInt(node.libvirt_version);
-  const flags = [cpu.virtualisation, caps?.cpu?.hardware_virtualization ? "KVM" : null, caps?.virtualisation?.lxc_containers_available ? "LXC" : null].filter(Boolean);
+  const flags = [cpu.virtualization, caps?.cpu?.hardware_virtualization ? "KVM" : null, caps?.virtualization?.lxc_containers_available ? "LXC" : null].filter(Boolean);
   return (
     <>
       {error && !hw && <ErrorState message={error} onRetry={load} />}
@@ -118,7 +118,7 @@ export function NodeNetworkPage({ resource: node }) {
                     <td><Chip>{t(`nn.type.${i.type}`)}</Chip></td>
                     <td className="nx-mono nx-wrapcell">{i.addresses.length ? i.addresses.join(", ") : <span className="nx-muted">—</span>}</td>
                     <td className="nx-mono nx-muted">{i.mac || "—"}</td>
-                    <td className="nx-mono">{i.debit_mbps ? (i.debit_mbps >= 1000 ? `${i.debit_mbps / 1000} Gb/s` : `${i.debit_mbps} Mb/s`) : "—"}</td>
+                    <td className="nx-mono">{i.throughput_mbps ? (i.throughput_mbps >= 1000 ? `${i.throughput_mbps / 1000} Gb/s` : `${i.throughput_mbps} Mb/s`) : "—"}</td>
                     <td className="nx-num nx-mono">{i.mtu ?? "—"}</td>
                   </tr>
                 );
@@ -140,8 +140,8 @@ export function NodeDiskPage({ resource: node }) {
   const pools = storagePools.filter((p) => p.node === node.id);
   const disks = hw?.disks || [];
   const usedBy = (d) => {
-    const names = pools.filter((p) => p.path && d.points_montage.some((m) => m === "/" || p.path.startsWith(m))).map((p) => p.name);
-    return [...d.points_montage.slice(0, 3), ...names].join(", ") || "—";
+    const names = pools.filter((p) => p.path && d.mount_points.some((m) => m === "/" || p.path.startsWith(m))).map((p) => p.name);
+    return [...d.mount_points.slice(0, 3), ...names].join(", ") || "—";
   };
   return (
     <>
@@ -334,7 +334,7 @@ export function NodeCompatPage({ resource: node }) {
         </div>
       )}
       <div className="nx-cols2 nx-cols2--even">
-        {(preflight || pair) && <Card title={pair ? t("nc.pair") : t("nc.preflight")} note={preflight ? t("nc.preflightCount", preflight.resume.account) : null}><Checks list={checks} t={t} /></Card>}
+        {(preflight || pair) && <Card title={pair ? t("nc.pair") : t("nc.preflight")} note={preflight ? t("nc.preflightCount", preflight.summary.account) : null}><Checks list={checks} t={t} /></Card>}
         {features.length > 0 && (
           <Card title={t("nc.features")}>
             <div className="nx-chips">

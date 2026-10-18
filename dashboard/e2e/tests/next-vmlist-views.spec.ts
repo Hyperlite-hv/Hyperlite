@@ -5,7 +5,7 @@ import type { Route } from "@playwright/test";
 // VMs, tags and pools are served by the test.
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = (name: string, state: string, os: string) => ({ name, state, id: state === "active" ? 1 : null, uuid: name, vcpu: 1, memory_mb: 1024, ip: null, ssh_user: null, uptime_s: state === "active" ? 60 : null, os, zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" });
+const vm = (name: string, state: string, os: string) => ({ name, state, id: state === "active" ? 1 : null, uuid: name, vcpu: 1, memory_mb: 1024, ip: null, ssh_user: null, uptime_s: state === "active" ? 60 : null, os, zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" });
 
 test("VM list: group by tag or pool, choose columns, save a view", async ({ page }) => {
   await uiLogin(page);
