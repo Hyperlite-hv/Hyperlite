@@ -98,6 +98,27 @@ def test_a_member_down_or_offline_is_named_and_offline_ones_are_not_asked(client
     assert [c[0] for c in peers.calls] == ["pve-a"]
 
 
+def test_a_member_marked_offline_that_still_sends_its_status_is_asked(client, auth_headers, peers, monkeypatch):
+    """Lab, 2026-10-18: after a network cut a member back on line stayed marked offline until the next poll (61 s), and
+    the views skipped it. Its status (phase E, app/core/statd.py) says it is back."""
+    from app.core import statd
+
+    headers = auth_headers("ana")
+    peers.nodes[0]["statut"] = peers.nodes[1]["statut"] = "hors_ligne"
+    peers.answers[("pve-a", "/tasks")] = (200, [])
+    monkeypatch.setattr(
+        statd,
+        "table",
+        lambda: {
+            "pve-a": {"vms": [], "age_s": 3.0, "stale": False},
+            "pve-b": {"vms": [], "age_s": 40.0, "stale": True},
+        },
+    )
+    rows = client.get("/tasks?cluster=true", headers=headers).json()
+    assert [c[0] for c in peers.calls] == ["pve-a"]  # pve-b's status is old: still not asked
+    assert rows["unreachable"] == ["pve-b"]
+
+
 def test_this_nodes_filter_is_sent_under_its_name(client, auth_headers, peers):
     headers = auth_headers("ana")
     client.get("/tasks?cluster=true&node=local", headers=headers)

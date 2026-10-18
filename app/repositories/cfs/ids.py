@@ -23,6 +23,7 @@ import sqlite3
 import threading
 
 from app.core.cfs_client import MUST_NOT_EXIST, Conflict, NotFound
+from app.repositories.cfs import confirm
 from app.repositories.cfs.tables import TABLES
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,8 @@ def forget():
 
 
 class Connection(sqlite3.Connection):
-    """A connection that reserves the id of each new row of a replicated table in a cluster."""
+    """A connection that reserves the id of each new row of a replicated table in a cluster, and notes the changes a
+    request makes so that it answers once the cluster took them (confirm.py)."""
 
     reserve_ids = True
 
@@ -139,8 +141,11 @@ class Connection(sqlite3.Connection):
         execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?", (fresh - 1, table))
 
     def execute(self, sql, parameters=(), /):
+        confirm.before(self, sql)
         self._before(sql)
-        return super().execute(sql, parameters)
+        cursor = super().execute(sql, parameters)
+        confirm.after(self, sql)
+        return cursor
 
     def executemany(self, sql, seq_of_parameters, /):
         if self.reserve_ids and _INSERT.match(sql):
@@ -148,7 +153,10 @@ class Connection(sqlite3.Connection):
             for parameters in seq_of_parameters:  # one reservation per row
                 cursor = self.execute(sql, parameters)
             return cursor if cursor is not None else super().executemany(sql, [])
-        return super().executemany(sql, seq_of_parameters)
+        confirm.before(self, sql)
+        cursor = super().executemany(sql, seq_of_parameters)
+        confirm.after(self, sql)
+        return cursor
 
     def cursor(self, factory=None):
         return super().cursor(factory or Cursor)
@@ -156,12 +164,18 @@ class Connection(sqlite3.Connection):
 
 class Cursor(sqlite3.Cursor):
     def execute(self, sql, parameters=(), /):
+        confirm.before(self.connection, sql)
         self.connection._before(sql)
-        return super().execute(sql, parameters)
+        super().execute(sql, parameters)
+        confirm.after(self.connection, sql)
+        return self
 
     def executemany(self, sql, seq_of_parameters, /):
         if self.connection.reserve_ids and _INSERT.match(sql):
             for parameters in seq_of_parameters:
                 self.execute(sql, parameters)
             return self
-        return super().executemany(sql, seq_of_parameters)
+        confirm.before(self.connection, sql)
+        super().executemany(sql, seq_of_parameters)
+        confirm.after(self.connection, sql)
+        return self
