@@ -59,7 +59,7 @@ numbers show the listings need it.
 2. The lab run, the report.
 3. Issues and fixes, each measured again.
 
-## Open questions
+## Answered (Antho, 2026-10-18)
 
-1. The thresholds above: right for you?
-2. Lab nodes from 2 to 3 GB of memory for the test (this host keeps 4 GB free): agreed?
+1. The thresholds above are the ones.
+2. The lab nodes get 3 GB of memory for the test, back to 2 GB after.
