@@ -170,3 +170,23 @@ def test_a_garbage_frame_drops_only_that_connection(daemon):
     raw.close()
     with CfsClient(daemon) as c:
         assert c.status().mode == "local"
+
+
+def test_a_nodes_status_is_kept_and_read_back(daemon):
+    """Phase E (docs/design/phase-e-statd.md): in local mode a status is this node's (id 1) at once; it replaces the
+    previous one; one over the size of a status is refused; only root publishes."""
+    with CfsClient(daemon) as c:
+        assert c.stat_get() == []
+        if os.geteuid() != 0:
+            with pytest.raises(CfsError) as denied:
+                c.stat_put(b"x")
+            assert denied.value.status == cfs_client.FORBIDDEN
+            return
+        c.stat_put(b"first")
+        c.stat_put(b"second")
+        [mine] = c.stat_get()
+        assert mine.node == 1 and mine.data == b"second" and 0 <= mine.age_ms < 5000
+        with pytest.raises(CfsError) as big:
+            c.stat_put(b"x" * (cfs_client.STAT_MAX + 1))
+        assert big.value.status == cfs_client.TOO_LARGE
+        assert c.stat_get()[0].data == b"second"

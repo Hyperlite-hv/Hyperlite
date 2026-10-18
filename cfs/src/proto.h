@@ -16,6 +16,9 @@
  *   NEXT_ID                              -> i64 id
  *   STATUS                               -> i64 cluster version, blob checksum, u8 quorate, u8 mode (0 local),
  *                                           i64 entries, i64 bytes
+ *   STAT_PUT blob (at most CFS_STAT_MAX)  -> (nothing); this node's status, sent to every node (root only)
+ *   STAT_GET u32 node                    -> node 0: u32 count, then count x (u32 node, i64 age ms, u32 size);
+ *                                           another node: i64 age ms, blob status (CFS_NOT_FOUND when none)
  */
 
 #ifndef CFS_PROTO_H
@@ -71,6 +74,7 @@ typedef struct {
     char owner[CFS_NAME_MAX + 1];
     int64_t expected;
     uint32_t ttl;
+    uint32_t node;       /* STAT_GET */
     const uint8_t *data; /* points into the frame */
     uint32_t data_len;
 } cfs_request;
