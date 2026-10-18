@@ -37,6 +37,7 @@ def node(client, auth_headers, monkeypatch):
     monkeypatch.setenv("HYPERLITE_CFS_SHADOW", "1")
     monkeypatch.setattr(shadow, "_get_client", lambda: daemon)
     monkeypatch.setattr(shadow, "drain", lambda limit=500: 0)  # the copy is not what is tested here
+    monkeypatch.setattr(shadow, "confirm", lambda wanted, timeout=None: None)  # nor its confirmation
     monkeypatch.setattr(cluster_lead, "QUORUM_TTL_S", 0)
     monkeypatch.setattr(cluster_lead, "STATUS_TTL_S", 0)
     cluster_lead.forget()
