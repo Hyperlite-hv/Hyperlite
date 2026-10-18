@@ -29,7 +29,7 @@ test("each node shows its last copy, a failure its reason, and Copy now sends it
       { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" },
       { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, status: "online" },
     ]);
-    if (req.method() === "GET" && /\/nodes\/(peer|far)\/summary$/.test(path)) return json(route, { connected: true, vms_actives: 0, vms_stopped: 0 });
+    if (req.method() === "GET" && /\/nodes\/(peer|far)\/summary$/.test(path)) return json(route, { connected: true, vms_running: 0, vms_stopped: 0 });
     if (/\/nodes\/config-copy$/.test(path)) {
       if (req.method() === "POST") {
         posted += 1;

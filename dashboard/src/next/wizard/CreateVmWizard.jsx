@@ -301,7 +301,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <div className="nx-tiles">{nodes.map((n) => {
                   const ram = n.memoire_totale_mo ? (n.used_memory_mb / n.memoire_totale_mo) * 100 : null;
                   return radio(form.node === n.id, () => patch({ node: n.id }), n.name,
-                    n.maintenance ? t("wz.inMaintenance") : [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_actives ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
+                    n.maintenance ? t("wz.inMaintenance") : [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_running ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
                     "node", ram != null && !n.maintenance ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null, Boolean(n.maintenance));
                 })}</div>
                 {show("placement", "node")}

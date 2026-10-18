@@ -99,9 +99,9 @@ export default function LibraryPage() {
                       {rows.map((iso) => (
                         <tr key={`${iso.node}/${iso.name}`} className={ctx.is("iso", `${iso.node}/${iso.name}`) ? "is-ctx" : undefined} onContextMenu={ctx.open("iso", iso, `${iso.node}/${iso.name}`)}>
                           <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{iso.name}</th>
-                          {multiNode && <td title={iso.emplacement || undefined}>{nodeName(iso.node)}</td>}
+                          {multiNode && <td title={iso.location || undefined}>{nodeName(iso.node)}</td>}
                           <td className="nx-num nx-mono">{formatSizeMb(iso.size_mb, lang)}</td>
-                          {!multiNode && <td className="nx-mono nx-muted">{iso.emplacement || "—"}</td>}
+                          {!multiNode && <td className="nx-mono nx-muted">{iso.location || "—"}</td>}
                           <td className="nx-mono nx-muted">{iso.added_at ? formatDateTime(iso.added_at, lang) : "—"}</td>
                           <td><div className="nx-ra">{caps.admin && (<>
                             {multiNode && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("iso.copyX", { v: iso.name, node: nodeName(iso.node) })} onClick={() => setCopying(iso)}><Copy size={15} aria-hidden="true" /><span className="nx-hide-narrow">{t("iso.copy")}</span></button>}

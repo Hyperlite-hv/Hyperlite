@@ -57,7 +57,7 @@ export default function CertificateCard() {
           <dt>{t("cert.names")}</dt><dd className="nx-mono">{info.names.join(", ") || "—"}</dd>
           <dt>{t("cert.issuer")}</dt><dd><span className="nx-mono">{info.issuer}</span> {info.self_signed && <Chip tone="warning">{t("cert.selfSigned")}</Chip>}</dd>
           <dt>{t("cert.source")}</dt><dd>{t(`cert.src.${source}`)}{source === "acme" ? ` (${info.source.slice(5)})` : ""}</dd>
-          <dt>{t("cert.validUntil")}</dt><dd>{formatDateTime(info.fin, lang)} {soon ? <Chip tone="warning">{t("cert.daysLeft", { n: info.days_left })}</Chip> : <span className="nx-muted">{t("cert.daysLeft", { n: info.days_left })}</span>}</dd>
+          <dt>{t("cert.validUntil")}</dt><dd>{formatDateTime(info.end, lang)} {soon ? <Chip tone="warning">{t("cert.daysLeft", { n: info.days_left })}</Chip> : <span className="nx-muted">{t("cert.daysLeft", { n: info.days_left })}</span>}</dd>
           <dt>SHA-256</dt><dd className="nx-mono" style={{ wordBreak: "break-all", fontSize: "var(--fs-12)" }}>{info.fingerprint_sha256}</dd>
         </dl>
       ) : <p className="nx-muted" style={{ margin: 0 }}>{t("cert.none")}</p>}
@@ -88,8 +88,8 @@ export default function CertificateCard() {
         </div>
       )}
 
-      {(info.precedent || !info.self_signed) && <div className="nx-fa" style={{ justifyContent: "flex-start" }}>
-        {info.precedent && <button type="button" className="nx-btn nx-btn--ghost" disabled={busy} onClick={() => confirmThen(t("cert.previousTitle"), t("cert.restartMsg"), restorePreviousCertificate, t("cert.restored"), t("cert.restoreFailed"))}>{t("cert.previous")}</button>}
+      {(info.previous || !info.self_signed) && <div className="nx-fa" style={{ justifyContent: "flex-start" }}>
+        {info.previous && <button type="button" className="nx-btn nx-btn--ghost" disabled={busy} onClick={() => confirmThen(t("cert.previousTitle"), t("cert.restartMsg"), restorePreviousCertificate, t("cert.restored"), t("cert.restoreFailed"))}>{t("cert.previous")}</button>}
         {!info.self_signed && <button type="button" className="nx-btn nx-btn--ghost" disabled={busy} onClick={() => confirmThen(t("cert.selfTitle"), t("cert.selfMsg"), selfSignedCertificate, t("cert.selfDone"), t("cert.selfFailed"))}>{t("cert.self")}</button>}
       </div>}
     </Card>

@@ -115,7 +115,7 @@ def probe(node):
 
 
 def isolation(nodes, temoin):
-    """{"isolated": bool, "joignables", "voters", "witness_reachable"}: can the controller see a majority of the voters
+    """{"isolated": bool, "reachable", "voters", "witness_reachable"}: can the controller see a majority of the voters
     (itself, every registered node, and the witness)? Reachability is the SSH port, cheap and independent of
     libvirt."""
     reachable = 1 + sum(1 for n in nodes if _tcp(n["hostname"], n["ssh_port"]))
@@ -124,7 +124,7 @@ def isolation(nodes, temoin):
     reachable += 1 if witness else 0
     return {
         "isolated": reachable * 2 <= voters,
-        "joignables": reachable,
+        "reachable": reachable,
         "voters": voters,
         "witness_reachable": witness,
     }
@@ -162,7 +162,7 @@ def decide(failed_node, all_nodes, temoin, isolated):
         return False, f"Manual recovery: {reason}"
     if isolated["isolated"]:
         return False, (
-            f"No action: this controller reaches only {isolated['joignables']} of {isolated['voters']} voters, "
+            f"No action: this controller reaches only {isolated['reachable']} of {isolated['voters']} voters, "
             "it may be the isolated one"
         )
     fencing = ha_fencing.get(failed_node)

@@ -74,8 +74,8 @@ def source_conn():
 
 def test_the_plan_moves_running_vms_and_explains_every_vm_that_stays(database, compat):
     result = maintenance.plan(source_conn(), FakeConn(FakeDomain("twin", active=False)), "n2")
-    assert result["migrables"] == ["db", "web"]
-    reasons = {b["name"]: b["reason"] for b in result["non_migrables"]}
+    assert result["migratable"] == ["db", "web"]
+    reasons = {b["name"]: b["reason"] for b in result["not_migratable"]}
     assert reasons["stopped"].startswith("Stopped")
     assert "iSCSI" in reasons["lun"]
     assert "CPU model" in reasons["oldcpu"]
@@ -84,8 +84,8 @@ def test_the_plan_moves_running_vms_and_explains_every_vm_that_stays(database, c
 
 def test_without_a_target_every_vm_stays(database, compat):
     result = maintenance.plan(source_conn(), None, None)
-    assert result["migrables"] == []
-    assert all(b["reason"] for b in result["non_migrables"]) and len(result["non_migrables"]) == 6
+    assert result["migratable"] == []
+    assert all(b["reason"] for b in result["not_migratable"]) and len(result["not_migratable"]) == 6
 
 
 def _add_node(database, name):
@@ -124,13 +124,13 @@ def _tasks(database, type_):
 def test_draining_marks_the_node_then_migrates_each_vm_as_its_own_task(cluster):
     c, h = cluster["client"], cluster["headers"]
     plan = c.get("/nodes/local/drain-plan", params={"target_node": "n2"}, headers=h)
-    assert plan.status_code == 200 and plan.json()["migrables"] == ["db", "web"]
+    assert plan.status_code == 200 and plan.json()["migratable"] == ["db", "web"]
     assert maintenance.get("local") is None  # the plan changes nothing
 
     r = c.post("/nodes/local/maintenance", json={"target_node": "n2"}, headers=h)
     assert r.status_code == 202, r.text
     body = r.json()
-    assert body["in_maintenance"] is True and body["migrables"] == ["db", "web"] and len(body["non_migrables"]) == 4
+    assert body["in_maintenance"] is True and body["migratable"] == ["db", "web"] and len(body["not_migratable"]) == 4
     assert cluster["migrated"] == [(None, "n2", "db"), (None, "n2", "web")]
     assert [t["target"] for t in _tasks(cluster["db"], "migrate_vm")] == ["db", "web"]
     drain = _tasks(cluster["db"], "drain_node")

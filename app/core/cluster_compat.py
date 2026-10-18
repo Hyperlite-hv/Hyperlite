@@ -473,4 +473,4 @@ def check_vm_migration(src, dst, domain):
 
 
 def report(checks):
-    return {"resume": summarize(checks), "checks": checks}
+    return {"summary": summarize(checks), "checks": checks}

@@ -1,7 +1,7 @@
 // Warning (never blocking) when the entered values exceed the host's PHYSICAL resources (GET /host/limits:
 // physique). Hyperlite does not forbid it, like Proxmox or vSphere: the administrator decides.
 export default function OverallocationNote({ limits, vcpu, memoryMb, diskGb }) {
-  const phys = limits?.physique;
+  const phys = limits?.physical;
   if (!phys) return null;
   const over = [];
   if (phys.vcpu != null && vcpu > phys.vcpu) over.push(`${vcpu} vCPU for ${phys.vcpu} cores`);

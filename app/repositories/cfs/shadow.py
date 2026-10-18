@@ -549,7 +549,7 @@ def _compare(expected, actual):
     extra = sorted(actual.keys() - expected.keys())
     different = sorted(p for p in expected.keys() & actual.keys() if expected[p] != actual[p])
     return {
-        "entrees": len(expected),
+        "entries": len(expected),
         "missing": len(missing),
         "extra": len(extra),
         "different": len(different),
@@ -565,7 +565,7 @@ def _compare_table(client, table):
             raise
         # /priv is served to root only: a Hyperlite not running as root (a development checkout) cannot compare it.
         out = _compare({}, {})
-        out.update(entrees=len(table.all()), illisible=True)
+        out.update(entries=len(table.all()), unreadable=True)
         return out
 
 
@@ -596,9 +596,9 @@ def report():
         return out
     out.update(
         reachable=True,
-        demon={"mode": status.mode, "quorum": status.quorate, "version": status.version, "entrees": status.entries},
-        domaines=domains,
-        ecarts=sum(d["missing"] + d["extra"] + d["different"] for d in domains.values()),
-        reception=inbound.report(),
+        daemon={"mode": status.mode, "quorum": status.quorate, "version": status.version, "entries": status.entries},
+        domains=domains,
+        differences=sum(d["missing"] + d["extra"] + d["different"] for d in domains.values()),
+        inbound=inbound.report(),
     )
     return out

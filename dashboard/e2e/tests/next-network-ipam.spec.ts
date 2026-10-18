@@ -8,10 +8,10 @@ const json = (body: unknown, status = 200) => ({ status, contentType: "applicati
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
 
 test("network: edit subnet and DHCP, restart, reserve an address from a lease and remove it", async ({ page }) => {
-  let ipam = { modifiable: true, mode: "nat", address: "10.9.0.1", masque: "255.255.255.0", dhcp: { debut: "10.9.0.100", fin: "10.9.0.200" }, reservations: [] as Array<{ mac: string; ip: string; name: string | null }> };
+  let ipam = { modifiable: true, mode: "nat", address: "10.9.0.1", netmask: "255.255.255.0", dhcp: { start: "10.9.0.100", end: "10.9.0.200" }, reservations: [] as Array<{ mac: string; ip: string; name: string | null }> };
   let pending = false;
   const calls: Array<[string, string, unknown]> = [];
-  const summary = () => ({ name: NAME, uuid: "u", active: true, autostart: true, bridge: "virbr9", macvtap: false, type: ipam.mode, network: { address: ipam.address, masque: ipam.masque }, dhcp: Boolean(ipam.dhcp), vms: 2 });
+  const summary = () => ({ name: NAME, uuid: "u", active: true, autostart: true, bridge: "virbr9", macvtap: false, type: ipam.mode, network: { address: ipam.address, netmask: ipam.netmask }, dhcp: Boolean(ipam.dhcp), vms: 2 });
   await uiLogin(page);
   await page.route(/\/networks$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([summary()])) : r.fallback()));
   await page.route(new RegExp(`/networks/${NAME}(/.*)?(\\?.*)?$`), (r) => {
@@ -23,8 +23,8 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
     if (method !== "GET") calls.push([method, rest, r.request().postDataJSON?.() ?? null]);
     if (method === "PATCH") {
       const body = r.request().postDataJSON();
-      pending = body.masque !== ipam.masque;
-      ipam = { ...ipam, mode: body.mode, address: body.address, masque: body.masque, dhcp: body.dhcp };
+      pending = body.netmask !== ipam.netmask;
+      ipam = { ...ipam, mode: body.mode, address: body.address, netmask: body.netmask, dhcp: body.dhcp };
       return r.fulfill(json({ ...summary(), ipam, needs_restart: pending }));
     }
     if (method === "POST" && rest === "/reservations") {
@@ -70,8 +70,8 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
   await expect(addresses.getByText("No reservation.")).toBeVisible();
 
   expect(calls).toEqual([
-    ["PATCH", "", { mode: "nat", address: "10.9.0.1", masque: "255.255.255.0", dhcp: { debut: "10.9.0.50", fin: "10.9.0.200" } }],
-    ["PATCH", "", { mode: "nat", address: "10.9.0.1", masque: "255.255.0.0", dhcp: { debut: "10.9.0.50", fin: "10.9.0.200" } }],
+    ["PATCH", "", { mode: "nat", address: "10.9.0.1", netmask: "255.255.255.0", dhcp: { start: "10.9.0.50", end: "10.9.0.200" } }],
+    ["PATCH", "", { mode: "nat", address: "10.9.0.1", netmask: "255.255.0.0", dhcp: { start: "10.9.0.50", end: "10.9.0.200" } }],
     ["POST", "/stop", null],
     ["POST", "/start", null],
     ["POST", "/reservations", { mac: "52:54:00:00:00:09", ip: "10.9.0.150", name: "db" }],

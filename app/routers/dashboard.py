@@ -53,7 +53,7 @@ def dashboard(user: dict = Depends(get_current_user)):
             capacity = available = None
 
         return {
-            "hyperviseur": {
+            "hypervisor": {
                 "name": hostname,
                 "type": hv_type,
                 "connected": connected,

@@ -333,7 +333,7 @@ def dns():
         "managed_by": manager,
         "modifiable": manager in ("systemd-resolved", "file"),
         "servers": servers,
-        "recherche": search,
+        "search": search,
     }
 
 

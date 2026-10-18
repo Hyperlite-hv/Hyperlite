@@ -111,7 +111,7 @@ def _network_summary(net):
     dhcp = ip_elem is not None and ip_elem.find("dhcp") is not None
     subnet = None
     if ip_elem is not None:
-        subnet = {"address": ip_elem.get("address"), "masque": ip_elem.get("netmask")}
+        subnet = {"address": ip_elem.get("address"), "netmask": ip_elem.get("netmask")}
     return {
         "name": net.name(),
         "uuid": net.UUIDString(),
@@ -345,14 +345,14 @@ def set_network_autostart(name: str, payload: AutostartSetting, user: dict = Dep
 
 
 class DhcpRange(BaseModel):
-    debut: str
-    fin: str
+    start: str
+    end: str
 
 
 class NetworkEdit(BaseModel):
     mode: str = Field(description="'nat' | 'isolated'")
     address: str = Field(description="Gateway address of the network on the host")
-    masque: str = "255.255.255.0"
+    netmask: str = "255.255.255.0"
     dhcp: DhcpRange | None = None
 
 
@@ -369,7 +369,7 @@ def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_r
                 net,
                 mode=payload.mode,
                 address=payload.address,
-                netmask=payload.masque,
+                netmask=payload.netmask,
                 dhcp=payload.dhcp.model_dump() if payload.dhcp else None,
             )
         except network_edit.EditError as e:
@@ -379,9 +379,9 @@ def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_r
             msg = describe_exception(e)
             log_action(user["username"], "edit_network", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"The network could not be changed: {msg}") from e
-        detail = f"{payload.mode} {payload.address}/{payload.masque}"
+        detail = f"{payload.mode} {payload.address}/{payload.netmask}"
         if payload.dhcp:
-            detail += f" dhcp {payload.dhcp.debut}-{payload.dhcp.fin}"
+            detail += f" dhcp {payload.dhcp.start}-{payload.dhcp.end}"
         log_action(user["username"], "edit_network", name, "success", detail)
         return get_network(name, user) | {"needs_restart": restart}
     finally:

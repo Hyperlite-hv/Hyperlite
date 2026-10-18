@@ -42,7 +42,7 @@ export default function SnapshotsPage() {
                   <tr key={`${s.vm}:${s.name}`} className={ctx.is("snap", `${s.vm}:${s.name}`) ? "is-ctx" : undefined} onContextMenu={ctx.open("snap", s, `${s.vm}:${s.name}`)}>
                     <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", s.vm, "summary")}>{s.vm}</button></th>
                     <td className="nx-mono">{s.name}{s.current ? ` · ${t("snap.current")}` : ""}</td>
-                    <td className="nx-mono">{formatDateTime(s.date_creation, lang) || "—"}</td>
+                    <td className="nx-mono">{formatDateTime(s.created_at, lang) || "—"}</td>
                     <td>{s.description || <span className="nx-muted">—</span>}</td>
                     <td><div className="nx-ra"><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", s.vm, "snapshots")}>{t("snap.manage")}</button></div></td>
                   </tr>

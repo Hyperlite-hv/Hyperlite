@@ -119,7 +119,7 @@ def blocking(checks):
 def test_compatible_hosts_and_a_simple_vm_pass_every_check():
     checks = cc.check_vm_migration(FakeConn(), FakeConn(networks=["default"]), FakeDomain(SIMPLE_VM))
     assert blocking(checks) == []
-    assert cc.report(checks)["resume"]["blocking"] is False
+    assert cc.report(checks)["summary"]["blocking"] is False
 
 
 def test_different_architectures_block():

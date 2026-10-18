@@ -44,7 +44,7 @@ def import_certificate(payload: CertificateImport, user: dict = Depends(require_
         log_action(user["username"], "import_certificate", "tls", "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
     log_action(
-        user["username"], "import_certificate", "tls", "success", f"{described['subject']} until {described['fin']}"
+        user["username"], "import_certificate", "tls", "success", f"{described['subject']} until {described['end']}"
     )
     _restart_soon()
     return {**tls_certs.info(), "restart": True}

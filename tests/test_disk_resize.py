@@ -217,7 +217,7 @@ def test_an_observer_cannot_resize(api, auth_headers):
 def test_the_disk_list_says_which_disks_can_be_grown(api):
     r = api["client"].get("/vms/vm1/disks", headers=api["headers"])
     assert r.status_code == 200, r.text
-    codes = {d["target"]: d["non_agrandissable"] for d in r.json()}
+    codes = {d["target"]: d["not_growable"] for d in r.json()}
     assert codes == {"vda": None, "vdb": None, "vdc": None, "vdd": "iscsi", "vde": "non_gere", "sdz": "non_gere"}
 
 

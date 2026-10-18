@@ -6,9 +6,9 @@ import type { Route } from "@playwright/test";
 const NAME = "e2e-perm-web";
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 1024, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 1024, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" };
 const row = (id: number, subject: string, role: string, pool: string | null) => ({
-  id, subject_type: "user", subject_id: subject, subject_label: subject, role, resource_type: pool ? "pool" : "vm", resource_id: pool ? "1" : NAME, resource_label: pool || NAME, herite_de: pool,
+  id, subject_type: "user", subject_id: subject, subject_label: subject, role, resource_type: pool ? "pool" : "vm", resource_id: pool ? "1" : NAME, resource_label: pool || NAME, inherited_from: pool,
 });
 
 test("VM permissions tab: own and inherited assignments, add and remove", async ({ page }) => {

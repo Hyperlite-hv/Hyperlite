@@ -64,8 +64,8 @@ def _describe(cert):
         "subject": cn[0].value if cn else cert.subject.rfc4514_string(),
         "issuer": cert.issuer.rfc4514_string(),
         "names": names,
-        "debut": cert.not_valid_before_utc.isoformat(),
-        "fin": not_after.isoformat(),
+        "start": cert.not_valid_before_utc.isoformat(),
+        "end": not_after.isoformat(),
         "days_left": (not_after - datetime.datetime.now(datetime.UTC)).days,
         "self_signed": cert.issuer == cert.subject,
         "fingerprint_sha256": cert.fingerprint(hashes.SHA256()).hex(":").upper(),
@@ -82,7 +82,7 @@ def info():
         "present": True,
         "source": _source(),
         "certbot": shutil.which("certbot") is not None,
-        "precedent": (TLS_DIR / "hyperlite.crt.previous").exists(),
+        "previous": (TLS_DIR / "hyperlite.crt.previous").exists(),
         **_describe(certs[0]),
     }
 

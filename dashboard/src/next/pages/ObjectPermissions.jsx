@@ -70,8 +70,8 @@ function ObjectPermissions({ kind, name }) {
                   <tr key={a.id}>
                     <th scope="row">{subject(a)}</th>
                     <td><Chip tone="accent">{data.roles[a.role]?.label || a.role}</Chip></td>
-                    <td>{a.herite_de ? <button type="button" className="nx-lnk" onClick={() => navigateTo("datacenter", null, "permissions")}>{t("op.pool", { pool: a.herite_de })}</button> : <span className="nx-muted">{t("op.direct")}</span>}</td>
-                    <td><div className="nx-ra">{!a.herite_de && <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("op.removeX", { who: subject(a) })} onClick={() => remove(a)}>{t("sec.remove")}</button>}</div></td>
+                    <td>{a.inherited_from ? <button type="button" className="nx-lnk" onClick={() => navigateTo("datacenter", null, "permissions")}>{t("op.pool", { pool: a.inherited_from })}</button> : <span className="nx-muted">{t("op.direct")}</span>}</td>
+                    <td><div className="nx-ra">{!a.inherited_from && <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("op.removeX", { who: subject(a) })} onClick={() => remove(a)}>{t("sec.remove")}</button>}</div></td>
                   </tr>
                 ))}
               </tbody>

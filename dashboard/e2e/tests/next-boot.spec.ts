@@ -5,7 +5,7 @@ import type { Route } from "@playwright/test";
 // covered by tests/test_vm_boot.py.
 const NAME = "e2e-boot-db";
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
-const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" };
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
 
 test("start at boot: enabled with an order and a pause, validated, saved, libvirt's own flag explained", async ({ page }) => {

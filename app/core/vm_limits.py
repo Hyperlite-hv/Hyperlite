@@ -82,7 +82,7 @@ def compute_limits(force=False):
             "detail": f"this host has {threads} CPU threads",
         }
     disk_free = _detect_disk_free_gb()
-    value["physique"] = {
+    value["physical"] = {
         "vcpu": os.cpu_count(),
         "memory_mb": _memory_capabilities_local().get("total_mb"),
         "disk_gb": int(disk_free) if disk_free is not None else None,

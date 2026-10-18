@@ -19,7 +19,7 @@ echo '@@links'
 for i in /sys/class/net/*; do
   n=$(basename "$i"); [ "$n" = lo ] && continue
   kind=virtuel
-  [ -e "$i/device" ] && kind=physique
+  [ -e "$i/device" ] && kind=physical
   [ -d "$i/bridge" ] && kind=bridge
   [ -d "$i/wireless" ] && kind=wifi
   [ -e "/proc/net/vlan/$n" ] && kind=vlan
@@ -85,7 +85,7 @@ def parse(text):
                 "mac": mac or None,
                 "mtu": int(mtu) if mtu.isdigit() else None,
                 # The kernel reports -1 (or nothing) when the link is down or the driver does not know.
-                "debit_mbps": int(speed) if speed.isdigit() and int(speed) > 0 else None,
+                "throughput_mbps": int(speed) if speed.isdigit() and int(speed) > 0 else None,
                 "addresses": addresses.get(name, []),
             }
         )
@@ -109,7 +109,7 @@ def parse(text):
                 "type": kind,
                 "size_gb": round(int(size) / 1024**3, 1) if size is not None and str(size).isdigit() else None,
                 "health": health.get(dev.get("name")),
-                "points_montage": sorted(set(_mounts(dev))),
+                "mount_points": sorted(set(_mounts(dev))),
             }
         )
 
@@ -127,7 +127,7 @@ def parse(text):
             "cores_per_socket": _int("Core(s) per socket"),
             "threads_per_core": _int("Thread(s) per core"),
             "threads": _int("CPU(s)"),
-            "virtualisation": fields.get("Virtualization"),
+            "virtualization": fields.get("Virtualization"),
         }
     return {"interfaces": interfaces, "disks": disks, "cpu": cpu}
 

@@ -35,7 +35,7 @@ test("notes and tags of a node: edited, validated, kept as plain text after a re
 });
 
 test("tags in the VM list: shown under the name, a click or the menu filters by tag, search finds them", async ({ page }) => {
-  const vm = (name: string) => ({ name, state: "stopped", id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" });
+  const vm = (name: string) => ({ name, state: "stopped", id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" });
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm("e2e-tag-db"), vm("e2e-tag-web"), vm("e2e-tag-lab")])) : r.fallback()));
   await page.route(/\/meta(\?.*)?$/, (r) => (api(r) ? r.fulfill(json([

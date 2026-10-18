@@ -218,7 +218,7 @@ def mark_applied():
 
 def report():
     with state.lock:
-        return {"appliques": state.applied, "last_applied": state.last_at, "problem": state.problem}
+        return {"applied": state.applied, "last_applied": state.last_at, "problem": state.problem}
 
 
 def _loop():

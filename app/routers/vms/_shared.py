@@ -110,7 +110,7 @@ def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
         "zfs_storage": bool(_zvol_disks_of_xml(root)),
         "iscsi_storage": bool(iscsi.iscsi_disks_of_xml(root)),
         # Hyperlite Tools (qemu-guest-agent): "active", "inactive", "non_configure", or None when the VM is stopped.
-        "agent_invite": agent,
+        "guest_agent": agent,
         # "bios", "uefi" or "uefi_secure" (see app/core/firmware.py): the UI explains why a running UEFI VM's
         # snapshot is refused.
         "firmware": firmware.of_domain(root),
