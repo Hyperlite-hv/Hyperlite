@@ -67,3 +67,19 @@ connection, one round trip per remote libvirt call (0.5 ms on a LAN, 20 ms over 
 
 - Real hardware and a real 100-node cluster: the simulation stands for it, calibrated on the lab.
 - More than 15 running VMs: the lab's memory.
+
+## After the fixes (lab, 1,001 VMs, same tools)
+
+| Measure | Before | Quick fixes (#476, #477) | Phase E (#479 and this) | Threshold |
+| --- | --- | --- | --- | --- |
+| Dashboard VM list, p50 | 241-276 ms | 69-74 ms | 34-35 ms | |
+| Dashboard VM list, p95 | 590-629 ms | 196-276 ms | **37-42 ms** | < 200 ms (target 50) |
+| Activity and audit of every node, p95 | 247-274 ms | 27-44 ms | 27-44 ms | < 1 s |
+| 20 users for 2 min: p50 / p95 / max | 1.85 s / 2.06 s / 2.25 s | 0.85 s / 0.94 s / 1.6 s | **0.25 s / 0.31 s / 0.38 s** | none over 2 s |
+| Errors under load | 3 | 0 | 0 | none |
+| NAT address search, 100 simulated nodes | 20 s | 0.8 s | 0.8 s | < 2 s |
+
+Phase E: every node sends a summary of its VMs to every node every 10 s through hyperlite-cfs's status group, and at
+once after a change made through Hyperlite; the VM list reads it, this node's own VMs included (as Proxmox does,
+Antho's choice), so nothing is asked of any node on a refresh. The last step was skipping FastAPI's generic encoder on
+this list: walking a thousand summaries on every request was its largest cost under load.

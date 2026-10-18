@@ -265,25 +265,25 @@ function mapVm(v, nodeId) {
 }
 
 export async function fetchVMs() {
-  const localVms = await realFetch("/vms");
-  let result = localVms.map((v) => mapVm(v, "local"));
+  // Every cluster member's VMs in one request, from the cluster's status (app/core/statd.py, phase E): this node asks
+  // no other node on a refresh, whatever their number. Outside a cluster: this node's VMs.
+  const [cluster, remotes] = await Promise.all([
+    realFetch("/vms?cluster=true"),
+    fetchRemoteNodes().catch(() => []), // GET /nodes unavailable: the members' VMs only
+  ]);
+  // A bare list is this node's VMs alone (the shape GET /vms always had).
+  const items = Array.isArray(cluster) ? cluster : cluster.items || [];
+  let result = items.map((v) => mapVm(v, v.node || "local"));
 
-  // Registered remote nodes: they were never queried here before (node hard-coded
-  // to "local" for everyone), so the VMs of a remote node never appeared in the main
-  // tree despite a successful registration on the backend. GET /vms now accepts a
-  // node= parameter (see app/routers/vms.py).
-  try {
-    const remotes = await fetchRemoteNodes();
-    const remoteLists = await Promise.all(remotes.map(async (n) => {
-      try {
-        const vms = await realFetch(`/vms?node=${encodeURIComponent(n.name)}`);
-        return vms.map((v) => mapVm(v, n.name));
-      } catch { return []; /* node unreachable for now */ }
-    }));
-    result = result.concat(...remoteLists);
-  } catch { /* GET /nodes unavailable: stay on the local node alone */ }
-
-  return result;
+  // Nodes registered over SSH only (no Hyperlite on them, not members): still read one by one.
+  const others = remotes.filter((n) => !n.membre);
+  const lists = await Promise.all(others.map(async (n) => {
+    try {
+      const vms = await realFetch(`/vms?node=${encodeURIComponent(n.name)}`);
+      return vms.map((v) => mapVm(v, n.name));
+    } catch { return []; /* node unreachable for now */ }
+  }));
+  return result.concat(...lists);
 }
 
 function mapPool(p, nodeId) {
