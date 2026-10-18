@@ -24,13 +24,13 @@ TARGET_DEV_RE = re.compile(r"^[a-z]{2,4}[0-9]{0,2}$")
 
 STATE_NAMES = {
     libvirt.VIR_DOMAIN_NOSTATE: "unknown",
-    libvirt.VIR_DOMAIN_RUNNING: "actif",
-    libvirt.VIR_DOMAIN_BLOCKED: "bloque",
-    libvirt.VIR_DOMAIN_PAUSED: "en_pause",
-    libvirt.VIR_DOMAIN_SHUTDOWN: "en_arret",
-    libvirt.VIR_DOMAIN_SHUTOFF: "arrete",
-    libvirt.VIR_DOMAIN_CRASHED: "plante",
-    libvirt.VIR_DOMAIN_PMSUSPENDED: "suspendu",
+    libvirt.VIR_DOMAIN_RUNNING: "active",
+    libvirt.VIR_DOMAIN_BLOCKED: "blocked",
+    libvirt.VIR_DOMAIN_PAUSED: "paused",
+    libvirt.VIR_DOMAIN_SHUTDOWN: "shutting_down",
+    libvirt.VIR_DOMAIN_SHUTOFF: "stopped",
+    libvirt.VIR_DOMAIN_CRASHED: "crashed",
+    libvirt.VIR_DOMAIN_PMSUSPENDED: "suspended",
 }
 
 
@@ -95,21 +95,21 @@ def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
                 if ip:
                     break
     return {
-        "nom": name,
+        "name": name,
         "id": domain.ID() if active else None,
         "uuid": domain.UUIDString(),
-        "etat": STATE_NAMES.get(state, "unknown"),
+        "state": STATE_NAMES.get(state, "unknown"),
         "vcpu": nvcpu,
-        "memoire_mo": round(_memory_kib(root) / 1024, 1),
+        "memory_mb": round(_memory_kib(root) / 1024, 1),
         "ip": ip,
-        "utilisateur_ssh": ssh_users.get(name),
+        "ssh_user": ssh_users.get(name),
         "uptime_s": get_vm_uptime_s(name) if active else None,
         "os": os_labels.get(name),
         # Exposed directly rather than letting the frontend guess from a derived state: the frontend used to deduce
         # "VM on a ZFS pool" from the list of EXISTING snapshots, which is wrong for a VM's very first snapshot.
-        "stockage_zfs": bool(_zvol_disks_of_xml(root)),
-        "stockage_iscsi": bool(iscsi.iscsi_disks_of_xml(root)),
-        # Hyperlite Tools (qemu-guest-agent): "actif", "inactif", "non_configure", or None when the VM is stopped.
+        "zfs_storage": bool(_zvol_disks_of_xml(root)),
+        "iscsi_storage": bool(iscsi.iscsi_disks_of_xml(root)),
+        # Hyperlite Tools (qemu-guest-agent): "active", "inactive", "non_configure", or None when the VM is stopped.
         "agent_invite": agent,
         # "bios", "uefi" or "uefi_secure" (see app/core/firmware.py): the UI explains why a running UEFI VM's
         # snapshot is refused.

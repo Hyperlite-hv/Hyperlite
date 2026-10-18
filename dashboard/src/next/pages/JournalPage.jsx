@@ -31,7 +31,7 @@ export default function JournalPage({ embedded = false }) {
   const [exporting, setExporting] = useState(false);
   const [retentionOpen, setRetentionOpen] = useState(false);
   const pushToast = useInfraStore((s) => s.pushToast);
-  const filters = (a) => ({ result: a.result, action: a.action, username: a.username, resource: a.resource, depuis: iso(a.from), jusqu_a: iso(a.to) });
+  const filters = (a) => ({ result: a.result, action: a.action, username: a.username, resource: a.resource, since: iso(a.from), until: iso(a.to) });
 
   useEffect(() => { const h = setTimeout(() => setApplied(f), 300); return () => clearTimeout(h); }, [f]); // debounce typing
   useEffect(() => { fetchAuditActions().then((a) => setActions(Array.isArray(a) ? a : [])).catch(() => {}); }, []);

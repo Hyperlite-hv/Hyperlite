@@ -10,12 +10,12 @@ router = APIRouter(prefix="/kubernetes", tags=["kubernetes"])
 
 
 class ClusterCreate(BaseModel):
-    nom: str
+    name: str
     workers: int = Field(2, ge=1, le=k8s_cluster.MAX_WORKERS)
     vcpu: int = Field(2, ge=1)
-    memoire_mo: int = Field(2048, ge=1)
-    disque_go: int = Field(20, ge=1)
-    reseau: str = "default"
+    memory_mb: int = Field(2048, ge=1)
+    disk_gb: int = Field(20, ge=1)
+    network: str = "default"
 
 
 def _fail(e):
@@ -32,12 +32,12 @@ def create_cluster(payload: ClusterCreate, user: dict = Depends(require_role("ad
     """Checks everything first, then builds the cluster in the background (one create_k8s_cluster task)."""
     try:
         task_id = k8s_cluster.start_create(
-            payload.nom, payload.workers, payload.vcpu, payload.memoire_mo, payload.disque_go, payload.reseau,
+            payload.name, payload.workers, payload.vcpu, payload.memory_mb, payload.disk_gb, payload.network,
             user["username"],
         )  # fmt: skip
     except k8s_cluster.ClusterError as e:
         _fail(e)
-    return {"nom": payload.nom, "task_id": task_id}
+    return {"name": payload.name, "task_id": task_id}
 
 
 @router.get("/clusters/{name}/kubeconfig", response_class=PlainTextResponse)
@@ -65,4 +65,4 @@ def delete_cluster(name: str, confirm: bool = False, user: dict = Depends(requir
         k8s_cluster.delete_cluster(name, user["username"])
     except k8s_cluster.ClusterError as e:
         _fail(e)
-    return {"nom": name, "supprime": True}
+    return {"name": name, "deleted": True}

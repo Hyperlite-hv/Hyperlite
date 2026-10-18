@@ -36,15 +36,15 @@ def search_images(query, limit=15):
             continue
         results.append(
             {
-                "nom": name,
+                "name": name,
                 "description": (r.get("short_description") or "").strip(),
-                "etoiles": r.get("star_count", 0),
-                "telechargements": r.get("pull_count", 0),
-                "officielle": bool(r.get("is_official")),
+                "stars": r.get("star_count", 0),
+                "downloads": r.get("pull_count", 0),
+                "official": bool(r.get("is_official")),
             }
         )
     # Official images first (e.g. "nginx", "httpd", "postgres": maintained by
     # Docker, the safest choice for a user who just types "apache" without knowing
     # which exact image they want), then by popularity.
-    results.sort(key=lambda r: (not r["officielle"], -r["etoiles"]))
+    results.sort(key=lambda r: (not r["official"], -r["stars"]))
     return results

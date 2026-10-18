@@ -54,9 +54,9 @@ class Conn:
 
 def test_the_current_settings_are_read_from_the_definition():
     d = opts.describe(Conn().domain)
-    assert [x["cible"] for x in d["disques"]] == ["vda", "sda", "sdz"]
-    assert d["ordre_demarrage"] == ["vda", "sdz"]
-    assert d["ballooning"] == {"actif": True, "memoire_mo": 2048, "minimum_mo": 2048}
+    assert [x["target"] for x in d["disks"]] == ["vda", "sda", "sdz"]
+    assert d["boot_order"] == ["vda", "sdz"]
+    assert d["ballooning"] == {"active": True, "memory_mb": 2048, "minimum_mb": 2048}
     assert d["machine"] == "pc-q35-6.2"
 
 
@@ -68,9 +68,9 @@ def test_disk_options_are_written_and_limits_apply_live():
         "vda",
         {"cache": "none", "discard": "unmap", "io": "native", "iothread": True, "iops": 500, "mbps": 50},
     )
-    disk = opts.describe(conn.domain)["disques"][0]
+    disk = opts.describe(conn.domain)["disks"][0]
     assert disk == {
-        "cible": "vda",
+        "target": "vda",
         "type": "disk",
         "bus": "virtio",
         "cache": "none",
@@ -82,11 +82,11 @@ def test_disk_options_are_written_and_limits_apply_live():
     }
     assert ET.fromstring(conn.xml).findtext("iothreads") == "1"
     assert conn.domain.iotune == ("vda", {"total_iops_sec": 500, "total_bytes_sec": 50 * 1024**2})
-    assert r == {"a_redemarrer": True}  # cache, discard, I/O mode and thread wait for the next start
+    assert r == {"needs_restart": True}  # cache, discard, I/O mode and thread wait for the next start
     r = opts.set_disk_options(
         conn, conn.domain, "vda", {"cache": "none", "discard": "unmap", "io": "native", "iothread": True, "iops": 0}
     )
-    assert r == {"a_redemarrer": False} and opts.describe(conn.domain)["disques"][0]["iops"] is None
+    assert r == {"needs_restart": False} and opts.describe(conn.domain)["disks"][0]["iops"] is None
 
 
 @pytest.mark.parametrize(
@@ -110,7 +110,7 @@ def test_bad_disk_options_are_refused(dev, values, message):
 def test_the_boot_order_is_per_device_and_drops_the_os_list():
     conn = Conn()
     opts.set_boot_order(conn, conn.domain, ["net:52:54:00:00:00:01", "sda"])
-    assert opts.describe(conn.domain)["ordre_demarrage"] == ["net:52:54:00:00:00:01", "sda"]
+    assert opts.describe(conn.domain)["boot_order"] == ["net:52:54:00:00:00:01", "sda"]
     assert ET.fromstring(conn.xml).find("./os/boot") is None  # libvirt refuses both kinds together
     for bad in ([], ["vda", "vda"], ["nope"]):
         with pytest.raises(opts.OptionError):
@@ -119,13 +119,13 @@ def test_the_boot_order_is_per_device_and_drops_the_os_list():
 
 def test_ballooning_minimum_and_removal():
     conn = Conn(active=True)
-    assert opts.set_balloon(conn, conn.domain, True, 1024) == {"a_redemarrer": False}
+    assert opts.set_balloon(conn, conn.domain, True, 1024) == {"needs_restart": False}
     assert conn.domain.memory == 1024 * 1024  # applied live: the balloon is already there
-    assert opts.describe(conn.domain)["ballooning"]["minimum_mo"] == 1024
+    assert opts.describe(conn.domain)["ballooning"]["minimum_mb"] == 1024
     with pytest.raises(opts.OptionError):
         opts.set_balloon(conn, conn.domain, True, 4096)  # above the VM's memory
-    assert opts.set_balloon(conn, conn.domain, False) == {"a_redemarrer": True}
-    assert opts.describe(conn.domain)["ballooning"] == {"actif": False, "memoire_mo": 2048, "minimum_mo": 2048}
+    assert opts.set_balloon(conn, conn.domain, False) == {"needs_restart": True}
+    assert opts.describe(conn.domain)["ballooning"] == {"active": False, "memory_mb": 2048, "minimum_mb": 2048}
 
 
 def test_only_the_family_default_machine_is_offered_on_a_stopped_vm():
@@ -158,17 +158,15 @@ def test_the_api_applies_under_the_vm_lock_with_the_right_privileges(client, aut
     monkeypatch.setattr(hardware_opts, "open_conn", open_conn)
     admin = auth_headers("admin")
     r = client.get("/vms/web/hardware-options", headers=admin)
-    assert r.status_code == 200 and r.json()["machines_plus_recentes"] == ["pc-q35-9.0"]
+    assert r.status_code == 200 and r.json()["newer_machines"] == ["pc-q35-9.0"]
     r = client.put("/vms/web/disks/vda/options", json={"cache": "writeback", "iops": 100}, headers=admin)
     assert r.status_code == 200, r.text
-    assert r.json()["disques"][0]["cache"] == "writeback"
+    assert r.json()["disks"][0]["cache"] == "writeback"
     assert client.put("/vms/web/disks/vda/options", json={"cache": "turbo"}, headers=admin).status_code == 422
-    assert client.put("/vms/web/boot-order", json={"ordre": ["sda"]}, headers=admin).json()["ordre_demarrage"] == [
-        "sda"
-    ]
-    assert client.put("/vms/ghost/boot-order", json={"ordre": ["sda"]}, headers=admin).status_code == 404
+    assert client.put("/vms/web/boot-order", json={"position": ["sda"]}, headers=admin).json()["boot_order"] == ["sda"]
+    assert client.put("/vms/ghost/boot-order", json={"position": ["sda"]}, headers=admin).status_code == 404
     with vm_locks.claim("web", "a backup"):
-        assert client.put("/vms/web/balloon", json={"actif": False}, headers=admin).status_code == 409
+        assert client.put("/vms/web/balloon", json={"active": False}, headers=admin).status_code == 409
     viewer = auth_headers("viewer", role="viewer")
     assert client.get("/vms/web/hardware-options", headers=viewer).status_code == 200
     assert client.put("/vms/web/machine", json={"machine": "pc-q35-9.0"}, headers=viewer).status_code == 403

@@ -29,22 +29,22 @@ export default function SiteRecovery() {
   const [chosen, setChosen] = useState({}); // vm -> {on, nom}
   const [network, setNetwork] = useState("");
 
-  const localPools = (pools || []).filter((p) => p.node === "local" && p.chemin);
-  const localNetworks = [...new Set((networks || []).filter((n) => !n.node || n.node === "local").map((n) => n.nom))].sort();
+  const localPools = (pools || []).filter((p) => p.node === "local" && p.path);
+  const localNetworks = [...new Set((networks || []).filter((n) => !n.node || n.node === "local").map((n) => n.name))].sort();
 
   async function scan() {
     setBusy(true); setError(null);
     try {
       const vms = await scanSiteBackups(dir.trim());
       setFound(vms);
-      setChosen(Object.fromEntries(vms.map((v) => [v.vm, { on: !v.existe_ici, nom: v.existe_ici ? `${v.vm}-recup`.slice(0, 63) : v.vm }])));
+      setChosen(Object.fromEntries(vms.map((v) => [v.vm, { on: !v.exists_here, name: v.exists_here ? `${v.vm}-recup`.slice(0, 63) : v.vm }])));
     } catch (e) { setFound(null); setError(errorMessage(e)); }
     finally { setBusy(false); }
   }
 
   const selected = (found || []).filter((v) => chosen[v.vm]?.on);
-  const badName = (v) => !NAME_RE.test(chosen[v.vm]?.nom || "");
-  const names = selected.map((v) => chosen[v.vm].nom);
+  const badName = (v) => !NAME_RE.test(chosen[v.vm]?.name || "");
+  const names = selected.map((v) => chosen[v.vm].name);
   const duplicate = names.length !== new Set(names).size;
   const invalid = selected.length === 0 || selected.some(badName) || duplicate;
 
@@ -53,7 +53,7 @@ export default function SiteRecovery() {
     if (!(await confirmAction({ title: t("srec.confirmTitle", { n: selected.length }), message, confirmLabel: t("srec.restore") }))) return;
     setBusy(true);
     try {
-      await startSiteRecovery(selected.map((v) => ({ chemin: v.sauvegardes[0].chemin, nom: chosen[v.vm].nom })), network);
+      await startSiteRecovery(selected.map((v) => ({ path: v.backups[0].path, name: chosen[v.vm].name })), network);
       pushToast({ kind: "success", title: t("srec.started"), message: t("srec.startedMsg", { n: selected.length }) });
       navigateTo("datacenter", null, "activity");
     } catch (e) { pushToast({ kind: "error", title: t("srec.failed"), message: errorMessage(e) }); }
@@ -68,7 +68,7 @@ export default function SiteRecovery() {
           <input {...p} className="nx-inp nx-mono" list={listId} value={dir} placeholder="/var/lib/libvirt/hyperlite-pools/site-a" onChange={(e) => setDir(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && dir.trim()) scan(); }} />
         )}</Field>
-        <datalist id={listId}>{localPools.map((p) => <option key={p.nom} value={p.chemin}>{p.nom}</option>)}</datalist>
+        <datalist id={listId}>{localPools.map((p) => <option key={p.name} value={p.path}>{p.name}</option>)}</datalist>
         <div><button type="button" className="nx-btn" disabled={!dir.trim() || busy} onClick={scan}><Search size={15} aria-hidden="true" />{t("srec.scan")}</button></div>
       </div>
       {error && <InlineError message={error} onRetry={scan} />}
@@ -85,18 +85,18 @@ export default function SiteRecovery() {
               </tr></thead>
               <tbody>
                 {found.map((v) => {
-                  const b = v.sauvegardes[0];
-                  const c = chosen[v.vm] || { on: false, nom: v.vm };
+                  const b = v.backups[0];
+                  const c = chosen[v.vm] || { on: false, name: v.vm };
                   return (
                     <tr key={v.vm}>
                       <td><input type="checkbox" aria-label={t("srec.pickX", { vm: v.vm })} checked={c.on} onChange={(e) => setChosen((s) => ({ ...s, [v.vm]: { ...c, on: e.target.checked } }))} /></td>
-                      <th scope="row">{v.vm}{v.existe_ici && <div className="nx-f-h">{t("srec.existsHere")}</div>}</th>
-                      <td className="nx-mono">{b.cree_le ? formatDateTime(b.cree_le, lang) : "—"}{v.sauvegardes.length > 1 && <div className="nx-f-h">{t("srec.older", { n: v.sauvegardes.length - 1 })}</div>}</td>
+                      <th scope="row">{v.vm}{v.exists_here && <div className="nx-f-h">{t("srec.existsHere")}</div>}</th>
+                      <td className="nx-mono">{b.created_at ? formatDateTime(b.created_at, lang) : "—"}{v.backups.length > 1 && <div className="nx-f-h">{t("srec.older", { n: v.backups.length - 1 })}</div>}</td>
                       <td>{b.source || "—"}</td>
-                      <td className="nx-num nx-mono">{formatSizeMb(b.taille_octets / 1048576, lang)}</td>
+                      <td className="nx-num nx-mono">{formatSizeMb(b.size_bytes / 1048576, lang)}</td>
                       <td>
-                        <input className="nx-inp nx-mono" aria-label={t("srec.newNameX", { vm: v.vm })} value={c.nom} disabled={!c.on} aria-invalid={c.on && badName(v) ? true : undefined}
-                          onChange={(e) => setChosen((s) => ({ ...s, [v.vm]: { ...c, nom: e.target.value } }))} />
+                        <input className="nx-inp nx-mono" aria-label={t("srec.newNameX", { vm: v.vm })} value={c.name} disabled={!c.on} aria-invalid={c.on && badName(v) ? true : undefined}
+                          onChange={(e) => setChosen((s) => ({ ...s, [v.vm]: { ...c, name: e.target.value } }))} />
                       </td>
                     </tr>
                   );

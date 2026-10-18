@@ -225,7 +225,7 @@ def _is_loopback(request):
 @app.get("/health")
 def health(request: Request):
     """Answers everyone (the sign-in page reads the environment label before any
-    sign-in), but host name and software versions only go to a signed-in caller: to
+    sign-in), purpose host name and software versions only go to a signed-in caller: to
     anyone else they are a precise fingerprint of the host. The update watchdog
     (scripts/update_watchdog.sh) polls from the host itself without a session and
     needs the running version, so a loopback caller gets that one field."""

@@ -5,7 +5,7 @@ import type { Route } from "@playwright/test";
 // browser across a reload. The pools are served by the test.
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const pool = (nom: string) => ({ nom, type: "dir", etat: "actif", capacite_go: 100, disponible_go: 60, chemin: `/srv/${nom}` });
+const pool = (name: string) => ({ name, type: "dir", state: "active", capacity_gb: 100, available_gb: 60, path: `/srv/${name}` });
 
 test("preferences: terminal size and the pools shown on the Home page", async ({ page }) => {
   await uiLogin(page);

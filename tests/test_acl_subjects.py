@@ -5,7 +5,7 @@ from app.core import permissions
 
 
 def _acl(client, admin, **over):
-    body = {"subject_type": "user", "subject_id": "bob", "role": "lecteur", "resource_type": "vm", "resource_id": "web"}
+    body = {"subject_type": "user", "subject_id": "bob", "role": "drive", "resource_type": "vm", "resource_id": "web"}
     return client.post("/acl", json={**body, **over}, headers=admin)
 
 
@@ -23,7 +23,7 @@ def test_a_right_is_for_an_existing_user_group_or_pool(client, auth_headers):
 def test_a_deleted_accounts_rights_are_not_inherited_by_a_new_one(client, auth_headers):
     admin = auth_headers("root")
     auth_headers("bob", role="viewer")
-    assert _acl(client, admin, role="operateur").status_code == 201
+    assert _acl(client, admin, role="operator").status_code == 201
     assert permissions.has_privilege({"username": "bob", "role": "viewer"}, "web", "vm.power")
     assert client.delete("/auth/users/bob", headers=admin).status_code == 200
     assert [a for a in permissions._store().acl() if a["subject_id"] == "bob"] == []

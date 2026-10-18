@@ -115,14 +115,14 @@ def test_two_factor_login_flow(client, auth_headers):
     challenge = first_step.json()
     assert challenge["require_2fa"] is True and "access_token" not in challenge
 
-    pre_auth = {"Authorization": f"Bearer {challenge['pre_auth_token']}"}
+    pre_auth = {"Authorization": f"Bearer {challenge['preauth_token']}"}
     assert client.get("/auth/me", headers=pre_auth).status_code == 401  # never usable as a session
 
-    wrong = client.post("/auth/login/2fa", json={"pre_auth_token": challenge["pre_auth_token"], "code": "000001"})
+    wrong = client.post("/auth/login/2fa", json={"preauth_token": challenge["preauth_token"], "code": "000001"})
     assert wrong.status_code == 401
     # The code used to confirm the setup is spent: the next one signs in.
     right = client.post(
-        "/auth/login/2fa", json={"pre_auth_token": challenge["pre_auth_token"], "code": _next_code(secret)}
+        "/auth/login/2fa", json={"preauth_token": challenge["preauth_token"], "code": _next_code(secret)}
     )
     assert right.status_code == 200 and right.json()["access_token"]
 

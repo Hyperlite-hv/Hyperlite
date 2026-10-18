@@ -40,8 +40,8 @@ def written(world):
 
 def test_armed_and_fed_while_ha_vms_run_in_a_quorate_cluster(node):
     ha_selffence.tick()
-    assert ha_selffence.report()["arme"] and node["published"] == [True]
-    assert ha_selffence.report()["reinitialise_sous_s"] == 125  # two expiries (iTCO) plus a feed period
+    assert ha_selffence.report()["armed"] and node["published"] == [True]
+    assert ha_selffence.report()["reset_within_s"] == 125  # two expiries (iTCO) plus a feed period
     ha_selffence.tick()
     assert written(node) == b"\0\0"  # fed at each round
 
@@ -52,7 +52,7 @@ def test_without_the_quorum_it_is_starved_never_disarmed_and_fed_again_once_back
     ha_selffence.tick()
     ha_selffence.tick()
     assert written(node) == b"\0"  # not fed: the node resets after the timeout
-    assert ha_selffence.report()["arme"] and ha_selffence.report()["sans_quorum"]
+    assert ha_selffence.report()["armed"] and ha_selffence.report()["sans_quorum"]
     assert b"V" not in written(node)  # never disarmed while cut off
     node["reason"] = None
     ha_selffence.tick()
@@ -64,48 +64,48 @@ def test_disarmed_cleanly_when_no_ha_vm_runs_here_any_more(node):
     node["ha_vm"] = False
     ha_selffence.tick()
     assert written(node).endswith(b"V")  # the magic close: the watchdog stops instead of resetting
-    assert not ha_selffence.report()["arme"] and node["published"] == [True, False]
+    assert not ha_selffence.report()["armed"] and node["published"] == [True, False]
 
 
 def test_a_normal_stop_disarms_it(node):
     ha_selffence.tick()
     ha_selffence.stop()
-    assert written(node).endswith(b"V") and not ha_selffence.report()["arme"]
+    assert written(node).endswith(b"V") and not ha_selffence.report()["armed"]
 
 
 def test_libvirt_not_answering_keeps_it_armed_and_fed(node):
     ha_selffence.tick()
     node["ha_vm"] = RuntimeError("libvirt does not answer")
     ha_selffence.tick()
-    assert ha_selffence.report()["arme"] and written(node) == b"\0\0"
+    assert ha_selffence.report()["armed"] and written(node) == b"\0\0"
 
 
 def test_never_armed_outside_a_cluster_or_without_ha_vm(node):
     node["mode"] = "local"  # a single node, as serveur-antho
     ha_selffence.tick()
-    assert not ha_selffence.report()["arme"] and written(node) == b""
+    assert not ha_selffence.report()["armed"] and written(node) == b""
     node["mode"], node["ha_vm"] = "cluster", False
     ha_selffence.tick()
-    assert not ha_selffence.report()["arme"] and node["published"] == []
+    assert not ha_selffence.report()["armed"] and node["published"] == []
 
 
 def test_never_armed_without_the_quorum(node):
     node["reason"] = "This node has lost the cluster's quorum"
     ha_selffence.tick()
-    assert not ha_selffence.report()["arme"]
+    assert not ha_selffence.report()["armed"]
 
 
 def test_a_missing_device_is_reported(node, monkeypatch):
     monkeypatch.setenv("HYPERLITE_WATCHDOG_DEVICE", str(node["dev"].parent / "absent"))
     ha_selffence.tick()
     report = ha_selffence.report()
-    assert not report["arme"] and "could not be armed" in report["probleme"]
+    assert not report["armed"] and "could not be armed" in report["problem"]
 
 
 def test_turned_off_by_the_environment(node, monkeypatch):
     monkeypatch.setenv("HYPERLITE_WATCHDOG", "0")
     ha_selffence.tick()
-    assert not ha_selffence.report()["arme"] and written(node) == b""
+    assert not ha_selffence.report()["armed"] and written(node) == b""
 
 
 def test_the_suite_never_points_at_the_hosts_watchdog():
@@ -118,21 +118,21 @@ def test_a_driver_that_keeps_its_own_timeout_is_believed_not_the_one_asked(node)
     node["timeout"] = 300
     ha_selffence.tick()
     report = ha_selffence.report()
-    assert report["arme"] and report["delai_s"] == 300 and report["reinitialise_sous_s"] == 605
+    assert report["armed"] and report["delay_s"] == 300 and report["reset_within_s"] == 605
 
 
 def test_a_driver_that_does_not_say_still_fences_but_never_vouches_for_a_reset_time(node):
     node["timeout"] = None
     ha_selffence.tick()
     report = ha_selffence.report()
-    assert report["arme"] and report["reinitialise_sous_s"] is None and "by hand" in report["probleme"]
+    assert report["armed"] and report["reset_within_s"] is None and "by hand" in report["problem"]
 
 
 def test_a_timeout_too_short_to_feed_safely_is_not_armed(node):
     node["timeout"] = 10
     ha_selffence.tick()
     report = ha_selffence.report()
-    assert not report["arme"] and "too short" in report["probleme"]
+    assert not report["armed"] and "too short" in report["problem"]
     assert written(node) == b"V"  # closed the magic way: never left counting down
 
 
@@ -146,4 +146,4 @@ def test_what_is_published_is_the_devices_reset_time(node, monkeypatch):
     ha_selffence.state.timeout = 300
     REAL_PUBLISH(True)
     entry = json.loads(puts[0])
-    assert entry["delai_s"] == 300 and entry["reinitialise_sous_s"] == 605
+    assert entry["delay_s"] == 300 and entry["reset_within_s"] == 605

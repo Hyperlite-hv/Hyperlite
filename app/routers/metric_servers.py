@@ -14,16 +14,16 @@ router = APIRouter(prefix="/metric-servers", tags=["metrics"])
 
 
 class MetricServer(BaseModel):
-    nom: str
+    name: str
     type: str
-    actif: bool = True
+    active: bool = True
     url: str | None = None
     org: str | None = None
     bucket: str | None = None
-    jeton: str | None = None  # write-only; empty on an update keeps the stored one
-    hote: str | None = None
+    token: str | None = None  # write-only; empty on an update keeps the stored one
+    host: str | None = None
     port: int | None = None
-    prefixe: str | None = None
+    prefix: str | None = None
 
 
 @router.get("")
@@ -37,7 +37,7 @@ def create_metric_server(payload: MetricServer, user: dict = Depends(require_rol
         server = metric_export.save_server(payload.model_dump())
     except metric_export.ExportError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "create_metric_server", server["nom"], "success", server["type"])
+    log_action(user["username"], "create_metric_server", server["name"], "success", server["type"])
     return server
 
 
@@ -49,7 +49,7 @@ def update_metric_server(server_id: int, payload: MetricServer, user: dict = Dep
         server = metric_export.save_server(payload.model_dump(), server_id)
     except metric_export.ExportError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "update_metric_server", server["nom"], "success")
+    log_action(user["username"], "update_metric_server", server["name"], "success")
     return server
 
 
@@ -80,4 +80,4 @@ def test_metric_server(server_id: int, user: dict = Depends(require_role("admin"
         metric_export.record_result(server_id, e)
         raise HTTPException(status_code=502, detail=f"Sending failed: {e}") from e
     metric_export.record_result(server_id, None)
-    return {"envoyes": len(rows)}
+    return {"sent": len(rows)}

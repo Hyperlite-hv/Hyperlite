@@ -66,11 +66,11 @@ def graphite_lines(rows, ts, prefix):
 
 def validate(payload):
     """Checked definition from what an administrator typed; raises ExportError."""
-    name = (payload.get("nom") or "").strip()
+    name = (payload.get("name") or "").strip()
     if not NAME_RE.match(name):
         raise ExportError("Invalid name: letters, digits, spaces, dots, dashes, 64 characters at most")
     kind = payload.get("type")
-    clean = {"nom": name, "type": kind, "actif": bool(payload.get("actif", True))}
+    clean = {"name": name, "type": kind, "active": bool(payload.get("active", True))}
     if kind == "influxdb":
         try:
             url = require_http_url((payload.get("url") or "").strip().rstrip("/"))
@@ -83,7 +83,7 @@ def validate(payload):
                 raise ExportError(f"Invalid {label}")
         clean |= {"url": url, "org": payload["org"].strip(), "bucket": payload["bucket"].strip()}
     elif kind == "graphite":
-        host = (payload.get("hote") or "").strip()
+        host = (payload.get("host") or "").strip()
         try:
             ipaddress.ip_address(host)
         except ValueError:
@@ -92,10 +92,10 @@ def validate(payload):
         port = payload.get("port") or 2003
         if not isinstance(port, int) or not 1 <= port <= 65535:
             raise ExportError("The port must be between 1 and 65535")
-        prefix = (payload.get("prefixe") or "hyperlite").strip()
+        prefix = (payload.get("prefix") or "hyperlite").strip()
         if not PREFIX_RE.match(prefix):
             raise ExportError("Invalid prefix: dot-separated words of letters, digits, dashes and underscores")
-        clean |= {"hote": host, "port": port, "prefixe": prefix}
+        clean |= {"host": host, "port": port, "prefix": prefix}
     else:
         raise ExportError("type must be influxdb or graphite")
     return clean
@@ -103,8 +103,8 @@ def validate(payload):
 
 def _public(row):
     d = dict(row)
-    d["jeton_defini"] = bool(d.pop("jeton", None))
-    d["actif"] = bool(d["actif"])
+    d["token_set"] = bool(d.pop("token", None))
+    d["active"] = bool(d["active"])
     return d
 
 
@@ -125,14 +125,14 @@ def get_server(server_id):
 
 def save_server(payload, server_id=None):
     clean = validate(payload)
-    token = payload.get("jeton")
+    token = payload.get("token")
     if clean["type"] == "influxdb" and not token and server_id is None:
         raise ExportError("InfluxDB needs an API token with write access to the bucket")
-    values = {c: clean.get(c) for c in ("nom", "type", "url", "hote", "port", "org", "bucket", "prefixe", "actif")}
-    values["prefixe"] = clean.get("prefixe") or "hyperlite"
-    values["actif"] = 1 if clean["actif"] else 0
-    if _store().name_taken(clean["nom"], server_id):
-        raise ExportError(f"A metric server named '{clean['nom']}' already exists")
+    values = {c: clean.get(c) for c in ("name", "type", "url", "host", "port", "org", "bucket", "prefix", "active")}
+    values["prefix"] = clean.get("prefix") or "hyperlite"
+    values["active"] = 1 if clean["active"] else 0
+    if _store().name_taken(clean["name"], server_id):
+        raise ExportError(f"A metric server named '{clean['name']}' already exists")
     server_id = _store().save_server(list(values.values()), secrets_crypto.encrypt(token) if token else None, server_id)
     return _public(get_server(server_id))
 
@@ -152,7 +152,7 @@ def _send_influx(server, body):
         data=body.encode(),
         method="POST",
         headers={
-            "Authorization": f"Token {secrets_crypto.decrypt(server['jeton'])}",
+            "Authorization": f"Token {secrets_crypto.decrypt(server['token'])}",
             "Content-Type": "text/plain; charset=utf-8",
         },
     )
@@ -165,7 +165,7 @@ def _send_influx(server, body):
 
 
 def _send_graphite(server, body):
-    with socket.create_connection((server["hote"], server["port"]), timeout=TIMEOUT_S) as sock:
+    with socket.create_connection((server["host"], server["port"]), timeout=TIMEOUT_S) as sock:
         sock.sendall(body.encode())
 
 
@@ -176,7 +176,7 @@ def send(server, rows, ts):
     if server["type"] == "influxdb":
         _send_influx(server, line_protocol(rows, ts))
     else:
-        _send_graphite(server, graphite_lines(rows, ts, server["prefixe"]))
+        _send_graphite(server, graphite_lines(rows, ts, server["prefix"]))
 
 
 def record_result(server_id, error):

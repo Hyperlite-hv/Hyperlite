@@ -66,7 +66,7 @@ def test_legacy_local_node_label_is_migrated(database):
 
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO tasks (id, type, statut, cree_le, node) VALUES ('t1', 'x', 'succeeded', 'now', 'kvm-lab')"
+            "INSERT INTO tasks (id, type, status, created_at, node) VALUES ('t1', 'x', 'succeeded', 'now', 'kvm-lab')"
         )
         conn.commit()
     init_db()

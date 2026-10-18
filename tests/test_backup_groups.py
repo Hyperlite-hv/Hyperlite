@@ -46,7 +46,7 @@ def test_apply_retention_uses_the_policy(database, tmp_path):
             d = tmp_path / str(i)
             d.mkdir()
             conn.execute(
-                "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (?, 'web', ?, 'succeeded', ?, 'cold')",
+                "INSERT INTO backups (id, vm_name, path, status, created_at, mode) VALUES (?, 'web', ?, 'succeeded', ?, 'cold')",
                 (i + 1, str(d), ts),
             )
         conn.commit()
@@ -80,11 +80,11 @@ def test_backup_targets_stay_out_of_system_directories(path, ok):
 
 def _job(**kw):
     return {
-        "nom": "nightly",
+        "name": "nightly",
         "selection": "all",
-        "frequence": "daily",
-        "heure": "02:30",
-        "cible_dir": "/srv/bk",
+        "frequency": "daily",
+        "time": "02:30",
+        "target_dir": "/srv/bk",
         "retention_count": 7,
     } | kw
 
@@ -95,17 +95,17 @@ def test_selection_by_tag_pool_and_exclusion(database, monkeypatch):
     object_meta.put("vm", "db", "", ["prod", "sql"])
     pool = permissions.create_pool("team")
     permissions.add_pool_member(pool, "api")
-    tagged = bg.save_job(_job(nom="prod", selection="tag", valeur="Prod", exclues=["db"]))
-    assert tagged["valeur"] == "prod" and bg.resolve(tagged) == ["web"]
-    pooled = bg.save_job(_job(nom="team", selection="pool", valeur=str(pool)))
+    tagged = bg.save_job(_job(name="prod", selection="tag", value="Prod", excluded=["db"]))
+    assert tagged["value"] == "prod" and bg.resolve(tagged) == ["web"]
+    pooled = bg.save_job(_job(name="team", selection="pool", value=str(pool)))
     assert bg.resolve(pooled) == ["api"]
     assert bg.resolve(bg.save_job(_job())) == ["api", "db", "web"]
     for bad, message in [
-        (_job(nom="x", selection="pool", valeur="999"), "existing pool"),
-        (_job(nom="x", selection="tag", valeur=""), "tag"),
-        (_job(nom="x", heure="25:00"), "time"),
-        (_job(nom="x", cible_dir="/etc"), "cannot be written"),
-        (_job(nom="x", garder_mois=0), "garder_mois"),
+        (_job(name="x", selection="pool", value="999"), "existing pool"),
+        (_job(name="x", selection="tag", value=""), "tag"),
+        (_job(name="x", time="25:00"), "time"),
+        (_job(name="x", target_dir="/etc"), "cannot be written"),
+        (_job(name="x", keep_months=0), "keep_months"),
         (_job(), "already exists"),
     ]:
         with pytest.raises(bg.GroupError, match=message):
@@ -126,7 +126,7 @@ def test_run_backs_up_each_vm_and_applies_the_job_policy_unless_the_vm_has_its_o
             raise RuntimeError("disk full")
         with get_conn() as conn:
             cur = conn.execute(
-                "INSERT INTO backups (vm_name, chemin, statut, cree_le, mode) VALUES (?, '/x', 'succeeded', '2026-01-01', 'cold')",
+                "INSERT INTO backups (vm_name, path, status, created_at, mode) VALUES (?, '/x', 'succeeded', '2026-01-01', 'cold')",
                 (vm,),
             )
             conn.commit()
@@ -136,10 +136,10 @@ def test_run_backs_up_each_vm_and_applies_the_job_policy_unless_the_vm_has_its_o
     monkeypatch.setattr(backups, "_apply_retention", lambda vm, policy: retained.append((vm, policy)))
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, actif, prochaine_execution) VALUES ('d', 'daily', '01:00', '/srv', 3, 1, '2099-01-01')"
+            "INSERT INTO backup_jobs (vm_name, frequency, time, target_dir, retention_count, active, next_run) VALUES ('d', 'daily', '01:00', '/srv', 3, 1, '2099-01-01')"
         )
         conn.commit()
-    job = bg.save_job(_job(garder_semaines=4))
+    job = bg.save_job(_job(keep_weeks=4))
     results = bg.run_job(job)
     assert results == {
         "a": "ok",
@@ -150,7 +150,7 @@ def test_run_backs_up_each_vm_and_applies_the_job_policy_unless_the_vm_has_its_o
     assert [c[1] for c in calls] == ["/srv/bk"] * 4
     assert retained == [("a", {"last": 7, "daily": None, "weekly": 4, "monthly": None})]
     with get_conn() as conn:
-        assert [r["groupe_id"] for r in conn.execute("SELECT groupe_id FROM backups ORDER BY id")] == [
+        assert [r["group_id"] for r in conn.execute("SELECT group_id FROM backups ORDER BY id")] == [
             job["id"],
             job["id"],
         ]
@@ -164,15 +164,15 @@ def test_api_is_admin_only_and_due_jobs_move_to_their_next_run(client, auth_head
     job = r.json()
     assert client.get("/backup-groups", headers=admin).json()[0]["vms"] == ["web"]
     assert client.get("/backup-groups", headers=auth_headers("watcher", "viewer")).status_code == 403
-    assert client.post("/backup-groups", json=_job(nom="bad", cible_dir="/etc"), headers=admin).status_code == 422
+    assert client.post("/backup-groups", json=_job(name="bad", target_dir="/etc"), headers=admin).status_code == 422
 
     ran = []
-    monkeypatch.setattr(bg, "run_job", lambda j, username="scheduler": ran.append(j["nom"]) or {"web": "ok"})
-    now = datetime.fromisoformat(job["prochaine_execution"]) + timedelta(minutes=1)
+    monkeypatch.setattr(bg, "run_job", lambda j, username="scheduler": ran.append(j["name"]) or {"web": "ok"})
+    now = datetime.fromisoformat(job["next_run"]) + timedelta(minutes=1)
     bg.run_due(now)
     after = bg.get_job(job["id"])
-    assert ran == ["nightly"] and after["derniere_execution"] == now.isoformat()
-    assert datetime.fromisoformat(after["prochaine_execution"]) > now
+    assert ran == ["nightly"] and after["last_run"] == now.isoformat()
+    assert datetime.fromisoformat(after["next_run"]) > now
     assert client.delete(f"/backup-groups/{job['id']}", headers=admin).status_code == 200
 
 
@@ -181,7 +181,7 @@ def test_vm_schedule_accepts_gfs_and_refuses_system_targets(client, auth_headers
 
     monkeypatch.setattr(backups_router, "_vm_exists", lambda name: True)
     admin = auth_headers("root", "admin")
-    body = {"frequence": "daily", "heure": "01:00", "retention_count": 3, "garder_semaines": 4, "garder_mois": 6}
+    body = {"frequency": "daily", "time": "01:00", "retention_count": 3, "keep_weeks": 4, "keep_months": 6}
     r = client.put("/vms/web/backup-schedule", json=body, headers=admin)
-    assert r.status_code == 200 and (r.json()["garder_semaines"], r.json()["garder_mois"]) == (4, 6)
-    assert client.put("/vms/web/backup-schedule", json=body | {"cible_dir": "/etc"}, headers=admin).status_code == 422
+    assert r.status_code == 200 and (r.json()["keep_weeks"], r.json()["keep_months"]) == (4, 6)
+    assert client.put("/vms/web/backup-schedule", json=body | {"target_dir": "/etc"}, headers=admin).status_code == 422

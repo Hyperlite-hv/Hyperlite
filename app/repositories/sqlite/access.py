@@ -56,7 +56,7 @@ class SqliteAccessStore:
                 rows = db.execute(
                     "SELECT username FROM group_members WHERE group_id = ? ORDER BY username", (g["id"],)
                 ).fetchall()
-                g["membres"] = [r["username"] for r in rows]
+                g["members"] = [r["username"] for r in rows]
         return groups
 
     def create_group(self, name):

@@ -74,8 +74,8 @@ export async function fetchHostUpdates(refresh = false) {
 export async function fetchAutoUpdates() {
   return realFetch("/host/system/auto-updates");
 }
-export async function setAutoUpdates(actif, heure) {
-  return realFetch("/host/system/auto-updates", { method: "PUT", ...jsonBody({ actif, heure }) });
+export async function setAutoUpdates(active, time) {
+  return realFetch("/host/system/auto-updates", { method: "PUT", ...jsonBody({ active, time }) });
 }
 // The channel Hyperlite updates from on this node: stable (releases) or test (every merge into the test branch).
 export async function fetchUpdateChannel() {
@@ -84,8 +84,8 @@ export async function fetchUpdateChannel() {
 export async function setUpdateChannel(canal) {
   return realFetch("/update/channel", { method: "PUT", ...jsonBody({ canal }) });
 }
-export async function upgradeHostPackages(paquets) {
-  return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ paquets }) });
+export async function upgradeHostPackages(packages) {
+  return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ packages }) });
 }
 // Reboot or power off this node: the host name typed back, running guests refused or shut down first.
 export async function nodePower(payload) {
@@ -108,7 +108,7 @@ export async function setHostTime(payload) {
 }
 // Rename this node: its host name and its /etc/hosts line (administrators). { nom, ancien }.
 export async function renameLocalHost(name) {
-  return realFetch("/host/system/hostname", { method: "PUT", ...jsonBody({ nom: name }) });
+  return realFetch("/host/system/hostname", { method: "PUT", ...jsonBody({ name: name }) });
 }
 export async function fetchHostSyslog() {
   return realFetch("/host/system/syslog");
@@ -172,12 +172,12 @@ function liveFields(l) {
     cpu_modele: l?.cpu_model ?? null,
     cpu_utilisation: l?.cpu_pct ?? null,
     memoire_totale_mo: l?.mem_total_mb ?? null,
-    memoire_utilisee_mo: l?.mem_used_mb ?? null,
+    used_memory_mb: l?.mem_used_mb ?? null,
     noyau: l?.kernel ?? null,
     os: l?.os ?? null,
-    version_hyperviseur: l?.version_hyperviseur ?? null,
-    version_libvirt: l?.version_libvirt ?? null,
-    mesure_le: l?.mesure_le ?? null,
+    hypervisor_version: l?.hypervisor_version ?? null,
+    libvirt_version: l?.libvirt_version ?? null,
+    measured_at: l?.measured_at ?? null,
   };
 }
 
@@ -188,20 +188,20 @@ export async function fetchNodes() {
     // instance", never a real machine name. The real name (d.hyperviseur.nom) is
     // displayed everywhere; only this `id` is used for internal comparisons.
     id: "local",
-    nom: d.hyperviseur.nom,
-    etat: d.hyperviseur.connecte ? "online" : "erreur",
+    name: d.hyperviseur.name,
+    state: d.hyperviseur.connected ? "online" : "error",
     ...liveFields(d.live),
-    memoire_disponible_mo: d.memoire_disponible_mo,
-    stockage_total_go: d.stockage.capacite_go,
-    stockage_utilise_go: d.stockage.capacite_go != null && d.stockage.disponible_go != null
-      ? Math.round((d.stockage.capacite_go - d.stockage.disponible_go) * 100) / 100 : null,
+    available_memory_mb: d.available_memory_mb,
+    stockage_total_go: d.storage.capacity_gb,
+    stockage_utilise_go: d.storage.capacity_gb != null && d.storage.available_gb != null
+      ? Math.round((d.storage.capacity_gb - d.storage.available_gb) * 100) / 100 : null,
     uptime_s: d.live?.uptime_s ?? d.hyperviseur.uptime_s,
     ip: d.live?.address ?? null,
     version: `Hyperlite (${d.hyperviseur.type})`,
     vms_actives: d.vms.actives,
-    vms_arretees: d.vms.arretees,
+    vms_stopped: d.vms.stopped,
     // Why this node changes nothing right now (a cluster node that lost the quorum), or null.
-    lecture_seule: d.lecture_seule ?? null,
+    read_only: d.read_only ?? null,
   };
 
   // Registered remote nodes. They used to be missing here: this function only ever
@@ -217,23 +217,23 @@ export async function fetchNodes() {
       try { s = await fetchRemoteNodeSummary(n.name); } catch { /* node unreachable for now: degrade instead of failing the whole dashboard */ }
       return {
         id: n.name,
-        nom: n.name,
-        etat: s ? (s.connecte ? "online" : "erreur") : (n.statut === "online" ? "online" : "erreur"),
+        name: n.name,
+        state: s ? (s.connected ? "online" : "error") : (n.status === "online" ? "online" : "error"),
         ...liveFields(n.live ?? s?.live),
-        memoire_disponible_mo: null,
-        stockage_total_go: s?.stockage_capacite_go ?? null,
-        stockage_utilise_go: s && s.stockage_capacite_go != null && s.stockage_disponible_go != null
-          ? Math.round((s.stockage_capacite_go - s.stockage_disponible_go) * 100) / 100 : null,
+        available_memory_mb: null,
+        stockage_total_go: s?.storage_capacity_gb ?? null,
+        stockage_utilise_go: s && s.storage_capacity_gb != null && s.storage_available_gb != null
+          ? Math.round((s.storage_capacity_gb - s.storage_available_gb) * 100) / 100 : null,
         uptime_s: (n.live ?? s?.live)?.uptime_s ?? null,
         ip: n.hostname,
         ssh_port: n.ssh_port,
         ssh_user: n.ssh_user,
         version: "Hyperlite (remote)",
         vms_actives: s?.vms_actives ?? 0,
-        vms_arretees: s?.vms_arretees ?? 0,
+        vms_stopped: s?.vms_stopped ?? 0,
         distant: true,
         // A member of this node's cluster: it runs Hyperlite and keeps its VMs' backups (GET /nodes, "membre").
-        membre: Boolean(n.membre),
+        member: Boolean(n.member),
       };
     }));
   } catch { /* GET /nodes unavailable: stay on the local node alone, as before this fix */ }
@@ -249,16 +249,16 @@ export async function fetchNodes() {
 // GET /vms exists.
 function mapVm(v, nodeId) {
   return {
-    nom: v.nom, node: nodeId, type: "vm", etat: v.etat,
-    vcpu: v.vcpu, memoire_mo: v.memoire_mo, memoire_utilisee_mo: null,
-    disque_go: null, disque_utilise_go: null,
-    ip: v.ip, utilisateur_ssh: v.utilisateur_ssh, uuid: v.uuid,
+    name: v.name, node: nodeId, type: "vm", state: v.state,
+    vcpu: v.vcpu, memory_mb: v.memory_mb, used_memory_mb: null,
+    disk_gb: null, disque_utilise_go: null,
+    ip: v.ip, ssh_user: v.ssh_user, uuid: v.uuid,
     os: v.os, uptime_s: v.uptime_s,
     // This mapping whitelists the fields, so a field added on the backend
     // (stockage_zfs, see app/routers/vms.py::_domain_summary) is silently dropped
     // here unless it is listed: VMSnapshotsTab.jsx would always receive `undefined`.
-    stockage_zfs: v.stockage_zfs,
-    stockage_iscsi: v.stockage_iscsi,
+    zfs_storage: v.zfs_storage,
+    iscsi_storage: v.iscsi_storage,
     agent_invite: v.agent_invite,
     firmware: v.firmware,
   };
@@ -276,7 +276,7 @@ export async function fetchVMs() {
   let result = items.map((v) => mapVm(v, v.node || "local"));
 
   // Nodes registered over SSH only (no Hyperlite on them, not members): still read one by one.
-  const others = remotes.filter((n) => !n.membre);
+  const others = remotes.filter((n) => !n.member);
   const lists = await Promise.all(others.map(async (n) => {
     try {
       const vms = await realFetch(`/vms?node=${encodeURIComponent(n.name)}`);
@@ -291,7 +291,7 @@ function mapPool(p, nodeId) {
   // GET /storage never returned a real `type` field (all existing pools really were
   // "dir"), but it would have silently masked the new real field once NFS pools
   // existed on the backend.
-  return { nom: p.nom, node: nodeId, type: p.type, etat: p.etat, capacite_go: p.capacite_go, disponible_go: p.disponible_go, chemin: p.chemin ?? null };
+  return { name: p.name, node: nodeId, type: p.type, state: p.state, capacity_gb: p.capacity_gb, available_gb: p.available_gb, path: p.path ?? null };
 }
 
 export async function fetchStoragePools() {
@@ -314,7 +314,7 @@ export async function fetchStoragePools() {
 
 export async function fetchNetworks() {
   const nets = await realFetch("/networks");
-  return nets.map((n) => ({ nom: n.nom, type: n.type, pont: n.pont, actif: n.actif, reseau: n.reseau, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true }));
+  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true }));
 }
 export async function fetchNetworkDetail(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}`);
@@ -398,11 +398,11 @@ export async function verifyBackup(id, on) {
 }
 // Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
 // then restored here as new VMs.
-export async function scanSiteBackups(chemin) {
-  return realFetch(`/backups/site-recovery/scan?chemin=${encodeURIComponent(chemin)}`);
+export async function scanSiteBackups(path) {
+  return realFetch(`/backups/site-recovery/scan?path=${encodeURIComponent(path)}`);
 }
-export async function startSiteRecovery(elements, reseau) {
-  return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, reseau: reseau || null }) });
+export async function startSiteRecovery(elements, network) {
+  return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, network: network || null }) });
 }
 // Replication to another site (app/core/replication.py): jobs and each VM's last copy.
 export async function fetchReplicationJobs() {
@@ -443,8 +443,8 @@ export async function deleteIso(filename, node = "local") {
 export async function fetchClusterIsos() {
   return realFetch("/isos/cluster");
 }
-export async function copyIso(nom, source, cibles) {
-  return realFetch("/isos/copy", { method: "POST", ...jsonBody({ nom, source, cibles }) });
+export async function copyIso(name, source, targets) {
+  return realFetch("/isos/copy", { method: "POST", ...jsonBody({ name, source, targets }) });
 }
 
 // ---- Kubernetes (k3s) clusters on VMs ----
@@ -662,11 +662,11 @@ export async function fetchUpdateFile(lang = "en") {
 export async function deleteUpdateFile() {
   return realFetch("/update/offline", { method: "DELETE" });
 }
-export async function applyUpdateFile(systeme = true) {
-  return realFetch("/update/offline/apply", { method: "POST", ...jsonBody({ systeme }) });
+export async function applyUpdateFile(system = true) {
+  return realFetch("/update/offline/apply", { method: "POST", ...jsonBody({ system }) });
 }
-export async function applyUpdate(systeme = true) {
-  return realFetch("/update/apply", { method: "POST", ...jsonBody({ systeme }) });
+export async function applyUpdate(system = true) {
+  return realFetch("/update/apply", { method: "POST", ...jsonBody({ system }) });
 }
 
 // ---- Users (real) ----
@@ -704,7 +704,7 @@ export async function startVM(name, node = null) {
 }
 export async function stopVM(name, force = false, node = null, forceAfter = null) {
   const params = new URLSearchParams({ force: String(force) });
-  if (forceAfter) params.set("forcer_apres", String(forceAfter));
+  if (forceAfter) params.set("force_after", String(forceAfter));
   if (node && node !== "local") params.set("node", node);
   return realFetch(`/vms/${encodeURIComponent(name)}/stop?${params}`, { method: "POST" });
 }
@@ -725,7 +725,7 @@ export async function cloneVM(name, newName) {
 // convention as the rest (open_conn(node), fetchVMs...).
 export async function migrateVM(name, targetNode, sourceNode, ignorerVerifications = false) {
   const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
-  return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, ignorer_verifications: ignorerVerifications }) });
+  return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, skip_checks: ignorerVerifications }) });
 }
 // ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode;
 // targetNode null only marks the node.
@@ -892,8 +892,8 @@ export async function fetchVMHardwareOptions(name) {
 export async function setVMDiskOptions(name, dev, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks/${encodeURIComponent(dev)}/options`, { method: "PUT", ...jsonBody(payload) });
 }
-export async function setVMBootOrder(name, ordre) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/boot-order`, { method: "PUT", ...jsonBody({ ordre }) });
+export async function setVMBootOrder(name, position) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/boot-order`, { method: "PUT", ...jsonBody({ position }) });
 }
 export async function setVMBalloon(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}/balloon`, { method: "PUT", ...jsonBody(payload) });
@@ -1059,10 +1059,10 @@ export async function fetchSharedPools() {
   return realFetch("/storage/shared");
 }
 // everywhere: a shared pool is removed from every node that has it, with its definition.
-export async function deleteStoragePool(poolName, node, detacher = false, everywhere = false) {
+export async function deleteStoragePool(poolName, node, detach = false, everywhere = false) {
   const params = new URLSearchParams({ confirm: "true" });
-  if (detacher) params.set("detacher", "true");
-  if (everywhere) params.set("partout", "true");
+  if (detach) params.set("detach", "true");
+  if (everywhere) params.set("everywhere", "true");
   if (node) params.set("node", node);
   return realFetch(`/storage/${encodeURIComponent(poolName)}?${params.toString()}`, { method: "DELETE" });
 }
@@ -1307,35 +1307,35 @@ export async function turnCfsShadowOff() {
 export async function fetchCluster() {
   return realFetch("/cluster");
 }
-export async function createCluster({ nom, adresse }) {
-  return realFetch("/cluster/creer", { method: "POST", ...jsonBody({ nom: nom.trim(), adresse: adresse.trim() }) });
+export async function createCluster({ name, address }) {
+  return realFetch("/cluster/creer", { method: "POST", ...jsonBody({ name: name.trim(), address: address.trim() }) });
 }
 export async function clusterJoinInformation() {
   return realFetch("/cluster/adhesion", { method: "POST" });
 }
-export async function joinCluster({ information, adresse, confirmation }) {
-  return realFetch("/cluster/rejoindre", { method: "POST", ...jsonBody({ information: information.trim(), adresse: adresse.trim(), confirmation: confirmation.trim() }) });
+export async function joinCluster({ information, address, confirmation }) {
+  return realFetch("/cluster/rejoindre", { method: "POST", ...jsonBody({ information: information.trim(), address: address.trim(), confirmation: confirmation.trim() }) });
 }
 // The primary node counts twice in the quorum (null: one vote each).
 export async function setClusterPrimary(name) {
-  return realFetch("/cluster/principal", { method: "POST", ...jsonBody({ nom: name }) });
+  return realFetch("/cluster/principal", { method: "POST", ...jsonBody({ name: name }) });
 }
 export async function removeClusterMember(name) {
-  return realFetch(`/cluster/membres/${encodeURIComponent(name)}/retirer`, { method: "POST", ...jsonBody({ confirmation: name }) });
+  return realFetch(`/cluster/members/${encodeURIComponent(name)}/retirer`, { method: "POST", ...jsonBody({ confirmation: name }) });
 }
 // Rolling update of the cluster (app/core/rolling_update.py).
 export async function fetchClusterUpdatePlan() {
   // Each node reads its repositories: longer than the usual read limit.
   return realFetch("/cluster/update/plan", { signal: AbortSignal.timeout(300000) });
 }
-export async function startClusterUpdate(arreter_bloquees = false) {
-  return realFetch("/cluster/update", { method: "POST", ...jsonBody({ arreter_bloquees }) });
+export async function startClusterUpdate(stop_blocked = false) {
+  return realFetch("/cluster/update", { method: "POST", ...jsonBody({ stop_blocked }) });
 }
 export async function fetchApiDocsAccess() {
-  return realFetch("/api-docs/acces");
+  return realFetch("/api-docs/access");
 }
-export async function setApiDocsAccess(acces) {
-  return realFetch("/api-docs/acces", { method: "PUT", ...jsonBody({ acces }) });
+export async function setApiDocsAccess(access) {
+  return realFetch("/api-docs/access", { method: "PUT", ...jsonBody({ access }) });
 }
 // A single-use link to Swagger (/docs), for an account allowed to open it: { url }.
 export async function openSwagger() {
@@ -1365,7 +1365,7 @@ export async function fetchHostPreflight() {
 // everywhere: a shared storage pool is renamed on every node that has it.
 export async function renameStoragePool(name, newName, node, everywhere = false) {
   const qs = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
-  return realFetch(`/storage/${encodeURIComponent(name)}/rename${qs}`, { method: "POST", ...jsonBody({ new_name: newName, partout: everywhere }) });
+  return realFetch(`/storage/${encodeURIComponent(name)}/rename${qs}`, { method: "POST", ...jsonBody({ new_name: newName, everywhere: everywhere }) });
 }
 export async function renameNetwork(name, newName) {
   return realFetch(`/networks/${encodeURIComponent(name)}/rename`, { method: "POST", ...jsonBody({ new_name: newName }) });

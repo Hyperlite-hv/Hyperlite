@@ -124,10 +124,10 @@ def test_images_are_paired_by_the_target_the_manifest_records(tmp_path):
     (src / backup_integrity.MANIFEST).write_text(
         json.dumps(
             {
-                "fichiers": [
-                    {"nom": "sdb.qcow2", "role": "disque", "cible": "sdb"},
-                    {"nom": "vda.qcow2", "role": "disque", "cible": "vda"},
-                    {"nom": "vm-config.json", "role": "config"},
+                "files": [
+                    {"name": "sdb.qcow2", "role": "disk", "target": "sdb"},
+                    {"name": "vda.qcow2", "role": "disk", "target": "vda"},
+                    {"name": "vm-config.json", "role": "config"},
                 ]
             }
         )
@@ -138,7 +138,7 @@ def test_images_are_paired_by_the_target_the_manifest_records(tmp_path):
 def _backup_row(database, path):
     with database.get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('vm1', ?, 'cold', 'now', 'succeeded')",
+            "INSERT INTO backups (vm_name, path, mode, created_at, status) VALUES ('vm1', ?, 'cold', 'now', 'succeeded')",
             (str(path),),
         )
         conn.commit()
@@ -149,7 +149,7 @@ def test_a_corrupted_backup_is_refused_before_anything_is_written(database, tmp_
     src = tmp_path / "b"
     src.mkdir()
     (src / backup_integrity.MANIFEST).write_text(
-        json.dumps({"fichiers": [{"nom": "vda.qcow2", "role": "disque", "cible": "vda", "taille": 1, "sha256": "x"}]})
+        json.dumps({"files": [{"name": "vda.qcow2", "role": "disk", "target": "vda", "size": 1, "sha256": "x"}]})
     )
     backup_id = _backup_row(database, src)
     with database.get_conn() as conn:

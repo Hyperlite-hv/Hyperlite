@@ -33,7 +33,7 @@ def test_protected_vms(repo):
     assert (store.protected_vm("web")["node"], store.protected_vm("web")["domain_xml"]) == ("n3", "<d4/>")
     assert store.move_protected("web", "n1") and not store.move_protected("ghost", "n1")
     store.record_watch("web", "suspect", "none", "t4")
-    assert store.protected_vm("web")["etat_ha"] == "suspect"
+    assert store.protected_vm("web")["ha_state"] == "suspect"
     assert [v["vm_name"] for v in run(repo.protected())] == ["web"]
     store.unprotect("web")
     assert store.protected() == []
@@ -42,9 +42,9 @@ def test_protected_vms(repo):
 def test_watcher_settings(repo):
     store = repo.sync
     assert run(repo.settings()) == {}
-    store.save_settings({"temoin": "10.0.0.1", "seuil_suspect": "3"})
-    store.save_settings({"seuil_suspect": "4"})
-    assert store.settings() == {"temoin": "10.0.0.1", "seuil_suspect": "4"}
+    store.save_settings({"witness": "10.0.0.1", "suspect_threshold": "3"})
+    store.save_settings({"suspect_threshold": "4"})
+    assert store.settings() == {"witness": "10.0.0.1", "suspect_threshold": "4"}
 
 
 def test_fencing_keeps_the_secret_sealed(repo):

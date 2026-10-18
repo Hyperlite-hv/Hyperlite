@@ -31,7 +31,7 @@ def _write(sql, params=()):
 
 
 # Columns update_k8s_cluster() and update_channel() may set: names are interpolated, values are bound.
-K8S_COLUMNS = frozenset({"statut", "erreur", "task_id", "kubeconfig", "jeton", "adresse", "version"})
+K8S_COLUMNS = frozenset({"status", "error", "task_id", "kubeconfig", "token", "address", "version"})
 CHANNEL_COLUMNS = frozenset({"name", "events", "enabled", "config"})
 
 
@@ -41,7 +41,7 @@ def _nodes_to_db(nodes):
 
 
 def _shared_pool(row):
-    return {**row, "noeuds": json.dumps([self_node.from_db(n) for n in json.loads(row["noeuds"] or "[]")])}
+    return {**row, "nodes": json.dumps([self_node.from_db(n) for n in json.loads(row["nodes"] or "[]")])}
 
 
 class SqliteSettingsStore:
@@ -71,44 +71,44 @@ class SqliteSettingsStore:
 
     def save_shared_pool(self, name, definition, all_nodes, nodes, username, now):
         _write(
-            "INSERT INTO shared_pools (nom, definition, tous_les_noeuds, noeuds, cree_par, cree_le) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(nom) DO UPDATE SET definition = excluded.definition, "
-            "tous_les_noeuds = excluded.tous_les_noeuds, noeuds = excluded.noeuds",
+            "INSERT INTO shared_pools (name, definition, all_nodes, nodes, created_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET definition = excluded.definition, "
+            "all_nodes = excluded.all_nodes, nodes = excluded.nodes",
             (name, definition, all_nodes, _nodes_to_db(nodes), username, now),
         )
 
     def shared_pools(self, every_node_only=False):
         if every_node_only:
-            rows = _rows("SELECT * FROM shared_pools WHERE tous_les_noeuds = 1 ORDER BY nom")
+            rows = _rows("SELECT * FROM shared_pools WHERE all_nodes = 1 ORDER BY name")
         else:
-            rows = _rows("SELECT * FROM shared_pools ORDER BY nom")
+            rows = _rows("SELECT * FROM shared_pools ORDER BY name")
         return [_shared_pool(r) for r in rows]
 
     def shared_pool(self, name):
-        row = _one("SELECT * FROM shared_pools WHERE nom = ?", (name,))
+        row = _one("SELECT * FROM shared_pools WHERE name = ?", (name,))
         return _shared_pool(row) if row else None
 
     def set_shared_pool_nodes(self, name, nodes):
-        _write("UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (_nodes_to_db(nodes), name))
+        _write("UPDATE shared_pools SET nodes = ? WHERE name = ?", (_nodes_to_db(nodes), name))
 
     def rename_shared_pool(self, old, new, definition):
-        _write("UPDATE OR REPLACE shared_pools SET nom = ?, definition = ? WHERE nom = ?", (new, definition, old))
+        _write("UPDATE OR REPLACE shared_pools SET name = ?, definition = ? WHERE name = ?", (new, definition, old))
 
     def delete_shared_pool(self, name):
-        _write("DELETE FROM shared_pools WHERE nom = ?", (name,))
+        _write("DELETE FROM shared_pools WHERE name = ?", (name,))
 
     # ---- Kubernetes clusters ----
 
     def k8s_clusters(self):
-        return _rows("SELECT * FROM k8s_clusters ORDER BY nom")
+        return _rows("SELECT * FROM k8s_clusters ORDER BY name")
 
     def k8s_cluster(self, name):
-        return _one("SELECT * FROM k8s_clusters WHERE nom = ?", (name,))
+        return _one("SELECT * FROM k8s_clusters WHERE name = ?", (name,))
 
     def create_k8s_cluster(self, name, network, server, workers, vcpu, memory_mb, disk_gb, task_id, username, now):
         _write(
-            "INSERT INTO k8s_clusters (nom, reseau, serveur, workers, vcpu, memoire_mo, disque_go, statut, task_id, "
-            "cree_par, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?, ?)",
+            "INSERT INTO k8s_clusters (name, network, server, workers, vcpu, memory_mb, disk_gb, status, task_id, "
+            "created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?, ?)",
             (name, network, server, workers, vcpu, memory_mb, disk_gb, task_id, username, now),
         )
 
@@ -117,16 +117,16 @@ class SqliteSettingsStore:
         if unknown:
             raise ValueError(f"Unknown cluster field(s): {', '.join(sorted(unknown))}")
         cols = ", ".join(f"{k} = ?" for k in fields)
-        _write(f"UPDATE k8s_clusters SET {cols} WHERE nom = ?", (*fields.values(), name))  # noqa: S608
+        _write(f"UPDATE k8s_clusters SET {cols} WHERE name = ?", (*fields.values(), name))  # noqa: S608
 
     def fail_interrupted_k8s_clusters(self, message):
         _write(
-            "UPDATE k8s_clusters SET statut = 'failed', erreur = ? WHERE statut IN ('creating', 'deleting')",
+            "UPDATE k8s_clusters SET status = 'failed', error = ? WHERE status IN ('creating', 'deleting')",
             (message,),
         )
 
     def delete_k8s_cluster(self, name):
-        _write("DELETE FROM k8s_clusters WHERE nom = ?", (name,))
+        _write("DELETE FROM k8s_clusters WHERE name = ?", (name,))
 
     # ---- Notification channels ----
 
@@ -178,24 +178,24 @@ class SqliteSettingsStore:
     # ---- Application settings ----
 
     def app_setting(self, key):
-        row = _one("SELECT valeur FROM app_settings WHERE cle = ?", (key,))
-        return row["valeur"] if row else None
+        row = _one("SELECT value FROM app_settings WHERE key = ?", (key,))
+        return row["value"] if row else None
 
     def set_app_setting(self, key, value):
         _write(
-            "INSERT INTO app_settings (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
 
     # ---- Configuration copies sent to the nodes ----
 
-    def record_config_copy(self, node, at, statut, taille, empreinte, erreur):
+    def record_config_copy(self, node, at, status, size, fingerprint, error):
         _write(
-            "INSERT INTO config_copies (node, copie_le, statut, taille, empreinte, erreur) VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(node) DO UPDATE SET copie_le = excluded.copie_le, statut = excluded.statut, "
-            "taille = COALESCE(excluded.taille, config_copies.taille), "
-            "empreinte = COALESCE(excluded.empreinte, config_copies.empreinte), erreur = excluded.erreur",
-            (node, at, statut, taille, empreinte, erreur),
+            "INSERT INTO config_copies (node, copied_at, status, size, fingerprint, error) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(node) DO UPDATE SET copied_at = excluded.copied_at, status = excluded.status, "
+            "size = COALESCE(excluded.size, config_copies.size), "
+            "fingerprint = COALESCE(excluded.fingerprint, config_copies.fingerprint), error = excluded.error",
+            (node, at, status, size, fingerprint, error),
         )
 
     def config_copies(self):

@@ -86,15 +86,15 @@ function VmHead({ vm, node, tab, setTab }) {
     <div className="nx-oh">
       <span className="nx-otile" aria-hidden="true"><Monitor size={20} /></span>
       <div className="nx-oh-main">
-        <h1>{vm.nom}</h1>
+        <h1>{vm.name}</h1>
         <div className="nx-ometa">
-          <StatePill kind="vm" wire={vm.etat} />
+          <StatePill kind="vm" wire={vm.state} />
           {vm.os && <span>{vm.os}</span>}
           <span className="nx-sep" aria-hidden="true">·</span>
-          <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{node?.nom || vm.node}</button>
+          <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{node?.name || vm.node}</button>
           <span className="nx-sep" aria-hidden="true">·</span>
           <span className="nx-mono" title={vm.ip ? undefined : t("ns.ipHelp")}>{vm.ip || t("vm.ipNone")}</span>
-          {vm.etat === "actif" && vm.uptime_s ? <><span className="nx-sep" aria-hidden="true">·</span><span>{t("vm.since", { d: formatUptimeLong(vm.uptime_s, lang) })}</span></> : null}
+          {vm.state === "active" && vm.uptime_s ? <><span className="nx-sep" aria-hidden="true">·</span><span>{t("vm.since", { d: formatUptimeLong(vm.uptime_s, lang) })}</span></> : null}
         </div>
       </div>
       <VmHeaderActions vm={vm} currentTab={tab} setTab={setTab} />
@@ -110,14 +110,14 @@ function ContainerHead({ ct }) {
     <div className="nx-oh">
       <span className="nx-otile" aria-hidden="true"><Box size={20} /></span>
       <div className="nx-oh-main">
-        <h1>{ct.nom}</h1>
+        <h1>{ct.name}</h1>
         <div className="nx-ometa">
-          <StatePill kind="vm" wire={ct.etat === "actif" ? "actif" : "arrete"} />
+          <StatePill kind="vm" wire={ct.state === "active" ? "active" : "stopped"} />
           <span>{ct.mode === "application" ? `Docker · ${ct.image || ""}` : "LXC"}</span>
           <span className="nx-sep" aria-hidden="true">·</span>
           <span className="nx-mono">{ct.ip || t("ct.noIp")}</span>
           <span className="nx-sep" aria-hidden="true">·</span>
-          <span className="nx-mono">{ct.vcpu} vCPU · {formatSizeMb(ct.memoire_mo, lang)}</span>
+          <span className="nx-mono">{ct.vcpu} vCPU · {formatSizeMb(ct.memory_mb, lang)}</span>
         </div>
       </div>
       <ContainerHeaderActions ct={ct} />
@@ -128,16 +128,16 @@ function ContainerHead({ ct }) {
 function NodeHead({ node, setTab }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
-  const offline = node.etat !== "online";
-  const qemu = formatVersionInt(node.version_hyperviseur);
-  const lv = formatVersionInt(node.version_libvirt);
+  const offline = node.state !== "online";
+  const qemu = formatVersionInt(node.hypervisor_version);
+  const lv = formatVersionInt(node.libvirt_version);
   return (
     <div className="nx-oh">
       <span className="nx-otile" aria-hidden="true"><Server size={20} /></span>
       <div className="nx-oh-main">
-        <h1 style={offline ? { fontStyle: "italic" } : undefined}>{node.nom}</h1>
+        <h1 style={offline ? { fontStyle: "italic" } : undefined}>{node.name}</h1>
         <div className="nx-ometa">
-          <StatePill kind="node" wire={node.etat} />
+          <StatePill kind="node" wire={node.state} />
           <span>{node.id === "local" ? t("node.roleLocal") : t("node.roleMember")}</span>
           {(qemu || lv) && <><span className="nx-sep" aria-hidden="true">·</span><span className="nx-mono">{[qemu && `QEMU ${qemu}`, lv && `libvirt ${lv}`].filter(Boolean).join(" · ")}</span></>}
           {node.uptime_s ? <><span className="nx-sep" aria-hidden="true">·</span><span>{t("node.upSince", { d: formatUptimeLong(node.uptime_s, lang) })}</span></> : null}
@@ -156,12 +156,12 @@ export default function Workspace({ children }) {
   const caps = capabilities(useAuthStore((s) => s.role));
   const failing = useFreshness((s) => s.failing);
   // A cluster node that lost the quorum changes nothing (as on Proxmox): said above every page while it lasts.
-  const readOnly = Boolean(nodes.find((n) => n.id === "local")?.lecture_seule);
+  const readOnly = Boolean(nodes.find((n) => n.id === "local")?.read_only);
   const { containers, containersLoaded } = useFreshness(useShallow((s) => ({ containers: s.containers, containersLoaded: s.containersLoaded })));
 
   const resource = selection.type === "vm" ? findVm(vms, selection.id)
     : selection.type === "node" ? nodes.find((n) => n.id === selection.id)
-    : selection.type === "container" ? containers.find((c) => c.nom === selection.id) : null;
+    : selection.type === "container" ? containers.find((c) => c.name === selection.id) : null;
   const isDc = selection.type === "datacenter";
   const isObj = selection.type === "node" || selection.type === "vm" || selection.type === "container";
   const { tabs: topTabs, top, page: tab } = locate(isObj ? selection.type : "datacenter", activeTab);
@@ -187,9 +187,9 @@ export default function Workspace({ children }) {
   // A VM of another cluster member is backed up by that member, through this node (app/routers/backups.py); the other
   // pages still read this host only, and a node driven over SSH keeps no backups.
   const localOnly = selection.type === "vm" && isRemoteVm(resource) && LOCAL_ONLY_VM_PAGES.has(tab)
-    && !(tab === "backup" && vmNode?.membre);
+    && !(tab === "backup" && vmNode?.member);
   const pageEl = localOnly
-    ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.nom || resource.node })} />
+    ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.name || resource.node })} />
     : Active ? <Active resource={resource} selection={selection} /> : null;
 
   return (
@@ -215,7 +215,7 @@ export default function Workspace({ children }) {
             {selection.type === "vm" ? <><VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} /><PendingChanges vm={resource} tab={tab} /></>
               : selection.type === "container" ? <ContainerHead ct={resource} />
               : <NodeHead node={resource} setTab={setTab} />}
-            <div className="nx-tabs" role="tablist" aria-label={resource.nom} onKeyDown={onTabKeyDown}>
+            <div className="nx-tabs" role="tablist" aria-label={resource.name} onKeyDown={onTabKeyDown}>
               {topTabs.filter((x) => !x.admin || caps.admin || x.id === top.id).map((x) => (
                 <button key={x.id} id={`nx-top-${x.id}`} type="button" role="tab" aria-selected={top.id === x.id} aria-controls="nx-panel" tabIndex={top.id === x.id ? 0 : -1} onClick={() => goTop(x)}>{t(x.label)}</button>
               ))}

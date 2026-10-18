@@ -7,8 +7,8 @@ import type { Route } from "@playwright/test";
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
 const selfSigned = {
-  present: true, source: "auto", certbot: true, precedent: false, sujet: "hv1", emetteur: "CN=hv1", noms: ["hv1", "localhost"],
-  debut: "2026-01-01T00:00:00+00:00", fin: "2036-01-01T00:00:00+00:00", jours_restants: 3380, auto_signe: true, empreinte_sha256: "AA:BB",
+  present: true, source: "auto", certbot: true, precedent: false, subject: "hv1", issuer: "CN=hv1", names: ["hv1", "localhost"],
+  debut: "2026-01-01T00:00:00+00:00", fin: "2036-01-01T00:00:00+00:00", days_left: 3380, self_signed: true, fingerprint_sha256: "AA:BB",
 };
 
 test("certificate: import a PEM pair, and a failed Let's Encrypt request shows certbot's reason", async ({ page }) => {
@@ -21,8 +21,8 @@ test("certificate: import a PEM pair, and a failed Let's Encrypt request shows c
     const path = new URL(r.request().url()).pathname;
     posted.push([path, r.request().postDataJSON()]);
     if (path.endsWith("/acme")) return r.fulfill(json({ detail: "certbot failed:\nTimeout during connect (likely firewall problem)" }, 502));
-    cert = { ...selfSigned, source: "import", auto_signe: false, precedent: true, sujet: "hv1.example.org", emetteur: "CN=Example CA", noms: ["hv1.example.org"], jours_restants: 12 };
-    return r.fulfill(json({ ...cert, redemarrage: true }));
+    cert = { ...selfSigned, source: "import", self_signed: false, precedent: true, subject: "hv1.example.org", issuer: "CN=Example CA", names: ["hv1.example.org"], days_left: 12 };
+    return r.fulfill(json({ ...cert, restart: true }));
   });
 
   await page.goto("/node/local?tab=system");
@@ -53,7 +53,7 @@ test("certificate: import a PEM pair, and a failed Let's Encrypt request shows c
   await expect(page.getByText(/likely firewall problem/)).toBeVisible();
 
   expect(posted).toEqual([
-    ["/host/certificate", { certificat: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----", cle: "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----", chaine: "" }],
-    ["/host/certificate/acme", { domaine: "hv1.example.org", email: "ops@example.org", test: false }],
+    ["/host/certificate", { certificate: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----", key: "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----", chain: "" }],
+    ["/host/certificate/acme", { domain: "hv1.example.org", email: "ops@example.org", test: false }],
   ]);
 });

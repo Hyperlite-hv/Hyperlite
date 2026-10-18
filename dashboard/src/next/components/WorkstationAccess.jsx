@@ -51,14 +51,14 @@ export default function WorkstationAccess({ vm, open, onClose }) {
   useEffect(() => {
     if (!open) return;
     setError(null);
-    Promise.all([fetchWorkstationConfig(), fetchVmAccess(vm.nom)])
+    Promise.all([fetchWorkstationConfig(), fetchVmAccess(vm.name)])
       .then(([c, a]) => { setConfig(c); setAccess(a); })
       .catch((e) => setError(errorMessage(e)));
-  }, [open, vm.nom, vm.etat]);
+  }, [open, vm.name, vm.state]);
 
   const server = window.location.origin;
   const qs = `?server=${encodeURIComponent(server)}`;
-  const vmName = vm.nom;
+  const vmName = vm.name;
   const windowsGuest = /windows/i.test(vm.os || "");
   const ports = config?.tunnel_ports || [];
   const sshTunnel = ports.includes(22);
@@ -76,7 +76,7 @@ export default function WorkstationAccess({ vm, open, onClose }) {
     <SideDrawer open={open} title={t("ws.title")} onClose={onClose}>
       {error && <p className="nx-f-h is-error" role="alert">{error}</p>}
       {!ready && !error && <Loading />}
-      {ready && vm.etat !== "actif" && <div className="nx-bn" data-tone="info" role="status"><span className="nx-bn-t">{t("vc.mustRun")}</span></div>}
+      {ready && vm.state !== "active" && <div className="nx-bn" data-tone="info" role="status"><span className="nx-bn-t">{t("vc.mustRun")}</span></div>}
 
       {ready && direct && (
         <section className="nx-stack" aria-labelledby="ws-direct">

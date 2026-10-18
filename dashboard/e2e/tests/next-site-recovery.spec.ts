@@ -18,8 +18,8 @@ function backup(vm: string, stamp: string, day: string) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "vda.qcow2"), "disk");
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({
-    version: 1, vm, source: "site-a", mode: "cold", cree_le: `2026-10-${day}T03:00:00+00:00`, firmware: "bios",
-    fichiers: [{ nom: "vda.qcow2", role: "disque", cible: "vda", taille: 4, sha256: "x" }],
+    version: 1, vm, source: "site-a", mode: "cold", created_at: `2026-10-${day}T03:00:00+00:00`, firmware: "bios",
+    files: [{ name: "vda.qcow2", role: "disk", target: "vda", size: 4, sha256: "x" }],
   }));
 }
 
@@ -73,8 +73,8 @@ test("the other site's backups are found and the chosen VMs are restored under t
   await expect(dialog).toContainText("e2e-site-db-a");
   await dialog.getByRole("button", { name: "Restore" }).click();
   await expect.poll(() => started).toEqual({
-    elements: [{ chemin: join(share, "e2e-site-db", "20261002T030000Z"), nom: "e2e-site-db-a" }],
-    reseau: null,
+    elements: [{ path: join(share, "e2e-site-db", "20261002T030000Z"), name: "e2e-site-db-a" }],
+    network: null,
   });
 });
 

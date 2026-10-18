@@ -99,7 +99,7 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
         ticket = secrets.token_urlsafe(24)
         CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL, node)
         log_action(user["username"], "create_console_ticket", name, "success")
-        return {"ticket": ticket, "expire_dans_s": CONSOLE_TICKET_TTL}
+        return {"ticket": ticket, "expires_in_s": CONSOLE_TICKET_TTL}
     finally:
         conn.close()
 
@@ -222,7 +222,7 @@ def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depe
         ticket = secrets.token_urlsafe(24)
         TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, node)
         log_action(user["username"], "create_terminal_ticket", name, "success")
-        return {"ticket": ticket, "utilisateur": ssh_user, "expire_dans_s": TERMINAL_TICKET_TTL}
+        return {"ticket": ticket, "user": ssh_user, "expires_in_s": TERMINAL_TICKET_TTL}
     finally:
         conn.close()
 

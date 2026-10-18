@@ -44,12 +44,12 @@ async def live(name):
     return await registry.nodes().live(name)
 
 
-async def statut(node_label):
+async def status(node_label):
     """A node's last known state; the local host, which runs Hyperlite, is online by definition."""
     if node_label == LOCAL:
         return ONLINE
     node = await registry.nodes().get(node_label)
-    return node.status.statut if node else UNKNOWN
+    return node.status.status if node else UNKNOWN
 
 
 async def remove(name, username):

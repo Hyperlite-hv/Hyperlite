@@ -158,8 +158,8 @@ def test_change_my_password_needs_the_2fa_code_when_enabled(client, make_user, d
     with database.get_conn() as conn:
         conn.execute("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE username = 'iris'", (secret,))
         conn.commit()
-    pre = _login(client, "iris", OLD).json()["pre_auth_token"]
-    token = client.post("/auth/login/2fa", json={"pre_auth_token": pre, "code": pyotp.TOTP(secret).now()}).json()[
+    pre = _login(client, "iris", OLD).json()["preauth_token"]
+    token = client.post("/auth/login/2fa", json={"preauth_token": pre, "code": pyotp.TOTP(secret).now()}).json()[
         "access_token"
     ]
     session = _bearer(token)

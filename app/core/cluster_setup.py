@@ -160,12 +160,12 @@ def render(conf):
     """corosync.conf for the shared configuration: knet, encrypted and authenticated with the cluster's key."""
     nodes = "".join(
         "  node {\n"
-        f"    name: {m['nom']}\n"
+        f"    name: {m['name']}\n"
         f"    nodeid: {int(m['nodeid'])}\n"
-        f"    quorum_votes: {int(m.get('voix', 1))}\n"
-        f"    ring0_addr: {m['adresse']}\n"
+        f"    quorum_votes: {int(m.get('votes', 1))}\n"
+        f"    ring0_addr: {m['address']}\n"
         "  }\n"
-        for m in sorted(conf["membres"], key=lambda m: int(m["nodeid"]))
+        for m in sorted(conf["members"], key=lambda m: int(m["nodeid"]))
     )
     return (
         "# Written by Hyperlite from the cluster's shared configuration: change it from the dashboard.\n"
@@ -186,27 +186,27 @@ def render(conf):
 def _check_conf(conf):
     """A configuration from the tree or from another node, checked before anything is written from it."""
     try:
-        checked = {"cluster": _cluster_name(conf["cluster"]), "version": int(conf["version"]), "membres": []}
-        for m in conf["membres"]:
-            votes = int(m.get("voix", 1))  # a configuration from before the primary node had none: one each
+        checked = {"cluster": _cluster_name(conf["cluster"]), "version": int(conf["version"]), "members": []}
+        for m in conf["members"]:
+            votes = int(m.get("votes", 1))  # a configuration from before the primary node had none: one each
             if votes not in (1, PRIMARY_VOTES):
                 raise ValueError(votes)
-            checked["membres"].append(
+            checked["members"].append(
                 {
-                    "nom": _node_name(m["nom"]),
+                    "name": _node_name(m["name"]),
                     "nodeid": int(m["nodeid"]),
-                    "adresse": _address(m["adresse"]),
-                    "voix": votes,
+                    "address": _address(m["address"]),
+                    "votes": votes,
                 }
             )
     except (KeyError, TypeError, ValueError):
         raise ClusterError("The cluster's configuration is not valid") from None
-    if not checked["membres"] or not 0 < checked["version"] < 2**31:
+    if not checked["members"] or not 0 < checked["version"] < 2**31:
         raise ClusterError("The cluster's configuration is not valid")
-    if sum(m["voix"] == PRIMARY_VOTES for m in checked["membres"]) > 1:
+    if sum(m["votes"] == PRIMARY_VOTES for m in checked["members"]) > 1:
         raise ClusterError("The cluster's configuration is not valid")
-    ids = [m["nodeid"] for m in checked["membres"]]
-    if len(set(ids)) != len(ids) or len({m["nom"] for m in checked["membres"]}) != len(ids):
+    ids = [m["nodeid"] for m in checked["members"]]
+    if len(set(ids)) != len(ids) or len({m["name"] for m in checked["members"]}) != len(ids):
         raise ClusterError("The cluster's configuration is not valid")
     return checked
 
@@ -237,25 +237,31 @@ def state():
     from app.core import cluster_lead
 
     mode = cluster_lead.mode()
-    out = {"corosync_installe": installed(), "en_cluster": mode == "cluster", "nom": None, "membres": [], "noeud": None}
+    out = {
+        "corosync_installed": installed(),
+        "in_cluster": mode == "cluster",
+        "name": None,
+        "members": [],
+        "node": None,
+    }
     with contextlib.suppress(ValueError):  # an invalid HYPERLITE_NODE_NAME: the page still opens
-        out["noeud"] = self_node.name()
+        out["node"] = self_node.name()
     if mode != "cluster":
         return out
     try:
         conf = shared_conf()
         status = _client().status()
     except ClusterError:
-        out["erreur"] = "The cluster's configuration in hyperlite-cfs is not valid"
+        out["error"] = "The cluster's configuration in hyperlite-cfs is not valid"
         return out
     except (CfsError, OSError) as e:
         logger.warning("Cluster state unknown: %s", e)
-        out["erreur"] = "hyperlite-cfs does not answer"
+        out["error"] = "hyperlite-cfs does not answer"
         return out
     out["quorum"] = status.quorate
     if conf:
-        out["nom"] = conf["cluster"]
-        out["membres"] = conf["membres"]
+        out["name"] = conf["cluster"]
+        out["members"] = conf["members"]
     return out
 
 
@@ -317,7 +323,7 @@ def create(name, address, username):
     address = _address(address, local=True)
     _preflight()
     me = self_node.name()
-    conf = {"cluster": name, "version": 1, "membres": [{"nom": me, "nodeid": 1, "adresse": address}]}
+    conf = {"cluster": name, "version": 1, "members": [{"name": me, "nodeid": 1, "address": address}]}
     key = secrets.token_bytes(256)
 
     _backup(COROSYNC_CONF)
@@ -364,7 +370,7 @@ def join_information():
     if not conf:
         raise ClusterError("This node is not in a cluster")
     me = self_node.name()
-    member = next((m for m in conf["membres"] if m["nom"] == me), None)
+    member = next((m for m in conf["members"] if m["name"] == me), None)
     if not member:
         raise ClusterError("This node is not listed among the cluster's members")
     ticket = secrets.token_urlsafe(32)
@@ -373,9 +379,9 @@ def join_information():
     _settings().set_app_setting(TICKET_SETTING, json.dumps(stored))
     info = {
         "cluster": conf["cluster"],
-        "adresse": member["adresse"],
+        "address": member["address"],
         "port": PORT,
-        "empreinte": _certificate_fingerprint(),
+        "fingerprint": _certificate_fingerprint(),
         "ticket": ticket,
     }
     return {
@@ -440,14 +446,14 @@ def accept_member(ticket, name, address, ssh_key):
         conf = shared_conf()
         if not conf:
             raise ClusterError("This node is not in a cluster")
-        if any(m["nom"] == name for m in conf["membres"]):
+        if any(m["name"] == name for m in conf["members"]):
             raise ClusterError(f"A member of the cluster is already named {name}")
-        if any(m["adresse"] == address for m in conf["membres"]):
+        if any(m["address"] == address for m in conf["members"]):
             raise ClusterError(f"A member of the cluster already uses {address}")
         keys = _cluster_keys()
         corosync_key = client.get(COROSYNC_KEY_ENTRY).data.decode()
-        conf["membres"].append(
-            {"nom": name, "nodeid": max(m["nodeid"] for m in conf["membres"]) + 1, "adresse": address}
+        conf["members"].append(
+            {"name": name, "nodeid": max(m["nodeid"] for m in conf["members"]) + 1, "address": address}
         )
         conf["version"] += 1
         ssh_entry = f"{SSH_DIR}/{shadow.component(name)}"
@@ -461,7 +467,7 @@ def accept_member(ticket, name, address, ssh_key):
             with contextlib.suppress(Exception):
                 SqliteNodeStore().delete(name)
             raise
-        answer = {"configuration": conf, "cle_corosync": corosync_key, "cles": keys, "cles_ssh": _member_keys(client)}
+        answer = {"configuration": conf, "corosync_key": corosync_key, "keys": keys, "ssh_keys": _member_keys(client)}
         sync()  # last: this node's Corosync knows the new member before it calls, and may lose the quorum until it does
     log_action("system", "cluster_join", name, "success", f"{name} ({address}) joined {conf['cluster']}")
     return answer
@@ -487,14 +493,14 @@ def _decode_information(text):
         info = json.loads(base64.urlsafe_b64decode(str(text).strip().encode() + b"==="))
         checked = {
             "cluster": _cluster_name(info["cluster"]),
-            "adresse": _address(info["adresse"]),
+            "address": _address(info["address"]),
             "port": int(info["port"]),
-            "empreinte": str(info["empreinte"]).lower(),
+            "fingerprint": str(info["fingerprint"]).lower(),
             "ticket": str(info["ticket"]),
         }
     except (ValueError, KeyError, TypeError):
         raise ClusterError("The join information is not valid: copy it again from a member of the cluster") from None
-    if not 0 < checked["port"] < 65536 or not FINGERPRINT_RE.match(checked["empreinte"]):
+    if not 0 < checked["port"] < 65536 or not FINGERPRINT_RE.match(checked["fingerprint"]):
         raise ClusterError("The join information is not valid: copy it again from a member of the cluster")
     if not TICKET_RE.match(checked["ticket"]):
         raise ClusterError("The join information is not valid: copy it again from a member of the cluster")
@@ -502,24 +508,24 @@ def _decode_information(text):
 
 
 def _call_member(info, body):
-    """POST to the member's /cluster/membres over HTTPS, trusting only the certificate of the join information."""
+    """POST to the member's /cluster/members over HTTPS, trusting only the certificate of the join information."""
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # the certificate is checked against the fingerprint below, before any data
-    conn = http.client.HTTPSConnection(info["adresse"], info["port"], timeout=120, context=context)
+    conn = http.client.HTTPSConnection(info["address"], info["port"], timeout=120, context=context)
     try:
         conn.connect()
         der = conn.sock.getpeercert(binary_form=True)
-        if not hmac.compare_digest(hashlib.sha256(der).hexdigest(), info["empreinte"]):
+        if not hmac.compare_digest(hashlib.sha256(der).hexdigest(), info["fingerprint"]):
             raise ClusterError(
                 "The member's certificate does not match the join information: copy it again from the member"
             )
-        conn.request("POST", "/cluster/membres", json.dumps(body), {"Content-Type": "application/json"})
+        conn.request("POST", "/cluster/members", json.dumps(body), {"Content-Type": "application/json"})
         response = conn.getresponse()
         data = response.read(1_000_000)
     except (OSError, http.client.HTTPException) as e:
-        logger.warning("Joining through %s failed: %s", info["adresse"], e)
-        raise ClusterError(f"The member {info['adresse']} cannot be reached on port {info['port']}") from None
+        logger.warning("Joining through %s failed: %s", info["address"], e)
+        raise ClusterError(f"The member {info['address']} cannot be reached on port {info['port']}") from None
     finally:
         conn.close()
     try:
@@ -620,20 +626,20 @@ def join(information, address, confirmation, username):
     _preflight()
     me = self_node.name()
     answer = _call_member(
-        info, {"ticket": info["ticket"], "nom": me, "adresse": address, "cle_ssh": cluster.get_cluster_pubkey()}
+        info, {"ticket": info["ticket"], "name": me, "address": address, "ssh_key": cluster.get_cluster_pubkey()}
     )
     # The member lists this node from now on: when this node gives up, the member must take it out again.
-    take_out = f"{info['adresse']} already lists this node: remove {me} there (Cluster card) before joining again"
+    take_out = f"{info['address']} already lists this node: remove {me} there (Cluster card) before joining again"
     try:
         conf = _check_conf(answer["configuration"])
-        key = base64.b64decode(answer["cle_corosync"], validate=True)
-        member_keys = answer.get("cles_ssh") or {}
-        keys = _check_env_keys(answer["cles"])
+        key = base64.b64decode(answer["corosync_key"], validate=True)
+        member_keys = answer.get("ssh_keys") or {}
+        keys = _check_env_keys(answer["keys"])
     except ClusterError as e:
         raise ClusterError(f"{e}. {take_out}") from None
     except (KeyError, TypeError, ValueError, AttributeError):
         raise ClusterError(f"The member answered something unexpected. {take_out}") from None
-    if not any(m["nom"] == me and m["adresse"] == address for m in conf["membres"]) or not 128 <= len(key) <= 4096:
+    if not any(m["name"] == me and m["address"] == address for m in conf["members"]) or not 128 <= len(key) <= 4096:
         raise ClusterError("The member answered something unexpected")
 
     # From here on, this node's configuration gives way to the cluster's. Everything changed is saved first: when
@@ -670,17 +676,17 @@ def join(information, address, confirmation, username):
         raise ClusterError(f"{reason}. This node is back as it was. {take_out}") from None
     log_action(username, "cluster_join", conf["cluster"], "success", f"{me} ({address})")
     _restart_service()
-    return {"cluster": conf["cluster"], "redemarrage": True}
+    return {"cluster": conf["cluster"], "restart": True}
 
 
 def finish_join(db):
     """Run by init_db: after a join, nothing this node had before goes out to the cluster, and the cluster's tree is
     applied from its start (app/repositories/cfs/inbound.py)."""
-    row = db.execute("SELECT valeur FROM app_settings WHERE cle = ?", (JOIN_SETTING,)).fetchone()
+    row = db.execute("SELECT value FROM app_settings WHERE key = ?", (JOIN_SETTING,)).fetchone()
     if not row or row[0] != "1":
         return
     db.execute("DELETE FROM cfs_outbox")
-    db.execute("DELETE FROM app_settings WHERE cle IN (?, ?)", (JOIN_SETTING, "cfs_applied_version"))
+    db.execute("DELETE FROM app_settings WHERE key IN (?, ?)", (JOIN_SETTING, "cfs_applied_version"))
     logger.info("Joined a cluster: this node's configuration is replaced by the cluster's")
 
 
@@ -701,9 +707,9 @@ def remove_member(name, confirmation, username):
     with _members_lock:
         client = _client()
         conf = shared_conf()
-        if not conf or not any(m["nom"] == name for m in conf["membres"]):
+        if not conf or not any(m["name"] == name for m in conf["members"]):
             raise ClusterError(f"{name} is not a member of the cluster")
-        conf["membres"] = [m for m in conf["membres"] if m["nom"] != name]
+        conf["members"] = [m for m in conf["members"] if m["name"] != name]
         conf["version"] += 1
         client.put(CONF_PATH, json.dumps(conf).encode())
         with contextlib.suppress(NotFound):
@@ -726,10 +732,10 @@ def set_primary(name, username):
         conf = shared_conf()
         if not conf:
             raise ClusterError("This node is not in a cluster")
-        if name is not None and not any(m["nom"] == name for m in conf["membres"]):
+        if name is not None and not any(m["name"] == name for m in conf["members"]):
             raise ClusterError(f"{name} is not a member of the cluster")
-        for m in conf["membres"]:
-            m["voix"] = PRIMARY_VOTES if m["nom"] == name else 1
+        for m in conf["members"]:
+            m["votes"] = PRIMARY_VOTES if m["name"] == name else 1
         conf["version"] += 1
         client.put(CONF_PATH, json.dumps(conf).encode())
         sync()

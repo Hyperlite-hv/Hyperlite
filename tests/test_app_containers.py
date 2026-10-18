@@ -288,8 +288,8 @@ def test_an_image_runs_its_own_process_with_a_fixed_address(api, client, auth_he
         ({"name": "web", "image": "nginx:latest", "network": "br"}, "NAT or isolated"),
         ({"name": "web", "image": "nginx:latest", "network": "ghost"}, "not found"),
         ({"name": "web", "image": "nginx:latest", "network": "lan", "env": {"1X": "y"}}, "Environment variable"),
-        ({"name": "web", "mode": "systeme", "network": "lan", "command": ["x"]}, "application containers only"),
-        ({"name": "web", "mode": "systeme", "network": "lan", "username": "demo"}, "password"),
+        ({"name": "web", "mode": "system", "network": "lan", "command": ["x"]}, "application containers only"),
+        ({"name": "web", "mode": "system", "network": "lan", "username": "demo"}, "password"),
     ],
 )
 def test_requests_are_refused_before_any_download(api, client, auth_headers, payload, detail):
@@ -309,7 +309,7 @@ def test_a_system_container_from_an_image_is_still_available(api, client, auth_h
         json={
             "name": "box",
             "image": "alpine:3.20",
-            "mode": "systeme",
+            "mode": "system",
             "network": "lan",
             "username": "demo",
             "password": "long-enough",
@@ -317,6 +317,6 @@ def test_a_system_container_from_an_image_is_still_available(api, client, auth_h
         headers=auth_headers("admin"),
     )
     assert r.status_code == 201, r.text
-    assert r.json()["mode"] == "systeme"
+    assert r.json()["mode"] == "system"
     assert api["pulls"] == [("box", "alpine:3.20", True)]
     assert ET.fromstring(api["conn"].domains["box"].xml).findtext("os/init") == "/sbin/init"

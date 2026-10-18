@@ -19,13 +19,13 @@ function NodePowerDialog({ node, action, onClose }) {
   const first = useRef(null);
   const opener = useRef(typeof document !== "undefined" ? document.activeElement : null);
   useEffect(() => { first.current?.focus(); const el = opener.current; return () => el?.focus?.(); }, []);
-  useEffect(() => { fetchHealth().then((h) => setHostname(h.hostname || node.nom)).catch(() => setHostname(node.nom)); }, [node.nom]);
-  const running = vms.filter((v) => v.node === node.id && v.etat === "actif").map((v) => v.nom);
+  useEffect(() => { fetchHealth().then((h) => setHostname(h.hostname || node.name)).catch(() => setHostname(node.name)); }, [node.name]);
+  const running = vms.filter((v) => v.node === node.id && v.state === "active").map((v) => v.name);
 
   async function go() {
     setBusy(true);
     try {
-      await nodePower({ action, confirmation: typed.trim(), arreter_invites: stopGuests });
+      await nodePower({ action, confirmation: typed.trim(), stop_guests: stopGuests });
       pushToast({ kind: "success", title: t(`np.${action}.started`), message: t(stopGuests ? "np.afterGuests" : "np.soon") });
       onClose();
       navigateTo("node", node.id, "tasks");
@@ -37,7 +37,7 @@ function NodePowerDialog({ node, action, onClose }) {
   return (
     <div className="nx-scrim" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="nx-dialog" role="alertdialog" aria-modal="true" aria-labelledby="np-title" aria-describedby="np-help" onKeyDown={(e) => { if (e.key === "Escape" && !busy) { e.stopPropagation(); onClose(); } }}>
-        <h2 id="np-title">{t(`np.${action}.title`, { name: node.nom })}</h2>
+        <h2 id="np-title">{t(`np.${action}.title`, { name: node.name })}</h2>
         <p id="np-help" className="nx-muted" style={{ margin: 0 }}>{t(`np.${action}.help`)}</p>
         {running.length > 0 && (
           <div className="nx-notice nx-notice--warning" role="status">

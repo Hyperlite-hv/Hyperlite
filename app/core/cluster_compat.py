@@ -4,7 +4,7 @@ Answers, BEFORE acting, "can this VM migrate to this node?" and "are these two
 nodes compatible?", with actionable messages instead of an opaque libvirt
 error in the middle of a migration.
 
-Each check returns {id, statut, message, action?} with a status of
+Each check returns {id, status, message, action?} with a status of
 ok / warning / blocking (the same shape as app/core/preflight.py, whose
 summarize() is reused). A check that cannot run never raises: it becomes a
 "check unavailable" `warning`, a controlled degradation that is never a false
@@ -20,8 +20,8 @@ import libvirt
 from app.core.preflight import BLOCKING, OK, WARNING, summarize
 
 
-def _c(id_, statut, message, action=None):
-    d = {"id": id_, "statut": statut, "message": message}
+def _c(id_, status, message, action=None):
+    d = {"id": id_, "status": status, "message": message}
     if action:
         d["action"] = action
     return d
@@ -137,7 +137,7 @@ def check_pair(src, dst):
 def _unknown_model(dst, cpu_xml):
     """The CPU model of `cpu_xml` when the destination does not know it, else None. Asked of the destination (the
     models it knows), never read from an error message: libvirtd writes those in the server's language ("Modèle de
-    CPU inconnu" on a French one), so matching the English text missed the case."""
+    CPU unknown" on a French one), so matching the English text missed the case."""
     root = ET.fromstring(cpu_xml)
     model = root.findtext("model")
     if not model:
@@ -231,10 +231,10 @@ def check_vm_migration(src, dst, domain):
 
     def state():
         if domain.isActive():
-            return [_c("etat_vm", OK, "VM is running (live migration is possible)")]
+            return [_c("vm_state", OK, "VM is running (live migration is possible)")]
         return [
             _c(
-                "etat_vm",
+                "vm_state",
                 BLOCKING,
                 "VM is stopped: live migration requires a running VM",
                 action="start the VM, or use disk export/import",
@@ -245,8 +245,8 @@ def check_vm_migration(src, dst, domain):
         try:
             dst.lookupByName(name)
         except libvirt.libvirtError:
-            return [_c("nom_libre", OK, f"No VM named '{name}' on the destination")]
-        return [_c("nom_libre", BLOCKING, f"A VM named '{name}' already exists on the destination")]
+            return [_c("name_available", OK, f"No VM named '{name}' on the destination")]
+        return [_c("name_available", BLOCKING, f"A VM named '{name}' already exists on the destination")]
 
     def machine():
         os_type = xml.find("os/type")
@@ -313,7 +313,7 @@ def check_vm_migration(src, dst, domain):
                 except libvirt.libvirtError:
                     out.append(
                         _c(
-                            f"reseau:{net}",
+                            f"network:{net}",
                             BLOCKING,
                             f"Network '{net}' is missing on the destination",
                             action=f"create a network '{net}' on the destination",
@@ -322,7 +322,7 @@ def check_vm_migration(src, dst, domain):
                     continue
                 out.append(
                     _c(
-                        f"reseau:{net}",
+                        f"network:{net}",
                         OK,
                         f"Network '{net}' exists on the destination"
                         + ("" if n.isActive() else " (inactive: started automatically)"),
@@ -331,13 +331,13 @@ def check_vm_migration(src, dst, domain):
             elif iface.get("type") == "bridge":
                 out.append(
                     _c(
-                        f"pont:{src_el.get('bridge')}",
+                        f"bridge:{src_el.get('bridge')}",
                         WARNING,
                         f"Bridge '{src_el.get('bridge')}': its existence on the destination cannot be verified remotely",
                         action="check that this bridge exists on the destination",
                     )
                 )
-        return out or [_c("reseau", OK, "No network interface to check")]
+        return out or [_c("network", OK, "No network interface to check")]
 
     def disks():
         out = []
@@ -351,7 +351,7 @@ def check_vm_migration(src, dst, domain):
             if disk.get("type") == "block":
                 out.append(
                     _c(
-                        f"disque:{target}",
+                        f"disk:{target}",
                         BLOCKING,
                         f"Disk {target} is on a block device (ZFS zvol): live migration is not supported by Hyperlite",
                         action="stop the VM and use export/import, or file-based shared storage",
@@ -373,15 +373,15 @@ def check_vm_migration(src, dst, domain):
                 # the middle of the migration ("Cannot access backing file").
                 out.append(
                     _c(
-                        f"disque:{target}",
+                        f"disk:{target}",
                         BLOCKING,
-                        f"Disk {target} is on shared storage but is based on {local_base}, which only this node has",
+                        f"Disk {target} is on shared storage purpose is based on {local_base}, which only this node has",
                         action="copy the base image to the same path on the destination, or merge it into the disk "
                         "(virsh blockpull)",
                     )
                 )
             elif is_shared:
-                out.append(_c(f"disque:{target}", OK, f"Disk {target} is on shared storage (no copy)"))
+                out.append(_c(f"disk:{target}", OK, f"Disk {target} is on shared storage (no copy)"))
             else:
                 try:
                     size = domain.blockInfo(target, 0)[0]
@@ -389,7 +389,7 @@ def check_vm_migration(src, dst, domain):
                     size = 0
                 to_copy_bytes += size
                 out.append(
-                    _c(f"disque:{target}", OK, f"Disk {target} is copied over the network ({size / 1024**3:.1f} GB)")
+                    _c(f"disk:{target}", OK, f"Disk {target} is copied over the network ({size / 1024**3:.1f} GB)")
                 )
         if to_copy_bytes:
             try:
@@ -401,7 +401,7 @@ def check_vm_migration(src, dst, domain):
                 # only its current state.
                 out.append(
                     _c(
-                        "instantanes",
+                        "snapshots",
                         BLOCKING,
                         f"The VM has {snapshots} snapshot(s) and its disks would be copied: the copy carries only the "
                         "current state, the snapshots would be lost",
@@ -413,15 +413,15 @@ def check_vm_migration(src, dst, domain):
             if avail < to_copy_bytes:
                 out.append(
                     _c(
-                        "espace_disque",
+                        "disk_space",
                         BLOCKING,
                         f"Not enough space on the destination: {avail / 1024**3:.1f} GB free, {to_copy_bytes / 1024**3:.1f} GB to copy",
                         action="free some space or use shared storage",
                     )
                 )
             else:
-                out.append(_c("espace_disque", OK, f"Enough space on the destination ({avail / 1024**3:.1f} GB free)"))
-        return out or [_c("disques", OK, "No disk to check")]
+                out.append(_c("disk_space", OK, f"Enough space on the destination ({avail / 1024**3:.1f} GB free)"))
+        return out or [_c("disks", OK, "No disk to check")]
 
     def memory():
         need_kib = domain.info()[2]
@@ -430,7 +430,7 @@ def check_vm_migration(src, dst, domain):
         if avail_kib < need_kib:
             return [
                 _c(
-                    "memoire",
+                    "memory",
                     BLOCKING,
                     f"Not enough memory on the destination: {avail_kib // 1024} MB available, VM needs {need_kib // 1024} MB",
                 )
@@ -438,39 +438,39 @@ def check_vm_migration(src, dst, domain):
         if avail_kib < need_kib * 1.2:
             return [
                 _c(
-                    "memoire",
+                    "memory",
                     WARNING,
                     f"Little memory headroom on the destination: {avail_kib // 1024} MB available for {need_kib // 1024} MB",
                 )
             ]
-        return [_c("memoire", OK, f"Enough memory on the destination ({avail_kib // 1024} MB available)")]
+        return [_c("memory", OK, f"Enough memory on the destination ({avail_kib // 1024} MB available)")]
 
     def hostdev():
         if xml.findall("devices/hostdev"):
             return [
                 _c(
-                    "peripheriques",
+                    "devices",
                     BLOCKING,
                     "Passthrough device(s) (hostdev) attached: migration is impossible",
                     action="detach the passthrough devices",
                 )
             ]
-        return [_c("peripheriques", OK, "No passthrough device")]
+        return [_c("devices", OK, "No passthrough device")]
 
     for id_, fn in (
-        ("etat_vm", state),
-        ("nom_libre", exists),
+        ("vm_state", state),
+        ("name_available", exists),
         ("machine", machine),
         ("cpu_vm", cpu_vm),
         ("firmware", firmware),
-        ("reseaux", networks),
-        ("disques", disks),
-        ("memoire", memory),
-        ("peripheriques", hostdev),
+        ("networks", networks),
+        ("disks", disks),
+        ("memory", memory),
+        ("devices", hostdev),
     ):
         checks += _safe(id_, fn)
     return checks
 
 
 def report(checks):
-    return {"resume": summarize(checks), "controles": checks}
+    return {"resume": summarize(checks), "checks": checks}

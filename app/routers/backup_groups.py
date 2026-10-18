@@ -14,18 +14,18 @@ router = APIRouter(prefix="/backup-groups", tags=["backups"])
 
 
 class GroupJob(BaseModel):
-    nom: str
+    name: str
     selection: str  # "all" | "tag" | "pool"
-    valeur: str | None = None
-    exclues: list[str] = []
-    frequence: str
-    heure: str
-    cible_dir: str | None = None
+    value: str | None = None
+    excluded: list[str] = []
+    frequency: str
+    time: str
+    target_dir: str | None = None
     retention_count: int = 7
-    garder_jours: int | None = None
-    garder_semaines: int | None = None
-    garder_mois: int | None = None
-    actif: bool = True
+    keep_days: int | None = None
+    keep_weeks: int | None = None
+    keep_months: int | None = None
+    active: bool = True
 
 
 @router.get("")
@@ -40,7 +40,7 @@ def create_group_job(payload: GroupJob, user: dict = Depends(require_role("admin
     except backup_groups.GroupError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     log_action(
-        user["username"], "create_backup_group", job["nom"], "success", f"{job['selection']} {job['valeur'] or ''}"
+        user["username"], "create_backup_group", job["name"], "success", f"{job['selection']} {job['value'] or ''}"
     )
     return job
 
@@ -53,7 +53,7 @@ def update_group_job(job_id: int, payload: GroupJob, user: dict = Depends(requir
         job = backup_groups.save_job(payload.model_dump(), job_id)
     except backup_groups.GroupError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "update_backup_group", job["nom"], "success")
+    log_action(user["username"], "update_backup_group", job["name"], "success")
     return job
 
 
@@ -83,7 +83,7 @@ def run_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
         log_action(
             user["username"],
             "backup_group",
-            job["nom"],
+            job["name"],
             "failed" if failed else "success",
             "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VMs",
         )

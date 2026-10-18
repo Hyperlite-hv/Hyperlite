@@ -8,10 +8,10 @@ const json = (body: unknown, status = 200) => ({ status, contentType: "applicati
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
 
 test("network: edit subnet and DHCP, restart, reserve an address from a lease and remove it", async ({ page }) => {
-  let ipam = { modifiable: true, mode: "nat", adresse: "10.9.0.1", masque: "255.255.255.0", dhcp: { debut: "10.9.0.100", fin: "10.9.0.200" }, reservations: [] as Array<{ mac: string; ip: string; nom: string | null }> };
+  let ipam = { modifiable: true, mode: "nat", address: "10.9.0.1", masque: "255.255.255.0", dhcp: { debut: "10.9.0.100", fin: "10.9.0.200" }, reservations: [] as Array<{ mac: string; ip: string; name: string | null }> };
   let pending = false;
   const calls: Array<[string, string, unknown]> = [];
-  const summary = () => ({ nom: NAME, uuid: "u", actif: true, autostart: true, pont: "virbr9", macvtap: false, type: ipam.mode, reseau: { adresse: ipam.adresse, masque: ipam.masque }, dhcp: Boolean(ipam.dhcp), vms: 2 });
+  const summary = () => ({ name: NAME, uuid: "u", active: true, autostart: true, bridge: "virbr9", macvtap: false, type: ipam.mode, network: { address: ipam.address, masque: ipam.masque }, dhcp: Boolean(ipam.dhcp), vms: 2 });
   await uiLogin(page);
   await page.route(/\/networks$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([summary()])) : r.fallback()));
   await page.route(new RegExp(`/networks/${NAME}(/.*)?(\\?.*)?$`), (r) => {
@@ -24,12 +24,12 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
     if (method === "PATCH") {
       const body = r.request().postDataJSON();
       pending = body.masque !== ipam.masque;
-      ipam = { ...ipam, mode: body.mode, adresse: body.adresse, masque: body.masque, dhcp: body.dhcp };
-      return r.fulfill(json({ ...summary(), ipam, a_redemarrer: pending }));
+      ipam = { ...ipam, mode: body.mode, address: body.address, masque: body.masque, dhcp: body.dhcp };
+      return r.fulfill(json({ ...summary(), ipam, needs_restart: pending }));
     }
     if (method === "POST" && rest === "/reservations") {
       const b = r.request().postDataJSON();
-      ipam = { ...ipam, reservations: [...ipam.reservations, { mac: b.mac, ip: b.ip, nom: b.nom }] };
+      ipam = { ...ipam, reservations: [...ipam.reservations, { mac: b.mac, ip: b.ip, name: b.name }] };
       return r.fulfill(json(ipam, 201));
     }
     if (method === "DELETE" && rest.startsWith("/reservations/")) {
@@ -37,10 +37,10 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
       return r.fulfill(json(ipam));
     }
     if (rest === "/stop" || rest === "/start") { if (rest === "/start") pending = false; return r.fulfill(json(summary())); }
-    return r.fulfill(json({ ...summary(), ipam, a_redemarrer: pending, baux_dhcp: [{ mac: "52:54:00:00:00:09", ip: "10.9.0.150", hostname: "db", expire: 1900000000 }] }));
+    return r.fulfill(json({ ...summary(), ipam, needs_restart: pending, dhcp_leases: [{ mac: "52:54:00:00:00:09", ip: "10.9.0.150", hostname: "db", expire: 1900000000 }] }));
   });
 
-  await page.goto("/datacenter?tab=reseau");
+  await page.goto("/datacenter?tab=network");
   await page.getByRole("button", { name: `Details of ${NAME}` }).click();
   const settings = page.getByRole("region", { name: "Subnet and DHCP" });
   await settings.getByLabel("DHCP start").fill("10.9.0.300");
@@ -70,11 +70,11 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
   await expect(addresses.getByText("No reservation.")).toBeVisible();
 
   expect(calls).toEqual([
-    ["PATCH", "", { mode: "nat", adresse: "10.9.0.1", masque: "255.255.255.0", dhcp: { debut: "10.9.0.50", fin: "10.9.0.200" } }],
-    ["PATCH", "", { mode: "nat", adresse: "10.9.0.1", masque: "255.255.0.0", dhcp: { debut: "10.9.0.50", fin: "10.9.0.200" } }],
+    ["PATCH", "", { mode: "nat", address: "10.9.0.1", masque: "255.255.255.0", dhcp: { debut: "10.9.0.50", fin: "10.9.0.200" } }],
+    ["PATCH", "", { mode: "nat", address: "10.9.0.1", masque: "255.255.0.0", dhcp: { debut: "10.9.0.50", fin: "10.9.0.200" } }],
     ["POST", "/stop", null],
     ["POST", "/start", null],
-    ["POST", "/reservations", { mac: "52:54:00:00:00:09", ip: "10.9.0.150", nom: "db" }],
+    ["POST", "/reservations", { mac: "52:54:00:00:00:09", ip: "10.9.0.150", name: "db" }],
     ["DELETE", "/reservations/52%3A54%3A00%3A00%3A00%3A09", null],
   ]);
 });

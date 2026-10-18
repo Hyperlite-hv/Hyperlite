@@ -19,11 +19,11 @@ const PROTECTED = ["default", "hyperlite-isolated"];
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 // "192.168.100.1" + "255.255.255.0" -> "192.168.100.1/24"
 function cidr(r) {
-  if (!r?.adresse) return "—";
+  if (!r?.address) return "—";
   const bits = (r.masque || "").split(".").reduce((a, o) => a + (Number(o) >>> 0).toString(2).split("1").length - 1, 0);
-  return r.masque ? `${r.adresse}/${bits}` : r.adresse;
+  return r.masque ? `${r.address}/${bits}` : r.address;
 }
-const EMPTY = { name: "", mode: "isole", subnet_address: "192.168.150.1", dhcp_start: "192.168.150.10", dhcp_end: "192.168.150.100", bridge_name: "" };
+const EMPTY = { name: "", mode: "isolated", subnet_address: "192.168.150.1", dhcp_start: "192.168.150.10", dhcp_end: "192.168.150.100", bridge_name: "" };
 
 function FirewallSection({ name, isAdmin }) {
   const fetchConfig = useCallback(() => fetchNetworkFirewall(name), [name]);
@@ -72,7 +72,7 @@ export default function NetworkPage() {
     fetchHostInterfaces().then((r) => alive && setIfaces(Array.isArray(r) ? r : [])).catch(() => alive && setIfaces([]));
     return () => { alive = false; };
   }, [formOpen, bridge]);
-  const chosen = (ifaces || []).find((i) => i.nom === form.bridge_name);
+  const chosen = (ifaces || []).find((i) => i.name === form.bridge_name);
   const problems = {
     name: !form.name.trim() ? t("net.nameRequired") : "",
     subnet_address: !bridge && !IPV4.test(form.subnet_address) ? t("net.ipInvalid") : "",
@@ -105,25 +105,25 @@ export default function NetworkPage() {
   }
 
   async function rename(n) {
-    const name = await askNewName(t, { title: t("rn.netTitle", { name: n.nom }), message: t("rn.netMsg"), current: n.nom });
+    const name = await askNewName(t, { title: t("rn.netTitle", { name: n.name }), message: t("rn.netMsg"), current: n.name });
     if (!name) return;
     try {
-      const r = await renameNetwork(n.nom, name);
-      pushToast({ kind: "success", title: t("rn.done"), message: `${n.nom} → ${name}${r?.invites_mis_a_jour?.length ? ` · ${t("rn.guestsMoved", { n: r.invites_mis_a_jour.length })}` : ""}` });
+      const r = await renameNetwork(n.name, name);
+      pushToast({ kind: "success", title: t("rn.done"), message: `${n.name} → ${name}${r?.guests_updated?.length ? ` · ${t("rn.guestsMoved", { n: r.guests_updated.length })}` : ""}` });
       await reload();
     } catch (err) { pushToast({ kind: "error", title: t("rn.failed"), message: errorMessage(err) }); }
   }
 
   async function power(n, on) {
-    if (!on && !(await confirmAction({ title: t("net.stopTitle", { name: n.nom }), message: t("net.stopHelp", { n: n.vms ?? 0 }), confirmLabel: t("net.stop"), danger: true }))) return;
-    try { await (on ? startNetwork(n.nom) : stopNetwork(n.nom)); pushToast({ kind: "success", title: t(on ? "net.started" : "net.stopped"), message: n.nom }); await reload(); }
+    if (!on && !(await confirmAction({ title: t("net.stopTitle", { name: n.name }), message: t("net.stopHelp", { n: n.vms ?? 0 }), confirmLabel: t("net.stop"), danger: true }))) return;
+    try { await (on ? startNetwork(n.name) : stopNetwork(n.name)); pushToast({ kind: "success", title: t(on ? "net.started" : "net.stopped"), message: n.name }); await reload(); }
     catch (err) { pushToast({ kind: "error", title: t(on ? "net.startFailed" : "net.stopFailed"), message: errorMessage(err) }); }
   }
   async function autostart(n) {
-    try { await setNetworkAutostart(n.nom, !n.autostart); await reload(); }
+    try { await setNetworkAutostart(n.name, !n.autostart); await reload(); }
     catch (err) { pushToast({ kind: "error", title: t("net.autostartFailed"), message: errorMessage(err) }); }
   }
-  const ifaceLabel = (i) => `${i.nom} · ${t(`net.if.${i.type}`)}${i.adresses?.length ? ` · ${i.adresses.join(", ")}` : ""}${i.etat && i.etat !== "up" ? ` · ${i.etat}` : ""}`;
+  const ifaceLabel = (i) => `${i.name} · ${t(`net.if.${i.type}`)}${i.addresses?.length ? ` · ${i.addresses.join(", ")}` : ""}${i.state && i.state !== "up" ? ` · ${i.state}` : ""}`;
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const field = (k, label, aria, placeholder) => (
@@ -133,7 +133,7 @@ export default function NetworkPage() {
 
   return (
     <>
-      <PageHeader title={t("tab.reseau")} count={nets ? nets.length : null} desc={t("net.desc")}
+      <PageHeader title={t("tab.network")} count={nets ? nets.length : null} desc={t("net.desc")}
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setFormOpen(true)}><Plus size={15} aria-hidden="true" />{t("net.create")}</button>} />
       <div className="nx-card2 nx-card2--flush">
         {nets == null ? <Loading style={{ padding: "var(--space-4)" }} /> : nets.length === 0 ? <Empty icon={Network} title={t("net.none")} text={t("net.noneHelp")} /> : (
@@ -142,27 +142,27 @@ export default function NetworkPage() {
               <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("net.network")}</th><th scope="col">{t("net.mode")}</th><th scope="col">{t("net.bridge")}</th><th scope="col">{t("net.subnet")}</th><th scope="col">DHCP</th><th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
                 {nets.map((n) => (
-                  <Fragment key={n.nom}>
-                    <tr className={ctx.is("net", n.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("net", n)}>
-                      <td><StatusIndicator override={{ key: n.actif ? "state.active" : "state.inactive", shape: n.actif ? "dot" : "square", tone: n.actif ? "success" : "offline" }} /></td>
-                      <th scope="row" className="nx-nm">{n.nom}<small>{n.autostart ? t("net.autostart") : t("net.manualStart")}</small></th>
+                  <Fragment key={n.name}>
+                    <tr className={ctx.is("net", n.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("net", n)}>
+                      <td><StatusIndicator override={{ key: n.active ? "state.active" : "state.inactive", shape: n.active ? "dot" : "square", tone: n.active ? "success" : "offline" }} /></td>
+                      <th scope="row" className="nx-nm">{n.name}<small>{n.autostart ? t("net.autostart") : t("net.manualStart")}</small></th>
                       <td><Chip>{t(`net.mode.${n.type}`)}</Chip></td>
-                      <td className="nx-mono">{n.pont || "—"}</td>
-                      <td className="nx-mono">{cidr(n.reseau)}</td>
+                      <td className="nx-mono">{n.bridge || "—"}</td>
+                      <td className="nx-mono">{cidr(n.network)}</td>
                       <td>{n.dhcp ? t("net.on") : <span className="nx-muted">{t("net.off")}</span>}</td>
                       <td className="nx-num nx-mono">{n.vms ?? "—"}</td>
                       <td><div className="nx-ra">
-                        {caps.admin && !n.actif && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("net.startX", { name: n.nom })} onClick={() => power(n, true)}>{t("net.start")}</button>}
-                        <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === n.nom} aria-label={t("net.detailsOf", { name: n.nom })} onClick={() => toggle(n.nom)}>{t("net.details")}</button>
-                        {caps.admin && !PROTECTED.includes(n.nom) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_network_x", { v: n.nom })} title={t("vx.delete")} onClick={() => remove(n.nom)}><Trash2 size={15} aria-hidden="true" /></button>}
+                        {caps.admin && !n.active && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("net.startX", { name: n.name })} onClick={() => power(n, true)}>{t("net.start")}</button>}
+                        <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === n.name} aria-label={t("net.detailsOf", { name: n.name })} onClick={() => toggle(n.name)}>{t("net.details")}</button>
+                        {caps.admin && !PROTECTED.includes(n.name) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_network_x", { v: n.name })} title={t("vx.delete")} onClick={() => remove(n.name)}><Trash2 size={15} aria-hidden="true" /></button>}
                       </div></td>
                     </tr>
-                    {open === n.nom && (
+                    {open === n.name && (
                       <tr><td colSpan={8} className="nx-detailcell">
                         {!detail ? <span className="nx-muted">{t("loading")}</span> : (
                           <div className="nx-ns">
-                            <NetworkIpam name={n.nom} detail={{ ...detail, vms: n.vms }} isAdmin={caps.admin} onChange={() => refresh(n.nom)} />
-                            <FirewallSection name={n.nom} isAdmin={caps.admin} />
+                            <NetworkIpam name={n.name} detail={{ ...detail, vms: n.vms }} isAdmin={caps.admin} onChange={() => refresh(n.name)} />
+                            <FirewallSection name={n.name} isAdmin={caps.admin} />
                           </div>
                         )}
                       </td></tr>
@@ -181,7 +181,7 @@ export default function NetworkPage() {
         {field("name", t("ns.col.name"), t("a11y.name"), "isolated-lab")}
         <Field label={t("net.mode")}>{(p) => (
           <select {...p} className="nx-inp" aria-label={t("a11y.network_mode")} value={form.mode} onChange={set("mode")}>
-            <option value="isole">{t("net.modeIsolated")}</option>
+            <option value="isolated">{t("net.modeIsolated")}</option>
             <option value="nat">{t("net.modeNat")}</option>
             <option value="bridge">{t("net.modeBridge")}</option>
           </select>
@@ -190,10 +190,10 @@ export default function NetworkPage() {
           <Field label={t("net.hostInterface")} error={touched ? problems.bridge_name : null}>{(p) => (
             <select {...p} className="nx-inp" aria-label={t("a11y.host_bridge_name")} value={form.bridge_name} onChange={set("bridge_name")} disabled={ifaces == null}>
               <option value="">{ifaces == null ? t("loading") : ifaces.length === 0 ? t("net.noInterface") : t("net.pickInterface")}</option>
-              {(ifaces || []).map((i) => <option key={i.nom} value={i.nom} disabled={!i.utilisable}>{ifaceLabel(i)}{i.utilisable ? "" : ` (${t("net.if.unusable")})`}</option>)}
+              {(ifaces || []).map((i) => <option key={i.name} value={i.name} disabled={!i.usable}>{ifaceLabel(i)}{i.usable ? "" : ` (${t("net.if.unusable")})`}</option>)}
             </select>
           )}</Field>
-          {chosen && <div className="nx-bn" data-tone={chosen.type === "pont" ? "info" : "warning"} role="status"><span className="nx-bn-t">{t(chosen.type === "pont" ? "net.bridgeExisting" : "net.macvtapWarn", { name: chosen.nom })}</span></div>}
+          {chosen && <div className="nx-bn" data-tone={chosen.type === "bridge" ? "info" : "warning"} role="status"><span className="nx-bn-t">{t(chosen.type === "bridge" ? "net.bridgeExisting" : "net.macvtapWarn", { name: chosen.name })}</span></div>}
         </>) : (<>
           {field("subnet_address", t("net.gateway"), t("a11y.gateway"), "192.168.150.1")}
           <div className="nx-fg">
@@ -202,15 +202,15 @@ export default function NetworkPage() {
           </div>
         </>)}
       </SideDrawer>
-      <ActionsContextMenu ctx={ctx} label={(n) => t("ctx.menuOf", { name: n.nom })} entries={(n) => [
-        { key: "details", icon: "details", label: t("net.details"), run: () => toggle(n.nom) },
-        n.actif ? { key: "stop", icon: "stop", label: t("net.stop"), run: () => power(n, false), disabled: !caps.admin, reason: t("menu.reason.admin") }
+      <ActionsContextMenu ctx={ctx} label={(n) => t("ctx.menuOf", { name: n.name })} entries={(n) => [
+        { key: "details", icon: "details", label: t("net.details"), run: () => toggle(n.name) },
+        n.active ? { key: "stop", icon: "stop", label: t("net.stop"), run: () => power(n, false), disabled: !caps.admin, reason: t("menu.reason.admin") }
           : { key: "start", icon: "start", label: t("net.start"), run: () => power(n, true), disabled: !caps.admin, reason: t("menu.reason.admin") },
         { key: "autostart", icon: "details", label: t(n.autostart ? "net.autostartOff" : "net.autostartOn"), run: () => autostart(n), disabled: !caps.admin, reason: t("menu.reason.admin") },
         "-",
-        { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => rename(n), disabled: !caps.admin || PROTECTED.includes(n.nom), reason: !caps.admin ? t("menu.reason.admin") : t("rn.systemNet") },
-        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(n.nom),
-          disabled: !caps.admin || PROTECTED.includes(n.nom), reason: !caps.admin ? t("menu.reason.admin") : t("ctx.protectedNet") },
+        { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => rename(n), disabled: !caps.admin || PROTECTED.includes(n.name), reason: !caps.admin ? t("menu.reason.admin") : t("rn.systemNet") },
+        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(n.name),
+          disabled: !caps.admin || PROTECTED.includes(n.name), reason: !caps.admin ? t("menu.reason.admin") : t("ctx.protectedNet") },
       ]} />
     </>
   );

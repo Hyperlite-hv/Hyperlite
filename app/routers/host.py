@@ -1,5 +1,5 @@
 """Interactive shell directly on the physical host (the server running
-Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell but a full shell rather
+Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell purpose a full shell rather
 than a restricted menu.
 
 SECURITY WARNING: hyperlite.service runs as root (see the systemd unit file, no
@@ -42,7 +42,7 @@ def host_vm_limits(user: dict = Depends(get_current_user)):
 
 @router.get("/firmware")
 def host_firmware(user: dict = Depends(get_current_user)):
-    """Which VM firmwares this host can build: {"uefi", "uefi_secure", "raison"} (see app/core/firmware.py). BIOS
+    """Which VM firmwares this host can build: {"uefi", "uefi_secure", "reason"} (see app/core/firmware.py). BIOS
     is always possible. The creation form disables what is missing and shows the reason."""
     conn = open_conn()
     try:
@@ -115,7 +115,7 @@ def create_host_terminal_ticket(user: dict = Depends(require_role("admin"))):
     ticket = secrets.token_urlsafe(24)
     HOST_SHELL_TICKETS[ticket] = (user["username"], now + HOST_SHELL_TICKET_TTL)
     log_action(user["username"], "create_host_terminal_ticket", socket.gethostname(), "success")
-    return {"ticket": ticket, "expire_dans_s": HOST_SHELL_TICKET_TTL}
+    return {"ticket": ticket, "expires_in_s": HOST_SHELL_TICKET_TTL}
 
 
 @router.websocket("/terminal")

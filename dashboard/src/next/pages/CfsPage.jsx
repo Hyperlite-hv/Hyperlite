@@ -11,8 +11,8 @@ import ClusterCard from "../components/ClusterCard";
 import ClusterUpdateCard from "../components/ClusterUpdateCard";
 import { PageHeader, Card, KpiStrip, Loading, TableWrap } from "../components/ui";
 
-const KINDS = ["manquants", "en_trop", "differents"];
-const gaps = (d) => d.manquants + d.en_trop + d.differents;
+const KINDS = ["missing", "extra", "different"];
+const gaps = (d) => d.missing + d.extra + d.different;
 
 // Kinds of data with differences first, then by name in the reader's language.
 function sortedDomains(domains, t) {
@@ -37,7 +37,7 @@ export default function CfsPage() {
     setBusy(true);
     try {
       const done = await seedCfsShadow();
-      pushToast({ kind: "success", title: t("cfs.seeded"), message: t("cfs.seededMsg", { written: done.ecrits, deleted: done.supprimes }) });
+      pushToast({ kind: "success", title: t("cfs.seeded"), message: t("cfs.seededMsg", { written: done.written, deleted: done.deleted }) });
       await load();
     } catch (e) {
       pushToast({ kind: "error", title: t("cfs.seedFailed"), message: errorMessage(e) });
@@ -48,7 +48,7 @@ export default function CfsPage() {
     setBusy(true);
     try {
       const done = await turnCfsShadowOn();
-      pushToast({ kind: "success", title: t("cfs.turnedOn"), message: t("cfs.seededMsg", { written: done.ecrits, deleted: done.supprimes }) });
+      pushToast({ kind: "success", title: t("cfs.turnedOn"), message: t("cfs.seededMsg", { written: done.written, deleted: done.deleted }) });
       await load();
     } catch (e) {
       pushToast({ kind: "error", title: t("cfs.turnOnFailed"), message: errorMessage(e) });
@@ -71,8 +71,8 @@ export default function CfsPage() {
   const actions = (
     <>
       <button type="button" className="nx-btn" onClick={load}><RefreshCw size={15} aria-hidden="true" />{t("cfs.refresh")}</button>
-      {state?.actif && !state.force && <button type="button" className="nx-btn" disabled={busy} onClick={turnOff}><PowerOff size={15} aria-hidden="true" />{t("cfs.turnOff")}</button>}
-      {state?.actif && <button type="button" className="nx-btn" disabled={busy || !state.joignable} onClick={seed}><Copy size={15} aria-hidden="true" />{t("cfs.seed")}</button>}
+      {state?.active && !state.force && <button type="button" className="nx-btn" disabled={busy} onClick={turnOff}><PowerOff size={15} aria-hidden="true" />{t("cfs.turnOff")}</button>}
+      {state?.active && <button type="button" className="nx-btn" disabled={busy || !state.reachable} onClick={seed}><Copy size={15} aria-hidden="true" />{t("cfs.seed")}</button>}
     </>
   );
   return (
@@ -80,10 +80,10 @@ export default function CfsPage() {
       <PageHeader title={t("tab.cfs")} help={t("cfs.intro")} actions={actions} />
       <ClusterCard />
       <ClusterUpdateCard />
-      {error && !state ? <ErrorState message={error} onRetry={load} /> : !state ? <Loading /> : !state.actif ? (
+      {error && !state ? <ErrorState message={error} onRetry={load} /> : !state ? <Loading /> : !state.active ? (
         <Card title={t("cfs.offTitle")}>
           <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t("cfs.offHelp")}</p>
-          {state.installe ? (
+          {state.installed ? (
             <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={turnOn}><Power size={15} aria-hidden="true" />{t(busy ? "cfs.turningOn" : "cfs.turnOn")}</button>
           ) : <div className="nx-bn" data-tone="warning" role="alert">{t("cfs.notInstalled")}</div>}
           <p className="nx-f-h" style={{ margin: "var(--space-3) 0 0" }}>{t("cfs.turnOnHelp")}</p>
@@ -91,21 +91,21 @@ export default function CfsPage() {
       ) : (
         <>
           <KpiStrip label={t("cfs.state")} items={[
-            { id: "daemon", label: t("cfs.daemon"), dot: state.joignable ? "success" : "danger", value: state.joignable ? t(`cfs.mode.${state.demon.mode}`) : t("cfs.unreachable"),
-              sub: state.joignable ? (state.demon.quorum ? t("cfs.quorate") : t("cfs.readOnly")) : null, subTone: state.joignable && !state.demon.quorum ? "warning" : undefined },
-            { id: "gaps", label: t("cfs.gaps"), dot: state.joignable ? (state.ecarts ? "warning" : "success") : undefined, value: state.joignable ? state.ecarts : null },
+            { id: "daemon", label: t("cfs.daemon"), dot: state.reachable ? "success" : "danger", value: state.reachable ? t(`cfs.mode.${state.demon.mode}`) : t("cfs.unreachable"),
+              sub: state.reachable ? (state.demon.quorum ? t("cfs.quorate") : t("cfs.readOnly")) : null, subTone: state.reachable && !state.demon.quorum ? "warning" : undefined },
+            { id: "gaps", label: t("cfs.gaps"), dot: state.reachable ? (state.ecarts ? "warning" : "success") : undefined, value: state.reachable ? state.ecarts : null },
             { id: "pending", label: t("cfs.pending"), dot: state.pending ? "warning" : undefined, value: state.pending, sub: t("cfs.pendingSub") },
             { id: "copies", label: t("cfs.copies"), value: state.copies, sub: t("cfs.sinceStart") },
-            ...(state.joignable && state.demon.mode === "cluster" ? [{ id: "received", label: t("cfs.received"), value: state.reception?.appliques ?? 0, sub: t("cfs.receivedSub") }] : []),
-            { id: "failures", label: t("cfs.failures"), dot: state.echecs ? "warning" : undefined, value: state.echecs, sub: t("cfs.sinceStart") },
+            ...(state.reachable && state.demon.mode === "cluster" ? [{ id: "received", label: t("cfs.received"), value: state.reception?.appliques ?? 0, sub: t("cfs.receivedSub") }] : []),
+            { id: "failures", label: t("cfs.failures"), dot: state.failures ? "warning" : undefined, value: state.failures, sub: t("cfs.sinceStart") },
           ]} />
           {state.force && <p className="nx-f-h">{t("cfs.forced")}</p>}
-          {!state.joignable && <div className="nx-bn" data-tone="danger" role="alert">{state.erreur}</div>}
-          {state.reception?.probleme && <div className="nx-bn" data-tone="danger" role="alert">{state.reception.probleme}</div>}
-          {state.derniere_erreur && (
-            <p className="nx-f-h" role="status">{t("cfs.lastError", { when: formatDateTime(state.derniere_erreur_le, lang), error: state.derniere_erreur })}</p>
+          {!state.reachable && <div className="nx-bn" data-tone="danger" role="alert">{state.error}</div>}
+          {state.reception?.problem && <div className="nx-bn" data-tone="danger" role="alert">{state.reception.problem}</div>}
+          {state.last_error && (
+            <p className="nx-f-h" role="status">{t("cfs.lastError", { when: formatDateTime(state.last_error_at, lang), error: state.last_error })}</p>
           )}
-          {state.joignable && (
+          {state.reachable && (
             <Card title={t("cfs.domains")} flush>
               <TableWrap label={t("cfs.domains")}>
                 <table className="nx-table">
@@ -124,13 +124,13 @@ export default function CfsPage() {
                   </tbody>
                 </table>
               </TableWrap>
-              {Object.entries(state.domaines).filter(([, d]) => KINDS.some((k) => d.exemples[k].length)).map(([name, d]) => (
+              {Object.entries(state.domaines).filter(([, d]) => KINDS.some((k) => d.examples[k].length)).map(([name, d]) => (
                 <details key={name} style={{ margin: "var(--space-3) var(--space-4)" }}>
                   <summary>{t("cfs.examples", { domain: t(`cfs.domainName.${name}`) })}</summary>
-                  {KINDS.filter((k) => d.exemples[k].length).map((k) => (
+                  {KINDS.filter((k) => d.examples[k].length).map((k) => (
                     <div key={k}>
                       <h3 className="nx-f-label">{t(`cfs.kind.${k}`)}</h3>
-                      <ul className="nx-mono">{d.exemples[k].map((p) => <li key={p}>{p}</li>)}</ul>
+                      <ul className="nx-mono">{d.examples[k].map((p) => <li key={p}>{p}</li>)}</ul>
                     </div>
                   ))}
                 </details>

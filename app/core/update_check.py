@@ -88,11 +88,11 @@ def check_once():
     # stays behind silently. Alert once (the marker is replaced by the next real version notification).
     if result.get("source_problem"):
         if _get_last_notified() != SOURCE_PROBLEM_MARKER:
-            log_action("system", "update_check_blocked", "hyperlite", "failed", result.get("erreur"))
+            log_action("system", "update_check_blocked", "hyperlite", "failed", result.get("error"))
             _mark_notified(SOURCE_PROBLEM_MARKER)
         return
 
-    if not result.get("verifiable") or result.get("a_jour"):
+    if not result.get("verifiable") or result.get("up_to_date"):
         return
 
     remote = result.get("commit_distant")

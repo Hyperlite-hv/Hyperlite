@@ -30,8 +30,8 @@ export default function VmDiskUploadDropzone({ onDone, labels = {} }) {
 
   const startUpload = useCallback((file) => {
     if (!file) return;
-    const taskId = addTask({ type: "upload_vm_disk", cible: file.name, node: "local" });
-    setUpload({ file, loaded: 0, speed: 0, etaS: Infinity, statut: "running" });
+    const taskId = addTask({ type: "upload_vm_disk", target: file.name, node: "local" });
+    setUpload({ file, loaded: 0, speed: 0, etaS: Infinity, status: "running" });
 
     const fd = new FormData();
     fd.append("file", file);
@@ -47,12 +47,12 @@ export default function VmDiskUploadDropzone({ onDone, labels = {} }) {
       const etaS = (ev.total - ev.loaded) / Math.max(speed, 1);
       const pct = Math.round((ev.loaded / ev.total) * 100);
       updateTaskProgress(taskId, pct);
-      setUpload({ file, loaded: ev.loaded, speed, etaS, statut: pct >= 100 ? "succeeded" : "running" });
+      setUpload({ file, loaded: ev.loaded, speed, etaS, status: pct >= 100 ? "succeeded" : "running" });
     });
     xhr.addEventListener("load", () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         completeTask(taskId, "succeeded");
-        setUpload((u) => (u ? { ...u, statut: "succeeded" } : u));
+        setUpload((u) => (u ? { ...u, status: "succeeded" } : u));
         onDone?.();
       } else {
         let msg = `HTTP error ${xhr.status}`;
@@ -102,11 +102,11 @@ export default function VmDiskUploadDropzone({ onDone, labels = {} }) {
             <span className="ml-auto text-xs text-muted-foreground shrink-0">{formatBytes(upload.loaded)} / {formatBytes(upload.file.size)}</span>
           </div>
           <div className="mt-2">
-            <ProgressBar value={(upload.loaded / (upload.file.size || 1)) * 100} statut={upload.statut} />
+            <ProgressBar value={(upload.loaded / (upload.file.size || 1)) * 100} status={upload.status} />
           </div>
           <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
-            <span>{upload.statut === "succeeded" ? (labels.done ?? t("upload.done")) : formatRate(upload.speed, lang)}</span>
-            <span>{upload.statut === "succeeded" ? "" : `${labels.eta ?? t("upload.eta")}: ${formatEta(upload.etaS)}`}</span>
+            <span>{upload.status === "succeeded" ? (labels.done ?? t("upload.done")) : formatRate(upload.speed, lang)}</span>
+            <span>{upload.status === "succeeded" ? "" : `${labels.eta ?? t("upload.eta")}: ${formatEta(upload.etaS)}`}</span>
           </div>
         </Card>
       )}

@@ -195,7 +195,7 @@ def api(client, auth_headers, monkeypatch, commands):
 def test_the_endpoint_grows_the_disk_and_reports_old_and_new_sizes(api):
     r = api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": 32}, headers=api["headers"])
     assert r.status_code == 200, r.text
-    assert r.json()["ancienne_taille_go"] == 10 and r.json()["taille_go"] == 32 and r.json()["a_chaud"] is False
+    assert r.json()["old_size_gb"] == 10 and r.json()["size_gb"] == 32 and r.json()["live"] is False
     assert api["commands"]["qemu_img"][0][-1] == str(32 * GIB)
 
 
@@ -217,7 +217,7 @@ def test_an_observer_cannot_resize(api, auth_headers):
 def test_the_disk_list_says_which_disks_can_be_grown(api):
     r = api["client"].get("/vms/vm1/disks", headers=api["headers"])
     assert r.status_code == 200, r.text
-    codes = {d["cible"]: d["non_agrandissable"] for d in r.json()}
+    codes = {d["target"]: d["non_agrandissable"] for d in r.json()}
     assert codes == {"vda": None, "vdb": None, "vdc": None, "vdd": "iscsi", "vde": "non_gere", "sdz": "non_gere"}
 
 

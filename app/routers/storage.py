@@ -27,12 +27,12 @@ router = APIRouter(prefix="/storage", tags=["storage"])
 # This table did not match libvirt's real enumeration (virStoragePoolState,
 # checked through libvirt.VIR_STORAGE_POOL_*: only 5 values, 0-4, not 6). Every
 # pool, including an already active "default", was displayed as
-# "en_construction". It had no visible effect while no screen displayed this
+# "building". It had no visible effect while no screen displayed this
 # "state" field.
 POOL_STATE_NAMES = {
-    0: "inactif",  # VIR_STORAGE_POOL_INACTIVE
-    1: "en_construction",  # VIR_STORAGE_POOL_BUILDING
-    2: "actif",  # VIR_STORAGE_POOL_RUNNING
+    0: "inactive",  # VIR_STORAGE_POOL_INACTIVE
+    1: "building",  # VIR_STORAGE_POOL_BUILDING
+    2: "active",  # VIR_STORAGE_POOL_RUNNING
     3: "degrade",  # VIR_STORAGE_POOL_DEGRADED
     4: "inaccessible",  # VIR_STORAGE_POOL_INACCESSIBLE
 }
@@ -139,15 +139,15 @@ def _pool_summary(pool):
             pass
     return {
         "nfs_version": _nfs_version(pool) if _pool_type(pool) == "netfs" else None,
-        "chemin": _pool_path(pool),
-        "nom": pool.name(),
+        "path": _pool_path(pool),
+        "name": pool.name(),
         "uuid": pool.UUIDString(),
         "type": _pool_type(pool),
-        "etat": POOL_STATE_NAMES.get(state, "unknown"),
+        "state": POOL_STATE_NAMES.get(state, "unknown"),
         "autostart": bool(pool.autostart()),
-        "capacite_go": round(capacity / (1024**3), 2),
-        "allocation_go": round(allocation / (1024**3), 2),
-        "disponible_go": round(available / (1024**3), 2),
+        "capacity_gb": round(capacity / (1024**3), 2),
+        "allocation_gb": round(allocation / (1024**3), 2),
+        "available_gb": round(available / (1024**3), 2),
     }
 
 
@@ -157,7 +157,7 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
     node instead of the local host.
 
     ZFS pools are merged into the same list (type='zfs') for a unified display
-    in the UI, but only when `node` designates the LOCAL host: unlike libvirt
+    in the UI, purpose only when `node` designates the LOCAL host: unlike libvirt
     pools (dir/netfs), ZFS management is still single-node (direct `zpool`/`zfs`
     calls on THIS server, no remote management over SSH; see
     app/core/zfs_storage.py). A ZFS pool of a registered remote node is
@@ -177,8 +177,8 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
         if not node or node == "local":
             result += zfs_storage.list_pools()
         for p in result:
-            p["noeud"] = node or "local"
-            p.setdefault("chemin", None)
+            p["node"] = node or "local"
+            p.setdefault("path", None)
         log_action(user["username"], "list_storage_pools", "storage", "success")
         return result
     finally:
@@ -200,7 +200,7 @@ class PoolCreate(BaseModel):
     type: str = Field(pattern="^(dir|netfs|zfs|iscsi)$")
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
     nfs_host: str | None = None  # "netfs" pool: NFS server host
-    nfs_export_path: str | None = None  # pool "netfs" : chemin exporte cote serveur
+    nfs_export_path: str | None = None  # pool "netfs" : path exporte cote server
     # "netfs" pool: the NFS protocol version to mount with. Always explicit, never negotiated (see _build_pool_xml):
     # 4.2 unless the server only offers an older one (a NAS limited to NFSv3, for instance).
     nfs_version: Literal["3", "4", "4.0", "4.1", "4.2"] = "4.2"
@@ -211,9 +211,9 @@ class PoolCreate(BaseModel):
     chap_user: str | None = None  # "iscsi" pool: CHAP credentials, when the target requires them
     chap_password: str | None = Field(None, max_length=255)
     # Shared storage (NFS, iSCSI) declared for several nodes at once, as on Proxmox: every node, including the ones
-    # registered later (tous_les_noeuds), or the nodes listed ("local" is this host). See app/core/shared_pools.py.
-    tous_les_noeuds: bool = False
-    noeuds: list[str] | None = Field(None, max_length=64)
+    # registered later (all_nodes), or the nodes listed ("local" is this host). See app/core/shared_pools.py.
+    all_nodes: bool = False
+    nodes: list[str] | None = Field(None, max_length=64)
 
 
 def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
@@ -261,7 +261,7 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
         # Built with ET.SubElement and a qualified '{namespace}mount_opts' tag,
         # ET.tostring() declares the namespace as a PREFIX on the root
         # (<pool xmlns:ns0="..."> then <ns0:mount_opts>). That is syntactically correct,
-        # but libvirt on this version still ignores it silently (the element is absent
+        # purpose libvirt on this version still ignores it silently (the element is absent
         # from the XML read back right after defineXML). Only the form with "xmlns=..."
         # on the element itself (a LOCAL default namespace, not a root prefix) is honoured,
         # and ElementTree never generates that exact form. The rest of the document is
@@ -301,7 +301,7 @@ def storage_support(user: dict = Depends(get_current_user)):
 
 @router.post("", status_code=201)
 def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depends(require_role("admin"))):
-    if payload.tous_les_noeuds or payload.noeuds:
+    if payload.all_nodes or payload.nodes:
         return _create_shared(payload, user)
     return _create_single(payload, node, user)
 
@@ -424,8 +424,8 @@ def _create_on(payload, node, target_path, user):
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "create_storage_pool", payload.name, "failed", msg)
-            # Best-effort cleanup if the definition succeeded but the start did not (e.g. an
-            # unreachable NFS export): avoids a "ghost" pool that is defined but never usable
+            # Best-effort cleanup if the definition succeeded purpose the start did not (e.g. an
+            # unreachable NFS export): avoids a "ghost" pool that is defined purpose never usable
             # and would block a new attempt with the same name.
             with contextlib.suppress(libvirt.libvirtError):
                 conn.storagePoolLookupByName(payload.name).undefine()
@@ -447,7 +447,7 @@ def _create_on(payload, node, target_path, user):
         if payload.type == "netfs" and not node:
             # Mounted fine is not enough: QEMU must be able to own its disk files there (root_squash).
             perm = nfs_permissions.check(target_path, export=payload.nfs_export_path)
-            summary["avertissement"] = perm["message"]
+            summary["warning"] = perm["message"]
         return summary
     finally:
         conn.close()
@@ -456,12 +456,12 @@ def _create_on(payload, node, target_path, user):
 def _shared_targets(payload):
     """The node keys ("local" or registered names) a shared pool is created on."""
     registered = [n["name"] for n in list_nodes()]
-    if payload.tous_les_noeuds:
+    if payload.all_nodes:
         return ["local", *registered]
-    unknown = [n for n in payload.noeuds if n != "local" and n not in registered]
+    unknown = [n for n in payload.nodes if n != "local" and n not in registered]
     if unknown:
         raise HTTPException(status_code=404, detail=f"Unknown node(s): {', '.join(unknown)}")
-    return list(dict.fromkeys(payload.noeuds))
+    return list(dict.fromkeys(payload.nodes))
 
 
 def _exists_on(pool_name, node_key):
@@ -476,21 +476,23 @@ def _exists_on(pool_name, node_key):
 
 
 def create_on_nodes(payload, targets, user):
-    """Create the pool on each node key; [{"noeud", "etat": cree|existe|echec, "detail", "avertissement"}]. One
+    """Create the pool on each node key; [{"node", "state": cree|exists|failed, "detail", "warning"}]. One
     node failing (unreachable, NFS client missing) does not stop the others."""
     results = []
     for key in targets:
-        entry = {"noeud": key, "etat": "cree", "detail": None, "avertissement": None}
+        entry = {"node": key, "state": "cree", "detail": None, "warning": None}
         try:
             if _exists_on(payload.name, key):
-                entry["etat"] = "existe"
+                entry["state"] = "exists"
             else:
                 summary = _create_single(payload, None if key == "local" else key, user)
-                entry["avertissement"] = summary.get("avertissement")
+                entry["warning"] = summary.get("warning")
         except HTTPException as e:
-            entry.update(etat="failed", detail=e.detail if isinstance(e.detail, str) else "; ".join(map(str, e.detail)))
+            entry.update(
+                state="failed", detail=e.detail if isinstance(e.detail, str) else "; ".join(map(str, e.detail))
+            )
         except libvirt.libvirtError as e:
-            entry.update(etat="failed", detail=f"Node unreachable: {describe_exception(e)}")
+            entry.update(state="failed", detail=f"Node unreachable: {describe_exception(e)}")
         results.append(entry)
     return results
 
@@ -510,16 +512,16 @@ def _create_shared(payload, user):
     if not targets:
         raise HTTPException(status_code=422, detail="Choose at least one node")
     results = create_on_nodes(payload, targets, user)
-    done = [r["noeud"] for r in results if r["etat"] != "failed"]
+    done = [r["node"] for r in results if r["state"] != "failed"]
     if not done:
-        details = "; ".join(f"{r['noeud']}: {r['detail']}" for r in results)
+        details = "; ".join(f"{r['node']}: {r['detail']}" for r in results)
         raise HTTPException(status_code=502, detail=f"The pool could not be created on any node. {details}")
-    shared_pools.save(payload.model_dump(), payload.tous_les_noeuds, done, user["username"])
-    scope = "every node" if payload.tous_les_noeuds else ", ".join(targets)
+    shared_pools.save(payload.model_dump(), payload.all_nodes, done, user["username"])
+    scope = "every node" if payload.all_nodes else ", ".join(targets)
     log_action(
         user["username"], "create_shared_pool", payload.name, "success", f"{scope}: created on {', '.join(done)}"
     )
-    return {"nom": payload.name, "partage": True, "tous_les_noeuds": payload.tous_les_noeuds, "resultats": results}
+    return {"name": payload.name, "shared": True, "all_nodes": payload.all_nodes, "results": results}
 
 
 def apply_shared_pools(node_name, username):
@@ -528,9 +530,9 @@ def apply_shared_pools(node_name, username):
     for entry in shared_pools.for_every_node():
         payload = PoolCreate(**entry["definition"])
         result = create_on_nodes(payload, [node_name], {"username": username})[0]
-        if result["etat"] != "failed":
-            shared_pools.add_node(entry["nom"], node_name)
-        out.append({"nom": entry["nom"], **result})
+        if result["state"] != "failed":
+            shared_pools.add_node(entry["name"], node_name)
+        out.append({"name": entry["name"], **result})
     return out
 
 
@@ -607,7 +609,7 @@ def check_pool_permissions(pool_name: str, user: dict = Depends(require_role("ad
             "success" if result["ok"] else "failed",
             result["message"],
         )
-        return {"nom": pool_name, "ok": result["ok"], "message": result["message"]}
+        return {"name": pool_name, "ok": result["ok"], "message": result["message"]}
     finally:
         conn.close()
 
@@ -615,7 +617,7 @@ def check_pool_permissions(pool_name: str, user: dict = Depends(require_role("ad
 class PoolRename(BaseModel):
     new_name: str
     # A shared pool (app/core/shared_pools.py) is renamed on every node that has it, as it was created.
-    partout: bool = False
+    everywhere: bool = False
 
 
 def _running_users(conn, pool):
@@ -717,27 +719,27 @@ def rename_pool(
             detail="A ZFS pool is renamed by exporting and importing it again (zpool export/import), which "
             "Hyperlite does not do: its zvols are the disks of VMs",
         )
-    if not payload.partout:
+    if not payload.everywhere:
         return _rename_on(pool_name, new, node, user)
     results = []
     for key in ["local", *[n["name"] for n in list_nodes()]]:
-        entry = {"noeud": key, "etat": "renomme", "detail": None}
+        entry = {"node": key, "state": "renamed", "detail": None}
         try:
             if not _exists_on(pool_name, key):
                 continue
             _rename_on(pool_name, new, None if key == "local" else key, user)
         except HTTPException as e:
-            entry.update(etat="failed", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
+            entry.update(state="failed", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
         except libvirt.libvirtError as e:
-            entry.update(etat="failed", detail=f"Node unreachable: {describe_exception(e)}")
+            entry.update(state="failed", detail=f"Node unreachable: {describe_exception(e)}")
         results.append(entry)
-    if not any(r["etat"] == "renomme" for r in results):
+    if not any(r["state"] == "renamed" for r in results):
         raise HTTPException(
-            status_code=409, detail="; ".join(f"{r['noeud']}: {r['detail']}" for r in results) or "Pool not found"
+            status_code=409, detail="; ".join(f"{r['node']}: {r['detail']}" for r in results) or "Pool not found"
         )
-    if not any(r["etat"] == "failed" for r in results):
+    if not any(r["state"] == "failed" for r in results):
         shared_pools.rename(pool_name, new)
-    return {"nom": new, "resultats": results}
+    return {"name": new, "results": results}
 
 
 @router.delete("/{pool_name}")
@@ -745,42 +747,42 @@ def delete_pool(
     pool_name: str,
     node: str | None = None,
     confirm: bool = False,
-    detacher: bool = False,
-    partout: bool = False,
+    detach: bool = False,
+    everywhere: bool = False,
     user: dict = Depends(require_role("admin")),
 ):
-    """partout: a shared pool (app/core/shared_pools.py) is removed from every node that has it, and its
+    """everywhere: a shared pool (app/core/shared_pools.py) is removed from every node that has it, and its
     definition with it, as on Proxmox; without it, from `node` only."""
     if pool_name == "default":
         raise HTTPException(status_code=400, detail="The 'default' pool cannot be deleted")
     if not confirm:
         raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion")
-    if partout:
-        return _delete_everywhere(pool_name, detacher, user)
-    return _delete_single(pool_name, node, detacher, user)
+    if everywhere:
+        return _delete_everywhere(pool_name, detach, user)
+    return _delete_single(pool_name, node, detach, user)
 
 
-def _delete_everywhere(pool_name, detacher, user):
+def _delete_everywhere(pool_name, detach, user):
     results = []
     for key in ["local", *[n["name"] for n in list_nodes()]]:
-        entry = {"noeud": key, "etat": "supprime", "detail": None}
+        entry = {"node": key, "state": "deleted", "detail": None}
         try:
             if not _exists_on(pool_name, key):
                 continue
-            _delete_single(pool_name, None if key == "local" else key, detacher, user)
+            _delete_single(pool_name, None if key == "local" else key, detach, user)
         except HTTPException as e:
-            entry.update(etat="failed", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
+            entry.update(state="failed", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
         except libvirt.libvirtError as e:
-            entry.update(etat="failed", detail=f"Node unreachable: {describe_exception(e)}")
+            entry.update(state="failed", detail=f"Node unreachable: {describe_exception(e)}")
         results.append(entry)
-    failed = [r for r in results if r["etat"] == "failed"]
+    failed = [r for r in results if r["state"] == "failed"]
     if not failed:
         # Kept while a node still has it: the next attempt must find what is left.
         shared_pools.delete(pool_name)
-    return {"nom": pool_name, "resultats": results, "message": None if failed else f"Pool '{pool_name}' deleted"}
+    return {"name": pool_name, "results": results, "message": None if failed else f"Pool '{pool_name}' deleted"}
 
 
-def _delete_single(pool_name, node, detacher, user):
+def _delete_single(pool_name, node, detach, user):
 
     # A ZFS pool is NOT a libvirt pool (see zfs_storage.py): it is routed separately
     # before any lookup on the libvirt side, which would simply fail with "not found"
@@ -816,17 +818,17 @@ def _delete_single(pool_name, node, detacher, user):
                 )
             volumes = []
         if volumes:
-            # `detacher` only removes the libvirt pool DEFINITION (destroy + undefine), NEVER
+            # `detach` only removes the libvirt pool DEFINITION (destroy + undefine), NEVER
             # the files: for a dir/netfs pool that is not destructive. A real case: a dir pool
             # created automatically by virt-install on /root sees all of /root as "volumes"
             # and could therefore never be deleted.
             root = ET.fromstring(pool.XMLDesc(0))
-            if not detacher or root.get("type") not in ("dir", "netfs"):
+            if not detach or root.get("type") not in ("dir", "netfs"):
                 log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool not empty")
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"Pool '{pool_name}' still contains {len(volumes)} file(s)/volume(s). To remove the pool WITHOUT deleting these files, use the \"remove without deleting the files\" option (detacher=true, dir/NFS pools only)"
+                        f"Pool '{pool_name}' still contains {len(volumes)} file(s)/volume(s). To remove the pool WITHOUT deleting these files, use the \"remove without deleting the files\" option (detach=true, dir/NFS pools only)"
                     ),
                 )
             in_use = _vms_using_path(conn, root.findtext("target/path"))
@@ -864,7 +866,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
             in_use = get_disk_paths_in_use(conn)
             result = zfs_storage.list_zvols(pool_name)
             for vol in result:
-                vol["utilise"] = vol["chemin"] in in_use
+                vol["used"] = vol["path"] in in_use
             log_action(user["username"], "list_volumes", pool_name, "success")
             return result
 
@@ -879,11 +881,11 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
             vol_info = vol.info()
             result.append(
                 {
-                    "nom": vol.name(),
-                    "chemin": vol.path(),
-                    "capacite_go": round(vol_info[1] / (1024**3), 3),
-                    "allocation_go": round(vol_info[2] / (1024**3), 3),
-                    "utilise": vol.path() in in_use,
+                    "name": vol.name(),
+                    "path": vol.path(),
+                    "capacity_gb": round(vol_info[1] / (1024**3), 3),
+                    "allocation_gb": round(vol_info[2] / (1024**3), 3),
+                    "used": vol.path() in in_use,
                 }
             )
         log_action(user["username"], "list_volumes", pool_name, "success")
@@ -913,7 +915,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
             log_action(user["username"], "create_volume", payload.name, "failed", e.message)
             raise HTTPException(status_code=500, detail=f"zvol creation error: {e.message}") from e
         log_action(user["username"], "create_volume", payload.name, "success")
-        return {"nom": payload.name, "chemin": path, "capacite_go": float(payload.size_gb)}
+        return {"name": payload.name, "path": path, "capacity_gb": float(payload.size_gb)}
 
     conn = open_conn()
     try:
@@ -960,9 +962,9 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         log_action(user["username"], "create_volume", filename, "success")
         vol_info = vol.info()
         return {
-            "nom": vol.name(),
-            "chemin": vol.path(),
-            "capacite_go": round(vol_info[1] / (1024**3), 3),
+            "name": vol.name(),
+            "path": vol.path(),
+            "capacity_gb": round(vol_info[1] / (1024**3), 3),
         }
     finally:
         conn.close()

@@ -7,12 +7,12 @@ import type { Route } from "@playwright/test";
 const NAME = `e2e-nightly-${Date.now().toString().slice(-6)}`;
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = (nom: string) => ({ nom, etat: "arrete", id: null, uuid: nom, vcpu: 1, memoire_mo: 512, ip: null, utilisateur_ssh: null, uptime_s: null, os: "Debian", stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios" });
+const vm = (name: string) => ({ name, state: "stopped", id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" });
 
 test("backup jobs: a tag's VMs on one schedule with GFS retention", async ({ page, request }) => {
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm("e2e-bg-web"), vm("e2e-bg-db")])) : r.fallback()));
-  await page.route(/\/meta$/, (r) => (api(r) ? r.fulfill(json([{ kind: "vm", node: null, nom: "e2e-bg-web", tags: ["e2e-prod"], a_des_notes: false }])) : r.fallback()));
+  await page.route(/\/meta$/, (r) => (api(r) ? r.fulfill(json([{ kind: "vm", node: null, name: "e2e-bg-web", tags: ["e2e-prod"], has_notes: false }])) : r.fallback()));
 
   await page.goto("/datacenter?tab=backups");
   const main = page.getByRole("main");
@@ -45,8 +45,8 @@ test("backup jobs: a tag's VMs on one schedule with GFS retention", async ({ pag
 
   const token = await apiLogin(request);
   const jobs = await (await request.get("/backup-groups", { headers: { Authorization: `Bearer ${token}` } })).json();
-  const job = jobs.find((j: { nom: string }) => j.nom === NAME);
-  expect(job).toMatchObject({ selection: "tag", valeur: "e2e-prod", exclues: ["e2e-bg-db"], retention_count: 7, garder_jours: null, garder_semaines: 4, garder_mois: 6 });
+  const job = jobs.find((j: { name: string }) => j.name === NAME);
+  expect(job).toMatchObject({ selection: "tag", value: "e2e-prod", excluded: ["e2e-bg-db"], retention_count: 7, keep_days: null, keep_weeks: 4, keep_months: 6 });
 
   await row.getByRole("button", { name: `Delete ${NAME}` }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();

@@ -234,8 +234,8 @@ def _clone_vm(name, payload, user):
         return {
             "source": name,
             "clone": new_domain.name(),
-            "etat": "arretee",
-            "personnalisation_invite": reseed_iso is not None,
+            "state": "stopped",
+            "guest_customization": reseed_iso is not None,
         }
     except HTTPException:
         raise

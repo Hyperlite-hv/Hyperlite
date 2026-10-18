@@ -57,16 +57,16 @@ _VARS = {
 }
 
 _POSTGRES = {
-    "requises": [["POSTGRES_PASSWORD", "POSTGRES_HOST_AUTH_METHOD"]],
-    "utiles": ["POSTGRES_USER", "POSTGRES_DB", "TZ"],
+    "required": [["POSTGRES_PASSWORD", "POSTGRES_HOST_AUTH_METHOD"]],
+    "useful": ["POSTGRES_USER", "POSTGRES_DB", "TZ"],
 }
 _MYSQL = {
-    "requises": [["MYSQL_ROOT_PASSWORD", "MYSQL_RANDOM_ROOT_PASSWORD", "MYSQL_ALLOW_EMPTY_PASSWORD"]],
-    "utiles": ["MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "TZ"],
+    "required": [["MYSQL_ROOT_PASSWORD", "MYSQL_RANDOM_ROOT_PASSWORD", "MYSQL_ALLOW_EMPTY_PASSWORD"]],
+    "useful": ["MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "TZ"],
 }
 _MARIADB = {
     # The mariadb image also reads the MYSQL_ names.
-    "requises": [
+    "required": [
         [
             "MARIADB_ROOT_PASSWORD",
             "MARIADB_RANDOM_ROOT_PASSWORD",
@@ -76,7 +76,7 @@ _MARIADB = {
             "MYSQL_ALLOW_EMPTY_PASSWORD",
         ]
     ],
-    "utiles": ["MARIADB_DATABASE", "MARIADB_USER", "MARIADB_PASSWORD", "TZ"],
+    "useful": ["MARIADB_DATABASE", "MARIADB_USER", "MARIADB_PASSWORD", "TZ"],
 }
 
 # Repository (without registry, "library/" or tag) -> requirements.
@@ -88,24 +88,24 @@ KNOWN = {
     "pgvector/pgvector": _POSTGRES,
     "mysql": _MYSQL,
     "mariadb": _MARIADB,
-    "bitnami/postgresql": {"requises": [["POSTGRESQL_PASSWORD", "ALLOW_EMPTY_PASSWORD"]], "utiles": ["TZ"]},
-    "bitnami/mysql": {"requises": [["MYSQL_ROOT_PASSWORD", "ALLOW_EMPTY_PASSWORD"]], "utiles": ["MYSQL_DATABASE"]},
+    "bitnami/postgresql": {"required": [["POSTGRESQL_PASSWORD", "ALLOW_EMPTY_PASSWORD"]], "useful": ["TZ"]},
+    "bitnami/mysql": {"required": [["MYSQL_ROOT_PASSWORD", "ALLOW_EMPTY_PASSWORD"]], "useful": ["MYSQL_DATABASE"]},
     "bitnami/mariadb": {
-        "requises": [["MARIADB_ROOT_PASSWORD", "ALLOW_EMPTY_PASSWORD"]],
-        "utiles": ["MARIADB_DATABASE"],
+        "required": [["MARIADB_ROOT_PASSWORD", "ALLOW_EMPTY_PASSWORD"]],
+        "useful": ["MARIADB_DATABASE"],
     },
-    "mcr.microsoft.com/mssql/server": {"requises": [["ACCEPT_EULA"], ["MSSQL_SA_PASSWORD"]], "utiles": ["TZ"]},
-    "gvenzl/oracle-xe": {"requises": [["ORACLE_PASSWORD", "ORACLE_RANDOM_PASSWORD"]], "utiles": []},
-    "gvenzl/oracle-free": {"requises": [["ORACLE_PASSWORD", "ORACLE_RANDOM_PASSWORD"]], "utiles": []},
-    "mongo": {"requises": [], "utiles": ["MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "TZ"]},
-    "rabbitmq": {"requises": [], "utiles": ["RABBITMQ_DEFAULT_USER", "RABBITMQ_DEFAULT_PASS"]},
-    "minio/minio": {"requises": [], "utiles": ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"]},
-    "grafana/grafana": {"requises": [], "utiles": ["GF_SECURITY_ADMIN_PASSWORD", "TZ"]},
+    "mcr.microsoft.com/mssql/server": {"required": [["ACCEPT_EULA"], ["MSSQL_SA_PASSWORD"]], "useful": ["TZ"]},
+    "gvenzl/oracle-xe": {"required": [["ORACLE_PASSWORD", "ORACLE_RANDOM_PASSWORD"]], "useful": []},
+    "gvenzl/oracle-free": {"required": [["ORACLE_PASSWORD", "ORACLE_RANDOM_PASSWORD"]], "useful": []},
+    "mongo": {"required": [], "useful": ["MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "TZ"]},
+    "rabbitmq": {"required": [], "useful": ["RABBITMQ_DEFAULT_USER", "RABBITMQ_DEFAULT_PASS"]},
+    "minio/minio": {"required": [], "useful": ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"]},
+    "grafana/grafana": {"required": [], "useful": ["GF_SECURITY_ADMIN_PASSWORD", "TZ"]},
     "wordpress": {
-        "requises": [],
-        "utiles": ["WORDPRESS_DB_HOST", "WORDPRESS_DB_USER", "WORDPRESS_DB_PASSWORD", "WORDPRESS_DB_NAME"],
+        "required": [],
+        "useful": ["WORDPRESS_DB_HOST", "WORDPRESS_DB_USER", "WORDPRESS_DB_PASSWORD", "WORDPRESS_DB_NAME"],
     },
-    "nextcloud": {"requises": [], "utiles": ["NEXTCLOUD_ADMIN_USER", "NEXTCLOUD_ADMIN_PASSWORD"]},
+    "nextcloud": {"required": [], "useful": ["NEXTCLOUD_ADMIN_USER", "NEXTCLOUD_ADMIN_PASSWORD"]},
 }
 
 _DOCKER_HUB = ("docker.io", "index.docker.io", "registry-1.docker.io", "registry.hub.docker.com")
@@ -134,16 +134,16 @@ def repository(image):
 
 def _describe(name):
     description, secret, generated = _VARS.get(name, ("", False, False))
-    return {"nom": name, "description": description, "secret": secret, "generer": generated}
+    return {"name": name, "description": description, "secret": secret, "generate": generated}
 
 
 def hints(image):
-    """{"image", "requises": [[var, ...], ...], "utiles": [var, ...]} with each variable described."""
-    known = KNOWN.get(repository(image), {"requises": [], "utiles": []})
+    """{"image", "required": [[var, ...], ...], "useful": [var, ...]} with each variable described."""
+    known = KNOWN.get(repository(image), {"required": [], "useful": []})
     return {
         "image": repository(image),
-        "requises": [[_describe(v) for v in group] for group in known["requises"]],
-        "utiles": [_describe(v) for v in known["utiles"]],
+        "required": [[_describe(v) for v in group] for group in known["required"]],
+        "useful": [_describe(v) for v in known["useful"]],
     }
 
 
@@ -151,7 +151,7 @@ def missing(image, env):
     """Error messages for the requirements `env` does not meet (empty list when it does)."""
     env = env or {}
     errors = []
-    for group in KNOWN.get(repository(image), {"requises": []})["requises"]:
+    for group in KNOWN.get(repository(image), {"required": []})["required"]:
         if not any(str(env.get(v, "")).strip() for v in group):
             first = _describe(group[0])
             alternatives = f" (or {', '.join(group[1:])})" if len(group) > 1 else ""

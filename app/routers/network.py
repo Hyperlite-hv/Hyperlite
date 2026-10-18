@@ -30,7 +30,7 @@ _IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 # bridge_name went as is into libvirt XML built with an f-string
 # (<bridge name='{bridge_name}'/>) without validation, a possible XML injection
 # for anyone able to reach this endpoint (admins only today, so not exploitable
-# by a third party, but fixed anyway since it is not a practice to leave in).
+# by a third party, purpose fixed anyway since it is not a practice to leave in).
 _IFACE_NAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,15}$")
 
 
@@ -88,8 +88,8 @@ FORWARD_MODE_LABELS = {
     "nat": "nat",
     "route": "route",
     "bridge": "bridge",
-    "open": "ouvert",
-    "private": "prive",
+    "open": "open",
+    "private": "private",
     "vepa": "vepa",
     "passthrough": "passthrough",
     "hostdev": "hostdev",
@@ -111,16 +111,16 @@ def _network_summary(net):
     dhcp = ip_elem is not None and ip_elem.find("dhcp") is not None
     subnet = None
     if ip_elem is not None:
-        subnet = {"adresse": ip_elem.get("address"), "masque": ip_elem.get("netmask")}
+        subnet = {"address": ip_elem.get("address"), "masque": ip_elem.get("netmask")}
     return {
-        "nom": net.name(),
+        "name": net.name(),
         "uuid": net.UUIDString(),
-        "actif": net.isActive() == 1,
+        "active": net.isActive() == 1,
         "autostart": bool(net.autostart()),
-        "pont": bridge_name,
+        "bridge": bridge_name,
         "macvtap": macvtap is not None,
-        "type": FORWARD_MODE_LABELS.get(mode, "isole" if mode is None else mode),
-        "reseau": subnet,
+        "type": FORWARD_MODE_LABELS.get(mode, "isolated" if mode is None else mode),
+        "network": subnet,
         "dhcp": dhcp,
         "vlan": network_edit.carries_vlan_tags(root),
     }
@@ -138,7 +138,7 @@ def list_networks(user: dict = Depends(get_current_user)):
                 summary = _network_summary(net)
             except libvirt.libvirtError:
                 continue  # deleted between the listing and the read: it is simply no longer there
-            summary["vms"] = vm_counts.get(summary["nom"], 0)
+            summary["vms"] = vm_counts.get(summary["name"], 0)
             result.append(summary)
         log_action(user["username"], "list_networks", "networks", "success")
         return result
@@ -179,9 +179,9 @@ def get_network(name: str, user: dict = Depends(get_current_user)):
                     )
             except libvirt.libvirtError:
                 pass
-        summary["baux_dhcp"] = leases
+        summary["dhcp_leases"] = leases
         summary["ipam"] = network_edit.describe_xml(net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
-        summary["a_redemarrer"] = network_edit.pending(net)
+        summary["needs_restart"] = network_edit.pending(net)
         log_action(user["username"], "get_network", name, "success")
         return summary
     finally:
@@ -245,14 +245,14 @@ def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depend
             "set_network_firewall",
             name,
             "success",
-            f"{len(payload.rules)} rule(s), bridge {result['pont']}",
+            f"{len(payload.rules)} rule(s), bridge {result['bridge']}",
         )
-        return {"message": f"Firewall applied to network '{name}' (bridge {result['pont']})", **payload.model_dump()}
+        return {"message": f"Firewall applied to network '{name}' (bridge {result['bridge']})", **payload.model_dump()}
     finally:
         conn.close()
 
 
-# --- Starting, stopping and autostart of a network. A network defined but not started (libvirt's "default" NAT
+# --- Starting, stopping and autostart of a network. A network defined purpose not started (libvirt's "default" NAT
 # network is shipped that way on some installations) could not be brought back from the dashboard: its VMs could
 # not start and a Docker container could not be put on it. ---
 
@@ -350,8 +350,8 @@ class DhcpRange(BaseModel):
 
 
 class NetworkEdit(BaseModel):
-    mode: str = Field(description="'nat' | 'isole'")
-    adresse: str = Field(description="Gateway address of the network on the host")
+    mode: str = Field(description="'nat' | 'isolated'")
+    address: str = Field(description="Gateway address of the network on the host")
     masque: str = "255.255.255.0"
     dhcp: DhcpRange | None = None
 
@@ -359,7 +359,7 @@ class NetworkEdit(BaseModel):
 @router.patch("/{name}")
 def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_role("admin"))):
     """Subnet, DHCP range and NAT/isolated mode of a network Hyperlite routes itself (not a bridge onto the LAN).
-    On a running network only a DHCP range change is live; the rest waits for its restart (`a_redemarrer`)."""
+    On a running network only a DHCP range change is live; the rest waits for its restart (`needs_restart`)."""
     conn = open_conn()
     try:
         net = _lookup(conn, name)
@@ -368,7 +368,7 @@ def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_r
                 conn,
                 net,
                 mode=payload.mode,
-                address=payload.adresse,
+                address=payload.address,
                 netmask=payload.masque,
                 dhcp=payload.dhcp.model_dump() if payload.dhcp else None,
             )
@@ -379,11 +379,11 @@ def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_r
             msg = describe_exception(e)
             log_action(user["username"], "edit_network", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"The network could not be changed: {msg}") from e
-        detail = f"{payload.mode} {payload.adresse}/{payload.masque}"
+        detail = f"{payload.mode} {payload.address}/{payload.masque}"
         if payload.dhcp:
             detail += f" dhcp {payload.dhcp.debut}-{payload.dhcp.fin}"
         log_action(user["username"], "edit_network", name, "success", detail)
-        return get_network(name, user) | {"a_redemarrer": restart}
+        return get_network(name, user) | {"needs_restart": restart}
     finally:
         conn.close()
 
@@ -391,7 +391,7 @@ def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_r
 class Reservation(BaseModel):
     mac: str
     ip: str
-    nom: str | None = None
+    name: str | None = None
 
 
 @router.post("/{name}/reservations", status_code=201)
@@ -401,7 +401,7 @@ def add_reservation(name: str, payload: Reservation, user: dict = Depends(requir
     try:
         net = _lookup(conn, name)
         try:
-            network_edit.add_reservation(net, mac=payload.mac, ip=payload.ip, name=payload.nom or None)
+            network_edit.add_reservation(net, mac=payload.mac, ip=payload.ip, name=payload.name or None)
         except network_edit.EditError as e:
             log_action(user["username"], "add_reservation", name, "failed", str(e))
             raise HTTPException(status_code=422, detail=str(e)) from e
@@ -442,7 +442,7 @@ def delete_reservation(name: str, mac: str, user: dict = Depends(require_role("a
 
 class NetworkCreate(BaseModel):
     name: str
-    mode: str = Field(description="'nat' | 'isole' | 'bridge'")
+    mode: str = Field(description="'nat' | 'isolated' | 'bridge'")
     bridge_name: str | None = Field(
         None,
         description="Host interface (required if mode='bridge'): an existing bridge, or a NIC/bond/VLAN used through "
@@ -461,8 +461,8 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
         log_action(user["username"], "create_network", payload.name, "failed", name_error)
         raise HTTPException(status_code=422, detail=name_error)
 
-    if payload.mode not in ("nat", "isole", "bridge"):
-        raise HTTPException(status_code=422, detail="mode must be 'nat', 'isole' or 'bridge'")
+    if payload.mode not in ("nat", "isolated", "bridge"):
+        raise HTTPException(status_code=422, detail="mode must be 'nat', 'isolated' or 'bridge'")
 
     conn = open_conn()
     try:
@@ -484,12 +484,12 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
             iface = find_interface(payload.bridge_name)
             if iface is None:
                 raise HTTPException(status_code=422, detail=f"No interface '{payload.bridge_name}' on this host")
-            if not iface["utilisable"]:
+            if not iface["usable"]:
                 raise HTTPException(
                     status_code=422,
                     detail=f"'{payload.bridge_name}' is a Wi-Fi card: a Wi-Fi link cannot carry bridged VMs",
                 )
-            if iface["type"] == "pont":
+            if iface["type"] == "bridge":
                 # An existing Linux bridge: VMs are plugged into it, and the host reaches them.
                 net_xml = f"""
             <network>
@@ -562,7 +562,7 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
             net.create()
             net.setAutostart(True)
         except libvirt.libvirtError as e:
-            # Defined but not started: a half-created network would stay listed, inactive.
+            # Defined purpose not started: a half-created network would stay listed, inactive.
             if net is not None:
                 try:
                     if net.isActive():
@@ -670,7 +670,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
         log_action(
             user["username"], "rename_network", name, "success", f"-> {new} ({len(stopped)} guest(s) moved over)"
         )
-        return {**_network_summary(renamed), "invites_mis_a_jour": sorted(d.name() for _c, d, _r in stopped)}
+        return {**_network_summary(renamed), "guests_updated": sorted(d.name() for _c, d, _r in stopped)}
     finally:
         conn.close()
         lxc.close()

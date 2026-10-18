@@ -11,7 +11,7 @@ def _open(client, headers):
 def test_administrators_open_swagger_by_default_and_nobody_without_the_button(client, auth_headers):
     admin = auth_headers("alice")
     viewer = auth_headers("olga", role="viewer")
-    assert client.get("/api-docs/acces", headers=viewer).json() == {"acces": "admins", "autorise": False}
+    assert client.get("/api-docs/access", headers=viewer).json() == {"access": "admins", "allowed": False}
     assert client.post("/api-docs/ticket", headers=viewer).status_code == 403
     assert client.get("/docs").status_code == 403 and client.get("/openapi.json").status_code == 403
 
@@ -41,10 +41,10 @@ def test_a_ticket_is_used_once(client, auth_headers):
 def test_withdrawing_the_access_cuts_an_open_swagger(client, auth_headers):
     admin = auth_headers("alice")
     viewer = auth_headers("olga", role="viewer")
-    assert client.put("/api-docs/acces", json={"acces": "tous"}, headers=viewer).status_code == 403
-    client.put("/api-docs/acces", json={"acces": "tous"}, headers=admin)
+    assert client.put("/api-docs/access", json={"access": "all"}, headers=viewer).status_code == 403
+    client.put("/api-docs/access", json={"access": "all"}, headers=admin)
     cookie = _open(client, viewer).cookies.get("hl_docs")
     assert client.get("/openapi.json", cookies={"hl_docs": cookie}).status_code == 200
-    client.put("/api-docs/acces", json={"acces": "admins"}, headers=admin)
+    client.put("/api-docs/access", json={"access": "admins"}, headers=admin)
     assert client.get("/openapi.json", cookies={"hl_docs": cookie}).status_code == 403
-    assert client.put("/api-docs/acces", json={"acces": "public"}, headers=admin).status_code == 422
+    assert client.put("/api-docs/access", json={"access": "public"}, headers=admin).status_code == 422

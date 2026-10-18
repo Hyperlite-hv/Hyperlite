@@ -4,9 +4,9 @@ import type { Page, Route } from "@playwright/test";
 // Bulk actions on the VM list. The VMs are served by the test (as in degraded.spec.ts): creating several real
 // VMs would take minutes, and what is checked here is the selection, the confirmation and the per-VM calls.
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
-const vm = (nom: string, etat: string) => ({
-  nom, etat, id: null, uuid: nom, vcpu: 1, memoire_mo: 512, ip: null, utilisateur_ssh: null, uptime_s: null, os: "Debian",
-  stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios",
+const vm = (name: string, state: string) => ({
+  name, state, id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian",
+  zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios",
 });
 
 async function serveVms(page: Page, initial: Record<string, string>, refuse: string[] = []) {
@@ -17,19 +17,19 @@ async function serveVms(page: Page, initial: Record<string, string>, refuse: str
   await page.route(/\/vms(\?.*)?$/, (r: Route) => (api(r) && r.request().method() === "GET" ? r.fulfill(json(Object.entries(states).map(([n, e]) => vm(n, e)))) : r.fallback()));
   await page.route(/\/vms\/([^/?]+)\/(start|stop|restart)(\?.*)?$/, (r: Route) => {
     if (!api(r)) return r.fallback();
-    const [, name, action] = new URL(r.request().url()).pathname.match(/\/vms\/([^/]+)\/(\w+)$/) ?? [];
-    const nom = decodeURIComponent(name);
-    calls.push(`${action} ${nom}`);
-    if (refuse.includes(nom)) return r.fulfill(json({ detail: `${nom} refused by the test` }, 409));
-    states[nom] = action === "stop" ? "arrete" : "actif";
-    return r.fulfill(json({ nom, etat: states[nom], ip: null }));
+    const [, encoded, action] = new URL(r.request().url()).pathname.match(/\/vms\/([^/]+)\/(\w+)$/) ?? [];
+    const name = decodeURIComponent(encoded);
+    calls.push(`${action} ${name}`);
+    if (refuse.includes(name)) return r.fulfill(json({ detail: `${name} refused by the test` }, 409));
+    states[name] = action === "stop" ? "stopped" : "active";
+    return r.fulfill(json({ name, state: states[name], ip: null }));
   });
   return { states, calls };
 }
 
 test("bulk start: the selection, a confirmation naming the VMs and the ones skipped, one call per VM", async ({ page }) => {
   await uiLogin(page);
-  const backend = await serveVms(page, { "e2e-bulk-a": "arrete", "e2e-bulk-b": "arrete", "e2e-bulk-c": "actif" });
+  const backend = await serveVms(page, { "e2e-bulk-a": "stopped", "e2e-bulk-b": "stopped", "e2e-bulk-c": "active" });
   await goTo(page, "Virtual Machines");
   const table = page.getByRole("table");
   await expect(table.getByRole("button", { name: "e2e-bulk-a", exact: true })).toBeVisible();
@@ -56,7 +56,7 @@ test("bulk start: the selection, a confirmation naming the VMs and the ones skip
 
 test("bulk stop: a refused VM is named, the others go on, and the selection stays for a retry", async ({ page }) => {
   await uiLogin(page);
-  const backend = await serveVms(page, { "e2e-bulk-x": "actif", "e2e-bulk-y": "actif" }, ["e2e-bulk-y"]);
+  const backend = await serveVms(page, { "e2e-bulk-x": "active", "e2e-bulk-y": "active" }, ["e2e-bulk-y"]);
   await goTo(page, "Virtual Machines");
   await page.getByRole("checkbox", { name: "Select e2e-bulk-x" }).check();
   await page.getByRole("checkbox", { name: "Select e2e-bulk-y" }).check();

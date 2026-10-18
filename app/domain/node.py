@@ -20,8 +20,8 @@ class NodeSpec(BaseModel):
 
 
 class NodeStatus(BaseModel):
-    statut: str = UNKNOWN
-    derniere_verification: str | None = None
+    status: str = UNKNOWN
+    last_verification: str | None = None
 
 
 class Node(BaseModel):
@@ -42,8 +42,8 @@ class Node(BaseModel):
             "hostname": self.spec.hostname,
             "ssh_user": self.spec.ssh_user,
             "ssh_port": self.spec.ssh_port,
-            "statut": self.status.statut,
-            "derniere_verification": self.status.derniere_verification,
+            "status": self.status.status,
+            "last_verification": self.status.last_verification,
             "added_at": self.added_at,
         }
 

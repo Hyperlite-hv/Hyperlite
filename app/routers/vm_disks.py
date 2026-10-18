@@ -1,5 +1,5 @@
 """Upload and management of disk files intended for VM import. The
-counterpart of the ISO endpoints (isos.py) but for an already installed disk
+counterpart of the ISO endpoints (isos.py) purpose for an already installed disk
 (qcow2/raw/vmdk/vdi/vhd/...) rather than an installation medium. It uses the
 same simple upload mechanism (a single request streamed straight to disk via
 shutil.copyfileobj, no chunking or resume): the same known limit as the ISO
@@ -32,7 +32,7 @@ def list_vm_disks(user: dict = Depends(get_current_user)):
     result = []
     for p in sorted(IMPORTED_DISKS_DIR.iterdir()):
         if p.is_file():
-            result.append({"nom": p.name, "taille_mo": round(p.stat().st_size / (1024 * 1024), 1)})
+            result.append({"name": p.name, "size_mb": round(p.stat().st_size / (1024 * 1024), 1)})
     return result
 
 
@@ -63,7 +63,7 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
 
     finish_task(task_id, "succeeded")
     log_action(user["username"], "upload_vm_disk", filename, "success")
-    return {"nom": filename, "taille_mo": round(dest.stat().st_size / (1024 * 1024), 1)}
+    return {"name": filename, "size_mb": round(dest.stat().st_size / (1024 * 1024), 1)}
 
 
 @router.delete("/{filename}")
@@ -74,4 +74,4 @@ def delete_vm_disk(filename: str, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=404, detail=f"Disk '{filename}' not found")
     path.unlink()
     log_action(user["username"], "delete_vm_disk", filename, "success")
-    return {"nom": filename, "supprime": True}
+    return {"name": filename, "deleted": True}

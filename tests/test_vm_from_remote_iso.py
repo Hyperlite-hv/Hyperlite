@@ -50,7 +50,7 @@ def test_an_image_from_another_node_is_copied_here_then_the_vm_is_created(cluste
     (cluster["add_node"]("antho", "10.0.0.2") / "ubuntu.iso").write_bytes(b"u" * 64)
     r = client.post("/vms", json={**BASE, "iso": "ubuntu.iso", "iso_node": "antho"}, headers=auth_headers("admin"))
     assert r.status_code == 202, r.text
-    assert [t["node"] for t in r.json()["copie_iso"]] == ["local"]
+    assert [t["node"] for t in r.json()["copy_iso"]] == ["local"]
     # Everything is checked before the copy, with the image counted as on its way.
     assert creations[0] == {"iso": "ubuntu.iso", "pending": {"ubuntu.iso"}, "check_only": True}
     _wait(lambda: len(creations) == 2)

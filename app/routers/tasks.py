@@ -19,31 +19,31 @@ _TASK_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 @router.get("")
 async def list_tasks(
-    statut: str | None = None,
+    status: str | None = None,
     type: str | None = None,
     username: str | None = None,
-    cible: str | None = None,
+    target: str | None = None,
     node: str | None = None,
-    depuis: str | None = None,  # ISO 8601, filters on cree_le >= depuis
-    tri: str = "cree_le",
-    ordre: str = "desc",
+    since: str | None = None,  # ISO 8601, filters on created_at >= since
+    sort: str = "created_at",
+    position: str = "desc",
     limit: int = Query(200, ge=1, le=1000),
-    # One object's history: its exact name (cible matches any part of a name), and whether it is a container.
-    objet: str | None = None,
-    famille: Literal["vm", "container"] | None = None,
+    # One object's history: its exact name (target matches any part of a name), and whether it is a container.
+    object: str | None = None,
+    family: Literal["vm", "container"] | None = None,
     # In a cluster: every member's tasks, each marked with the node that holds it ("on"), and the members that did
     # not answer (app/core/cluster_view.py). Outside a cluster: this node's tasks, in the same shape.
     cluster: bool = False,
     user: dict = Depends(get_current_user),
 ):
-    filters = {"statut": statut, "type": type, "username": username, "cible": cible, "node": node, "depuis": depuis}
-    filters |= {"objet": objet, "famille": famille}
-    rows = await task_service.list_tasks(filters, tri, ordre, limit)
+    filters = {"status": status, "type": type, "username": username, "target": target, "node": node, "since": since}
+    filters |= {"object": object, "family": family}
+    rows = await task_service.list_tasks(filters, sort, position, limit)
     if not cluster:
         return rows
-    params = {**filters, "node": cluster_view.node_filter(node), "tri": tri, "ordre": ordre, "limit": limit}
+    params = {**filters, "node": cluster_view.node_filter(node), "sort": sort, "position": position, "limit": limit}
     answers, missing = await run_in_threadpool(cluster_view.gather, user["username"], "/tasks", params)
-    merged = cluster_view.merge(rows, answers, tri, reverse=ordre != "asc", limit=limit)
+    merged = cluster_view.merge(rows, answers, sort, reverse=position != "asc", limit=limit)
     return {"items": merged, "unreachable": missing}
 
 
@@ -71,17 +71,17 @@ async def _on_peer(on, task_id, user, method, path):
 
 @router.get("/export.csv")
 def export_tasks(
-    statut: str | None = None,
+    status: str | None = None,
     type: str | None = None,
     username: str | None = None,
-    cible: str | None = None,
+    target: str | None = None,
     node: str | None = None,
-    depuis: str | None = None,
+    since: str | None = None,
     user: dict = Depends(get_current_user),
 ):
     """EVERY task matching the same filters as GET /tasks, newest first, as CSV (the page
     only loads the most recent ones)."""
-    filters = {"statut": statut, "type": type, "username": username, "cible": cible, "node": node, "depuis": depuis}
+    filters = {"status": status, "type": type, "username": username, "target": target, "node": node, "since": since}
     rows = task_service.export_rows(filters)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     return StreamingResponse(
@@ -131,5 +131,5 @@ async def cancel_task(task_id: str, force: bool = False, on: str | None = None, 
         raise HTTPException(status_code=403, detail=str(e)) from e
     except (ValueError, task_core.NotStoppable) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
-    log_action(user["username"], "cancel_task", task["cible"] or task["type"], "success", f"{task['type']}: {outcome}")
-    return {"resultat": outcome}
+    log_action(user["username"], "cancel_task", task["target"] or task["type"], "success", f"{task['type']}: {outcome}")
+    return {"result": outcome}

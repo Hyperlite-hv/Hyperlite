@@ -21,14 +21,14 @@ async def list_audit(
     result: str | None = None,
     username: str | None = None,
     resource: str | None = None,
-    depuis: str | None = None,  # ISO 8601, filters on timestamp >= depuis
-    jusqu_a: str | None = None,
+    since: str | None = None,  # ISO 8601, filters on timestamp >= since
+    until: str | None = None,
     # In a cluster: every member's entries, each marked with the node that holds it ("on"), and the members that
     # did not answer (app/core/cluster_view.py). Outside a cluster: this node's entries, in the same shape.
     cluster: bool = False,
     user: dict = Depends(require_role("admin")),
 ):
-    f = audit_service.filters(action, result, username, resource, depuis, jusqu_a)
+    f = audit_service.filters(action, result, username, resource, since, until)
     rows = await audit_service.query(f, limit)
     if not cluster:
         return rows
@@ -42,15 +42,15 @@ async def count_audit(
     result: str | None = None,
     username: str | None = None,
     resource: str | None = None,
-    depuis: str | None = None,
-    jusqu_a: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     cluster: bool = False,
     user: dict = Depends(require_role("admin")),
 ):
     """Number of entries matching the same filters as GET /audit, which only returns the
     most recent ones: lets the page say "300 entries, showing the 100 most recent". cluster: every member's, summed
     over the members that answered."""
-    f = audit_service.filters(action, result, username, resource, depuis, jusqu_a)
+    f = audit_service.filters(action, result, username, resource, since, until)
     total = await audit_service.count(f)
     if cluster:
         answers, _ = await run_in_threadpool(cluster_view.gather, user["username"], "/audit/count", f)
@@ -79,8 +79,8 @@ def export_audit(
     result: str | None = None,
     username: str | None = None,
     resource: str | None = None,
-    depuis: str | None = None,
-    jusqu_a: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     user: dict = Depends(require_role("admin")),
 ):
     """EVERY entry matching the same filters as GET /audit, newest first, as CSV. The
@@ -93,13 +93,13 @@ def export_audit(
             "result": result,
             "username": username,
             "resource": resource,
-            "depuis": depuis,
-            "jusqu_a": jusqu_a,
+            "since": since,
+            "until": until,
         }.items()
         if v
     }
     log_action(user["username"], "export_audit", "audit_log", "success", str(filters) if filters else None)
-    rows = audit_service.export_rows(audit_service.filters(action, result, username, resource, depuis, jusqu_a))
+    rows = audit_service.export_rows(audit_service.filters(action, result, username, resource, since, until))
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     return StreamingResponse(
         csv_lines(("timestamp", "user", "action", "resource", "result", "error", "ip"), rows),

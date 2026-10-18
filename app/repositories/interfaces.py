@@ -13,12 +13,12 @@ class NodeRepository(Protocol):
 
     async def list_online(self) -> list[Node]: ...
 
-    async def create(self, spec: NodeSpec, added_at: str, statut: str) -> Node:
+    async def create(self, spec: NodeSpec, added_at: str, status: str) -> Node:
         """Raises AlreadyExists when a node has that name."""
 
     async def delete(self, name: str) -> bool: ...
 
-    async def update_status(self, node_id: int, statut: str, checked_at: str) -> str | None:
+    async def update_status(self, node_id: int, status: str, checked_at: str) -> str | None:
         """Record a check; returns the previous state (None when the node is gone)."""
 
     async def live(self, name: str | None = None) -> dict | None:

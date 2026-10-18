@@ -11,8 +11,8 @@ from app.core import maintenance, rolling_update, self_node
 from app.core.tasks import create_task
 
 NODES = [
-    {"name": "pve2", "hostname": "10.0.0.2", "ssh_user": "root", "ssh_port": 22, "statut": "online"},
-    {"name": "pve3", "hostname": "10.0.0.3", "ssh_user": "root", "ssh_port": 22, "statut": "online"},
+    {"name": "pve2", "hostname": "10.0.0.2", "ssh_user": "root", "ssh_port": 22, "status": "online"},
+    {"name": "pve3", "hostname": "10.0.0.3", "ssh_user": "root", "ssh_port": 22, "status": "online"},
 ]
 
 
@@ -29,26 +29,26 @@ class FakeCluster:
         self.calls.append((name, method, path))
         if path == "/update/check" and name not in self.drained_names():
             # Asked before the node is emptied: what it has to update.
-            return 200, {"verifiable": True, "a_jour": name in self.current, "systeme": {"paquets": 0}}
+            return 200, {"verifiable": True, "up_to_date": name in self.current, "system": {"packages": 0}}
         assert maintenance.get(name), f"{name} is updated while out of maintenance"
         if (method, path) == ("POST", "/update/apply"):
             return 202, {"task_id": f"t-{name}"}
         if path.startswith("/tasks/"):
             if name in self.failing:
-                return 200, {"statut": "failed", "erreur": "apt-get full-upgrade exited with 100"}
+                return 200, {"status": "failed", "error": "apt-get full-upgrade exited with 100"}
             self.version[name] = "1.0.1"
-            return 200, {"statut": "succeeded"}
+            return 200, {"status": "succeeded"}
         if path == "/update/check":
             pending = name in self.reboot and name not in self.rebooted
             return 200, {
                 "verifiable": True,
                 "commit_local": self.version[name],
-                "systeme": {"redemarrage_requis": pending},
+                "system": {"restart_required": pending},
             }
         if path == "/host/system/power":
-            assert body["arreter_invites"] is True and body["confirmation"] == f"host-{name}"
+            assert body["stop_guests"] is True and body["confirmation"] == f"host-{name}"
             self.rebooted.append(name)
-            return 202, {"tache": "x"}
+            return 202, {"task": "x"}
         if path == "/update/channel":
             return 200, {"canal": "stable"}
         raise AssertionError(f"unexpected call {method} {path}")
@@ -100,8 +100,8 @@ def _run(database, local_tasks, restarts=False):
 
     rolling_update.run(task_id, "alice", False, start_local, lambda: restarts)
     with database.get_conn() as conn:
-        row = conn.execute("SELECT statut, erreur FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    return row["statut"], row["erreur"]
+        row = conn.execute("SELECT status, error FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return row["status"], row["error"]
 
 
 def test_the_other_nodes_one_after_another_then_this_node(cluster, database):
@@ -148,7 +148,7 @@ def test_this_node_leaves_maintenance_at_its_next_start_when_its_update_restarts
 
 def test_an_offline_node_refuses_the_run(cluster, database, monkeypatch):
     fake = cluster()
-    monkeypatch.setattr(rolling_update, "peers", lambda: [NODES[0], {**NODES[1], "statut": "offline"}])
+    monkeypatch.setattr(rolling_update, "peers", lambda: [NODES[0], {**NODES[1], "status": "offline"}])
     status, error = _run(database, [])
     assert status == "failed" and "offline" in error and fake.calls == []
 
@@ -162,10 +162,10 @@ def test_the_token_goes_through_ssh_input_never_the_command_line(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(rolling_update.cluster, "node_ssh_options", lambda extra=None: ["-i", "key", *(extra or [])])
-    status, body = rolling_update.peer_api(NODES[0], "alice", "POST", "/update/apply", {"systeme": True})
+    status, body = rolling_update.peer_api(NODES[0], "alice", "POST", "/update/apply", {"system": True})
     assert (status, body) == (202, {"task_id": "t1"})
     request = json.loads(seen["input"])
-    assert request["url"] == "https://127.0.0.1:8000/update/apply" and request["body"] == {"systeme": True}
+    assert request["url"] == "https://127.0.0.1:8000/update/apply" and request["body"] == {"system": True}
     assert request["token"] and request["token"] not in " ".join(seen["argv"])
     # ssh joins its arguments into one command line for the remote shell: the script must survive that splitting.
     import shlex
@@ -186,14 +186,14 @@ def test_an_unreachable_node_is_said(monkeypatch):
 def test_the_plan_says_what_prevents_starting(monkeypatch):
     def plan(node, username, local_check=None, target=None):
         name = node["name"] if node else "pve1"
-        return {"nom": name, "joignable": True, "verifiable": True, "canal": "test" if name == "pve3" else "stable",
-                "a_faire": name == "pve2"}  # fmt: skip
+        return {"name": name, "reachable": True, "verifiable": True, "canal": "test" if name == "pve3" else "stable",
+                "to_do": name == "pve2"}  # fmt: skip
 
     monkeypatch.setattr(rolling_update, "peers", lambda: [dict(n) for n in NODES])
     monkeypatch.setattr(rolling_update, "node_plan", plan)
     out = rolling_update.cluster_plan("alice", None)
-    assert [n["nom"] for n in out["noeuds"]] == ["pve2", "pve3", "pve1"] and out["a_faire"] is True
-    assert any("same update channel" in p for p in out["problemes"])
+    assert [n["name"] for n in out["nodes"]] == ["pve2", "pve3", "pve1"] and out["to_do"] is True
+    assert any("same update channel" in p for p in out["problems"])
 
 
 def test_the_api_outside_a_cluster(client, auth_headers, monkeypatch):
@@ -219,7 +219,7 @@ def test_the_plan_judges_each_node_against_a_target(monkeypatch):
 
     def plan(node, username, local_check=None, target=None):
         seen.append((node["name"] if node else "local", target))
-        return {"nom": node["name"] if node else "pve1", "joignable": True, "verifiable": True, "canal": "stable"}
+        return {"name": node["name"] if node else "pve1", "reachable": True, "verifiable": True, "canal": "stable"}
 
     monkeypatch.setattr(rolling_update, "peers", lambda: [dict(n) for n in NODES])
     monkeypatch.setattr(rolling_update, "node_plan", plan)

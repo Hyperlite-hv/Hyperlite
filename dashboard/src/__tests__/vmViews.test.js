@@ -12,7 +12,7 @@ async function load(initial) {
 }
 afterEach(() => vi.unstubAllGlobals());
 
-const vm = (nom, node = "local") => ({ nom, node });
+const vm = (name, node = "local") => ({ name, node });
 
 describe("VM list views", () => {
   it("reads the old node toggle and ignores broken values", async () => {
@@ -41,13 +41,13 @@ describe("VM list views", () => {
     const { groupVms } = await load();
     const tags = { web: ["prod", "front"], db: ["prod"], lab: [] };
     const shown = [vm("web"), vm("db"), vm("lab"), vm("far", "n2")];
-    const byTag = groupVms(shown, "tag", { tagsOf: (v) => tags[v.nom] || [], noneLabel: "No tag" });
-    expect(byTag.map((g) => [g.label, g.vms.map((v) => v.nom)])).toEqual([["front", ["web"]], ["prod", ["web", "db"]], ["No tag", ["lab", "far"]]]);
+    const byTag = groupVms(shown, "tag", { tagsOf: (v) => tags[v.name] || [], noneLabel: "No tag" });
+    expect(byTag.map((g) => [g.label, g.vms.map((v) => v.name)])).toEqual([["front", ["web"]], ["prod", ["web", "db"]], ["No tag", ["lab", "far"]]]);
     const pools = [{ name: "team", vms: ["db", "far"] }];
     const byPool = groupVms(shown, "pool", { pools, noneLabel: "No pool" });
     // Pools hold VMs of this node: the remote "far" of the same name is not a member.
-    expect(byPool.map((g) => [g.label, g.vms.map((v) => v.nom)])).toEqual([["team", ["db"]], ["No pool", ["web", "lab", "far"]]]);
-    const nodes = [{ id: "local", nom: "hv1" }, { id: "n2", nom: "hv2" }, { id: "n3", nom: "hv3" }];
+    expect(byPool.map((g) => [g.label, g.vms.map((v) => v.name)])).toEqual([["team", ["db"]], ["No pool", ["web", "lab", "far"]]]);
+    const nodes = [{ id: "local", name: "hv1" }, { id: "n2", name: "hv2" }, { id: "n3", name: "hv3" }];
     expect(groupVms(shown, "node", { nodes }).map((g) => g.label)).toEqual(["hv1", "hv2"]);
     expect(groupVms(shown, "node", { nodes, withEmpty: true }).map((g) => g.label)).toEqual(["hv1", "hv2", "hv3"]);
     expect(groupVms(shown, "none")).toBeNull();

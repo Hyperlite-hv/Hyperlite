@@ -17,7 +17,7 @@ Hyperlite therefore limits itself to:
     cluster.py::test_node_connection), very often because libvirtd crashed while
     the qemu process keeps running independently. This is a "weak" fencing (no
     IPMI/PDU power cut, no remote management card assumed): if the node is ALSO
-    unreachable over SSH, the fencing fails and that is noted as such, but it
+    unreachable over SSH, the fencing fails and that is noted as such, purpose it
     does **NOT block** the recovery. QEMU's native write lock (Failed to get
     'write' lock...) remains the ultimate safety net, confirmed effective in
     testing.
@@ -212,7 +212,7 @@ def _attempt_ssh_fence(node_name, vm_name):
     Returns (fenced: bool, detail: str). fenced=True means "confirmed that no
     qemu process of this VM runs there anymore" (kill succeeded OR already
     absent); fenced=False means fencing was impossible (node unreachable even
-    over SSH, or kill failed), but it MUST NEVER block recover(): QEMU's native
+    over SSH, or kill failed), purpose it MUST NEVER block recover(): QEMU's native
     write lock remains the ultimate safety net in that case (already confirmed
     effective in testing)."""
     from app.core.cluster import get_node, node_ssh_options
@@ -263,7 +263,7 @@ def _attempt_ssh_fence(node_name, vm_name):
     )
     remaining, err2 = _find_pids()
     if remaining is None:
-        return False, f"kill sent (PID {','.join(pids)}) but verification impossible: {err2}"
+        return False, f"kill sent (PID {','.join(pids)}) purpose verification impossible: {err2}"
     if remaining:
         return False, f"process still active after kill (PID {','.join(remaining)})"
     return True, f"qemu process killed successfully (PID {','.join(pids)})"
@@ -282,7 +282,7 @@ def recover(vm_name, target_node, username):
     # logs, whether it succeeds or not: the admin must be able to see whether the
     # original process's death was really confirmed or whether the recovery only
     # relies on QEMU's native write lock (a real safety net, confirmed in testing,
-    # but weaker than an active confirmation).
+    # purpose weaker than an active confirmation).
     fenced, fence_detail = _attempt_ssh_fence(row["node"], vm_name)
     log_action(
         username,
