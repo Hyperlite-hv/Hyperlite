@@ -2,6 +2,7 @@ import logging
 
 import libvirt
 from fastapi import Depends, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.core import cluster_view
 from app.core.audit import log_action
@@ -76,7 +77,9 @@ def list_vms(
     if cluster:
         result = _cluster_vms(user["username"])
         log_action(user["username"], "list_vms", "vms", "succes")
-        return result
+        # Already JSON-ready (plain dicts from the summaries): FastAPI's generic encoder walked a thousand of them on
+        # every request, the largest cost of this list under load (docs/scale-results.md).
+        return JSONResponse(result)
     """node: the name of a registered remote node, to list ITS VMs instead of those
     of the local host. Omitted or None = unchanged behaviour (local host).
     The frontend used to have no way to query a remote node here, so the VMs of
