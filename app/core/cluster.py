@@ -392,7 +392,7 @@ def node_summary(node_name):
         return {
             "hostname": conn.getHostname(),
             "connected": conn.isAlive() == 1,
-            "vms_actives": active,
+            "vms_running": active,
             "vms_stopped": len(domains) - active,
             "storage_capacity_gb": round(capacity / (1024**3), 1) if capacity else None,
             "storage_available_gb": round(available / (1024**3), 1) if available else None,

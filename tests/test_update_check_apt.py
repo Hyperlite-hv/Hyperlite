@@ -63,7 +63,7 @@ def test_official_repository_with_newer_version(apt):
     )
     result = update._check_update_apt()
     assert result["verifiable"] is True and result["up_to_date"] is False
-    assert result["commit_distant"] == "2026.09.27.1838"
+    assert result["remote_commit"] == "2026.09.27.1838"
 
 
 def test_official_repository_up_to_date(apt, monkeypatch):
@@ -90,7 +90,7 @@ def test_a_rolled_back_update_is_not_up_to_date(apt, monkeypatch):
     monkeypatch.setattr(update.version, "STARTUP_VERSION", "2026.09.28.0743")
     result = update._check_update_apt()
     assert result["verifiable"] is True and result["up_to_date"] is False and result["rolled_back"] is True
-    assert result["commit_local"] == "2026.09.28.0743" and result["commit_distant"] == "2026.09.28.1013"
+    assert result["commit_local"] == "2026.09.28.0743" and result["remote_commit"] == "2026.09.28.1013"
     assert "rolled back" in result["changelog"][0]
 
 
@@ -111,7 +111,7 @@ def test_the_epoch_of_a_semver_release_is_never_shown(apt):
     """From 1.0.0 the package is 1:1.0.0 (or apt would order it below the dated versions); /health says 1.0.0."""
     apt(_policy("2026.10.03.2003", "1:1.0.0", (500, f"{OFFICIAL} stable/main amd64 Packages")))
     result = update._check_update_apt()
-    assert result["commit_distant"] == "1.0.0" and result["up_to_date"] is False
+    assert result["remote_commit"] == "1.0.0" and result["up_to_date"] is False
 
 
 def test_the_notes_between_the_installed_version_and_the_candidate(monkeypatch, tmp_path):

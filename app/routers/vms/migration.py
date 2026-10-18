@@ -639,7 +639,7 @@ def migrate_vm(
         dest_conn = open_conn(_norm_node(payload.target_node))
         try:
             compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dest_conn, domain))
-            if compat["resume"]["blocking"] and not payload.skip_checks:
+            if compat["summary"]["blocking"] and not payload.skip_checks:
                 blocages = [c["message"] for c in compat["checks"] if c["status"] == "blocking"]
                 raise HTTPException(
                     status_code=409, detail="Migration refused by the compatibility diagnostic: " + " ; ".join(blocages)

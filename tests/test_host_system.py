@@ -73,7 +73,7 @@ def test_upgrade_names_the_packages_and_leaves_hyperlite_out(host, monkeypatch):
 def test_dns_follows_who_manages_resolv_conf(host):
     resolv = host["tmp"] / "resolv_conf"
     resolv.write_text("nameserver 1.1.1.1\nsearch lan\n")
-    assert hs.dns() == {"managed_by": "file", "modifiable": True, "servers": ["1.1.1.1"], "recherche": ["lan"]}
+    assert hs.dns() == {"managed_by": "file", "modifiable": True, "servers": ["1.1.1.1"], "search": ["lan"]}
     hs.set_dns(["9.9.9.9", "2620:fe::fe"], ["example.org"])
     assert resolv.read_text().endswith("nameserver 9.9.9.9\nnameserver 2620:fe::fe\nsearch example.org\n")
 

@@ -89,17 +89,17 @@ def refuse_if_in_maintenance(node_label, action):
 def plan(src_conn, dst_conn, target_node):
     """Which VMs of the source can be live-migrated to `target_node`, and why the others cannot.
 
-    `dst_conn` is None when no target was chosen: then every VM stays. Returns {"migrables": [name...],
-    "non_migrables": [{"name", "reason"}...]}, both sorted by name."""
-    migrables, blocked = [], []
+    `dst_conn` is None when no target was chosen: then every VM stays. Returns {"migratable": [name...],
+    "not_migratable": [{"name", "reason"}...]}, both sorted by name."""
+    migratable, blocked = [], []
     for domain in sorted(src_conn.listAllDomains(0), key=lambda d: d.name()):
         name = domain.name()
         reason = _why_not_migrable(src_conn, domain, dst_conn, target_node)
         if reason:
             blocked.append({"name": name, "reason": reason})
         else:
-            migrables.append(name)
-    return {"migrables": migrables, "non_migrables": blocked}
+            migratable.append(name)
+    return {"migratable": migratable, "not_migratable": blocked}
 
 
 def _why_not_migrable(src_conn, domain, dst_conn, target_node):
@@ -116,7 +116,7 @@ def _why_not_migrable(src_conn, domain, dst_conn, target_node):
         except libvirt.libvirtError:
             pass
         compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dst_conn, domain))
-        if compat["resume"]["blocking"]:
+        if compat["summary"]["blocking"]:
             blocking = [c["message"] for c in compat["checks"] if c["status"] == "blocking"]
             return "Compatibility diagnostic: " + " ; ".join(blocking)
     except libvirt.libvirtError as e:

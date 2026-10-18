@@ -126,7 +126,7 @@ def test_command_line_exit_code_reflects_blocking_checks(tmp_path):
         check=False,
     )
     assert result.returncode == 1
-    assert json.loads(result.stdout)["resume"]["blocking"] is True
+    assert json.loads(result.stdout)["summary"]["blocking"] is True
 
 
 def test_script_runs_with_only_the_standard_library():

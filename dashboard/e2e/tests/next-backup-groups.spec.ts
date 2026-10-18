@@ -7,7 +7,7 @@ import type { Route } from "@playwright/test";
 const NAME = `e2e-nightly-${Date.now().toString().slice(-6)}`;
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = (name: string) => ({ name, state: "stopped", id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" });
+const vm = (name: string) => ({ name, state: "stopped", id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" });
 
 test("backup jobs: a tag's VMs on one schedule with GFS retention", async ({ page, request }) => {
   await uiLogin(page);

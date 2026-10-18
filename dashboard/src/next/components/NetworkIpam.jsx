@@ -19,22 +19,22 @@ function Settings({ name, detail, onChange }) {
   const pushToast = useInfraStore((s) => s.pushToast);
   const ipam = detail.ipam;
   const [f, setF] = useState(() => ({
-    mode: ipam.mode, address: ipam.address, masque: ipam.masque, dhcp: Boolean(ipam.dhcp), debut: ipam.dhcp?.debut || "", fin: ipam.dhcp?.fin || "",
+    mode: ipam.mode, address: ipam.address, netmask: ipam.netmask, dhcp: Boolean(ipam.dhcp), start: ipam.dhcp?.start || "", end: ipam.dhcp?.end || "",
   }));
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
   const bad = {
-    address: !IPV4.test(f.address), masque: !IPV4.test(f.masque),
-    debut: f.dhcp && !IPV4.test(f.debut), fin: f.dhcp && !IPV4.test(f.fin),
+    address: !IPV4.test(f.address), netmask: !IPV4.test(f.netmask),
+    start: f.dhcp && !IPV4.test(f.start), end: f.dhcp && !IPV4.test(f.end),
   };
   const invalid = Object.values(bad).some(Boolean);
-  const dirty = f.mode !== ipam.mode || f.address !== ipam.address || f.masque !== ipam.masque || f.dhcp !== Boolean(ipam.dhcp)
-    || (f.dhcp && (f.debut !== ipam.dhcp?.debut || f.fin !== ipam.dhcp?.fin));
+  const dirty = f.mode !== ipam.mode || f.address !== ipam.address || f.netmask !== ipam.netmask || f.dhcp !== Boolean(ipam.dhcp)
+    || (f.dhcp && (f.start !== ipam.dhcp?.start || f.end !== ipam.dhcp?.end));
 
   async function save() {
     setBusy(true);
     try {
-      const r = await editNetwork(name, { mode: f.mode, address: f.address, masque: f.masque, dhcp: f.dhcp ? { debut: f.debut, fin: f.fin } : null });
+      const r = await editNetwork(name, { mode: f.mode, address: f.address, netmask: f.netmask, dhcp: f.dhcp ? { start: f.start, end: f.end } : null });
       pushToast({ kind: "success", title: t("ipam.saved"), message: t(r.needs_restart ? "ipam.savedRestart" : "ipam.savedLive") });
       onChange();
     } catch (e) { pushToast({ kind: "error", title: t("ipam.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
@@ -56,10 +56,10 @@ function Settings({ name, detail, onChange }) {
       <div className="nx-fg">
         <Field label={t("net.mode")}>{(p) => <select {...p} className="nx-inp" value={f.mode} onChange={set("mode")}><option value="nat">{t("net.mode.nat")}</option><option value="isolated">{t("net.mode.isolated")}</option></select>}</Field>
         {input("address", t("ipam.gateway"))}
-        {input("masque", t("ipam.netmask"), t("hlp.netmask"))}
+        {input("netmask", t("ipam.netmask"), t("hlp.netmask"))}
       </div>
       <label className="nx-check"><input type="checkbox" checked={f.dhcp} onChange={set("dhcp")} /> {t("ipam.dhcpOn")}</label>
-      {f.dhcp && <div className="nx-fg">{input("debut", t("ipam.dhcpStart"))}{input("fin", t("ipam.dhcpEnd"))}</div>}
+      {f.dhcp && <div className="nx-fg">{input("start", t("ipam.dhcpStart"))}{input("end", t("ipam.dhcpEnd"))}</div>}
       <p className="nx-muted" style={{ margin: 0, fontSize: "var(--fs-13)" }}>{t("ipam.settingsHelp")}</p>
       <div><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || invalid || busy} onClick={save}>{t("ipam.save")}</button></div>
     </section>

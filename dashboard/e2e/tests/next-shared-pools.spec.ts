@@ -11,7 +11,7 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
     if (req.resourceType() === "document") return route.fallback();
     const path = new URL(req.url()).pathname;
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" }]);
-    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_actives: 0, vms_stopped: 0 });
+    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_running: 0, vms_stopped: 0 });
     return route.fallback();
   });
   await page.route("**/storage/support", (route) => json(route, { nfs: "ok", zfs: "ok", iscsi: "ok", iscsi_initiator: null }));

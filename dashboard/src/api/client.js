@@ -81,8 +81,8 @@ export async function setAutoUpdates(active, time) {
 export async function fetchUpdateChannel() {
   return realFetch("/update/channel");
 }
-export async function setUpdateChannel(canal) {
-  return realFetch("/update/channel", { method: "PUT", ...jsonBody({ canal }) });
+export async function setUpdateChannel(channel) {
+  return realFetch("/update/channel", { method: "PUT", ...jsonBody({ channel }) });
 }
 export async function upgradeHostPackages(packages) {
   return realFetch("/host/system/updates/upgrade", { method: "POST", ...jsonBody({ packages }) });
@@ -188,17 +188,17 @@ export async function fetchNodes() {
     // instance", never a real machine name. The real name (d.hyperviseur.nom) is
     // displayed everywhere; only this `id` is used for internal comparisons.
     id: "local",
-    name: d.hyperviseur.name,
-    state: d.hyperviseur.connected ? "online" : "error",
+    name: d.hypervisor.name,
+    state: d.hypervisor.connected ? "online" : "error",
     ...liveFields(d.live),
     available_memory_mb: d.available_memory_mb,
     stockage_total_go: d.storage.capacity_gb,
     stockage_utilise_go: d.storage.capacity_gb != null && d.storage.available_gb != null
       ? Math.round((d.storage.capacity_gb - d.storage.available_gb) * 100) / 100 : null,
-    uptime_s: d.live?.uptime_s ?? d.hyperviseur.uptime_s,
+    uptime_s: d.live?.uptime_s ?? d.hypervisor.uptime_s,
     ip: d.live?.address ?? null,
-    version: `Hyperlite (${d.hyperviseur.type})`,
-    vms_actives: d.vms.actives,
+    version: `Hyperlite (${d.hypervisor.type})`,
+    vms_running: d.vms.actives,
     vms_stopped: d.vms.stopped,
     // Why this node changes nothing right now (a cluster node that lost the quorum), or null.
     read_only: d.read_only ?? null,
@@ -229,7 +229,7 @@ export async function fetchNodes() {
         ssh_port: n.ssh_port,
         ssh_user: n.ssh_user,
         version: "Hyperlite (remote)",
-        vms_actives: s?.vms_actives ?? 0,
+        vms_running: s?.vms_running ?? 0,
         vms_stopped: s?.vms_stopped ?? 0,
         distant: true,
         // A member of this node's cluster: it runs Hyperlite and keeps its VMs' backups (GET /nodes, "membre").
@@ -259,7 +259,7 @@ function mapVm(v, nodeId) {
     // here unless it is listed: VMSnapshotsTab.jsx would always receive `undefined`.
     zfs_storage: v.zfs_storage,
     iscsi_storage: v.iscsi_storage,
-    agent_invite: v.agent_invite,
+    guest_agent: v.guest_agent,
     firmware: v.firmware,
   };
 }

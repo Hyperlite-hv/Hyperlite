@@ -91,17 +91,17 @@ export default function CfsPage() {
       ) : (
         <>
           <KpiStrip label={t("cfs.state")} items={[
-            { id: "daemon", label: t("cfs.daemon"), dot: state.reachable ? "success" : "danger", value: state.reachable ? t(`cfs.mode.${state.demon.mode}`) : t("cfs.unreachable"),
-              sub: state.reachable ? (state.demon.quorum ? t("cfs.quorate") : t("cfs.readOnly")) : null, subTone: state.reachable && !state.demon.quorum ? "warning" : undefined },
-            { id: "gaps", label: t("cfs.gaps"), dot: state.reachable ? (state.ecarts ? "warning" : "success") : undefined, value: state.reachable ? state.ecarts : null },
+            { id: "daemon", label: t("cfs.daemon"), dot: state.reachable ? "success" : "danger", value: state.reachable ? t(`cfs.mode.${state.daemon.mode}`) : t("cfs.unreachable"),
+              sub: state.reachable ? (state.daemon.quorum ? t("cfs.quorate") : t("cfs.readOnly")) : null, subTone: state.reachable && !state.daemon.quorum ? "warning" : undefined },
+            { id: "gaps", label: t("cfs.gaps"), dot: state.reachable ? (state.differences ? "warning" : "success") : undefined, value: state.reachable ? state.differences : null },
             { id: "pending", label: t("cfs.pending"), dot: state.pending ? "warning" : undefined, value: state.pending, sub: t("cfs.pendingSub") },
             { id: "copies", label: t("cfs.copies"), value: state.copies, sub: t("cfs.sinceStart") },
-            ...(state.reachable && state.demon.mode === "cluster" ? [{ id: "received", label: t("cfs.received"), value: state.reception?.appliques ?? 0, sub: t("cfs.receivedSub") }] : []),
+            ...(state.reachable && state.daemon.mode === "cluster" ? [{ id: "received", label: t("cfs.received"), value: state.inbound?.applied ?? 0, sub: t("cfs.receivedSub") }] : []),
             { id: "failures", label: t("cfs.failures"), dot: state.failures ? "warning" : undefined, value: state.failures, sub: t("cfs.sinceStart") },
           ]} />
           {state.force && <p className="nx-f-h">{t("cfs.forced")}</p>}
           {!state.reachable && <div className="nx-bn" data-tone="danger" role="alert">{state.error}</div>}
-          {state.reception?.problem && <div className="nx-bn" data-tone="danger" role="alert">{state.reception.problem}</div>}
+          {state.inbound?.problem && <div className="nx-bn" data-tone="danger" role="alert">{state.inbound.problem}</div>}
           {state.last_error && (
             <p className="nx-f-h" role="status">{t("cfs.lastError", { when: formatDateTime(state.last_error_at, lang), error: state.last_error })}</p>
           )}
@@ -114,17 +114,17 @@ export default function CfsPage() {
                     {KINDS.map((k) => <th key={k} scope="col">{t(`cfs.kind.${k}`)}</th>)}
                   </tr></thead>
                   <tbody>
-                    {sortedDomains(state.domaines, t).map(([name, d]) => (
+                    {sortedDomains(state.domains, t).map(([name, d]) => (
                       <tr key={name}>
-                        <th scope="row">{t(`cfs.domainName.${name}`)}{d.illisible && <span className="nx-f-h"> — {t("cfs.unreadable")}</span>}</th>
-                        <td>{d.entrees}</td>
+                        <th scope="row">{t(`cfs.domainName.${name}`)}{d.unreadable && <span className="nx-f-h"> — {t("cfs.unreadable")}</span>}</th>
+                        <td>{d.entries}</td>
                         {KINDS.map((k) => <td key={k}>{d[k]}</td>)}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </TableWrap>
-              {Object.entries(state.domaines).filter(([, d]) => KINDS.some((k) => d.examples[k].length)).map(([name, d]) => (
+              {Object.entries(state.domains).filter(([, d]) => KINDS.some((k) => d.examples[k].length)).map(([name, d]) => (
                 <details key={name} style={{ margin: "var(--space-3) var(--space-4)" }}>
                   <summary>{t("cfs.examples", { domain: t(`cfs.domainName.${name}`) })}</summary>
                   {KINDS.filter((k) => d.examples[k].length).map((k) => (
@@ -135,7 +135,7 @@ export default function CfsPage() {
                   ))}
                 </details>
               ))}
-              <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t(state.ecarts ? "cfs.gapsHelp" : "cfs.noGap")}</p>
+              <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t(state.differences ? "cfs.gapsHelp" : "cfs.noGap")}</p>
             </Card>
           )}
         </>

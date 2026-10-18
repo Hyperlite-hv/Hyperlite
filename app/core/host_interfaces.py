@@ -18,7 +18,7 @@ from pathlib import Path
 SYS_NET = Path("/sys/class/net")
 # Interfaces libvirt or a hypervisor creates for itself: never a place to attach a new network.
 _OWN = re.compile(r"^(lo|virbr.*|vnet\d+|macvtap\d+|veth.*|tap.*|docker\d*|cni.*|flannel.*)$")
-USABLE = ("bridge", "physique", "bond", "vlan")
+USABLE = ("bridge", "physical", "bond", "vlan")
 
 
 def _kind(path):
@@ -39,7 +39,7 @@ def _kind(path):
     if devtype == "wlan" or (path / "wireless").is_dir() or (path / "phy80211").exists():
         return "wifi"
     if (path / "device").exists():
-        return "physique"
+        return "physical"
     return None
 
 
@@ -82,7 +82,7 @@ def list_host_interfaces(sys_net=None, addresses=None):
             }
         )
     # Bridges first (the host and its VMs reach each other), then NICs, bonds, VLANs; Wi-Fi last.
-    order = {"bridge": 0, "physique": 1, "bond": 2, "vlan": 3, "wifi": 4}
+    order = {"bridge": 0, "physical": 1, "bond": 2, "vlan": 3, "wifi": 4}
     return sorted(result, key=lambda i: (order[i["type"]], i["name"]))
 
 

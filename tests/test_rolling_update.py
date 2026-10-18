@@ -50,7 +50,7 @@ class FakeCluster:
             self.rebooted.append(name)
             return 202, {"task": "x"}
         if path == "/update/channel":
-            return 200, {"canal": "stable"}
+            return 200, {"channel": "stable"}
         raise AssertionError(f"unexpected call {method} {path}")
 
     def drained_names(self):
@@ -59,7 +59,7 @@ class FakeCluster:
     def drain(self, task_id, username, label, target):
         maintenance.enter(label, username)
         self.drained.append((label, target))
-        return {"migrables": ["web"], "non_migrables": ["db"] if label in self.blocked else []}
+        return {"migratable": ["web"], "not_migratable": ["db"] if label in self.blocked else []}
 
 
 @pytest.fixture()
@@ -186,7 +186,7 @@ def test_an_unreachable_node_is_said(monkeypatch):
 def test_the_plan_says_what_prevents_starting(monkeypatch):
     def plan(node, username, local_check=None, target=None):
         name = node["name"] if node else "pve1"
-        return {"name": name, "reachable": True, "verifiable": True, "canal": "test" if name == "pve3" else "stable",
+        return {"name": name, "reachable": True, "verifiable": True, "channel": "test" if name == "pve3" else "stable",
                 "to_do": name == "pve2"}  # fmt: skip
 
     monkeypatch.setattr(rolling_update, "peers", lambda: [dict(n) for n in NODES])
@@ -219,7 +219,7 @@ def test_the_plan_judges_each_node_against_a_target(monkeypatch):
 
     def plan(node, username, local_check=None, target=None):
         seen.append((node["name"] if node else "local", target))
-        return {"name": node["name"] if node else "pve1", "reachable": True, "verifiable": True, "canal": "stable"}
+        return {"name": node["name"] if node else "pve1", "reachable": True, "verifiable": True, "channel": "stable"}
 
     monkeypatch.setattr(rolling_update, "peers", lambda: [dict(n) for n in NODES])
     monkeypatch.setattr(rolling_update, "node_plan", plan)

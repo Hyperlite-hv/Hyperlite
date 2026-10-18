@@ -52,7 +52,7 @@ export default function CompatibilityPage() {
   }, [nodeKey, admin]);
   const remote = nodes.filter((n) => n.id !== "local");
   const verdict = (report) => {
-    const c = report?.resume?.account || {};
+    const c = report?.summary?.account || {};
     if (c.blocking) return { ...VERDICT.blocking, n: c.blocking };
     const w = (c.warning || 0) + (c.disabled || 0);
     return w ? { ...VERDICT.check, n: w } : VERDICT.ok;

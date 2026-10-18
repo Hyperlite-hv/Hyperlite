@@ -66,7 +66,7 @@ export default function UpdateDialog({ onClose }) {
   async function start(kind = "online") {
     setPhase("updating");
     setError(null);
-    const target = kind === "rollback" ? info.previous : kind === "file" ? file.version : info.commit_distant;
+    const target = kind === "rollback" ? info.previous : kind === "file" ? file.version : info.remote_commit;
     const restarts = kind === "rollback" || (kind === "file" ? file.version !== file.installed : hyperliteNew);
     try {
       const { task_id } = kind === "rollback" ? await rollbackUpdate() : kind === "file" ? await applyUpdateFile(true) : await applyUpdate(true);
@@ -173,7 +173,7 @@ export default function UpdateDialog({ onClose }) {
               <>
                 <dl className="nx-dl">
                   <dt>Hyperlite</dt>
-                  <dd>{hyperliteNew ? t("upd.hyperliteNew", { from: info.commit_local, to: info.commit_distant }) : t("upd.hyperliteCurrent", { version: info.commit_local })}</dd>
+                  <dd>{hyperliteNew ? t("upd.hyperliteNew", { from: info.commit_local, to: info.remote_commit }) : t("upd.hyperliteCurrent", { version: info.commit_local })}</dd>
                   <dt>{t("upd.debian")}</dt>
                   <dd>{!sys ? t("upd.debianUnknown") : debianNew ? t(sys.packages === 1 ? "upd.debianOne" : "upd.debianMany", { n: sys.packages, s: sys.security }) : t("upd.debianCurrent")}</dd>
                 </dl>

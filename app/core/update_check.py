@@ -95,7 +95,7 @@ def check_once():
     if not result.get("verifiable") or result.get("up_to_date"):
         return
 
-    remote = result.get("commit_distant")
+    remote = result.get("remote_commit")
     if not remote or _get_last_notified() == remote:
         return  # no usable remote version, or already notified for THIS version
 

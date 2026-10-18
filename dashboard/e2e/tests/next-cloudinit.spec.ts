@@ -7,7 +7,7 @@ const NAME = "e2e-ci-web";
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj0bXkPZ1d5bDx2eH1 ana@laptop";
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { name: NAME, state: "active", id: 1, uuid: NAME, vcpu: 1, memory_mb: 512, ip: null, ssh_user: "debian", uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "active", id: 1, uuid: NAME, vcpu: 1, memory_mb: 512, ip: null, ssh_user: "debian", uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" };
 
 test("cloud-init: keys and password validated, saved for the next boot, password never shown back", async ({ page }) => {
   let state = { available: true, running: true, user: "debian", ssh_keys: [] as string[], modified_at: null as string | null };

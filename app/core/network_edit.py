@@ -62,15 +62,15 @@ def describe_xml(xml):
     mode = forward.get("mode", "nat") if forward is not None else None
     ip_el = _ipv4(root)
     if ip_el is None or mode not in (None, "nat"):
-        return {"modifiable": False, "mode": mode, "address": None, "masque": None, "dhcp": None, "reservations": []}
+        return {"modifiable": False, "mode": mode, "address": None, "netmask": None, "dhcp": None, "reservations": []}
     iface = _subnet(ip_el)
     rng = ip_el.find("dhcp/range")
     return {
         "modifiable": True,
         "mode": "nat" if mode == "nat" else "isolated",
         "address": str(iface.ip),
-        "masque": str(iface.netmask),
-        "dhcp": {"debut": rng.get("start"), "fin": rng.get("end")} if rng is not None else None,
+        "netmask": str(iface.netmask),
+        "dhcp": {"start": rng.get("start"), "end": rng.get("end")} if rng is not None else None,
         "reservations": [
             {"mac": (h.get("mac") or "").lower(), "ip": h.get("ip"), "name": h.get("name")}
             for h in ip_el.findall("dhcp/host")
@@ -115,7 +115,7 @@ def edit_xml(xml, *, mode, address, netmask, dhcp, other_subnets=()):
 
     rng = None
     if dhcp is not None:
-        start, end = _addr(dhcp.get("debut"), "DHCP start"), _addr(dhcp.get("fin"), "DHCP end")
+        start, end = _addr(dhcp.get("start"), "DHCP start"), _addr(dhcp.get("end"), "DHCP end")
         _usable(net, start, "The DHCP start")
         _usable(net, end, "The DHCP end")
         if start > end:
@@ -157,7 +157,7 @@ def edit_xml(xml, *, mode, address, netmask, dhcp, other_subnets=()):
 def _essentials(xml):
     # What a running network only takes at its restart; the DHCP range itself can change live.
     d = describe_xml(xml)
-    return (d["mode"], d["address"], d["masque"], d["dhcp"] is not None)
+    return (d["mode"], d["address"], d["netmask"], d["dhcp"] is not None)
 
 
 def pending(net):
@@ -206,7 +206,7 @@ def apply_edit(conn, net, *, mode, address, netmask, dhcp):
 
 
 def _range_xml(rng):
-    return ET.tostring(ET.Element("range", {"start": rng["debut"], "end": rng["fin"]}), encoding="unicode")
+    return ET.tostring(ET.Element("range", {"start": rng["start"], "end": rng["end"]}), encoding="unicode")
 
 
 def _host_xml(mac, ip, name):

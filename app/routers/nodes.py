@@ -413,7 +413,7 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
             raise HTTPException(
                 status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, purpose no VM was migrated"
             ) from e
-        if result["migrables"]:
+        if result["migratable"]:
             task_id = create_task("drain_node", source, node=source, username=user["username"])
     finally:
         if task_id is None:
@@ -426,10 +426,10 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
         "enter_maintenance",
         source,
         "success",
-        f"target {target or 'none'}; to migrate: {len(result['migrables'])}; staying: {len(result['non_migrables'])}",
+        f"target {target or 'none'}; to migrate: {len(result['migratable'])}; staying: {len(result['not_migratable'])}",
     )
     if task_id:
-        _run_in_background(_drain_job, task_id, user["username"], source, target, result["migrables"])
+        _run_in_background(_drain_job, task_id, user["username"], source, target, result["migratable"])
     return {"node": source, "in_maintenance": True, "task_id": task_id, **result}
 
 
