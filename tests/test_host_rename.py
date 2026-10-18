@@ -79,7 +79,7 @@ def test_a_refused_host_name_leaves_the_files(host, monkeypatch):
 
 
 def test_renaming_the_node_is_for_administrators(client, auth_headers, host):
-    r = client.put("/host/system/hostname", json={"nom": "pve1"}, headers=auth_headers("olga", role="observateur"))
+    r = client.put("/host/system/hostname", json={"nom": "pve1"}, headers=auth_headers("olga", role="viewer"))
     assert r.status_code == 403
     r = client.put("/host/system/hostname", json={"nom": "pve1.home"}, headers=auth_headers("alice"))
     assert r.status_code == 200 and r.json()["nom"] == "pve1.home"

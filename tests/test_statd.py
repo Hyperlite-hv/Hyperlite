@@ -62,7 +62,7 @@ def test_a_change_made_through_hyperlite_sends_the_status_soon():
 
 @pytest.fixture()
 def cluster(cfs, monkeypatch):
-    members = [{"name": n, "hostname": f"{n}.lan", "statut": "en_ligne"} for n in ("pve-a", "pve-b")]
+    members = [{"name": n, "hostname": f"{n}.lan", "statut": "online"} for n in ("pve-a", "pve-b")]
     monkeypatch.setattr(cluster_view, "members", lambda: members)
     asked = []
 

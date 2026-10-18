@@ -46,7 +46,7 @@ export default function LibraryPage() {
   useEffect(() => { loadIsos(); }, [loadIsos]);
   useEffect(() => { fetchTemplates().then((r) => setTplCount(Array.isArray(r) ? r.length : 0)).catch(() => setTplCount(null)); }, [tab]);
   // A finished copy adds an image somewhere: reload when the number of running copies goes down.
-  const runningCopies = tasks.filter((x) => x.type === "copy_iso" && x.statut === "en_cours").length;
+  const runningCopies = tasks.filter((x) => x.type === "copy_iso" && x.statut === "running").length;
   const prevRunning = useRef(runningCopies);
   useEffect(() => { if (runningCopies < prevRunning.current) loadIsos(); prevRunning.current = runningCopies; }, [runningCopies, loadIsos]);
 

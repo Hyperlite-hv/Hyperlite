@@ -21,7 +21,7 @@ import { Archive, Camera, Info, LoaderCircle, Trash2, TriangleAlert } from "luci
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 const SNAP_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
-const taskWire = (s) => (s === "termine" ? "termine" : s === "echec" ? "echec" : "en_cours");
+const taskWire = (s) => (s === "succeeded" ? "succeeded" : s === "failed" ? "failed" : "running");
 
 const nowMs = () => Date.now();
 const elapsed = (from) => { const s = Math.max(0, Math.round((nowMs() - from) / 1000)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`; };
@@ -56,10 +56,10 @@ export function VmSnapshotsPage({ resource: vm }) {
     for (let i = 0; i < 300; i++) {
       if (!alive.current) return { statut: "abandonne" };
       const task = await fetchTaskDetail(id);
-      if (task.statut !== "en_cours") return task;
+      if (task.statut !== "running") return task;
       await new Promise((r) => setTimeout(r, 1000));
     }
-    return { statut: "echec", erreur: t("vs.stillRunning") };
+    return { statut: "failed", erreur: t("vs.stillRunning") };
   }, [t]);
 
   if (!vm) return null;
@@ -75,7 +75,7 @@ export function VmSnapshotsPage({ resource: vm }) {
     try {
       const { task_id } = await start();
       const done = await waitTask(task_id);
-      if (done.statut === "termine") pushToast({ kind: "success", title: okTitle });
+      if (done.statut === "succeeded") pushToast({ kind: "success", title: okTitle });
       else if (done.statut !== "abandonne") pushToast({ kind: "error", title: failTitle, message: done.erreur || t("err.unknown") });
       if (alive.current) await reload();
     } catch (e) { pushToast({ kind: "error", title: failTitle, message: errorMessage(e) }); }
@@ -155,7 +155,7 @@ export function VmBackupPage({ resource: vm }) {
   const [backups, setBackups] = useState(null);
   const [error, setError] = useState(null);
   const [schedule, setSchedule] = useState(null);
-  const [form, setForm] = useState({ frequence: "quotidien", heure: "02:00", ...retentionForm(null) });
+  const [form, setForm] = useState({ frequence: "daily", heure: "02:00", ...retentionForm(null) });
   const [busy, setBusy] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [browsing, setBrowsing] = useState(null);
@@ -169,7 +169,7 @@ export function VmBackupPage({ resource: vm }) {
     fetchBackupSchedule(vmName).then((s) => { setSchedule(s || null); if (s) setForm({ frequence: s.frequence, heure: s.heure, ...retentionForm(s) }); }).catch(() => {});
   }, [vmName, vmNode]);
   useEffect(() => { reload(); }, [reload]);
-  const running = Boolean(backups?.some((b) => b.statut !== "termine" && b.statut !== "echec"));
+  const running = Boolean(backups?.some((b) => b.statut !== "succeeded" && b.statut !== "failed"));
   useEffect(() => { if (!running) return undefined; const id = setInterval(reload, 4000); return () => clearInterval(id); }, [running, reload]);
 
   if (!vm) return null;
@@ -222,7 +222,7 @@ export function VmBackupPage({ resource: vm }) {
       for (let i = 0; i < 720; i += 1) {
         await new Promise((r) => setTimeout(r, 2500));
         const task = await fetchTaskDetail(task_id, vmNode).catch(() => null);
-        if (task && task.statut !== "en_cours") break;
+        if (task && task.statut !== "running") break;
       }
       const fresh = (await fetchVMBackups(vm.nom, vmNode)).find((x) => x.id === b.id);
       await reload();
@@ -231,7 +231,7 @@ export function VmBackupPage({ resource: vm }) {
     } catch (er) { fail(t("vb.verifyFailed"))(er); } finally { setBusy(false); }
   }
   const size = (bytes) => (bytes ? formatSizeMb(bytes / 1048576, lang) : "—");
-  const integrity = (b) => (b.statut !== "termine" ? null
+  const integrity = (b) => (b.statut !== "succeeded" ? null
     : b.verification === "verifie" ? <span className="nx-chip" data-tone="success" title={t("vb.verifiedOn", { date: formatDateTime(b.verifie_le, lang) })}>{t("vb.v.ok")}</span>
     : b.verification === "corrompu" ? <span className="nx-chip" data-tone="danger" title={b.verification_detail || ""}>{t("vb.v.bad")}</span>
     : <span className="nx-chip" title={t("vb.v.neverHelp")}>{t("vb.v.never")}</span>);
@@ -242,7 +242,7 @@ export function VmBackupPage({ resource: vm }) {
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={now}><Archive size={15} aria-hidden="true" />{t("vb.now")}</button>} />
       <div className="nx-cols2">
         <Card title={t("vb.history")} flush={list.length > 0}>
-          {caps.admin && !stopped && list.some((b) => b.statut === "termine") && <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("vb.stopToRestore")}</p>}
+          {caps.admin && !stopped && list.some((b) => b.statut === "succeeded") && <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("vb.stopToRestore")}</p>}
           {backups == null ? <Loading style={{ margin: 0 }} /> : list.length === 0 ? <Empty icon={Archive} title={t("vb.none")} text={t("vb.noneHelp")} /> : (
             <TableWrap>
               <table className="nx-table">
@@ -252,15 +252,15 @@ export function VmBackupPage({ resource: vm }) {
                     <tr key={b.id}>
                       <td><StatusIndicator kind="task" wire={taskWire(b.statut)} /></td>
                       <td className="nx-mono">{formatDateTime(b.cree_le, lang)}{b.erreur && <div className="nx-f-h is-error nx-wrapcell">{b.erreur}</div>}</td>
-                      <td>{b.mode === "chaud" ? t("vb.hot") : t("vb.cold")}</td>
+                      <td>{b.mode === "live" ? t("vb.hot") : t("vb.cold")}</td>
                       <td className="nx-num nx-mono">{size(b.taille_octets)}</td>
                       <td>{integrity(b)}{b.verification === "corrompu" && b.verification_detail && <div className="nx-f-h is-error nx-wrapcell">{b.verification_detail}</div>}</td>
                       <td><div className="nx-ra">
-                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
-                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
-                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
-                        {caps.admin && b.statut === "termine" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.nom, on: vmNode })}>{t("fr.browse")}</button>}
-                        {caps.admin && (b.statut === "termine" || b.statut === "echec") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}
+                        {caps.admin && b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
+                        {caps.admin && b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
+                        {caps.admin && b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
+                        {caps.admin && b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.nom, on: vmNode })}>{t("fr.browse")}</button>}
+                        {caps.admin && (b.statut === "succeeded" || b.statut === "failed") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}
                       </div></td>
                     </tr>
                   ))}
@@ -275,7 +275,7 @@ export function VmBackupPage({ resource: vm }) {
             <span>{schedule ? t("vb.enabled") : enabling ? t("vb.toEnable") : t("vb.disabled")}</span>
           </div>
           <div className="nx-fg nx-fg--1">
-            <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.backup_frequency")} disabled={!caps.admin} value={form.frequence} onChange={(e) => setForm({ ...form, frequence: e.target.value })}><option value="quotidien">{t("vb.f.quotidien")}</option><option value="hebdomadaire">{t("vb.f.hebdomadaire")}</option><option value="mensuel">{t("vb.f.mensuel")}</option></select>}</Field>
+            <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.backup_frequency")} disabled={!caps.admin} value={form.frequence} onChange={(e) => setForm({ ...form, frequence: e.target.value })}><option value="daily">{t("vb.f.daily")}</option><option value="weekly">{t("vb.f.weekly")}</option><option value="monthly">{t("vb.f.monthly")}</option></select>}</Field>
             <Field label={t("vb.time")} hint={t("vb.utc")} error={problems.heure ? t("vb.timeRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.backup_time")} type="time" disabled={!caps.admin} value={form.heure} onChange={(e) => setForm({ ...form, heure: e.target.value })} />}</Field>
           </div>
           <RetentionFields value={form} disabled={!caps.admin} onChange={(v) => setForm({ ...form, ...v })} />

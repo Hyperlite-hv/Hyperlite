@@ -159,13 +159,13 @@ def _log_step(run_id, step_ordre, cible, commande, stdout, stderr, exit_code, re
 
 
 def _expand_steps(steps, targets):
-    """A step of type 'chaque_cible' is duplicated once per target supplied to
+    """A step of type 'each_target' is duplicated once per target supplied to
     the run (e.g. the "load balancing" job applies the same step to every
     backend VM); the other step types ('vm'/'host' explicit in the job
     definition) are left unchanged."""
     expanded = []
     for step in steps:
-        if step["cible_type"] == "chaque_cible":
+        if step["cible_type"] == "each_target":
             for t in targets:
                 expanded.append({**step, "cible_type": "vm", "cible": t})
         else:
@@ -199,7 +199,7 @@ def _check_targets(job, steps, targets):
         return
     if not steps:
         raise JobRunRefused("This job has no step to run")
-    if not targets and any(s["cible_type"] == "chaque_cible" for s in steps):
+    if not targets and any(s["cible_type"] == "each_target" for s in steps):
         # Without targets those steps expand to nothing: the run would report a
         # success for work it silently skipped.
         raise JobRunRefused("This job runs steps on each target VM: choose at least one target")
@@ -212,7 +212,7 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
     Raises LookupError for an unknown job and JobRunRefused for a request that
     cannot run; both happen before anything is recorded, so a refused request is
     never reported (nor audited) as started. Once this returns, the run exists and
-    always ends in 'succes' or 'echec', whatever happens in the thread."""
+    always ends in 'success' or 'failed', whatever happens in the thread."""
     targets = list(targets or [])
     job = _store().get_job(job_id)
     if not job:
@@ -235,7 +235,7 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
     try:
         _store().create_run(run_id, job_id, task_id, dry_run, json.dumps(targets), _now())
     except Exception as e:
-        finish_task(task_id, "echec", f"Could not record the run: {e}")
+        finish_task(task_id, "failed", f"Could not record the run: {e}")
         raise
 
     threading.Thread(
@@ -278,18 +278,18 @@ def _close_run(run_id, task_id, job_name, username, ok, error=None):
     else:
         resultat = "FAILED"
     if ok:
-        finish_task(task_id, "termine")
+        finish_task(task_id, "succeeded")
     else:
-        finish_task(task_id, "echec", f"Job '{job_name}': {resultat}")
-    log_action(username, "run_job", job_name, "succes" if ok else "echec", resultat)
+        finish_task(task_id, "failed", f"Job '{job_name}': {resultat}")
+    log_action(username, "run_job", job_name, "success" if ok else "failed", resultat)
     # The run row is what the dashboard polls: written last, a run shown as finished never has its task still
     # running nor its outcome missing from the audit log.
-    _store().close_run(run_id, "succes" if ok else "echec", _now(), resultat)
+    _store().close_run(run_id, "success" if ok else "failed", _now(), resultat)
 
 
 def _execute_run(run_id, task_id, job_name, build_steps, dry_run, username):
     """Body of the run thread. An exception raised in a daemon thread is only
-    printed on stderr: without this catch-all the run would stay 'en_cours'
+    printed on stderr: without this catch-all the run would stay 'running'
     forever and nobody would learn why it stopped."""
     try:
         ok = _run_steps(run_id, task_id, build_steps(), dry_run)

@@ -108,7 +108,7 @@ class SqliteSettingsStore:
     def create_k8s_cluster(self, name, network, server, workers, vcpu, memory_mb, disk_gb, task_id, username, now):
         _write(
             "INSERT INTO k8s_clusters (nom, reseau, serveur, workers, vcpu, memoire_mo, disque_go, statut, task_id, "
-            "cree_par, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, 'creation', ?, ?, ?)",
+            "cree_par, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?, ?)",
             (name, network, server, workers, vcpu, memory_mb, disk_gb, task_id, username, now),
         )
 
@@ -121,7 +121,7 @@ class SqliteSettingsStore:
 
     def fail_interrupted_k8s_clusters(self, message):
         _write(
-            "UPDATE k8s_clusters SET statut = 'echec', erreur = ? WHERE statut IN ('creation', 'suppression')",
+            "UPDATE k8s_clusters SET statut = 'failed', erreur = ? WHERE statut IN ('creating', 'deleting')",
             (message,),
         )
 

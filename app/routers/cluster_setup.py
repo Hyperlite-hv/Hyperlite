@@ -43,10 +43,10 @@ class RemoveRequest(BaseModel):
 
 def _failed(user, action, target, error):
     if isinstance(error, cluster_setup.ClusterError):
-        log_action(user["username"], action, target, "echec", str(error))
+        log_action(user["username"], action, target, "failed", str(error))
         raise HTTPException(status_code=409, detail=str(error)) from None
     logger.warning("%s failed: %s", action, error)
-    log_action(user["username"], action, target, "echec", "hyperlite-cfs does not answer")
+    log_action(user["username"], action, target, "failed", "hyperlite-cfs does not answer")
     raise HTTPException(
         status_code=503, detail="hyperlite-cfs does not answer: see journalctl -u hyperlite-cfs"
     ) from None
@@ -72,7 +72,9 @@ def join_information(user: dict = Depends(require_role("admin"))):
         info = cluster_setup.join_information()
     except (cluster_setup.ClusterError, CfsError, OSError) as e:
         _failed(user, "cluster_join_information", "cluster", e)
-    log_action(user["username"], "cluster_join_information", info["cluster"], "succes", f"valid until {info['expire']}")
+    log_action(
+        user["username"], "cluster_join_information", info["cluster"], "success", f"valid until {info['expire']}"
+    )
     return info
 
 
@@ -90,10 +92,10 @@ def accept_member(payload: MemberRequest):
     try:
         return cluster_setup.accept_member(payload.ticket, payload.nom, payload.adresse, payload.cle_ssh)
     except PermissionError as e:
-        log_action("system", "cluster_join", payload.nom[:63], "echec", str(e))
+        log_action("system", "cluster_join", payload.nom[:63], "failed", str(e))
         raise HTTPException(status_code=403, detail=str(e)) from None
     except cluster_setup.ClusterError as e:
-        log_action("system", "cluster_join", payload.nom[:63], "echec", str(e))
+        log_action("system", "cluster_join", payload.nom[:63], "failed", str(e))
         raise HTTPException(status_code=409, detail=str(e)) from None
     except (CfsError, OSError) as e:
         logger.warning("Letting %s in failed: %s", payload.nom[:63], e)

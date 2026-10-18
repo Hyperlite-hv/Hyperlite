@@ -66,7 +66,7 @@ export default function JournalPage({ embedded = false }) {
         ? <p className="nx-muted" style={{ margin: 0 }}>{t("jr.desc")}{total != null ? ` · ${t("jr.count", { n: total.toLocaleString() })}` : ""}</p>
         : <PageHeader title={t("tab.journal")} count={total ?? (rows ? rows.length : null)} desc={t("jr.desc")} />}
       <div className="nx-bar" role="group" aria-label={t("jr.filters")}>
-        <select className="nx-sel" aria-label={t("a11y.filter_by_result")} value={f.result} onChange={upd("result")}><option value="">{t("jr.allResults")}</option><option value="succes">{t("jr.success")}</option><option value="echec">{t("jr.failure")}</option></select>
+        <select className="nx-sel" aria-label={t("a11y.filter_by_result")} value={f.result} onChange={upd("result")}><option value="">{t("jr.allResults")}</option><option value="success">{t("jr.success")}</option><option value="failed">{t("jr.failure")}</option></select>
         <select className="nx-sel" aria-label={t("a11y.filter_by_action_type")} value={f.action} onChange={upd("action")}><option value="">{t("jr.allActions")}</option>{actions.map((a) => <option key={a} value={a}>{a}</option>)}</select>
         <input className="nx-inp" style={{ width: "10rem", height: "2.1333rem" }} aria-label={t("a11y.user")} placeholder={t("task.user")} type="search" value={f.username} onChange={upd("username")} />
         <input className="nx-inp" style={{ width: "11.3333rem", height: "2.1333rem" }} aria-label={t("a11y.target_resource")} placeholder={t("jr.resource")} type="search" value={f.resource} onChange={upd("resource")} />
@@ -92,7 +92,7 @@ export default function JournalPage({ embedded = false }) {
                     <tr key={`${r.on}/${r.id}`} className={r.error_message ? "nx-rowlink" : undefined} onClick={() => r.error_message && setOpen(open === `${r.on}/${r.id}` ? null : `${r.on}/${r.id}`)}>
                       <td className="nx-mono">{fmt(r.timestamp)}</td>
                       {several && <td>{r.on}</td>}
-                      <td><StatusIndicator override={r.result === "succes" ? { key: "jr.success", shape: "check", tone: "success" } : { key: "jr.failure", shape: "cross", tone: "danger" }} /></td>
+                      <td><StatusIndicator override={r.result === "success" ? { key: "jr.success", shape: "check", tone: "success" } : { key: "jr.failure", shape: "cross", tone: "danger" }} /></td>
                       <td>{r.username || "—"}</td>
                       <td className="nx-mono">{r.action}</td>
                       <td className="nx-mono" style={{ whiteSpace: open === `${r.on}/${r.id}` ? "normal" : undefined, overflowWrap: "anywhere" }}>{r.resource || "—"}{r.error_message && <span className="nx-tone-danger"> — {open === `${r.on}/${r.id}` ? r.error_message : `${r.error_message.slice(0, 70)}${r.error_message.length > 70 ? "…" : ""}`}</span>}</td>

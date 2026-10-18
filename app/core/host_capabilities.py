@@ -136,7 +136,7 @@ def _network_capabilities_local(conn):
             try:
                 etat = (path / "operstate").read_text().strip()
             except OSError:
-                etat = "inconnu"
+                etat = "unknown"
             interfaces.append(
                 {
                     "nom": name,

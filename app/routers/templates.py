@@ -48,11 +48,11 @@ def _convert_to_template(name, payload, user):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "convert_to_template", name, "echec", "VM not found")
+            log_action(user["username"], "convert_to_template", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if domain.isActive():
-            log_action(user["username"], "convert_to_template", name, "echec", "VM active")
+            log_action(user["username"], "convert_to_template", name, "failed", "VM active")
             raise HTTPException(status_code=409, detail="Stop the VM before converting it to a template")
 
         xml_desc = domain.XMLDesc(0)
@@ -69,7 +69,7 @@ def _convert_to_template(name, payload, user):
                     disk_source = src.get("file")
                 break
         if not disk_source:
-            log_action(user["username"], "convert_to_template", name, "echec", "disk not found")
+            log_action(user["username"], "convert_to_template", name, "failed", "disk not found")
             raise HTTPException(status_code=500, detail="Source disk not found")
 
         target_disk = templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"])
@@ -79,7 +79,7 @@ def _convert_to_template(name, payload, user):
             domain.undefineFlags(firmware.undefine_flags(root))
         except libvirt.libvirtError as exc:
             templates_store.delete_template(tpl_name)
-            log_action(user["username"], "convert_to_template", name, "echec", str(exc))
+            log_action(user["username"], "convert_to_template", name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Undefine failed: {exc}") from exc
 
         shutil.move(disk_source, str(target_disk))
@@ -94,7 +94,7 @@ def _convert_to_template(name, payload, user):
         # The disk left its pool behind libvirt's back: without a refresh the pool keeps listing a volume that is gone.
         refresh_pools_for_paths(conn, [disk_source, target_disk, *helper_isos])
 
-        log_action(user["username"], "convert_to_template", name, "succes", f"template -> {tpl_name}")
+        log_action(user["username"], "convert_to_template", name, "success", f"template -> {tpl_name}")
         return {"template": tpl_name, "vm_source": name}
     finally:
         conn.close()
@@ -121,7 +121,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
         try:
             conn.lookupByName(payload.new_name)
             log_action(
-                user["username"], "deploy_template", template_name, "echec", f"'{payload.new_name}' already exists"
+                user["username"], "deploy_template", template_name, "failed", f"'{payload.new_name}' already exists"
             )
             raise HTTPException(status_code=409, detail=f"A VM '{payload.new_name}' already exists")
         except libvirt.libvirtError:
@@ -139,7 +139,7 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
                 text=True,
             )
         except subprocess.CalledProcessError as exc:
-            log_action(user["username"], "deploy_template", template_name, "echec", f"disk copy: {exc.stderr}")
+            log_action(user["username"], "deploy_template", template_name, "failed", f"disk copy: {exc.stderr}")
             raise HTTPException(status_code=500, detail="Disk copy failed") from exc
 
         root = ET.fromstring(tpl["xml"])
@@ -200,11 +200,11 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
             new_disk_path.unlink(missing_ok=True)
             if reseed_iso:
                 Path(reseed_iso).unlink(missing_ok=True)
-            log_action(user["username"], "deploy_template", template_name, "echec", str(exc))
+            log_action(user["username"], "deploy_template", template_name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Domain definition failed: {exc}") from exc
 
         refresh_pools_for_paths(conn, [new_disk_path, *([reseed_iso] if reseed_iso else [])])
-        log_action(user["username"], "deploy_template", template_name, "succes", f"-> {payload.new_name}")
+        log_action(user["username"], "deploy_template", template_name, "success", f"-> {payload.new_name}")
         return {"template": template_name, "vm": new_domain.name(), "etat": "arretee"}
     finally:
         conn.close()
@@ -229,9 +229,9 @@ def rename_template_endpoint(template_name: str, payload: TemplateRename, user: 
     except FileExistsError:
         raise HTTPException(status_code=409, detail=f"A template named '{new}' already exists") from None
     except OSError as e:
-        log_action(user["username"], "rename_template", template_name, "echec", str(e))
+        log_action(user["username"], "rename_template", template_name, "failed", str(e))
         raise HTTPException(status_code=500, detail=f"Rename failed: {e}") from e
-    log_action(user["username"], "rename_template", template_name, "succes", f"-> {new}")
+    log_action(user["username"], "rename_template", template_name, "success", f"-> {new}")
     return templates_store.get_template(new) | {"xml": None}
 
 
@@ -243,5 +243,5 @@ def delete_template_endpoint(template_name: str, confirm: bool = False, user: di
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
     templates_store.delete_template(template_name)
-    log_action(user["username"], "delete_template", template_name, "succes")
+    log_action(user["username"], "delete_template", template_name, "success")
     return {"template": template_name, "supprime": True}

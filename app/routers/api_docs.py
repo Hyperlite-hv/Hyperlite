@@ -30,7 +30,7 @@ class AccessSettings(BaseModel):
 @router.put("/acces")
 def put_access(payload: AccessSettings, user: dict = Depends(require_role("admin"))):
     value = api_docs.set_access(payload.acces)
-    log_action(user["username"], "api_docs_access", "api", "succes", value)
+    log_action(user["username"], "api_docs_access", "api", "success", value)
     return {"acces": value, "autorise": api_docs.allowed(user, value)}
 
 
@@ -39,7 +39,7 @@ def create_ticket(user: dict = Depends(get_current_user)):
     """A single-use link to Swagger, for an account allowed to open it."""
     if not api_docs.allowed(user):
         raise HTTPException(status_code=403, detail="Swagger is not open to this account")
-    log_action(user["username"], "api_docs_open", "api", "succes")
+    log_action(user["username"], "api_docs_open", "api", "success")
     return {"url": f"/docs?ticket={api_docs.new_ticket(user['username'])}", "expire_dans_s": api_docs.TICKET_TTL_S}
 
 

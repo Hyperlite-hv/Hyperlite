@@ -75,7 +75,7 @@ def test_api_manages_servers_and_pushes_to_influxdb(client, auth_headers, influx
     server = r.json()
     assert server["url"] == influx and server["jeton_defini"] is True and "jeton" not in server
     assert client.post("/metric-servers", json=body, headers=admin).status_code == 422  # same name
-    assert client.get("/metric-servers", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.get("/metric-servers", headers=auth_headers("watcher", "viewer")).status_code == 403
 
     me.push(ROWS, 1700000000)
     path, auth, sent = _Influx.received[-1]

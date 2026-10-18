@@ -69,7 +69,7 @@ def test_the_sequence_starts_what_is_stopped_waits_and_goes_on_after_a_failure(h
     results = vm_boot.run_sequence(sleep=waits.append)
     assert results == [
         ("db", "demarree"),
-        ("broken", "echec"),
+        ("broken", "failed"),
         ("web", "deja_active"),
         ("app", "demarree"),
         ("gone", "absente"),
@@ -124,7 +124,7 @@ def test_the_api_reads_and_writes_the_setting_and_takes_over_libvirt_autostart(c
     assert client.put("/vms/db/boot", json={"demarrage_auto": True, "delai_s": 99999}, headers=admin).status_code == 422
     assert client.put("/vms/db/boot", json={"demarrage_auto": True, "ordre": -1}, headers=admin).status_code == 422
     assert client.get("/vms/ghost/boot", headers=admin).status_code == 404
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.get("/vms/db/boot", headers=viewer).status_code == 200
     assert client.put("/vms/db/boot", json={"demarrage_auto": False}, headers=viewer).status_code == 403
 

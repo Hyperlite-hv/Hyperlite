@@ -74,7 +74,7 @@ export default function HaPage() {
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">VM</th><th scope="col">{t("ha.node")}</th><th scope="col">{t("ha.sync")}</th><th scope="col">{t("hw.state")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {list.map((r) => {
-                    const down = r.statut_noeud === "hors_ligne";
+                    const down = r.statut_noeud === "offline";
                     const targets = nodes.filter((n) => n.id !== r.node && n.etat === "online");
                     return (
                       <tr key={r.vm_name} className={ctx.is("ha", r.vm_name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ha", r, r.vm_name)}>

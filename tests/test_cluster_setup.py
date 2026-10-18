@@ -360,7 +360,7 @@ def test_the_member_is_reached_only_through_the_certificate_of_the_join_informat
 
 
 def test_the_api(host, client, auth_headers):
-    admin, viewer = auth_headers("alice"), auth_headers("olga", role="observateur")
+    admin, viewer = auth_headers("alice"), auth_headers("olga", role="viewer")
     assert client.get("/cluster", headers=viewer).status_code == 403
     assert client.get("/cluster", headers=admin).json()["en_cluster"] is False
     r = client.post("/cluster/creer", json={"nom": "prod", "adresse": "192.0.2.99"}, headers=admin)
@@ -555,7 +555,7 @@ def test_a_primary_must_be_a_member_and_a_configuration_with_two_is_refused(host
 
 def test_setting_the_primary_is_for_administrators(client, auth_headers, host):
     _create(host)
-    viewer = auth_headers("olga", "observateur")
+    viewer = auth_headers("olga", "viewer")
     assert client.post("/cluster/principal", json={"nom": "hv-test"}, headers=viewer).status_code == 403
     admin = auth_headers("root")
     r = client.post("/cluster/principal", json={"nom": "hv-test"}, headers=admin)

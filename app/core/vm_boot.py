@@ -99,17 +99,17 @@ def run_sequence(node=None, sleep=time.sleep):
             busy = vm_locks.running(name, None if _node_key(node) == LOCAL else node)
             if busy:  # its disks are being copied or replaced: started meanwhile, it would write to them
                 logger.warning("Start at boot: VM %s is busy (%s), not started", name, busy)
-                log_action("system", "autostart_vm", name, "echec", f"busy: {busy} in progress")
+                log_action("system", "autostart_vm", name, "failed", f"busy: {busy} in progress")
                 results.append((name, "occupee"))
                 continue
             try:
                 domain.create()
             except libvirt.libvirtError as e:
                 logger.error("Start at boot: VM %s did not start on %s: %s", name, _node_key(node), e)
-                log_action("system", "autostart_vm", name, "echec", str(e))
-                results.append((name, "echec"))
+                log_action("system", "autostart_vm", name, "failed", str(e))
+                results.append((name, "failed"))
                 continue
-            log_action("system", "autostart_vm", name, "succes", f"{_node_key(node)}: order {step['ordre']}")
+            log_action("system", "autostart_vm", name, "success", f"{_node_key(node)}: order {step['ordre']}")
             results.append((name, "demarree"))
             if step["delai_s"]:
                 sleep(step["delai_s"])

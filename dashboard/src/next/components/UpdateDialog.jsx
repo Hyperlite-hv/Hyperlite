@@ -73,8 +73,8 @@ export default function UpdateDialog({ onClose }) {
       for (;;) {
         const task = await fetchTaskDetail(task_id);
         setProgress(task.progres ?? 0);
-        if (task.statut === "echec") { setPhase("failed"); setError(task.erreur); return; }
-        if (task.statut === "termine") break;
+        if (task.statut === "failed") { setPhase("failed"); setError(task.erreur); return; }
+        if (task.statut === "succeeded") break;
         await wait(1500);
       }
       if (restarts) {

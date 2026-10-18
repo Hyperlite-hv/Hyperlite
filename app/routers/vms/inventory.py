@@ -81,7 +81,7 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
     cluster=true: every member's VMs from the cluster's status (_cluster_vms, phase E)."""
     if cluster:
         result = _cluster_vms(user["username"])
-        log_action(user["username"], "list_vms", "vms", "succes")
+        log_action(user["username"], "list_vms", "vms", "success")
         # Already JSON-ready (plain dicts from the summaries): FastAPI's generic encoder walked a thousand of them on
         # every request, the largest cost of this list under load (docs/scale-results.md).
         return JSONResponse(result)
@@ -96,7 +96,7 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
         raise HTTPException(status_code=502, detail=f"{node or 'This node'} does not answer: {e}") from None
     finally:
         conn.close()
-    log_action(user["username"], "list_vms", "vms", "succes")
+    log_action(user["username"], "list_vms", "vms", "success")
     return result
 
 
@@ -107,10 +107,10 @@ def get_vm(name: str, node: str | None = None, user: dict = Depends(get_current_
     try:
         domain = conn.lookupByName(name)
     except libvirt.libvirtError:
-        log_action(user["username"], "get_vm", name, "echec", "VM not found")
+        log_action(user["username"], "get_vm", name, "failed", "VM not found")
         conn.close()
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
     result = _domain_summary(domain)
     conn.close()
-    log_action(user["username"], "get_vm", name, "succes")
+    log_action(user["username"], "get_vm", name, "success")
     return result

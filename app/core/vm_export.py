@@ -78,13 +78,13 @@ def run_export(vm_name, username="system"):
             final = safe_child(EXPORTS_DIR, f"{vm_name}--{stamp}.qcow2")
             shutil.move(str(dest_paths[0]), str(final))
             update_task_progress(task_id, 100)
-            finish_task(task_id, "termine")
-            log_action(username, "export_vm", vm_name, "succes", f"-> {final.name}")
+            finish_task(task_id, "succeeded")
+            log_action(username, "export_vm", vm_name, "success", f"-> {final.name}")
             return {"nom": final.name, "taille_octets": final.stat().st_size, "task_id": task_id}
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            finish_task(task_id, "echec", msg)
-            log_action(username, "export_vm", vm_name, "echec", msg)
+            finish_task(task_id, "failed", msg)
+            log_action(username, "export_vm", vm_name, "failed", msg)
             raise
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)

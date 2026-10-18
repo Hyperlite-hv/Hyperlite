@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-FREQUENCIES = ("quotidien", "hebdomadaire", "mensuel")
+FREQUENCIES = ("daily", "weekly", "monthly")
 # Where a backup must never be written: the service runs as root, a target is a path typed by a user.
 FORBIDDEN_ROOTS = (
     "/bin",
@@ -69,9 +69,9 @@ def validate(payload):
         raise GroupError("Invalid name: letters, digits, spaces, dots, dashes, 64 characters at most")
     selection = payload.get("selection")
     value = (payload.get("valeur") or "").strip() or None
-    if selection not in ("toutes", "etiquette", "pool"):
+    if selection not in ("all", "tag", "pool"):
         raise GroupError("selection must be toutes, etiquette or pool")
-    if selection == "etiquette":
+    if selection == "tag":
         tags = object_meta.normalize_tags([value or ""])
         if not tags:
             raise GroupError("Choose the tag whose VMs are backed up")
@@ -118,7 +118,7 @@ def _row(row):
     d = dict(row)
     d["exclues"] = json.loads(d["exclues"] or "[]")
     d["actif"] = bool(d["actif"])
-    d["en_cours"] = d["id"] in _running
+    d["running"] = d["id"] in _running
     return d
 
 
@@ -182,7 +182,7 @@ def _local_vm_names():
 def resolve(job, local_names=None):
     """The VMs of this node the job covers right now, in name order."""
     names = local_names if local_names is not None else _local_vm_names()
-    if job["selection"] == "etiquette":
+    if job["selection"] == "tag":
         tagged = {
             m["nom"] for m in object_meta.list_all("vm") if m["node"] in (None, "local") and job["valeur"] in m["tags"]
         }
@@ -242,7 +242,7 @@ def run_due(now):
             "scheduler",
             "backup_group",
             job["nom"],
-            "echec" if failed else "succes",
+            "failed" if failed else "success",
             "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VMs",
         )
         _store().record_group_run(

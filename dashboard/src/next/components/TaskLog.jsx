@@ -8,7 +8,7 @@ import { useT, useLangStore } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { usePolling } from "../lib/polling";
 
-const running = (task) => task.statut === "en_cours" || task.statut === "en_attente";
+const running = (task) => task.statut === "running" || task.statut === "pending";
 
 // The log has no level of its own: the terminal view reads one from the words of each line, for colour only.
 export function lineLevel(message) {

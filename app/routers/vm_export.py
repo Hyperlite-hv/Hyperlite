@@ -56,7 +56,7 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
             )  # already logged and tracked in run_export (task + audit_log)
 
     threading.Thread(target=vm_locks.released_after(claim, job), daemon=True).start()
-    log_action(user["username"], "export_vm_requested", name, "succes")
+    log_action(user["username"], "export_vm_requested", name, "success")
     return {"message": f"Export of '{name}' started in the background"}
 
 
@@ -67,7 +67,7 @@ def delete_vm_export(filename: str, user: dict = Depends(require_role("admin")))
     if not path.exists():
         raise HTTPException(status_code=404, detail="Export not found")
     path.unlink()
-    log_action(user["username"], "delete_vm_export", filename, "succes")
+    log_action(user["username"], "delete_vm_export", filename, "success")
     return {"nom": filename, "supprime": True}
 
 
@@ -85,7 +85,7 @@ def create_download_ticket(filename: str, user: dict = Depends(require_role("adm
 
     ticket = secrets.token_urlsafe(24)
     DOWNLOAD_TICKETS[ticket] = (filename, now + DOWNLOAD_TICKET_TTL)
-    log_action(user["username"], "create_vm_export_download_ticket", filename, "succes")
+    log_action(user["username"], "create_vm_export_download_ticket", filename, "success")
     return {"ticket": ticket, "expire_dans_s": DOWNLOAD_TICKET_TTL}
 
 

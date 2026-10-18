@@ -55,7 +55,7 @@ def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_r
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception:
         raise HTTPException(status_code=422, detail=f"A role named '{name}' already exists") from None
-    log_action(user["username"], "create_custom_role", f"{name} ({','.join(payload.privileges)})", "succes")
+    log_action(user["username"], "create_custom_role", f"{name} ({','.join(payload.privileges)})", "success")
     return {"id": role_id, "key": f"custom:{role_id}", "name": name, "privileges": payload.privileges}
 
 
@@ -75,14 +75,14 @@ def rename_custom_role(role_id: int, payload: CustomRoleRename, user: dict = Dep
         raise HTTPException(status_code=409, detail=str(e)) from e
     if old is None:
         raise HTTPException(status_code=404, detail="Not found")
-    log_action(user["username"], "rename_custom_role", old, "succes", f"-> {name}")
+    log_action(user["username"], "rename_custom_role", old, "success", f"-> {name}")
     return {"id": role_id, "name": name}
 
 
 @router.delete("/custom-roles/{role_id}")
 def delete_custom_role(role_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_custom_role(role_id)
-    log_action(user["username"], "delete_custom_role", str(role_id), "succes")
+    log_action(user["username"], "delete_custom_role", str(role_id), "success")
     return {"message": "Role deleted"}
 
 
@@ -126,7 +126,7 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
         user["username"],
         "create_acl",
         f"{payload.subject_type}:{payload.subject_id} -> {payload.role} @ {payload.resource_type}:{payload.resource_id}",
-        "succes",
+        "success",
     )
     return {"id": acl_id}
 
@@ -134,5 +134,5 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
 @router.delete("/{acl_id}")
 def delete_acl(acl_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_acl(acl_id)
-    log_action(user["username"], "delete_acl", str(acl_id), "succes")
+    log_action(user["username"], "delete_acl", str(acl_id), "success")
     return {"message": "Assignment deleted"}

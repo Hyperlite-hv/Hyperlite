@@ -13,7 +13,7 @@ import RetentionFields, { describeRetention, retentionForm, retentionPayload, re
 import { Card, Chip, Empty, Field, Loading, SideDrawer, TableWrap } from "./ui";
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const EMPTY = { id: null, nom: "", selection: "toutes", valeur: "", exclues: [], frequence: "quotidien", heure: "02:00", cible_dir: "", actif: true, ...retentionForm(null) };
+const EMPTY = { id: null, nom: "", selection: "all", valeur: "", exclues: [], frequence: "daily", heure: "02:00", cible_dir: "", actif: true, ...retentionForm(null) };
 
 // Grouped backup jobs: one schedule for all of this node's VMs, those of a tag or of a pool, resolved at each run.
 export default function BackupGroupJobs({ onChange }) {
@@ -36,14 +36,14 @@ export default function BackupGroupJobs({ onChange }) {
   const localVms = vms.filter((v) => !isRemoteVm(v)).map((v) => v.nom).sort();
   const tags = allTags(byKey, "vm");
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value, ...(k === "selection" ? { valeur: "" } : {}) }));
-  const bad = form ? { nom: !form.nom.trim(), heure: !TIME_RE.test(form.heure), valeur: form.selection !== "toutes" && !form.valeur, ...retentionProblems(form) } : {};
+  const bad = form ? { nom: !form.nom.trim(), heure: !TIME_RE.test(form.heure), valeur: form.selection !== "all" && !form.valeur, ...retentionProblems(form) } : {};
   const invalid = Object.values(bad).some(Boolean);
-  const selectionLabel = (j) => (j.selection === "toutes" ? t("bg.sel.toutes") : j.selection === "etiquette" ? t("bg.tagX", { tag: j.valeur })
+  const selectionLabel = (j) => (j.selection === "all" ? t("bg.sel.all") : j.selection === "tag" ? t("bg.tagX", { tag: j.valeur })
     : t("bg.poolX", { pool: pools.find((p) => String(p.id) === String(j.valeur))?.name || `#${j.valeur}` }));
 
   async function save() {
     setBusy(true);
-    const payload = { nom: form.nom.trim(), selection: form.selection, valeur: form.selection === "toutes" ? null : form.valeur, exclues: form.exclues,
+    const payload = { nom: form.nom.trim(), selection: form.selection, valeur: form.selection === "all" ? null : form.valeur, exclues: form.exclues,
       frequence: form.frequence, heure: form.heure, cible_dir: form.cible_dir.trim() || null, actif: form.actif, ...retentionPayload(form) };
     try {
       await (form.id ? updateBackupGroup(form.id, payload) : createBackupGroup(payload));
@@ -71,13 +71,13 @@ export default function BackupGroupJobs({ onChange }) {
               <thead><tr><th scope="col">{t("bg.name")}</th><th scope="col">{t("bg.selection")}</th><th scope="col">{t("bg.when")}</th><th scope="col">{t("gfs.title")}</th><th scope="col">{t("vb.next")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>{jobs.map((j) => (
                 <tr key={j.id}>
-                  <th scope="row">{j.nom}{!j.actif && <> <Chip>{t("mx.paused")}</Chip></>}{j.en_cours && <> <Chip tone="info">{t("bg.running")}</Chip></>}</th>
+                  <th scope="row">{j.nom}{!j.actif && <> <Chip>{t("mx.paused")}</Chip></>}{j.running && <> <Chip tone="info">{t("bg.running")}</Chip></>}</th>
                   <td className="nx-wrapcell"><span title={j.vms.join(", ")}>{selectionLabel(j)} · {t("bg.nVms", { n: j.vms.length })}</span>{j.exclues.length > 0 && <div className="nx-f-h">{t("bg.except", { list: j.exclues.join(", ") })}</div>}</td>
                   <td>{t(`vb.f.${j.frequence}`)} · <span className="nx-mono">{j.heure}</span> UTC</td>
                   <td className="nx-wrapcell">{describeRetention(t, j)}</td>
                   <td className="nx-mono">{j.actif ? formatDateTime(j.prochaine_execution, lang) : "—"}</td>
                   <td><div className="nx-ra">
-                    <button type="button" className="nx-btn nx-btn--ghost" disabled={j.en_cours || j.vms.length === 0} aria-label={t("bg.runX", { name: j.nom })} onClick={() => run(j)}><Play size={14} aria-hidden="true" />{t("bg.run")}</button>
+                    <button type="button" className="nx-btn nx-btn--ghost" disabled={j.running || j.vms.length === 0} aria-label={t("bg.runX", { name: j.nom })} onClick={() => run(j)}><Play size={14} aria-hidden="true" />{t("bg.run")}</button>
                     <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("mx.editX", { name: j.nom })} onClick={() => edit(j)}>{t("mx.edit")}</button>
                     <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" aria-label={t("mx.deleteX", { name: j.nom })} onClick={() => remove(j)}><Trash2 size={15} aria-hidden="true" /></button>
                   </div></td>
@@ -96,9 +96,9 @@ export default function BackupGroupJobs({ onChange }) {
           <Field label={t("bg.name")}>{(p) => <input {...p} className="nx-inp" value={form.nom} onChange={set("nom")} placeholder={t("bg.namePh")} />}</Field>
           <div className="nx-fg">
             <Field label={t("bg.selection")}>{(p) => <select {...p} className="nx-inp" value={form.selection} onChange={set("selection")}>
-              <option value="toutes">{t("bg.sel.toutes")}</option><option value="etiquette">{t("bg.sel.etiquette")}</option><option value="pool">{t("bg.sel.pool")}</option>
+              <option value="all">{t("bg.sel.all")}</option><option value="tag">{t("bg.sel.tag")}</option><option value="pool">{t("bg.sel.pool")}</option>
             </select>}</Field>
-            {form.selection === "etiquette" && <Field label={t("bg.tag")} hint={tags.length ? null : t("bg.noTags")}>{(p) => <select {...p} className="nx-inp" value={form.valeur} onChange={set("valeur")}><option value="">{t("sec.choose")}</option>{tags.map((tg) => <option key={tg} value={tg}>{tg}</option>)}</select>}</Field>}
+            {form.selection === "tag" && <Field label={t("bg.tag")} hint={tags.length ? null : t("bg.noTags")}>{(p) => <select {...p} className="nx-inp" value={form.valeur} onChange={set("valeur")}><option value="">{t("sec.choose")}</option>{tags.map((tg) => <option key={tg} value={tg}>{tg}</option>)}</select>}</Field>}
             {form.selection === "pool" && <Field label={t("bg.pool")} hint={pools.length ? null : t("bg.noPools")}>{(p) => <select {...p} className="nx-inp" value={form.valeur} onChange={set("valeur")}><option value="">{t("sec.choose")}</option>{pools.map((pl) => <option key={pl.id} value={String(pl.id)}>{pl.name}</option>)}</select>}</Field>}
           </div>
           {localVms.length > 0 && (
@@ -110,7 +110,7 @@ export default function BackupGroupJobs({ onChange }) {
             </fieldset>
           )}
           <div className="nx-fg">
-            <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" value={form.frequence} onChange={set("frequence")}><option value="quotidien">{t("vb.f.quotidien")}</option><option value="hebdomadaire">{t("vb.f.hebdomadaire")}</option><option value="mensuel">{t("vb.f.mensuel")}</option></select>}</Field>
+            <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" value={form.frequence} onChange={set("frequence")}><option value="daily">{t("vb.f.daily")}</option><option value="weekly">{t("vb.f.weekly")}</option><option value="monthly">{t("vb.f.monthly")}</option></select>}</Field>
             <Field label={t("vb.time")} hint={t("vb.utc")} error={bad.heure ? t("vb.timeRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="time" value={form.heure} onChange={set("heure")} />}</Field>
           </div>
           <Field label={t("bg.target")} hint={t("bg.targetHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.cible_dir} placeholder="/root/hyperlite/data/backups" onChange={set("cible_dir")} />}</Field>

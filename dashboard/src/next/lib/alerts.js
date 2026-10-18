@@ -14,7 +14,7 @@ export function deriveAlerts({ nodes = [], vms = [], storagePools = [], tasks = 
     else if (used >= 90) out.push({ id: `pool:${p.node}:${p.nom}`, level: "danger", text: `${p.nom} ${Math.round(used)}%`, kind: "pool-full", target: { type: "node", id: p.node, tab: "disk" } });
     else if (used >= 80) out.push({ id: `pool:${p.node}:${p.nom}`, level: "warning", text: `${p.nom} ${Math.round(used)}%`, kind: "pool-high", target: { type: "node", id: p.node, tab: "disk" } });
   }
-  for (const t of tasks.filter((x) => x.statut === "echec").slice(0, 5)) out.push({ id: `task:${t.id}`, level: "danger", text: `${t.type} ${t.cible || ""}`.trim(), kind: "task-failed", target: null, detail: t.erreur });
+  for (const t of tasks.filter((x) => x.statut === "failed").slice(0, 5)) out.push({ id: `task:${t.id}`, level: "danger", text: `${t.type} ${t.cible || ""}`.trim(), kind: "task-failed", target: null, detail: t.erreur });
   const order = { danger: 0, warning: 1, offline: 2 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
 }

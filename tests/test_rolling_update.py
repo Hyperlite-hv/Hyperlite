@@ -11,8 +11,8 @@ from app.core import maintenance, rolling_update, self_node
 from app.core.tasks import create_task
 
 NODES = [
-    {"name": "pve2", "hostname": "10.0.0.2", "ssh_user": "root", "ssh_port": 22, "statut": "en_ligne"},
-    {"name": "pve3", "hostname": "10.0.0.3", "ssh_user": "root", "ssh_port": 22, "statut": "en_ligne"},
+    {"name": "pve2", "hostname": "10.0.0.2", "ssh_user": "root", "ssh_port": 22, "statut": "online"},
+    {"name": "pve3", "hostname": "10.0.0.3", "ssh_user": "root", "ssh_port": 22, "statut": "online"},
 ]
 
 
@@ -35,9 +35,9 @@ class FakeCluster:
             return 202, {"task_id": f"t-{name}"}
         if path.startswith("/tasks/"):
             if name in self.failing:
-                return 200, {"statut": "echec", "erreur": "apt-get full-upgrade exited with 100"}
+                return 200, {"statut": "failed", "erreur": "apt-get full-upgrade exited with 100"}
             self.version[name] = "1.0.1"
-            return 200, {"statut": "termine"}
+            return 200, {"statut": "succeeded"}
         if path == "/update/check":
             pending = name in self.reboot and name not in self.rebooted
             return 200, {
@@ -94,7 +94,7 @@ def _run(database, local_tasks, restarts=False):
         tid = create_task("hyperlite_update", "hyperlite", username=username)
         from app.core.tasks import finish_task
 
-        finish_task(tid, "termine")
+        finish_task(tid, "succeeded")
         local_tasks.append(tid)
         return tid
 
@@ -107,7 +107,7 @@ def _run(database, local_tasks, restarts=False):
 def test_the_other_nodes_one_after_another_then_this_node(cluster, database):
     fake = cluster(reboot={"pve3"})
     local = []
-    assert _run(database, local) == ("termine", None)
+    assert _run(database, local) == ("succeeded", None)
     # pve2's VMs go to pve3 (nothing done yet), pve3's to pve2 (done), this node's to pve3 (done last).
     assert fake.drained == [("pve2", "pve3"), ("pve3", "pve2"), (maintenance.LOCAL, "pve3")]
     applies = [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")]
@@ -121,7 +121,7 @@ def test_a_failure_stops_the_run_on_its_node(cluster, database):
     fake = cluster(failing={"pve2"})
     local = []
     status, error = _run(database, local)
-    assert status == "echec" and "pve2: the update failed" in error
+    assert status == "failed" and "pve2: the update failed" in error
     assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["pve2"]
     assert local == []  # neither pve3 nor this node
     assert [m["node"] for m in maintenance.list_all()] == ["pve2"]  # it stays in maintenance
@@ -131,14 +131,14 @@ def test_a_node_whose_vms_cannot_move_is_not_rebooted_unless_chosen(cluster, dat
     fake = cluster(reboot={"pve2"}, blocked={"pve2"})
     logged = []
     monkeypatch.setattr(rolling_update, "log_action", lambda *a, **k: logged.append(a))
-    assert _run(database, [])[0] == "termine"
+    assert _run(database, [])[0] == "succeeded"
     assert fake.rebooted == []
-    assert ("alice", "host_reboot_required", "pve2", "succes", "left by the rolling update") in logged
+    assert ("alice", "host_reboot_required", "pve2", "success", "left by the rolling update") in logged
 
 
 def test_this_node_leaves_maintenance_at_its_next_start_when_its_update_restarts_it(cluster, database):
     cluster()
-    assert _run(database, [], restarts=True)[0] == "termine"
+    assert _run(database, [], restarts=True)[0] == "succeeded"
     assert [m["node"] for m in maintenance.list_all()] == [maintenance.LOCAL]
     rolling_update.finish_self_after_restart()  # the new version's start-up
     assert maintenance.list_all() == []
@@ -148,9 +148,9 @@ def test_this_node_leaves_maintenance_at_its_next_start_when_its_update_restarts
 
 def test_an_offline_node_refuses_the_run(cluster, database, monkeypatch):
     fake = cluster()
-    monkeypatch.setattr(rolling_update, "peers", lambda: [NODES[0], {**NODES[1], "statut": "hors_ligne"}])
+    monkeypatch.setattr(rolling_update, "peers", lambda: [NODES[0], {**NODES[1], "statut": "offline"}])
     status, error = _run(database, [])
-    assert status == "echec" and "offline" in error and fake.calls == []
+    assert status == "failed" and "offline" in error and fake.calls == []
 
 
 def test_the_token_goes_through_ssh_input_never_the_command_line(monkeypatch):
@@ -203,12 +203,12 @@ def test_the_api_outside_a_cluster(client, auth_headers, monkeypatch):
     admin = auth_headers("root")
     assert client.get("/cluster/update/plan", headers=admin).status_code == 409
     assert client.post("/cluster/update", json={}, headers=admin).status_code == 409
-    assert client.post("/cluster/update", json={}, headers=auth_headers("eve", role="observateur")).status_code == 403
+    assert client.post("/cluster/update", json={}, headers=auth_headers("eve", role="viewer")).status_code == 403
 
 
 def test_a_node_already_up_to_date_is_left_as_it_is(cluster, database):
     fake = cluster(current={"pve2"})
-    assert _run(database, [])[0] == "termine"
+    assert _run(database, [])[0] == "succeeded"
     # pve2 never emptied, and pve3's VMs go to it: already on the new version.
     assert fake.drained == [("pve3", "pve2"), (maintenance.LOCAL, "pve3")]
     assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["pve3"]

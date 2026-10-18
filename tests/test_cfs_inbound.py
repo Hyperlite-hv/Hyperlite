@@ -117,11 +117,11 @@ def test_a_column_left_out_keeps_this_nodes_value(cluster, make_user):
         db.commit()
     path = next(p for p in cluster.files if p.startswith("/priv/db/users/"))
     user = json.loads(cluster.files[path])
-    user["role"] = "observateur"
+    user["role"] = "viewer"
     cluster.remote(path, user)
     assert inbound.apply() == 1
     assert rows("SELECT role, last_login_at FROM users WHERE username = 'ana'") == [
-        {"role": "observateur", "last_login_at": "here"}
+        {"role": "viewer", "last_login_at": "here"}
     ]
 
 

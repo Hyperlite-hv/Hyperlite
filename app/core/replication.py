@@ -227,7 +227,7 @@ def _finish_point(domain, vm_name, point_dir, disks, kind, chain, parent, runnin
     backup_integrity.write_manifest(
         point_dir,
         vm_name,
-        "chaud" if running else "froid",
+        "live" if running else "cold",
         firmware.of_domain(ET.fromstring(domain.XMLDesc(0))),
         images,
         replication={"type": kind, "chaine": chain, "parent": parent},
@@ -258,7 +258,7 @@ def replicate(vm_name, target_dir, username="scheduler"):
             result = _replicate(vm_name, target_dir)
         except Exception as e:
             message = str(e) or type(e).__name__
-            _store().save_state(vm_name, statut="echec", erreur=message[:500], maj_le=_now().isoformat())
+            _store().save_state(vm_name, statut="failed", erreur=message[:500], maj_le=_now().isoformat())
             raise
     return result
 
@@ -369,9 +369,9 @@ def validate(payload):
         raise ReplicationError("Invalid name: letters, digits, spaces, dots, dashes, 64 characters at most")
     selection = payload.get("selection")
     value = (payload.get("valeur") or "").strip() or None
-    if selection not in ("toutes", "etiquette", "pool"):
+    if selection not in ("all", "tag", "pool"):
         raise ReplicationError("selection must be toutes, etiquette or pool")
-    if selection == "etiquette":
+    if selection == "tag":
         tags = object_meta.normalize_tags([value or ""])
         if not tags:
             raise ReplicationError("Choose the tag whose VMs are replicated")
@@ -420,7 +420,7 @@ def job_with_vms(job):
     if job:
         job = dict(job)
         job["vms"] = backup_groups.resolve(job)
-        job["en_cours"] = job["id"] in _running_jobs
+        job["running"] = job["id"] in _running_jobs
     return job
 
 
@@ -468,7 +468,7 @@ def _run_and_record(job, username):
         username,
         "replication",
         job["nom"],
-        "echec" if failed else "succes",
+        "failed" if failed else "success",
         "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VM(s)",
     )
 

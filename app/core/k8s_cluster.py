@@ -118,7 +118,7 @@ def get_kubeconfig(name):
 
 
 def recover_interrupted():
-    """At start-up: a cluster left 'creation' or 'suppression' by a restart will never finish; say so."""
+    """At start-up: a cluster left 'creating' or 'deleting' by a restart will never finish; say so."""
     _store().fail_interrupted_k8s_clusters("Interrupted by a restart of Hyperlite")
 
 
@@ -460,16 +460,16 @@ def _provision(name, server, agents, vcpu, memory_mb, disk_gb, network, username
         # Ready and free in one step, under the lock delete_cluster checks: a cluster shown ready can be deleted at
         # once (it was refused as "being created" until this thread reached its finally).
         with _busy_lock:
-            _update(name, statut="pret", erreur=None, adresse=ips[server], kubeconfig=encrypt(kubeconfig))
+            _update(name, statut="ready", erreur=None, adresse=ips[server], kubeconfig=encrypt(kubeconfig))
             _busy.discard(name)
-        finish_task(task_id, "termine")
-        log_action(username, "create_k8s_cluster", name, "succes", task_id=task_id)
+        finish_task(task_id, "succeeded")
+        log_action(username, "create_k8s_cluster", name, "success", task_id=task_id)
     except Exception as e:
         msg = f"{step}: {describe_exception(e)}"
         logger.warning("Kubernetes cluster '%s' failed while %s", name, msg)
-        _update(name, statut="echec", erreur=msg)
-        finish_task(task_id, "echec", msg)
-        log_action(username, "create_k8s_cluster", name, "echec", msg, task_id=task_id)
+        _update(name, statut="failed", erreur=msg)
+        finish_task(task_id, "failed", msg)
+        log_action(username, "create_k8s_cluster", name, "failed", msg, task_id=task_id)
     finally:
         with _busy_lock:
             _busy.discard(name)
@@ -491,7 +491,7 @@ def delete_cluster(name, username):
         _busy.add(name)
     task_id = create_task("delete_k8s_cluster", name, username=username)
     try:
-        _update(name, statut="suppression")
+        _update(name, statut="deleting")
         conn = open_conn()
         try:
             for vm in (cluster["serveur"], *cluster["workers"]):
@@ -505,13 +505,13 @@ def delete_cluster(name, username):
         finally:
             conn.close()
         _store().delete_k8s_cluster(name)
-        finish_task(task_id, "termine")
-        log_action(username, "delete_k8s_cluster", name, "succes", task_id=task_id)
+        finish_task(task_id, "succeeded")
+        log_action(username, "delete_k8s_cluster", name, "success", task_id=task_id)
     except Exception as e:
         msg = describe_exception(e) if not hasattr(e, "detail") else str(e.detail)
-        _update(name, statut="echec", erreur=f"deletion: {msg}")
-        finish_task(task_id, "echec", msg)
-        log_action(username, "delete_k8s_cluster", name, "echec", msg, task_id=task_id)
+        _update(name, statut="failed", erreur=f"deletion: {msg}")
+        finish_task(task_id, "failed", msg)
+        log_action(username, "delete_k8s_cluster", name, "failed", msg, task_id=task_id)
         raise
     finally:
         with _busy_lock:

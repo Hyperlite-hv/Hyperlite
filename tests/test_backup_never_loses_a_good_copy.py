@@ -57,7 +57,7 @@ def vm(database, tmp_path, monkeypatch):
 
 def test_an_error_in_the_retention_leaves_the_backup_just_made(vm, monkeypatch):
     store = registry.backups().sync
-    store.upsert_schedule("web", "quotidien", "03:00", str(vm), 1, None, None, None, "2999-01-01T00:00:00+00:00")
+    store.upsert_schedule("web", "daily", "03:00", str(vm), 1, None, None, None, "2999-01-01T00:00:00+00:00")
 
     def broken(vm_name, policy):
         raise OSError("permission denied on an old backup's folder")
@@ -65,7 +65,7 @@ def test_an_error_in_the_retention_leaves_the_backup_just_made(vm, monkeypatch):
     monkeypatch.setattr(backups, "_apply_retention", broken)
     backup_id = backups._run_backup_locked("web", str(vm), None, "admin")
     row = store.get(backup_id)
-    assert row["statut"] == "termine"  # not marked failed
+    assert row["statut"] == "succeeded"  # not marked failed
     assert (vm / "web").exists() and any((vm / "web").iterdir())  # its folder is still there
 
 
@@ -73,7 +73,7 @@ def _finished(tmp_path, when, verification=None):
     folder = tmp_path / "web" / when
     folder.mkdir(parents=True)
     store = registry.backups().sync
-    backup_id = store.create("web", None, str(folder), "froid", when, None)
+    backup_id = store.create("web", None, str(folder), "cold", when, None)
     store.mark_done(backup_id, 4, "x")
     if verification:
         store.set_verification(
@@ -124,8 +124,8 @@ def test_a_backup_refused_for_space_is_a_failed_task_never_a_silent_one(vm, monk
     with get_conn() as db:
         task = db.execute("SELECT statut, erreur FROM tasks WHERE type = 'backup_vm'").fetchone()
         row = db.execute("SELECT statut FROM backups WHERE vm_name = 'web'").fetchone()
-    assert task["statut"] == "echec" and "Not enough space" in task["erreur"]
-    assert row["statut"] == "echec"
+    assert task["statut"] == "failed" and "Not enough space" in task["erreur"]
+    assert row["statut"] == "failed"
 
 
 def test_a_manual_backup_that_would_not_fit_is_refused_by_the_api(vm, monkeypatch, client, auth_headers):

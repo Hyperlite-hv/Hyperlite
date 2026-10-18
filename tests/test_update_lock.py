@@ -24,7 +24,7 @@ def test_a_running_update_blocks_a_second_one(database, monkeypatch):
 
 def test_a_finished_update_does_not_block(database, monkeypatch):
     task_id = create_task("hyperlite_update", "hyperlite", username="alice")
-    finish_task(task_id, "termine")
+    finish_task(task_id, "succeeded")
     monkeypatch.setattr(update, "_start_update", lambda user, system=True: {"started": True})
     assert update.apply_update(user={"username": "bob"}) == {"started": True}
 

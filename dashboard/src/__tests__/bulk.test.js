@@ -3,7 +3,7 @@ import { bulkEligible, nameList, runBulk, splitSelection } from "../next/lib/bul
 import { capabilities } from "../next/lib/capabilities";
 
 const admin = capabilities("admin");
-const viewer = capabilities("observateur");
+const viewer = capabilities("viewer");
 const vm = (nom, etat, node = "local") => ({ nom, etat, node });
 
 describe("bulk actions", () => {

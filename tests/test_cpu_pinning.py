@@ -175,5 +175,5 @@ def test_invalid_requests_come_back_as_422_without_touching_the_vm(api):
 
 
 def test_an_observer_cannot_pin(api, auth_headers):
-    headers = auth_headers("watcher", role="observateur")
+    headers = auth_headers("watcher", role="viewer")
     assert api["client"].put("/vms/vm1/cpu-pinning", json={"cpuset": "2"}, headers=headers).status_code == 403

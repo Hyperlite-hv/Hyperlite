@@ -77,14 +77,14 @@ ADMIN_ONLY = [
 
 @pytest.mark.parametrize("method,path,body", ADMIN_ONLY)
 def test_observer_cannot_use_administrator_endpoints(client, auth_headers, method, path, body):
-    headers = auth_headers("watcher", "observateur")
+    headers = auth_headers("watcher", "viewer")
     response = client.request(method, path, headers=headers, json=body)
     assert response.status_code == 403, f"{method} {path} -> {response.status_code} {response.text}"
 
 
 def test_observer_can_read_shared_information(client, auth_headers):
-    headers = auth_headers("watcher", "observateur")
-    assert client.get("/auth/me", headers=headers).json()["role"] == "observateur"
+    headers = auth_headers("watcher", "viewer")
+    assert client.get("/auth/me", headers=headers).json()["role"] == "viewer"
     assert client.get("/host/limits", headers=headers).status_code == 200
 
 
@@ -163,7 +163,7 @@ def test_enrolling_a_second_factor_takes_the_password(client, auth_headers, data
 
 def test_notification_channel_configuration_is_only_visible_to_administrators(client, auth_headers):
     admin = auth_headers("root", "admin")
-    observer = auth_headers("watcher", "observateur")
+    observer = auth_headers("watcher", "viewer")
     hook = "https://hooks.example.test/services/SECRET-TOKEN"
     created = client.post(
         "/notifications/channels",

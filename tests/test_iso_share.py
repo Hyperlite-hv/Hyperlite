@@ -17,7 +17,7 @@ def _wait_tasks(database, task_ids, timeout=5):
             rows = [
                 conn.execute("SELECT id, statut, erreur FROM tasks WHERE id = ?", (tid,)).fetchone() for tid in task_ids
             ]
-        if all(r is not None and r["statut"] != "en_cours" for r in rows):
+        if all(r is not None and r["statut"] != "running" for r in rows):
             return {r["id"]: dict(r) for r in rows}
         time.sleep(0.02)
     raise AssertionError("copy tasks did not finish")
@@ -38,7 +38,7 @@ def test_the_cluster_list_shows_every_node_and_reports_the_ones_that_cannot_be_r
     cluster["add_node"]("down", "10.0.0.3", reachable=False)
     cluster["add_node"]("bare", "10.0.0.4", library=False)
 
-    r = client.get("/isos/cluster", headers=auth_headers("viewer", role="observateur"))
+    r = client.get("/isos/cluster", headers=auth_headers("viewer", role="viewer"))
     assert r.status_code == 200, r.text
     body = r.json()
     assert sorted((i["node"], i["nom"]) for i in body["isos"]) == [("antho", "ubuntu.iso"), ("local", "debian.iso")]
@@ -49,7 +49,7 @@ def test_the_cluster_list_shows_every_node_and_reports_the_ones_that_cannot_be_r
 
 def test_the_local_list_keeps_its_shape_and_names_the_node(cluster, client, auth_headers):
     (cluster["local"] / "debian.iso").write_bytes(b"d")
-    r = client.get("/isos", headers=auth_headers("viewer", role="observateur"))
+    r = client.get("/isos", headers=auth_headers("viewer", role="viewer"))
     assert r.status_code == 200
     [iso] = r.json()
     assert iso["nom"] == "debian.iso" and iso["node"] == "local"
@@ -70,7 +70,7 @@ def test_copying_to_several_nodes_lands_complete_files_under_their_final_name(cl
     tasks = r.json()["taches"]
     assert [t["node"] for t in tasks] == ["antho", "other"]
     done = _wait_tasks(database, [t["task_id"] for t in tasks])
-    assert all(t["statut"] == "termine" for t in done.values()), done
+    assert all(t["statut"] == "succeeded" for t in done.values()), done
 
     for lib in (antho, other):
         assert (lib / "debian.iso").read_bytes() == b"x" * 4096
@@ -115,7 +115,7 @@ def test_a_failed_copy_is_reported_and_leaves_no_partial_file(cluster, client, a
     monkeypatch.setattr(iso_share, "_scp", broken_scp)
     r = client.post("/isos/copy", json={"nom": "debian.iso", "cibles": ["antho"]}, headers=auth_headers("admin"))
     task = _wait_tasks(database, [r.json()["taches"][0]["task_id"]]).popitem()[1]
-    assert task["statut"] == "echec" and "Connection reset" in task["erreur"]
+    assert task["statut"] == "failed" and "Connection reset" in task["erreur"]
     assert list(lib.iterdir()) == []
 
 
@@ -145,7 +145,7 @@ def test_only_an_administrator_can_copy(cluster, client, auth_headers):
     r = client.post(
         "/isos/copy",
         json={"nom": "debian.iso", "cibles": ["antho"]},
-        headers=auth_headers("viewer", role="observateur"),
+        headers=auth_headers("viewer", role="viewer"),
     )
     assert r.status_code == 403
 

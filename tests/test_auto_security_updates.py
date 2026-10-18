@@ -48,7 +48,7 @@ def test_the_api(apt, client, auth_headers):
         client.put("/host/system/auto-updates", json={"actif": True, "heure": "25:00"}, headers=admin).status_code
         == 422
     )
-    assert client.get("/host/system/auto-updates", headers=auth_headers("eve", role="observateur")).status_code == 403
+    assert client.get("/host/system/auto-updates", headers=auth_headers("eve", role="viewer")).status_code == 403
 
 
 def test_a_pending_reboot_is_notified_once_per_boot(database, tmp_path, monkeypatch):

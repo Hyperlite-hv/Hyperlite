@@ -11,7 +11,7 @@ import { formatDateTime } from "../lib/format";
 import { ErrorState, InlineError } from "../components/States";
 import { PageHeader, Empty, Loading, Pill, StatePill, TableWrap } from "../components/ui";
 
-const TONE = { pret: "success", creation: "info", suppression: "info", echec: "danger" };
+const TONE = { ready: "success", creating: "info", deleting: "info", failed: "danger" };
 const MAX_WORKERS = 5;
 
 // Kubernetes: k3s clusters built on Hyperlite VMs (one server, N workers). Hyperlite creates the VMs, installs
@@ -32,7 +32,7 @@ export default function KubernetesPage() {
     catch (e) { setError(errorMessage(e)); }
   }, []);
   // A cluster takes minutes to build: poll faster while one is being created or deleted.
-  const busy = (rows || []).some((c) => c.statut === "creation" || c.statut === "suppression");
+  const busy = (rows || []).some((c) => c.statut === "creating" || c.statut === "deleting");
   useEffect(() => { reload(); const id = setInterval(reload, busy ? 5000 : 20000); return () => clearInterval(id); }, [reload, busy]);
 
   async function download(name) {
@@ -74,7 +74,7 @@ export default function KubernetesPage() {
                     <th scope="row" style={{ fontWeight: 500 }}>{c.nom}</th>
                     <td>
                       <Pill tone={TONE[c.statut] || "info"}>{t(`k8s.state.${c.statut}`)}</Pill>
-                      {c.statut === "echec" && c.erreur && <div className="nx-muted" style={{ fontSize: "var(--fs-12)", marginTop: 4, maxWidth: "28rem" }}>{c.erreur}</div>}
+                      {c.statut === "failed" && c.erreur && <div className="nx-muted" style={{ fontSize: "var(--fs-12)", marginTop: 4, maxWidth: "28rem" }}>{c.erreur}</div>}
                     </td>
                     <td>
                       {[c.serveur, ...c.workers].map((vm, i) => (
@@ -90,7 +90,7 @@ export default function KubernetesPage() {
                     <td className="nx-mono nx-muted">{c.cree_le ? formatDateTime(c.cree_le, lang) : "—"}</td>
                     <td><div className="nx-ra">{caps.admin && (<>
                       {c.kubeconfig_disponible && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => download(c.nom)}><Download size={15} aria-hidden="true" /><span className="nx-hide-narrow">{t("k8s.kubeconfig")}</span></button>}
-                      {c.statut !== "creation" && c.statut !== "suppression" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("k8s.deleteX", { name: c.nom })} title={t("vx.delete")} onClick={() => remove(c)}><Trash2 size={15} aria-hidden="true" /></button>}
+                      {c.statut !== "creating" && c.statut !== "deleting" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("k8s.deleteX", { name: c.nom })} title={t("vx.delete")} onClick={() => remove(c)}><Trash2 size={15} aria-hidden="true" /></button>}
                     </>)}</div></td>
                   </tr>
                 ))}

@@ -13,7 +13,7 @@ import { PageHeader, Card, Empty, SideDrawer, Field, Chip, Loading } from "../co
 import { Clock, PencilLine, Play, Plus, Trash2, Zap } from "lucide-react";
 
 const newStep = () => ({ cible_type: "host", cible: "", commande: "", condition_type: "exit_code", condition_valeur: "0" });
-const runWire = (s) => (s === "succes" ? "termine" : s === "echec" ? "echec" : "en_cours");
+const runWire = (s) => (s === "success" ? "succeeded" : s === "failed" ? "failed" : "running");
 const targetLabel = (s, t) => (s.cible_type === "host" ? t("au.host") : s.cible_type === "vm" ? `VM ${s.cible}` : t("au.eachTarget"));
 
 const LB_PREDEFINED_KEY = "deploy_load_balancing";
@@ -51,7 +51,7 @@ export default function AutomationPage() {
   }, [pushToast, t]);
 
   // while the expanded job has a run in progress, refresh its history every 3 s
-  const running = open != null && (runs[open] || []).some((r) => r.statut !== "succes" && r.statut !== "echec");
+  const running = open != null && (runs[open] || []).some((r) => r.statut !== "success" && r.statut !== "failed");
   useEffect(() => {
     if (!running) return undefined;
     const id = setInterval(() => loadRuns(open), 3000);
@@ -78,7 +78,7 @@ export default function AutomationPage() {
     // run time), so its target requirement cannot be read from the steps.
     const predefined = job.predefined_key === LB_PREDEFINED_KEY;
     if (predefined && list.length < 2) { pushToast({ kind: "error", title: t("au.needTargets"), message: t("au.needLbTargetsHelp") }); return; }
-    const needsTargets = (steps || []).some((s) => s.cible_type === "chaque_cible");
+    const needsTargets = (steps || []).some((s) => s.cible_type === "each_target");
     if (needsTargets && list.length === 0) { pushToast({ kind: "error", title: t("au.needTargets"), message: t("au.needTargetsHelp") }); return; }
     if (!dry) {
       const cmds = predefined ? jobDesc(job, t) : steps ? steps.map((s, i) => `${i + 1}. [${targetLabel(s, t)}] ${s.commande}`).join("  •  ") : t("au.stepsUnknown");
@@ -204,7 +204,7 @@ export default function AutomationPage() {
             <fieldset key={i} className="nx-fs nx-stepbox">
               <legend>{t("au.step", { n: i + 1 })}</legend>
               <div className="nx-fg">
-                <Field label={t("au.target")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.step_target_type")} value={st.cible_type} onChange={(e) => upd(i, { cible_type: e.target.value })}><option value="host">{t("au.host")}</option><option value="vm">{t("au.aVm")}</option><option value="chaque_cible">{t("au.eachTarget")}</option></select>}</Field>
+                <Field label={t("au.target")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.step_target_type")} value={st.cible_type} onChange={(e) => upd(i, { cible_type: e.target.value })}><option value="host">{t("au.host")}</option><option value="vm">{t("au.aVm")}</option><option value="each_target">{t("au.eachTarget")}</option></select>}</Field>
                 {st.cible_type === "vm" && <Field label={t("au.vmName")} error={bad(pb.cible) ? t("nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vm_name")} value={st.cible || ""} onChange={(e) => upd(i, { cible: e.target.value })} />}</Field>}
                 <Field label={t("au.condition")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.success_condition_type")} value={st.condition_type} onChange={(e) => upd(i, { condition_type: e.target.value, condition_valeur: e.target.value === "exit_code" ? "0" : "" })}><option value="exit_code">{t("au.exitCode")}</option><option value="stdout_contains">{t("au.contains")}</option></select>}</Field>
                 <Field label={t("au.conditionValue")} error={bad(pb.valeur) ? t(st.condition_type === "exit_code" ? "au.badInt" : "nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.success_condition_value")} value={st.condition_valeur || ""} onChange={(e) => upd(i, { condition_valeur: e.target.value })} />}</Field>

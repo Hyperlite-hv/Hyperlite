@@ -178,7 +178,7 @@ def test_range_change_is_live_and_subnet_change_waits_for_restart(client, auth_h
 
     r = client.patch("/networks/lab", json=body | {"adresse": "10.9.0.20"}, headers=admin)
     assert r.status_code == 422 and "inside the DHCP range" in r.json()["detail"]
-    assert client.patch("/networks/lab", json=body, headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.patch("/networks/lab", json=body, headers=auth_headers("watcher", "viewer")).status_code == 403
 
 
 def test_reservations_are_added_live_and_removed(client, auth_headers, conn):

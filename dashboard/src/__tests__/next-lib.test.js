@@ -24,7 +24,7 @@ describe("derived alerts", () => {
       nodes: [{ id: "n", nom: "n", etat: "erreur" }],
       vms: [{ nom: "a", node: "local", etat: "plante" }, { nom: "b", node: "local", etat: "bloque" }, { nom: "c", node: "local", etat: "actif" }],
       storagePools: [{ nom: "tank", node: "local", etat: "actif", capacite_go: 100, disponible_go: 5 }, { nom: "ok", node: "local", etat: "actif", capacite_go: 100, disponible_go: 90 }],
-      tasks: [{ id: 1, statut: "echec", type: "backup_vm", cible: "a", erreur: "no space" }],
+      tasks: [{ id: 1, statut: "failed", type: "backup_vm", cible: "a", erreur: "no space" }],
     });
     expect(alerts.map((a) => a.kind)).toEqual(["vm-crashed", "pool-full", "task-failed", "vm-blocked", "node-offline"]);
   });
@@ -40,7 +40,7 @@ describe("states, capabilities, urls, theme, i18n", () => {
     expect(stateInfo("node", "erreur").tone).toBe("offline");
   });
   it("only admins get power actions, with a reason otherwise; never widens a right", () => {
-    const obs = capabilities("observateur");
+    const obs = capabilities("viewer");
     expect(vmActionState("start", { etat: "arrete" }, obs)).toEqual({ enabled: false, reason: "menu.reason.admin" });
     const adm = capabilities("admin");
     expect(vmActionState("start", { etat: "actif" }, adm).enabled).toBe(false);

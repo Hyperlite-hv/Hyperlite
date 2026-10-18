@@ -42,9 +42,9 @@ def test_runs_and_their_logs(repo):
     job_id = run(repo.create_job("nightly", None, "alice", "t0", [STEP]))
     repo.sync.create_run("r1", job_id, "task-1", True, '["web"]', "t1")
     repo.sync.log_step("r1", 0, "host", "uptime", "up 3 days", "", 0, True, "t2")
-    repo.sync.close_run("r1", "succes", "t3", "1/1 steps")
+    repo.sync.close_run("r1", "success", "t3", "1/1 steps")
     detail = run(repo.get_run("r1"))
-    assert (detail["statut"], detail["dry_run"], detail["resultat"]) == ("succes", 1, "1/1 steps")
+    assert (detail["statut"], detail["dry_run"], detail["resultat"]) == ("success", 1, "1/1 steps")
     assert [(log["stdout"], log["reussi"]) for log in detail["logs"]] == [("up 3 days", 1)]
     assert [r["id"] for r in run(repo.list_runs(job_id))] == ["r1"] and run(repo.get_run("nope")) is None
 

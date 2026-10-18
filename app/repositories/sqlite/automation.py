@@ -72,7 +72,7 @@ class SqliteAutomationStore:
         with get_conn() as db:
             db.execute(
                 "INSERT INTO job_runs (id, job_id, task_id, dry_run, targets, statut, started_at) "
-                "VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
+                "VALUES (?, ?, ?, ?, ?, 'running', ?)",
                 (run_id, job_id, task_id, int(dry_run), targets_json, started_at),
             )
             db.commit()

@@ -20,7 +20,7 @@ import { openShell, renameContainerFlow } from "../lib/containerActions";
 import { PageHeader, Card, Empty, Loading, TableWrap, Chip, SideDrawer } from "../components/ui";
 import { Box, Plus, Trash2 } from "lucide-react";
 
-const backupWire = (s) => (s === "termine" ? "termine" : s === "echec" ? "echec" : "en_cours");
+const backupWire = (s) => (s === "succeeded" ? "succeeded" : s === "failed" ? "failed" : "running");
 
 // LXC containers: list with lifecycle actions, creation (image gallery + Docker Hub search), clone,
 // backups and restore. Same endpoints and safeguards as the historical tab.
@@ -153,7 +153,7 @@ export default function ContainersPage() {
                       <td>{new Date(b.cree_le).toLocaleString(lang)}</td>
                       <td className="nx-num nx-mono">{b.taille_octets ? formatSizeMb(b.taille_octets / 1048576, lang) : "—"}</td>
                       <td><div className="nx-ra">
-                        {b.statut === "termine" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
+                        {b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
                         <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={del} onClick={() => removeBackup(b)}><Trash2 size={15} aria-hidden="true" /></button>
                       </div></td>
                     </tr>

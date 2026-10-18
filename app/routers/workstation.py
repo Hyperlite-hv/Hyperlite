@@ -115,7 +115,7 @@ def cli_token(device_code: str = Body(..., embed=True)):
     if status != "approved":
         code = {"pending": "authorization_pending", "denied": "access_denied"}.get(status, "expired_token")
         return JSONResponse(status_code=400, content={"error": code})
-    log_action(info["username"], "cli_login", info["hostname"], "succes")
+    log_action(info["username"], "cli_login", info["hostname"], "success")
     return {
         "access_token": info["token"],
         "token_id": info["token_id"],
@@ -153,7 +153,7 @@ def cli_approve(user_code: str, user: dict = Depends(_session_user)):
     req = workstation.decide_request(user_code, user["username"], approve=True)
     if req is None:
         raise HTTPException(status_code=404, detail="Unknown or expired code")
-    log_action(user["username"], "cli_approve", req["hostname"], "succes")
+    log_action(user["username"], "cli_approve", req["hostname"], "success")
     return {"ok": True, "hostname": req["hostname"]}
 
 
@@ -162,5 +162,5 @@ def cli_deny(user_code: str, user: dict = Depends(_session_user)):
     req = workstation.decide_request(user_code, user["username"], approve=False)
     if req is None:
         raise HTTPException(status_code=404, detail="Unknown or expired code")
-    log_action(user["username"], "cli_deny", req["hostname"], "succes")
+    log_action(user["username"], "cli_deny", req["hostname"], "success")
     return {"ok": True}

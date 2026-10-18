@@ -92,7 +92,7 @@ def _add_node(database, name):
     with database.get_conn() as db:
         db.execute(
             "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, added_at) "
-            "VALUES (?, ?, 'root', 22, 'en_ligne', ?)",
+            "VALUES (?, ?, 'root', 22, 'online', ?)",
             (name, f"{name}.example", datetime.now(UTC).isoformat()),
         )
         db.commit()
@@ -110,7 +110,7 @@ def cluster(client, auth_headers, database, monkeypatch, compat):
 
     def fake_migrate(task_id, username, source_node, target_node, vm_name):
         migrated.append((source_node, target_node, vm_name))
-        nodes.finish_task(task_id, "echec" if vm_name in fail else "termine")
+        nodes.finish_task(task_id, "failed" if vm_name in fail else "succeeded")
 
     monkeypatch.setattr(nodes, "_migrate_vm_job", fake_migrate)
     return {"client": client, "headers": auth_headers("admin1"), "migrated": migrated, "fail": fail, "db": database}
@@ -134,7 +134,7 @@ def test_draining_marks_the_node_then_migrates_each_vm_as_its_own_task(cluster):
     assert cluster["migrated"] == [(None, "n2", "db"), (None, "n2", "web")]
     assert [t["cible"] for t in _tasks(cluster["db"], "migrate_vm")] == ["db", "web"]
     drain = _tasks(cluster["db"], "drain_node")
-    assert len(drain) == 1 and drain[0]["id"] == body["task_id"] and drain[0]["statut"] == "termine"
+    assert len(drain) == 1 and drain[0]["id"] == body["task_id"] and drain[0]["statut"] == "succeeded"
     assert [m["node"] for m in c.get("/nodes/maintenance", headers=h).json()] == ["local"]
 
 
@@ -142,7 +142,7 @@ def test_a_failed_migration_fails_the_drain_task_with_its_name(cluster):
     cluster["fail"].add("web")
     r = cluster["client"].post("/nodes/local/maintenance", json={"target_node": "n2"}, headers=cluster["headers"])
     drain = _tasks(cluster["db"], "drain_node")[0]
-    assert r.status_code == 202 and drain["statut"] == "echec" and "failed: web" in drain["erreur"]
+    assert r.status_code == 202 and drain["statut"] == "failed" and "failed: web" in drain["erreur"]
 
 
 def test_maintenance_without_a_target_only_marks_the_node(cluster):
@@ -183,7 +183,7 @@ def test_ending_the_maintenance(cluster):
 
 
 def test_an_observer_can_read_but_not_change_maintenance(cluster, auth_headers):
-    h = auth_headers("watcher", role="observateur")
+    h = auth_headers("watcher", role="viewer")
     c = cluster["client"]
     assert c.get("/nodes/maintenance", headers=h).status_code == 200
     assert c.post("/nodes/local/maintenance", json={}, headers=h).status_code == 403

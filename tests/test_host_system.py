@@ -136,7 +136,7 @@ def test_api_is_admin_only_and_starts_one_upgrade_task(client, auth_headers, hos
 
     host["answers"][("apt", "list")] = APT_LIST
     admin = auth_headers("root", "admin")
-    assert client.get("/host/system/updates", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.get("/host/system/updates", headers=auth_headers("watcher", "viewer")).status_code == 403
     assert len(client.get("/host/system/updates", headers=admin).json()["paquets"]) == 4
 
     release = threading.Event()
@@ -153,10 +153,10 @@ def test_api_is_admin_only_and_starts_one_upgrade_task(client, auth_headers, hos
     assert client.post("/host/system/updates/upgrade", json={"paquets": ["openssl"]}, headers=admin).status_code == 409
     release.set()
     for _ in range(50):
-        if tasks.task_status(r.json()["tache"]) == "termine":
+        if tasks.task_status(r.json()["tache"]) == "succeeded":
             break
         threading.Event().wait(0.05)
-    assert tasks.task_status(r.json()["tache"]) == "termine"
+    assert tasks.task_status(r.json()["tache"]) == "succeeded"
     assert any("Setting up openssl" in line["message"] for line in tasks.get_task_log(r.json()["tache"]))
     assert not router._upgrade_lock.locked()
     assert client.put("/host/system/dns", json={"serveurs": ["nope"]}, headers=admin).status_code == 422
@@ -185,13 +185,11 @@ def test_power_needs_the_typed_name_and_stops_guests_first(client, auth_headers,
         ).status_code
         == 422
     )
-    assert (
-        client.post("/host/system/power", json=body, headers=auth_headers("watcher", "observateur")).status_code == 403
-    )
+    assert client.post("/host/system/power", json=body, headers=auth_headers("watcher", "viewer")).status_code == 403
 
     def wait(task_id):
         for _ in range(100):
-            if tasks.task_status(task_id) != "en_cours":
+            if tasks.task_status(task_id) != "running":
                 return tasks.task_status(task_id)
             threading.Event().wait(0.02)
 
@@ -199,13 +197,13 @@ def test_power_needs_the_typed_name_and_stops_guests_first(client, auth_headers,
     r = client.post(
         "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "arreter_invites": True}, headers=admin
     )
-    assert r.status_code == 202 and wait(r.json()["tache"]) == "echec" and scheduled == []
+    assert r.status_code == 202 and wait(r.json()["tache"]) == "failed" and scheduled == []
 
     monkeypatch.setattr(hs, "stop_guests", lambda guests, log: [])
     r = client.post(
         "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "arreter_invites": True}, headers=admin
     )
-    assert wait(r.json()["tache"]) == "termine" and scheduled == ["poweroff"]
+    assert wait(r.json()["tache"]) == "succeeded" and scheduled == ["poweroff"]
 
 
 def test_power_is_scheduled_outside_the_service(host, monkeypatch):

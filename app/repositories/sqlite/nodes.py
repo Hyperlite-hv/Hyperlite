@@ -13,7 +13,7 @@ from app.core.database import get_conn
 from app.domain.common import AlreadyExists
 from app.domain.node import Maintenance, Node, NodeSpec, NodeStatus
 
-ONLINE = "en_ligne"
+ONLINE = "online"
 
 
 def _node(row):

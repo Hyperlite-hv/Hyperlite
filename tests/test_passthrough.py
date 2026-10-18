@@ -220,6 +220,6 @@ def test_a_usb_device_goes_to_a_running_vm_and_the_host_inventory_shows_who_has_
 
 
 def test_only_an_administrator_touches_host_devices(api, auth_headers):
-    headers = auth_headers("watcher", role="observateur")
+    headers = auth_headers("watcher", role="viewer")
     assert api["client"].get("/host/devices", headers=headers).status_code == 403
     assert api["client"].post("/vms/vm1/hostdevs", json={"device": "usb_1_4"}, headers=headers).status_code == 403

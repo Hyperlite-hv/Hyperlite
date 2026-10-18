@@ -44,7 +44,7 @@ def get_task_log(task_id):
 # ---- Cancellation ----
 # A long task registers how to stop it (abort a libvirt job, stop between steps...). Cancelling asks it to stop;
 # the task then ends as failed, recorded as cancelled by whom. A task with nobody behind it (its worker died with a
-# service restart) is closed as abandoned instead of staying "en_cours" forever.
+# service restart) is closed as abandoned instead of staying "running" forever.
 
 
 class TaskCancelled(Exception):
@@ -113,7 +113,7 @@ def request_cancel(task_id, username, force=False):
     statut = _store().status(task_id)
     if statut is None:
         raise LookupError(task_id)
-    if statut not in ("en_cours", "en_attente"):
+    if statut not in ("running", "pending"):
         raise ValueError("The task is already over")
     with _cancel_lock:
         registered = task_id in _cancellers
@@ -140,12 +140,12 @@ def request_cancel(task_id, username, force=False):
 
 
 def close_interrupted_tasks():
-    """At start-up: a task still 'en_cours' was run by the previous process, which is gone."""
+    """At start-up: a task still 'running' was run by the previous process, which is gone."""
     return _store().close_interrupted(_now())
 
 
 def create_task(type_, cible=None, node=None, username=None):
-    """Create a task and mark it 'en_cours' immediately (see the module
+    """Create a task and mark it 'running' immediately (see the module
     docstring: there is no real queue yet)."""
     from app.core import self_node
 
@@ -167,9 +167,9 @@ def update_task_progress(task_id, progres):
 
 
 def finish_task(task_id, statut, error_message=None):
-    """Close a task: 'termine' or 'echec'. A task someone asked to stop ends as cancelled by them."""
+    """Close a task: 'succeeded' or 'failed'. A task someone asked to stop ends as cancelled by them."""
     with _cancel_lock:
-        cancelled_by = _requested.get(task_id) if statut == "echec" else None
+        cancelled_by = _requested.get(task_id) if statut == "failed" else None
         _live.discard(task_id)
     if cancelled_by:
         # Keep what the task itself reported (how far it got), after who stopped it.

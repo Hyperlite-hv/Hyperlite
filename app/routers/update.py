@@ -525,7 +525,7 @@ def _run_update_job(task_id, username, branch):
 
     def step(pct, message):
         update_task_progress(task_id, pct)
-        log_action(username, "hyperlite_update_step", message, "succes")
+        log_action(username, "hyperlite_update_step", message, "success")
 
     old_commit = _current_commit()
     try:
@@ -578,7 +578,7 @@ def _run_update_job(task_id, username, branch):
         step(85, "Checking the database schema (no migration required)")
 
         step(90, "Restarting the service and post-update verification")
-        log_action(username, "hyperlite_update_step", f"{old_commit[:8]} -> {new_commit[:8]}", "succes")
+        log_action(username, "hyperlite_update_step", f"{old_commit[:8]} -> {new_commit[:8]}", "success")
 
         # The watchdog is started BEFORE the restart, as a fully detached process
         # (start_new_session): it must survive the death of THIS Python process when
@@ -592,10 +592,10 @@ def _run_update_job(task_id, username, branch):
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
         # This process will die in ~2 s (the restart above): the task is marked
-        # "termine" optimistically before dying rather than leaving a task forever
-        # "en_cours". The watchdog is the real safety net if the new code does not start.
-        finish_task(task_id, "termine")
-        log_action(username, "hyperlite_update", f"{old_commit} -> {new_commit}", "succes")
+        # "succeeded" optimistically before dying rather than leaving a task forever
+        # "running". The watchdog is the real safety net if the new code does not start.
+        finish_task(task_id, "succeeded")
+        log_action(username, "hyperlite_update", f"{old_commit} -> {new_commit}", "success")
 
     except Exception as exc:
         # Any failure before the restart: the running process still runs the OLD code (no
@@ -607,8 +607,8 @@ def _run_update_job(task_id, username, branch):
                 _run(["git", "reset", "--hard", old_commit])
             except Exception:
                 logger.exception("Rollback to the previous commit failed")
-        finish_task(task_id, "echec", str(exc))
-        log_action(username, "hyperlite_update", str(exc), "echec")
+        finish_task(task_id, "failed", str(exc))
+        log_action(username, "hyperlite_update", str(exc), "failed")
 
 
 def _apt_command(args, env=()):
@@ -657,7 +657,7 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
 
     def step(pct, message):
         update_task_progress(task_id, pct)
-        log_action(username, "hyperlite_update_step", message, "succes")
+        log_action(username, "hyperlite_update_step", message, "success")
 
     old_version = _dpkg_installed_version()
     try:
@@ -728,18 +728,18 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
         new_version = _dpkg_installed_version()
         if host_system.REBOOT_REQUIRED.exists():
             task_log(task_id, "A reboot of the node is needed to use some of the new packages")
-            log_action(username, "host_reboot_required", "host", "succes", "after an update")
+            log_action(username, "host_reboot_required", "host", "success", "after an update")
         if offline:
             offline_update.discard()  # applied: half a gigabyte less on the node
         if new_version == old_version and not rolled_back:
             # Only Debian packages changed: Hyperlite keeps running, nothing to restart or watch.
-            finish_task(task_id, "termine")
-            log_action(username, "hyperlite_update", f"Debian packages updated, Hyperlite {new_version}", "succes")
+            finish_task(task_id, "succeeded")
+            log_action(username, "hyperlite_update", f"Debian packages updated, Hyperlite {new_version}", "success")
             return
 
         step(85, "Checking the database schema (no migration required)")
         step(90, "Restarting the service and post-update verification")
-        log_action(username, "hyperlite_update_step", f"{old_version} -> {new_version}", "succes")
+        log_action(username, "hyperlite_update_step", f"{old_version} -> {new_version}", "success")
 
         # The same safety net as the Git path: a detached watchdog BEFORE the restart
         # (it survives the death of this process), which verifies that the new code starts
@@ -750,8 +750,8 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
         )
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
-        finish_task(task_id, "termine")
-        log_action(username, "hyperlite_update", f"{old_version} -> {new_version}", "succes")
+        finish_task(task_id, "succeeded")
+        log_action(username, "hyperlite_update", f"{old_version} -> {new_version}", "success")
 
     except Exception as exc:
         # No "dpkg reset --hard" symmetric to the Git path here: a failure BEFORE the
@@ -760,8 +760,8 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
         # state stay inconsistent anyway.
         if offline:
             offline_update.clean_extracted()  # the received file stays, to try again
-        finish_task(task_id, "echec", str(exc))
-        log_action(username, "hyperlite_update", str(exc), "echec")
+        finish_task(task_id, "failed", str(exc))
+        log_action(username, "hyperlite_update", str(exc), "failed")
 
 
 UPDATE_IN_PROGRESS_WINDOW = timedelta(minutes=15)
@@ -771,7 +771,7 @@ _apply_lock = threading.Lock()
 def _update_in_progress():
     """Username of whoever started an update that is still running, else None.
 
-    Only tasks started recently count: a task left 'en_cours' by a crash must not block
+    Only tasks started recently count: a task left 'running' by a crash must not block
     updates forever."""
     from app.repositories import registry
 
@@ -803,11 +803,11 @@ def _start_update(user, system=True):
     if _install_method() == "apt":
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
         threading.Thread(target=_run_update_job_apt, args=(task_id, user["username"], system), daemon=True).start()
-        return {"task_id": task_id, "statut": "en_cours"}
+        return {"task_id": task_id, "statut": "running"}
 
     branch = _current_branch()
     if _is_dirty():
-        log_action(user["username"], "hyperlite_update", "arbre non propre", "echec")
+        log_action(user["username"], "hyperlite_update", "arbre non propre", "failed")
         raise HTTPException(
             status_code=409,
             detail="Working tree is not clean (uncommitted changes): commit or discard them before updating.",
@@ -815,7 +815,7 @@ def _start_update(user, system=True):
 
     task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
     threading.Thread(target=_run_update_job, args=(task_id, user["username"], branch), daemon=True).start()
-    return {"task_id": task_id, "statut": "en_cours"}
+    return {"task_id": task_id, "statut": "running"}
 
 
 def _run_rollback_job(task_id, username, previous):
@@ -847,11 +847,11 @@ def _run_rollback_job(task_id, username, previous):
             ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
         )
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
-        finish_task(task_id, "termine")
-        log_action(username, "hyperlite_rollback", f"{old_version} -> {previous['version']}", "succes")
+        finish_task(task_id, "succeeded")
+        log_action(username, "hyperlite_rollback", f"{old_version} -> {previous['version']}", "success")
     except Exception as exc:
-        finish_task(task_id, "echec", str(exc))
-        log_action(username, "hyperlite_rollback", str(exc), "echec")
+        finish_task(task_id, "failed", str(exc))
+        log_action(username, "hyperlite_rollback", str(exc), "failed")
 
 
 # ---- Update from a file, for a node without network (app/core/offline_update.py) ----
@@ -885,11 +885,11 @@ async def upload_offline_update(
         finally:
             await file.close()
     except offline_update.OfflineUpdateError as e:
-        log_action(user["username"], "upload_update_file", (file.filename or "")[:80], "echec", str(e))
+        log_action(user["username"], "upload_update_file", (file.filename or "")[:80], "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"The update file could not be stored: {e}") from e
-    log_action(user["username"], "upload_update_file", info["version"], "succes")
+    log_action(user["username"], "upload_update_file", info["version"], "success")
     return _offline_summary(info, lang)
 
 
@@ -903,7 +903,7 @@ def get_offline_update(lang: str = "en", user: dict = Depends(require_role("admi
 @router.delete("/offline")
 def delete_offline_update(user: dict = Depends(require_role("admin"))):
     offline_update.discard()
-    log_action(user["username"], "delete_update_file", "hyperlite", "succes")
+    log_action(user["username"], "delete_update_file", "hyperlite", "success")
     return {"version": None}
 
 
@@ -932,7 +932,7 @@ def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depen
         threading.Thread(
             target=_run_update_job_apt, args=(task_id, user["username"], system, True), daemon=True
         ).start()
-    return {"task_id": task_id, "statut": "en_cours", "version": info["version"]}
+    return {"task_id": task_id, "statut": "running", "version": info["version"]}
 
 
 class ChannelRequest(BaseModel):
@@ -952,9 +952,9 @@ def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admi
     try:
         new = host_system.set_channel(payload.canal)
     except host_system.SettingError as e:
-        log_action(user["username"], "set_update_channel", payload.canal[:20], "echec", str(e))
+        log_action(user["username"], "set_update_channel", payload.canal[:20], "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "set_update_channel", new, "succes")
+    log_action(user["username"], "set_update_channel", new, "success")
     return {"canal": new, "canaux": list(host_system.CHANNELS)}
 
 
@@ -976,4 +976,4 @@ def rollback_update(user: dict = Depends(require_role("admin"))):
             )
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
         threading.Thread(target=_run_rollback_job, args=(task_id, user["username"], previous), daemon=True).start()
-    return {"task_id": task_id, "statut": "en_cours", "version": previous["version"]}
+    return {"task_id": task_id, "statut": "running", "version": previous["version"]}

@@ -124,7 +124,7 @@ def test_tunnel_ticket_checks_port_privilege_and_state(client, auth_headers, mon
     from app.routers.vms import tunnel
 
     admin = auth_headers("alice")
-    observer = auth_headers("bob", role="observateur")
+    observer = auth_headers("bob", role="viewer")
     monkeypatch.setattr(tunnel, "open_conn", lambda: _Conn(_Domain()))
     assert client.post("/vms/vm1/tunnel-ticket", json={"port": 22}, headers=observer).status_code == 403
     assert client.post("/vms/vm1/tunnel-ticket", json={"port": 25}, headers=admin).status_code == 403

@@ -28,13 +28,13 @@ def shadow_seed(user: dict = Depends(require_role("admin"))):
     except (CfsError, OSError) as e:
         logger.warning("hyperlite-cfs shadow seed failed: %s", e)
         reason = shadow.describe(e)
-        log_action(user["username"], "cfs_shadow_seed", "hyperlite-cfs", "echec", reason)
+        log_action(user["username"], "cfs_shadow_seed", "hyperlite-cfs", "failed", reason)
         raise HTTPException(status_code=503, detail=f"The copy did not complete: {reason}") from e
     log_action(
         user["username"],
         "cfs_shadow_seed",
         "hyperlite-cfs",
-        "succes",
+        "success",
         f"{done['ecrits']} written, {done['supprimes']} deleted",
     )
     return done
@@ -46,9 +46,9 @@ def shadow_turn_on(user: dict = Depends(require_role("admin"))):
     try:
         done = shadow.turn_on()
     except shadow.ShadowError as e:
-        log_action(user["username"], "cfs_shadow_on", "hyperlite-cfs", "echec", str(e))
+        log_action(user["username"], "cfs_shadow_on", "hyperlite-cfs", "failed", str(e))
         raise HTTPException(status_code=503, detail=str(e)) from e
-    log_action(user["username"], "cfs_shadow_on", "hyperlite-cfs", "succes", f"{done['ecrits']} written")
+    log_action(user["username"], "cfs_shadow_on", "hyperlite-cfs", "success", f"{done['ecrits']} written")
     return done
 
 
@@ -58,7 +58,7 @@ def shadow_turn_off(user: dict = Depends(require_role("admin"))):
     try:
         shadow.turn_off()
     except shadow.ShadowError as e:
-        log_action(user["username"], "cfs_shadow_off", "hyperlite-cfs", "echec", str(e))
+        log_action(user["username"], "cfs_shadow_off", "hyperlite-cfs", "failed", str(e))
         raise HTTPException(status_code=409 if shadow.forced() else 503, detail=str(e)) from e
-    log_action(user["username"], "cfs_shadow_off", "hyperlite-cfs", "succes", "")
+    log_action(user["username"], "cfs_shadow_off", "hyperlite-cfs", "success", "")
     return {"actif": False}

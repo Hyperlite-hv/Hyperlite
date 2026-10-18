@@ -34,7 +34,7 @@ async function virtualAuthenticator(page: Page) {
 
 test.beforeAll(async ({ request }) => {
   const token = await apiLogin(request);
-  const r = await request.post("/auth/users", { headers: { Authorization: `Bearer ${token}` }, data: { username: USER, password: PASSWORD, role: "observateur" } });
+  const r = await request.post("/auth/users", { headers: { Authorization: `Bearer ${token}` }, data: { username: USER, password: PASSWORD, role: "viewer" } });
   expect(r.ok(), await r.text()).toBe(true);
 });
 test.afterAll(async ({ request }) => {

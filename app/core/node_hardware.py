@@ -80,7 +80,7 @@ def parse(text):
         interfaces.append(
             {
                 "nom": name,
-                "etat": state or "inconnu",
+                "etat": state or "unknown",
                 "type": kind,
                 "mac": mac or None,
                 "mtu": int(mtu) if mtu.isdigit() else None,
@@ -94,7 +94,7 @@ def parse(text):
     for line in s.get("smart", "").splitlines():
         name, _, verdict = line.partition("|")
         v = verdict.strip().upper()
-        health[name] = "ok" if v in ("PASSED", "OK") else ("echec" if v else None)
+        health[name] = "ok" if v in ("PASSED", "OK") else ("failed" if v else None)
     disks = []
     for dev in (_json(s.get("lsblk", "")) or {}).get("blockdevices", []):
         if dev.get("type") != "disk":

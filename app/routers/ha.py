@@ -75,7 +75,7 @@ def put_settings(payload: HaSettings, user: dict = Depends(require_role("admin")
         result = ha_watch.save_settings(payload.temoin, payload.seuil_suspect, payload.seuil_panne)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "ha_settings", "ha", "succes", f"witness={payload.temoin or 'none'}")
+    log_action(user["username"], "ha_settings", "ha", "success", f"witness={payload.temoin or 'none'}")
     return result
 
 
@@ -118,7 +118,7 @@ def put_fencing(node: str, payload: FencingSettings, user: dict = Depends(requir
         )
     except ha_fencing.FencingError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
-    log_action(user["username"], "ha_fencing_set", node, "succes", payload.methode)
+    log_action(user["username"], "ha_fencing_set", node, "success", payload.methode)
     return result
 
 
@@ -126,7 +126,7 @@ def put_fencing(node: str, payload: FencingSettings, user: dict = Depends(requir
 def delete_fencing(node: str, user: dict = Depends(require_role("admin"))):
     if not ha_fencing.delete(node):
         raise HTTPException(status_code=404, detail="No fencing is set for this node")
-    log_action(user["username"], "ha_fencing_delete", node, "succes")
+    log_action(user["username"], "ha_fencing_delete", node, "success")
     return {"message": "Fencing settings removed"}
 
 
@@ -137,7 +137,9 @@ def test_fencing(node: str, user: dict = Depends(require_role("admin"))):
         result = ha_fencing.test(node)
     except ha_fencing.FencingError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
-    log_action(user["username"], "ha_fencing_test", node, "succes" if result["ok"] else "echec", result["detail"][:300])
+    log_action(
+        user["username"], "ha_fencing_test", node, "success" if result["ok"] else "failed", result["detail"][:300]
+    )
     return result
 
 

@@ -30,7 +30,7 @@ def write_backup(root, vm, stamp, source="site-a", disks=("vda",), corrupt=False
         "version": 1,
         "vm": vm,
         "source": source,
-        "mode": "froid",
+        "mode": "cold",
         "cree_le": f"2026-10-0{stamp[-1]}T00:00:00+00:00",
         "firmware": "uefi",
         "fichiers": files,
@@ -147,7 +147,7 @@ def test_registering_adds_the_backup_once_with_its_origin(tmp_path, database):
     first = site_recovery.register(str(d))
     assert site_recovery.register(str(d)) == first
     row = backups._store().get(first)
-    assert row["statut"] == "termine" and row["importe_de"] == "site-a" and row["vm_name"] == "web"
+    assert row["statut"] == "succeeded" and row["importe_de"] == "site-a" and row["vm_name"] == "web"
     assert row["checksum_sha256"] == backup_integrity.sha256_of(d / "vda.qcow2")
 
 
@@ -194,7 +194,7 @@ def test_a_recovery_restores_each_vm_and_reports_the_ones_that_failed(tmp_path, 
 
     site_recovery.recover([{"chemin": str(good), "nom": "web"}, {"chemin": str(bad), "nom": "app"}], "default", "admin")
     assert calls == [("new", "web", "default")]
-    assert finished["s"] == "echec" and "1/2 VM(s) restored" in finished["m"] and "app:" in finished["m"]
+    assert finished["s"] == "failed" and "1/2 VM(s) restored" in finished["m"] and "app:" in finished["m"]
 
 
 def test_the_endpoints_are_for_administrators(client, auth_headers, tmp_path, conn):
@@ -203,7 +203,7 @@ def test_the_endpoints_are_for_administrators(client, auth_headers, tmp_path, co
     r = client.get("/backups/site-recovery/scan", params={"chemin": str(tmp_path / "share")}, headers=admin)
     assert r.status_code == 200 and r.json()[0]["vm"] == "web"
     assert client.get("/backups/site-recovery/scan", params={"chemin": "/etc"}, headers=admin).status_code == 422
-    watcher = auth_headers("watcher", role="observateur")
+    watcher = auth_headers("watcher", role="viewer")
     assert (
         client.get("/backups/site-recovery/scan", params={"chemin": str(tmp_path)}, headers=watcher).status_code == 403
     )

@@ -47,7 +47,7 @@ def download_kubeconfig(name: str, user: dict = Depends(require_role("admin"))):
         config = k8s_cluster.get_kubeconfig(name)
     except k8s_cluster.ClusterError as e:
         _fail(e)
-    log_action(user["username"], "download_kubeconfig", name, "succes")
+    log_action(user["username"], "download_kubeconfig", name, "success")
     return PlainTextResponse(
         config,
         media_type="application/yaml",

@@ -15,7 +15,7 @@ router = APIRouter(prefix="/backup-groups", tags=["backups"])
 
 class GroupJob(BaseModel):
     nom: str
-    selection: str  # "toutes" | "etiquette" | "pool"
+    selection: str  # "all" | "tag" | "pool"
     valeur: str | None = None
     exclues: list[str] = []
     frequence: str
@@ -40,7 +40,7 @@ def create_group_job(payload: GroupJob, user: dict = Depends(require_role("admin
     except backup_groups.GroupError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     log_action(
-        user["username"], "create_backup_group", job["nom"], "succes", f"{job['selection']} {job['valeur'] or ''}"
+        user["username"], "create_backup_group", job["nom"], "success", f"{job['selection']} {job['valeur'] or ''}"
     )
     return job
 
@@ -53,7 +53,7 @@ def update_group_job(job_id: int, payload: GroupJob, user: dict = Depends(requir
         job = backup_groups.save_job(payload.model_dump(), job_id)
     except backup_groups.GroupError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "update_backup_group", job["nom"], "succes")
+    log_action(user["username"], "update_backup_group", job["nom"], "success")
     return job
 
 
@@ -61,7 +61,7 @@ def update_group_job(job_id: int, payload: GroupJob, user: dict = Depends(requir
 def delete_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
     if not backup_groups.delete_job(job_id):
         raise HTTPException(status_code=404, detail="Backup job not found")
-    log_action(user["username"], "delete_backup_group", str(job_id), "succes")
+    log_action(user["username"], "delete_backup_group", str(job_id), "success")
     return {"message": "Backup job deleted (its backups are kept)"}
 
 
@@ -71,7 +71,7 @@ def run_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
     job = backup_groups.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Backup job not found")
-    if job["en_cours"]:
+    if job["running"]:
         raise HTTPException(status_code=409, detail="This job is already running")
     vms = backup_groups.resolve(job)
     if not vms:
@@ -84,7 +84,7 @@ def run_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
             user["username"],
             "backup_group",
             job["nom"],
-            "echec" if failed else "succes",
+            "failed" if failed else "success",
             "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VMs",
         )
 

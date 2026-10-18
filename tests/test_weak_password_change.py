@@ -62,7 +62,7 @@ def test_sessions_opened_before_the_weak_sign_in_are_held_too(client, make_user,
 
 
 def test_the_2fa_step_reports_it_too(client, make_user, database):
-    make_user("dan", "observateur", WEAK)
+    make_user("dan", "viewer", WEAK)
     secret = pyotp.random_base32()
     with database.get_conn() as conn:
         conn.execute("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE username = 'dan'", (secret,))
@@ -73,7 +73,7 @@ def test_the_2fa_step_reports_it_too(client, make_user, database):
 
 
 def test_the_flag_is_logged_once(client, make_user, database):
-    make_user("eva", "observateur", WEAK)
+    make_user("eva", "viewer", WEAK)
     _login(client, "eva", WEAK)
     _login(client, "eva", WEAK)
     from app.core import audit

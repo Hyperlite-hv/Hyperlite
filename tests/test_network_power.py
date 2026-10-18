@@ -103,7 +103,7 @@ def test_stopping_names_the_running_vms_and_needs_a_confirmation(conn, client, a
 
 
 def test_only_administrators_change_a_network_and_unknown_ones_are_404(conn, client, auth_headers):
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.post("/networks/default/start", headers=viewer).status_code == 403
     assert client.put("/networks/default/autostart", json={"autostart": True}, headers=viewer).status_code == 403
     assert client.post("/networks/ghost/start", headers=auth_headers("admin")).status_code == 404

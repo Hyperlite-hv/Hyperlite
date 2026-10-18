@@ -21,7 +21,7 @@ def nodes_api(client, auth_headers, monkeypatch):
     monkeypatch.setattr(nodes, "_compat_with_local", lambda name: {"compatible": True})
     monkeypatch.setattr("app.routers.storage.apply_shared_pools", lambda name, username: [])
     monkeypatch.setattr(nodes, "node_summary", lambda name: {"hostname": f"{name}.lan", "connecte": True})
-    return client, auth_headers("alice"), auth_headers("olga", role="observateur")
+    return client, auth_headers("alice"), auth_headers("olga", role="viewer")
 
 
 def _add(client, headers, name="n2", host="10.0.0.2"):
@@ -38,7 +38,7 @@ def test_registering_a_node_returns_it_with_its_checks(nodes_api):
         "hostname": "10.0.0.2",
         "ssh_user": "root",
         "ssh_port": 22,
-        "statut": "en_ligne",
+        "statut": "online",
     }
     assert body["pools_partages"] == [] and body["compatibilite"] == {"compatible": True}
     assert _add(client, admin).status_code == 422  # the same name twice
@@ -96,4 +96,4 @@ def test_the_ha_list_reports_each_node_state(nodes_api, database):
         )
         db.commit()
     states = {r["vm_name"]: r["statut_noeud"] for r in client.get("/ha", headers=viewer).json()}
-    assert states == {"web": "en_ligne", "db": "en_ligne", "old": "inconnu"}
+    assert states == {"web": "online", "db": "online", "old": "unknown"}

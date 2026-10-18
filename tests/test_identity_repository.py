@@ -80,7 +80,7 @@ def test_provisioning_never_takes_over_another_account(repo, make_user):
         return "random-hash"
 
     assert store.provision_sso_user("local", "admin", "sub-1", new_hash)[0] == LOCAL_ACCOUNT
-    outcome, row = store.provision_sso_user("carol", "observateur", "sub-c", new_hash)
+    outcome, row = store.provision_sso_user("carol", "viewer", "sub-c", new_hash)
     assert outcome == PROVISIONED and (row["auth_source"], row["sso_subject"]) == ("sso", "sub-c")
     # Found again by its subject even when the IdP now proposes another name; the role follows the IdP.
     outcome, row = store.provision_sso_user("carol.new", "admin", "sub-c", new_hash)
@@ -89,7 +89,7 @@ def test_provisioning_never_takes_over_another_account(repo, make_user):
     assert len(hashed) == 1  # only the new account got a password hash
 
     assert store.provision_ldap_user("carol", "uid=carol", "admin", new_hash)[0] == LOCAL_ACCOUNT
-    outcome, row = store.provision_ldap_user("dan", "uid=dan", "observateur", new_hash)
+    outcome, row = store.provision_ldap_user("dan", "uid=dan", "viewer", new_hash)
     assert outcome == PROVISIONED and (row["auth_source"], row["ldap_dn"]) == ("ldap", "uid=dan")
     outcome, row = store.provision_ldap_user("dan", "uid=dan,ou=x", "admin", new_hash)
     assert (row["role"], row["ldap_dn"]) == ("admin", "uid=dan,ou=x") and len(hashed) == 2

@@ -81,7 +81,7 @@ def backup_disks(backup_id):
     row = registry.backups().sync.get(backup_id)
     if not row:
         raise RestoreError("Backup not found")
-    if row["statut"] != "termine":
+    if row["statut"] != "succeeded":
         raise RestoreError("Only a finished backup can be browsed")
     root = Path(row["chemin"])
     manifest = backup_integrity.read_manifest(root)

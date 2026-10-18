@@ -169,7 +169,7 @@ export function NodeDiskPage({ resource: node }) {
                     <td>{d.modele || <span className="nx-muted">—</span>}</td>
                     <td><Chip>{d.type}</Chip></td>
                     <td className="nx-num nx-mono">{d.taille_go != null ? formatSizeGb(d.taille_go, lang) : "—"}</td>
-                    <td>{d.sante === "ok" ? <span className="nx-st nx-tone-success"><span className="nx-dot" data-tone="success" aria-hidden="true" />{t("nn.healthy")}</span> : d.sante === "echec" ? <span className="nx-st" data-tone="danger"><span className="nx-dot" data-tone="danger" aria-hidden="true" />{t("nn.failing")}</span> : <span className="nx-muted" title={t("nn.smartNa")}>—</span>}</td>
+                    <td>{d.sante === "ok" ? <span className="nx-st nx-tone-success"><span className="nx-dot" data-tone="success" aria-hidden="true" />{t("nn.healthy")}</span> : d.sante === "failed" ? <span className="nx-st" data-tone="danger"><span className="nx-dot" data-tone="danger" aria-hidden="true" />{t("nn.failing")}</span> : <span className="nx-muted" title={t("nn.smartNa")}>—</span>}</td>
                     <td className="nx-mono nx-wrapcell">{usedBy(d)}</td>
                   </tr>
                 ))}
@@ -262,7 +262,7 @@ export function NodeShellPage({ resource: node }) {
 const FEATURE = {
   actif: { key: "state.active", shape: "dot", tone: "success" },
   limite: { key: "state.limited", shape: "triangle", tone: "warning" },
-  inconnu: { key: "state.unknown", shape: "ring", tone: "unknown" },
+  unknown: { key: "state.unknown", shape: "ring", tone: "unknown" },
 };
 const CHECK = {
   ok: { key: "cp.ok", shape: "check", tone: "success" },

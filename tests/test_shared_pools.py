@@ -125,7 +125,7 @@ def test_every_node_gets_the_pool_and_a_failing_one_is_reported(client, auth_hea
     r = client.post("/storage", json={**NFS, "tous_les_noeuds": True}, headers=auth_headers("alice"))
     assert r.status_code == 201
     states = {x["noeud"]: x["etat"] for x in r.json()["resultats"]}
-    assert states == {"local": "cree", "n2": "cree", "n3": "echec"}
+    assert states == {"local": "cree", "n2": "cree", "n3": "failed"}
     assert "access denied" in next(x for x in r.json()["resultats"] if x["noeud"] == "n3")["detail"]
     assert "nas" in cluster_of_three["local"].pools and "nas" in cluster_of_three["n2"].pools
     assert "nas" not in cluster_of_three["n3"].pools  # the ghost definition is removed

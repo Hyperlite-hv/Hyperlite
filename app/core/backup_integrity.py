@@ -2,7 +2,8 @@
 VMs (NVRAM and TPM) saved and put back with the disks.
 
 Manifest (`manifest.json` next to the files of a backup):
-  {"version": 1, "vm": ..., "source": host name, "mode": "chaud"|"froid", "cree_le": ..., "firmware": "bios"|"uefi"|"uefi_secure",
+  {"version": 1, "vm": ..., "source": host name, "mode": "live"|"cold", "cree_le": ...,
+   "firmware": "bios"|"uefi"|"uefi_secure",
    "fichiers": [{"nom": "sda.qcow2", "role": "disque", "cible": "sda", "taille": ..., "sha256": ...},
                 {"nom": "nvram.fd", "role": "nvram", ...}, {"nom": "tpm.tar", "role": "tpm", ...},
                 {"nom": "vm-config.json", "role": "config", ...}]}
@@ -33,7 +34,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import firmware
+from app.core import firmware, schema_v1
 
 logger = logging.getLogger(__name__)
 
@@ -160,10 +161,15 @@ def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks, replication=No
 
 
 def read_manifest(src_dir):
+    """The manifest of a backup, in the names of this version whatever version wrote it; None without one."""
     try:
-        return json.loads((Path(src_dir) / MANIFEST).read_text())
+        manifest = json.loads((Path(src_dir) / MANIFEST).read_text())
     except (OSError, ValueError):
         return None
+    # Backups made before API v1 stay readable for ever and are never rewritten (docs/design/api-v1.md, "Files on disk").
+    if isinstance(manifest, dict) and manifest.get("mode") in schema_v1.MANIFEST_MODES:
+        manifest["mode"] = schema_v1.MANIFEST_MODES[manifest["mode"]]
+    return manifest
 
 
 # --- Verification -----------------------------------------------------------------------------------------------

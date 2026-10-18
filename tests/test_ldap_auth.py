@@ -62,7 +62,7 @@ def test_directory_users_sign_in_with_their_role(client, directory):
     assert r.status_code == 200
     from app.core.security import get_user
 
-    assert get_user("bob")["role"] == "observateur" and get_user("bob")["ldap_dn"] == f"uid=bob,ou=people,{BASE}"
+    assert get_user("bob")["role"] == "viewer" and get_user("bob")["ldap_dn"] == f"uid=bob,ou=people,{BASE}"
 
 
 @pytest.mark.parametrize(
@@ -85,7 +85,7 @@ def test_role_follows_the_directory_at_each_sign_in(client, directory):
     assert client.post("/auth/login", data={"username": "alice", "password": "alicepw"}).status_code == 200
     from app.core.security import get_user
 
-    assert get_user("alice")["role"] == "observateur"
+    assert get_user("alice")["role"] == "viewer"
     ldap_auth.set_config({**ldap_auth.public_config(), "enabled": False})
     assert client.post("/auth/login", data={"username": "alice", "password": "alicepw"}).status_code == 401
 
@@ -118,4 +118,4 @@ def test_settings_api(client, auth_headers, directory):
     ]:
         r = client.put("/ldap/config", json=bad, headers=admin)
         assert r.status_code == 422 and message in r.json()["detail"], bad
-    assert client.get("/ldap/config", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.get("/ldap/config", headers=auth_headers("watcher", "viewer")).status_code == 403

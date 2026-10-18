@@ -23,10 +23,10 @@ def controller(database, tmp_path, monkeypatch):
     with database.get_conn() as db:
         db.execute("INSERT INTO users (username, hashed_password, role) VALUES ('antho', 'x', 'admin')")
         db.execute(
-            "INSERT INTO nodes (name, hostname, statut, added_at) VALUES ('node2', 'node2.example.lan', 'en_ligne', '2026')"
+            "INSERT INTO nodes (name, hostname, statut, added_at) VALUES ('node2', 'node2.example.lan', 'online', '2026')"
         )
         db.execute(
-            "INSERT INTO nodes (name, hostname, statut, added_at) VALUES ('node3', 'node3.example.lan', 'hors_ligne', '2026')"
+            "INSERT INTO nodes (name, hostname, statut, added_at) VALUES ('node3', 'node3.example.lan', 'offline', '2026')"
         )
         db.execute(
             "INSERT INTO ha_protected_vms (vm_name, node, enabled_by, enabled_at) VALUES ('web', 'local', 'a', '2026'), ('db', 'node2', 'a', '2026')"
@@ -56,11 +56,11 @@ def test_only_configuration_changes_change_the_digest(controller, database):
     before = config_copy.config_digest()
     with database.get_conn() as db:
         db.execute("INSERT INTO metrics_samples (cible, tier, scope, ts) VALUES ('web', 'raw', 'vm', '2')")
-        db.execute("INSERT INTO audit_log (timestamp, action, result) VALUES ('t', 'login', 'succes')")
+        db.execute("INSERT INTO audit_log (timestamp, action, result) VALUES ('t', 'login', 'success')")
         db.commit()
     assert config_copy.config_digest() == before
     with database.get_conn() as db:
-        db.execute("UPDATE users SET role = 'observateur' WHERE username = 'antho'")
+        db.execute("UPDATE users SET role = 'viewer' WHERE username = 'antho'")
         db.commit()
     assert config_copy.config_digest() != before
 
@@ -96,7 +96,7 @@ def test_a_copy_goes_to_online_nodes_only_and_is_not_repeated_until_something_ch
     calls.clear()
     assert config_copy.copy_now() == []  # nothing changed, copy is recent
     with database.get_conn() as db:
-        db.execute("INSERT INTO users (username, hashed_password, role) VALUES ('nico', 'x', 'observateur')")
+        db.execute("INSERT INTO users (username, hashed_password, role) VALUES ('nico', 'x', 'viewer')")
         db.commit()
     assert config_copy.copy_now() == [{"node": "node2", "statut": "ok"}]  # a new user: copied at once
 
@@ -112,9 +112,9 @@ def test_an_old_copy_is_renewed_and_a_failed_one_is_recorded(controller, remote,
         return subprocess.CompletedProcess(args, 1, stdout="", stderr="Connection refused")
 
     monkeypatch.setattr(config_copy.subprocess, "run", failing)
-    assert config_copy.copy_now()[0]["statut"] == "echec"
+    assert config_copy.copy_now()[0]["statut"] == "failed"
     row = config_copy.status()[0]
-    assert row["statut"] == "echec" and "Connection refused" in row["erreur"]
+    assert row["statut"] == "failed" and "Connection refused" in row["erreur"]
 
 
 def test_a_promotion_installs_the_copy_and_makes_this_node_local(controller, tmp_path):
@@ -167,4 +167,4 @@ def test_a_copy_that_cannot_even_start_ssh_reports_a_sentence_not_the_os_error(c
 
     monkeypatch.setattr(config_copy.subprocess, "run", boom)
     result = config_copy.copy_now()[0]
-    assert result["statut"] == "echec" and "No such file" not in result["erreur"] and "service log" in result["erreur"]
+    assert result["statut"] == "failed" and "No such file" not in result["erreur"] and "service log" in result["erreur"]

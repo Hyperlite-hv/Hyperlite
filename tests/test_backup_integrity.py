@@ -60,7 +60,7 @@ def make_backup(path, with_firmware=False):
     return bi.write_manifest(
         path,
         "vm1",
-        "froid",
+        "cold",
         "uefi_secure" if with_firmware else "bios",
         [("sda", path / "sda.qcow2"), ("sdb", path / "sdb.qcow2")],
     )
@@ -171,10 +171,10 @@ def test_a_tpm_archive_cannot_write_outside_the_vm_state(tmp_path, fw_dirs):
 # --- Recorded results, the endpoint and the weekly run ---------------------------------------------------------
 
 
-def _insert(database, path, verifie_le=None, statut="termine", cree_le="2026-01-01T00:00:00+00:00"):
+def _insert(database, path, verifie_le=None, statut="succeeded", cree_le="2026-01-01T00:00:00+00:00"):
     with database.get_conn() as db:
         cur = db.execute(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut, verifie_le) VALUES ('vm1', ?, 'froid', ?, ?, ?)",
+            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut, verifie_le) VALUES ('vm1', ?, 'cold', ?, ?, ?)",
             (str(path), cree_le, statut, verifie_le),
         )
         db.commit()
@@ -224,11 +224,11 @@ def test_the_endpoint_verifies_as_a_task_admins_only(client, auth_headers, datab
     assert r.status_code == 202 and r.json()["task_id"]
     assert _row(database, backup_id)["verification"] == "verifie"
     with database.get_conn() as db:
-        assert db.execute("SELECT statut FROM tasks WHERE id = ?", (r.json()["task_id"],)).fetchone()[0] == "termine"
-    watcher = auth_headers("watcher", role="observateur")
+        assert db.execute("SELECT statut FROM tasks WHERE id = ?", (r.json()["task_id"],)).fetchone()[0] == "succeeded"
+    watcher = auth_headers("watcher", role="viewer")
     assert client.post(f"/backups/{backup_id}/verify", headers=watcher).status_code == 403
     assert client.post("/backups/999/verify", headers=admin).status_code == 404
-    running = _insert(database, tmp_path / "b", statut="en_cours")
+    running = _insert(database, tmp_path / "b", statut="running")
     assert client.post(f"/backups/{running}/verify", headers=admin).status_code == 409
 
 

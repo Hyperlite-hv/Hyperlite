@@ -10,7 +10,7 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
     const path = new URL(req.url()).pathname;
-    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "en_ligne" }]);
+    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "online" }]);
     if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0 });
     return route.fallback();
   });
@@ -21,7 +21,7 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
     sent.push(route.request().postDataJSON());
     return json(route, { nom: "nas", partage: true, tous_les_noeuds: true, resultats: [
       { noeud: "local", etat: "cree", detail: null, avertissement: null },
-      { noeud: "peer", etat: "echec", detail: "mount.nfs: access denied by server", avertissement: null },
+      { noeud: "peer", etat: "failed", detail: "mount.nfs: access denied by server", avertissement: null },
     ] }, 201);
   });
   await uiLogin(page);

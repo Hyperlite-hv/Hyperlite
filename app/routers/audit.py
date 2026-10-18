@@ -98,7 +98,7 @@ def export_audit(
         }.items()
         if v
     }
-    log_action(user["username"], "export_audit", "audit_log", "succes", str(filters) if filters else None)
+    log_action(user["username"], "export_audit", "audit_log", "success", str(filters) if filters else None)
     rows = audit_service.export_rows(audit_service.filters(action, result, username, resource, depuis, jusqu_a))
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     return StreamingResponse(
@@ -138,7 +138,7 @@ def set_retention(payload: Retention, user: dict = Depends(require_role("admin")
         raise HTTPException(status_code=422, detail=str(e)) from None
     now = _retention()
     log_action(
-        user["username"], "set_retention", "audit", "succes",
+        user["username"], "set_retention", "audit", "success",
         f"access log {now['access_log_days']} days, audit log {now['audit_days']} days",
     )  # fmt: skip
     return now

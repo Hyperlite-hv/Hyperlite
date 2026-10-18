@@ -18,7 +18,7 @@ test("VM permissions tab: own and inherited assignments, add and remove", async 
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm])) : r.fallback()));
   await page.route(new RegExp(`/acl/object/vm/${NAME}$`), (r) => (api(r) ? r.fulfill(json(acl)) : r.fallback()));
-  await page.route(/\/users$/, (r) => (api(r) ? r.fulfill(json([{ username: "admin", role: "admin" }, { username: "bob", role: "observateur" }, { username: "carol", role: "observateur" }])) : r.fallback()));
+  await page.route(/\/users$/, (r) => (api(r) ? r.fulfill(json([{ username: "admin", role: "admin" }, { username: "bob", role: "viewer" }, { username: "carol", role: "viewer" }])) : r.fallback()));
   await page.route(/\/groups$/, (r) => (api(r) ? r.fulfill(json([])) : r.fallback()));
   await page.route(/\/acl\/roles$/, (r) => (api(r) ? r.fulfill(json({ lecteur: { label: "Reader", description: "View" }, operateur: { label: "Operator", description: "Power" } })) : r.fallback()));
   await page.route(/\/acl\/custom-roles$/, (r) => (api(r) ? r.fulfill(json([])) : r.fallback()));

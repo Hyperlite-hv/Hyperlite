@@ -135,7 +135,7 @@ test.describe("Journal, Backups, Exports and the administrator gate", () => {
     await main.getByLabel("Show entries until").fill("2099-01-01T00:00");
     const req = await asked;
     expect(req.url()).toContain("limit=300");
-    await main.getByLabel("Filter by result").selectOption("echec");
+    await main.getByLabel("Filter by result").selectOption("failed");
     await expect(main.getByRole("button", { name: "Export as CSV" })).toBeVisible();
   });
 
@@ -150,7 +150,7 @@ test.describe("Journal, Backups, Exports and the administrator gate", () => {
   });
 
   test("an observer gets an explanation, not spinners or 403 errors, on administrator pages", async ({ page, request }) => {
-    const created = await request.post("/auth/users", { headers: auth(), data: { ...OBS, role: "observateur" } });
+    const created = await request.post("/auth/users", { headers: auth(), data: { ...OBS, role: "viewer" } });
     expect(created.ok()).toBe(true);
     const failures: string[] = [];
     page.on("response", (r) => { if (r.status() === 403) failures.push(new URL(r.url()).pathname); });

@@ -19,7 +19,7 @@ _upgrade_lock = threading.Lock()
 
 
 def _refused(user, action, e):
-    log_action(user["username"], action, "host", "echec", str(e))
+    log_action(user["username"], action, "host", "failed", str(e))
     return HTTPException(status_code=422, detail=str(e))
 
 
@@ -44,16 +44,16 @@ def upgrade(payload: UpgradeRequest, user: dict = Depends(require_role("admin"))
     if not _upgrade_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="A package upgrade is already running on this node")
     task_id = create_task("host_upgrade", "host", None, user["username"])
-    log_action(user["username"], "host_upgrade", "host", "succes", ", ".join(payload.paquets)[:500])
+    log_action(user["username"], "host_upgrade", "host", "success", ", ".join(payload.paquets)[:500])
 
     def work():
         try:
             code = host_system.run_upgrade(cmd, lambda line: task_log(task_id, line))
             finish_task(
-                task_id, "termine" if code == 0 else "echec", None if code == 0 else f"apt-get exited with {code}"
+                task_id, "succeeded" if code == 0 else "failed", None if code == 0 else f"apt-get exited with {code}"
             )
         except Exception as e:  # the task must end whatever happened, with the cause in its log
-            finish_task(task_id, "echec", str(e))
+            finish_task(task_id, "failed", str(e))
         finally:
             _upgrade_lock.release()
 
@@ -78,7 +78,11 @@ def put_auto_updates(payload: AutoUpdates, user: dict = Depends(require_role("ad
     except host_system.SettingError as e:
         raise _refused(user, "set_auto_updates", e) from e
     log_action(
-        user["username"], "set_auto_updates", "host", "succes", f"{'on' if payload.actif else 'off'} at {payload.heure}"
+        user["username"],
+        "set_auto_updates",
+        "host",
+        "success",
+        f"{'on' if payload.actif else 'off'} at {payload.heure}",
     )
     return result
 
@@ -99,7 +103,7 @@ def put_dns(payload: DnsSettings, user: dict = Depends(require_role("admin"))):
         result = host_system.set_dns(payload.serveurs, payload.recherche)
     except host_system.SettingError as e:
         raise _refused(user, "host_dns", e) from e
-    log_action(user["username"], "host_dns", "host", "succes", " ".join(payload.serveurs))
+    log_action(user["username"], "host_dns", "host", "success", " ".join(payload.serveurs))
     return result
 
 
@@ -115,7 +119,7 @@ def put_hostname(payload: HostnameSettings, user: dict = Depends(require_role("a
         result = host_system.set_hostname(payload.nom)
     except host_system.SettingError as e:
         raise _refused(user, "host_hostname", e) from e
-    log_action(user["username"], "host_hostname", result["ancien"], "succes", f"-> {result['nom']}")
+    log_action(user["username"], "host_hostname", result["ancien"], "success", f"-> {result['nom']}")
     return result
 
 
@@ -144,7 +148,7 @@ def put_time(payload: TimeSettings, user: dict = Depends(require_role("admin")))
         result = host_system.set_time(payload.fuseau, payload.ntp, payload.serveurs_ntp)
     except host_system.SettingError as e:
         raise _refused(user, "host_time", e) from e
-    log_action(user["username"], "host_time", "host", "succes", f"{payload.fuseau} ntp={payload.ntp}")
+    log_action(user["username"], "host_time", "host", "success", f"{payload.fuseau} ntp={payload.ntp}")
     return result
 
 
@@ -169,7 +173,7 @@ def put_syslog(payload: SyslogSettings, user: dict = Depends(require_role("admin
         user["username"],
         "host_syslog",
         "host",
-        "succes",
+        "success",
         f"{payload.protocole}://{payload.hote}:{payload.port}" if payload.hote else "off",
     )
     return result
@@ -198,7 +202,7 @@ def power(payload: PowerRequest, user: dict = Depends(require_role("admin"))):
             detail=f"Running on this node: {names}. Move them (maintenance mode) or choose to shut them down first",
         )
     task_id = create_task(f"node_{payload.action}", hostname, None, user["username"])
-    log_action(user["username"], f"node_{payload.action}", hostname, "succes", f"{len(guests)} guests to stop")
+    log_action(user["username"], f"node_{payload.action}", hostname, "success", f"{len(guests)} guests to stop")
 
     def work():
         try:
@@ -206,14 +210,16 @@ def power(payload: PowerRequest, user: dict = Depends(require_role("admin"))):
                 left = host_system.stop_guests(guests, lambda line: task_log(task_id, line))
                 if left:
                     finish_task(
-                        task_id, "echec", f"Still running after the wait, {payload.action} cancelled: {', '.join(left)}"
+                        task_id,
+                        "failed",
+                        f"Still running after the wait, {payload.action} cancelled: {', '.join(left)}",
                     )
                     return
             host_system.schedule_power(payload.action)
             task_log(task_id, f"{payload.action} in {host_system.POWER_DELAY_S} s")
-            finish_task(task_id, "termine")
+            finish_task(task_id, "succeeded")
         except Exception as e:  # the task must end whatever happened, with the cause in its log
-            finish_task(task_id, "echec", str(e))
+            finish_task(task_id, "failed", str(e))
 
     threading.Thread(target=work, name="node-power", daemon=True).start()
     return {"tache": task_id}

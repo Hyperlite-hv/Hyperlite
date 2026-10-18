@@ -18,7 +18,7 @@ test("the real backend answers the copy status", async ({ request }) => {
 test("each node shows its last copy, a failure its reason, and Copy now sends it again", async ({ page }) => {
   let copies = [
     { node: "peer", copie_le: new Date(Date.now() - 120_000).toISOString(), statut: "ok", taille: 81920, empreinte: "x", erreur: null },
-    { node: "far", copie_le: new Date().toISOString(), statut: "echec", taille: null, empreinte: null, erreur: "Copy failed: Connection refused" },
+    { node: "far", copie_le: new Date().toISOString(), statut: "failed", taille: null, empreinte: null, erreur: "Copy failed: Connection refused" },
   ];
   let posted = 0;
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
@@ -26,8 +26,8 @@ test("each node shows its last copy, a failure its reason, and Copy now sends it
     if (req.resourceType() === "document") return route.fallback();
     const path = new URL(req.url()).pathname;
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [
-      { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "en_ligne" },
-      { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, statut: "en_ligne" },
+      { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "online" },
+      { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, statut: "online" },
     ]);
     if (req.method() === "GET" && /\/nodes\/(peer|far)\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0 });
     if (/\/nodes\/config-copy$/.test(path)) {

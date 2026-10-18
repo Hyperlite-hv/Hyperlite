@@ -33,7 +33,7 @@ def create_group(payload: GroupCreate, user: dict = Depends(require_role("admin"
         group_id = perm.create_group(name)
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=422, detail=f"A group named '{name}' already exists") from None
-    log_action(user["username"], "create_group", name, "succes")
+    log_action(user["username"], "create_group", name, "success")
     return {"id": group_id, "name": name, "membres": []}
 
 
@@ -53,26 +53,26 @@ def rename_group(group_id: int, payload: GroupRename, user: dict = Depends(requi
         raise HTTPException(status_code=409, detail=str(e)) from e
     if old is None:
         raise HTTPException(status_code=404, detail="Not found")
-    log_action(user["username"], "rename_group", old, "succes", f"-> {name}")
+    log_action(user["username"], "rename_group", old, "success", f"-> {name}")
     return {"id": group_id, "name": name}
 
 
 @router.delete("/{group_id}")
 def delete_group(group_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_group(group_id)
-    log_action(user["username"], "delete_group", str(group_id), "succes")
+    log_action(user["username"], "delete_group", str(group_id), "success")
     return {"message": "Group deleted"}
 
 
 @router.post("/{group_id}/members", status_code=201)
 def add_member(group_id: int, payload: MemberAdd, user: dict = Depends(require_role("admin"))):
     perm.add_group_member(group_id, payload.username)
-    log_action(user["username"], "add_group_member", f"{group_id}:{payload.username}", "succes")
+    log_action(user["username"], "add_group_member", f"{group_id}:{payload.username}", "success")
     return {"message": "Member added"}
 
 
 @router.delete("/{group_id}/members/{username}")
 def remove_member(group_id: int, username: str, user: dict = Depends(require_role("admin"))):
     perm.remove_group_member(group_id, username)
-    log_action(user["username"], "remove_group_member", f"{group_id}:{username}", "succes")
+    log_action(user["username"], "remove_group_member", f"{group_id}:{username}", "success")
     return {"message": "Member removed"}

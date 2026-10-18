@@ -37,7 +37,7 @@ def create_metric_server(payload: MetricServer, user: dict = Depends(require_rol
         server = metric_export.save_server(payload.model_dump())
     except metric_export.ExportError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "create_metric_server", server["nom"], "succes", server["type"])
+    log_action(user["username"], "create_metric_server", server["nom"], "success", server["type"])
     return server
 
 
@@ -49,7 +49,7 @@ def update_metric_server(server_id: int, payload: MetricServer, user: dict = Dep
         server = metric_export.save_server(payload.model_dump(), server_id)
     except metric_export.ExportError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "update_metric_server", server["nom"], "succes")
+    log_action(user["username"], "update_metric_server", server["nom"], "success")
     return server
 
 
@@ -57,7 +57,7 @@ def update_metric_server(server_id: int, payload: MetricServer, user: dict = Dep
 def delete_metric_server(server_id: int, user: dict = Depends(require_role("admin"))):
     if not metric_export.delete_server(server_id):
         raise HTTPException(status_code=404, detail="Metric server not found")
-    log_action(user["username"], "delete_metric_server", str(server_id), "succes")
+    log_action(user["username"], "delete_metric_server", str(server_id), "success")
     return {"message": "Metric server deleted"}
 
 

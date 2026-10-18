@@ -73,26 +73,26 @@ export function flattenCapabilities(c) {
   return rows;
 }
 
-// Features derived from the profile: { id, label, etat: "actif"|"limite"|"inconnu", detail }
+// Features derived from the profile: { id, label, etat: "actif"|"limite"|"unknown", detail }
 export function deriveFeatures(c) {
   if (!c) return [];
   const f = [];
   const virt = c.cpu?.virtualisation_materielle;
   f.push({
     id: "kvm", label: "KVM virtual machines",
-    etat: virt == null ? "inconnu" : virt ? "actif" : "limite",
+    etat: virt == null ? "unknown" : virt ? "actif" : "limite",
     detail: virt === false ? "Hardware virtualization missing or disabled (BIOS, nesting): only LXC containers remain usable" : null,
   });
   const lxc = c.virtualisation?.conteneurs_lxc_disponibles;
   f.push({
     id: "lxc", label: "LXC containers",
-    etat: lxc == null ? "inconnu" : lxc ? "actif" : "limite",
+    etat: lxc == null ? "unknown" : lxc ? "actif" : "limite",
     detail: lxc === false ? "libvirt LXC driver missing (package libvirt-daemon-driver-lxc)" : null,
   });
   const st = c.stockage || {};
   f.push({
     id: "zfs", label: "ZFS storage (zvols, snapshots)",
-    etat: st.zfs_disponible == null ? "inconnu" : st.zfs_disponible ? "actif" : "limite",
+    etat: st.zfs_disponible == null ? "unknown" : st.zfs_disponible ? "actif" : "limite",
     detail: st.zfs_disponible === false
       ? (st.zfs_installe ? "Kernel module not loaded"
         + (c.securite?.secure_boot === "active" ? ": Secure Boot active, MOK key must be enrolled" : "")

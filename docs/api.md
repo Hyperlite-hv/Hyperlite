@@ -10,9 +10,9 @@ For historical reasons the API and the database use French identifiers and value
 |---|---|
 | Field names | `nom` (name), `etat` (state), `memoire_mo` (memory in MB), `stockage_total_go`, `cree_le`, `statut`, `cible` |
 | VM states | `actif`, `arrete`, `suspendu`, `plante` |
-| Task and backup status | `en_cours`, `termine`, `echec`, `succes` |
-| Global roles | `admin`, `observateur` |
-| Backup frequency and mode | `quotidien`, `hebdomadaire`, `mensuel`; `chaud`, `froid` |
+| Task and backup status | `running`, `succeeded`, `failed`, `success` |
+| Global roles | `admin`, `viewer` |
+| Backup frequency and mode | `daily`, `weekly`, `monthly`; `live`, `cold` |
 
 The dashboard translates these values for display (`dashboard/src/lib/labels.js`, `StatusBadge`). A future API version could introduce English identifiers; until then, treat the French values as stable.
 
@@ -45,7 +45,7 @@ Each endpoint requires a global role or a scoped privilege (for example `vm.hard
 | `POST /host/certificate`, `POST /host/certificate/acme`, `/previous`, `/self-signed` | Replace it: a PEM pair (`certificat`, `cle`, optional `chaine`), Let's Encrypt by HTTP-01 through certbot (`domaine`, `email`, `test`), the previous pair, or a new self-signed one. The pair is checked before use; the service restarts a few seconds after the answer. |
 | `GET /host/system/updates?refresh=`, `POST /host/system/updates/upgrade` | This node's upgradable packages (`paquets`: `nom`, `version`, `depuis`, `securite`), `redemarrage_requis`; the upgrade (`paquets`) runs as a task and never includes `hyperlite`. Admin. |
 | `GET`/`POST /metric-servers`, `PUT`/`DELETE /metric-servers/{id}`, `POST /metric-servers/{id}/test` | External metric servers (admin): `type` `influxdb` (`url`, `org`, `bucket`, write-only `jeton`) or `graphite` (`hote`, `port`, `prefixe`), `actif`; each collected sample is pushed to the active ones, `dernier_envoi` and `derniere_erreur` tell how it went. |
-| `GET`/`POST /backup-groups`, `PUT`/`DELETE /backup-groups/{id}`, `POST /backup-groups/{id}/run` | Grouped backup jobs (admin): `selection` (`toutes`, `etiquette`, `pool`) and `valeur`, `exclues`, `frequence`, `heure`, `cible_dir`, retention (`retention_count`, `garder_jours`, `garder_semaines`, `garder_mois`), `actif`; the list adds the VMs selected now (`vms`). |
+| `GET`/`POST /backup-groups`, `PUT`/`DELETE /backup-groups/{id}`, `POST /backup-groups/{id}/run` | Grouped backup jobs (admin): `selection` (`all`, `tag`, `pool`) and `valeur`, `exclues`, `frequence`, `heure`, `cible_dir`, retention (`retention_count`, `garder_jours`, `garder_semaines`, `garder_mois`), `actif`; the list adds the VMs selected now (`vms`). |
 | `PUT /vms/{name}/backup-schedule` | Also takes `garder_jours`, `garder_semaines`, `garder_mois` (GFS retention); `cible_dir` must be absolute and outside the system's directories. |
 | `POST /backups/{id}/files`, `GET /file-restore/{session}/ls?device=&path=`, `GET /file-restore/{session}/download?device=&path=`, `DELETE /file-restore/{session}`, `GET /file-restore/status` | File-level restore (admin): a read-only browsing session on a finished backup's disks (libguestfs), its filesystems and folders, a file or a folder (`.tar.gz`) downloaded. Sessions close after 10 minutes without a request. |
 | `GET`/`PUT /ldap/config`, `POST /ldap/test` | LDAP / Active Directory sign-in (admin): `url`, `starttls`, `verify_tls`, `ca_cert`, `bind_dn`, write-only `bind_password`, `base_dn`, `user_filter` (with `{username}`), `group_attribute`, `admin_groups`, `allowed_groups`, `enabled`. The test binds with the service account and, given `username` and `password`, says whether they are accepted and with which role. Directory accounts sign in through `POST /auth/login` (`auth_source`: `ldap`). |

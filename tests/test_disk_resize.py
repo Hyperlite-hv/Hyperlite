@@ -209,7 +209,7 @@ def test_the_endpoint_refuses_a_shrink_a_bad_target_and_a_size_over_the_limit(ap
 
 
 def test_an_observer_cannot_resize(api, auth_headers):
-    headers = auth_headers("watcher", role="observateur")
+    headers = auth_headers("watcher", role="viewer")
     r = api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": 20}, headers=headers)
     assert r.status_code == 403 and api["commands"]["qemu_img"] == []
 

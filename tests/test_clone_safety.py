@@ -93,7 +93,7 @@ def test_a_copy_that_stops_leaves_no_partial_file(env, client, auth_headers, mon
     r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert r.status_code == 500
     assert list(env["images"].iterdir()) == []
-    assert env["task"]()["statut"] == "echec"
+    assert env["task"]()["statut"] == "failed"
 
 
 def test_an_unexpected_error_removes_the_copies_and_closes_the_task(env, client, auth_headers, monkeypatch):
@@ -105,7 +105,7 @@ def test_an_unexpected_error_removes_the_copies_and_closes_the_task(env, client,
         client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert list(env["images"].iterdir()) == []
     task = env["task"]()
-    assert task["statut"] == "echec" and "entropy" in task["erreur"]
+    assert task["statut"] == "failed" and "entropy" in task["erreur"]
 
 
 def test_two_clones_never_write_the_same_new_disks(env, client, auth_headers):
@@ -120,4 +120,4 @@ def test_a_clone_that_would_not_fit_is_refused_before_any_copy(env, client, auth
     r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert r.status_code == 409 and "Not enough space for this clone" in r.json()["detail"]
     assert list(env["images"].iterdir()) == [] and env["conn"].defined == []
-    assert env["task"]()["statut"] == "echec"
+    assert env["task"]()["statut"] == "failed"

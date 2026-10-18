@@ -160,7 +160,7 @@ def test_every_backup_schedule_can_be_listed(client, make_user, database):
     with database.get_conn() as conn:
         conn.execute(
             "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, actif, prochaine_execution) "
-            "VALUES ('web', 'quotidien', '02:00', '/tmp', 3, 1, '2030-01-01T02:00:00+00:00')"
+            "VALUES ('web', 'daily', '02:00', '/tmp', 3, 1, '2030-01-01T02:00:00+00:00')"
         )
         conn.commit()
     rows = client.get("/backup-schedules", headers={"Authorization": f"Bearer {token}"}).json()

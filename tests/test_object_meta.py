@@ -82,7 +82,7 @@ def test_the_api_checks_rights_and_existence(client, auth_headers, hosts):
         client.put("/meta/vm/web", json={"notes": "x" * (object_meta.MAX_NOTES + 1)}, headers=admin).status_code == 422
     )
 
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.get("/meta/vm/web", headers=viewer).json()["notes"] == "Shop front"
     assert client.put("/meta/vm/web", json={"notes": "mine now"}, headers=viewer).status_code == 403
     assert client.put("/meta/node/local", json={"notes": "x"}, headers=viewer).status_code == 403
@@ -90,7 +90,7 @@ def test_the_api_checks_rights_and_existence(client, auth_headers, hosts):
 
     permissions.create_acl("user", "otto", "operateur", "vm", "web")
     permissions.create_acl("user", "mia", "gestionnaire", "vm", "web")
-    otto, mia = auth_headers("otto", role="observateur"), auth_headers("mia", role="observateur")
+    otto, mia = auth_headers("otto", role="viewer"), auth_headers("mia", role="viewer")
     assert client.get("/meta/vm/web", headers=otto).status_code == 200
     assert client.put("/meta/vm/web", json={"notes": "x"}, headers=otto).status_code == 403
     assert client.put("/meta/vm/web", json={"notes": "by mia", "tags": ["prod"]}, headers=mia).status_code == 200

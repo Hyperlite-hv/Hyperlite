@@ -64,11 +64,11 @@ def test_a_failed_step_after_the_migration_skips_nothing_and_fails_nothing(migra
 
     monkeypatch.setattr(ha, "follow_migration", broken)
     task, audit = migrate["run"]()
-    assert task["statut"] == "termine"  # the VM did move
+    assert task["statut"] == "succeeded"  # the VM did move
     assert "moving its HA protection" in task["erreur"]  # shown as a warning on the task
     assert migrate["calls"] == ["meta", "boot"]  # the steps after it still ran
-    assert audit["ha_follow"][0] == "echec" and "still names n1" in audit["ha_follow"][1]
-    assert audit["migrate_vm"][0] == "succes" and "with warnings" in audit["migrate_vm"][1]
+    assert audit["ha_follow"][0] == "failed" and "still names n1" in audit["ha_follow"][1]
+    assert audit["migrate_vm"][0] == "success" and "with warnings" in audit["migrate_vm"][1]
 
 
 def test_the_ha_protection_moves_before_anything_that_can_fail(migrate, monkeypatch):
@@ -83,12 +83,12 @@ def test_the_ha_protection_moves_before_anything_that_can_fail(migrate, monkeypa
     monkeypatch.setattr(network_alloc, "release_reservations", broken)
     task, audit = migrate["run"]()
     assert order[:2] == ["ha", "meta"] and "release" in order
-    assert task["statut"] == "termine" and "releasing its addresses" in task["erreur"]
-    assert audit["ha_follow"][0] == "succes"
+    assert task["statut"] == "succeeded" and "releasing its addresses" in task["erreur"]
+    assert audit["ha_follow"][0] == "success"
 
 
 def test_a_clean_migration_has_no_warning(migrate, monkeypatch):
     monkeypatch.setattr(ha, "follow_migration", lambda *a: False)
     task, audit = migrate["run"]()
-    assert task == {"statut": "termine", "erreur": None}
+    assert task == {"statut": "succeeded", "erreur": None}
     assert "with warnings" not in audit["migrate_vm"][1]

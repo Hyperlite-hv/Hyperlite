@@ -54,7 +54,7 @@ def _wait_run(database, run_id, timeout=5.0):
     while time.monotonic() < deadline:
         with database.get_conn() as conn:
             run = conn.execute("SELECT * FROM job_runs WHERE id = ?", (run_id,)).fetchone()
-        if run and run["statut"] != "en_cours":
+        if run and run["statut"] != "running":
             return run
         time.sleep(0.02)
     raise AssertionError(f"run {run_id} still running after {timeout}s")
@@ -83,7 +83,7 @@ def test_predefined_job_without_enough_targets_is_refused_and_audited_as_failed(
     with database.get_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM job_runs").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
-    assert [row["result"] for row in _audit(database, "run_job_requested")] == ["echec"]
+    assert [row["result"] for row in _audit(database, "run_job_requested")] == ["failed"]
 
 
 def test_duplicate_or_empty_targets_are_refused(client, auth_headers, database):
@@ -96,7 +96,7 @@ def test_duplicate_or_empty_targets_are_refused(client, auth_headers, database):
 
 def test_per_target_steps_without_targets_are_refused(client, auth_headers, database):
     headers = auth_headers("alice")
-    job_id = _custom_job(client, headers, [{"cible_type": "chaque_cible", "commande": "true"}])
+    job_id = _custom_job(client, headers, [{"cible_type": "each_target", "commande": "true"}])
     r = client.post(f"/jobs/{job_id}/run", json={"targets": [], "dry_run": True}, headers=headers)
     assert r.status_code == 422
     with database.get_conn() as conn:
@@ -114,13 +114,13 @@ def test_predefined_dry_run_records_the_run_before_answering(client, auth_header
     r = client.post(f"/jobs/{job_id}/run", json={"targets": ["lb", "web1"], "dry_run": True}, headers=headers)
     assert r.status_code == 202, r.text
     run = _wait_run(database, r.json()["run_id"])
-    assert run["statut"] == "succes"
+    assert run["statut"] == "success"
     with database.get_conn() as conn:
         logs = conn.execute("SELECT cible FROM job_run_logs WHERE run_id = ? ORDER BY id", (run["id"],)).fetchall()
         task = conn.execute("SELECT statut FROM tasks WHERE id = ?", (run["task_id"],)).fetchone()
     assert [row["cible"] for row in logs] == ["lb", "web1", "lb", "lb"]
-    assert task["statut"] == "termine"
-    assert [row["result"] for row in _audit(database, "run_job_requested")] == ["succes"]
+    assert task["statut"] == "succeeded"
+    assert [row["result"] for row in _audit(database, "run_job_requested")] == ["success"]
 
 
 def test_an_error_inside_the_run_thread_closes_the_run_as_failed(
@@ -136,13 +136,13 @@ def test_an_error_inside_the_run_thread_closes_the_run_as_failed(
     r = client.post(f"/jobs/{job_id}/run", json={"targets": [], "dry_run": True}, headers=headers)
     assert r.status_code == 202, r.text
     run = _wait_run(database, r.json()["run_id"])
-    assert run["statut"] == "echec"
+    assert run["statut"] == "failed"
     assert run["resultat"] == "ERROR: disk on fire"
     with database.get_conn() as conn:
         task = conn.execute("SELECT statut, erreur FROM tasks WHERE id = ?", (run["task_id"],)).fetchone()
-    assert task["statut"] == "echec"
+    assert task["statut"] == "failed"
     assert "disk on fire" in task["erreur"]
-    assert [row["result"] for row in _audit(database, "run_job")] == ["echec"]
+    assert [row["result"] for row in _audit(database, "run_job")] == ["failed"]
 
 
 def test_a_failing_step_stops_the_run(database, no_libvirt, monkeypatch):
@@ -163,7 +163,7 @@ def test_a_failing_step_stops_the_run(database, no_libvirt, monkeypatch):
             )
         conn.commit()
     run = _wait_run(database, jobs.start_job_run(cur.lastrowid))
-    assert run["statut"] == "echec"
+    assert run["statut"] == "failed"
     assert run["resultat"] == "FAILED"
     assert calls == ["first"]
 
@@ -191,9 +191,9 @@ def test_a_runs_output_is_for_administrators(client, auth_headers, database):
     )
     store.create_run("r1", job_id, "task-1", False, "[]", "t1")
     store.log_step("r1", 0, "host", "cat /etc/x", "secret=hunter2", "warn", 0, True, "t2")
-    store.close_run("r1", "succes", "t3", "1/1 steps")
+    store.close_run("r1", "success", "t3", "1/1 steps")
     admin = client.get("/jobs/runs/r1", headers=auth_headers("root")).json()
     assert (admin["logs"][0]["stdout"], admin["logs"][0]["stderr"]) == ("secret=hunter2", "warn")
-    other = client.get("/jobs/runs/r1", headers=auth_headers("eve", role="observateur")).json()
-    assert other["statut"] == "succes" and other["logs"][0]["reussi"] == 1
+    other = client.get("/jobs/runs/r1", headers=auth_headers("eve", role="viewer")).json()
+    assert other["statut"] == "success" and other["logs"][0]["reussi"] == 1
     assert (other["logs"][0]["stdout"], other["logs"][0]["stderr"]) == ("", "")

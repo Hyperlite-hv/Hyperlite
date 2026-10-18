@@ -23,7 +23,7 @@ router = APIRouter(prefix="/vms", tags=["vms"])
 TARGET_DEV_RE = re.compile(r"^[a-z]{2,4}[0-9]{0,2}$")
 
 STATE_NAMES = {
-    libvirt.VIR_DOMAIN_NOSTATE: "inconnu",
+    libvirt.VIR_DOMAIN_NOSTATE: "unknown",
     libvirt.VIR_DOMAIN_RUNNING: "actif",
     libvirt.VIR_DOMAIN_BLOCKED: "bloque",
     libvirt.VIR_DOMAIN_PAUSED: "en_pause",
@@ -98,7 +98,7 @@ def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
         "nom": name,
         "id": domain.ID() if active else None,
         "uuid": domain.UUIDString(),
-        "etat": STATE_NAMES.get(state, "inconnu"),
+        "etat": STATE_NAMES.get(state, "unknown"),
         "vcpu": nvcpu,
         "memoire_mo": round(_memory_kib(root) / 1024, 1),
         "ip": ip,

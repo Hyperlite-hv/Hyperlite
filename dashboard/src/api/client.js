@@ -218,7 +218,7 @@ export async function fetchNodes() {
       return {
         id: n.name,
         nom: n.name,
-        etat: s ? (s.connecte ? "online" : "erreur") : (n.statut === "en_ligne" ? "online" : "erreur"),
+        etat: s ? (s.connecte ? "online" : "erreur") : (n.statut === "online" ? "online" : "erreur"),
         ...liveFields(n.live ?? s?.live),
         memoire_disponible_mo: null,
         stockage_total_go: s?.stockage_capacite_go ?? null,

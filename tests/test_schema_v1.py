@@ -4,21 +4,39 @@ are read with the new names."""
 
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from app.core import schema_v1
 
 
-def as_before_v1(path):
-    """The database as an older version left it: every renamed column under its old name, with rows."""
+def as_before_v1(path, monkeypatch):
+    """The database as an older version left it: the migration run backwards (every renamed column and value under its
+    old name, the CHECKs naming the old values), with rows."""
+    columns = {t: {new: old for old, new in r.items()} for t, r in schema_v1.COLUMNS.items()}
+    values = {}
+    for (table, column), renames in schema_v1.VALUES.items():
+        old_column = {new: old for old, new in schema_v1.COLUMNS.get(table, {}).items()}.get(column, column)
+        values[(table, old_column)] = {new: old for old, new in renames.items()}
+    with monkeypatch.context() as m:
+        m.setattr(schema_v1, "COLUMNS", columns)
+        m.setattr(schema_v1, "VALUES", values)
+        conn = sqlite3.connect(path)
+        schema_v1.migrate(conn, path)
+        conn.close()
+    Path(f"{path}{schema_v1.BACKUP_SUFFIX}").unlink()  # that copy was of the new database
     conn = sqlite3.connect(path)
-    for table, renames in schema_v1.COLUMNS.items():
-        for old, new in renames.items():
-            conn.execute(f'ALTER TABLE "{table}" RENAME COLUMN "{new}" TO "{old}"')
     conn.execute(
         "INSERT INTO webauthn_credentials (username, nom, credential_id, public_key, rp_id, cree_le, utilise_le) "
         "VALUES ('ana', 'YubiKey', 'c1', 'pk', 'hl.lan', '2026-10-01T00:00:00+00:00', NULL)"
+    )
+    conn.execute("INSERT INTO users (username, hashed_password, role) VALUES ('bob', 'x', 'observateur')")
+    conn.execute(
+        "INSERT INTO tasks (id, type, cible, statut, progres, cree_le) VALUES ('t1', 'backup', 'web', 'en_cours', 0, 'now')"
+    )
+    conn.execute(
+        "INSERT INTO nodes (name, hostname, statut, added_at) VALUES ('pve-a', 'pve-a.lan', 'hors_ligne', 'now')"
     )
     conn.commit()
     conn.close()
@@ -32,9 +50,9 @@ def columns(path, table):
         conn.close()
 
 
-def test_an_older_database_is_renamed_once_after_a_copy(database):
+def test_an_older_database_is_renamed_once_after_a_copy(database, monkeypatch):
     path = database.DB_PATH
-    as_before_v1(path)
+    as_before_v1(path, monkeypatch)
     database.init_db()
     assert {"name", "created_at", "used_at"} <= columns(path, "webauthn_credentials")
     assert "nom" not in columns(path, "webauthn_credentials")
@@ -43,6 +61,14 @@ def test_an_older_database_is_renamed_once_after_a_copy(database):
             "name": "YubiKey",
             "created_at": "2026-10-01T00:00:00+00:00",
         }
+    with database.get_conn() as db:
+        assert db.execute("SELECT role FROM users WHERE username = 'bob'").fetchone()[0] == "viewer"
+        assert db.execute("SELECT statut FROM tasks").fetchone()[0] == "running"
+        assert db.execute("SELECT statut FROM nodes").fetchone()[0] == "offline"
+        db.execute("UPDATE tasks SET statut = 'succeeded'")  # the CHECK names the new values
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("UPDATE tasks SET statut = 'termine'")
+        assert db.execute("SELECT seq FROM sqlite_sequence WHERE name = 'users'").fetchone()[0] >= 1
     copy = path.with_name(path.name + schema_v1.BACKUP_SUFFIX)
     assert "nom" in columns(copy, "webauthn_credentials")  # the database as it was
     assert oct(copy.stat().st_mode & 0o777) == "0o600"
@@ -55,15 +81,18 @@ def test_an_older_database_is_renamed_once_after_a_copy(database):
 
 def test_a_rename_that_fails_leaves_the_database_as_it_was(database, monkeypatch):
     path = database.DB_PATH
-    as_before_v1(path)
+    as_before_v1(path, monkeypatch)
     with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO users (username, hashed_password, role) VALUES ('ana', 'x', 'admin')")
-    # A stored value the table refuses (its CHECK): the run fails after it renamed the columns.
-    monkeypatch.setattr(schema_v1, "VALUES", {("users", "role"): {"admin": "not-a-role"}})
+        conn.executemany("INSERT INTO groups (name) VALUES (?)", [("a",), ("b",)])
+    values = schema_v1.VALUES
+    # A value renamed onto one that exists (groups.name is UNIQUE): the run fails after it renamed and rebuilt the rest.
+    monkeypatch.setattr(schema_v1, "VALUES", {**values, ("groups", "name"): {"a": "b"}})
     with pytest.raises(sqlite3.IntegrityError):
         database.init_db()
     assert "nom" in columns(path, "webauthn_credentials")  # nothing of that run was kept
-    monkeypatch.setattr(schema_v1, "VALUES", {})
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT statut FROM tasks").fetchone()[0] == "en_cours"
+    monkeypatch.setattr(schema_v1, "VALUES", values)
     database.init_db()  # the next start does it all
     assert "name" in columns(path, "webauthn_credentials") and "expires_at" in columns(path, "webauthn_challenges")
 
@@ -125,3 +154,11 @@ def test_another_nodes_row_with_the_old_names_is_applied_and_then_equal(database
     assert (
         json.loads(fake.files["/priv/db/webauthn_credentials/7"])["nom"] == "YubiKey"
     )  # the tree is not rewritten here
+
+
+def test_a_backup_made_before_the_renames_reads_with_the_new_mode(tmp_path):
+    from app.core import backup_integrity
+
+    (tmp_path / backup_integrity.MANIFEST).write_text(json.dumps({"version": 1, "vm": "web", "mode": "chaud"}))
+    assert backup_integrity.read_manifest(tmp_path)["mode"] == "live"
+    assert json.loads((tmp_path / backup_integrity.MANIFEST).read_text())["mode"] == "chaud"  # never rewritten

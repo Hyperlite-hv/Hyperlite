@@ -32,7 +32,7 @@ DEV_BUS_PREFIXES = {"sd": "scsi", "vd": "virtio", "hd": "ide"}
 @router.post("/{name}/disks", status_code=201)
 def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not TARGET_DEV_RE.match(payload.target_dev):
-        log_action(user["username"], "attach_disk", name, "echec", "Invalid target_dev")
+        log_action(user["username"], "attach_disk", name, "failed", "Invalid target_dev")
         raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
     bus = DEV_BUS_PREFIXES.get(payload.target_dev[:2], "virtio")
     conn = open_conn()
@@ -40,7 +40,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_disk", name, "echec", "VM not found")
+            log_action(user["username"], "attach_disk", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if payload.target_dev.startswith("sd"):
@@ -54,7 +54,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
             pool = conn.storagePoolLookupByName(payload.pool)
             vol = lookup_volume(pool, payload.volume_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_disk", name, "echec", "Volume not found")
+            log_action(user["username"], "attach_disk", name, "failed", "Volume not found")
             raise HTTPException(
                 status_code=404, detail=f"Volume '{payload.volume_name}' not found in pool '{payload.pool}'"
             ) from None
@@ -73,10 +73,10 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
             domain.attachDeviceFlags(disk_xml, flags)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "attach_disk", name, "echec", msg)
+            log_action(user["username"], "attach_disk", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Disk attach error: {msg}") from e
 
-        log_action(user["username"], "attach_disk", name, "succes")
+        log_action(user["username"], "attach_disk", name, "success")
         return {"message": f"Volume '{payload.volume_name}' attached to '{name}' as {payload.target_dev}"}
     finally:
         conn.close()
@@ -85,14 +85,14 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
 @router.delete("/{name}/disks/{target_dev}")
 def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not TARGET_DEV_RE.match(target_dev):
-        log_action(user["username"], "detach_disk", name, "echec", "Invalid target_dev")
+        log_action(user["username"], "detach_disk", name, "failed", "Invalid target_dev")
         raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "detach_disk", name, "echec", "VM not found")
+            log_action(user["username"], "detach_disk", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         xml_desc = domain.XMLDesc(0)
@@ -104,7 +104,7 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
                 disk_elem = disk
                 break
         if disk_elem is None:
-            log_action(user["username"], "detach_disk", name, "echec", f"Disk {target_dev} not found")
+            log_action(user["username"], "detach_disk", name, "failed", f"Disk {target_dev} not found")
             raise HTTPException(status_code=404, detail=f"Disk '{target_dev}' not found on VM '{name}'")
 
         disk_xml = ET.tostring(disk_elem, encoding="unicode")
@@ -115,10 +115,10 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
             domain.detachDeviceFlags(disk_xml, flags)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "detach_disk", name, "echec", msg)
+            log_action(user["username"], "detach_disk", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Detach error: {msg}") from e
 
-        log_action(user["username"], "detach_disk", name, "succes")
+        log_action(user["username"], "detach_disk", name, "success")
         return {"message": f"Disk '{target_dev}' detached from '{name}'"}
     finally:
         conn.close()
@@ -134,11 +134,11 @@ def resize_disk(
     name: str, target_dev: str, payload: DiskResize, user: dict = Depends(require_vm_privilege("vm.resize"))
 ):
     if not TARGET_DEV_RE.match(target_dev):
-        log_action(user["username"], "resize_disk", name, "echec", "Invalid target_dev")
+        log_action(user["username"], "resize_disk", name, "failed", "Invalid target_dev")
         raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
     size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
     if size_errors:
-        log_action(user["username"], "resize_disk", name, "echec", "; ".join(size_errors))
+        log_action(user["username"], "resize_disk", name, "failed", "; ".join(size_errors))
         raise HTTPException(status_code=422, detail=size_errors)
     with vm_locks.claim_or_409(name, "a disk resize"):
         return _resize_disk(name, target_dev, payload, user)
@@ -150,7 +150,7 @@ def _resize_disk(name, target_dev, payload, user):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "resize_disk", name, "echec", "VM not found")
+            log_action(user["username"], "resize_disk", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         try:
             # qemu-img and libvirt refuse to resize a disk that carries a replication bitmap: dropped once the request
@@ -159,14 +159,14 @@ def _resize_disk(name, target_dev, payload, user):
                 conn, domain, target_dev, payload.size_gb, before_change=lambda: checkpoints.release(domain, name)
             )
         except disk_resize.ResizeError as e:
-            log_action(user["username"], "resize_disk", name, "echec", f"{target_dev}: {e.message}")
+            log_action(user["username"], "resize_disk", name, "failed", f"{target_dev}: {e.message}")
             raise HTTPException(status_code=e.status, detail=e.message) from e
         old_gb, new_gb = round(old_bytes / disk_resize.GIB, 2), round(new_bytes / disk_resize.GIB, 2)
         log_action(
             user["username"],
             "resize_disk",
             name,
-            "succes",
+            "success",
             f"{target_dev}: {old_gb} GB -> {new_gb} GB ({'live' if live else 'stopped'})",
         )
         return {
@@ -204,22 +204,22 @@ def _move_disk_job(task_id, username, name, target_dev, dest_pool, delete_source
         result = disk_move.move(
             domain, target_dev, how, delete_source, progress=lambda pct: update_task_progress(task_id, pct), stop=stop
         )
-        finish_task(task_id, "termine")
+        finish_task(task_id, "succeeded")
         log_action(
             username,
             "move_disk",
             name,
-            "succes",
+            "success",
             f"{target_dev}: {result['source']} -> {result['destination']} "
             f"({'live' if how['live'] else 'stopped'}; source {'deleted' if result['source_supprimee'] else 'kept'})",
         )
     except disk_move.MoveError as e:
-        finish_task(task_id, "echec", e.message)
-        log_action(username, "move_disk", name, "echec", f"{target_dev}: {e.message}")
+        finish_task(task_id, "failed", e.message)
+        log_action(username, "move_disk", name, "failed", f"{target_dev}: {e.message}")
     except Exception as e:
         logger.exception("Moving %s of %s failed", target_dev, name)
-        finish_task(task_id, "echec", f"Internal error: {e}")
-        log_action(username, "move_disk", name, "echec", f"{target_dev}: internal error: {e}")
+        finish_task(task_id, "failed", f"Internal error: {e}")
+        log_action(username, "move_disk", name, "failed", f"{target_dev}: internal error: {e}")
     finally:
         conn.close()
 
@@ -239,7 +239,7 @@ def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depend
         try:
             how = disk_move.plan(conn, domain, target_dev, payload.pool)
         except disk_move.MoveError as e:
-            log_action(user["username"], "move_disk", name, "echec", f"{target_dev}: {e.message}")
+            log_action(user["username"], "move_disk", name, "failed", f"{target_dev}: {e.message}")
             raise HTTPException(status_code=e.status, detail=e.message) from e
     finally:
         conn.close()
@@ -258,7 +258,7 @@ def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depend
     except BaseException:
         claim.release()
         raise
-    return {"task_id": task_id, "statut": "en_cours", "destination": how["dest"], "a_chaud": how["live"]}
+    return {"task_id": task_id, "statut": "running", "destination": how["dest"], "a_chaud": how["live"]}
 
 
 def _get_interfaces(domain):
@@ -315,7 +315,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_disks", name, "echec", "VM not found")
+            log_action(user["username"], "get_vm_disks", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
@@ -340,7 +340,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
                     ),
                 }
             )
-        log_action(user["username"], "get_vm_disks", name, "succes")
+        log_action(user["username"], "get_vm_disks", name, "success")
         return disks
     finally:
         conn.close()
@@ -353,11 +353,11 @@ def get_vm_network(name: str, node: str | None = None, user: dict = Depends(get_
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_network", name, "echec", "VM not found")
+            log_action(user["username"], "get_vm_network", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         interfaces = _get_interfaces(domain)
         ip = _get_ip(domain) if domain.isActive() else None
-        log_action(user["username"], "get_vm_network", name, "succes")
+        log_action(user["username"], "get_vm_network", name, "success")
         return {"interfaces": interfaces, "ip": ip}
     finally:
         conn.close()
@@ -368,10 +368,10 @@ def _lookup_network(conn, username, action, name, network, vlan_tag):
     try:
         net = conn.networkLookupByName(network)
     except libvirt.libvirtError:
-        log_action(username, action, name, "echec", "Network not found")
+        log_action(username, action, name, "failed", "Network not found")
         raise HTTPException(status_code=404, detail=f"Network '{network}' not found") from None
     if vlan_tag is not None and not network_edit.carries_vlan_tags(ET.fromstring(net.XMLDesc(0))):
-        log_action(username, action, name, "echec", "VLAN tag unsupported by the network")
+        log_action(username, action, name, "failed", "VLAN tag unsupported by the network")
         raise HTTPException(status_code=422, detail=network_edit.VLAN_UNSUPPORTED.format(name=network))
     return net
 
@@ -393,7 +393,7 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_network", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_network", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         _lookup_network(conn, user["username"], "set_vm_network", name, payload.network, payload.vlan_tag)
@@ -402,7 +402,7 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
         root = ET.fromstring(xml_desc)
         iface = root.find(".//devices/interface")
         if iface is None:
-            log_action(user["username"], "set_vm_network", name, "echec", "No interface")
+            log_action(user["username"], "set_vm_network", name, "failed", "No interface")
             raise HTTPException(status_code=404, detail="No network interface found on this VM")
 
         source = iface.find("source")
@@ -427,10 +427,10 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
             domain.updateDeviceFlags(iface_xml, flags)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "set_vm_network", name, "echec", msg)
+            log_action(user["username"], "set_vm_network", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Network update error: {msg}") from e
 
-        log_action(user["username"], "set_vm_network", name, "succes")
+        log_action(user["username"], "set_vm_network", name, "success")
         return {"message": f"VM '{name}' attached to network '{payload.network}'"}
     finally:
         conn.close()
@@ -451,7 +451,7 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_interface", name, "echec", "VM not found")
+            log_action(user["username"], "attach_interface", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         _lookup_network(conn, user["username"], "attach_interface", name, payload.network, payload.vlan_tag)
@@ -474,10 +474,10 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
             domain.attachDeviceFlags(iface_xml, flags)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "attach_interface", name, "echec", msg)
+            log_action(user["username"], "attach_interface", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Interface attach error: {msg}") from e
 
-        log_action(user["username"], "attach_interface", name, "succes")
+        log_action(user["username"], "attach_interface", name, "success")
         return {"message": f"Interface added on network '{payload.network}' for '{name}'"}
     finally:
         conn.close()
@@ -486,21 +486,21 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
 @router.delete("/{name}/interfaces/{mac}")
 def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     if not MAC_RE.match(mac):
-        log_action(user["username"], "detach_interface", name, "echec", "Invalid MAC")
+        log_action(user["username"], "detach_interface", name, "failed", "Invalid MAC")
         raise HTTPException(status_code=422, detail="Invalid MAC address")
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "detach_interface", name, "echec", "VM not found")
+            log_action(user["username"], "detach_interface", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
         interfaces = root.findall(".//devices/interface")
         if len(interfaces) <= 1:
-            log_action(user["username"], "detach_interface", name, "echec", "Last interface")
+            log_action(user["username"], "detach_interface", name, "failed", "Last interface")
             raise HTTPException(status_code=422, detail="Cannot detach the last network interface of a VM")
 
         iface_elem = None
@@ -510,7 +510,7 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
                 iface_elem = iface
                 break
         if iface_elem is None:
-            log_action(user["username"], "detach_interface", name, "echec", f"Interface {mac} not found")
+            log_action(user["username"], "detach_interface", name, "failed", f"Interface {mac} not found")
             raise HTTPException(status_code=404, detail=f"Interface '{mac}' not found on VM '{name}'")
 
         iface_xml = ET.tostring(iface_elem, encoding="unicode")
@@ -521,10 +521,10 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
             domain.detachDeviceFlags(iface_xml, flags)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "detach_interface", name, "echec", msg)
+            log_action(user["username"], "detach_interface", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Detach error: {msg}") from e
 
-        log_action(user["username"], "detach_interface", name, "succes")
+        log_action(user["username"], "detach_interface", name, "success")
         return {"message": f"Interface '{mac}' detached from '{name}'"}
     finally:
         conn.close()
@@ -597,13 +597,13 @@ def attach_vm_hostdev(name: str, payload: HostDeviceAttach, user: dict = Depends
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "attach_hostdev", name, "echec", "VM not found")
+            log_action(user["username"], "attach_hostdev", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         running = bool(domain.isActive())
         try:
             plan = passthrough.plan_attach(conn, name, payload.device, running)
         except passthrough.PassthroughError as e:
-            log_action(user["username"], "attach_hostdev", name, "echec", e.message)
+            log_action(user["username"], "attach_hostdev", name, "failed", e.message)
             raise HTTPException(status_code=e.status, detail=e.message) from e
         if plan[0][0]["type"] == "pci" and not payload.confirm:
             raise HTTPException(
@@ -624,9 +624,9 @@ def attach_vm_hostdev(name: str, payload: HostDeviceAttach, user: dict = Depends
                 except libvirt.libvirtError:
                     logger.warning("Could not roll back %s on %s", xml, name, exc_info=True)
             msg = describe_exception(e)
-            log_action(user["username"], "attach_hostdev", name, "echec", msg)
+            log_action(user["username"], "attach_hostdev", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Device attach error: {msg}") from e
-        log_action(user["username"], "attach_hostdev", name, "succes", ", ".join(d["adresse"] for d, _ in plan))
+        log_action(user["username"], "attach_hostdev", name, "success", ", ".join(d["adresse"] for d, _ in plan))
         return {"vm": name, "ajoutes": [d["id"] for d, _ in plan], "hostdevs": _hostdev_listing(conn, domain)}
     finally:
         conn.close()
@@ -641,7 +641,7 @@ def detach_vm_hostdev(name: str, device_id: str, user: dict = Depends(require_ro
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "detach_hostdev", name, "echec", "VM not found")
+            log_action(user["username"], "detach_hostdev", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         item = next((e for e in _hostdev_entries(conn, domain) if e["id"] == device_id), None)
         if item is None:
@@ -654,9 +654,9 @@ def detach_vm_hostdev(name: str, device_id: str, user: dict = Depends(require_ro
             domain.detachDeviceFlags(item["xml"], flags)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "detach_hostdev", name, "echec", msg)
+            log_action(user["username"], "detach_hostdev", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Device detach error: {msg}") from e
-        log_action(user["username"], "detach_hostdev", name, "succes", device_id)
+        log_action(user["username"], "detach_hostdev", name, "success", device_id)
         return {"vm": name, "retire": device_id}
     finally:
         conn.close()

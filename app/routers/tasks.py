@@ -131,5 +131,5 @@ async def cancel_task(task_id: str, force: bool = False, on: str | None = None, 
         raise HTTPException(status_code=403, detail=str(e)) from e
     except (ValueError, task_core.NotStoppable) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
-    log_action(user["username"], "cancel_task", task["cible"] or task["type"], "succes", f"{task['type']}: {outcome}")
+    log_action(user["username"], "cancel_task", task["cible"] or task["type"], "success", f"{task['type']}: {outcome}")
     return {"resultat": outcome}
