@@ -53,6 +53,9 @@ logger = logging.getLogger(__name__)
 
 CLUSTER_SSH_KEY_DIR = PROJDIR / "data" / "ssh"
 POLL_INTERVAL_S = 60
+# While a node is down, it is checked this often: one back after a cut shows as such within seconds, not a minute (the
+# lab saw the cluster views skip a member for 61 s after a network cut).
+OFFLINE_POLL_S = 10
 
 
 def _ensure_cluster_keypair():
@@ -443,6 +446,8 @@ def _report_down(name):
 
 
 def _poll_once():
+    """Check every registered node; returns whether one of them is down."""
+    down = False
     for node in list_nodes():
         ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
         new_statut = "en_ligne" if ok else "hors_ligne"
@@ -454,6 +459,7 @@ def _poll_once():
         if ok:
             _unreported.discard(node["name"])
             continue
+        down = True
         # HA: report the protected VMs of a node as soon as it is detected as down, by the node leading the cluster.
         went_down = bool(prev) and prev != new_statut
         if (went_down or node["name"] in _unreported) and cluster_lead.is_leader():
@@ -469,15 +475,17 @@ def _poll_once():
         sync_protected_vms()
     except Exception as ha_exc:
         print(f"[cluster] HA resynchronization failed: {ha_exc!r}", flush=True)
+    return down
 
 
 def _poll_nodes():
     while True:
+        down = False
         try:
-            _poll_once()
+            down = _poll_once()
         except Exception as e:
             print(f"[cluster] poll failed: {e!r}", flush=True)
-        time.sleep(POLL_INTERVAL_S)
+        time.sleep(OFFLINE_POLL_S if down else POLL_INTERVAL_S)
 
 
 def start_node_poller():
