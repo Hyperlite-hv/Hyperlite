@@ -1,4 +1,5 @@
 import ipaddress
+import logging
 import os
 import threading
 from contextlib import asynccontextmanager
@@ -76,6 +77,8 @@ from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
 from app.routers.vms import router as vms_router
 from app.routers.workstation import router as workstation_router
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -293,6 +296,63 @@ def serve_ui(request: Request, path: str = ""):
         status_code=503,
         content={"detail": "The web interface is not built (run npm run build in dashboard/)."},
     )
+
+
+def _confirming():
+    """In a cluster with the replicated configuration on, changes are confirmed (confirm_writes)."""
+    from app.core import cluster_lead
+    from app.repositories.cfs import shadow
+
+    try:
+        return cluster_lead.mode(record=False) == "cluster" and shadow.enabled()
+    except Exception as e:  # never in the way of a request: it then answers as before, its change copied by the loop
+        logger.debug("Confirmed writes not used: %s", e)
+        return False
+
+
+def _catch_up():
+    from app.repositories.cfs import inbound, shadow
+
+    try:
+        shadow.drain()  # this node's own changes go out first, or nothing is applied (inbound.apply)
+        inbound.apply()
+    except Exception as e:  # the daemon does not answer: the change is refused or confirmed below, as the cluster says
+        logger.debug("The cluster's changes not applied before the request: %s", e)
+
+
+@app.middleware("http")
+async def confirm_writes(request: Request, call_next):
+    """A change in a cluster answers once the cluster took it (docs/design/confirmed-writes.md): the node first applies
+    what the cluster changed meanwhile, so the request starts from it; then the changes the request made are copied
+    before the answer leaves. 409 when another node changed the same thing first, 503 when the cluster did not take
+    it within shadow.CONFIRM_S."""
+    if request.method in ("GET", "HEAD", "OPTIONS") or request.url.path.startswith(_READ_ONLY_EXEMPT):
+        return await call_next(request)
+    if not await run_in_threadpool(_confirming):
+        return await call_next(request)
+    from app.repositories.cfs import confirm, shadow
+
+    await run_in_threadpool(_catch_up)
+    noted, token = confirm.begin()
+    try:
+        response = await call_next(request)
+    finally:
+        confirm.end(token)
+    if response.status_code >= 400 or not noted.ids:
+        return response
+    try:
+        await run_in_threadpool(shadow.confirm, noted.ids)
+    except shadow.Changed:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Changed on another node meanwhile: your change was not applied. Reload and try again.",
+                "code": "changed_elsewhere",
+            },
+        )
+    except shadow.NotConfirmed as e:
+        return JSONResponse(status_code=503, content={"detail": str(e), "code": "not_confirmed"})
+    return response
 
 
 # Requests that change nothing in the cluster's configuration, or must work to see why it is read-only: signing in and
