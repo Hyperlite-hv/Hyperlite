@@ -10,9 +10,13 @@
 #include <sys/uio.h>
 
 #define GROUP "hyperlite-cfs"
+#define STAT_GROUP "hyperlite-statd" /* the cluster's status (status.h): every node, no order needed */
 
 struct cfs_corosync {
     cpg_handle_t cpg;
+    cpg_handle_t stat_cpg; /* the status group */
+    struct cpg_name stat_group;
+    bool stat_joined;
     quorum_handle_t quorum;
     votequorum_handle_t votes;
     cmap_handle_t cmap;
@@ -177,6 +181,40 @@ static void on_quorum(quorum_handle_t h, uint32_t quorate, uint64_t ring_seq, ui
     update_quorum(c);
 }
 
+static void on_stat_deliver(cpg_handle_t h, const struct cpg_name *group, uint32_t nodeid, uint32_t pid, void *msg,
+                            size_t len)
+{
+    (void)group;
+    (void)pid;
+    cfs_corosync *c = from_cpg(h);
+    if (c && c->node)
+        cfs_node_stat_deliver(c->node, nodeid, msg, len);
+}
+
+static int stat_send(void *arg, const uint8_t *msg, size_t len)
+{
+    cfs_corosync *c = arg;
+    struct iovec iov = {.iov_base = (void *)msg, .iov_len = len};
+    cs_error_t rc = cpg_mcast_joined(c->stat_cpg, CPG_TYPE_FIFO, &iov, 1);
+    if (rc == CS_OK)
+        return 0;
+    if (rc == CS_ERR_TRY_AGAIN)
+        return 1;
+    fprintf(stderr, "hyperlite-cfs: Corosync refused a status (error %d)\n", (int)rc);
+    return -1;
+}
+
+static int stat_ready(void *arg)
+{
+    cfs_corosync *c = arg;
+    cs_error_t rc = cpg_dispatch(c->stat_cpg, CS_DISPATCH_ALL);
+    if (rc != CS_OK && rc != CS_ERR_TRY_AGAIN) {
+        fprintf(stderr, "hyperlite-cfs: lost Corosync's status group (error %d)\n", (int)rc);
+        return -1;
+    }
+    return 0;
+}
+
 static int cpg_send(void *arg, const uint8_t *msg, size_t len)
 {
     cfs_corosync *c = arg;
@@ -239,6 +277,16 @@ cfs_corosync *cfs_corosync_open(char *err, size_t errlen)
         free(c);
         return NULL;
     }
+    cpg_callbacks_t stat_cb = {.cpg_deliver_fn = on_stat_deliver};
+    rc = cpg_initialize(&c->stat_cpg, &stat_cb);
+    if (rc == CS_OK)
+        rc = cpg_context_set(c->stat_cpg, c);
+    if (rc != CS_OK) {
+        snprintf(err, errlen, "cannot open Corosync's status group (error %d)", (int)rc);
+        cpg_finalize(c->cpg);
+        free(c);
+        return NULL;
+    }
     quorum_callbacks_t qcb = {.quorum_notify_fn = on_quorum};
     uint32_t qtype = 0;
     rc = quorum_initialize(&c->quorum, &qcb, &qtype);
@@ -273,11 +321,14 @@ cfs_corosync *cfs_corosync_open(char *err, size_t errlen)
         if (votes)
             votequorum_finalize(c->votes);
         quorum_finalize(c->quorum);
+        cpg_finalize(c->stat_cpg);
         cpg_finalize(c->cpg);
         free(c);
         return NULL;
     }
     c->nodeid = nodeid;
+    snprintf(c->stat_group.value, sizeof(c->stat_group.value), "%s", STAT_GROUP);
+    c->stat_group.length = (uint32_t)strlen(STAT_GROUP);
     snprintf(c->group.value, sizeof(c->group.value), "%s", GROUP);
     c->group.length = (uint32_t)strlen(GROUP);
     return c;
@@ -293,10 +344,15 @@ cfs_transport cfs_corosync_transport(cfs_corosync *c)
     return (cfs_transport){.send = cpg_send, .leave = cpg_quit, .arg = c};
 }
 
-int cfs_corosync_start(cfs_corosync *c, cfs_node *node, cfs_source sources[2], char *err, size_t errlen)
+cfs_transport cfs_corosync_stat_transport(cfs_corosync *c)
+{
+    return (cfs_transport){.send = stat_send, .arg = c};
+}
+
+int cfs_corosync_start(cfs_corosync *c, cfs_node *node, cfs_source sources[3], char *err, size_t errlen)
 {
     c->node = node;
-    int cfd = -1, qfd = -1;
+    int cfd = -1, qfd = -1, sfd = -1;
     /* CS_TRACK_CURRENT: a first notification at once, with the ring it is for; until then the node is not quorate. */
     cs_error_t rc = quorum_trackstart(c->quorum, CS_TRACK_CURRENT | CS_TRACK_CHANGES);
     if (rc == CS_OK)
@@ -310,8 +366,17 @@ int cfs_corosync_start(cfs_corosync *c, cfs_node *node, cfs_source sources[2], c
         return -1;
     }
     c->joined = true;
+    rc = cpg_fd_get(c->stat_cpg, &sfd);
+    if (rc == CS_OK)
+        rc = cpg_join(c->stat_cpg, &c->stat_group);
+    if (rc != CS_OK) {
+        snprintf(err, errlen, "cannot join the hyperlite-statd process group (error %d)", (int)rc);
+        return -1;
+    }
+    c->stat_joined = true;
     sources[0] = (cfs_source){.fd = cfd, .ready = cpg_ready, .arg = c};
     sources[1] = (cfs_source){.fd = qfd, .ready = quorum_ready, .arg = c};
+    sources[2] = (cfs_source){.fd = sfd, .ready = stat_ready, .arg = c};
     return 0;
 }
 
@@ -320,6 +385,9 @@ void cfs_corosync_close(cfs_corosync *c)
     if (!c)
         return;
     cpg_quit(c);
+    if (c->stat_joined)
+        cpg_leave(c->stat_cpg, &c->stat_group);
+    cpg_finalize(c->stat_cpg);
     cmap_finalize(c->cmap);
     votequorum_finalize(c->votes);
     quorum_finalize(c->quorum);

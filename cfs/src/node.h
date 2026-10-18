@@ -30,6 +30,7 @@
 #include <sys/types.h>
 
 #include "handler.h"
+#include "status.h"
 
 typedef struct {
     /* Multicast `msg` to the group, in agreed order: 0 sent, 1 try again later (flow control), -1 failed. */
@@ -75,6 +76,9 @@ typedef struct {
     cfs_ctx ctx;
     uint32_t self;
     cfs_transport tr;
+    /* The cluster's status (status.h): sent through stat_tr (Corosync's second group) when set, else kept here. */
+    cfs_transport stat_tr;
+    cfs_stat_table stat;
     cfs_reply_fn reply;
     void *reply_arg;
 
@@ -130,6 +134,9 @@ void cfs_node_membership(cfs_node *n, const uint32_t *members, size_t count);
 void cfs_node_quorum(cfs_node *n, bool quorate);
 /* Corosync formed a new ring (sequence number `seq`, which only grows); called before the membership it brings. */
 void cfs_node_ring(cfs_node *n, uint64_t seq);
+
+/* A node's status arrived (Corosync's status group): kept, replacing its previous one. */
+void cfs_node_stat_deliver(cfs_node *n, uint32_t sender, const uint8_t *msg, size_t len);
 
 /* Send again what the transport refused for flow control; true while something is still waiting. */
 bool cfs_node_flush(cfs_node *n);

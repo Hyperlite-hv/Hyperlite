@@ -90,7 +90,7 @@ int main(int argc, char **argv)
     }
     static cfs_node node;
     cfs_corosync *cs = NULL;
-    cfs_source sources[2];
+    cfs_source sources[3];
     size_t nsources = 0;
     int rc = 0;
     if (cluster) {
@@ -105,7 +105,8 @@ int main(int argc, char **argv)
             fprintf(stderr, "hyperlite-cfs: %s\n", err);
             rc = -1;
         }
-        nsources = 2;
+        node.stat_tr = cfs_corosync_stat_transport(cs);
+        nsources = 3;
         fprintf(stderr, "hyperlite-cfs: cluster mode, node %u, database %s, socket %s\n", node.self, db, sock);
     } else {
         cfs_node_init(&node, store, CFS_MODE_LOCAL, 1, (cfs_transport){.send = loop_send, .arg = &node});

@@ -21,8 +21,11 @@ cfs_corosync *cfs_corosync_open(char *err, size_t errlen);
 uint32_t cfs_corosync_nodeid(const cfs_corosync *c);
 /* The transport for cfs_node_init. */
 cfs_transport cfs_corosync_transport(cfs_corosync *c);
-/* Join the group: from then on, deliveries, membership and quorum changes reach `node` through the two sources. */
-int cfs_corosync_start(cfs_corosync *c, cfs_node *node, cfs_source sources[2], char *err, size_t errlen);
+/* The status group's transport (phase E, status.h): every node, in no particular order, never refused for quorum. */
+cfs_transport cfs_corosync_stat_transport(cfs_corosync *c);
+/* Join the groups: from then on, deliveries, membership, quorum changes and statuses reach `node` through the three
+ * sources. */
+int cfs_corosync_start(cfs_corosync *c, cfs_node *node, cfs_source sources[3], char *err, size_t errlen);
 void cfs_corosync_close(cfs_corosync *c);
 
 #endif
