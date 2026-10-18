@@ -459,6 +459,63 @@
   ],
   "seen": 1
  },
+ "but": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/audit.py",
+   "app/core/backups.py",
+   "app/core/cluster.py",
+   "app/core/cluster_compat.py",
+   "app/core/config_copy.py",
+   "app/core/container_builder.py",
+   "app/core/container_shell.py",
+   "app/core/cpu_pinning.py",
+   "app/core/database.py",
+   "app/core/disk_move.py",
+   "app/core/error_messages.py",
+   "app/core/guest_agent.py",
+   "app/core/ha.py",
+   "app/core/ha_selffence.py",
+   "app/core/ha_watch.py",
+   "app/core/host_capabilities.py",
+   "app/core/host_interfaces.py",
+   "app/core/host_stats.py",
+   "app/core/iso_share.py",
+   "app/core/jobs.py",
+   "app/core/libvirt_utils.py",
+   "app/core/network_firewall.py",
+   "app/core/permissions.py",
+   "app/core/preflight.py",
+   "app/core/secrets_crypto.py",
+   "app/core/security.py",
+   "app/core/tasks.py",
+   "app/core/version.py",
+   "app/core/vm_builder.py",
+   "app/core/workstation.py",
+   "app/core/zfs_storage.py",
+   "app/main.py",
+   "app/repositories/cfs/shadow.py",
+   "app/repositories/sqlite/identity.py",
+   "app/routers/auth.py",
+   "app/routers/containers.py",
+   "app/routers/host.py",
+   "app/routers/jobs.py",
+   "app/routers/network.py",
+   "app/routers/nodes.py",
+   "app/routers/storage.py",
+   "app/routers/update.py",
+   "app/routers/vm_disks.py",
+   "app/routers/vms/create.py",
+   "app/routers/vms/firewall.py",
+   "app/routers/vms/lifecycle.py",
+   "app/routers/vms/migration.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 48
+ },
  "canaux": {
   "kinds": [
    "string"
@@ -1991,6 +2048,17 @@
   ],
   "seen": 1
  },
+ "horodatage": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/repositories/sqlite/automation.py"
+  ],
+  "seen": 2
+ },
  "hors_ligne": {
   "kinds": [
    "string"
@@ -2193,6 +2261,19 @@
    "app/core/metric_export.py"
   ],
   "seen": 1
+ },
+ "joignable": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/core/rolling_update.py",
+   "app/repositories/cfs/shadow.py",
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 4
  },
  "jours_restants": {
   "kinds": [
@@ -3811,6 +3892,30 @@
    "table backups"
   ],
   "seen": 2
+ },
+ "version_hyperviseur": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/core/host_capabilities.py",
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 3
+ },
+ "version_libvirt": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/core/host_capabilities.py",
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 3
  },
  "virtualisation_materielle": {
   "kinds": [
