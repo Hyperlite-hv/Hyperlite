@@ -14,7 +14,7 @@ import threading
 import pytest
 from harness import NODES, get, lab, same_everywhere, until
 
-from app.core.cfs_client import ANY_VERSION, MUST_NOT_EXIST, Conflict, ReadOnly
+from app.core.cfs_client import ANY_VERSION, FORBIDDEN, MUST_NOT_EXIST, CfsError, Conflict, ReadOnly
 
 # Written for three nodes; test_two_nodes.py covers the two-node lab.
 pytestmark = pytest.mark.skipif(len(NODES) != 3, reason="needs the three-node lab")
@@ -62,6 +62,12 @@ def test_every_nodes_status_reaches_every_node(nodes):
     """Phase E (docs/design/phase-e-statd.md): each node's status, through Corosync's second group, is read on every
     node, a large one included; a newer status replaces the older."""
     sent = {i: f"node{i} ".encode() + os.urandom(200 * 1024) for i in range(3)}
+    try:
+        nodes[0].stat_put(b"old")
+    except CfsError as e:
+        # The VM lab (lab/vm.sh) reaches the daemons through an SSH forward as `debian`: publishing is root only.
+        assert e.status == FORBIDDEN
+        pytest.skip("this lab reaches the daemons as a user that is not root, and only root publishes a status")
     for i, c in enumerate(nodes):
         c.stat_put(b"old")
         c.stat_put(sent[i])
