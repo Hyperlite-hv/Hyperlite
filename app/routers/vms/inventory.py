@@ -20,8 +20,56 @@ logger = logging.getLogger(__name__)
 _on_member = cluster_view.forward_to("node")
 
 
+def _cluster_vms(username):
+    """Every member's VMs, each marked with its node ("local" for this one), from the cluster's status (phase E,
+    app/core/statd.py): nothing is asked of the other nodes, whatever their number. This node's own VMs are read here,
+    current. A member without a status (an older version during a rolling update) is asked as before; one that does
+    not answer is named."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.core import statd
+
+    conn = open_conn()
+    try:
+        items = [{**v, "node": "local"} for v in _domain_summaries(conn, None)]
+    finally:
+        conn.close()
+    table = statd.table()
+    stale, unreachable, ask = [], [], []
+    for member in cluster_view.members():
+        status = table.get(member["name"])
+        if status is None:
+            ask.append(member)
+            continue
+        items += [{**v, "node": member["name"]} for v in status["vms"]]
+        if status["stale"]:
+            stale.append(member["name"])
+
+    def asked(member):
+        try:
+            code, body = cluster_view.forward(member, username, "GET", "/vms")
+        except cluster_view.PeerError:
+            return member["name"], None
+        return member["name"], body if code == 200 and isinstance(body, list) else None
+
+    if ask:
+        with ThreadPoolExecutor(max_workers=min(16, len(ask))) as pool:
+            for name, vms in pool.map(asked, ask):
+                if vms is None:
+                    unreachable.append(name)
+                else:
+                    items += [{**v, "node": name} for v in vms]
+    return {"items": items, "stale": stale, "unreachable": unreachable}
+
+
 @router.get("", dependencies=[Depends(_on_member)])
-def list_vms(node: str | None = None, user: dict = Depends(get_current_user)):
+def list_vms(
+    node: str | None = None, cluster: bool = False, user: dict = Depends(get_current_user)
+):  # fmt: skip
+    if cluster:
+        result = _cluster_vms(user["username"])
+        log_action(user["username"], "list_vms", "vms", "succes")
+        return result
     """node: the name of a registered remote node, to list ITS VMs instead of those
     of the local host. Omitted or None = unchanged behaviour (local host).
     The frontend used to have no way to query a remote node here, so the VMs of
