@@ -670,8 +670,6 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
             new_file_version, package, bundle = offline_update.extract()
             task_log(task_id, f"Update file of Hyperlite {new_file_version}, signature and checksums verified")
             apt_opts = offline_update.local_apt_options(bundle)
-            # The package's postinst installs the Python requirements: from the file's wheels, not PyPI.
-            apt_env = ["PIP_NO_INDEX=1", f"PIP_FIND_LINKS={bundle / 'wheels'}"]
             step(20, "Reading the packages of the update file")
             upd = _run_c(["apt-get", *apt_opts, "update"], timeout=120)
         else:

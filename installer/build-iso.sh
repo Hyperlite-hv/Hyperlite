@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the bootable Hyperlite ISO: starts from the official Debian netinst image, adds the hyperlite package,
-# the offline bundle (every package and wheel the installation needs, so it needs no network), the preseeds and
+# the offline bundle (every package the installation needs, so it needs no network), the preseeds and
 # the installation scripts, and writes a boot menu with two modes, in French or English: automatic (the default
 # after 5 s) and custom, guided step by step.
 #
@@ -59,7 +59,7 @@ log "=== 3/6: injecting the Hyperlite installation files ==="
 HL_DIR="$EXTRACT_DIR/hyperlite"
 mkdir -p "$HL_DIR"
 
-# The ISO carries the hyperlite package, every Debian package and Python wheel the installation needs (the offline
+# The ISO carries the hyperlite package, every Debian package the installation needs (the offline
 # bundle below) and the installation scripts: an installation needs no network. The machine is then managed by apt
 # like any Debian, from the Debian mirrors and the Hyperlite repository, as soon as it has a network.
 
@@ -99,7 +99,7 @@ cp "$SCRIPT_DIR/hyperlite.templates" "$HL_DIR/hyperlite.templates"
 cp "$SCRIPT_DIR/packages.list" "$HL_DIR/packages.list"
 chmod +x "$HL_DIR"/*.sh
 
-# The offline bundle (installer/build-offline-bundle.sh): every Debian package and Python wheel the installation
+# The offline bundle (installer/build-offline-bundle.sh): every Debian package the installation
 # needs, so it runs without a network, as with Proxmox. Without it the installation downloads them.
 OFFLINE_BUNDLE="${HYPERLITE_OFFLINE_BUNDLE:-$SCRIPT_DIR/offline-bundle}"
 if [ -s "$OFFLINE_BUNDLE/debs/packages.index" ] && [ -s "$OFFLINE_BUNDLE/install.list" ]; then
