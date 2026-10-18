@@ -17,8 +17,8 @@ async function serveVms(page: Page, initial: Record<string, string>, refuse: str
   await page.route(/\/vms(\?.*)?$/, (r: Route) => (api(r) && r.request().method() === "GET" ? r.fulfill(json(Object.entries(states).map(([n, e]) => vm(n, e)))) : r.fallback()));
   await page.route(/\/vms\/([^/?]+)\/(start|stop|restart)(\?.*)?$/, (r: Route) => {
     if (!api(r)) return r.fallback();
-    const [, name, action] = new URL(r.request().url()).pathname.match(/\/vms\/([^/]+)\/(\w+)$/) ?? [];
-    const name = decodeURIComponent(name);
+    const [, encoded, action] = new URL(r.request().url()).pathname.match(/\/vms\/([^/]+)\/(\w+)$/) ?? [];
+    const name = decodeURIComponent(encoded);
     calls.push(`${action} ${name}`);
     if (refuse.includes(name)) return r.fulfill(json({ detail: `${name} refused by the test` }, 409));
     states[name] = action === "stop" ? "stopped" : "active";
