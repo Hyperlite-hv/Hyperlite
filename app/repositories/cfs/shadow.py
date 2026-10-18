@@ -311,7 +311,7 @@ def _dropped(paths):
     for path in paths:
         logger.warning("hyperlite-cfs shadow: %s changed in the cluster meanwhile: this node's change is dropped", path)
         log_action(
-            "system", "cfs_conflict", path, "echec",
+            "system", "cfs_conflict", path, "failed",
             "Changed on this node while the cluster changed it too (this node was cut off, or both changed it at "
             "once): the cluster's version is kept",
         )  # fmt: skip
@@ -584,7 +584,7 @@ def report():
             "conflits": _stats.conflicts,
             "derniere_erreur": _stats.last_error,
             "derniere_erreur_le": _stats.last_error_at,
-            "en_attente": pending(),
+            "pending": pending(),
         }
     try:
         client = _get_client()

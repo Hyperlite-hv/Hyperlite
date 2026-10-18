@@ -392,7 +392,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         # The constant is called VIR_MIGRATE_PERSIST_DEST in this libvirt-python version,
         # not VIR_MIGRATE_PERSISTENT (which does not exist at all, verified through
         # dir(libvirt)). The wrong name crashed the thread BEFORE the first jobInfo call,
-        # outside the `except libvirt.libvirtError` below, leaving a task stuck "en_cours"
+        # outside the `except libvirt.libvirtError` below, leaving a task stuck "running"
         # forever with no trace for the user other than the server logs.
         flags = (
             libvirt.VIR_MIGRATE_LIVE
@@ -488,12 +488,12 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
         def follow_ha():
             if ha.follow_migration(vm_name, target_node):
-                log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")
+                log_action(username, "ha_follow", vm_name, "success", f"HA protection follows the VM to {target_node}")
 
         after("moving its HA protection", follow_ha)
         if warnings:  # the first step: any warning is its own
             log_action(
-                username, "ha_follow", vm_name, "echec",
+                username, "ha_follow", vm_name, "failed",
                 f"The VM runs on {target_node} but its HA protection still names {source_node or self_node.name()}: "
                 "disable and enable it again in the HA tab",
             )  # fmt: skip
@@ -502,7 +502,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         def follow_boot():
             if vm_boot.follow_migration(vm_name, source_node, target_node):
                 log_action(
-                    username, "autostart_follow", vm_name, "succes", f"Start at boot follows the VM to {target_node}"
+                    username, "autostart_follow", vm_name, "success", f"Start at boot follows the VM to {target_node}"
                 )
 
         after("moving its start at boot", follow_boot)
@@ -541,12 +541,12 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
         stop_event.set()
         update_task_progress(task_id, 100)
-        finish_task(task_id, "termine", "; ".join(warnings) or None)
+        finish_task(task_id, "succeeded", "; ".join(warnings) or None)
         log_action(
             username,
             "migrate_vm",
             vm_name,
-            "succes",
+            "success",
             # The local node has no name of its own in source_node (None): the audit log said "None -> hlc2".
             f"{source_node or self_node.name()} -> {target_node} ({'shared' if shared else 'copied'} storage)"
             + (f", with warnings: {'; '.join(warnings)}" if warnings else ""),
@@ -554,21 +554,21 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
     except network_alloc.AddressInUse as e:
         stop_event.set()
         msg = f"Migration refused: {e}. Free that address on {target_node}, or give the VM another one."
-        finish_task(task_id, "echec", msg)
-        log_action(username, "migrate_vm", vm_name, "echec", msg)
+        finish_task(task_id, "failed", msg)
+        log_action(username, "migrate_vm", vm_name, "failed", msg)
     except libvirt.libvirtError as e:
         stop_event.set()
         msg = describe_exception(e)
-        finish_task(task_id, "echec", msg)
-        log_action(username, "migrate_vm", vm_name, "echec", msg)
+        finish_task(task_id, "failed", msg)
+        log_action(username, "migrate_vm", vm_name, "failed", msg)
     except Exception as e:
         # Generic safety net: ANY unexpected exception must still close the task,
-        # otherwise it stays "en_cours" forever in the UI with no visible explanation for
+        # otherwise it stays "running" forever in the UI with no visible explanation for
         # the user. It was really needed in testing (see the comment above about
         # VIR_MIGRATE_PERSIST_DEST).
         stop_event.set()
-        finish_task(task_id, "echec", f"Internal error: {e}")
-        log_action(username, "migrate_vm", vm_name, "echec", f"Internal error: {e}")
+        finish_task(task_id, "failed", f"Internal error: {e}")
+        log_action(username, "migrate_vm", vm_name, "failed", f"Internal error: {e}")
     finally:
         stop_event.set()
         src_conn.close()
@@ -664,6 +664,6 @@ def migrate_vm(
         except BaseException:
             claim.release()
             raise
-        return {"task_id": task_id, "statut": "en_cours"}
+        return {"task_id": task_id, "statut": "running"}
     finally:
         src_conn.close()

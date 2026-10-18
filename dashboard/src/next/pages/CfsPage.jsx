@@ -94,7 +94,7 @@ export default function CfsPage() {
             { id: "daemon", label: t("cfs.daemon"), dot: state.joignable ? "success" : "danger", value: state.joignable ? t(`cfs.mode.${state.demon.mode}`) : t("cfs.unreachable"),
               sub: state.joignable ? (state.demon.quorum ? t("cfs.quorate") : t("cfs.readOnly")) : null, subTone: state.joignable && !state.demon.quorum ? "warning" : undefined },
             { id: "gaps", label: t("cfs.gaps"), dot: state.joignable ? (state.ecarts ? "warning" : "success") : undefined, value: state.joignable ? state.ecarts : null },
-            { id: "pending", label: t("cfs.pending"), dot: state.en_attente ? "warning" : undefined, value: state.en_attente, sub: t("cfs.pendingSub") },
+            { id: "pending", label: t("cfs.pending"), dot: state.pending ? "warning" : undefined, value: state.pending, sub: t("cfs.pendingSub") },
             { id: "copies", label: t("cfs.copies"), value: state.copies, sub: t("cfs.sinceStart") },
             ...(state.joignable && state.demon.mode === "cluster" ? [{ id: "received", label: t("cfs.received"), value: state.reception?.appliques ?? 0, sub: t("cfs.receivedSub") }] : []),
             { id: "failures", label: t("cfs.failures"), dot: state.echecs ? "warning" : undefined, value: state.echecs, sub: t("cfs.sinceStart") },

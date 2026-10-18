@@ -21,7 +21,7 @@ import { askNewName } from "../lib/rename";
 import { NewPasswordFields } from "../components/PasswordFields";
 import { passwordAccepted } from "../lib/passwordPolicy";
 
-// Global roles stay `admin` / `observateur` (wire values); ACLs, groups, pools and custom roles only ADD
+// Global roles stay `admin` / `viewer` (wire values); ACLs, groups, pools and custom roles only ADD
 // scoped rights on top of them (app/core/permissions.py). Same endpoints and payloads as the historical tab.
 
 const TABS = ["users", "groups", "roles", "pools", "acl", "sso"];
@@ -108,7 +108,7 @@ async function renameLabel(t, run, current, save) {
 function UsersTab({ t, run, data, drawer, closeDrawer }) {
   const me = useAuthStore((s) => s.username);
   const lang = useLangStore((s) => s.lang);
-  const EMPTY = { username: "", password: "", role: "observateur" };
+  const EMPTY = { username: "", password: "", role: "viewer" };
   const [f, setF] = useState(EMPTY);
   const valid = f.username.trim() && passwordAccepted(f.password, f.username.trim());
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -148,7 +148,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
                 return (
                   <tr key={u.username} className={ctx.is("user", u.username) ? "is-ctx" : undefined} onContextMenu={ctx.open("user", u, u.username)}>
                     <th scope="row"><span className="nx-userrow"><span className="nx-avatar nx-avatar--sm" aria-hidden="true">{u.username.slice(0, 2).toUpperCase()}</span>{u.username}{self && <span className="nx-muted" style={{ fontWeight: 400 }}> ({t("sec.you")})</span>}</span></th>
-                    <td><select className="nx-sel" aria-label={t("a11y.role_of_x", { v: u.username })} value={u.role} disabled={self} title={self ? t("sec.selfRole") : undefined} onChange={(e) => changeRole(u, e.target.value)}><option value="observateur">{t("sec.observer")}</option><option value="admin">{t("sec.admin")}</option></select></td>
+                    <td><select className="nx-sel" aria-label={t("a11y.role_of_x", { v: u.username })} value={u.role} disabled={self} title={self ? t("sec.selfRole") : undefined} onChange={(e) => changeRole(u, e.target.value)}><option value="viewer">{t("sec.observer")}</option><option value="admin">{t("sec.admin")}</option></select></td>
                     <td><Chip>{u.auth_source === "sso" ? "SSO" : t("sec.local")}</Chip></td>
                     <td>{u.totp_enabled ? <span className="nx-tone-success">{t("sec.on2fa")}</span> : <span className="nx-muted">{t("sec.off2fa")}</span>}</td>
                     <td className="nx-mono nx-muted">{when(u.last_login_at) || t("sec.never")}</td>
@@ -167,7 +167,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
             return [
               { key: "reset", icon: "key", label: t("pw.reset"), run: () => setResetFor(u), disabled: self || u.auth_source === "sso", reason: self ? t("pw.resetSelf") : t("pw.resetSso") },
               u.role === "admin"
-                ? { key: "role", icon: "user", label: t("ctx.makeObserver"), run: () => changeRole(u, "observateur"), disabled: self, reason: t("sec.selfRole") }
+                ? { key: "role", icon: "user", label: t("ctx.makeObserver"), run: () => changeRole(u, "viewer"), disabled: self, reason: t("sec.selfRole") }
                 : { key: "role", icon: "admin", label: t("ctx.makeAdmin"), run: () => changeRole(u, "admin"), disabled: self, reason: t("sec.selfRole") },
               "-",
               { key: "delete", icon: "delete", label: del(t), danger: true, run: () => remove(u), disabled: self, reason: t("sec.selfDelete") },
@@ -181,7 +181,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
       </>}>
         <Field label={t("sec.username")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.username")} value={f.username} autoComplete="off" placeholder="jdupont" onChange={(e) => setF({ ...f, username: e.target.value })} />}</Field>
         <NewPasswordFields label={t("ct.password")} username={f.username.trim()} value={f.password} onChange={(v) => setF((s) => ({ ...s, password: v }))} generate />
-        <Field label={t("sec.globalRole")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.role_of_the_new_user")} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="observateur">{t("sec.observer")}</option><option value="admin">{t("sec.admin")}</option></select>}</Field>
+        <Field label={t("sec.globalRole")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.role_of_the_new_user")} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="viewer">{t("sec.observer")}</option><option value="admin">{t("sec.admin")}</option></select>}</Field>
       </SideDrawer>
       <SideDrawer open={!!resetFor} title={resetFor ? t("pw.resetTitle", { name: resetFor.username }) : ""} onClose={closeReset} footer={<>
         <button type="button" className="nx-btn nx-btn--ghost" onClick={closeReset}>{t("action.cancel")}</button>
@@ -303,7 +303,7 @@ function RolesTab({ t, run, data, drawer, closeDrawer }) {
             <thead><tr><th scope="col">{t("sec.role")}</th><th scope="col">{t("sec.roleType")}</th><th scope="col">{t("sec.can")}</th><th scope="col" className="nx-num">{t("sec.usedBy")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
               <tr><th scope="row">{t("sec.admin")}</th><td><Chip tone="accent">{t("sec.global")}</Chip></td><td className="nx-wrapcell nx-muted">{t("sec.role.admin")}</td><td className="nx-num nx-mono">{users("admin")}</td><td /></tr>
-              <tr><th scope="row">{t("sec.observer")}</th><td><Chip tone="accent">{t("sec.global")}</Chip></td><td className="nx-wrapcell nx-muted">{t("sec.role.observer")}</td><td className="nx-num nx-mono">{users("observateur")}</td><td /></tr>
+              <tr><th scope="row">{t("sec.observer")}</th><td><Chip tone="accent">{t("sec.global")}</Chip></td><td className="nx-wrapcell nx-muted">{t("sec.role.observer")}</td><td className="nx-num nx-mono">{users("viewer")}</td><td /></tr>
               {Object.entries(data.roles).map(([k, r]) => <tr key={k}><th scope="row">{r.label}</th><td><Chip>{t("sec.scoped")}</Chip></td><td className="nx-wrapcell nx-muted">{r.description}</td><td className="nx-num nx-mono">{countBy(k)}</td><td /></tr>)}
               {data.customRoles.map((r) => (
                 <tr key={r.key}><th scope="row">{r.label}</th><td><Chip tone="info">{t("sec.custom")}</Chip></td><td className="nx-wrapcell nx-muted">{[...r.privileges].map((p) => data.privileges[p] || p).join(", ")}</td><td className="nx-num nx-mono">{countBy(r.key)}</td>

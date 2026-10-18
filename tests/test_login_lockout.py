@@ -25,7 +25,7 @@ def totp_user(make_user, database):
     """A user with 2FA on; returns (username, secret)."""
 
     def _make(username):
-        make_user(username, "observateur", PASSWORD)
+        make_user(username, "viewer", PASSWORD)
         secret = pyotp.random_base32()
         with database.get_conn() as conn:
             conn.execute(

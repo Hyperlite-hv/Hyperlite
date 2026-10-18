@@ -72,7 +72,7 @@ def gather(username, path, params):
     answers, missing = {}, []
 
     def ask(node):
-        if node.get("statut") == "hors_ligne":
+        if node.get("statut") == "offline":
             return node["name"], None
         try:
             status, body = _call(node, username, "GET", full)

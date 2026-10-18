@@ -43,13 +43,13 @@ def test_shared_pools(repo):
 def test_k8s_clusters(repo):
     store = repo.sync
     store.create_k8s_cluster("k", "lan", "k-server", '["k-worker-1"]', 2, 2048, 20, "task", "alice", "t0")
-    store.update_k8s_cluster("k", {"statut": "pret", "kubeconfig": "sealed"})
+    store.update_k8s_cluster("k", {"statut": "ready", "kubeconfig": "sealed"})
     with pytest.raises(ValueError):
         store.update_k8s_cluster("k", {"nom": "x"})
-    assert run(repo.k8s_clusters())[0]["statut"] == "pret"
-    store.update_k8s_cluster("k", {"statut": "creation"})
+    assert run(repo.k8s_clusters())[0]["statut"] == "ready"
+    store.update_k8s_cluster("k", {"statut": "creating"})
     store.fail_interrupted_k8s_clusters("Interrupted")
-    assert (store.k8s_cluster("k")["statut"], store.k8s_cluster("k")["erreur"]) == ("echec", "Interrupted")
+    assert (store.k8s_cluster("k")["statut"], store.k8s_cluster("k")["erreur"]) == ("failed", "Interrupted")
     store.delete_k8s_cluster("k")
     assert store.k8s_clusters() == []
 
@@ -78,6 +78,6 @@ def test_update_check_settings_and_config_copies(repo):
     store.set_app_setting("k", "v2")
     assert store.app_setting("k") == "v2"
     store.record_config_copy("n1", "t0", "ok", 10, "abc", None)
-    store.record_config_copy("n1", "t1", "echec", None, None, "ssh")
+    store.record_config_copy("n1", "t1", "failed", None, None, "ssh")
     copy = store.config_copies()[0]
-    assert (copy["statut"], copy["taille"], copy["empreinte"], copy["erreur"]) == ("echec", 10, "abc", "ssh")
+    assert (copy["statut"], copy["taille"], copy["empreinte"], copy["erreur"]) == ("failed", 10, "abc", "ssh")

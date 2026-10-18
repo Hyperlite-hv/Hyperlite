@@ -42,7 +42,7 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
     task_id = create_task("upload_vm_disk", filename, username=user["username"])
 
     if not filename.lower().endswith(ALLOWED_EXTENSIONS):
-        finish_task(task_id, "echec", "Extension non reconnue")
+        finish_task(task_id, "failed", "Extension non reconnue")
         raise HTTPException(
             status_code=422, detail=f"Unrecognized extension (expected: {', '.join(ALLOWED_EXTENSIONS)})"
         )
@@ -56,13 +56,13 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
             await file.close()
     except OSError as e:
         # Safety net: without it, a failing write (disk full, permissions...) would
-        # leave the task stuck in "en_cours" forever (same trap as in isos.py).
+        # leave the task stuck in "running" forever (same trap as in isos.py).
         msg = describe_exception(e)
-        finish_task(task_id, "echec", msg)
+        finish_task(task_id, "failed", msg)
         raise HTTPException(status_code=500, detail=f"Failed to write the disk: {msg}") from e
 
-    finish_task(task_id, "termine")
-    log_action(user["username"], "upload_vm_disk", filename, "succes")
+    finish_task(task_id, "succeeded")
+    log_action(user["username"], "upload_vm_disk", filename, "success")
     return {"nom": filename, "taille_mo": round(dest.stat().st_size / (1024 * 1024), 1)}
 
 
@@ -73,5 +73,5 @@ def delete_vm_disk(filename: str, user: dict = Depends(require_role("admin"))):
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Disk '{filename}' not found")
     path.unlink()
-    log_action(user["username"], "delete_vm_disk", filename, "succes")
+    log_action(user["username"], "delete_vm_disk", filename, "success")
     return {"nom": filename, "supprime": True}

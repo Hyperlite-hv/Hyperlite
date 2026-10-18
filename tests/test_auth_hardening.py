@@ -127,7 +127,7 @@ def test_the_sso_handoff_is_single_use_and_short_lived(database, monkeypatch):
 
 
 def test_the_exchange_gives_a_session_or_asks_for_the_second_factor(client, make_user, database):
-    make_user("gia", "observateur", PASSWORD)
+    make_user("gia", "viewer", PASSWORD)
     client.cookies.set("hl_sso_handoff", sso.create_handoff("gia"), path="/auth/sso")
     r = client.post("/auth/sso/exchange")
     assert r.status_code == 200 and r.json()["access_token"] and r.json()["username"] == "gia"
@@ -142,10 +142,10 @@ def test_the_exchange_gives_a_session_or_asks_for_the_second_factor(client, make
 
 
 def test_an_sso_account_is_bound_to_its_subject(database):
-    first = sso.provision_user("hal", "observateur", subject="sub-1")
+    first = sso.provision_user("hal", "viewer", subject="sub-1")
     assert first["sso_subject"] == "sub-1"
     with pytest.raises(sso.SubjectConflict):
-        sso.provision_user("hal", "observateur", subject="sub-2")  # another identity claiming the same name
+        sso.provision_user("hal", "viewer", subject="sub-2")  # another identity claiming the same name
     renamed = sso.provision_user("hal-renamed", "admin", subject="sub-1")  # the IdP renamed the user
     assert renamed["username"] == "hal" and renamed["role"] == "admin"
 

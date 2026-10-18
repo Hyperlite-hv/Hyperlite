@@ -44,7 +44,7 @@ def test_an_administrator_chooses_the_directory(started, client, auth_headers):
 
 
 def test_a_vm_manager_backs_up_to_the_default_directory_only(started, client, auth_headers):
-    bob = auth_headers("bob", role="observateur")
+    bob = auth_headers("bob", role="viewer")
     assert client.post("/vms/web/backups", json={}, headers=bob).status_code == 202
     assert (
         client.post("/vms/web/backups", json={"target_dir": str(backups.DEFAULT_BACKUP_DIR)}, headers=bob).status_code
@@ -56,8 +56,8 @@ def test_a_vm_manager_backs_up_to_the_default_directory_only(started, client, au
 
 
 def test_a_vm_manager_edits_a_schedule_without_moving_its_directory(started, client, auth_headers):
-    admin, bob = auth_headers("admin"), auth_headers("bob", role="observateur")
-    body = {"frequence": "quotidien", "heure": "02:00", "cible_dir": "/srv/backups"}
+    admin, bob = auth_headers("admin"), auth_headers("bob", role="viewer")
+    body = {"frequence": "daily", "heure": "02:00", "cible_dir": "/srv/backups"}
     assert client.put("/vms/web/backup-schedule", json=body, headers=admin).status_code == 200
     # The directory set by the administrator, sent back unchanged with a new time: accepted.
     assert client.put("/vms/web/backup-schedule", json={**body, "heure": "03:00"}, headers=bob).status_code == 200
@@ -68,7 +68,7 @@ def test_a_vm_manager_edits_a_schedule_without_moving_its_directory(started, cli
 
 def test_a_schedule_is_for_a_vm_of_this_node(started, client, auth_headers):
     """A schedule for a name that is no VM here (a typo) was accepted, and failed every night."""
-    body = {"frequence": "quotidien", "heure": "02:00"}
+    body = {"frequence": "daily", "heure": "02:00"}
     admin = auth_headers("admin")
     assert client.put("/vms/nope/backup-schedule", json=body, headers=admin).status_code == 404
     assert client.get("/backup-schedules", headers=admin).json() == []

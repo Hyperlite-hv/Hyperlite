@@ -104,7 +104,7 @@ export default function Sidebar({ collapsed }) {
   // On narrow screens the sidebar is a drawer: close it once a page is chosen.
   const goto = (dcTab) => { navigateTo("datacenter", null, dcTab); window.dispatchEvent(new Event("nx:navigated")); };
 
-  const problems = vms.filter((v) => ["plante", "bloque", "inconnu"].includes(v.etat)).length;
+  const problems = vms.filter((v) => ["plante", "bloque", "unknown"].includes(v.etat)).length;
 
   return (
     <nav className={`nx-sidebar${collapsed ? " collapsed" : ""}`} aria-label={t("nav.main")}>

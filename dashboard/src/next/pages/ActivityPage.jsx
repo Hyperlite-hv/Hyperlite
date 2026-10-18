@@ -14,9 +14,9 @@ import { Download, ListChecks, Search } from "lucide-react";
 
 const SINCE = { all: null, "1h": 3600, "24h": 86400, "7d": 604800 };
 const STUCK_S = 900; // a task "running" for more than 15 minutes is flagged (no cleanup after a crash)
-const RUNNING = ["en_cours", "en_attente"];
+const RUNNING = ["running", "pending"];
 // The status tabs filter the loaded tasks in the page, so that their counts stay right whichever tab is open.
-const VIEWS = { all: () => true, running: (r) => RUNNING.includes(r.statut), failed: (r) => r.statut === "echec" };
+const VIEWS = { all: () => true, running: (r) => RUNNING.includes(r.statut), failed: (r) => r.statut === "failed" };
 
 function duration(start, end, now) {
   if (!start) return "—";
@@ -28,7 +28,7 @@ function duration(start, end, now) {
 
 // Which task the journal shows when nothing was picked: the first running one, else the last failure, else the latest.
 function defaultTask(rows) {
-  return rows.find((r) => RUNNING.includes(r.statut)) || rows.find((r) => r.statut === "echec") || rows[0] || null;
+  return rows.find((r) => RUNNING.includes(r.statut)) || rows.find((r) => r.statut === "failed") || rows[0] || null;
 }
 
 // Tasks: every persisted task with the filters the API supports (type, target, node, user, period), status tabs,
@@ -100,7 +100,7 @@ export default function ActivityPage({ selection, embedded = false }) {
   // Every matching task, from the server: the page itself only holds the 200 most recent.
   const download = async () => {
     setExporting(true);
-    try { await downloadTasksCsv({ ...filters(), statut: view === "failed" ? "echec" : view === "running" ? "en_cours" : "" }); }
+    try { await downloadTasksCsv({ ...filters(), statut: view === "failed" ? "failed" : view === "running" ? "running" : "" }); }
     catch (e) { pushToast({ kind: "error", title: t("act.exportFailed"), message: errorMessage(e) }); }
     finally { setExporting(false); }
   };
@@ -125,7 +125,7 @@ export default function ActivityPage({ selection, embedded = false }) {
           <thead><tr><th scope="col">{t("act.task")}</th><th scope="col">{t("act.target")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("task.status")}</th><th scope="col">{t("act.started")}</th><th scope="col">{t("act.duration")}</th></tr></thead>
           <tbody>
             {shown.map((r) => {
-              const stuck = r.statut === "en_cours" && (now - new Date(r.debut_le || r.cree_le).getTime()) / 1000 > STUCK_S;
+              const stuck = r.statut === "running" && (now - new Date(r.debut_le || r.cree_le).getTime()) / 1000 > STUCK_S;
               const isVm = vms.some((v) => v.nom === r.cible);
               const selected = current?.id === r.id;
               const pct = Math.max(0, Math.min(100, Number(r.progres) || 0));
@@ -137,7 +137,7 @@ export default function ActivityPage({ selection, embedded = false }) {
                   <td>
                     <span className="nx-tasks-state">
                       <StatePill kind="task" wire={r.statut} />
-                      {r.statut === "en_cours" && pct > 0 && pct < 100 && (
+                      {r.statut === "running" && pct > 0 && pct < 100 && (
                         <span className="nx-tasks-bar" role="progressbar" aria-label={t("act.progress")} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct}%` }} /></span>
                       )}
                     </span>

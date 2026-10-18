@@ -17,7 +17,7 @@ test.describe.configure({ mode: "serial", timeout: 120_000 });
 test.beforeAll(async ({ request }) => {
   admin = await apiLogin(request);
   for (const username of [RESET_USER, SELF_USER, FORCED_USER]) {
-    const made = await request.post("/auth/users", { headers: auth(), data: { username, password: INITIAL, role: "observateur" } });
+    const made = await request.post("/auth/users", { headers: auth(), data: { username, password: INITIAL, role: "viewer" } });
     expect(made.status(), `create ${username}`).toBe(201);
   }
 });

@@ -322,7 +322,7 @@ def test_labels_are_renamed_unique_and_for_administrators(client, auth_headers, 
     assert client.patch(f"/acl/custom-roles/{role}", json={"name": "readers"}, headers=admin).status_code == 200
     assert client.patch(f"/jobs/{job}", json={"name": "every night"}, headers=admin).status_code == 200
     assert client.patch("/pools/999", json={"name": "x"}, headers=admin).status_code == 404
-    viewer = auth_headers("olga", role="observateur")
+    viewer = auth_headers("olga", role="viewer")
     assert client.patch(f"/groups/{group}", json={"name": "x"}, headers=viewer).status_code == 403
     with database.get_conn() as db:
         names = [

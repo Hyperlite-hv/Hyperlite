@@ -48,7 +48,7 @@ def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_p
 def _clone_vm(name, payload, user):
     # Real bugs fixed in the cloning logic after an audit:
     # 1. SECURITY: there was no permission check (just get_current_user), so any
-    #    account, even an "observateur" (read-only everywhere else), could clone and
+    #    account, even an "viewer" (read-only everywhere else), could clone and
     #    create a new VM. It is now gated by a dedicated ACL privilege ("vm.clone",
     #    see permissions.py), granted by default to no predefined role: an admin must
     #    add it explicitly to a custom role to delegate cloning.
@@ -77,35 +77,35 @@ def _clone_vm(name, payload, user):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "clone_vm", name, "echec", "Source VM not found", task_id=task_id)
+            log_action(user["username"], "clone_vm", name, "failed", "Source VM not found", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         iscsi.refuse_if_iscsi(domain, "Cloning")
 
         name_error = validate_name(payload.new_name)
         if name_error:
             log_action(
-                user["username"], "clone_vm", name, "echec", f"invalid name: {payload.new_name}", task_id=task_id
+                user["username"], "clone_vm", name, "failed", f"invalid name: {payload.new_name}", task_id=task_id
             )
             raise HTTPException(status_code=422, detail=name_error)
 
         try:
             conn.lookupByName(payload.new_name)
             log_action(
-                user["username"], "clone_vm", name, "echec", f"'{payload.new_name}' already exists", task_id=task_id
+                user["username"], "clone_vm", name, "failed", f"'{payload.new_name}' already exists", task_id=task_id
             )
             raise HTTPException(status_code=409, detail=f"A VM '{payload.new_name}' already exists")
         except libvirt.libvirtError:
             logger.debug("Ignored exception in clone_vm()", exc_info=True)
 
         if domain.isActive():
-            log_action(user["username"], "clone_vm", name, "echec", "VM active", task_id=task_id)
+            log_action(user["username"], "clone_vm", name, "failed", "VM active", task_id=task_id)
             raise HTTPException(status_code=409, detail="Stop the VM before cloning it")
 
         root = ET.fromstring(domain.XMLDesc(0))
 
         disk_els = [d for d in root.findall(".//devices/disk") if d.get("device") == "disk"]
         if not disk_els:
-            log_action(user["username"], "clone_vm", name, "echec", "source disk not found", task_id=task_id)
+            log_action(user["username"], "clone_vm", name, "failed", "source disk not found", task_id=task_id)
             raise HTTPException(status_code=500, detail="Source disk not found")
 
         # Every copy lands in the images directory, on the system disk by default: refused before the first byte when
@@ -114,7 +114,7 @@ def _clone_vm(name, payload, user):
         try:
             disk_space.ensure_room(IMAGES_DIR, sum(disk_space.allocated_bytes(p) for p in sources if p), "this clone")
         except disk_space.NotEnoughSpace as e:
-            log_action(user["username"], "clone_vm", name, "echec", str(e), task_id=task_id)
+            log_action(user["username"], "clone_vm", name, "failed", str(e), task_id=task_id)
             raise HTTPException(status_code=409, detail=str(e)) from None
 
         # Clone ALL the disks (not only the first one, see the note above).
@@ -124,7 +124,7 @@ def _clone_vm(name, payload, user):
             if not source_path:
                 for p in new_disk_paths:
                     Path(p).unlink(missing_ok=True)
-                log_action(user["username"], "clone_vm", name, "echec", "source disk path not found", task_id=task_id)
+                log_action(user["username"], "clone_vm", name, "failed", "source disk path not found", task_id=task_id)
                 raise HTTPException(status_code=500, detail="Source disk path not found")
 
             suffix = "" if i == 0 else f"-{i + 1}"
@@ -136,7 +136,7 @@ def _clone_vm(name, payload, user):
                     user["username"],
                     "clone_vm",
                     name,
-                    "echec",
+                    "failed",
                     f"'{new_disk_path.name}' already exists",
                     task_id=task_id,
                 )
@@ -154,7 +154,7 @@ def _clone_vm(name, payload, user):
                 for p in [*new_disk_paths, new_disk_path]:
                     Path(p).unlink(missing_ok=True)
                 msg = f"disk copy: {exc.stderr or exc}"
-                log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
+                log_action(user["username"], "clone_vm", name, "failed", msg, task_id=task_id)
                 raise HTTPException(status_code=500, detail="Disk copy failed") from exc
 
             new_disk_paths.append(str(new_disk_path))
@@ -223,14 +223,14 @@ def _clone_vm(name, payload, user):
         except libvirt.libvirtError as exc:
             _undo(conn, new_disk_paths, reseed_iso, new_ip_reservations)
             msg = describe_exception(exc)
-            log_action(user["username"], "clone_vm", name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "clone_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Clone definition failed: {msg}") from exc
         defined = True  # from here its disks are the clone's
 
         refresh_pools_for_paths(conn, [*new_disk_paths, reseed_iso])
         rename_vm_ssh_user(name, payload.new_name)
         rename_vm_os_label(name, payload.new_name)
-        log_action(user["username"], "clone_vm", name, "succes", f"clone -> {payload.new_name}", task_id=task_id)
+        log_action(user["username"], "clone_vm", name, "success", f"clone -> {payload.new_name}", task_id=task_id)
         return {
             "source": name,
             "clone": new_domain.name(),
@@ -242,7 +242,7 @@ def _clone_vm(name, payload, user):
     except Exception as exc:  # never a running task, nor copied disks left behind
         if not defined:
             _undo(conn, new_disk_paths, reseed_iso, new_ip_reservations)
-        log_action(user["username"], "clone_vm", name, "echec", describe_exception(exc), task_id=task_id)
+        log_action(user["username"], "clone_vm", name, "failed", describe_exception(exc), task_id=task_id)
         raise
     finally:
         conn.close()

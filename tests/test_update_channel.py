@@ -48,7 +48,7 @@ def test_the_api(source, client, auth_headers):
     r = client.put("/update/channel", json={"canal": "test"}, headers=admin)
     assert r.status_code == 200 and r.json()["canal"] == "test"
     assert client.put("/update/channel", json={"canal": "nightly"}, headers=admin).status_code == 422
-    eve = auth_headers("eve", role="observateur")
+    eve = auth_headers("eve", role="viewer")
     assert client.put("/update/channel", json={"canal": "stable"}, headers=eve).status_code == 403
     assert host_system.channel() == "test"
 

@@ -53,11 +53,11 @@ def restore(database, tmp_path, monkeypatch):
     (backup / "manifest.json").write_text(json.dumps({"fichiers": [{"nom": "sda.qcow2", "role": "disque"}]}))
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (1, 'web', ?, 'termine', '2026-01-01', 'froid')",
+            "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (1, 'web', ?, 'succeeded', '2026-01-01', 'cold')",
             (str(backup),),
         )
         conn.execute(
-            "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (2, 'web', ?, 'echec', '2026-01-01', 'froid')",
+            "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (2, 'web', ?, 'failed', '2026-01-01', 'cold')",
             (str(backup),),
         )
         conn.commit()
@@ -89,7 +89,7 @@ def test_browse_and_download_through_the_api(client, auth_headers, restore):
 
     assert (
         client.get(
-            f"/file-restore/{sid}/ls", params={"device": "/dev/sda1"}, headers=auth_headers("watcher", "observateur")
+            f"/file-restore/{sid}/ls", params={"device": "/dev/sda1"}, headers=auth_headers("watcher", "viewer")
         ).status_code
         == 403
     )

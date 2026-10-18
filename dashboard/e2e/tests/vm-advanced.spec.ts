@@ -97,7 +97,7 @@ test.describe("Advanced VM operations (real backend)", () => {
     await uiLogin(page);
     await selectVm(page, SRC, "backup");
     await page.getByRole("main").getByRole("button", { name: /Back up now/ }).click();
-    await expect.poll(async () => ((await (await request.get(`/vms/${SRC}/backups`, { headers: auth() })).json()) as Array<{ statut: string }>).map((b) => b.statut), { timeout: 180_000 }).toContain("termine");
+    await expect.poll(async () => ((await (await request.get(`/vms/${SRC}/backups`, { headers: auth() })).json()) as Array<{ statut: string }>).map((b) => b.statut), { timeout: 180_000 }).toContain("succeeded");
     await page.reload();
     await page.getByRole("main").getByRole("button", { name: /to a new VM$/ }).first().click();
     const restoreDialog = page.getByRole("dialog", { name: /Restore backup/ });

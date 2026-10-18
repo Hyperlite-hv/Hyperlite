@@ -19,7 +19,7 @@ test("backup jobs: a tag's VMs on one schedule with GFS retention", async ({ pag
   await main.getByRole("button", { name: "Add a backup job" }).click();
   const drawer = page.getByRole("dialog", { name: "Add a backup job" });
   await drawer.getByLabel("Name").fill(NAME);
-  await drawer.getByLabel("VMs", { exact: true }).selectOption("etiquette");
+  await drawer.getByLabel("VMs", { exact: true }).selectOption("tag");
   await drawer.getByLabel("Tag").selectOption("e2e-prod");
   await drawer.getByRole("checkbox", { name: "e2e-bg-db" }).check();
   await drawer.getByLabel("Time", { exact: true }).fill("03:15");
@@ -46,7 +46,7 @@ test("backup jobs: a tag's VMs on one schedule with GFS retention", async ({ pag
   const token = await apiLogin(request);
   const jobs = await (await request.get("/backup-groups", { headers: { Authorization: `Bearer ${token}` } })).json();
   const job = jobs.find((j: { nom: string }) => j.nom === NAME);
-  expect(job).toMatchObject({ selection: "etiquette", valeur: "e2e-prod", exclues: ["e2e-bg-db"], retention_count: 7, garder_jours: null, garder_semaines: 4, garder_mois: 6 });
+  expect(job).toMatchObject({ selection: "tag", valeur: "e2e-prod", exclues: ["e2e-bg-db"], retention_count: 7, garder_jours: null, garder_semaines: 4, garder_mois: 6 });
 
   await row.getByRole("button", { name: `Delete ${NAME}` }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();

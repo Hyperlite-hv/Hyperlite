@@ -147,7 +147,7 @@ export const useInfraStore = create((set, get) => ({
   addTask(task) {
     const full = {
       id: task.id ?? makeTaskId(),
-      statut: "en_cours",
+      statut: "running",
       progres: 0,
       debut: Date.now(),
       fin: null,
@@ -160,7 +160,7 @@ export const useInfraStore = create((set, get) => ({
   updateTaskProgress(id, progres) {
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, progres } : t)) }));
   },
-  completeTask(id, statut = "termine", erreur = null) {
+  completeTask(id, statut = "succeeded", erreur = null) {
     set((s) => ({
       tasks: s.tasks.map((t) => (t.id === id ? { ...t, statut, progres: 100, fin: Date.now(), erreur } : t)),
     }));
@@ -168,9 +168,9 @@ export const useInfraStore = create((set, get) => ({
     if (task) {
       const label = TASK_LABELS[task.type] || task.type;
       get().pushToast({
-        kind: statut === "termine" ? "success" : "error",
-        title: statut === "termine" ? `${label} finished` : `${label} failed`,
-        message: statut === "termine" ? task.cible : (erreur || "An error occurred"),
+        kind: statut === "succeeded" ? "success" : "error",
+        title: statut === "succeeded" ? `${label} finished` : `${label} failed`,
+        message: statut === "succeeded" ? task.cible : (erreur || "An error occurred"),
       });
     }
   },
@@ -196,7 +196,7 @@ export const useInfraStore = create((set, get) => ({
     try {
       // These endpoints answer in a single synchronous HTTP request (no real
       // intermediate percentage on the backend side): the task therefore goes straight
-      // from "en_cours" to "termine" once the response is received, rather than
+      // from "running" to "succeeded" once the response is received, rather than
       // simulating a fake progress.
       //
       // "stop" (a clean shutdown/ACPI, domain.shutdown() on the backend) is only a
@@ -220,7 +220,7 @@ export const useInfraStore = create((set, get) => ({
         vms: s.vms.map((v) => (isThis(v) ? { ...v, etat: result.etat, ip: result.ip } : v))
           .filter((v) => !(action === "delete" && isThis(v))),
       }));
-      get().completeTask(taskId, "termine");
+      get().completeTask(taskId, "succeeded");
 
       // Clean shutdown still in progress (the VM is still running right after the
       // request): a single deferred recheck is enough to refresh the display without
@@ -237,7 +237,7 @@ export const useInfraStore = create((set, get) => ({
 
       return taskId;
     } catch (e) {
-      get().completeTask(taskId, "echec", e.message);
+      get().completeTask(taskId, "failed", e.message);
       throw e;
     }
   },
@@ -256,9 +256,9 @@ export const useInfraStore = create((set, get) => ({
         mutations: s.mutations + 1,
         vms: s.vms.map((v) => (sameVm(v, vm) ? { ...v, vcpu: updated.vcpu, memoire_mo: updated.memoire_mo } : v)),
       }));
-      get().completeTask(taskId, "termine");
+      get().completeTask(taskId, "succeeded");
     } catch (e) {
-      get().completeTask(taskId, "echec", e.message);
+      get().completeTask(taskId, "failed", e.message);
       throw e;
     }
   },

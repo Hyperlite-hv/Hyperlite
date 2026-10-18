@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from app.domain.common import AlreadyExists
 from app.repositories import registry
 
-STEP_TYPES = ("vm", "host", "chaque_cible")
+STEP_TYPES = ("vm", "host", "each_target")
 
 
 class JobNotFound(LookupError):

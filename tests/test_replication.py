@@ -11,7 +11,7 @@ from app.core import backup_integrity, replication
 
 
 def job_payload(**over):
-    return {"nom": "to site B", "selection": "toutes", "cible_dir": "/mnt/site-b", "intervalle_minutes": 15, **over}
+    return {"nom": "to site B", "selection": "all", "cible_dir": "/mnt/site-b", "intervalle_minutes": 15, **over}
 
 
 @pytest.fixture()
@@ -40,7 +40,7 @@ def test_invalid_jobs_are_refused(database, vms, over, text):
 
 def test_a_job_lists_its_vms_and_names_are_unique(database, vms):
     job = replication.save_job(job_payload(exclues=["db"]))
-    assert job["vms"] == ["web"] and job["intervalle_minutes"] == 15 and job["en_cours"] is False
+    assert job["vms"] == ["web"] and job["intervalle_minutes"] == 15 and job["running"] is False
     with pytest.raises(replication.ReplicationError, match="already named"):
         replication.save_job(job_payload())
     assert replication.save_job(job_payload(nom="other"), job_id=9999) is None
@@ -98,7 +98,7 @@ def point(root, vm, stamp, kind, chain, parent=None, extra=None):
             "sha256": backup_integrity.sha256_of(d / "vda.qcow2"),
         }
     ]
-    manifest = {"version": 1, "vm": vm, "mode": "chaud", "fichiers": files}
+    manifest = {"version": 1, "vm": vm, "mode": "live", "fichiers": files}
     if kind:
         manifest["replication"] = {"type": kind, "chaine": chain, "parent": parent}
     manifest.update(extra or {})
@@ -168,7 +168,7 @@ def test_the_api_is_for_administrators(client, auth_headers, vms, monkeypatch):
     )
     assert client.post(f"/replication/jobs/{job_id}/run", headers=admin).status_code == 202 and started == [job_id]
     assert client.get("/replication/status", headers=admin).status_code == 200
-    watcher = auth_headers("watcher", role="observateur")
+    watcher = auth_headers("watcher", role="viewer")
     assert client.get("/replication/jobs", headers=watcher).status_code == 403
     assert client.get("/replication/status", headers=watcher).status_code == 403
     # The calls stay out of the asserts, so that they still run under `python -O`.

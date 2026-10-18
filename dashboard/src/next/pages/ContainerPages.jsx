@@ -178,7 +178,7 @@ export function ContainerConsolePage({ resource: ct }) {
   );
 }
 
-const backupWire = (s) => (s === "termine" ? "termine" : s === "echec" ? "echec" : "en_cours");
+const backupWire = (s) => (s === "succeeded" ? "succeeded" : s === "failed" ? "failed" : "running");
 
 // This container's backups: create (stopped container), restore to a new container, delete.
 export function ContainerBackupsPage({ resource: ct }) {
@@ -227,7 +227,7 @@ export function ContainerBackupsPage({ resource: ct }) {
                   <th scope="row" style={{ fontWeight: 400 }}>{new Date(b.cree_le).toLocaleString(lang)}</th>
                   <td className="nx-num nx-mono">{b.taille_octets ? formatSizeMb(b.taille_octets / 1048576, lang) : "—"}</td>
                   <td><div className="nx-ra">
-                    {b.statut === "termine" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
+                    {b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
                     <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={del} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>
                   </div></td>
                 </tr>

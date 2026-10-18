@@ -195,8 +195,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
       return;
     }
     const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
-    try { await createVM(payload); completeTask(taskId, "termine"); await loadAll(); onClose(); reset(); }
-    catch (e) { completeTask(taskId, "echec", errorMessage(e)); setError(errorMessage(e)); }
+    try { await createVM(payload); completeTask(taskId, "succeeded"); await loadAll(); onClose(); reset(); }
+    catch (e) { completeTask(taskId, "failed", errorMessage(e)); setError(errorMessage(e)); }
     finally { setBusy(false); }
   }
 

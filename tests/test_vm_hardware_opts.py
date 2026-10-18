@@ -169,6 +169,6 @@ def test_the_api_applies_under_the_vm_lock_with_the_right_privileges(client, aut
     assert client.put("/vms/ghost/boot-order", json={"ordre": ["sda"]}, headers=admin).status_code == 404
     with vm_locks.claim("web", "a backup"):
         assert client.put("/vms/web/balloon", json={"actif": False}, headers=admin).status_code == 409
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.get("/vms/web/hardware-options", headers=viewer).status_code == 200
     assert client.put("/vms/web/machine", json={"machine": "pc-q35-9.0"}, headers=viewer).status_code == 403

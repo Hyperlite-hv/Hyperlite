@@ -104,14 +104,14 @@ def test_a_renamed_vm_keeps_its_settings_and_history(database):
             "VALUES ('web', 'local', '<domain><name>web</name></domain>', 'admin', 'now')"
         )
         db.execute(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('web', '/b/web.qcow2', 'froid', 'x', 'termine')"
+            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('web', '/b/web.qcow2', 'cold', 'x', 'succeeded')"
         )
         db.execute(
             "INSERT INTO metrics_samples (ts, tier, scope, cible) VALUES ('t', 'raw', 'vm', 'web'), ('t', 'raw', 'vm', 'webx')"
         )
         db.execute(
             "INSERT INTO backup_group_jobs (nom, selection, exclues, frequence, heure, cible_dir, prochaine_execution) "
-            "VALUES ('all', 'toutes', '[\"web\", \"db\"]', 'quotidien', '01:00', '/b', 'x')"
+            "VALUES ('all', 'all', '[\"web\", \"db\"]', 'daily', '01:00', '/b', 'x')"
         )
         db.commit()
     set_vm_ssh_user("web", "nico")
@@ -303,7 +303,7 @@ def test_a_vm_is_renamed_only_when_stopped_and_without_snapshots(client, auth_he
 
 def test_renaming_a_vm_is_for_administrators(client, auth_headers, vm_routes):
     vm_routes(_Conn(_Domain("web")))
-    r = client.post("/vms/web/rename", json={"new_name": "shop"}, headers=auth_headers("olga", role="observateur"))
+    r = client.post("/vms/web/rename", json={"new_name": "shop"}, headers=auth_headers("olga", role="viewer"))
     assert r.status_code == 403
 
 
@@ -311,7 +311,7 @@ def test_a_kubernetes_vm_keeps_its_name(client, auth_headers, vm_routes, databas
     with database.get_conn() as db:
         db.execute(
             "INSERT INTO k8s_clusters (nom, reseau, serveur, workers, vcpu, memoire_mo, disque_go, statut, cree_le) "
-            "VALUES ('k', 'default', 'k-server', '[\"k-worker-1\"]', 2, 2048, 20, 'pret', 'now')"
+            "VALUES ('k', 'default', 'k-server', '[\"k-worker-1\"]', 2, 2048, 20, 'ready', 'now')"
         )
         db.commit()
     vm_routes(_Conn(_Domain("k-worker-1")))
@@ -448,7 +448,7 @@ def test_the_container_shell_is_for_administrators(client, auth_headers, monkeyp
     from app.routers import containers
 
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(_Domain("web", active=True)))
-    r = client.post("/containers/web/shell-ticket", headers=auth_headers("olga", role="observateur"))
+    r = client.post("/containers/web/shell-ticket", headers=auth_headers("olga", role="viewer"))
     assert r.status_code == 403
 
 

@@ -254,13 +254,13 @@ def start_copy(name, source_id, target_ids, username, after=None):
             ok = False
             try:
                 _copy(name, source, node, task_id, total)
-                finish_task(task_id, "termine")
-                log_action(username, "copy_iso", f"{name} {source_key} -> {key}", "succes", task_id=task_id)
+                finish_task(task_id, "succeeded")
+                log_action(username, "copy_iso", f"{name} {source_key} -> {key}", "success", task_id=task_id)
                 ok = True
             except Exception as e:
                 msg = describe_exception(e)
-                finish_task(task_id, "echec", msg)
-                log_action(username, "copy_iso", f"{name} {source_key} -> {key}", "echec", msg, task_id=task_id)
+                finish_task(task_id, "failed", msg)
+                log_action(username, "copy_iso", f"{name} {source_key} -> {key}", "failed", msg, task_id=task_id)
             finally:
                 with _active_lock:
                     _active.discard((name, key))

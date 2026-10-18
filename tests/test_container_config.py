@@ -112,7 +112,7 @@ def test_bad_changes_are_refused(client, auth_headers, lxc):
     assert client.patch("/containers/web", json={"dns": []}, headers=admin).status_code == 422
     assert client.patch("/containers/web", json={}, headers=admin).status_code == 422
     assert client.patch("/containers/ghost", json={"vcpu": 1}, headers=admin).status_code == 404
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.patch("/containers/web", json={"vcpu": 2}, headers=viewer).status_code == 403
 
 
@@ -131,7 +131,7 @@ def test_a_resolver_link_is_replaced_by_a_file_never_followed(client, auth_heade
 
 def test_an_objects_history_matches_its_exact_name_and_kind(client, auth_headers, database):
     for type_, cible in (("start_vm", "web"), ("start_vm", "web-02"), ("backup_container", "web"), ("clone_vm", "db")):
-        tasks.finish_task(tasks.create_task(type_, cible), "termine")
+        tasks.finish_task(tasks.create_task(type_, cible), "succeeded")
     admin = auth_headers("admin")
     vm = client.get("/tasks?objet=web&famille=vm", headers=admin).json()
     assert [(t["type"], t["cible"]) for t in vm] == [("start_vm", "web")]

@@ -68,7 +68,7 @@ test("the HA page runs as a dry run, saves the witness, and fencing is only ever
 
 test("a protected VM on a failed node shows what automatic HA would have done", async ({ page }) => {
   await page.route(/\/ha(\?.*)?$/, (route) => (route.request().resourceType() === "document" ? route.fallback() : json(route, [{
-    vm_name: "e2e-ha-db", node: "local", statut_noeud: "en_ligne", last_synced_at: new Date().toISOString(), etat_ha: "en_panne",
+    vm_name: "e2e-ha-db", node: "local", statut_noeud: "online", last_synced_at: new Date().toISOString(), etat_ha: "en_panne",
     derniere_action: "Manual recovery: Two nodes and no witness", derniere_action_le: new Date().toISOString(),
   }])));
   await open(page, "fr");

@@ -95,9 +95,9 @@ def _pool_on_path(node, path):
 def _pool_type(pool):
     try:
         root = ET.fromstring(pool.XMLDesc(0))
-        return root.get("type", "inconnu")
+        return root.get("type", "unknown")
     except (libvirt.libvirtError, ET.ParseError):
-        return "inconnu"
+        return "unknown"
 
 
 def _pool_path(pool):
@@ -143,7 +143,7 @@ def _pool_summary(pool):
         "nom": pool.name(),
         "uuid": pool.UUIDString(),
         "type": _pool_type(pool),
-        "etat": POOL_STATE_NAMES.get(state, "inconnu"),
+        "etat": POOL_STATE_NAMES.get(state, "unknown"),
         "autostart": bool(pool.autostart()),
         "capacite_go": round(capacity / (1024**3), 2),
         "allocation_go": round(allocation / (1024**3), 2),
@@ -179,7 +179,7 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
         for p in result:
             p["noeud"] = node or "local"
             p.setdefault("chemin", None)
-        log_action(user["username"], "list_storage_pools", "storage", "succes")
+        log_action(user["username"], "list_storage_pools", "storage", "success")
         return result
     finally:
         conn.close()
@@ -309,7 +309,7 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
 def _create_single(payload, node, user):
     name_error = validate_name(payload.name, "storage pool")
     if name_error:
-        log_action(user["username"], "create_storage_pool", payload.name, "echec", name_error)
+        log_action(user["username"], "create_storage_pool", payload.name, "failed", name_error)
         raise HTTPException(status_code=422, detail=name_error)
 
     if payload.type == "zfs":
@@ -325,14 +325,14 @@ def _create_single(payload, node, user):
             raise HTTPException(status_code=422, detail=size_errors)
         if not zfs_storage.load_module():
             reason = zfs_storage.STATUS_MESSAGES[zfs_storage.status()]
-            log_action(user["username"], "create_storage_pool", payload.name, "echec", reason)
+            log_action(user["username"], "create_storage_pool", payload.name, "failed", reason)
             raise HTTPException(status_code=422, detail=reason)
         try:
             pool = zfs_storage.create_pool(payload.name, payload.size_gb)
         except zfs_storage.ZfsError as e:
-            log_action(user["username"], "create_storage_pool", payload.name, "echec", e.message)
+            log_action(user["username"], "create_storage_pool", payload.name, "failed", e.message)
             raise HTTPException(status_code=500, detail=f"ZFS pool creation error: {e.message}") from e
-        log_action(user["username"], "create_storage_pool", payload.name, "succes")
+        log_action(user["username"], "create_storage_pool", payload.name, "success")
         return pool
 
     if payload.type == "dir":
@@ -344,7 +344,7 @@ def _create_single(payload, node, user):
             )
         path_error = _dir_pool_path_error(target_path)
         if path_error:
-            log_action(user["username"], "create_storage_pool", payload.name, "echec", path_error)
+            log_action(user["username"], "create_storage_pool", payload.name, "failed", path_error)
             raise HTTPException(status_code=422, detail=path_error)
         target_path = _normalize(target_path)
         other = _pool_on_path(node, target_path)
@@ -400,7 +400,7 @@ def _create_on(payload, node, target_path, user):
     try:
         try:
             conn.storagePoolLookupByName(payload.name)
-            log_action(user["username"], "create_storage_pool", payload.name, "echec", "Pool already exists")
+            log_action(user["username"], "create_storage_pool", payload.name, "failed", "Pool already exists")
             raise HTTPException(status_code=422, detail=f"A pool '{payload.name}' already exists")
         except libvirt.libvirtError:
             pass
@@ -423,7 +423,7 @@ def _create_on(payload, node, target_path, user):
             pool.setAutostart(True)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "create_storage_pool", payload.name, "echec", msg)
+            log_action(user["username"], "create_storage_pool", payload.name, "failed", msg)
             # Best-effort cleanup if the definition succeeded but the start did not (e.g. an
             # unreachable NFS export): avoids a "ghost" pool that is defined but never usable
             # and would block a new attempt with the same name.
@@ -442,7 +442,7 @@ def _create_on(payload, node, target_path, user):
                 ) from e
             raise HTTPException(status_code=500, detail=f"Pool creation error: {msg}") from e
 
-        log_action(user["username"], "create_storage_pool", payload.name, "succes")
+        log_action(user["username"], "create_storage_pool", payload.name, "success")
         summary = _pool_summary(pool)
         if payload.type == "netfs" and not node:
             # Mounted fine is not enough: QEMU must be able to own its disk files there (root_squash).
@@ -488,9 +488,9 @@ def create_on_nodes(payload, targets, user):
                 summary = _create_single(payload, None if key == "local" else key, user)
                 entry["avertissement"] = summary.get("avertissement")
         except HTTPException as e:
-            entry.update(etat="echec", detail=e.detail if isinstance(e.detail, str) else "; ".join(map(str, e.detail)))
+            entry.update(etat="failed", detail=e.detail if isinstance(e.detail, str) else "; ".join(map(str, e.detail)))
         except libvirt.libvirtError as e:
-            entry.update(etat="echec", detail=f"Node unreachable: {describe_exception(e)}")
+            entry.update(etat="failed", detail=f"Node unreachable: {describe_exception(e)}")
         results.append(entry)
     return results
 
@@ -510,13 +510,15 @@ def _create_shared(payload, user):
     if not targets:
         raise HTTPException(status_code=422, detail="Choose at least one node")
     results = create_on_nodes(payload, targets, user)
-    done = [r["noeud"] for r in results if r["etat"] != "echec"]
+    done = [r["noeud"] for r in results if r["etat"] != "failed"]
     if not done:
         details = "; ".join(f"{r['noeud']}: {r['detail']}" for r in results)
         raise HTTPException(status_code=502, detail=f"The pool could not be created on any node. {details}")
     shared_pools.save(payload.model_dump(), payload.tous_les_noeuds, done, user["username"])
     scope = "every node" if payload.tous_les_noeuds else ", ".join(targets)
-    log_action(user["username"], "create_shared_pool", payload.name, "succes", f"{scope}: created on {', '.join(done)}")
+    log_action(
+        user["username"], "create_shared_pool", payload.name, "success", f"{scope}: created on {', '.join(done)}"
+    )
     return {"nom": payload.name, "partage": True, "tous_les_noeuds": payload.tous_les_noeuds, "resultats": results}
 
 
@@ -526,7 +528,7 @@ def apply_shared_pools(node_name, username):
     for entry in shared_pools.for_every_node():
         payload = PoolCreate(**entry["definition"])
         result = create_on_nodes(payload, [node_name], {"username": username})[0]
-        if result["etat"] != "echec":
+        if result["etat"] != "failed":
             shared_pools.add_node(entry["nom"], node_name)
         out.append({"nom": entry["nom"], **result})
     return out
@@ -602,7 +604,7 @@ def check_pool_permissions(pool_name: str, user: dict = Depends(require_role("ad
             user["username"],
             "check_pool_permissions",
             pool_name,
-            "succes" if result["ok"] else "echec",
+            "success" if result["ok"] else "failed",
             result["message"],
         )
         return {"nom": pool_name, "ok": result["ok"], "message": result["message"]}
@@ -688,10 +690,10 @@ def _rename_on(pool_name, new, node, user):
                 raise
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "rename_storage_pool", pool_name, "echec", msg)
+            log_action(user["username"], "rename_storage_pool", pool_name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
         renaming.storage_pool_records(pool_name, new, node or "local")
-        log_action(user["username"], "rename_storage_pool", pool_name, "succes", f"-> {new} on {node or 'local'}")
+        log_action(user["username"], "rename_storage_pool", pool_name, "success", f"-> {new} on {node or 'local'}")
         return _pool_summary(renamed)
     finally:
         conn.close()
@@ -725,15 +727,15 @@ def rename_pool(
                 continue
             _rename_on(pool_name, new, None if key == "local" else key, user)
         except HTTPException as e:
-            entry.update(etat="echec", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
+            entry.update(etat="failed", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
         except libvirt.libvirtError as e:
-            entry.update(etat="echec", detail=f"Node unreachable: {describe_exception(e)}")
+            entry.update(etat="failed", detail=f"Node unreachable: {describe_exception(e)}")
         results.append(entry)
     if not any(r["etat"] == "renomme" for r in results):
         raise HTTPException(
             status_code=409, detail="; ".join(f"{r['noeud']}: {r['detail']}" for r in results) or "Pool not found"
         )
-    if not any(r["etat"] == "echec" for r in results):
+    if not any(r["etat"] == "failed" for r in results):
         shared_pools.rename(pool_name, new)
     return {"nom": new, "resultats": results}
 
@@ -767,11 +769,11 @@ def _delete_everywhere(pool_name, detacher, user):
                 continue
             _delete_single(pool_name, None if key == "local" else key, detacher, user)
         except HTTPException as e:
-            entry.update(etat="echec", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
+            entry.update(etat="failed", detail=e.detail if isinstance(e.detail, str) else str(e.detail))
         except libvirt.libvirtError as e:
-            entry.update(etat="echec", detail=f"Node unreachable: {describe_exception(e)}")
+            entry.update(etat="failed", detail=f"Node unreachable: {describe_exception(e)}")
         results.append(entry)
-    failed = [r for r in results if r["etat"] == "echec"]
+    failed = [r for r in results if r["etat"] == "failed"]
     if not failed:
         # Kept while a node still has it: the next attempt must find what is left.
         shared_pools.delete(pool_name)
@@ -787,9 +789,9 @@ def _delete_single(pool_name, node, detacher, user):
         try:
             zfs_storage.delete_pool(pool_name)
         except zfs_storage.ZfsError as e:
-            log_action(user["username"], "delete_storage_pool", pool_name, "echec", e.message)
+            log_action(user["username"], "delete_storage_pool", pool_name, "failed", e.message)
             raise HTTPException(status_code=409, detail=e.message) from e
-        log_action(user["username"], "delete_storage_pool", pool_name, "succes")
+        log_action(user["username"], "delete_storage_pool", pool_name, "success")
         return {"message": f"ZFS pool '{pool_name}' deleted"}
 
     conn = open_conn(node)
@@ -807,7 +809,7 @@ def _delete_single(pool_name, node, detacher, user):
             # side. Refused while a VM still uses one of them.
             in_use = _vms_using_paths(conn, {v.path() for v in volumes})
             if in_use:
-                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "LUNs used by VMs")
+                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "LUNs used by VMs")
                 raise HTTPException(
                     status_code=409,
                     detail=f"VMs use LUNs of this pool ({', '.join(in_use)}): delete them first",
@@ -820,7 +822,7 @@ def _delete_single(pool_name, node, detacher, user):
             # and could therefore never be deleted.
             root = ET.fromstring(pool.XMLDesc(0))
             if not detacher or root.get("type") not in ("dir", "netfs"):
-                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool not empty")
+                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool not empty")
                 raise HTTPException(
                     status_code=409,
                     detail=(
@@ -829,7 +831,7 @@ def _delete_single(pool_name, node, detacher, user):
                 )
             in_use = _vms_using_path(conn, root.findtext("target/path"))
             if in_use:
-                log_action(user["username"], "delete_storage_pool", pool_name, "echec", "Pool used by VMs")
+                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool used by VMs")
                 raise HTTPException(
                     status_code=409,
                     detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
@@ -845,10 +847,10 @@ def _delete_single(pool_name, node, detacher, user):
                 _delete_chap_secret(conn, pool_name, _chap_usage(pool_root))
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "delete_storage_pool", pool_name, "echec", msg)
+            log_action(user["username"], "delete_storage_pool", pool_name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Pool deletion error: {msg}") from e
 
-        log_action(user["username"], "delete_storage_pool", pool_name, "succes")
+        log_action(user["username"], "delete_storage_pool", pool_name, "success")
         return {"message": f"Pool '{pool_name}' deleted"}
     finally:
         conn.close()
@@ -863,7 +865,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
             result = zfs_storage.list_zvols(pool_name)
             for vol in result:
                 vol["utilise"] = vol["chemin"] in in_use
-            log_action(user["username"], "list_volumes", pool_name, "succes")
+            log_action(user["username"], "list_volumes", pool_name, "success")
             return result
 
         try:
@@ -884,7 +886,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
                     "utilise": vol.path() in in_use,
                 }
             )
-        log_action(user["username"], "list_volumes", pool_name, "succes")
+        log_action(user["username"], "list_volumes", pool_name, "success")
         return result
     finally:
         conn.close()
@@ -903,14 +905,14 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
     if zfs_storage.pool_exists(pool_name):
         name_error = zfs_storage.validate_zfs_name(payload.name)
         if name_error:
-            log_action(user["username"], "create_volume", payload.name, "echec", name_error)
+            log_action(user["username"], "create_volume", payload.name, "failed", name_error)
             raise HTTPException(status_code=422, detail=name_error)
         try:
             path = zfs_storage.create_zvol(pool_name, payload.name, payload.size_gb)
         except zfs_storage.ZfsError as e:
-            log_action(user["username"], "create_volume", payload.name, "echec", e.message)
+            log_action(user["username"], "create_volume", payload.name, "failed", e.message)
             raise HTTPException(status_code=500, detail=f"zvol creation error: {e.message}") from e
-        log_action(user["username"], "create_volume", payload.name, "succes")
+        log_action(user["username"], "create_volume", payload.name, "success")
         return {"nom": payload.name, "chemin": path, "capacite_go": float(payload.size_gb)}
 
     conn = open_conn()
@@ -918,7 +920,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         try:
             pool = conn.storagePoolLookupByName(pool_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_volume", payload.name, "echec", "Pool not found")
+            log_action(user["username"], "create_volume", payload.name, "failed", "Pool not found")
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         if _pool_type(pool) == "iscsi":
             raise HTTPException(
@@ -928,12 +930,12 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
         base_name = payload.name[: -len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
         name_error = validate_name(base_name, "volume")
         if name_error:
-            log_action(user["username"], "create_volume", payload.name, "echec", name_error)
+            log_action(user["username"], "create_volume", payload.name, "failed", name_error)
             raise HTTPException(status_code=422, detail=name_error)
         filename = f"{base_name}.qcow2"
         try:
             lookup_volume(pool, filename)
-            log_action(user["username"], "create_volume", filename, "echec", "Volume already exists")
+            log_action(user["username"], "create_volume", filename, "failed", "Volume already exists")
             raise HTTPException(status_code=422, detail=f"A volume '{filename}' already exists in this pool")
         except libvirt.libvirtError:
             pass
@@ -952,10 +954,10 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
             vol = pool.createXML(vol_xml, 0)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "create_volume", filename, "echec", msg)
+            log_action(user["username"], "create_volume", filename, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Volume creation error: {msg}") from e
 
-        log_action(user["username"], "create_volume", filename, "succes")
+        log_action(user["username"], "create_volume", filename, "success")
         vol_info = vol.info()
         return {
             "nom": vol.name(),
@@ -975,21 +977,21 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         finally:
             conn.close()
         if zfs_storage.device_path(pool_name, volume_name) in in_use:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume used by a VM")
+            log_action(user["username"], "delete_volume", volume_name, "failed", "Volume used by a VM")
             raise HTTPException(status_code=409, detail=f"Volume '{volume_name}' is used by a VM, deletion refused")
         if not confirm:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Confirmation manquante")
+            log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation manquante")
             raise HTTPException(
                 status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
             )
         try:
             zfs_storage.delete_zvol(pool_name, volume_name)
         except zfs_storage.ZfsError as e:
-            log_action(user["username"], "delete_volume", volume_name, "echec", e.message)
+            log_action(user["username"], "delete_volume", volume_name, "failed", e.message)
             raise HTTPException(
                 status_code=404 if isinstance(e, zfs_storage.ZfsNotFoundError) else 500, detail=e.message
             ) from e
-        log_action(user["username"], "delete_volume", volume_name, "succes")
+        log_action(user["username"], "delete_volume", volume_name, "success")
         return {"message": f"Volume '{volume_name}' deleted"}
 
     conn = open_conn()
@@ -1005,16 +1007,16 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         try:
             vol = lookup_volume(pool, volume_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume not found")
+            log_action(user["username"], "delete_volume", volume_name, "failed", "Volume not found")
             raise HTTPException(status_code=404, detail=f"Volume '{volume_name}' not found") from None
 
         in_use = get_disk_paths_in_use(conn)
         if vol.path() in in_use:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Volume used by a VM")
+            log_action(user["username"], "delete_volume", volume_name, "failed", "Volume used by a VM")
             raise HTTPException(status_code=409, detail=f"Volume '{volume_name}' is used by a VM, deletion refused")
 
         if not confirm:
-            log_action(user["username"], "delete_volume", volume_name, "echec", "Confirmation manquante")
+            log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation manquante")
             raise HTTPException(
                 status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
             )
@@ -1023,10 +1025,10 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
             vol.delete(0)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "delete_volume", volume_name, "echec", msg)
+            log_action(user["username"], "delete_volume", volume_name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
 
-        log_action(user["username"], "delete_volume", volume_name, "succes")
+        log_action(user["username"], "delete_volume", volume_name, "success")
         return {"message": f"Volume '{volume_name}' deleted"}
     finally:
         conn.close()

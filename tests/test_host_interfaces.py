@@ -108,9 +108,7 @@ def test_the_form_gets_the_list_from_the_api(api, client, auth_headers):
     r = client.get("/networks/host-interfaces", headers=auth_headers("admin"))
     assert r.status_code == 200
     assert [i["nom"] for i in r.json()] == ["br0", "eno1", "bond0", "eno1.20", "wlp1s0"]
-    assert (
-        client.get("/networks/host-interfaces", headers=auth_headers("viewer", role="observateur")).status_code == 403
-    )
+    assert client.get("/networks/host-interfaces", headers=auth_headers("viewer", role="viewer")).status_code == 403
 
 
 def test_an_existing_bridge_is_used_as_a_bridge(api, client, auth_headers):

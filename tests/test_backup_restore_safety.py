@@ -138,7 +138,7 @@ def test_images_are_paired_by_the_target_the_manifest_records(tmp_path):
 def _backup_row(database, path):
     with database.get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('vm1', ?, 'froid', 'now', 'termine')",
+            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('vm1', ?, 'cold', 'now', 'succeeded')",
             (str(path),),
         )
         conn.commit()

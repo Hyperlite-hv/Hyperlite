@@ -228,7 +228,7 @@ def cluster_plan(username, local_check):
         if not n["joignable"] or not n.get("verifiable", False):
             problems.append(n.get("erreur") or f"{n['nom']}: not reachable")
     for n, node in zip(nodes, [*others, None], strict=False):
-        if node is not None and node.get("statut") == "hors_ligne":
+        if node is not None and node.get("statut") == "offline":
             problems.append(f"{n['nom']} is offline")
     channels = {n.get("canal") for n in nodes if n["joignable"]}
     if len(channels) > 1:
@@ -308,7 +308,7 @@ def _drain(task_id, username, label, target):
     child = create_task("drain_node", label, node=label, username=username)
     task_log(task_id, f"Moving {len(plan['migrables'])} VM(s) from {label} to {target}")
     nodes_router._drain_job(child, username, label, target, plan["migrables"])  # releases the reservation
-    if task_status(child) != "termine":
+    if task_status(child) != "succeeded":
         raise RollingError(f"{label} could not be emptied: see task {child}")
     return plan
 
@@ -336,12 +336,12 @@ def _update_peer(task_id, username, node, target, stop_blocked):
             s, t = peer_api(node, username, "GET", f"/tasks/{remote_task}")
         except PeerUnreachable:
             return None
-        if s == 200 and t.get("statut") in ("termine", "echec"):
+        if s == 200 and t.get("statut") in ("succeeded", "failed"):
             return t
         return None
 
     result = _wait(f"{name}: the update", finished, UPDATE_TIMEOUT_S)
-    if result["statut"] != "termine":
+    if result["statut"] != "succeeded":
         raise RollingError(f"{name}: the update failed: {result.get('erreur')}")
 
     def answers():
@@ -359,7 +359,7 @@ def _update_peer(task_id, username, node, target, stop_blocked):
     if (check.get("systeme") or {}).get("redemarrage_requis"):
         if plan["non_migrables"] and not stop_blocked:
             task_log(task_id, f"{name}: a reboot is needed, left for later (VMs that cannot move run there)")
-            log_action(username, "host_reboot_required", name, "succes", "left by the rolling update")
+            log_action(username, "host_reboot_required", name, "success", "left by the rolling update")
         else:
             _reboot_peer(task_id, username, node)
     maintenance.leave(name)
@@ -408,7 +408,7 @@ def run(task_id, username, stop_blocked, start_local_update, restarts_after_upda
     name = self_node.name()
     try:
         with _LockKeeper():
-            if any(n.get("statut") == "hors_ligne" for n in others):
+            if any(n.get("statut") == "offline" for n in others):
                 raise RollingError("A node is offline: every node must be online for a rolling update")
             steps = len(others) + 1
             ready = []  # nodes on the new version, updated now or already: where the VMs go, so they do not move twice
@@ -433,12 +433,12 @@ def run(task_id, username, stop_blocked, start_local_update, restarts_after_upda
         message = str(e) if isinstance(e, RollingError) else f"internal error: {e}"
         if done:
             message += f" (already updated: {', '.join(done)})"
-        finish_task(task_id, "echec", message)
-        log_action(username, "cluster_update", "cluster", "echec", message)
+        finish_task(task_id, "failed", message)
+        log_action(username, "cluster_update", "cluster", "failed", message)
         return
     # Ended here, before this node's own update may restart the service under this job.
-    finish_task(task_id, "termine")
-    log_action(username, "cluster_update", "cluster", "succes", f"updated: {', '.join([*done, name])}")
+    finish_task(task_id, "succeeded")
+    log_action(username, "cluster_update", "cluster", "success", f"updated: {', '.join([*done, name])}")
     if local_task:
         _wait_local(username, local_task, task_status, restarts_after_update)
 
@@ -447,18 +447,18 @@ def _wait_local(username, local_task, task_status, restarts_after_update):
     """This node's own update, followed while the service lives: when only Debian changed, nothing restarts and
     this thread takes the node out of maintenance itself."""
     deadline = time.monotonic() + UPDATE_TIMEOUT_S
-    while time.monotonic() < deadline and task_status(local_task) not in ("termine", "echec"):
+    while time.monotonic() < deadline and task_status(local_task) not in ("succeeded", "failed"):
         time.sleep(POLL_S)
     status = task_status(local_task)
-    if status == "echec":
+    if status == "failed":
         _settings().set_app_setting(SELF_PENDING, "")
         log_action(
-            username, "cluster_update", self_node.name(), "echec", "this node's update failed: still in maintenance"
+            username, "cluster_update", self_node.name(), "failed", "this node's update failed: still in maintenance"
         )
-    elif status == "termine" and not restarts_after_update():
+    elif status == "succeeded" and not restarts_after_update():
         _settings().set_app_setting(SELF_PENDING, "")
         maintenance.leave(maintenance.LOCAL)
-        log_action(username, "cluster_update", self_node.name(), "succes", "this node: out of maintenance")
+        log_action(username, "cluster_update", self_node.name(), "success", "this node: out of maintenance")
     # Otherwise the service restarts now: finish_self_after_restart() ends it.
 
 
@@ -485,5 +485,5 @@ def finish_self_after_restart():
         info = {}
     maintenance.leave(maintenance.LOCAL)
     log_action(
-        info.get("user") or "system", "cluster_update", self_node.name(), "succes", "this node: out of maintenance"
+        info.get("user") or "system", "cluster_update", self_node.name(), "success", "this node: out of maintenance"
     )

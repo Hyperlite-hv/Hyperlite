@@ -35,7 +35,7 @@ class Peers:
         return None
 
 
-def _node(name, statut="en_ligne"):
+def _node(name, statut="online"):
     return {"name": name, "hostname": f"{name}.lan", "ssh_user": "root", "ssh_port": 22, "statut": statut}
 
 
@@ -57,7 +57,7 @@ def peers(database, monkeypatch):
 
 
 def _task_row(task_id, created, node, cible="web"):
-    return {"id": task_id, "type": "backup", "cible": cible, "node": node, "username": "system", "statut": "termine",
+    return {"id": task_id, "type": "backup", "cible": cible, "node": node, "username": "system", "statut": "succeeded",
             "progres": 100, "cree_le": created, "debut_le": created, "fin_le": created, "erreur": None}  # fmt: skip
 
 
@@ -92,7 +92,7 @@ def test_the_tasks_of_every_member_newest_first(client, auth_headers, peers):
 def test_a_member_down_or_offline_is_named_and_offline_ones_are_not_asked(client, auth_headers, peers):
     headers = auth_headers("ana")
     peers.down.add("pve-a")
-    peers.nodes[1]["statut"] = "hors_ligne"
+    peers.nodes[1]["statut"] = "offline"
     rows = client.get("/tasks?cluster=true", headers=headers).json()
     assert sorted(rows["unreachable"]) == ["pve-a", "pve-b"]
     assert [c[0] for c in peers.calls] == ["pve-a"]
@@ -137,7 +137,7 @@ def test_the_audit_log_of_every_member(client, auth_headers, peers):
     headers = auth_headers("ana")
     audit._AUDIT_QUEUE.join()  # the sign-in entry is written
     entry = {"id": 9, "timestamp": "2999-01-01T00:00:00+00:00", "username": "bob", "action": "delete_vm",
-             "resource": "web", "result": "succes", "error_message": None, "ip": None}  # fmt: skip
+             "resource": "web", "result": "success", "error_message": None, "ip": None}  # fmt: skip
     peers.answers[("pve-a", "/audit")] = (200, [entry])
     peers.answers[("pve-a", "/audit/count")] = (200, {"total": 41})
     peers.answers[("pve-a", "/audit/actions")] = (200, ["delete_vm"])
@@ -186,7 +186,7 @@ def test_what_is_checked_here_before_anything_is_sent(client, auth_headers, peer
     r = client.post("/vms/web/backups?node=pve-old", json={}, headers=headers)
     assert r.status_code == 409 and "pve-old is not a member" in r.json()["detail"]
     # Rights are checked here first: an observer cannot delete another member's backup.
-    viewer = auth_headers("olga", "observateur")
+    viewer = auth_headers("olga", "viewer")
     assert client.delete("/backups/3?on=pve-a&confirm=true", headers=viewer).status_code == 403
     assert peers.calls == []
     # A member that refuses the session, or does not answer: 502, never a 401.

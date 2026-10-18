@@ -146,10 +146,10 @@ def rename_vm(name: str, payload: RenameRequest, node: str | None = None, user: 
                 _rename_own_files(conn, domain, name, new, node)
             except (libvirt.libvirtError, OSError) as e:
                 msg = describe_exception(e)
-                log_action(user["username"], "rename_vm", name, "echec", msg)
+                log_action(user["username"], "rename_vm", name, "failed", msg)
                 raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
             renaming.vm_records(name, new, node)
-            log_action(user["username"], "rename_vm", name, "succes", f"-> {new}")
+            log_action(user["username"], "rename_vm", name, "success", f"-> {new}")
             return _domain_summary(domain)
         finally:
             conn.close()

@@ -37,9 +37,9 @@ def open_backup_files(backup_id: int, on: str | None = None, user: dict = Depend
     try:
         s = file_restore.open_session(backup_id, user["username"])
     except file_restore.RestoreError as e:
-        log_action(user["username"], "browse_backup", str(backup_id), "echec", str(e))
+        log_action(user["username"], "browse_backup", str(backup_id), "failed", str(e))
         raise _fail(e) from e
-    log_action(user["username"], "browse_backup", f"{s.vm_name} #{backup_id}", "succes")
+    log_action(user["username"], "browse_backup", f"{s.vm_name} #{backup_id}", "success")
     return {"session": s.id, "vm": s.vm_name, "filesystems": s.filesystems}
 
 
@@ -59,9 +59,9 @@ def download_from_backup(session_id: str, device: str, path: str, user: dict = D
         s = file_restore.get_session(session_id, user["username"])
         dest, name = file_restore.export(s, device, path)
     except file_restore.RestoreError as e:
-        log_action(user["username"], "restore_file", path, "echec", str(e))
+        log_action(user["username"], "restore_file", path, "failed", str(e))
         raise _fail(e) from e
-    log_action(user["username"], "restore_file", f"{s.vm_name} #{s.backup_id}:{device}{path}", "succes")
+    log_action(user["username"], "restore_file", f"{s.vm_name} #{s.backup_id}:{device}{path}", "success")
     return FileResponse(
         dest, filename=name, media_type="application/octet-stream", background=BackgroundTask(os.unlink, dest)
     )

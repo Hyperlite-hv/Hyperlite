@@ -302,7 +302,7 @@ def _merge_overlays_back(domain, vm_name, disks, overlay_paths, snap):
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
             failures.append(f"{dev}: {msg}")
-            log_action("system", "backup_commit_warning", vm_name, "echec", f"{dev}: {msg}")
+            log_action("system", "backup_commit_warning", vm_name, "failed", f"{dev}: {msg}")
             logger.error("Merging the backup overlay of %s/%s failed, overlay kept: %s", vm_name, dev, msg)
             continue
         overlay = overlay_paths.get(dev)
@@ -433,7 +433,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         if error:
             raise RuntimeError(error)
 
-        mode = "chaud" if domain.isActive() else "froid"
+        mode = "live" if domain.isActive() else "cold"
         stamp = _now().strftime("%Y%m%dT%H%M%SZ")
         dest_dir = target_root / vm_name / stamp
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -448,7 +448,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             # In the task: a backup refused for want of space is a failed task, audited and notified (a scheduled one
             # has nobody watching), and nothing is left in its folder.
             check_free_space(target_root, [src for _dev, src in domain_disk_paths(domain)])
-            if mode == "froid":
+            if mode == "cold":
                 dest_paths = backup_cold(domain, vm_name, dest_dir, task_id)
             else:
                 dest_paths = backup_hot(conn, domain, vm_name, dest_dir, task_id)
@@ -463,16 +463,16 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             # Kept for the backups listed before manifests existed and for the API's single-disk field.
             checksum = disk_sums[0] if len(disk_sums) == 1 else None
             _store().mark_done(backup_id, total_size, checksum)
-            finish_task(task_id, "termine")
-            kind = "live" if mode == "chaud" else "offline"
+            finish_task(task_id, "succeeded")
+            kind = "live" if mode == "live" else "offline"
             log_action(
-                username, "backup_vm", vm_name, "succes", f"{kind}, {total_size / 1024**3:.1f} GiB in {dest_dir}"
+                username, "backup_vm", vm_name, "success", f"{kind}, {total_size / 1024**3:.1f} GiB in {dest_dir}"
             )
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
             _store().mark_failed(backup_id, msg)
-            finish_task(task_id, "echec", msg)
-            log_action(username, "backup_vm", vm_name, "echec", msg)
+            finish_task(task_id, "failed", msg)
+            log_action(username, "backup_vm", vm_name, "failed", msg)
             shutil.rmtree(dest_dir, ignore_errors=True)
             raise
         # Retention is applied HERE, in the same place for manual and scheduled backups, and on ALL the backups of
@@ -486,7 +486,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
                 _apply_retention(vm_name, backup_retention.policy_of(job_row))
         except Exception as e:
             logger.exception("Retention of %s's backups failed", vm_name)
-            log_action(username, "backup_retention", vm_name, "echec", str(e)[:300])
+            log_action(username, "backup_retention", vm_name, "failed", str(e)[:300])
         return backup_id
     finally:
         conn.close()
@@ -651,7 +651,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
     row = _store().get(backup_id)
     if not row:
         raise RuntimeError("Backup not found")
-    if row["statut"] != "termine":
+    if row["statut"] != "succeeded":
         raise RuntimeError("This backup is not in a restorable state (failed or in progress)")
     if mode not in ("overwrite", "new"):
         raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
@@ -681,11 +681,11 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 written = _restore_overwrite(conn, domain, images, task_id)
                 refresh_pools_for_paths(conn, written)
                 restored = backup_integrity.restore_firmware_state(src_dir, domain)
-                finish_task(task_id, "termine")
+                finish_task(task_id, "succeeded")
                 detail = f"overwrite from backup #{backup_id}" + (
                     f", with {' and '.join(restored)}" if restored else ""
                 )
-                log_action(username, "restore_backup", target_name, "succes", detail)
+                log_action(username, "restore_backup", target_name, "success", detail)
                 return {"vm": target_name, "mode": "overwrite"}
 
             from app.core.vm_builder import IMAGES_DIR as _IMAGES_DIR
@@ -746,9 +746,9 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 set_vm_os_label(new_name, os_label)
             if ssh_user:
                 set_vm_ssh_user(new_name, ssh_user)
-            finish_task(task_id, "termine")
+            finish_task(task_id, "succeeded")
             detail = f"new VM from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
-            log_action(username, "restore_backup", new_name, "succes", detail)
+            log_action(username, "restore_backup", new_name, "success", detail)
             return {"vm": new_name, "mode": "new"}
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
@@ -756,8 +756,8 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 # Only the files this restore created: the name check above refused existing ones.
                 for path in new_disk_paths:
                     Path(path).unlink(missing_ok=True)
-            finish_task(task_id, "echec", msg)
-            log_action(username, "restore_backup", target_name or row["vm_name"], "echec", msg)
+            finish_task(task_id, "failed", msg)
+            log_action(username, "restore_backup", target_name or row["vm_name"], "failed", msg)
             raise
         finally:
             conn.close()
@@ -775,7 +775,7 @@ def _verify_backup(backup_id, username="system", task_id=None):
     row = _store().get(backup_id)
     if not row:
         raise RuntimeError("Backup not found")
-    if row["statut"] != "termine":
+    if row["statut"] != "succeeded":
         raise RuntimeError("Only a finished backup can be verified")
     own_task = task_id is None
     if own_task:
@@ -786,19 +786,19 @@ def _verify_backup(backup_id, username="system", task_id=None):
         )
     except Exception as e:
         if own_task:
-            finish_task(task_id, "echec", str(e))
+            finish_task(task_id, "failed", str(e))
         raise
     _store().set_verification(backup_id, status, _now().isoformat(), "; ".join(problems) or None)
     if own_task:
-        finish_task(task_id, "termine")
+        finish_task(task_id, "succeeded")
     if status == backup_integrity.CORRUPT:
         detail = f"backup #{backup_id}: {'; '.join(problems)}"[:1000]
-        log_action(username, "verify_backup", row["vm_name"], "echec", detail)
+        log_action(username, "verify_backup", row["vm_name"], "failed", detail)
         from app.core.notifications import notify
 
-        notify("verify_backup", f"Corrupted backup of {row['vm_name']}", detail, result="echec")
+        notify("verify_backup", f"Corrupted backup of {row['vm_name']}", detail, result="failed")
     else:
-        log_action(username, "verify_backup", row["vm_name"], "succes", f"backup #{backup_id}")
+        log_action(username, "verify_backup", row["vm_name"], "success", f"backup #{backup_id}")
     return {"verification": status, "problemes": problems}
 
 
@@ -848,10 +848,10 @@ def _next_run(frequence, heure, from_time=None):
     candidate = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
     if candidate <= base:
         candidate += timedelta(days=1)
-    if frequence == "hebdomadaire":
+    if frequence == "weekly":
         while candidate.weekday() != 0:  # execute le lundi
             candidate += timedelta(days=1)
-    elif frequence == "mensuel":
+    elif frequence == "monthly":
         candidate = candidate.replace(day=1)
         if candidate <= base:
             month = candidate.month % 12 + 1
@@ -881,7 +881,7 @@ def run_due_schedules(now):
         except vm_locks.VmBusy:
             continue  # another operation runs on this VM: the job stays due and is retried next tick
         except Exception as e:
-            log_action("scheduler", "backup_job_echec", job["vm_name"], "echec", str(e))
+            log_action("scheduler", "backup_job_echec", job["vm_name"], "failed", str(e))
         next_run = _next_run(job["frequence"], job["heure"], now)
         _store().record_schedule_run(job["id"], now.isoformat(), next_run.isoformat())
 

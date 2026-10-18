@@ -22,11 +22,11 @@ def run(coro):
 def test_users(repo):
     store = repo.sync
     store.create("alice", "hash-a", "admin")
-    store.create("bob", "hash-b", "observateur", auth_source="ldap", ldap_dn="uid=bob")
+    store.create("bob", "hash-b", "viewer", auth_source="ldap", ldap_dn="uid=bob")
     with pytest.raises(AlreadyExists):
         store.create("alice", "x", "admin")
     assert [u["username"] for u in run(repo.list_summary())] == ["alice", "bob"]
-    assert store.other_admins("alice") == 0 and store.role_of("bob") == "observateur"
+    assert store.other_admins("alice") == 0 and store.role_of("bob") == "viewer"
     store.update("bob", role="admin", hashed_password="hash-b2", changed_at=123)
     bob = run(repo.get("bob"))
     assert (bob["role"], bob["hashed_password"], bob["password_changed_at"], bob["must_change_password"]) == (

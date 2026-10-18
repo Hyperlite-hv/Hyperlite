@@ -29,13 +29,13 @@ def _apply(user, name, action, detail, change):
             try:
                 result = change(conn, domain)
             except opts.OptionError as e:
-                log_action(user["username"], action, name, "echec", str(e))
+                log_action(user["username"], action, name, "failed", str(e))
                 raise HTTPException(status_code=422, detail=str(e)) from e
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
-                log_action(user["username"], action, name, "echec", msg)
+                log_action(user["username"], action, name, "failed", msg)
                 raise HTTPException(status_code=500, detail=msg) from e
-            log_action(user["username"], action, name, "succes", detail)
+            log_action(user["username"], action, name, "success", detail)
             return {**opts.describe(conn.lookupByName(name)), **(result or {})}
         finally:
             conn.close()

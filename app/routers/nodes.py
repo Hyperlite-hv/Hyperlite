@@ -77,7 +77,7 @@ def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
     if not HOST_RE.match(payload.hostname) or not USER_RE.match(payload.ssh_user):
         raise HTTPException(status_code=422, detail="Invalid address or SSH user")
     ok, detail = test_node_connection(payload.hostname, payload.ssh_user, payload.ssh_port)
-    log_action(user["username"], "test_node", payload.hostname, "succes" if ok else "echec", None if ok else detail)
+    log_action(user["username"], "test_node", payload.hostname, "success" if ok else "failed", None if ok else detail)
     # The raw libvirt/SSH error stays in the audit log; the browser gets a fixed reason.
     if ok:
         return {"ok": True, "detail": payload.hostname}
@@ -169,7 +169,7 @@ def config_copy_now(user: dict = Depends(require_role("admin"))):
     from app.core import config_copy
 
     results = config_copy.copy_now(force=True, username=user["username"])
-    log_action(user["username"], "config_copy", "cluster", "succes", f"{len(results)} node(s)")
+    log_action(user["username"], "config_copy", "cluster", "success", f"{len(results)} node(s)")
     return {"resultats": results, "copies": config_copy.status()}
 
 
@@ -273,7 +273,7 @@ async def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depend
         raise HTTPException(status_code=409, detail=f"Node '{name}' is busy ({', '.join(busy)}): try again later")
     await run_in_threadpool(renaming.node_records, name, new)
     await run_in_threadpool(rename_reverse_trust, name, new)
-    log_action(user["username"], "rename_node", name, "succes", f"-> {new}")
+    log_action(user["username"], "rename_node", name, "success", f"-> {new}")
     return await node_service.wire_with_live(new)
 
 
@@ -371,7 +371,7 @@ def _drain_job(parent_id, username, source, target, names):
                     task_log(parent_id, f"Migrating {vm_name} ({i + 1}/{len(names)})")
                     _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
                     current.pop("task", None)
-                if task_status(task_id) != "termine":
+                if task_status(task_id) != "succeeded":
                     failed.append(vm_name)
             update_task_progress(parent_id, int((i + 1) * 100 / len(names)))
     except Exception as e:
@@ -388,8 +388,8 @@ def _drain_job(parent_id, username, source, target, names):
         why = "drain cancelled" if cancel_requested(parent_id) else "maintenance ended"
         summary += f"; not started ({why}): {', '.join(not_started)}"
     ok = not failed and not not_started
-    finish_task(parent_id, "termine" if ok else "echec", None if ok else summary)
-    log_action(username, "drain_node", source, "succes" if ok else "echec", summary)
+    finish_task(parent_id, "succeeded" if ok else "failed", None if ok else summary)
+    log_action(username, "drain_node", source, "success" if ok else "failed", summary)
 
 
 @router.post("/{name}/maintenance", status_code=202)
@@ -409,7 +409,7 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
             result = _plan(source, target)
         except HTTPException as e:
             # A node that is down is still worth marking: it must not become a migration or HA target.
-            log_action(user["username"], "enter_maintenance", source, "succes", "node unreachable, nothing migrated")
+            log_action(user["username"], "enter_maintenance", source, "success", "node unreachable, nothing migrated")
             raise HTTPException(
                 status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, but no VM was migrated"
             ) from e
@@ -425,7 +425,7 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
         user["username"],
         "enter_maintenance",
         source,
-        "succes",
+        "success",
         f"target {target or 'none'}; to migrate: {len(result['migrables'])}; staying: {len(result['non_migrables'])}",
     )
     if task_id:
@@ -438,5 +438,5 @@ def leave_maintenance(name: str, user: dict = Depends(require_role("admin"))):
     source = maintenance.label(name)
     if not maintenance.leave(source):
         raise HTTPException(status_code=404, detail=f"Node '{source}' is not in maintenance")
-    log_action(user["username"], "leave_maintenance", source, "succes")
+    log_action(user["username"], "leave_maintenance", source, "success")
     return {"node": source, "en_maintenance": False}

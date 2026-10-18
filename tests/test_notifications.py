@@ -121,6 +121,6 @@ def test_an_audited_event_reads_as_a_sentence(database, monkeypatch):
                 sent.append(self.args)
 
     monkeypatch.setattr(audit, "threading", types.SimpleNamespace(Thread=_Thread))
-    audit.log_action("alice", "create_vm", "web", "succes")
-    audit.log_action("alice", "backup_vm", "web", "echec", "disk full")
+    audit.log_action("alice", "create_vm", "web", "success")
+    audit.log_action("alice", "backup_vm", "web", "failed", "disk full")
     assert [a[2] for a in sent] == ["VM creation of 'web' succeeded", "VM backup of 'web' failed: disk full"]

@@ -133,6 +133,6 @@ def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_header
         client.put("/vms/web/cloud-init", json={"utilisateur": "ana", "cles_ssh": ["nope"]}, headers=admin).status_code
         == 422
     )
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.get("/vms/web/cloud-init", headers=viewer).status_code == 200
     assert client.put("/vms/web/cloud-init", json={"utilisateur": "x"}, headers=viewer).status_code == 403

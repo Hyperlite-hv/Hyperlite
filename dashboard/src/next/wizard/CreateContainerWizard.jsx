@@ -145,11 +145,11 @@ export default function CreateContainerWizard({ open, onClose, triggerRef }) {
       const created = await createContainer(docker
         ? { ...common, mode: "application", command: args.length ? args : null, env: dockerEnv() }
         : { ...common, mode: "systeme", username: form.username, password: form.password });
-      completeTask(taskId, "termine");
+      completeTask(taskId, "succeeded");
       pushToast({ kind: "success", title: t("ct.created"), message: docker ? t("ct.dockerRunning", { name: form.name, ip: created?.ip || "—" }) : `${form.name}: ${t("ct.building")}` });
       window.dispatchEvent(new Event("nx:containers-changed"));
       onClose(); reset();
-    } catch (er) { completeTask(taskId, "echec", errorMessage(er)); setError(errorMessage(er)); }
+    } catch (er) { completeTask(taskId, "failed", errorMessage(er)); setError(errorMessage(er)); }
     finally { setBusy(false); }
   }
 

@@ -151,7 +151,7 @@ def create_backup(
     except BaseException:
         claim.release()
         raise
-    log_action(user["username"], "backup_vm_requested", name, "succes")
+    log_action(user["username"], "backup_vm_requested", name, "success")
     return {"message": f"Backup of '{name}' started in the background"}
 
 
@@ -168,9 +168,9 @@ def delete_backup(
     except backup_service.BackupNotFound:
         raise HTTPException(status_code=404, detail="Backup not found") from None
     except backup_use.BackupInUse as e:
-        log_action(user["username"], "delete_backup", backup_service.find(backup_id)["vm_name"], "echec", str(e))
+        log_action(user["username"], "delete_backup", backup_service.find(backup_id)["vm_name"], "failed", str(e))
         raise HTTPException(status_code=409, detail=str(e)) from None
-    log_action(user["username"], "delete_backup", row["vm_name"], "succes", f"backup #{backup_id}")
+    log_action(user["username"], "delete_backup", row["vm_name"], "success", f"backup #{backup_id}")
     return {"message": "Backup deleted"}
 
 
@@ -180,17 +180,17 @@ def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("ad
     row = backup_service.find(backup_id)
     if not row:
         raise HTTPException(status_code=404, detail="Backup not found")
-    if row["statut"] != "termine":
+    if row["statut"] != "succeeded":
         raise HTTPException(status_code=409, detail="Only a finished backup can be verified")
     task_id = create_task("verify_backup", row["vm_name"], username=user["username"])
 
     def job():
         try:
             verify_backup(backup_id, username=user["username"], task_id=task_id)
-            finish_task(task_id, "termine")
+            finish_task(task_id, "succeeded")
         except Exception as e:
             logger.warning("Verification of backup #%s failed", backup_id, exc_info=True)
-            finish_task(task_id, "echec", str(e))
+            finish_task(task_id, "failed", str(e))
 
     threading.Thread(target=job, daemon=True).start()
     return {"task_id": task_id, "backup": backup_id}
@@ -215,7 +215,7 @@ def restore_backup_endpoint(
     # What can be refused at once is refused here, so a request that cannot run never reads as started.
     if payload.mode not in ("overwrite", "new"):
         raise HTTPException(status_code=422, detail="Invalid mode (expected 'overwrite' or 'new')")
-    if row["statut"] != "termine":
+    if row["statut"] != "succeeded":
         raise HTTPException(status_code=409, detail="This backup is not in a restorable state (failed or in progress)")
     if payload.mode == "new":
         name_error = validate_name(payload.new_name or "")
@@ -237,12 +237,12 @@ def restore_backup_endpoint(
     except BaseException:
         claim.release()
         raise
-    log_action(user["username"], "restore_backup_requested", row["vm_name"], "succes", f"mode={payload.mode}")
+    log_action(user["username"], "restore_backup_requested", row["vm_name"], "success", f"mode={payload.mode}")
     return {"message": "Restore started in the background"}
 
 
 class ScheduleRequest(BaseModel):
-    frequence: str = Field(description="'quotidien' | 'hebdomadaire' | 'mensuel'")
+    frequence: str = Field(description="'daily' | 'weekly' | 'monthly'")
     heure: str = Field(description="Heure locale UTC au format HH:MM")
     cible_dir: str | None = None
     retention_count: int = Field(7, ge=1, le=365)
@@ -279,7 +279,7 @@ def set_backup_schedule(
     # cluster, the schedule of another member's VM is set on that member (the schedules are shared; it runs them).
     if not _vm_exists(name):
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found on this node")
-    if payload.frequence not in ("quotidien", "hebdomadaire", "mensuel"):
+    if payload.frequence not in ("daily", "weekly", "monthly"):
         raise HTTPException(status_code=422, detail="Invalid frequency")
     try:
         hh, mm = payload.heure.split(":")
@@ -303,12 +303,12 @@ def set_backup_schedule(
         payload.garder_mois,
         next_run.isoformat(),
     )
-    log_action(user["username"], "set_backup_schedule", name, "succes", f"{payload.frequence} at {payload.heure}")
+    log_action(user["username"], "set_backup_schedule", name, "success", f"{payload.frequence} at {payload.heure}")
     return backup_service.schedule_of(name)
 
 
 @router.delete("/vms/{name}/backup-schedule")
 def delete_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     backup_service.delete_schedule(name)
-    log_action(user["username"], "delete_backup_schedule", name, "succes")
+    log_action(user["username"], "delete_backup_schedule", name, "success")
     return {"message": "Schedule deleted"}
