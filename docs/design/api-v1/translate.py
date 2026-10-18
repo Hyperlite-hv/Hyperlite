@@ -200,7 +200,7 @@ WHOLE = {
     "hl_sso_handoff": "hl_sso_handoff",
     "pre_auth_token": "preauth_token",
     "uefi_inconnu": "uefi_unknown",
-    "step_ordre": "step_order",
+    "step_ordre": "step_position",  # Antho, 2026-10-18: "order" is reserved in SQL
 }
 
 WORDS = {
@@ -350,7 +350,7 @@ WORDS = {
     "numero": "number",
     "objet": "object",
     "officielle": "official",
-    "ordre": "order",
+    "ordre": "position",  # Antho, 2026-10-18: "order" is reserved in SQL
     "outils": "tools",
     "ouvert": "open",
     "panne": "failure",
