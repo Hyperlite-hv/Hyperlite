@@ -375,7 +375,7 @@ def me(user: dict = Depends(get_current_user_pending_ok)):
         "username": user["username"],
         "role": user["role"],
         "totp_enabled": bool(user["totp_enabled"]),
-        "cles_securite": len(webauthn_keys.list_keys(user["username"])),
+        "security_keys": len(webauthn_keys.list_keys(user["username"])),
         "auth_source": user.get("auth_source", "local"),
         "password_change_required": bool(user.get("must_change_password")),
     }
@@ -467,7 +467,7 @@ def webauthn_register(request: Request, payload: WebAuthnRegister, user: dict = 
         log_action(user["username"], "add_security_key", user["username"], "echec", e.message)
         raise HTTPException(status_code=e.status, detail=e.message) from None
     log_action(user["username"], "add_security_key", user["username"], "succes", payload.name or "Security key")
-    return {"id": key_id, "cles": webauthn_keys.list_keys(user["username"])}
+    return {"id": key_id, "keys": webauthn_keys.list_keys(user["username"])}
 
 
 @router.delete("/webauthn/keys/{key_id}")
@@ -479,7 +479,7 @@ def webauthn_delete(request: Request, key_id: int, payload: WebAuthnDelete, user
         raise HTTPException(status_code=404, detail="Security key not found")
     _reauth_clear_failures(username)
     log_action(username, "remove_security_key", username, "succes", f"key #{key_id}")
-    return {"cles": webauthn_keys.list_keys(username)}
+    return {"keys": webauthn_keys.list_keys(username)}
 
 
 # --- Self-service API tokens: designed for automation (scripts, Terraform, cron),

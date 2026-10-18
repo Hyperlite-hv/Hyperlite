@@ -98,10 +98,10 @@ def test_a_registered_key_becomes_the_second_factor_at_sign_in(client, alice):
     key = SoftKey()
     r = register(client, alice, key)
     assert r.status_code == 201, r.text
-    assert [k["nom"] for k in r.json()["cles"]] == ["YubiKey"] and r.json()["cles"][0][
+    assert [k["name"] for k in r.json()["keys"]] == ["YubiKey"] and r.json()["keys"][0][
         "rp_id"
     ] == "hyperlite.example.lan"
-    assert client.get("/auth/me", headers=alice).json()["cles_securite"] == 1
+    assert client.get("/auth/me", headers=alice).json()["security_keys"] == 1
 
     step = password_step(client)
     assert step["require_2fa"] is True and step["methods"] == ["webauthn"] and "access_token" not in step
@@ -118,7 +118,7 @@ def test_a_registered_key_becomes_the_second_factor_at_sign_in(client, alice):
     )
     assert r.status_code == 200, r.text
     assert r.json()["access_token"]
-    assert client.get("/auth/webauthn/keys", headers=alice).json()[0]["utilise_le"]
+    assert client.get("/auth/webauthn/keys", headers=alice).json()[0]["used_at"]
 
     # The same answer again: its challenge was used up.
     replay = client.post(
@@ -194,7 +194,7 @@ def test_an_expired_or_foreign_challenge_is_refused(client, alice, database, mon
     key = SoftKey()
     options = client.post("/auth/webauthn/keys/options", headers=alice, json={"password": PASSWORD}).json()
     with database.get_conn() as db:
-        db.execute("UPDATE webauthn_challenges SET expire_le = '2000-01-01T00:00:00+00:00'")
+        db.execute("UPDATE webauthn_challenges SET expires_at = '2000-01-01T00:00:00+00:00'")
         db.commit()
     r = client.post("/auth/webauthn/keys", json={"credential": key.create(options)}, headers=alice)
     assert r.status_code == 400 and "expired" in r.json()["detail"]
@@ -213,7 +213,7 @@ def test_totp_and_keys_are_both_offered_and_removing_a_key_takes_the_password(cl
     r = client.request("DELETE", f"/auth/webauthn/keys/{key_id}", json={"password": "wrong"}, headers=alice)
     assert r.status_code == 400 and len(client.get("/auth/webauthn/keys", headers=alice).json()) == 1
     r = client.request("DELETE", f"/auth/webauthn/keys/{key_id}", json={"password": PASSWORD}, headers=alice)
-    assert r.status_code == 200 and r.json()["cles"] == []
+    assert r.status_code == 200 and r.json()["keys"] == []
     assert password_step(client)["methods"] == ["totp"]
 
 

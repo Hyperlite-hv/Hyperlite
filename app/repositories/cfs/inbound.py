@@ -62,6 +62,20 @@ def _applied_version(db):
     return int(row[0]) if row and str(row[0]).isdigit() else 0
 
 
+def _current_names(table, data):
+    """A row of the tree as this version names its columns (app/core/schema_v1.py: a row written before the API v1
+    renames keeps its old names until the tree is rewritten), in the form shadow.py writes, so that it compares equal
+    to this node's row when they hold the same values."""
+    from app.core import schema_v1
+
+    try:
+        row = json.loads(data)
+    except ValueError:
+        return data
+    renamed = schema_v1.row(table, row)
+    return data if renamed == row else shadow._encode(renamed)
+
+
 def _fill(table, row):
     now = datetime.now(UTC).isoformat()
     for column, value in table.fill.items():
@@ -110,7 +124,7 @@ def apply():
         return None
     tables = shadow.tables()
     versioned = {name: shadow._read_tree_versions(client, t.prefix) for name, t in tables.items()}
-    trees = {name: {p: data for p, (data, _) in tree.items()} for name, tree in versioned.items()}
+    trees = {name: {p: _current_names(name, data) for p, (data, _) in tree.items()} for name, tree in versioned.items()}
     if client.status().version != status.version:
         return None  # changed while it was read: the next round reads it again
     if not any(trees.values()) and any(t.all() for t in tables.values()):

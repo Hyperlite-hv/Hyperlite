@@ -14,7 +14,7 @@ A column added to a listed table is copied without changing this file; a new tab
 TABLES = {
     # Accounts and access
     "users": {"priv": True, "volatile": {"last_login_at", "totp_last_step"}},
-    "webauthn_credentials": {"priv": True, "volatile": {"sign_count", "utilise_le"}},
+    "webauthn_credentials": {"priv": True, "volatile": {"sign_count", "used_at"}},
     "api_tokens": {"priv": True, "volatile": {"last_used_at"}},
     # A sign-out revokes its session on every node: a session token is valid on any of them (the signing key is
     # shared), so a revocation only this node knew would leave it usable elsewhere until it expires.

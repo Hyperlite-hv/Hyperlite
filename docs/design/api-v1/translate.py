@@ -23,6 +23,12 @@ NOT_FRENCH = {
 }
 
 WHOLE = {
+    # Columns the word lists missed (an English word, or a compound), found in the schema on 2026-10-18.
+    "but": "purpose",
+    "horodatage": "timestamp",
+    "joignable": "reachable",
+    "version_hyperviseur": "hypervisor_version",
+    "version_libvirt": "libvirt_version",
     # Task, VM, pool and node states, results and frequencies (stored and returned values).
     "en_cours": "running",
     "en_attente": "pending",
