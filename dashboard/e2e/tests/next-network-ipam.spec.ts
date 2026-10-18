@@ -40,7 +40,7 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
     return r.fulfill(json({ ...summary(), ipam, needs_restart: pending, dhcp_leases: [{ mac: "52:54:00:00:00:09", ip: "10.9.0.150", hostname: "db", expire: 1900000000 }] }));
   });
 
-  await page.goto("/datacenter?tab=reseau");
+  await page.goto("/datacenter?tab=network");
   await page.getByRole("button", { name: `Details of ${NAME}` }).click();
   const settings = page.getByRole("region", { name: "Subnet and DHCP" });
   await settings.getByLabel("DHCP start").fill("10.9.0.300");

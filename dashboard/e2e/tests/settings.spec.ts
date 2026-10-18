@@ -22,7 +22,7 @@ test.beforeAll(async ({ request }) => {
 test.describe("Storage pools (real libvirt backend)", () => {
   const POOL = `${PREFIX}pool-${stamp}`;
   test.afterAll(async ({ request }) => {
-    await request.delete(`/storage/${POOL}?confirm=true&detacher=true`, { headers: auth() });
+    await request.delete(`/storage/${POOL}?confirm=true&detach=true`, { headers: auth() });
     rmSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`, { recursive: true, force: true });
   });
 

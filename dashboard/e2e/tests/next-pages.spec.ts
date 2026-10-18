@@ -26,7 +26,7 @@ test.beforeAll(async ({ request }) => { token = await apiLogin(request); });
 const OBS = { username: `${PREFIX}obs-${stamp}`, password: "Observer-Pass-1" };
 test.afterAll(async ({ request }) => {
   await request.delete(`/auth/users/${OBS.username}`, { headers: auth() }).catch(() => {});
-  await request.delete(`/storage/${POOL}?confirm=true&detacher=true`, { headers: auth() }).catch(() => {});
+  await request.delete(`/storage/${POOL}?confirm=true&detach=true`, { headers: auth() }).catch(() => {});
   rmSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`, { recursive: true, force: true });
   await request.delete(`/networks/${NET}?confirm=true`, { headers: auth() }).catch(() => {});
   await request.delete(`/isos/${ISO}?confirm=true`, { headers: auth() }).catch(() => {});
@@ -131,7 +131,7 @@ test.describe("Journal, Backups, Exports and the administrator gate", () => {
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
     await expect(main.getByRole("table")).toBeVisible({ timeout: 20_000 });
-    const asked = page.waitForRequest((r) => r.url().includes("/audit?") && r.url().includes("jusqu_a="));
+    const asked = page.waitForRequest((r) => r.url().includes("/audit?") && r.url().includes("until="));
     await main.getByLabel("Show entries until").fill("2099-01-01T00:00");
     const req = await asked;
     expect(req.url()).toContain("limit=300");

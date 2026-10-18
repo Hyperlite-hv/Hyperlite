@@ -399,7 +399,7 @@ export async function verifyBackup(id, on) {
 // Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
 // then restored here as new VMs.
 export async function scanSiteBackups(path) {
-  return realFetch(`/backups/site-recovery/scan?chemin=${encodeURIComponent(path)}`);
+  return realFetch(`/backups/site-recovery/scan?path=${encodeURIComponent(path)}`);
 }
 export async function startSiteRecovery(elements, network) {
   return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, network: network || null }) });

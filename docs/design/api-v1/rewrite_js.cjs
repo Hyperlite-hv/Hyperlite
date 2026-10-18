@@ -1,14 +1,15 @@
 // API v1 renames in JavaScript and TypeScript, by tokens (docs/design/api-v1/rewrite.py calls it).
 //   node rewrite_js.cjs RENAMES.json FILE...
 // Renamed: identifiers (variables, properties, object keys), a string that is exactly a name, and the dot- or
-// slash-separated parts of a string without spaces (a translation key, a URL path). Never: regular expressions, a
-// string with spaces (text the user reads, a pattern a test looks for), JSX text, comments, hyphenated parts (CSS).
+// slash-separated parts of a string without spaces (a translation key, a URL path, its query parameters), and the
+// parts of a URL path inside a regular expression. Never: the words of a text in a regular expression, a string
+// with spaces (text the user reads, a pattern a test looks for), JSX text, comments, hyphenated parts (CSS).
 const fs = require("fs");
 const parser = require(require.resolve("@babel/parser", { paths: [process.cwd()] }));
 
 const renames = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const ren = (w) => (Object.prototype.hasOwnProperty.call(renames, w) ? renames[w] : w);
-const parts = (s) => s.replace(/[^./{}$`'" ]+/g, (seg) => (/^[\w]+$/.test(seg) ? ren(seg) : seg));
+const parts = (s) => s.replace(/[^./{}$`'" ?&=]+/g, (seg) => (/^[\w]+$/.test(seg) ? ren(seg) : seg));
 
 for (const file of process.argv.slice(3)) {
   const src = fs.readFileSync(file, "utf8");
@@ -29,11 +30,18 @@ for (const file of process.argv.slice(3)) {
       const q = raw[0], body = raw.slice(1, -1);
       let out = body;
       if (ren(body) !== body) out = ren(body);
-      else if (!/\s/.test(body) && /[./]/.test(body)) out = parts(body);
+      else if (!/\s/.test(body) && /[./?&=]/.test(body)) out = parts(body);
       if (out !== body) edits.push([t.start, t.end, q + out + q]);
+    } else if (label === "regexp") {
+      // Only the parts of a URL path a test matches (/\/cluster\/membres\//), never the words of a text.
+      const raw = src.slice(t.start, t.end);
+      const out = raw
+        .replace(/(\\\/|\/)([a-z_]+)(?=\\\/|\/|\$|\(|\\\?|\?|$)/g, (m, sep, w) => sep + ren(w))
+        .replace(/(?<![\w])([a-z_]+)(?==)/g, (m, w) => ren(w)); // a query parameter: objet=…
+      if (out !== raw) edits.push([t.start, t.end, out]);
     } else if (label === "template") {
       const raw = src.slice(t.start, t.end);
-      if (raw && !/\s/.test(raw) && /[./]/.test(raw)) {
+      if (raw && !/\s/.test(raw) && /[./?&=]/.test(raw)) {
         const out = parts(raw);
         if (out !== raw) edits.push([t.start, t.end, out]);
       }

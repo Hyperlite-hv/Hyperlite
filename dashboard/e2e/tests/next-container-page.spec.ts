@@ -27,7 +27,7 @@ test("container page: open from the list, edit resources and DNS, start at boot,
     return r.fulfill(json(detail));
   });
   // GET /tasks?cluster=true: the tasks of every node, each marked with the node that holds it.
-  await page.route(/\/tasks\?.*objet=e2e-ct-web/, (r) => (api(r) ? r.fulfill(json({ items: [
+  await page.route(/\/tasks\?.*object=e2e-ct-web/, (r) => (api(r) ? r.fulfill(json({ items: [
     { id: "t1", type: "backup_container", target: NAME, node: null, username: "admin", status: "succeeded", progress: 100, created_at: new Date().toISOString(), started_at: new Date().toISOString(), finished_at: new Date().toISOString(), error: null, cancellable: false, clean_shutdown: false, orphaned: false, on: "hv-test" },
   ], unreachable: [] })) : r.fallback()));
 
