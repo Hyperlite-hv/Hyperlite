@@ -198,3 +198,31 @@ def test_a_new_mac_is_never_one_of_a_stopped_vm(monkeypatch):
     draws = iter([0, 0, 1, 0, 0, 2, 0, 0, 3])
     monkeypatch.setattr(network_alloc.random, "randint", lambda a, b: next(draws))
     assert network_alloc.generate_mac(Conn()) == "52:54:00:00:00:03"
+
+
+def test_the_nodes_are_asked_at_once(monkeypatch):
+    """docs/scale-results.md: asked one after the other, 100 nodes took 20 s."""
+    import threading
+    import time
+
+    here, at_once, peak, lock = FakeNetwork(), [0], [0], threading.Lock()
+
+    def open_conn(name=None):
+        with lock:
+            at_once[0] += 1
+            peak[0] = max(peak[0], at_once[0])
+        time.sleep(0.05)  # an SSH handshake
+        with lock:
+            at_once[0] -= 1
+        return FakeConn(
+            {"default": FakeNetwork(hosts={f"52:54:00:00:01:{len(name or ''):02x}": "192.168.122.9"})}
+            if name
+            else {"default": here}
+        )
+
+    monkeypatch.setattr("app.core.cluster.list_nodes", lambda: [{"name": f"n{i:02d}"} for i in range(40)])
+    monkeypatch.setattr("app.core.libvirt_utils.open_conn", open_conn)
+    t0 = time.monotonic()
+    used = network_alloc.cluster_used_ips("default")
+    assert "192.168.122.9" in used
+    assert peak[0] > 8 and time.monotonic() - t0 < 1.0  # 41 nodes of 50 ms each: 2 s one after the other
