@@ -18,7 +18,7 @@ import { PageHeader, KpiStrip, Meter, Card, Spark, Loading, TableWrap } from "..
 import { PerformanceView, useHostHistory } from "./VmPerformance";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
-const PB = new Set(["plante", "bloque", "unknown"]);
+const PB = new Set(["crashed", "blocked", "unknown"]);
 const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);
 const fmtPct = (v, lang) => new Intl.NumberFormat(lang, { maximumFractionDigits: v < 10 ? 1 : 0 }).format(v);
 
@@ -38,7 +38,7 @@ function Summary({ setView }) {
   const load = async () => {
     fetchNodeMetricsHistory("local", "1h").then((r) => setCpuHist(asList(r).map((x) => x.cpu_pct))).catch(() => {});
     fetchStorageHistory("24h").then((r) => setPoolHist(Object.fromEntries(asList(r).map((p) => [`${p.node}:${p.pool}`, p.points.map((x) => pct(x.allocation_b, x.capacity_b))])))).catch(() => {});
-    fetchTasks({ limit: 6, tri: "cree_le", ordre: "desc" }).then((r) => setRecent(asList(r))).catch(() => setRecent([]));
+    fetchTasks({ limit: 6, sort: "created_at", position: "desc" }).then((r) => setRecent(asList(r))).catch(() => setRecent([]));
     fetchBackupSchedules().then((r) => setScheduled(new Set(asList(r).map((x) => x.vm_name)))).catch(() => setScheduled(null));
   };
   useEffect(() => { load(); }, []);
@@ -48,23 +48,23 @@ function Summary({ setView }) {
   const chosenPools = usePrefs((s) => s.overviewPools);
   const shownPools = chosenPools ? storagePools.filter((p) => chosenPools.includes(poolKey(p))) : storagePools;
   const alerts = useMemo(() => deriveAlerts({ nodes, vms, storagePools, tasks }), [nodes, vms, storagePools, tasks]);
-  const online = nodes.filter((n) => n.etat === "online").length;
-  const running = vms.filter((v) => v.etat === "actif").length;
-  const problems = vms.filter((v) => PB.has(v.etat));
-  const stopped = vms.filter((v) => v.etat === "arrete").length;
-  const ctRunning = containers.filter((c) => c.etat === "actif").length;
+  const online = nodes.filter((n) => n.state === "online").length;
+  const running = vms.filter((v) => v.state === "active").length;
+  const problems = vms.filter((v) => PB.has(v.state));
+  const stopped = vms.filter((v) => v.state === "stopped").length;
+  const ctRunning = containers.filter((c) => c.state === "active").length;
   // Cluster CPU: the load of each sampled node weighted by its cores.
   const sampled = nodes.filter((n) => n.cpu_utilisation != null && n.cpu_coeurs);
   const cores = nodes.reduce((a, n) => a + (n.cpu_coeurs || 0), 0);
   const clusterCpu = sampled.length ? sampled.reduce((a, n) => a + n.cpu_utilisation * n.cpu_coeurs, 0) / sampled.reduce((a, n) => a + n.cpu_coeurs, 0) : null;
   const totalGb = nodes.reduce((a, n) => a + (n.stockage_total_go || 0), 0);
   const usedGb = nodes.reduce((a, n) => a + (n.stockage_utilise_go || 0), 0);
-  const unscheduled = scheduled ? vms.filter((v) => !scheduled.has(v.nom)).length : 0;
+  const unscheduled = scheduled ? vms.filter((v) => !scheduled.has(v.name)).length : 0;
 
   // Watch list: open alerts, nodes short on memory, then VMs without a backup schedule.
   const watch = [
     ...alerts.map((a) => ({ id: a.id, tone: a.level, text: a.text, sub: t(`alert.kind.${a.kind}`), go: a.target && (() => navigateTo(a.target.type, a.target.id, a.target.tab)) })),
-    ...nodes.filter((n) => pct(n.memoire_utilisee_mo, n.memoire_totale_mo) >= 80).map((n) => ({ id: `mem-${n.id}`, tone: "warning", text: t("ov.memHigh", { node: n.nom, p: Math.round(pct(n.memoire_utilisee_mo, n.memoire_totale_mo)) }), go: () => navigateTo("node", n.id, "perf") })),
+    ...nodes.filter((n) => pct(n.used_memory_mb, n.memoire_totale_mo) >= 80).map((n) => ({ id: `mem-${n.id}`, tone: "warning", text: t("ov.memHigh", { node: n.name, p: Math.round(pct(n.used_memory_mb, n.memoire_totale_mo)) }), go: () => navigateTo("node", n.id, "perf") })),
     ...(unscheduled > 0 ? [{ id: "backups", tone: "info", text: t("ov.noSchedule", { n: unscheduled }), action: t("ov.plan"), go: () => navigateTo("datacenter", null, "backups") }] : []),
   ];
 
@@ -72,7 +72,7 @@ function Summary({ setView }) {
     <>
       {problems.length > 0 && (
         <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" />
-          <span className="nx-bn-t"><b>{t("ov.attention", { n: problems.length })}</b> : {problems.slice(0, 3).map((v) => v.nom).join(", ")}</span>
+          <span className="nx-bn-t"><b>{t("ov.attention", { n: problems.length })}</b> : {problems.slice(0, 3).map((v) => v.name).join(", ")}</span>
           <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", vmKey(problems[0]), "summary")}>{t("dock.view")}</button></div>
       )}
       <KpiStrip label={t("ov.inventory")} items={[
@@ -93,12 +93,12 @@ function Summary({ setView }) {
                   const nv = vms.filter((v) => v.node === n.id);
                   return (
                     <tr key={n.id} className={ctx.is("node", n.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("node", n, n.id)}>
-                      <td><StatusIndicator kind="node" wire={n.etat} /></td>
-                      <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.nom}</button><small>{n.id === "local" ? t("node.roleLocal") : t("node.roleMember")}</small></th>
-                      <td><Meter value={n.cpu_utilisation} label={`${n.nom} ${t("ns.cpu")}`} /></td>
-                      <td><Meter value={pct(n.memoire_utilisee_mo, n.memoire_totale_mo)} label={`${n.nom} ${t("ns.memory")}`} /></td>
-                      <td><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${n.nom} ${t("ns.storage")}`} /></td>
-                      <td className="nx-num nx-mono">{nv.filter((v) => v.etat === "actif").length} / {nv.length}</td>
+                      <td><StatusIndicator kind="node" wire={n.state} /></td>
+                      <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.name}</button><small>{n.id === "local" ? t("node.roleLocal") : t("node.roleMember")}</small></th>
+                      <td><Meter value={n.cpu_utilisation} label={`${n.name} ${t("ns.cpu")}`} /></td>
+                      <td><Meter value={pct(n.used_memory_mb, n.memoire_totale_mo)} label={`${n.name} ${t("ns.memory")}`} /></td>
+                      <td><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${n.name} ${t("ns.storage")}`} /></td>
+                      <td className="nx-num nx-mono">{nv.filter((v) => v.state === "active").length} / {nv.length}</td>
                       <td className="nx-mono nx-muted">{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
                     </tr>
                   );
@@ -126,13 +126,13 @@ function Summary({ setView }) {
       <div className="nx-cols2 nx-cols2--fit">
         <Card title={t("ov.pools")} actions={<button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("datacenter", null, "storage")}>{t("ov.seeAll")}<ChevronRight size={14} aria-hidden="true" /></button>}>
           {storagePools.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("ov.noPools")}</p> : shownPools.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("prefs.noPoolShown")}</p> : shownPools.map((p) => {
-            const r = p.capacite_go ? ((p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go) * 100 : null;
+            const r = p.capacity_gb ? ((p.capacity_gb - (p.available_gb ?? p.capacity_gb)) / p.capacity_gb) * 100 : null;
             return (
-              <div key={`${p.node}:${p.nom}`} className="nx-cap">
-                <div className="nx-cap-nm"><b>{p.nom}</b>{(() => { const sub = [nodes.find((n) => n.id === p.node)?.nom || p.node, p.type, formatSizeGb(p.capacite_go, lang)].filter(Boolean).join(" · "); return <small title={sub}>{sub}</small>; })()}</div>
-                <span className="nx-track nx-track--wide" role="meter" aria-label={`${p.nom} ${t("stor.usage")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r == null ? undefined : Math.round(r)}><span data-tone={r >= 90 ? "danger" : r >= 80 ? "warning" : "info"} style={{ width: `${Math.round(r || 0)}%` }} /></span>
+              <div key={`${p.node}:${p.name}`} className="nx-cap">
+                <div className="nx-cap-nm"><b>{p.name}</b>{(() => { const sub = [nodes.find((n) => n.id === p.node)?.name || p.node, p.type, formatSizeGb(p.capacity_gb, lang)].filter(Boolean).join(" · "); return <small title={sub}>{sub}</small>; })()}</div>
+                <span className="nx-track nx-track--wide" role="meter" aria-label={`${p.name} ${t("stor.usage")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r == null ? undefined : Math.round(r)}><span data-tone={r >= 90 ? "danger" : r >= 80 ? "warning" : "info"} style={{ width: `${Math.round(r || 0)}%` }} /></span>
                 <span className="nx-cap-pct">{r == null ? "—" : `${Math.round(r)} %`}</span>
-                <Spark data={poolHist[`${p.node}:${p.nom}`]} />
+                <Spark data={poolHist[`${p.node}:${p.name}`]} />
               </div>
             );
           })}
@@ -154,11 +154,11 @@ function ActivityList({ items, max }) {
   return (
     <ul className="nx-list2">
       {items.slice(0, max).map((r) => {
-        const at = r.debut_le || r.cree_le;
+        const at = r.started_at || r.created_at;
         return (
           <li key={r.id}>
-            <StatusIndicator kind="task" wire={r.statut} compact />
-            <div className="nx-list2-main">{taskLabel(r.type)}{r.cible ? <> · <b>{r.cible}</b></> : null}<div className="nx-list2-sub">{r.username || t("ov.system")}</div></div>
+            <StatusIndicator kind="task" wire={r.status} compact />
+            <div className="nx-list2-main">{taskLabel(r.type)}{r.target ? <> · <b>{r.target}</b></> : null}<div className="nx-list2-sub">{r.username || t("ov.system")}</div></div>
             <span className="nx-list2-t">{new Date(at).toDateString() === today ? clockTime(at, lang) : formatDateTime(at, lang)}</span>
           </li>
         );
@@ -179,10 +179,10 @@ function Perf() {
     <>
       {nodes.length > 1 && (
         <div className="nx-bar">
-          <label className="nx-bar-lbl">{t("ns.node")}<select className="nx-sel" value={node.id} onChange={(e) => setNodeId(e.target.value)}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}</select></label>
+          <label className="nx-bar-lbl">{t("ns.node")}<select className="nx-sel" value={node.id} onChange={(e) => setNodeId(e.target.value)}>{nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
         </div>
       )}
-      <PerformanceView hist={hist} range={range} setRange={setRange} running={node.etat === "online"} title={t("ov.hostPerf", { name: node.nom })} />
+      <PerformanceView hist={hist} range={range} setRange={setRange} running={node.state === "online"} title={t("ov.hostPerf", { name: node.name })} />
     </>
   );
 }
@@ -191,7 +191,7 @@ function Events() {
   const t = useT();
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const [items, setItems] = useState(null);
-  const load = () => fetchTasks({ limit: 50, tri: "cree_le", ordre: "desc" }).then((r) => setItems(asList(r))).catch(() => setItems([]));
+  const load = () => fetchTasks({ limit: 50, sort: "created_at", position: "desc" }).then((r) => setItems(asList(r))).catch(() => setItems([]));
   useEffect(() => { load(); }, []);
   usePolling(load, 10000);
   return (

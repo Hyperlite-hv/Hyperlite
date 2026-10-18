@@ -7,7 +7,7 @@ test.describe.configure({ mode: "serial", timeout: 90_000 });
 async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });

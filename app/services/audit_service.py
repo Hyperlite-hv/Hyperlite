@@ -4,14 +4,14 @@ whose single writer thread owns the table."""
 from app.repositories import registry
 
 
-def filters(action=None, result=None, username=None, resource=None, depuis=None, jusqu_a=None):
+def filters(action=None, result=None, username=None, resource=None, since=None, until=None):
     return {
         "action": action,
         "result": result,
         "username": username,
         "resource": resource,
-        "depuis": depuis,
-        "jusqu_a": jusqu_a,
+        "since": since,
+        "until": until,
     }
 
 

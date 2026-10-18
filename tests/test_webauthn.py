@@ -106,14 +106,14 @@ def test_a_registered_key_becomes_the_second_factor_at_sign_in(client, alice):
     step = password_step(client)
     assert step["require_2fa"] is True and step["methods"] == ["webauthn"] and "access_token" not in step
     options = client.post(
-        "/auth/login/webauthn/options", json={"pre_auth_token": step["pre_auth_token"]}, headers={"Origin": ORIGIN}
+        "/auth/login/webauthn/options", json={"preauth_token": step["preauth_token"]}, headers={"Origin": ORIGIN}
     )
     assert options.status_code == 200
     assert [c["id"] for c in options.json()["allowCredentials"]] == [bytes_to_base64url(key.credential_id)]
     answer = key.get(options.json())
     r = client.post(
         "/auth/login/webauthn",
-        json={"pre_auth_token": step["pre_auth_token"], "credential": answer},
+        json={"preauth_token": step["preauth_token"], "credential": answer},
         headers={"Origin": ORIGIN},
     )
     assert r.status_code == 200, r.text
@@ -123,7 +123,7 @@ def test_a_registered_key_becomes_the_second_factor_at_sign_in(client, alice):
     # The same answer again: its challenge was used up.
     replay = client.post(
         "/auth/login/webauthn",
-        json={"pre_auth_token": step["pre_auth_token"], "credential": answer},
+        json={"preauth_token": step["preauth_token"], "credential": answer},
         headers={"Origin": ORIGIN},
     )
     assert replay.status_code == 401
@@ -134,11 +134,11 @@ def test_a_wrong_signature_is_refused_and_counts_as_a_failure(client, alice, dat
     register(client, alice, key)
     step = password_step(client)
     options = client.post(
-        "/auth/login/webauthn/options", json={"pre_auth_token": step["pre_auth_token"]}, headers={"Origin": ORIGIN}
+        "/auth/login/webauthn/options", json={"preauth_token": step["preauth_token"]}, headers={"Origin": ORIGIN}
     ).json()
     r = client.post(
         "/auth/login/webauthn",
-        json={"pre_auth_token": step["pre_auth_token"], "credential": key.get(options, tamper=True)},
+        json={"preauth_token": step["preauth_token"], "credential": key.get(options, tamper=True)},
         headers={"Origin": ORIGIN},
     )
     assert r.status_code == 401
@@ -154,17 +154,17 @@ def test_another_key_or_another_host_name_does_not_sign_in(client, alice):
     # Another name for the same server: the key was registered for hyperlite.example.lan only.
     r = client.post(
         "/auth/login/webauthn/options",
-        json={"pre_auth_token": step["pre_auth_token"]},
+        json={"preauth_token": step["preauth_token"]},
         headers={"Origin": "https://hl.other.lan"},
     )
     assert r.status_code == 400 and "registered for hl.other.lan" in r.json()["detail"]
     # A key that was never registered answers the right challenge.
     options = client.post(
-        "/auth/login/webauthn/options", json={"pre_auth_token": step["pre_auth_token"]}, headers={"Origin": ORIGIN}
+        "/auth/login/webauthn/options", json={"preauth_token": step["preauth_token"]}, headers={"Origin": ORIGIN}
     ).json()
     r = client.post(
         "/auth/login/webauthn",
-        json={"pre_auth_token": step["pre_auth_token"], "credential": SoftKey().get(options)},
+        json={"preauth_token": step["preauth_token"], "credential": SoftKey().get(options)},
         headers={"Origin": ORIGIN},
     )
     assert r.status_code == 401

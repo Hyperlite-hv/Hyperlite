@@ -21,11 +21,11 @@ def test_a_task_lifecycle(repos):
     tasks, _audit = repos
     tasks.sync.create("t1", "create_vm", "web", None, "alice", "2026-09-30T10:00:00")
     tasks.sync.update_progress("t1", 40)
-    assert tasks.sync.status("t1") == "running" and run(tasks.get("t1"))["progres"] == 40
+    assert tasks.sync.status("t1") == "running" and run(tasks.get("t1"))["progress"] == 40
     tasks.sync.append_log("t1", "disk copied", "2026-09-30T10:00:05")
     tasks.sync.finish("t1", "failed", "no space", None, "2026-09-30T10:01:00")
     task = run(tasks.get("t1"))
-    assert (task["statut"], task["erreur"], task["progres"]) == ("failed", "no space", 100)
+    assert (task["status"], task["error"], task["progress"]) == ("failed", "no space", 100)
     assert [line["message"] for line in run(tasks.logs("t1"))] == [
         "Started by alice",
         "disk copied",
@@ -37,10 +37,10 @@ def test_filters_sort_and_export(repos):
     tasks, _audit = repos
     for i, (type_, target) in enumerate([("create_vm", "web"), ("backup_container", "db"), ("create_vm", "web-2")]):
         tasks.sync.create(f"t{i}", type_, target, None, "alice", f"2026-09-30T10:0{i}:00")
-    assert [t["id"] for t in run(tasks.list({"cible": "web"}))] == ["t2", "t0"]
-    assert [t["id"] for t in run(tasks.list({"objet": "web"}))] == ["t0"]
-    assert [t["id"] for t in run(tasks.list({"famille": "container"}))] == ["t1"]
-    assert [t["id"] for t in run(tasks.list({}, sort="cree_le", order="asc", limit=2))] == ["t0", "t1"]
+    assert [t["id"] for t in run(tasks.list({"target": "web"}))] == ["t2", "t0"]
+    assert [t["id"] for t in run(tasks.list({"object": "web"}))] == ["t0"]
+    assert [t["id"] for t in run(tasks.list({"family": "container"}))] == ["t1"]
+    assert [t["id"] for t in run(tasks.list({}, sort="created_at", order="asc", limit=2))] == ["t0", "t1"]
     assert run(tasks.list({}, sort="1; DROP TABLE tasks"))[0]["id"] == "t2"  # unknown sort: the default
     assert [row[0] for row in tasks.export_rows({"type": "create_vm"})] == ["t2", "t0"]
 
@@ -49,7 +49,7 @@ def test_interrupted_tasks_are_closed_and_stats_count_them(repos):
     tasks, _audit = repos
     tasks.sync.create("t1", "migrate_vm", "web", None, None, "2026-09-30T10:00:00")
     assert tasks.sync.close_interrupted("2026-09-30T11:00:00") == 1
-    assert run(tasks.get("t1"))["statut"] == "failed"
+    assert run(tasks.get("t1"))["status"] == "failed"
     assert run(tasks.stats()) == {"running": 0, "total": 1, "failed": 1, "avg_duration_s": 0}
     assert tasks.sync.latest_running("migrate_vm", "2026-09-30T00:00:00") is None
 

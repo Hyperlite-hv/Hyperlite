@@ -57,9 +57,9 @@ def list_cluster_isos(user: dict = Depends(get_current_user)):
 
 
 class IsoCopy(BaseModel):
-    nom: str
+    name: str
     source: str = "local"
-    cibles: list[str]
+    targets: list[str]
 
 
 @router.post("/copy", status_code=202)
@@ -68,14 +68,14 @@ def copy_iso(payload: IsoCopy, user: dict = Depends(require_role("admin"))):
     from app.core.iso_share import start_copy
 
     try:
-        tasks = start_copy(payload.nom, payload.source, payload.cibles, user["username"])
+        tasks = start_copy(payload.name, payload.source, payload.targets, user["username"])
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return {"nom": payload.nom, "taches": tasks}
+    return {"name": payload.name, "tasks": tasks}
 
 
 def _refresh_iso_pool(path):
@@ -145,7 +145,7 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
 
     _refresh_iso_pool(dest)
     log_action(user["username"], "upload_iso", filename, "success", task_id=task_id)
-    return {"nom": filename, "taille_mo": round(dest.stat().st_size / (1024 * 1024), 1)}
+    return {"name": filename, "size_mb": round(dest.stat().st_size / (1024 * 1024), 1)}
 
 
 class IsoRename(BaseModel):
@@ -187,7 +187,7 @@ def rename_iso(filename: str, payload: IsoRename, user: dict = Depends(require_r
         raise HTTPException(status_code=500, detail=f"Rename failed: {describe_exception(e)}") from e
     _refresh_iso_pool(target)
     log_action(user["username"], "rename_iso", old, "success", f"-> {new}")
-    return {"nom": new, "ancien": old}
+    return {"name": new, "old": old}
 
 
 @router.delete("/{filename}")
@@ -227,4 +227,4 @@ def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: 
             raise HTTPException(status_code=502, detail=f"Deletion on {node} failed: {e}") from e
     target = filename if remote is None else f"{filename} ({node})"
     log_action(user["username"], "delete_iso", target, "success")
-    return {"nom": filename, "node": node, "supprime": True}
+    return {"name": filename, "node": node, "deleted": True}

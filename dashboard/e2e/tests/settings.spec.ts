@@ -22,7 +22,7 @@ test.beforeAll(async ({ request }) => {
 test.describe("Storage pools (real libvirt backend)", () => {
   const POOL = `${PREFIX}pool-${stamp}`;
   test.afterAll(async ({ request }) => {
-    await request.delete(`/storage/${POOL}?confirm=true&detacher=true`, { headers: auth() });
+    await request.delete(`/storage/${POOL}?confirm=true&detach=true`, { headers: auth() });
     rmSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`, { recursive: true, force: true });
   });
 
@@ -36,8 +36,8 @@ test.describe("Storage pools (real libvirt backend)", () => {
     await form.getByRole("button", { name: "Create a pool", exact: true }).click();
     await expect(page.getByRole("button", { name: `Delete pool ${POOL}` })).toBeVisible();
 
-    const pools = (await (await request.get("/storage", { headers: auth() })).json()) as Array<{ nom: string; etat: string }>;
-    expect(pools.find((p) => p.nom === POOL)?.etat).toBeTruthy();
+    const pools = (await (await request.get("/storage", { headers: auth() })).json()) as Array<{ name: string; state: string }>;
+    expect(pools.find((p) => p.name === POOL)?.state).toBeTruthy();
     expect(existsSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`), "pool directory exists on the host").toBe(true);
 
     await page.reload();
@@ -50,8 +50,8 @@ test.describe("Storage pools (real libvirt backend)", () => {
     await page.getByRole("button", { name: `Delete pool ${POOL}` }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByRole("button", { name: `Delete pool ${POOL}` })).toHaveCount(0);
-    const after = (await (await request.get("/storage", { headers: auth() })).json()) as Array<{ nom: string }>;
-    expect(after.map((p) => p.nom)).not.toContain(POOL);
+    const after = (await (await request.get("/storage", { headers: auth() })).json()) as Array<{ name: string }>;
+    expect(after.map((p) => p.name)).not.toContain(POOL);
     expect(existsSync(`/var/lib/libvirt/hyperlite-pools/${POOL}`), "the directory itself is kept").toBe(true);
   });
 
@@ -170,7 +170,7 @@ test.describe("Account security", () => {
     const first = await request.post("/auth/login", { form: USER });
     const step1 = await first.json();
     expect(step1.require_2fa).toBe(true);
-    expect((await request.get("/auth/me", { headers: { Authorization: `Bearer ${step1.pre_auth_token}` } })).status()).toBe(401);
+    expect((await request.get("/auth/me", { headers: { Authorization: `Bearer ${step1.preauth_token}` } })).status()).toBe(401);
 
     await accountMenu(page, "Sign out");
     await page.getByLabel("Username").fill(USER.username);
@@ -197,9 +197,9 @@ test.describe("Account security", () => {
 });
 
 test.describe("Settings persist and secrets are never returned", () => {
-  test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM but the host's threads", async ({ page, request }) => {
+  test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM purpose the host's threads", async ({ page, request }) => {
     const limits = (await (await request.get("/host/limits", { headers: auth() })).json()) as Record<string, { source?: string; max?: number }>;
-    for (const key of ["memoire_mo", "disque_go", "disques"]) expect(limits[key].source, key).toBe("technique");
+    for (const key of ["memory_mb", "disk_gb", "disks"]) expect(limits[key].source, key).toBe("technique");
     // A VM's vCPUs stop at the host's CPU threads, as on Proxmox.
     expect(limits.vcpu.source).toBe("materiel");
     expect(limits.vcpu.max).toBeGreaterThanOrEqual(1);

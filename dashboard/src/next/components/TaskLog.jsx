@@ -8,7 +8,7 @@ import { useT, useLangStore } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { usePolling } from "../lib/polling";
 
-const running = (task) => task.statut === "running" || task.statut === "pending";
+const running = (task) => task.status === "running" || task.status === "pending";
 
 // The log has no level of its own: the terminal view reads one from the words of each line, for colour only.
 export function lineLevel(message) {
@@ -51,24 +51,24 @@ export default function TaskLog({ task, onChanged, terminal = false }) {
     setBusy(true);
     try {
       const r = await cancelTask(task.id, copy.force, task.on);
-      pushToast({ kind: "success", title: r.resultat === "requested" ? t("tl.requested") : t("tl.closed"), message: task.cible || task.type });
+      pushToast({ kind: "success", title: r.result === "requested" ? t("tl.requested") : t("tl.closed"), message: task.target || task.type });
       load(); onChanged?.();
     } catch (e) { pushToast({ kind: "error", title: t("tl.cancelFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
 
   const controls = running(task) && mine && (
     <div className="nx-inline nx-tasklog-acts">
-      {task.arret_propre && <button type="button" className="nx-btn nx-btn--sm" disabled={busy} onClick={() => stop("cancel")}><CircleStop size={14} aria-hidden="true" />{t("tl.cancel")}</button>}
-      {!task.arret_propre && task.orpheline && <button type="button" className="nx-btn nx-btn--sm" disabled={busy} onClick={() => stop("close")}><CircleStop size={14} aria-hidden="true" />{t("tl.close")}</button>}
-      {!task.arret_propre && !task.orpheline && <span className="nx-muted">{t("tl.noStop")}</span>}
-      {!task.arret_propre && !task.orpheline && admin && <button type="button" className="nx-btn nx-btn--sm nx-btn--danger" disabled={busy} onClick={() => stop("force")}>{t("tl.force")}</button>}
+      {task.clean_shutdown && <button type="button" className="nx-btn nx-btn--sm" disabled={busy} onClick={() => stop("cancel")}><CircleStop size={14} aria-hidden="true" />{t("tl.cancel")}</button>}
+      {!task.clean_shutdown && task.orphaned && <button type="button" className="nx-btn nx-btn--sm" disabled={busy} onClick={() => stop("close")}><CircleStop size={14} aria-hidden="true" />{t("tl.close")}</button>}
+      {!task.clean_shutdown && !task.orphaned && <span className="nx-muted">{t("tl.noStop")}</span>}
+      {!task.clean_shutdown && !task.orphaned && admin && <button type="button" className="nx-btn nx-btn--sm nx-btn--danger" disabled={busy} onClick={() => stop("force")}>{t("tl.force")}</button>}
     </div>
   );
 
   if (terminal) {
     const all = [...(lines || [])];
     // The task's final error is the last word of its log, when the log itself did not say it.
-    if (task.erreur && !all.some((l) => l.message === task.erreur)) all.push({ at: task.fin_le || null, message: task.erreur, level: "error" });
+    if (task.error && !all.some((l) => l.message === task.error)) all.push({ at: task.finished_at || null, message: task.error, level: "error" });
     return (
       <div className="nx-tasklog nx-tasklog--term">
         {controls}

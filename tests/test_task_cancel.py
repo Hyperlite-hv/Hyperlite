@@ -33,8 +33,8 @@ def test_a_stoppable_task_is_asked_to_stop_and_ends_as_cancelled(database):
         tasks.raise_if_cancelled(task_id)
     tasks.finish_task(task_id, "failed", "The move was cancelled")
     row = _row(database, task_id)
-    assert row["statut"] == "failed" and row["annule_par"] == "bob"
-    assert row["erreur"] == "Cancelled by bob: The move was cancelled"
+    assert row["status"] == "failed" and row["cancelled_by"] == "bob"
+    assert row["error"] == "Cancelled by bob: The move was cancelled"
     assert not tasks.cancellable(task_id)
     with pytest.raises(ValueError):
         tasks.request_cancel(task_id, "bob")  # already over
@@ -45,31 +45,31 @@ def test_a_task_that_finishes_despite_the_request_stays_successful(database):
     tasks.register_cancel(task_id)
     tasks.request_cancel(task_id, "bob")
     tasks.finish_task(task_id, "succeeded")
-    assert _row(database, task_id)["statut"] == "succeeded" and _row(database, task_id)["annule_par"] is None
+    assert _row(database, task_id)["status"] == "succeeded" and _row(database, task_id)["cancelled_by"] is None
 
 
 def test_a_running_task_without_a_clean_stop_is_refused_unless_forced(database):
     task_id = tasks.create_task("restore_backup", "web")
     with pytest.raises(tasks.NotStoppable):
         tasks.request_cancel(task_id, "bob")
-    assert _row(database, task_id)["statut"] == "running"
+    assert _row(database, task_id)["status"] == "running"
     assert tasks.request_cancel(task_id, "bob", force=True) == "abandoned"
     row = _row(database, task_id)
-    assert row["statut"] == "failed" and "may still be running" in row["erreur"]
+    assert row["status"] == "failed" and "may still be running" in row["error"]
 
 
 def test_a_task_nobody_runs_is_closed_and_restarts_close_the_leftovers(database):
     with database.get_conn() as conn:
         for tid in ("orphan", "leftover"):
             conn.execute(
-                "INSERT INTO tasks (id, type, cible, statut, cree_le) VALUES (?, 'backup_vm', 'web', 'running', 'x')",
+                "INSERT INTO tasks (id, type, target, status, created_at) VALUES (?, 'backup_vm', 'web', 'running', 'x')",
                 (tid,),
             )
         conn.commit()
     assert tasks.request_cancel("orphan", "bob") == "abandoned"
-    assert "no process was running it" in _row(database, "orphan")["erreur"]
+    assert "no process was running it" in _row(database, "orphan")["error"]
     assert tasks.close_interrupted_tasks() == 1
-    assert _row(database, "leftover")["erreur"].startswith("Interrupted: the Hyperlite service restarted")
+    assert _row(database, "leftover")["error"].startswith("Interrupted: the Hyperlite service restarted")
 
 
 def test_the_api_lists_logs_and_cancels_with_the_right_rules(client, auth_headers, database):
@@ -78,18 +78,18 @@ def test_the_api_lists_logs_and_cancels_with_the_right_rules(client, auth_header
     task_id = tasks.create_task("move_disk", "web", username="admin")
     tasks.register_cancel(task_id)
     listed = next(t for t in client.get("/tasks", headers=admin).json() if t["id"] == task_id)
-    assert listed["annulable"] and listed["arret_propre"] and not listed["orpheline"]
+    assert listed["cancellable"] and listed["clean_shutdown"] and not listed["orphaned"]
     assert client.get(f"/tasks/{task_id}/log", headers=viewer).json()[0]["message"] == "Started by admin"
     assert client.get("/tasks/nope/log", headers=admin).status_code == 404
     assert client.post(f"/tasks/{task_id}/cancel", headers=viewer).status_code == 403  # not theirs
-    assert client.post(f"/tasks/{task_id}/cancel", headers=admin).json() == {"resultat": "requested"}
+    assert client.post(f"/tasks/{task_id}/cancel", headers=admin).json() == {"result": "requested"}
     tasks.finish_task(task_id, "failed", "stopped")
     assert client.post(f"/tasks/{task_id}/cancel", headers=admin).status_code == 409
 
     stuck = tasks.create_task("restore_backup", "web", username="viewer")
     assert client.post(f"/tasks/{stuck}/cancel", headers=viewer).status_code == 409  # cannot stop midway
     assert client.post(f"/tasks/{stuck}/cancel?force=true", headers=viewer).status_code == 403  # admin only
-    assert client.post(f"/tasks/{stuck}/cancel?force=true", headers=admin).json() == {"resultat": "abandoned"}
+    assert client.post(f"/tasks/{stuck}/cancel?force=true", headers=admin).json() == {"result": "abandoned"}
 
 
 def test_cancelling_a_job_run_stops_the_command_in_progress(database):
@@ -98,7 +98,7 @@ def test_cancelling_a_job_run_stops_the_command_in_progress(database):
     with database.get_conn() as conn:
         cur = conn.execute("INSERT INTO jobs (name, created_by, created_at) VALUES ('slow', 'x', 'now')")
         conn.execute(
-            "INSERT INTO job_steps (job_id, ordre, cible_type, commande, condition_type, condition_valeur) "
+            "INSERT INTO job_steps (job_id, position, target_type, command, condition_type, condition_value) "
             "VALUES (?, 0, 'host', 'sleep 30', 'exit_code', '0')",
             (cur.lastrowid,),
         )
@@ -114,10 +114,10 @@ def test_cancelling_a_job_run_stops_the_command_in_progress(database):
     time.sleep(0.2)  # the command is running
     started = time.monotonic()
     assert tasks.request_cancel(task_id, "bob") == "requested"
-    while _row(database, task_id)["statut"] == "running":
+    while _row(database, task_id)["status"] == "running":
         assert time.monotonic() - started < 5, "the run did not stop"
         time.sleep(0.05)
-    assert _row(database, task_id)["erreur"].startswith("Cancelled by bob")
+    assert _row(database, task_id)["error"].startswith("Cancelled by bob")
 
 
 def test_cancelling_a_live_disk_move_aborts_the_mirror(tmp_path):

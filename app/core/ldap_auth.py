@@ -269,17 +269,17 @@ def test(fields_override=None, username=None, password=None):
             service.unbind()
     except LDAPException as e:
         raise LdapError(f"The directory could not be reached: {e}") from e
-    out = {"connexion": True}
+    out = {"connection": True}
     if username:
         result = check(cfg, username, password)
         if result is None:
-            out["utilisateur"] = {"accepte": False}
+            out["user"] = {"accepted": False}
         else:
             dn, groups = result
-            out["utilisateur"] = {
-                "accepte": True,
+            out["user"] = {
+                "accepted": True,
                 "dn": dn,
-                "groupes": [str(g) for g in groups],
+                "groups": [str(g) for g in groups],
                 "role": role_for(cfg, groups),
             }
     return out

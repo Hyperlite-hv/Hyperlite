@@ -25,20 +25,20 @@ export default function MigrateDialog({ vm, targets, onClose }) {
     if (!target) { setCheck(null); return undefined; }
     let alive = true;
     setCheck({ loading: true });
-    fetchMigrationCheck(vm.nom, target, vm.node)
+    fetchMigrationCheck(vm.name, target, vm.node)
       .then((report) => alive && setCheck({ report }))
       .catch((e) => alive && setCheck({ error: errorMessage(e) }));
     return () => { alive = false; };
-  }, [target, vm.nom, vm.node]);
+  }, [target, vm.name, vm.node]);
 
-  const blocked = Boolean(check?.report?.resume?.bloquant) && !ignore;
-  const name = targets.find((n) => n.id === target)?.nom || target;
+  const blocked = Boolean(check?.report?.resume?.blocking) && !ignore;
+  const name = targets.find((n) => n.id === target)?.name || target;
 
   async function start() {
     setBusy(true);
     try {
-      await migrateVM(vm.nom, target, vm.node, ignore);
-      pushToast({ kind: "success", title: t("mig.started"), message: t("mig.startedMsg", { vm: vm.nom, node: name }) });
+      await migrateVM(vm.name, target, vm.node, ignore);
+      pushToast({ kind: "success", title: t("mig.started"), message: t("mig.startedMsg", { vm: vm.name, node: name }) });
       onClose();
       refreshAll?.();
     } catch (e) {
@@ -50,18 +50,18 @@ export default function MigrateDialog({ vm, targets, onClose }) {
   return (
     <div className="nx-scrim" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="nx-dialog" role="dialog" aria-modal="true" aria-labelledby="mig-title" onKeyDown={(e) => { if (e.key === "Escape" && !busy) { e.stopPropagation(); onClose(); } }}>
-        <h2 id="mig-title">{t("mig.title", { name: vm.nom })}</h2>
+        <h2 id="mig-title">{t("mig.title", { name: vm.name })}</h2>
         <p className="nx-muted" style={{ margin: 0 }}>{t("mig.help")}</p>
         <label className="nx-dialog-field">{t("mig.target")}
           <select ref={first} className="nx-input" value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
             <option value="">{t("mig.choose")}</option>
-            {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+            {targets.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
           </select>
         </label>
         {check?.loading && <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("mig.checking")}</p>}
         {check?.error && <p className="nx-notice nx-notice--warning" role="status" style={{ margin: 0 }}>{t("mig.checkFailed", { error: check.error })}</p>}
         {check?.report && <CompatChecks report={check.report} labels={{ blocking: t("cc.blocking"), warning: t("cc.warning"), ok: t("cc.ok"), allOk: t("cc.allOk"), action: t("cc.action"), toggle: (show, n) => t(show ? "cc.hideOk" : "cc.showOk", { n }) }} />}
-        {check?.report?.resume?.bloquant && (
+        {check?.report?.resume?.blocking && (
           <label className="nx-check"><input type="checkbox" checked={ignore} onChange={(e) => setIgnore(e.target.checked)} disabled={busy} /> {t("mig.ignore")}</label>
         )}
         <div className="nx-dialog-actions">

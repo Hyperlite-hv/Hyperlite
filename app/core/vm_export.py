@@ -38,9 +38,9 @@ def list_exports():
         st = p.stat()
         result.append(
             {
-                "nom": p.name,
-                "taille_octets": st.st_size,
-                "modifie_le": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+                "name": p.name,
+                "size_bytes": st.st_size,
+                "modified_at": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
             }
         )
     return result
@@ -80,7 +80,7 @@ def run_export(vm_name, username="system"):
             update_task_progress(task_id, 100)
             finish_task(task_id, "succeeded")
             log_action(username, "export_vm", vm_name, "success", f"-> {final.name}")
-            return {"nom": final.name, "taille_octets": final.stat().st_size, "task_id": task_id}
+            return {"name": final.name, "size_bytes": final.stat().st_size, "task_id": task_id}
         except Exception as e:
             msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
             finish_task(task_id, "failed", msg)

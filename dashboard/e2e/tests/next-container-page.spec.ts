@@ -9,8 +9,8 @@ const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
 
 test("container page: open from the list, edit resources and DNS, start at boot, see its tasks", async ({ page }) => {
   let detail = {
-    nom: NAME, etat: "actif", mode: "systeme", image: null, stockage: null, id: 3, uuid: "u", vcpu: 1, memoire_mo: 512, ip: "10.0.0.5",
-    utilisateur_ssh: "ops", interfaces: [{ reseau: "default", mac: "52:54:00:aa:bb:cc" }], dns: ["1.1.1.1"], demarrage_auto: false,
+    name: NAME, state: "active", mode: "system", image: null, storage: null, id: 3, uuid: "u", vcpu: 1, memory_mb: 512, ip: "10.0.0.5",
+    ssh_user: "ops", interfaces: [{ network: "default", mac: "52:54:00:aa:bb:cc" }], dns: ["1.1.1.1"], autostart: false,
   };
   const patches: unknown[] = [];
   await uiLogin(page);
@@ -20,15 +20,15 @@ test("container page: open from the list, edit resources and DNS, start at boot,
     if (r.request().method() === "PATCH") {
       const body = r.request().postDataJSON();
       patches.push(body);
-      detail = { ...detail, ...(body.vcpu ? { vcpu: body.vcpu } : {}), ...(body.memory_mb ? { memoire_mo: body.memory_mb } : {}),
-        ...(body.dns ? { dns: body.dns } : {}), ...(body.demarrage_auto !== undefined ? { demarrage_auto: body.demarrage_auto } : {}) };
-      return r.fulfill(json({ ...detail, a_redemarrer: Boolean(body.vcpu) }));
+      detail = { ...detail, ...(body.vcpu ? { vcpu: body.vcpu } : {}), ...(body.memory_mb ? { memory_mb: body.memory_mb } : {}),
+        ...(body.dns ? { dns: body.dns } : {}), ...(body.autostart !== undefined ? { autostart: body.autostart } : {}) };
+      return r.fulfill(json({ ...detail, needs_restart: Boolean(body.vcpu) }));
     }
     return r.fulfill(json(detail));
   });
   // GET /tasks?cluster=true: the tasks of every node, each marked with the node that holds it.
-  await page.route(/\/tasks\?.*objet=e2e-ct-web/, (r) => (api(r) ? r.fulfill(json({ items: [
-    { id: "t1", type: "backup_container", cible: NAME, node: null, username: "admin", statut: "succeeded", progres: 100, cree_le: new Date().toISOString(), debut_le: new Date().toISOString(), fin_le: new Date().toISOString(), erreur: null, annulable: false, arret_propre: false, orpheline: false, on: "hv-test" },
+  await page.route(/\/tasks\?.*object=e2e-ct-web/, (r) => (api(r) ? r.fulfill(json({ items: [
+    { id: "t1", type: "backup_container", target: NAME, node: null, username: "admin", status: "succeeded", progress: 100, created_at: new Date().toISOString(), started_at: new Date().toISOString(), finished_at: new Date().toISOString(), error: null, cancellable: false, clean_shutdown: false, orphaned: false, on: "hv-test" },
   ], unreachable: [] })) : r.fallback()));
 
   await page.goto("/datacenter?tab=containers");
@@ -51,7 +51,7 @@ test("container page: open from the list, edit resources and DNS, start at boot,
 
   await main.getByLabel("Start this container when the host starts").check();
   await expect(page.getByText("Start at boot saved")).toBeVisible();
-  expect(patches).toEqual([{ vcpu: 2, memory_mb: 1024 }, { dns: ["10.0.0.53", "9.9.9.9"] }, { demarrage_auto: true }]);
+  expect(patches).toEqual([{ vcpu: 2, memory_mb: 1024 }, { dns: ["10.0.0.53", "9.9.9.9"] }, { autostart: true }]);
 
   await page.getByRole("tab", { name: "Tasks" }).click();
   await expect(main.getByRole("table")).toContainText(NAME);

@@ -64,13 +64,13 @@ def validate_target(path):
 def validate(payload):
     from app.core.backups import DEFAULT_BACKUP_DIR
 
-    name = (payload.get("nom") or "").strip()
+    name = (payload.get("name") or "").strip()
     if not NAME_RE.match(name):
         raise GroupError("Invalid name: letters, digits, spaces, dots, dashes, 64 characters at most")
     selection = payload.get("selection")
-    value = (payload.get("valeur") or "").strip() or None
+    value = (payload.get("value") or "").strip() or None
     if selection not in ("all", "tag", "pool"):
-        raise GroupError("selection must be toutes, etiquette or pool")
+        raise GroupError("selection must be all, etiquette or pool")
     if selection == "tag":
         tags = object_meta.normalize_tags([value or ""])
         if not tags:
@@ -81,18 +81,18 @@ def validate(payload):
             raise GroupError("Choose an existing pool")
     else:
         value = None
-    excluded = sorted({str(v) for v in payload.get("exclues") or [] if v})
-    if payload.get("frequence") not in FREQUENCIES:
+    excluded = sorted({str(v) for v in payload.get("excluded") or [] if v})
+    if payload.get("frequency") not in FREQUENCIES:
         raise GroupError("Invalid frequency")
-    if not TIME_RE.match(payload.get("heure") or ""):
+    if not TIME_RE.match(payload.get("time") or ""):
         raise GroupError("Invalid time (expected HH:MM)")
-    target = validate_target(payload.get("cible_dir")) or str(DEFAULT_BACKUP_DIR)
+    target = validate_target(payload.get("target_dir")) or str(DEFAULT_BACKUP_DIR)
     policy = {}
     for key, low, high in (
         ("retention_count", 1, 365),
-        ("garder_jours", 1, 366),
-        ("garder_semaines", 1, 260),
-        ("garder_mois", 1, 120),
+        ("keep_days", 1, 366),
+        ("keep_weeks", 1, 260),
+        ("keep_months", 1, 120),
     ):
         v = payload.get(key)
         if v is None and key != "retention_count":
@@ -102,22 +102,22 @@ def validate(payload):
             raise GroupError(f"{key} must be between {low} and {high}")
         policy[key] = v
     return {
-        "nom": name,
+        "name": name,
         "selection": selection,
-        "valeur": value,
-        "exclues": excluded,
-        "frequence": payload["frequence"],
-        "heure": payload["heure"],
-        "cible_dir": target,
-        "actif": bool(payload.get("actif", True)),
+        "value": value,
+        "excluded": excluded,
+        "frequency": payload["frequency"],
+        "time": payload["time"],
+        "target_dir": target,
+        "active": bool(payload.get("active", True)),
         **policy,
     }
 
 
 def _row(row):
     d = dict(row)
-    d["exclues"] = json.loads(d["exclues"] or "[]")
-    d["actif"] = bool(d["actif"])
+    d["excluded"] = json.loads(d["excluded"] or "[]")
+    d["active"] = bool(d["active"])
     d["running"] = d["id"] in _running
     return d
 
@@ -141,18 +141,18 @@ def get_job(job_id):
 
 
 COLS = (
-    "nom",
+    "name",
     "selection",
-    "valeur",
-    "exclues",
-    "frequence",
-    "heure",
-    "cible_dir",
+    "value",
+    "excluded",
+    "frequency",
+    "time",
+    "target_dir",
     "retention_count",
-    "garder_jours",
-    "garder_semaines",
-    "garder_mois",
-    "actif",
+    "keep_days",
+    "keep_weeks",
+    "keep_months",
+    "active",
 )
 
 
@@ -160,9 +160,9 @@ def save_job(payload, job_id=None):
     from app.core.backups import _next_run
 
     clean = validate(payload)
-    next_run = _next_run(clean["frequence"], clean["heure"]).isoformat()
-    if _store().group_name_taken(clean["nom"], job_id):
-        raise GroupError(f"A backup job named '{clean['nom']}' already exists")
+    next_run = _next_run(clean["frequency"], clean["time"]).isoformat()
+    if _store().group_name_taken(clean["name"], job_id):
+        raise GroupError(f"A backup job named '{clean['name']}' already exists")
     job_id = _store().save_group_job([clean[c] for c in COLS], next_run, job_id)
     return get_job(job_id)
 
@@ -184,14 +184,14 @@ def resolve(job, local_names=None):
     names = local_names if local_names is not None else _local_vm_names()
     if job["selection"] == "tag":
         tagged = {
-            m["nom"] for m in object_meta.list_all("vm") if m["node"] in (None, "local") and job["valeur"] in m["tags"]
+            m["name"] for m in object_meta.list_all("vm") if m["node"] in (None, "local") and job["value"] in m["tags"]
         }
         names = [n for n in names if n in tagged]
     elif job["selection"] == "pool":
-        pool = next((p for p in permissions.list_pools() if str(p["id"]) == str(job["valeur"])), None)
+        pool = next((p for p in permissions.list_pools() if str(p["id"]) == str(job["value"])), None)
         members = set(pool["vms"]) if pool else set()
         names = [n for n in names if n in members]
-    excluded = set(job["exclues"])
+    excluded = set(job["excluded"])
     return [n for n in names if n not in excluded]
 
 
@@ -209,7 +209,7 @@ def run_job(job, username="scheduler"):
         policy = backup_retention.policy_of(job)
         for vm in resolve(job):
             try:
-                backup_id = run_backup(vm, job["cible_dir"], username=username)
+                backup_id = run_backup(vm, job["target_dir"], username=username)
             except vm_locks.VmBusy as e:
                 results[vm] = f"skipped: {e}"
                 continue
@@ -241,13 +241,13 @@ def run_due(now):
         log_action(
             "scheduler",
             "backup_group",
-            job["nom"],
+            job["name"],
             "failed" if failed else "success",
             "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VMs",
         )
         _store().record_group_run(
             job["id"],
             now.isoformat(),
-            _next_run(job["frequence"], job["heure"], now).isoformat(),
-            shared_next=row["prochaine_partagee"] if own else None,
+            _next_run(job["frequency"], job["time"], now).isoformat(),
+            shared_next=row["next_shared"] if own else None,
         )

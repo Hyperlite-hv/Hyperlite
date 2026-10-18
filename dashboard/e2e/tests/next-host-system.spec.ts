@@ -16,18 +16,18 @@ test("node updates and system settings", async ({ page }) => {
     const method = r.request().method();
     if (method !== "GET") sent.push([method, path, r.request().postDataJSON()]);
     if (path === "updates") return r.fulfill(json({
-      disponible: true, redemarrage_requis: true, paquets_redemarrage: ["linux-image-6.1"], actualise_le: 1900000000,
-      paquets: [
-        { nom: "openssl", version: "3.0.13-2", depuis: "3.0.13-1", securite: true },
-        { nom: "base-files", version: "13.5", depuis: "13.4", securite: false },
-        { nom: "hyperlite", version: "2026.10.1", depuis: "2026.09.1", securite: false },
+      available: true, restart_required: true, packages_needing_restart: ["linux-image-6.1"], refreshed_at: 1900000000,
+      packages: [
+        { name: "openssl", version: "3.0.13-2", since: "3.0.13-1", security: true },
+        { name: "base-files", version: "13.5", since: "13.4", security: false },
+        { name: "hyperlite", version: "2026.10.1", since: "2026.09.1", security: false },
       ],
     }));
-    if (path === "updates/upgrade") return r.fulfill(json({ tache: "t1" }, 202));
-    if (path === "dns") return r.fulfill(json({ gere_par: "fichier", modifiable: true, serveurs: method === "PUT" ? ["9.9.9.9"] : ["1.1.1.1"], recherche: [] }));
+    if (path === "updates/upgrade") return r.fulfill(json({ task: "t1" }, 202));
+    if (path === "dns") return r.fulfill(json({ managed_by: "file", modifiable: true, servers: method === "PUT" ? ["9.9.9.9"] : ["1.1.1.1"], recherche: [] }));
     if (path === "time/zones") return r.fulfill(json(["Etc/UTC", "Europe/Paris"]));
-    if (path === "time") return r.fulfill(json({ fuseau: method === "PUT" ? "Europe/Paris" : "Etc/UTC", ntp: true, synchronise: true, timesyncd: true, serveurs_ntp: [] }));
-    if (path === "syslog") return r.fulfill(json({ disponible: true, cible: method === "PUT" ? { hote: "logs.example.org", port: 514, protocole: "udp" } : null }));
+    if (path === "time") return r.fulfill(json({ timezone: method === "PUT" ? "Europe/Paris" : "Etc/UTC", ntp: true, synced: true, timesyncd: true, ntp_servers: [] }));
+    if (path === "syslog") return r.fulfill(json({ available: true, target: method === "PUT" ? { host: "logs.example.org", port: 514, protocol: "udp" } : null }));
     return r.fallback();
   });
   await page.route(/\/host\/certificate$/, (r) => (api(r) ? r.fulfill(json({ present: false, source: "auto", certbot: false })) : r.fallback()));
@@ -63,9 +63,9 @@ test("node updates and system settings", async ({ page }) => {
   await expect(syslog.getByText("forwarding", { exact: true })).toBeVisible();
 
   expect(sent).toEqual([
-    ["POST", "updates/upgrade", { paquets: ["openssl"] }],
-    ["PUT", "dns", { serveurs: ["9.9.9.9"], recherche: [] }],
-    ["PUT", "time", { fuseau: "Europe/Paris", ntp: null, serveurs_ntp: [] }],
-    ["PUT", "syslog", { hote: "logs.example.org", port: 514, protocole: "udp" }],
+    ["POST", "updates/upgrade", { packages: ["openssl"] }],
+    ["PUT", "dns", { servers: ["9.9.9.9"], recherche: [] }],
+    ["PUT", "time", { timezone: "Europe/Paris", ntp: null, ntp_servers: [] }],
+    ["PUT", "syslog", { host: "logs.example.org", port: 514, protocol: "udp" }],
   ]);
 });

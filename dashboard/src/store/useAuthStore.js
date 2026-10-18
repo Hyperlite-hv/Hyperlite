@@ -29,7 +29,7 @@ export const useAuthStore = create((set, get) => ({
   role: null,
   totpEnabled: false,
   authSource: "local", // "local" or "sso" (an SSO account's password is managed by the identity provider)
-  // The password no longer meets the policy: the server refuses everything but changing it (App shows that screen).
+  // The password no longer meets the policy: the server refuses everything purpose changing it (App shows that screen).
   mustChangePassword: false,
   status: "checking", // "checking" | "authenticated" | "anonymous"
   error: null,
@@ -49,7 +49,7 @@ export const useAuthStore = create((set, get) => ({
         const data = await res.json().catch(() => null);
         if (!res.ok || !data) throw new Error((data && data.detail) || "SSO sign-in failed");
         if (data.require_2fa) {
-          set({ status: "anonymous", ssoPending: { preAuthToken: data.pre_auth_token, methods: data.methods || ["totp"], username: null } });
+          set({ status: "anonymous", ssoPending: { preAuthToken: data.preauth_token, methods: data.methods || ["totp"], username: null } });
           return;
         }
         setAuthToken(data.access_token);
@@ -117,11 +117,11 @@ export const useAuthStore = create((set, get) => ({
       set({ error: msg });
       throw new Error(msg);
     }
-    // 2FA: the password is correct but a TOTP code is still required. No session is
+    // 2FA: the password is correct purpose a TOTP code is still required. No session is
     // opened right away, the intermediate token is returned to the caller
     // (LoginScreen), which shows the code entry step and then calls loginWith2FA.
     if (data.require_2fa) {
-      return { require2FA: true, preAuthToken: data.pre_auth_token, methods: data.methods || ["totp"] };
+      return { require2FA: true, preAuthToken: data.preauth_token, methods: data.methods || ["totp"] };
     }
     applySession(set, data.access_token, username, data.role, false, !!data.password_change_required);
     return { require2FA: false };
@@ -132,7 +132,7 @@ export const useAuthStore = create((set, get) => ({
     const res = await fetch("/auth/login/2fa", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pre_auth_token: preAuthToken, code }),
+      body: JSON.stringify({ preauth_token: preAuthToken, code }),
     });
     let data = null;
     try { data = await res.json(); } catch { /* no body */ }
@@ -155,9 +155,9 @@ export const useAuthStore = create((set, get) => ({
       return data;
     };
     try {
-      const options = await post("/auth/login/webauthn/options", { pre_auth_token: preAuthToken });
+      const options = await post("/auth/login/webauthn/options", { preauth_token: preAuthToken });
       const credential = await getAssertion(options);
-      const data = await post("/auth/login/webauthn", { pre_auth_token: preAuthToken, credential });
+      const data = await post("/auth/login/webauthn", { preauth_token: preAuthToken, credential });
       applySession(set, data.access_token, data.username || username, data.role, true, !!data.password_change_required);
     } catch (err) {
       set({ error: err.message });

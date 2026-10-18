@@ -35,20 +35,20 @@ def cfs(monkeypatch):
 
 def test_the_table_keeps_current_and_stale_statuses_and_drops_gone_or_unreadable_ones(cfs):
     cfs.statuses = [
-        status("pve-a", [{"nom": "web"}], age_ms=2_000, nodeid=2),
-        status("pve-b", [{"nom": "db"}], age_ms=45_000, nodeid=3),
-        status("pve-c", [{"nom": "old"}], age_ms=120_000, nodeid=4),
+        status("pve-a", [{"name": "web"}], age_ms=2_000, nodeid=2),
+        status("pve-b", [{"name": "db"}], age_ms=45_000, nodeid=3),
+        status("pve-c", [{"name": "old"}], age_ms=120_000, nodeid=4),
         NodeStatus(node=5, age_ms=1000, data=b"not a status"),
     ]
     table = statd.table()
     assert set(table) == {"pve-a", "pve-b"}
-    assert table["pve-a"] == {"vms": [{"nom": "web"}], "age_s": 2.0, "stale": False}
+    assert table["pve-a"] == {"vms": [{"name": "web"}], "age_s": 2.0, "stale": False}
     assert table["pve-b"]["stale"] is True
 
 
 def test_this_nodes_summary_is_sent_compressed(cfs, monkeypatch):
     monkeypatch.setattr(
-        statd, "summary", lambda: {"node": "hv-test", "at": 0, "vms": [{"nom": f"vm{i}"} for i in range(333)]}
+        statd, "summary", lambda: {"node": "hv-test", "at": 0, "vms": [{"name": f"vm{i}"} for i in range(333)]}
     )
     size = statd.publish()
     assert size == len(cfs.put[0]) and size < 3000  # 333 summaries of a name: a few KB once compressed
@@ -62,7 +62,7 @@ def test_a_change_made_through_hyperlite_sends_the_status_soon():
 
 @pytest.fixture()
 def cluster(cfs, monkeypatch):
-    members = [{"name": n, "hostname": f"{n}.lan", "statut": "online"} for n in ("pve-a", "pve-b")]
+    members = [{"name": n, "hostname": f"{n}.lan", "status": "online"} for n in ("pve-a", "pve-b")]
     monkeypatch.setattr(cluster_view, "members", lambda: members)
     asked = []
 
@@ -70,21 +70,21 @@ def cluster(cfs, monkeypatch):
         asked.append((node["name"], path))
         if node["name"] == "pve-b-down":
             raise cluster_view.PeerError("down")
-        return 200, [{"nom": "from-" + node["name"]}]
+        return 200, [{"name": "from-" + node["name"]}]
 
     monkeypatch.setattr(cluster_view, "forward", forward)
     conn = types.SimpleNamespace(close=lambda: None)
     monkeypatch.setattr(inventory, "open_conn", lambda node=None: conn)
-    monkeypatch.setattr(inventory, "_domain_summaries", lambda c, node: [{"nom": "mine"}])
+    monkeypatch.setattr(inventory, "_domain_summaries", lambda c, node: [{"name": "mine"}])
     return {"members": members, "asked": asked}
 
 
 def test_every_nodes_vms_come_from_the_status_and_a_member_without_one_is_asked(client, auth_headers, cfs, cluster):
-    cfs.statuses = [status("pve-a", [{"nom": "web"}], age_ms=40_000)]
+    cfs.statuses = [status("pve-a", [{"name": "web"}], age_ms=40_000)]
     r = client.get("/vms?cluster=true", headers=auth_headers("ana"))
     assert r.status_code == 200
     body = r.json()
-    assert sorted((v["nom"], v["node"]) for v in body["items"]) == [
+    assert sorted((v["name"], v["node"]) for v in body["items"]) == [
         ("from-pve-b", "pve-b"),  # no status (an older version): asked as before
         ("mine", "local"),
         ("web", "pve-a"),  # from its status: not asked
@@ -106,11 +106,11 @@ def test_this_nodes_vms_come_from_its_own_status_when_current(client, auth_heade
         raise AssertionError("this node's VMs must come from its status")
 
     cfs.statuses = [
-        status("hv-test", [{"nom": "mine-from-status"}], age_ms=3_000, nodeid=1),
-        status("pve-a", [{"nom": "web"}], nodeid=2),
-        status("pve-b", [{"nom": "db"}], nodeid=3),
+        status("hv-test", [{"name": "mine-from-status"}], age_ms=3_000, nodeid=1),
+        status("pve-a", [{"name": "web"}], nodeid=2),
+        status("pve-b", [{"name": "db"}], nodeid=3),
     ]
     monkeypatch.setattr(inventory, "open_conn", no_libvirt)
     body = client.get("/vms?cluster=true", headers=auth_headers("ana")).json()
-    assert ("mine-from-status", "local") in [(v["nom"], v["node"]) for v in body["items"]]
+    assert ("mine-from-status", "local") in [(v["name"], v["node"]) for v in body["items"]]
     assert cluster["asked"] == []  # nothing asked of anyone

@@ -82,9 +82,9 @@ class SqliteRenameStore:
             shared_key = self_node.to_db(node_key)  # shared tables name the node (app/core/self_node.py)
             _move(db, tables, "vm_boot", "vm_name", old, new, " AND node = ?", (shared_key,))
             _move(db, tables, "object_meta", "name", old, new, " AND kind = 'vm' AND node = ?", (shared_key,))
-            _move(db, tables, "job_steps", "cible", old, new, " AND cible_type = 'vm'")
+            _move(db, tables, "job_steps", "target", old, new, " AND target_type = 'vm'")
             _move(
-                db, tables, "metrics_samples", "cible", metrics_prefix + old, metrics_prefix + new, " AND scope = 'vm'"
+                db, tables, "metrics_samples", "target", metrics_prefix + old, metrics_prefix + new, " AND scope = 'vm'"
             )
             if "ha_protected_vms" in tables:
                 row = db.execute("SELECT domain_xml FROM ha_protected_vms WHERE vm_name = ?", (new,)).fetchone()
@@ -94,12 +94,12 @@ class SqliteRenameStore:
                         (renamed_xml(row["domain_xml"], new), new),
                     )
             if "backup_group_jobs" in tables:
-                for row in db.execute("SELECT id, exclues FROM backup_group_jobs").fetchall():
-                    excluded = json.loads(row["exclues"] or "[]")
+                for row in db.execute("SELECT id, excluded FROM backup_group_jobs").fetchall():
+                    excluded = json.loads(row["excluded"] or "[]")
                     if old in excluded:
                         excluded = sorted({new if v == old else v for v in excluded})
                         db.execute(
-                            "UPDATE backup_group_jobs SET exclues = ? WHERE id = ?", (json.dumps(excluded), row["id"])
+                            "UPDATE backup_group_jobs SET excluded = ? WHERE id = ?", (json.dumps(excluded), row["id"])
                         )
             db.commit()
 
@@ -122,20 +122,20 @@ class SqliteRenameStore:
             _move(db, tables, "object_meta", "name", old, new, " AND kind = 'node'")
             _move(db, tables, "object_meta", "node", old, new, " AND kind != 'node'")
             if "shared_pools" in tables:  # the nodes a shared storage pool was created on
-                for row in db.execute("SELECT nom, noeuds FROM shared_pools").fetchall():
-                    nodes = json.loads(row["noeuds"] or "[]")
+                for row in db.execute("SELECT name, nodes FROM shared_pools").fetchall():
+                    nodes = json.loads(row["nodes"] or "[]")
                     if old in nodes:
                         renamed = sorted({new if n == old else n for n in nodes})
                         db.execute(
-                            "UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (json.dumps(renamed), row["nom"])
+                            "UPDATE shared_pools SET nodes = ? WHERE name = ?", (json.dumps(renamed), row["name"])
                         )
             if "metrics_samples" in tables:
                 db.execute(
-                    "UPDATE metrics_samples SET cible = ? WHERE scope = 'host' AND cible = ?",
+                    "UPDATE metrics_samples SET target = ? WHERE scope = 'host' AND target = ?",
                     (f"node:{new}", f"node:{old}"),
                 )
                 db.execute(
-                    "UPDATE metrics_samples SET cible = ? || substr(cible, ?) WHERE scope = 'vm' AND substr(cible, 1, ?) = ?",
+                    "UPDATE metrics_samples SET target = ? || substr(target, ?) WHERE scope = 'vm' AND substr(target, 1, ?) = ?",
                     (f"{new}:", len(old) + 2, len(old) + 1, f"{old}:"),
                 )
             db.commit()
@@ -155,7 +155,7 @@ class SqliteRenameStore:
             tables = _tables(db)
             _move(db, tables, "network_firewall", "network_name", old, new)
             _move(db, tables, "container_apps", "network", old, new)
-            _move(db, tables, "k8s_clusters", "reseau", old, new)
+            _move(db, tables, "k8s_clusters", "network", old, new)
             db.commit()
 
     def vm_in_k8s_cluster(self, name):
@@ -163,9 +163,9 @@ class SqliteRenameStore:
         with get_conn() as db:
             if "k8s_clusters" not in _tables(db):
                 return None
-            for row in db.execute("SELECT nom, serveur, workers FROM k8s_clusters").fetchall():
-                if name == row["serveur"] or name in json.loads(row["workers"] or "[]"):
-                    return row["nom"]
+            for row in db.execute("SELECT name, server, workers FROM k8s_clusters").fetchall():
+                if name == row["server"] or name in json.loads(row["workers"] or "[]"):
+                    return row["name"]
         return None
 
     def rename_label(self, kind, object_id, new, owner=None):

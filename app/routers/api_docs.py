@@ -16,22 +16,22 @@ router = APIRouter(prefix="/api-docs", tags=["api-docs"])
 pages = APIRouter(include_in_schema=False)
 
 
-@router.get("/acces")
+@router.get("/access")
 def get_access(user: dict = Depends(get_current_user)):
     """Who may open Swagger, and whether this user may."""
     value = api_docs.access()
-    return {"acces": value, "autorise": api_docs.allowed(user, value)}
+    return {"access": value, "allowed": api_docs.allowed(user, value)}
 
 
 class AccessSettings(BaseModel):
-    acces: Literal["desactive", "admins", "tous"]
+    access: Literal["disabled", "admins", "all"]
 
 
-@router.put("/acces")
+@router.put("/access")
 def put_access(payload: AccessSettings, user: dict = Depends(require_role("admin"))):
-    value = api_docs.set_access(payload.acces)
+    value = api_docs.set_access(payload.access)
     log_action(user["username"], "api_docs_access", "api", "success", value)
-    return {"acces": value, "autorise": api_docs.allowed(user, value)}
+    return {"access": value, "allowed": api_docs.allowed(user, value)}
 
 
 @router.post("/ticket")
@@ -40,7 +40,7 @@ def create_ticket(user: dict = Depends(get_current_user)):
     if not api_docs.allowed(user):
         raise HTTPException(status_code=403, detail="Swagger is not open to this account")
     log_action(user["username"], "api_docs_open", "api", "success")
-    return {"url": f"/docs?ticket={api_docs.new_ticket(user['username'])}", "expire_dans_s": api_docs.TICKET_TTL_S}
+    return {"url": f"/docs?ticket={api_docs.new_ticket(user['username'])}", "expires_in_s": api_docs.TICKET_TTL_S}
 
 
 _REFUSED = """<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Swagger · Hyperlite</title></head>

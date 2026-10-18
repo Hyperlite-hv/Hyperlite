@@ -17,8 +17,8 @@ test("the real backend answers the copy status", async ({ request }) => {
 
 test("each node shows its last copy, a failure its reason, and Copy now sends it again", async ({ page }) => {
   let copies = [
-    { node: "peer", copie_le: new Date(Date.now() - 120_000).toISOString(), statut: "ok", taille: 81920, empreinte: "x", erreur: null },
-    { node: "far", copie_le: new Date().toISOString(), statut: "failed", taille: null, empreinte: null, erreur: "Copy failed: Connection refused" },
+    { node: "peer", copied_at: new Date(Date.now() - 120_000).toISOString(), status: "ok", size: 81920, fingerprint: "x", error: null },
+    { node: "far", copied_at: new Date().toISOString(), status: "failed", size: null, fingerprint: null, error: "Copy failed: Connection refused" },
   ];
   let posted = 0;
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
@@ -26,15 +26,15 @@ test("each node shows its last copy, a failure its reason, and Copy now sends it
     if (req.resourceType() === "document") return route.fallback();
     const path = new URL(req.url()).pathname;
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [
-      { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "online" },
-      { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, statut: "online" },
+      { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" },
+      { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, status: "online" },
     ]);
-    if (req.method() === "GET" && /\/nodes\/(peer|far)\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0 });
+    if (req.method() === "GET" && /\/nodes\/(peer|far)\/summary$/.test(path)) return json(route, { connected: true, vms_actives: 0, vms_stopped: 0 });
     if (/\/nodes\/config-copy$/.test(path)) {
       if (req.method() === "POST") {
         posted += 1;
-        copies = copies.map((c) => ({ ...c, statut: "ok", erreur: null, copie_le: new Date().toISOString() }));
-        return json(route, { resultats: [{ node: "peer", statut: "ok" }, { node: "far", statut: "ok" }], copies });
+        copies = copies.map((c) => ({ ...c, status: "ok", error: null, copied_at: new Date().toISOString() }));
+        return json(route, { results: [{ node: "peer", status: "ok" }, { node: "far", status: "ok" }], copies });
       }
       return json(route, copies);
     }
@@ -42,7 +42,7 @@ test("each node shows its last copy, a failure its reason, and Copy now sends it
   });
   await page.addInitScript(() => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "en"); } });
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });

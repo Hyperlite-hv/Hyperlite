@@ -6,9 +6,9 @@ import { expect, goTo, test, uiLogin } from "../support/fixtures";
 const json = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
 test("VMs are grouped by node, can be filtered by node, and the grouping can be turned off", async ({ page }) => {
-  await page.route(/\/nodes(\?.*)?$/, (r) => (r.request().resourceType() === "document" ? r.fallback() : r.fulfill(json([{ name: "peer", hostname: "10.0.0.9", ssh_port: 22, ssh_user: "root", statut: "online" }]))));
-  await page.route(/\/nodes\/peer\/summary/, (r) => r.fulfill(json({ connecte: true, vms_actives: 1, vms_arretees: 0 })));
-  await page.route(/\/vms\?node=peer/, (r) => r.fulfill(json([{ nom: "e2e-peer-vm", etat: "actif", vcpu: 2, memoire_mo: 2048, ip: "192.168.122.40", os: "Debian 12" }])));
+  await page.route(/\/nodes(\?.*)?$/, (r) => (r.request().resourceType() === "document" ? r.fallback() : r.fulfill(json([{ name: "peer", hostname: "10.0.0.9", ssh_port: 22, ssh_user: "root", status: "online" }]))));
+  await page.route(/\/nodes\/peer\/summary/, (r) => r.fulfill(json({ connected: true, vms_actives: 1, vms_stopped: 0 })));
+  await page.route(/\/vms\?node=peer/, (r) => r.fulfill(json([{ name: "e2e-peer-vm", state: "active", vcpu: 2, memory_mb: 2048, ip: "192.168.122.40", os: "Debian 12" }])));
   await uiLogin(page);
   await goTo(page, "Virtual Machines");
   const main = page.getByRole("main");

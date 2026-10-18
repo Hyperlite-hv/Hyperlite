@@ -8,18 +8,18 @@ from app.core.database import get_conn
 from app.repositories.sqlite import schedule_state
 
 GROUP_COLUMNS = (
-    "nom",
+    "name",
     "selection",
-    "valeur",
-    "exclues",
-    "frequence",
-    "heure",
-    "cible_dir",
+    "value",
+    "excluded",
+    "frequency",
+    "time",
+    "target_dir",
     "retention_count",
-    "garder_jours",
-    "garder_semaines",
-    "garder_mois",
-    "actif",
+    "keep_days",
+    "keep_weeks",
+    "keep_months",
+    "active",
 )
 
 
@@ -54,67 +54,67 @@ class SqliteBackupStore:
     # ---- VM backups ----
 
     def list_all(self, limit=500):
-        return _all("SELECT * FROM backups ORDER BY cree_le DESC LIMIT ?", (limit,))
+        return _all("SELECT * FROM backups ORDER BY created_at DESC LIMIT ?", (limit,))
 
     def list_for_vm(self, vm_name):
-        return _all("SELECT * FROM backups WHERE vm_name = ? ORDER BY cree_le DESC", (vm_name,))
+        return _all("SELECT * FROM backups WHERE vm_name = ? ORDER BY created_at DESC", (vm_name,))
 
     def get(self, backup_id):
         return _one("SELECT * FROM backups WHERE id = ?", (backup_id,))
 
-    def create(self, vm_name, job_id, chemin, mode, cree_le, task_id):
+    def create(self, vm_name, job_id, path, mode, created_at, task_id):
         return _write(
-            "INSERT INTO backups (vm_name, job_id, chemin, mode, cree_le, statut, task_id) VALUES (?, ?, ?, ?, ?, 'running', ?)",
-            (vm_name, job_id, chemin, mode, cree_le, task_id),
+            "INSERT INTO backups (vm_name, job_id, path, mode, created_at, status, task_id) VALUES (?, ?, ?, ?, ?, 'running', ?)",
+            (vm_name, job_id, path, mode, created_at, task_id),
         ).lastrowid
 
-    def find_by_path(self, chemin):
-        return _one("SELECT * FROM backups WHERE chemin = ?", (chemin,))
+    def find_by_path(self, path):
+        return _one("SELECT * FROM backups WHERE path = ?", (path,))
 
     def known_paths(self):
-        return {r["chemin"] for r in _all("SELECT chemin FROM backups")}
+        return {r["path"] for r in _all("SELECT path FROM backups")}
 
-    def register_imported(self, vm_name, chemin, mode, cree_le, size, checksum, source):
+    def register_imported(self, vm_name, path, mode, created_at, size, checksum, source):
         """A complete backup found on a storage this node can read, made by another installation."""
         return _write(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut, taille_octets, checksum_sha256, importe_de) "
+            "INSERT INTO backups (vm_name, path, mode, created_at, status, size_bytes, checksum_sha256, imported_from) "
             "VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?)",
-            (vm_name, chemin, mode, cree_le, size, checksum, source),
+            (vm_name, path, mode, created_at, size, checksum, source),
         ).lastrowid
 
     def mark_done(self, backup_id, size, checksum):
         _write(
-            "UPDATE backups SET statut = 'succeeded', taille_octets = ?, checksum_sha256 = ? WHERE id = ?",
+            "UPDATE backups SET status = 'succeeded', size_bytes = ?, checksum_sha256 = ? WHERE id = ?",
             (size, checksum, backup_id),
         )
 
     def mark_failed(self, backup_id, error):
-        _write("UPDATE backups SET statut = 'failed', erreur = ? WHERE id = ?", (error, backup_id))
+        _write("UPDATE backups SET status = 'failed', error = ? WHERE id = ?", (error, backup_id))
 
     def set_verification(self, backup_id, status, at, detail):
         _write(
-            "UPDATE backups SET verification = ?, verifie_le = ?, verification_detail = ? WHERE id = ?",
+            "UPDATE backups SET verification = ?, verified_at = ?, verification_detail = ? WHERE id = ?",
             (status, at, detail, backup_id),
         )
 
     def set_group(self, backup_id, group_id):
-        _write("UPDATE backups SET groupe_id = ? WHERE id = ?", (group_id, backup_id))
+        _write("UPDATE backups SET group_id = ? WHERE id = ?", (group_id, backup_id))
 
     def delete(self, backup_id):
         _write("DELETE FROM backups WHERE id = ?", (backup_id,))
 
     def finished_of(self, vm_name):
-        """(id, chemin, cree_le, verification) of the VM's finished backups, for the retention policy."""
+        """(id, path, created_at, verification) of the VM's finished backups, for the retention policy."""
         return _all(
-            "SELECT id, chemin, cree_le, verification FROM backups WHERE vm_name = ? AND statut = 'succeeded'",
+            "SELECT id, path, created_at, verification FROM backups WHERE vm_name = ? AND status = 'succeeded'",
             (vm_name,),
         )
 
     def next_to_verify(self, older_than):
         """The finished backup verified longest ago (or never), when older than `older_than`; else None."""
         row = _one(
-            "SELECT id FROM backups WHERE statut = 'succeeded' AND (verifie_le IS NULL OR verifie_le < ?) "
-            "ORDER BY COALESCE(verifie_le, '') ASC, cree_le ASC LIMIT 1",
+            "SELECT id FROM backups WHERE status = 'succeeded' AND (verified_at IS NULL OR verified_at < ?) "
+            "ORDER BY COALESCE(verified_at, '') ASC, created_at ASC LIMIT 1",
             (older_than,),
         )
         return row["id"] if row else None
@@ -127,58 +127,58 @@ class SqliteBackupStore:
     def get_schedule(self, vm_name):
         return _one("SELECT * FROM backup_jobs WHERE vm_name = ?", (vm_name,))
 
-    def upsert_schedule(self, vm_name, frequence, heure, cible_dir, retention_count, jours, semaines, mois, next_run):
+    def upsert_schedule(self, vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run):
         _write(
-            "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, retention_count, garder_jours, "
-            "garder_semaines, garder_mois, actif, prochaine_execution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET frequence=excluded.frequence, heure=excluded.heure, "
-            "cible_dir=excluded.cible_dir, retention_count=excluded.retention_count, garder_jours=excluded.garder_jours, "
-            "garder_semaines=excluded.garder_semaines, garder_mois=excluded.garder_mois, actif=1, "
-            "prochaine_execution=excluded.prochaine_execution",
-            (vm_name, frequence, heure, cible_dir, retention_count, jours, semaines, mois, next_run),
+            "INSERT INTO backup_jobs (vm_name, frequency, time, target_dir, retention_count, keep_days, "
+            "keep_weeks, keep_months, active, next_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET frequency=excluded.frequency, time=excluded.time, "
+            "target_dir=excluded.target_dir, retention_count=excluded.retention_count, keep_days=excluded.keep_days, "
+            "keep_weeks=excluded.keep_weeks, keep_months=excluded.keep_months, active=1, "
+            "next_run=excluded.next_run",
+            (vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run),
         )
 
     def delete_schedule(self, vm_name):
         _write("DELETE FROM backup_jobs WHERE vm_name = ?", (vm_name,))
 
     def due_schedules(self, now):
-        return _all("SELECT * FROM backup_jobs WHERE actif = 1 AND prochaine_execution <= ?", (now,))
+        return _all("SELECT * FROM backup_jobs WHERE active = 1 AND next_run <= ?", (now,))
 
     def record_schedule_run(self, job_id, last, next_run):
         _write(
-            "UPDATE backup_jobs SET derniere_execution = ?, prochaine_execution = ? WHERE id = ?",
+            "UPDATE backup_jobs SET last_run = ?, next_run = ? WHERE id = ?",
             (last, next_run, job_id),
         )
 
     # ---- Grouped jobs ----
 
     def list_group_jobs(self):
-        return _with_own_schedule("SELECT * FROM backup_group_jobs ORDER BY nom")
+        return _with_own_schedule("SELECT * FROM backup_group_jobs ORDER BY name")
 
     def get_group_job(self, job_id):
         rows = _with_own_schedule("SELECT * FROM backup_group_jobs WHERE id = ?", (job_id,))
         return rows[0] if rows else None
 
     def group_name_taken(self, name, job_id=None):
-        return _one("SELECT id FROM backup_group_jobs WHERE nom = ? AND id IS NOT ?", (name, job_id)) is not None
+        return _one("SELECT id FROM backup_group_jobs WHERE name = ? AND id IS NOT ?", (name, job_id)) is not None
 
     def save_group_job(self, values, next_run, job_id=None):
-        """values: GROUP_COLUMNS in order ("exclues" a list, "actif" a bool). Returns the id."""
+        """values: GROUP_COLUMNS in order ("excluded" a list, "active" a bool). Returns the id."""
         row = [
-            json.dumps(v) if c == "exclues" else (1 if v else 0) if c == "actif" else v
+            json.dumps(v) if c == "excluded" else (1 if v else 0) if c == "active" else v
             for c, v in zip(GROUP_COLUMNS, values, strict=True)
         ]
         with get_conn() as db:
             if job_id is None:
                 cur = db.execute(
-                    f"INSERT INTO backup_group_jobs ({', '.join(GROUP_COLUMNS)}, prochaine_execution) "  # noqa: S608
+                    f"INSERT INTO backup_group_jobs ({', '.join(GROUP_COLUMNS)}, next_run) "  # noqa: S608
                     f"VALUES ({', '.join('?' * (len(GROUP_COLUMNS) + 1))})",
                     [*row, next_run],
                 )
                 job_id = cur.lastrowid
             else:
                 db.execute(
-                    f"UPDATE backup_group_jobs SET {', '.join(f'{c} = ?' for c in GROUP_COLUMNS)}, prochaine_execution = ? WHERE id = ?",  # noqa: S608
+                    f"UPDATE backup_group_jobs SET {', '.join(f'{c} = ?' for c in GROUP_COLUMNS)}, next_run = ? WHERE id = ?",  # noqa: S608
                     [*row, next_run, job_id],
                 )
             db.commit()
@@ -192,9 +192,9 @@ class SqliteBackupStore:
         return deleted
 
     def due_group_jobs(self, now):
-        """The active jobs due on this node; each carries the shared next run as "prochaine_partagee"."""
+        """The active jobs due on this node; each carries the shared next run as "next_shared"."""
         with get_conn() as db:
-            rows = [dict(r) for r in db.execute("SELECT * FROM backup_group_jobs WHERE actif = 1").fetchall()]
+            rows = [dict(r) for r in db.execute("SELECT * FROM backup_group_jobs WHERE active = 1").fetchall()]
             return schedule_state.due(db, GROUP_KIND, rows, now)
 
     def record_group_run(self, job_id, last, next_run, shared_next=None):
@@ -203,33 +203,33 @@ class SqliteBackupStore:
         with get_conn() as db:
             if shared_next is None:
                 db.execute(
-                    "UPDATE backup_group_jobs SET derniere_execution = ?, prochaine_execution = ? WHERE id = ?",
+                    "UPDATE backup_group_jobs SET last_run = ?, next_run = ? WHERE id = ?",
                     (last, next_run, job_id),
                 )
             else:
-                db.execute("UPDATE backup_group_jobs SET derniere_execution = ? WHERE id = ?", (last, job_id))
+                db.execute("UPDATE backup_group_jobs SET last_run = ? WHERE id = ?", (last, job_id))
                 schedule_state.record(db, GROUP_KIND, job_id, shared_next, next_run)
             db.commit()
 
     # ---- Container backups ----
 
     def list_container_backups(self):
-        return _all("SELECT * FROM container_backups ORDER BY cree_le DESC")
+        return _all("SELECT * FROM container_backups ORDER BY created_at DESC")
 
     def get_container_backup(self, backup_id):
         return _one("SELECT * FROM container_backups WHERE id = ?", (backup_id,))
 
-    def create_container_backup(self, container_name, chemin, cree_le, task_id):
+    def create_container_backup(self, container_name, path, created_at, task_id):
         return _write(
-            "INSERT INTO container_backups (container_name, chemin, cree_le, statut, task_id) VALUES (?, ?, ?, 'running', ?)",
-            (container_name, chemin, cree_le, task_id),
+            "INSERT INTO container_backups (container_name, path, created_at, status, task_id) VALUES (?, ?, ?, 'running', ?)",
+            (container_name, path, created_at, task_id),
         ).lastrowid
 
     def container_backup_done(self, backup_id, size):
-        _write("UPDATE container_backups SET statut = 'succeeded', taille_octets = ? WHERE id = ?", (size, backup_id))
+        _write("UPDATE container_backups SET status = 'succeeded', size_bytes = ? WHERE id = ?", (size, backup_id))
 
     def container_backup_failed(self, backup_id, error):
-        _write("UPDATE container_backups SET statut = 'failed', erreur = ? WHERE id = ?", (error, backup_id))
+        _write("UPDATE container_backups SET status = 'failed', error = ? WHERE id = ?", (error, backup_id))
 
     def delete_container_backup(self, backup_id):
         _write("DELETE FROM container_backups WHERE id = ?", (backup_id,))

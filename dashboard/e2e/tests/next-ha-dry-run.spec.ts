@@ -11,7 +11,7 @@ const json = (route: Route, body: unknown) => route.fulfill({ status: 200, conte
 async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
@@ -21,7 +21,7 @@ async function open(page: Page, lang = "en") {
 test.afterAll(async ({ request }) => {
   const auth = { Authorization: `Bearer ${await apiLogin(request)}` };
   await request.delete("/ha/fencing/local", { headers: auth }).catch(() => {});
-  await request.put("/ha/settings", { headers: auth, data: { temoin: "", seuil_suspect: 3, seuil_panne: 6 } }).catch(() => {});
+  await request.put("/ha/settings", { headers: auth, data: { witness: "", suspect_threshold: 3, failure_threshold: 6 } }).catch(() => {});
 });
 
 test("the HA page runs as a dry run, saves the witness, and fencing is only ever tested", async ({ page, request }) => {
@@ -39,7 +39,7 @@ test("the HA page runs as a dry run, saves the witness, and fencing is only ever
   await settings.getByLabel("Suspect after").fill("2");
   await settings.getByRole("button", { name: "Save" }).click();
   const auth = { Authorization: `Bearer ${await apiLogin(request)}` };
-  await expect.poll(async () => ((await (await request.get("/ha/status", { headers: auth })).json()) as { reglages: { temoin: string; seuil_suspect: number } }).reglages, { timeout: 20_000 }).toMatchObject({ temoin: "nas.example.lan", seuil_suspect: 2 });
+  await expect.poll(async () => ((await (await request.get("/ha/status", { headers: auth })).json()) as { settings: { witness: string; suspect_threshold: number } }).settings, { timeout: 20_000 }).toMatchObject({ witness: "nas.example.lan", suspect_threshold: 2 });
 
   const fencing = main.getByRole("region", { name: "Fencing" });
   const row = fencing.getByRole("row").nth(1); // this host comes first
@@ -68,12 +68,12 @@ test("the HA page runs as a dry run, saves the witness, and fencing is only ever
 
 test("a protected VM on a failed node shows what automatic HA would have done", async ({ page }) => {
   await page.route(/\/ha(\?.*)?$/, (route) => (route.request().resourceType() === "document" ? route.fallback() : json(route, [{
-    vm_name: "e2e-ha-db", node: "local", statut_noeud: "online", last_synced_at: new Date().toISOString(), etat_ha: "en_panne",
-    derniere_action: "Manual recovery: Two nodes and no witness", derniere_action_le: new Date().toISOString(),
+    vm_name: "e2e-ha-db", node: "local", node_status: "online", last_synced_at: new Date().toISOString(), ha_state: "down",
+    last_action: "Manual recovery: Two nodes and no witness", last_action_at: new Date().toISOString(),
   }])));
   await open(page, "fr");
   const main = page.getByRole("main");
-  await expect(main.getByText("HA automatique : mode essai.")).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByText("HA automatic : mode attempt.")).toBeVisible({ timeout: 20_000 });
   const row = main.getByRole("row", { name: /e2e-ha-db/ });
   await expect(row.getByText("En panne", { exact: true })).toBeVisible();
   await expect(row.getByText("Manual recovery: Two nodes and no witness")).toBeVisible();

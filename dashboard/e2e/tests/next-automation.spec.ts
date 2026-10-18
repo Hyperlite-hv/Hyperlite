@@ -17,7 +17,7 @@ test.afterAll(async ({ request }) => {
 async function open(page: Page, tab: string, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
@@ -68,7 +68,7 @@ test("automation: step validation, dry run, real run behind a confirmation that 
 
 test("templates: deploy asks for a valid, unused name; deletion is confirmed", async ({ page }) => {
   const deployed: unknown[] = []; const deleted: string[] = [];
-  const tpls = [{ nom: "tpl-web", vm_source: "web-src", vcpu: 2, memoire_mo: 2048, cree_par: "admin", cree_le: "2026-09-25" }];
+  const tpls = [{ name: "tpl-web", vm_source: "web-src", vcpu: 2, memory_mb: 2048, created_by: "admin", created_at: "2026-09-25" }];
   await page.route(/\/templates(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request(); if (req.resourceType() === "document") return route.fallback();
     const ok = (b: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(b) });

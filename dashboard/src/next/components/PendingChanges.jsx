@@ -11,20 +11,20 @@ export default function PendingChanges({ vm, tab }) {
   const t = useT();
   const [changes, setChanges] = useState([]);
   const [open, setOpen] = useState(false);
-  const running = vm.etat === "actif";
+  const running = vm.state === "active";
   useEffect(() => {
     if (!running) { setChanges([]); return undefined; }
     let alive = true;
-    const load = () => fetchVMPendingChanges(vm.nom, vm.node)
-      .then((r) => alive && setChanges(r.changements || []))
+    const load = () => fetchVMPendingChanges(vm.name, vm.node)
+      .then((r) => alive && setChanges(r.changes || []))
       // A failed read leaves the last answer: this banner is advice, never a reason to show an error on each page.
       .catch(() => {});
     load();
     const id = setInterval(load, POLL_MS);
     return () => { alive = false; clearInterval(id); };
-  }, [vm.nom, vm.node, running, tab]);
+  }, [vm.name, vm.node, running, tab]);
   if (!running || changes.length === 0) return null;
-  const label = (c) => t(`pc.${c.cle}`, { x: c.objet || "" });
+  const label = (c) => t(`pc.${c.key}`, { x: c.object || "" });
   return (
     <div className="nx-pending" role="status">
       <div className="nx-pending-h">
@@ -36,10 +36,10 @@ export default function PendingChanges({ vm, tab }) {
           <thead><tr><th scope="col">{t("pc.setting")}</th><th scope="col">{t("pc.now")}</th><th scope="col">{t("pc.next")}</th></tr></thead>
           <tbody>
             {changes.map((c) => (
-              <tr key={`${c.cle}-${c.objet || ""}`}>
+              <tr key={`${c.key}-${c.object || ""}`}>
                 <th scope="row">{label(c)}</th>
-                <td className="nx-mono">{c.actuel ?? <span className="nx-muted">{t("pc.absent")}</span>}</td>
-                <td className="nx-mono">{c.prochain ?? <span className="nx-muted">{t("pc.removed")}</span>}</td>
+                <td className="nx-mono">{c.current ?? <span className="nx-muted">{t("pc.absent")}</span>}</td>
+                <td className="nx-mono">{c.next ?? <span className="nx-muted">{t("pc.removed")}</span>}</td>
               </tr>
             ))}
           </tbody>

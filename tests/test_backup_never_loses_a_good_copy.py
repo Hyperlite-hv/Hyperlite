@@ -65,7 +65,7 @@ def test_an_error_in_the_retention_leaves_the_backup_just_made(vm, monkeypatch):
     monkeypatch.setattr(backups, "_apply_retention", broken)
     backup_id = backups._run_backup_locked("web", str(vm), None, "admin")
     row = store.get(backup_id)
-    assert row["statut"] == "succeeded"  # not marked failed
+    assert row["status"] == "succeeded"  # not marked failed
     assert (vm / "web").exists() and any((vm / "web").iterdir())  # its folder is still there
 
 
@@ -77,16 +77,16 @@ def _finished(tmp_path, when, verification=None):
     store.mark_done(backup_id, 4, "x")
     if verification:
         store.set_verification(
-            backup_id, verification, when, "checksum mismatch" if verification == "corrompu" else None
+            backup_id, verification, when, "checksum mismatch" if verification == "corrupted" else None
         )
     return backup_id
 
 
 def test_corrupted_backups_never_push_out_the_last_good_one(tmp_path, database):
-    old_bad = _finished(tmp_path, "2026-09-30T03:00:00+00:00", "corrompu")
-    good = _finished(tmp_path, "2026-10-01T03:00:00+00:00", "verifie")
-    bad1 = _finished(tmp_path, "2026-10-02T03:00:00+00:00", "corrompu")
-    bad2 = _finished(tmp_path, "2026-10-03T03:00:00+00:00", "corrompu")
+    old_bad = _finished(tmp_path, "2026-09-30T03:00:00+00:00", "corrupted")
+    good = _finished(tmp_path, "2026-10-01T03:00:00+00:00", "verified")
+    bad1 = _finished(tmp_path, "2026-10-02T03:00:00+00:00", "corrupted")
+    bad2 = _finished(tmp_path, "2026-10-03T03:00:00+00:00", "corrupted")
     backups._apply_retention("web", {"last": 2, "daily": None, "weekly": None, "monthly": None})
     left = {r["id"] for r in registry.backups().sync.finished_of("web")}
     # Without the rule, "the last 2" were the two corrupted ones and the only good copy went.
@@ -122,10 +122,10 @@ def test_a_backup_refused_for_space_is_a_failed_task_never_a_silent_one(vm, monk
     with pytest.raises(RuntimeError, match="Not enough space"):
         backups._run_backup_locked("web", str(vm), None, "admin")
     with get_conn() as db:
-        task = db.execute("SELECT statut, erreur FROM tasks WHERE type = 'backup_vm'").fetchone()
-        row = db.execute("SELECT statut FROM backups WHERE vm_name = 'web'").fetchone()
-    assert task["statut"] == "failed" and "Not enough space" in task["erreur"]
-    assert row["statut"] == "failed"
+        task = db.execute("SELECT status, error FROM tasks WHERE type = 'backup_vm'").fetchone()
+        row = db.execute("SELECT status FROM backups WHERE vm_name = 'web'").fetchone()
+    assert task["status"] == "failed" and "Not enough space" in task["error"]
+    assert row["status"] == "failed"
 
 
 def test_a_manual_backup_that_would_not_fit_is_refused_by_the_api(vm, monkeypatch, client, auth_headers):

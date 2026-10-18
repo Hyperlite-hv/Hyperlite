@@ -24,7 +24,7 @@ import { confirmAction } from "../../store/useConfirmStore";
 const VIEW_KEY = "hyperlite-next-vmview";
 const COLLAPSED_KEY = "hyperlite-next-vmcollapsed";
 const NODE_PILLS_MAX = 6; // beyond this many nodes the filter becomes a select, pills would wrap into a wall
-const PROBLEM = new Set(["plante", "bloque", "unknown"]);
+const PROBLEM = new Set(["crashed", "blocked", "unknown"]);
 function readView() { try { return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "table"; } catch { return "table"; } }
 function readCollapsed() { try { const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); } }
 const pct = (used, total) => (used != null && total ? (used / total) * 100 : null);
@@ -39,7 +39,7 @@ function DetailPanel({ vm, onClose }) {
   const { nodes, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, navigateTo: s.navigateTo })));
   const { run, openConsole } = useVmActions();
   const hist = useVmHistory(vm, "1h");
-  const running = vm.etat === "actif";
+  const running = vm.state === "active";
   const cons = vmActionState("console", vm, caps);
   const start = vmActionState("start", vm, caps);
   const stop = vmActionState("stop", vm, caps);
@@ -53,14 +53,14 @@ function DetailPanel({ vm, onClose }) {
     </button>
   );
   return (
-    <aside className="nx-card2 nx-vmdetail" aria-label={t("vmlist.detailOf", { name: vm.nom })}>
+    <aside className="nx-card2 nx-vmdetail" aria-label={t("vmlist.detailOf", { name: vm.name })}>
       <div className="nx-vmdetail-h">
         <div className="nx-inline" style={{ flexWrap: "nowrap", alignItems: "flex-start" }}>
           <span className="nx-otile" aria-hidden="true"><Monitor size={18} /></span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <h2>{vm.nom}</h2>
-            <div className="nx-ometa"><StatePill kind="vm" wire={vm.etat} />{vm.os && <span>{vm.os}</span>}<span className="nx-sep" aria-hidden="true">·</span>
-              <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{nodes.find((n) => n.id === vm.node)?.nom || vm.node}</button></div>
+            <h2>{vm.name}</h2>
+            <div className="nx-ometa"><StatePill kind="vm" wire={vm.state} />{vm.os && <span>{vm.os}</span>}<span className="nx-sep" aria-hidden="true">·</span>
+              <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{nodes.find((n) => n.id === vm.node)?.name || vm.node}</button></div>
           </div>
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("vmlist.closeDetail")} onClick={onClose}><X size={15} aria-hidden="true" /></button>
         </div>
@@ -71,7 +71,7 @@ function DetailPanel({ vm, onClose }) {
           <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{t("vmlist.openPage")}<ChevronRight size={14} aria-hidden="true" /></button>
         </div>
       </div>
-      {PROBLEM.has(vm.etat) && <div className="nx-bn" data-tone="warning" style={{ margin: "var(--space-3) var(--space-4) 0" }}><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t(vm.etat === "plante" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>}
+      {PROBLEM.has(vm.state) && <div className="nx-bn" data-tone="warning" style={{ margin: "var(--space-3) var(--space-4) 0" }}><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t(vm.state === "crashed" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>}
       <div className="nx-vmdetail-s">
         <div className="nx-muted" style={{ fontSize: "var(--fs-12)", marginBottom: "var(--space-2)" }}>{t("vmlist.usage")}</div>
         {rows.length > 1 ? (
@@ -84,7 +84,7 @@ function DetailPanel({ vm, onClose }) {
       <div className="nx-vmdetail-s" style={{ borderBottom: 0 }}>
         <dl className="nx-dl2" style={{ gridTemplateColumns: "6.6667rem minmax(0,1fr)" }}>
           <dt>{t("vmlist.ip")}</dt><dd>{vm.ip ? <><span className="nx-mono">{vm.ip}</span><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("menu.copyIp")} onClick={() => navigator.clipboard?.writeText(vm.ip)}><Copy size={14} aria-hidden="true" /></button></> : <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
-          <dt>{t("vmlist.resources")}</dt><dd className="nx-mono">{vm.vcpu} vCPU · {formatSizeMb(vm.memoire_mo, lang)}</dd>
+          <dt>{t("vmlist.resources")}</dt><dd className="nx-mono">{vm.vcpu} vCPU · {formatSizeMb(vm.memory_mb, lang)}</dd>
           <dt>{t("ns.col.uptime")}</dt><dd className="nx-mono">{running ? formatUptimeLong(vm.uptime_s, lang) || "—" : "—"}</dd>
         </dl>
       </div>
@@ -99,26 +99,26 @@ function NodeBand({ node, list, collapsed, onToggle }) {
   const t = useT();
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const known = node.id !== "?";
-  const online = node.etat === "online";
-  const run = list.filter((v) => v.etat === "actif").length;
-  const toCheck = list.filter((v) => PROBLEM.has(v.etat)).length;
+  const online = node.state === "online";
+  const run = list.filter((v) => v.state === "active").length;
+  const toCheck = list.filter((v) => PROBLEM.has(v.state)).length;
   const addr = nodeAddress(node);
   return (
     <span className="nx-nodeband">
       <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon nx-chev" aria-expanded={!collapsed}
-        aria-label={t(collapsed ? "vmlist.expandNode" : "vmlist.collapseNode", { name: node.nom })} onClick={onToggle}>
+        aria-label={t(collapsed ? "vmlist.expandNode" : "vmlist.collapseNode", { name: node.name })} onClick={onToggle}>
         <ChevronDown size={15} aria-hidden="true" />
       </button>
       <span className="nx-nodeband-id">
-        {online && <StatusIndicator kind="node" wire={node.etat} compact />}
-        {known ? <button type="button" className="nx-lnk" onClick={() => navigateTo("node", node.id, "summary")}>{node.nom}</button> : <span>{node.nom}</span>}
+        {online && <StatusIndicator kind="node" wire={node.state} compact />}
+        {known ? <button type="button" className="nx-lnk" onClick={() => navigateTo("node", node.id, "summary")}>{node.name}</button> : <span>{node.name}</span>}
         {addr && <span className="nx-mono nx-muted nx-nodeband-addr">{addr}</span>}
-        {known && node.etat && !online && <StatePill kind="node" wire={node.etat} />}
+        {known && node.state && !online && <StatePill kind="node" wire={node.state} />}
         {toCheck > 0 && <Chip tone="warning">{t("vmlist.band.toCheck", { n: toCheck })}</Chip>}
       </span>
       <span className="nx-nodeband-stats">
-        {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.cpu")}</span><Meter value={node.cpu_utilisation} label={`${t("ns.cpu")} ${node.nom}`} /></span>}
-        {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.ram")}</span><Meter value={pct(node.memoire_utilisee_mo, node.memoire_totale_mo)} label={`${t("ns.memory")} ${node.nom}`} /></span>}
+        {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.cpu")}</span><Meter value={node.cpu_utilisation} label={`${t("ns.cpu")} ${node.name}`} /></span>}
+        {known && <span className="nx-nodeband-m"><span className="nx-muted">{t("vmlist.band.ram")}</span><Meter value={pct(node.used_memory_mb, node.memoire_totale_mo)} label={`${t("ns.memory")} ${node.name}`} /></span>}
         <span className="nx-mono nx-muted nx-nodeband-count">{t("vmlist.groupCount", { run, n: list.length })}</span>
         <span className="nx-mono nx-muted nx-nodeband-count--short" aria-hidden="true">{t("vmlist.band.runShort", { run, n: list.length })}</span>
       </span>
@@ -130,7 +130,7 @@ function NodeBand({ node, list, collapsed, onToggle }) {
 function LabelBand({ group, collapsed, onToggle }) {
   const t = useT();
   const Icon = group.kind === "tag" ? Tag : Users;
-  const run = group.vms.filter((v) => v.etat === "actif").length;
+  const run = group.vms.filter((v) => v.state === "active").length;
   return (
     <span className="nx-nodeband">
       <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon nx-chev" aria-expanded={!collapsed}
@@ -162,7 +162,7 @@ export default function VmList() {
   const [tagFilter, setTagFilter] = useState("");
   const { byKey: metaByKey, load: loadMeta } = useMetaStore(useShallow((s) => ({ byKey: s.byKey, load: s.load })));
   useEffect(() => { loadMeta(); }, [loadMeta]);
-  const tagsOf = (v) => metaOf(metaByKey, "vm", v.node, v.nom)?.tags || [];
+  const tagsOf = (v) => metaOf(metaByKey, "vm", v.node, v.name)?.tags || [];
   const tagList = allTags(metaByKey, "vm");
   const [groupMode, setGroupModeState] = useState(readGroupMode);
   const [columns, setColumnsState] = useState(readColumns);
@@ -207,7 +207,7 @@ export default function VmList() {
     setCurrentView("");
   }
   const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* preference only */ } };
-  const nodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const nodeName = (id) => nodes.find((n) => n.id === id)?.name || id;
   const ctx = useContextTarget(); // right click on a VM or a node band: its actions
   // Selection for bulk actions, by VM identity (node and name): a VM that disappears leaves the selection.
   const selectable = caps.power;
@@ -222,19 +222,19 @@ export default function VmList() {
 
   const counts = useMemo(() => ({
     all: vms.length,
-    running: vms.filter((v) => v.etat === "actif").length,
-    stopped: vms.filter((v) => v.etat === "arrete" || v.etat === "en_arret").length,
-    problems: vms.filter((v) => PROBLEM.has(v.etat)).length,
+    running: vms.filter((v) => v.state === "active").length,
+    stopped: vms.filter((v) => v.state === "stopped" || v.state === "shutting_down").length,
+    problems: vms.filter((v) => PROBLEM.has(v.state)).length,
   }), [vms]);
-  const problems = vms.filter((v) => PROBLEM.has(v.etat));
+  const problems = vms.filter((v) => PROBLEM.has(v.state));
 
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
-    const list = vms.filter((v) => (!nodeFilter || v.node === nodeFilter) && (!tagFilter || tagsOf(v).includes(tagFilter)) && (chip === "all" || (chip === "running" && v.etat === "actif") || (chip === "stopped" && (v.etat === "arrete" || v.etat === "en_arret")) || (chip === "problems" && PROBLEM.has(v.etat)))
-      && (!n || `${v.nom} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)} ${tagsOf(v).join(" ")}`.toLowerCase().includes(n)));
-    const rank = (v) => (PROBLEM.has(v.etat) ? 0 : v.etat === "actif" ? 1 : 2); // problems first
-    const val = { state: rank, name: (v) => v.nom.toLowerCase(), node: (v) => nodeName(v.node).toLowerCase(), res: (v) => (v.vcpu || 0) * 1e6 + (v.memoire_mo || 0), uptime: (v) => v.uptime_s || 0 }[sort.key];
-    return [...list].sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : a.nom.localeCompare(b.nom)) * sort.dir);
+    const list = vms.filter((v) => (!nodeFilter || v.node === nodeFilter) && (!tagFilter || tagsOf(v).includes(tagFilter)) && (chip === "all" || (chip === "running" && v.state === "active") || (chip === "stopped" && (v.state === "stopped" || v.state === "shutting_down")) || (chip === "problems" && PROBLEM.has(v.state)))
+      && (!n || `${v.name} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)} ${tagsOf(v).join(" ")}`.toLowerCase().includes(n)));
+    const rank = (v) => (PROBLEM.has(v.state) ? 0 : v.state === "active" ? 1 : 2); // problems first
+    const val = { state: rank, name: (v) => v.name.toLowerCase(), node: (v) => nodeName(v.node).toLowerCase(), res: (v) => (v.vcpu || 0) * 1e6 + (v.memory_mb || 0), uptime: (v) => v.uptime_s || 0 }[sort.key];
+    return [...list].sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : a.name.localeCompare(b.name)) * sort.dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vms, q, chip, sort, nodes, nodeFilter, tagFilter, metaByKey]);
 
@@ -246,7 +246,7 @@ export default function VmList() {
     return next;
   });
   const pickBox = (vm) => (
-    <input type="checkbox" className="nx-pick" checked={picked.has(vmKey(vm))} aria-label={t("bulk.pick", { name: vm.nom })}
+    <input type="checkbox" className="nx-pick" checked={picked.has(vmKey(vm))} aria-label={t("bulk.pick", { name: vm.name })}
       onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={() => togglePick(vm)} />
   );
 
@@ -263,9 +263,9 @@ export default function VmList() {
   const colCount = 2 + OPTIONAL_COLUMNS.filter(col).length + (selectable ? 1 : 0);
 
   const selected = shown.find((v) => vmKey(v) === selName) || (detail ? shown[0] : null);
-  const runningVms = vms.filter((v) => v.etat === "actif");
+  const runningVms = vms.filter((v) => v.state === "active");
   const vcpu = runningVms.reduce((a, v) => a + (v.vcpu || 0), 0);
-  const mem = runningVms.reduce((a, v) => a + (v.memoire_mo || 0), 0);
+  const mem = runningVms.reduce((a, v) => a + (v.memory_mb || 0), 0);
   const select = (v) => { setSelName(vmKey(v)); setDetail(true); };
   const th = (key, label, cls) => (
     <th scope="col" className={cls} aria-sort={sort.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
@@ -274,40 +274,40 @@ export default function VmList() {
   );
   const sub = (v) => (
     <>
-      {PROBLEM.has(v.etat) ? <small className="is-warn">{t(`vmlist.reason.${v.etat}`)}</small> : v.os ? <small>{v.os}</small> : null}
+      {PROBLEM.has(v.state) ? <small className="is-warn">{t(`vmlist.reason.${v.state}`)}</small> : v.os ? <small>{v.os}</small> : null}
       <TagChips tags={tagsOf(v)} onTag={setTagFilter} />
     </>
   );
   const showDetail = detail && selected && view === "table";
   const nodeCell = (id) => {
     const n = nodes.find((x) => x.id === id);
-    return n ? <button type="button" className="nx-lnk nx-mono" title={nodeAddress(n) || undefined} onClick={(e) => { e.stopPropagation(); navigateTo("node", n.id, "summary"); }}>{n.nom}</button> : <span className="nx-mono">{id}</span>;
+    return n ? <button type="button" className="nx-lnk nx-mono" title={nodeAddress(n) || undefined} onClick={(e) => { e.stopPropagation(); navigateTo("node", n.id, "summary"); }}>{n.name}</button> : <span className="nx-mono">{id}</span>;
   };
   const renderCard = (vm) => (
-              <article key={`${vm.node}:${vm.nom}`} className={`nx-card2 nx-vmcard2${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-label={vm.nom} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
-                <div className="nx-inline">{selectable && pickBox(vm)}<StatusIndicator kind="vm" wire={vm.etat} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{vm.nom}</button></div>
-                <div className="nx-muted" style={{ fontSize: "var(--fs-12)" }}>{PROBLEM.has(vm.etat) ? <span className="nx-tone-warning">{t(`vmlist.reason.${vm.etat}`)}</span> : vm.os || "—"}</div>
+              <article key={`${vm.node}:${vm.name}`} className={`nx-card2 nx-vmcard2${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-label={vm.name} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
+                <div className="nx-inline">{selectable && pickBox(vm)}<StatusIndicator kind="vm" wire={vm.state} compact /><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(vm), "summary")}>{vm.name}</button></div>
+                <div className="nx-muted" style={{ fontSize: "var(--fs-12)" }}>{PROBLEM.has(vm.state) ? <span className="nx-tone-warning">{t(`vmlist.reason.${vm.state}`)}</span> : vm.os || "—"}</div>
                 <TagChips tags={tagsOf(vm)} onTag={setTagFilter} />
                 <dl className="nx-dl2" style={{ gridTemplateColumns: "5.3333rem minmax(0,1fr)", marginTop: "var(--space-2)" }}>
                   <dt>{t("ns.node")}</dt><dd className="nx-mono">{nodeName(vm.node)}</dd>
                   <dt>IP</dt><dd className="nx-mono">{vm.ip || "—"}</dd>
-                  <dt>{t("vmlist.resources")}</dt><dd className="nx-mono">{vm.vcpu} · {formatSizeMb(vm.memoire_mo, lang)}</dd>
+                  <dt>{t("vmlist.resources")}</dt><dd className="nx-mono">{vm.vcpu} · {formatSizeMb(vm.memory_mb, lang)}</dd>
                 </dl>
               </article>
             );
   const renderRow = (vm) => {
-                      const sel = showDetail && selected?.nom === vm.nom;
+                      const sel = showDetail && selected?.name === vm.name;
                       return (
-                        <tr key={`${vm.node}:${vm.nom}`} className={`nx-rowlink${sel ? " is-sel" : PROBLEM.has(vm.etat) ? " is-warn" : ""}${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-selected={sel || undefined} tabIndex={0}
+                        <tr key={`${vm.node}:${vm.name}`} className={`nx-rowlink${sel ? " is-sel" : PROBLEM.has(vm.state) ? " is-warn" : ""}${ctx.is("vm", vmKey(vm)) ? " is-ctx" : ""}`} aria-selected={sel || undefined} tabIndex={0}
                           onClick={() => select(vm)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(vm); } }} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
                           {selectable && <td className="nx-pickcell">{pickBox(vm)}</td>}
-                          <td style={{ width: "2rem" }}><StatusIndicator kind="vm" wire={vm.etat} compact /></td>
-                          <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vmKey(vm), "summary"); }}>{vm.nom}</button>{sub(vm)}</th>
+                          <td style={{ width: "2rem" }}><StatusIndicator kind="vm" wire={vm.state} compact /></td>
+                          <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vmKey(vm), "summary"); }}>{vm.name}</button>{sub(vm)}</th>
                           {col("node") && <td>{nodeCell(vm.node)}</td>}
                           {col("ip") && <td className="nx-mono">{vm.ip || <span className="nx-muted">—</span>}</td>}
                           {col("os") && <td>{vm.os || <span className="nx-muted">—</span>}</td>}
-                          {col("res") && <td className="nx-num nx-mono">{vm.vcpu} · {formatSizeMb(vm.memoire_mo, lang)}</td>}
-                          {col("uptime") && <td className="nx-mono nx-muted">{vm.etat === "actif" ? formatUptimeLong(vm.uptime_s, lang) || "—" : "—"}</td>}
+                          {col("res") && <td className="nx-num nx-mono">{vm.vcpu} · {formatSizeMb(vm.memory_mb, lang)}</td>}
+                          {col("uptime") && <td className="nx-mono nx-muted">{vm.state === "active" ? formatUptimeLong(vm.uptime_s, lang) || "—" : "—"}</td>}
                         </tr>
                       );
                     };
@@ -318,7 +318,7 @@ export default function VmList() {
         actions={caps.create && <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}><Plus size={15} aria-hidden="true" />{t("vmlist.create")}</button>} />
       {problems.length > 0 && (
         <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" />
-          <span className="nx-bn-t"><b>{t("ov.attention", { n: problems.length })}</b> : {problems.slice(0, 4).map((v) => v.nom).join(", ")}</span>
+          <span className="nx-bn-t"><b>{t("ov.attention", { n: problems.length })}</b> : {problems.slice(0, 4).map((v) => v.name).join(", ")}</span>
           <button type="button" className="nx-btn nx-btn--sm" onClick={() => setChip("problems")}>{t("vmlist.show")}</button></div>
       )}
       <div className="nx-bar nx-bar--rule">
@@ -332,7 +332,7 @@ export default function VmList() {
             <button type="button" aria-pressed={!nodeFilter} onClick={() => setNodeFilter("")}>{t("vmlist.allNodes")} <span className="nx-n">{vms.length}</span></button>
             {nodes.map((n) => (
               <button key={n.id} type="button" aria-pressed={nodeFilter === n.id} onClick={() => setNodeFilter(n.id)}>
-                <StatusIndicator kind="node" wire={n.etat} compact />{n.nom} <span className="nx-n">{vms.filter((v) => v.node === n.id).length}</span>
+                <StatusIndicator kind="node" wire={n.state} compact />{n.name} <span className="nx-n">{vms.filter((v) => v.node === n.id).length}</span>
               </button>
             ))}
           </div>
@@ -341,7 +341,7 @@ export default function VmList() {
         {nodes.length > NODE_PILLS_MAX && (
           <select className="nx-sel" aria-label={t("vmlist.filterNode")} value={nodeFilter} onChange={(e) => setNodeFilter(e.target.value)}>
             <option value="">{t("vmlist.allNodes")}</option>
-            {nodes.map((n) => <option key={n.id} value={n.id}>{n.nom} ({vms.filter((v) => v.node === n.id).length})</option>)}
+            {nodes.map((n) => <option key={n.id} value={n.id}>{n.name} ({vms.filter((v) => v.node === n.id).length})</option>)}
           </select>
         )}
         {(tagList.length > 0 || tagFilter) && (
@@ -426,7 +426,7 @@ export default function VmList() {
           {showDetail && <DetailPanel vm={selected} onClose={() => { setDetail(false); setSelName(null); }} />}
         </div>
       )}
-      {ctx.target?.kind === "vm" && <VmContextMenu key={`vm:${ctx.target.obj.nom}`} vm={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
+      {ctx.target?.kind === "vm" && <VmContextMenu key={`vm:${ctx.target.obj.name}`} vm={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
       {ctx.target?.kind === "node" && <NodeContextMenu key={`node:${ctx.target.obj.id}`} node={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}
     </>
   );

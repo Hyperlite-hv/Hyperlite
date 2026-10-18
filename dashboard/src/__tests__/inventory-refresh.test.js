@@ -23,23 +23,23 @@ afterEach(() => { pending.length = 0; useInfraStore.setState({ vms: [], mutation
 
 describe("inventory refresh", () => {
   it("drops an answer that started before a local change", async () => {
-    useInfraStore.setState({ vms: [{ nom: "web", node: "local", etat: "actif" }], mutations: 0 });
+    useInfraStore.setState({ vms: [{ name: "web", node: "local", state: "active" }], mutations: 0 });
     const refresh = refreshInventory();
-    // The VM is stopped while the refresh is on its way; its answer still says "actif".
-    useInfraStore.setState((s) => ({ mutations: s.mutations + 1, vms: [{ nom: "web", node: "local", etat: "arrete" }] }));
-    answerAll([{ nom: "web", node: "local", etat: "actif" }]);
+    // The VM is stopped while the refresh is on its way; its answer still says "active".
+    useInfraStore.setState((s) => ({ mutations: s.mutations + 1, vms: [{ name: "web", node: "local", state: "stopped" }] }));
+    answerAll([{ name: "web", node: "local", state: "active" }]);
     await refresh;
-    expect(useInfraStore.getState().vms[0].etat).toBe("arrete");
+    expect(useInfraStore.getState().vms[0].state).toBe("stopped");
   });
 
   it("keeps only the latest of two overlapping refreshes", async () => {
     const older = refreshInventory();
     const newer = refreshInventory();
     const olderBatch = pending.splice(0, 4);
-    answerAll([{ nom: "new", node: "local", etat: "actif" }]);
+    answerAll([{ name: "new", node: "local", state: "active" }]);
     await newer;
-    olderBatch[0]([]); olderBatch[1]([{ nom: "old", node: "local", etat: "actif" }]); olderBatch[2]([]); olderBatch[3]([]);
+    olderBatch[0]([]); olderBatch[1]([{ name: "old", node: "local", state: "active" }]); olderBatch[2]([]); olderBatch[3]([]);
     await older;
-    expect(useInfraStore.getState().vms.map((v) => v.nom)).toEqual(["new"]);
+    expect(useInfraStore.getState().vms.map((v) => v.name)).toEqual(["new"]);
   });
 });

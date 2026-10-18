@@ -68,8 +68,8 @@ def interpreter():
 def status():
     python = interpreter()
     return {
-        "disponible": python is not None,
-        "raison": None
+        "available": python is not None,
+        "reason": None
         if python
         else "Install libguestfs-tools and python3-guestfs on this node (apt install libguestfs-tools python3-guestfs)",
     }
@@ -81,12 +81,12 @@ def backup_disks(backup_id):
     row = registry.backups().sync.get(backup_id)
     if not row:
         raise RestoreError("Backup not found")
-    if row["statut"] != "succeeded":
+    if row["status"] != "succeeded":
         raise RestoreError("Only a finished backup can be browsed")
-    root = Path(row["chemin"])
+    root = Path(row["path"])
     manifest = backup_integrity.read_manifest(root)
     if manifest:
-        names = [f["nom"] for f in manifest.get("fichiers", []) if f.get("role") == "disque"]
+        names = [f["name"] for f in manifest.get("files", []) if f.get("role") == "disk"]
     else:
         names = sorted(p.name for p in root.iterdir() if p.suffix in DISK_SUFFIXES) if root.is_dir() else []
     disks = [root / n for n in names if "/" not in n and (root / n).is_file()]
@@ -186,7 +186,7 @@ def is_open(backup_id):
 
 def open_session(backup_id, username):
     if interpreter() is None:
-        raise RestoreError(status()["raison"])
+        raise RestoreError(status()["reason"])
     vm_name, disks = backup_disks(backup_id)
     with _lock:
         for s in _sessions.values():

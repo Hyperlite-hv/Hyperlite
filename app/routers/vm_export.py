@@ -68,7 +68,7 @@ def delete_vm_export(filename: str, user: dict = Depends(require_role("admin")))
         raise HTTPException(status_code=404, detail="Export not found")
     path.unlink()
     log_action(user["username"], "delete_vm_export", filename, "success")
-    return {"nom": filename, "supprime": True}
+    return {"name": filename, "deleted": True}
 
 
 @router.post("/vm-exports/{filename}/download-ticket")
@@ -86,7 +86,7 @@ def create_download_ticket(filename: str, user: dict = Depends(require_role("adm
     ticket = secrets.token_urlsafe(24)
     DOWNLOAD_TICKETS[ticket] = (filename, now + DOWNLOAD_TICKET_TTL)
     log_action(user["username"], "create_vm_export_download_ticket", filename, "success")
-    return {"ticket": ticket, "expire_dans_s": DOWNLOAD_TICKET_TTL}
+    return {"ticket": ticket, "expires_in_s": DOWNLOAD_TICKET_TTL}
 
 
 @router.get("/vm-exports/download")

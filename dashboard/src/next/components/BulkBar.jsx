@@ -16,7 +16,7 @@ const DANGER = new Set(["force-stop", "restart", "delete"]);
 // selection; the server runs the same checks on every VM and a refused one is listed in the results.
 function BulkMigrateDialog({ vms, nodes, onPick, onClose }) {
   const t = useT();
-  const targets = nodes.filter((n) => n.etat === "online" && !n.maintenance);
+  const targets = nodes.filter((n) => n.state === "online" && !n.maintenance);
   const [target, setTarget] = useState("");
   const first = useRef(null);
   const opener = useRef(typeof document !== "undefined" ? document.activeElement : null);
@@ -30,7 +30,7 @@ function BulkMigrateDialog({ vms, nodes, onPick, onClose }) {
         <label className="nx-dialog-field">{t("mig.target")}
           <select ref={first} className="nx-input" value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="">{t("mig.choose")}</option>
-            {targets.map((n) => <option key={n.id} value={n.id}>{n.nom}</option>)}
+            {targets.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
           </select>
         </label>
         {target && moving < vms.length && <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("bulk.migrate.alreadyThere", { n: vms.length - moving })}</p>}
@@ -59,14 +59,14 @@ export default function BulkBar({ selected, caps, nodes, onClear }) {
     const skipped = skip.length ? `\n${t("bulk.skipped", { n: skip.length, names: nameList(skip, more) })}` : "";
     const ok = await confirmAction({
       title: t("bulk.confirmTitle", { action: label, n: apply.length }),
-      message: `${t(`bulk.${action}.message`, { node: nodes.find((n) => n.id === targetNode)?.nom || targetNode })}\n${nameList(apply, more)}${skipped}`,
+      message: `${t(`bulk.${action}.message`, { node: nodes.find((n) => n.id === targetNode)?.name || targetNode })}\n${nameList(apply, more)}${skipped}`,
       confirmLabel: t("bulk.confirmGo", { action: label, n: apply.length }),
       danger: DANGER.has(action),
     });
     if (!ok) return;
     setBusy(action);
     const one = (vm) => {
-      if (action === "migrate") return migrateVM(vm.nom, targetNode, vm.node, false);
+      if (action === "migrate") return migrateVM(vm.name, targetNode, vm.node, false);
       // The store's action records the task, updates the list and rethrows a failure, so it is counted here.
       if (action === "force-stop") return runVMAction(vmKey(vm), "stop", { force: true });
       if (action === "stop") return runVMAction(vmKey(vm), "stop", { force: false });
@@ -76,7 +76,7 @@ export default function BulkBar({ selected, caps, nodes, onClear }) {
     setBusy(null);
     if (done.length) pushToast({ kind: "success", title: t("bulk.done", { action: label, n: done.length, total: apply.length }), message: nameList(done, more) });
     if (failed.length) {
-      pushToast({ kind: "error", title: t("bulk.failed", { action: label, n: failed.length }), message: failed.slice(0, 6).map(({ item, error }) => `${item.nom}: ${errorMessage(error, t("err.unknown"))}`).join("\n") });
+      pushToast({ kind: "error", title: t("bulk.failed", { action: label, n: failed.length }), message: failed.slice(0, 6).map(({ item, error }) => `${item.name}: ${errorMessage(error, t("err.unknown"))}`).join("\n") });
     }
     if (action === "migrate") refreshAll?.();
     if (!failed.length) onClear();

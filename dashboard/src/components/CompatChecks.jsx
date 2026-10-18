@@ -7,22 +7,22 @@ const LABELS = {
   toggle: (show, n) => `${show ? "Hide" : "Show"} the ${n} passed check(s)`,
 };
 
-// List of compatibility checks (shape {statut, message, action?} from
+// List of compatibility checks (shape {status, message, action?} from
 // app/core/cluster_compat.py): unsatisfied items first, the OK ones collapsible so
 // they do not drown out the essentials.
 export default function CompatChecks({ report, labels }) {
   const L = { ...LABELS, ...labels };
   const [showOk, setShowOk] = useState(false);
   if (!report) return null;
-  const bad = report.controles.filter((c) => c.statut !== "ok");
-  const ok = report.controles.filter((c) => c.statut === "ok");
+  const bad = report.checks.filter((c) => c.status !== "ok");
+  const ok = report.checks.filter((c) => c.status === "ok");
   const rows = showOk ? [...bad, ...ok] : bad;
   return (
     <div className="w-full space-y-1.5 text-sm">
       {bad.length === 0 && <div className="text-status-running">{L.allOk}</div>}
       {rows.map((c, i) => {
-        const cls = STYLE[c.statut];
-        const label = L[c.statut];
+        const cls = STYLE[c.status];
+        const label = L[c.status];
         return (
           <div key={`${c.id}-${i}`} className="flex items-start justify-between gap-4">
             <div>

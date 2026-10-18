@@ -25,7 +25,7 @@ test.afterAll(async ({ request }) => {
 async function open(page: Page, tab: string, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
@@ -98,18 +98,18 @@ test("options: CPU affinity is validated, applied to the VM definition, made str
 
 test("hardware: host devices — the real inventory protects the host, a USB key is given live, a PCI card needs a confirmation", async ({ page, request }) => {
   // Real backend: the inventory answers and never offers a PCI bridge or the host's own disks and network card.
-  const inv = (await (await request.get("/host/devices", { headers: auth() })).json()) as { iommu: { actif: boolean }; pci: { classe: string; hote: string | null }[] };
-  expect(typeof inv.iommu.actif).toBe("boolean");
-  for (const d of inv.pci) if (d.classe.startsWith("0x06")) expect(d.hote).toMatch(/PCI bridge/);
+  const inv = (await (await request.get("/host/devices", { headers: auth() })).json()) as { iommu: { active: boolean }; pci: { class: string; host: string | null }[] };
+  expect(typeof inv.iommu.active).toBe("boolean");
+  for (const d of inv.pci) if (d.class.startsWith("0x06")) expect(d.host).toMatch(/PCI bridge/);
 
   // The CI runner has no USB key and no spare PCI card: the inventory and the VM's devices are stand-ins from here.
-  const given: { id: string; type: string; adresse: string; fabricant: string; produit: string; present: boolean }[] = [];
+  const given: { id: string; type: string; address: string; vendor: string; product: string; present: boolean }[] = [];
   const posted: unknown[] = [];
-  const usb = { id: "usb_1_4", type: "usb", adresse: "001:004", ids: "781:5591", fabricant: "SanDisk", produit: "Ultra Flair", vm: null, hote: null };
-  const gpu = { id: "pci_0000_01_00_0", type: "pci", adresse: "0000:01:00.0", ids: "10de:1b80", classe: "0x030000", fabricant: "NVIDIA", produit: "GeForce GTX 1080", groupe: ["pci_0000_01_00_0", "pci_0000_01_00_1"], vm: null, hote: null };
-  const audio = { ...gpu, id: "pci_0000_01_00_1", adresse: "0000:01:00.1", classe: "0x040300", produit: "GP104 HD Audio" };
-  const nic = { ...gpu, id: "pci_0000_03_00_0", adresse: "0000:03:00.0", classe: "0x020000", produit: "I210", groupe: [], hote: "Network card eno1 is in use by the host (it has an address or is in a bridge)" };
-  await page.route(/\/host\/devices$/, (route) => route.fulfill({ json: { iommu: { actif: true, raison: null }, pci: [gpu, audio, nic], usb: [usb] } }));
+  const usb = { id: "usb_1_4", type: "usb", address: "001:004", ids: "781:5591", vendor: "SanDisk", product: "Ultra Flair", vm: null, host: null };
+  const gpu = { id: "pci_0000_01_00_0", type: "pci", address: "0000:01:00.0", ids: "10de:1b80", class: "0x030000", vendor: "NVIDIA", product: "GeForce GTX 1080", group: ["pci_0000_01_00_0", "pci_0000_01_00_1"], vm: null, host: null };
+  const audio = { ...gpu, id: "pci_0000_01_00_1", address: "0000:01:00.1", class: "0x040300", product: "GP104 HD Audio" };
+  const nic = { ...gpu, id: "pci_0000_03_00_0", address: "0000:03:00.0", class: "0x020000", product: "I210", group: [], host: "Network card eno1 is in use by the host (it has an address or is in a bridge)" };
+  await page.route(/\/host\/devices$/, (route) => route.fulfill({ json: { iommu: { active: true, reason: null }, pci: [gpu, audio, nic], usb: [usb] } }));
   await page.route(new RegExp(`/vms/${NAME}/hostdevs(/.*)?$`), async (route) => {
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
@@ -118,8 +118,8 @@ test("hardware: host devices — the real inventory protects the host, a USB key
       const body = req.postDataJSON() as { device: string };
       posted.push(body);
       const dev = [usb, gpu].find((d) => d.id === body.device)!;
-      given.push({ id: dev.id, type: dev.type, adresse: dev.adresse, fabricant: dev.fabricant, produit: dev.produit, present: true });
-      return route.fulfill({ status: 201, json: { vm: NAME, ajoutes: [dev.id], hostdevs: given } });
+      given.push({ id: dev.id, type: dev.type, address: dev.address, vendor: dev.vendor, product: dev.product, present: true });
+      return route.fulfill({ status: 201, json: { vm: NAME, added: [dev.id], hostdevs: given } });
     }
     given.splice(0, given.length, ...given.filter((d) => !req.url().endsWith(d.id)));
     return route.fulfill({ json: { vm: NAME, retire: "x" } });
@@ -157,7 +157,7 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN onl
   // The real networks (NAT, isolated) cannot carry a tag; an Open vSwitch one is added to the list to check the range.
   await page.route(/\/networks$/, async (route) => {
     const real = (await (await route.fetch()).json()) as Record<string, unknown>[];
-    await route.fulfill({ json: [...real, { nom: "e2e-ovs", type: "pont", actif: true, autostart: true, pont: "ovsbr0", macvtap: false, reseau: null, dhcp: false, vlan: true }] });
+    await route.fulfill({ json: [...real, { name: "e2e-ovs", type: "bridge", active: true, autostart: true, bridge: "ovsbr0", macvtap: false, network: null, dhcp: false, vlan: true }] });
   });
   await open(page, "hardware");
   const main = page.getByRole("main");
@@ -203,21 +203,21 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN onl
 });
 
 test("hardware: a disk is grown from a drawer, a shrink is refused, the French labels are shown", async ({ page, request }) => {
-  type Disk = { cible: string; type: string; taille_go: number | null; non_agrandissable: string | null };
+  type Disk = { target: string; type: string; size_gb: number | null; non_agrandissable: string | null };
   const firstDisk = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as Disk[]).find((d) => d.type === "disk")!;
   const disk = await firstDisk();
   expect(disk.non_agrandissable).toBeNull();
-  const target = Math.floor(disk.taille_go ?? 3) + 1;
+  const target = Math.floor(disk.size_gb ?? 3) + 1;
 
   // The API refuses a shrink and changes nothing.
-  const shrink = await request.post(`/vms/${NAME}/disks/${disk.cible}/resize`, { headers: auth(), data: { size_gb: 1 } });
+  const shrink = await request.post(`/vms/${NAME}/disks/${disk.target}/resize`, { headers: auth(), data: { size_gb: 1 } });
   expect(shrink.status()).toBe(422);
   expect(await shrink.text()).toContain("Shrinking");
 
   await open(page, "hardware");
   const main = page.getByRole("main");
-  await main.getByRole("button", { name: `Grow disk ${disk.cible}` }).click();
-  const drawer = page.getByRole("dialog", { name: `Grow disk ${disk.cible}` });
+  await main.getByRole("button", { name: `Grow disk ${disk.target}` }).click();
+  const drawer = page.getByRole("dialog", { name: `Grow disk ${disk.target}` });
   const grow = drawer.getByRole("button", { name: "Grow the disk", exact: true });
   // The current size is not a growth: the button stays disabled until the size is larger.
   await drawer.getByLabel("New size in GB").fill(String(target - 1));
@@ -226,18 +226,18 @@ test("hardware: a disk is grown from a drawer, a shrink is refused, the French l
   await drawer.getByLabel("New size in GB").fill(String(target));
   await grow.click();
   await expect(page.getByText("Disk grown").first()).toBeVisible({ timeout: 30_000 });
-  await expect.poll(async () => (await firstDisk()).taille_go, { timeout: 30_000 }).toBe(target);
+  await expect.poll(async () => (await firstDisk()).size_gb, { timeout: 30_000 }).toBe(target);
 
   // Same page in French (the language is stored next to the session, a reload applies it).
   await page.evaluate(() => localStorage.setItem("hyperlite-next-lang", "fr"));
   await page.reload();
-  await main.getByRole("button", { name: `Agrandir le disque ${disk.cible}` }).click();
-  await expect(page.getByRole("dialog", { name: `Agrandir le disque ${disk.cible}` }).getByRole("button", { name: "Agrandir le disque", exact: true })).toBeVisible();
+  await main.getByRole("button", { name: `Agrandir le disk ${disk.target}` }).click();
+  await expect(page.getByRole("dialog", { name: `Agrandir le disk ${disk.target}` }).getByRole("button", { name: "Agrandir le disk", exact: true })).toBeVisible();
 });
 
 test("summary: Hyperlite Tools state is shown, and a stopped VM reports none", async ({ page, request }) => {
-  const vm = (await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { etat: string; agent_invite: string | null };
-  expect(vm.etat).not.toBe("actif");
+  const vm = (await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { state: string; agent_invite: string | null };
+  expect(vm.state).not.toBe("active");
   expect(vm.agent_invite).toBeNull();
   await open(page, "summary");
   const main = page.getByRole("main");
@@ -246,7 +246,7 @@ test("summary: Hyperlite Tools state is shown, and a stopped VM reports none", a
 });
 
 test("hardware: a disk is moved to another pool from a drawer, then back", async ({ page, request }) => {
-  type Disk = { cible: string; type: string; pool: string | null; source: string | null };
+  type Disk = { target: string; type: string; pool: string | null; source: string | null };
   const pool = `${PREFIX}mv-${stamp}`;
   const created = await request.post("/storage", { headers: auth(), data: { name: pool, type: "dir" } });
   expect(created.ok(), await created.text()).toBe(true);
@@ -256,8 +256,8 @@ test("hardware: a disk is moved to another pool from a drawer, then back", async
   try {
     await open(page, "hardware");
     const main = page.getByRole("main");
-    await main.getByRole("button", { name: `Move disk ${disk.cible}` }).click();
-    const drawer = page.getByRole("dialog", { name: `Move disk ${disk.cible}` });
+    await main.getByRole("button", { name: `Move disk ${disk.target}` }).click();
+    const drawer = page.getByRole("dialog", { name: `Move disk ${disk.target}` });
     const go = drawer.getByRole("button", { name: "Move the disk", exact: true });
     await expect(go).toBeDisabled(); // no pool chosen yet
     await drawer.getByLabel("Destination pool").selectOption(pool);
@@ -268,16 +268,16 @@ test("hardware: a disk is moved to another pool from a drawer, then back", async
   } finally {
     // Back home, so the VM's later tests and its deletion find the disk where it was. The first move's task holds the
     // VM's lock a moment after the disk shows in its new pool (it still removes the source): retry while it answers 409.
-    let back = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
+    let back = await request.post(`/vms/${NAME}/disks/${disk.target}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
     for (let i = 0; back.status() === 409 && i < 60; i++) {
       await page.waitForTimeout(1000);
-      back = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
+      back = await request.post(`/vms/${NAME}/disks/${disk.target}/move`, { headers: auth(), data: { pool: home, delete_source: true } });
     }
     if (back.ok()) await expect.poll(async () => (await firstDisk()).pool, { timeout: 90_000 }).toBe(home);
     await request.delete(`/storage/${pool}?confirm=true`, { headers: auth() });
   }
   // A move to the pool the disk is already in is refused before anything starts.
-  const same = await request.post(`/vms/${NAME}/disks/${disk.cible}/move`, { headers: auth(), data: { pool: home } });
+  const same = await request.post(`/vms/${NAME}/disks/${disk.target}/move`, { headers: auth(), data: { pool: home } });
   expect(same.status()).toBe(422);
 });
 
@@ -302,7 +302,7 @@ test("network: a firewall that cannot be read is shown in its card with a retry,
 test("snapshots: name is validated, create, restore and delete are confirmed and really happen", async ({ page, request }) => {
   await open(page, "snapshots");
   const main = page.getByRole("main");
-  const snaps = async () => ((await (await request.get(`/vms/${NAME}/snapshots`, { headers: auth() })).json()) as { nom: string }[]).map((s) => s.nom);
+  const snaps = async () => ((await (await request.get(`/vms/${NAME}/snapshots`, { headers: auth() })).json()) as { name: string }[]).map((s) => s.name);
   await main.getByRole("button", { name: "Create a snapshot" }).click();
   const dlg = page.getByRole("dialog");
   await dlg.getByRole("textbox").fill("bad name!");
@@ -365,7 +365,7 @@ test("backup: schedule is validated and saved, a backup runs and can be deleted 
   await main.getByLabel("Retention (backups kept)").fill("3");
   await main.getByLabel("Backup time").fill("03:30");
   await save.click();
-  await expect.poll(async () => { const r = await request.get(`/vms/${NAME}/backup-schedule`, { headers: auth() }); return r.ok() ? ((await r.json()) as { retention_count: number; heure: string } | null) : null; }, { timeout: 20_000 }).toMatchObject({ retention_count: 3, heure: "03:30" });
+  await expect.poll(async () => { const r = await request.get(`/vms/${NAME}/backup-schedule`, { headers: auth() }); return r.ok() ? ((await r.json()) as { retention_count: number; time: string } | null) : null; }, { timeout: 20_000 }).toMatchObject({ retention_count: 3, time: "03:30" });
 
   await main.getByRole("button", { name: "Back up now" }).click();
   await expect(main.getByRole("row", { name: /Cold/ })).toBeVisible({ timeout: 90_000 });
@@ -375,8 +375,8 @@ test("backup: schedule is validated and saved, a backup runs and can be deleted 
   await expect(row.getByText("Not verified yet")).toBeVisible();
   await row.getByRole("button", { name: /^Verify backup #/ }).click();
   await expect(row.getByText("Verified", { exact: true })).toBeVisible({ timeout: 60_000 });
-  const verified = (await (await request.get(`/vms/${NAME}/backups`, { headers: auth() })).json()) as { verification: string; verifie_le: string }[];
-  expect(verified[0].verification).toBe("verifie");
+  const verified = (await (await request.get(`/vms/${NAME}/backups`, { headers: auth() })).json()) as { verification: string; verified_at: string }[];
+  expect(verified[0].verification).toBe("verified");
   await main.getByRole("button", { name: /^Delete backup #/ }).first().click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await main.getByRole("button", { name: /^Delete backup #/ }).first().click();

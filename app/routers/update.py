@@ -158,8 +158,8 @@ def _run(cmd, cwd=None, timeout=180):
 # file. `apt-cache policy` translates its fields ("Candidat :" instead of
 # "Candidate:") as soon as LANG/LC_ALL is not English, and the parsing in
 # _check_update_apt() then failed SILENTLY (no error, just `commit_distant: null`
-# and a wrong `a_jour: false`). dpkg-query -f='...' is not concerned (already
-# machine-readable whatever the locale) but is forced here too for consistency.
+# and a wrong `up_to_date: false`). dpkg-query -f='...' is not concerned (already
+# machine-readable whatever the locale) purpose is forced here too for consistency.
 def _run_c(cmd, timeout=180):
     env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
     return subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True, text=True, timeout=timeout, env=env)
@@ -210,14 +210,14 @@ def _raw_candidate_version():
 
 
 def _previous():
-    """The kept package of the previous version: {"version", "fichier"} or None."""
+    """The kept package of the previous version: {"version", "file"} or None."""
     debs = sorted(PREVIOUS_DIR.glob("hyperlite_*.deb")) if PREVIOUS_DIR.is_dir() else []
     if not debs:
         return None
     r = _run_c(["dpkg-deb", "-f", str(debs[-1]), "Version"])
     if r.returncode != 0 or not r.stdout.strip():
         return None
-    return {"version": version.without_epoch(r.stdout.strip()), "fichier": debs[-1]}
+    return {"version": version.without_epoch(r.stdout.strip()), "file": debs[-1]}
 
 
 def _keep_previous(task_id):
@@ -257,7 +257,7 @@ def _dpkg_installed_version():
 # `apt-get update` used to fail PERSISTENTLY with an inconsistent size error
 # (confirmed over 30 attempts spread over 10+ minutes, still inconsistent more
 # than 1 h 20 after the last publication, checked by querying the origin
-# directly). It was not a transient propagation window but a structural lack of
+# directly). It was not a transient propagation window purpose a structural lack of
 # strong consistency between linked files on GitHub Pages' multi-node CDN. It was
 # FIXED AT THE ROOT rather than worked around here: the repository is now served
 # directly by nginx on the publishing host, with no intermediate CDN (see
@@ -355,39 +355,39 @@ def _check_update_apt():
         detail = _explain_apt_error(upd.stderr) if upd is not None else "timed out"
         return {
             "verifiable": False,
-            "erreur": f"Unable to contact the APT repository: {detail}",
+            "error": f"Unable to contact the APT repository: {detail}",
             "commit_local": installed,
         }
 
     policy = _run_c(["apt-cache", "policy", "hyperlite"])
     problem = _source_problem(policy.stdout)
     if problem:
-        return {"verifiable": False, "erreur": problem, "commit_local": installed, "source_problem": True}
+        return {"verifiable": False, "error": problem, "commit_local": installed, "source_problem": True}
     candidate = None
     for line in policy.stdout.splitlines():
         line = line.strip()
         if line.startswith("Candidate:"):
             candidate = version.without_epoch(line.split(":", 1)[1].strip())
     # The package can say one version while the service runs another: an update whose new code did not answer
-    # in time is rolled back from the backup, but dpkg still records the new package. Comparing only dpkg with
+    # in time is rolled back from the backup, purpose dpkg still records the new package. Comparing only dpkg with
     # the candidate then answered "up to date" and the update could never be applied again.
     running = version.STARTUP_VERSION
     rolled_back = bool(running and installed and running != installed)
-    a_jour = bool(candidate) and installed == candidate and not rolled_back
+    up_to_date = bool(candidate) and installed == candidate and not rolled_back
     if rolled_back:
         changelog = [
             f"The update to {installed} was rolled back: {running} is still running. Applying the update installs it again."
         ]
     else:
-        changelog = [f"New version available: {candidate}"] if not a_jour and candidate else []
+        changelog = [f"New version available: {candidate}"] if not up_to_date and candidate else []
 
     return {
         "verifiable": True,
-        "branche": "apt",
+        "branch": "apt",
         "commit_local": running or installed,
         "commit_distant": candidate,
-        "a_jour": a_jour,
-        "arbre_propre": True,  # not applicable in apt mode (no Git working tree)
+        "up_to_date": up_to_date,
+        "clean_tree": True,  # not applicable in apt mode (no Git working tree)
         "changelog": changelog,
         "rolled_back": rolled_back,
     }
@@ -437,7 +437,7 @@ def _release_notes(installed, candidate, lang):
             continue  # a test build's notes, for a node going to a release (the index lists both channels)
         suffix = "fr" if lang == "fr" and entry.get("fr") else "en"
         try:
-            notes.append({"version": v, "langue": suffix, "texte": _fetch_text(f"{base}/notes/{v}.{suffix}.md")})
+            notes.append({"version": v, "language": suffix, "text": _fetch_text(f"{base}/notes/{v}.{suffix}.md")})
         except OSError:
             continue
     return notes
@@ -447,13 +447,13 @@ def _release_notes(installed, candidate, lang):
 def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
     if _install_method() == "apt":
         result = _check_update_apt()
-        if result.get("verifiable") and not result.get("a_jour"):
+        if result.get("verifiable") and not result.get("up_to_date"):
             result["notes"] = _release_notes(result.get("commit_local"), result.get("commit_distant"), lang)
         if result.get("verifiable"):
             # apt-get update ran above: the Debian side is current too.
-            result["systeme"] = _system_summary()
+            result["system"] = _system_summary()
         previous = _previous()
-        result["precedente"] = previous["version"] if previous else None
+        result["previous"] = previous["version"] if previous else None
         result["canal"] = host_system.channel()
         return result
 
@@ -464,33 +464,33 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
     except subprocess.TimeoutExpired:
         return {
             "verifiable": False,
-            "erreur": "Timed out contacting the remote repository (network?)",
+            "error": "Timed out contacting the remote repository (network?)",
             "commit_local": local,
         }
 
     if fetch.returncode != 0:
         return {
             "verifiable": False,
-            "erreur": f"Unable to contact the remote repository: {fetch.stderr.strip()[:400]}",
+            "error": f"Unable to contact the remote repository: {fetch.stderr.strip()[:400]}",
             "commit_local": local,
         }
 
     remote_r = _run(["git", "rev-parse", f"origin/{branch}"])
     remote = remote_r.stdout.strip() if remote_r.returncode == 0 else None
-    a_jour = bool(remote) and local == remote
+    up_to_date = bool(remote) and local == remote
     changelog = []
-    if not a_jour and remote and local:
+    if not up_to_date and remote and local:
         log_r = _run(["git", "log", "--oneline", f"{local}..{remote}"])
         if log_r.returncode == 0:
             changelog = [line for line in log_r.stdout.strip().splitlines() if line]
 
     return {
         "verifiable": True,
-        "branche": branch,
+        "branch": branch,
         "commit_local": local,
         "commit_distant": remote,
-        "a_jour": a_jour,
-        "arbre_propre": not _is_dirty(),
+        "up_to_date": up_to_date,
+        "clean_tree": not _is_dirty(),
         "changelog": changelog,
     }
 
@@ -637,16 +637,16 @@ def _system_summary():
         u = host_system.updates()
     except host_system.SettingError:
         return None
-    if not u.get("disponible"):
+    if not u.get("available"):
         return None
-    pkgs = [p for p in u["paquets"] if p["nom"] != host_system.SELF_PACKAGE]
-    names = [p["nom"] for p in pkgs]
+    pkgs = [p for p in u["packages"] if p["name"] != host_system.SELF_PACKAGE]
+    names = [p["name"] for p in pkgs]
     return {
-        "paquets": len(pkgs),
-        "securite": sum(1 for p in pkgs if p["securite"]),
-        "noms": names[:300],
-        "redemarrage_prevu": host_system.needs_reboot(names),
-        "redemarrage_requis": u["redemarrage_requis"],
+        "packages": len(pkgs),
+        "security": sum(1 for p in pkgs if p["security"]),
+        "names": names[:300],
+        "restart_scheduled": host_system.needs_reboot(names),
+        "restart_required": u["restart_required"],
     }
 
 
@@ -782,7 +782,7 @@ def _update_in_progress():
 
 class ApplyRequest(BaseModel):
     # The node's Debian packages are updated with Hyperlite (one update per node); False: Hyperlite alone.
-    systeme: bool = True
+    system: bool = True
 
 
 @router.post("/apply", status_code=202)
@@ -796,14 +796,14 @@ def apply_update(payload: ApplyRequest | None = None, user: dict = Depends(requi
                 status_code=409,
                 detail=f"An update started by {running_for} is already running. Wait for it to finish.",
             )
-        return _start_update(user, payload.systeme if payload else True)
+        return _start_update(user, payload.system if payload else True)
 
 
 def _start_update(user, system=True):
     if _install_method() == "apt":
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
         threading.Thread(target=_run_update_job_apt, args=(task_id, user["username"], system), daemon=True).start()
-        return {"task_id": task_id, "statut": "running"}
+        return {"task_id": task_id, "status": "running"}
 
     branch = _current_branch()
     if _is_dirty():
@@ -815,7 +815,7 @@ def _start_update(user, system=True):
 
     task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
     threading.Thread(target=_run_update_job, args=(task_id, user["username"], branch), daemon=True).start()
-    return {"task_id": task_id, "statut": "running"}
+    return {"task_id": task_id, "status": "running"}
 
 
 def _run_rollback_job(task_id, username, previous):
@@ -834,13 +834,13 @@ def _run_rollback_job(task_id, username, previous):
             "DEBIAN_FRONTEND": "noninteractive",
         }
         r = subprocess.run(
-            ["apt-get", "install", "-y", "--allow-downgrades", str(previous["fichier"])],
+            ["apt-get", "install", "-y", "--allow-downgrades", str(previous["file"])],
             cwd=str(REPO_DIR), capture_output=True, text=True, timeout=600, env=env,
         )  # fmt: skip
         if r.returncode != 0:
             raise RuntimeError(f"apt-get install failed: {(r.stderr or r.stdout).strip()[-400:]}")
         # One step back only: the version left is the one the mirror offers again.
-        previous["fichier"].unlink(missing_ok=True)
+        previous["file"].unlink(missing_ok=True)
         update_task_progress(task_id, 90)
         _spawn_outside_service(
             "hyperlite-update-watchdog",
@@ -863,10 +863,10 @@ def _offline_summary(info, lang):
     return {
         "version": info["version"],
         "debian": info["debian"],
-        "taille_mo": info["taille_mo"],
-        "installee": installed,
+        "size_mb": info["size_mb"],
+        "installed": installed,
         # Older than what runs: going back is POST /update/rollback, not an older file.
-        "plus_ancienne": bool(installed and _newer(installed, info["version"])),
+        "oldest": bool(installed and _newer(installed, info["version"])),
         "notes": notes,
     }
 
@@ -915,7 +915,7 @@ def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depen
     info = offline_update.stored()
     if not info:
         raise HTTPException(status_code=409, detail="No valid update file received on this node")
-    if _offline_summary(info, "en")["plus_ancienne"]:
+    if _offline_summary(info, "en")["oldest"]:
         raise HTTPException(
             status_code=409,
             detail=f"This file holds {info['version']}, older than the installed version: it is not installed",
@@ -928,11 +928,11 @@ def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depen
                 detail=f"An update started by {running_for} is already running. Wait for it to finish.",
             )
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
-        system = payload.systeme if payload else True
+        system = payload.system if payload else True
         threading.Thread(
             target=_run_update_job_apt, args=(task_id, user["username"], system, True), daemon=True
         ).start()
-    return {"task_id": task_id, "statut": "running", "version": info["version"]}
+    return {"task_id": task_id, "status": "running", "version": info["version"]}
 
 
 class ChannelRequest(BaseModel):
@@ -942,7 +942,7 @@ class ChannelRequest(BaseModel):
 @router.get("/channel")
 def get_channel(user: dict = Depends(require_role("admin"))):
     """The channel this node updates from: `stable` (releases) or `test` (every merge into the test branch)."""
-    return {"canal": host_system.channel(), "canaux": list(host_system.CHANNELS)}
+    return {"canal": host_system.channel(), "channels": list(host_system.CHANNELS)}
 
 
 @router.put("/channel")
@@ -955,7 +955,7 @@ def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admi
         log_action(user["username"], "set_update_channel", payload.canal[:20], "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
     log_action(user["username"], "set_update_channel", new, "success")
-    return {"canal": new, "canaux": list(host_system.CHANNELS)}
+    return {"canal": new, "channels": list(host_system.CHANNELS)}
 
 
 @router.post("/rollback", status_code=202)
@@ -976,4 +976,4 @@ def rollback_update(user: dict = Depends(require_role("admin"))):
             )
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
         threading.Thread(target=_run_rollback_job, args=(task_id, user["username"], previous), daemon=True).start()
-    return {"task_id": task_id, "statut": "running", "version": previous["version"]}
+    return {"task_id": task_id, "status": "running", "version": previous["version"]}

@@ -39,13 +39,13 @@ export function ContainerHeaderActions({ ct }) {
   const caps = capabilities(useAuthStore((s) => s.role));
   const pushToast = useInfraStore((s) => s.pushToast);
   const navigateTo = useInfraStore((s) => s.navigateTo);
-  const on = ct.etat === "actif";
+  const on = ct.state === "active";
   const [busy, setBusy] = useState(false);
   if (!caps.admin) return null;
   async function run(fn, ok, confirm) {
     if (confirm && !(await confirmAction(confirm))) return false;
     setBusy(true);
-    try { await fn(ct.nom); pushToast({ kind: "success", title: ok, message: ct.nom }); await refreshExtras(); return true; }
+    try { await fn(ct.name); pushToast({ kind: "success", title: ok, message: ct.name }); await refreshExtras(); return true; }
     catch (e) { pushToast({ kind: "error", title: t("action.failed", { action: ok }), message: errorMessage(e) }); return false; }
     finally { setBusy(false); }
   }
@@ -53,9 +53,9 @@ export function ContainerHeaderActions({ ct }) {
     <div className="nx-oh-acts">
       {on ? (
         <>
-          {ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--primary" onClick={() => openTerminal(ct.nom)}><SquareTerminal size={15} aria-hidden="true" />{t("ct.terminal")}</button>}
-          <button type="button" className={`nx-btn${ct.mode === "application" ? " nx-btn--primary" : ""}`} title={t("ct.shellHelp")} onClick={() => openShell(ct.nom)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>
-          <button type="button" className="nx-btn" disabled={busy} onClick={() => run(stopContainer, t("ct.stopRequested"), { title: t("ct.stopTitle", { name: ct.nom }), message: t("ct.stopMsg"), confirmLabel: t("ct.stop") })}><Square size={15} aria-hidden="true" />{t("ct.stop")}</button>
+          {ct.mode !== "application" && <button type="button" className="nx-btn nx-btn--primary" onClick={() => openTerminal(ct.name)}><SquareTerminal size={15} aria-hidden="true" />{t("ct.terminal")}</button>}
+          <button type="button" className={`nx-btn${ct.mode === "application" ? " nx-btn--primary" : ""}`} title={t("ct.shellHelp")} onClick={() => openShell(ct.name)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>
+          <button type="button" className="nx-btn" disabled={busy} onClick={() => run(stopContainer, t("ct.stopRequested"), { title: t("ct.stopTitle", { name: ct.name }), message: t("ct.stopMsg"), confirmLabel: t("ct.stop") })}><Square size={15} aria-hidden="true" />{t("ct.stop")}</button>
         </>
       ) : <>
         <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={() => run(startContainer, t("ct.started"))}><Play size={15} aria-hidden="true" />{t("ct.start")}</button>
@@ -64,9 +64,9 @@ export function ContainerHeaderActions({ ct }) {
           if (name) { await refreshExtras(); navigateTo("container", name, "summary"); }
         }}><PencilLine size={15} aria-hidden="true" />{t("ct.rename")}</button>
       </>}
-      <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" aria-label={t("a11y.delete_container_x", { v: ct.nom })} disabled={busy}
+      <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" aria-label={t("a11y.delete_container_x", { v: ct.name })} disabled={busy}
         onClick={async () => {
-          const done = await run(deleteContainer, t("ct.deleted"), { title: t("ct.deleteTitle", { name: ct.nom }), message: t("ct.deleteMsg", { name: ct.nom }), confirmLabel: t("menu.delete").replace("…", ""), danger: true });
+          const done = await run(deleteContainer, t("ct.deleted"), { title: t("ct.deleteTitle", { name: ct.name }), message: t("ct.deleteMsg", { name: ct.name }), confirmLabel: t("menu.delete").replace("…", ""), danger: true });
           if (done) navigateTo("datacenter", null, "containers");
         }}><Trash2 size={15} aria-hidden="true" /></button>
     </div>
@@ -79,7 +79,7 @@ export function ContainerSummary({ resource: ct }) {
   const lang = useLangStore((s) => s.lang);
   const caps = capabilities(useAuthStore((s) => s.role));
   const pushToast = useInfraStore((s) => s.pushToast);
-  const { detail, error, load, setDetail } = useContainerDetail(ct.nom);
+  const { detail, error, load, setDetail } = useContainerDetail(ct.name);
   const [vcpu, setVcpu] = useState("");
   const [mem, setMem] = useState("");
   const [dns, setDns] = useState("");
@@ -87,25 +87,25 @@ export function ContainerSummary({ resource: ct }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!detail) return;
-    setVcpu(String(detail.vcpu)); setMem(String(detail.memoire_mo)); setDns((detail.dns || []).join(", ")); setBoot(detail.demarrage_auto);
+    setVcpu(String(detail.vcpu)); setMem(String(detail.memory_mb)); setDns((detail.dns || []).join(", ")); setBoot(detail.autostart);
   }, [detail]);
   if (error && !detail) return <ErrorState message={error} onRetry={load} />;
   if (!detail) return <Loading />;
 
   const bad = { vcpu: !intIn(vcpu, 1, 4096), mem: !intIn(mem, 128) };
-  const resDirty = Number(vcpu) !== detail.vcpu || Number(mem) !== detail.memoire_mo;
+  const resDirty = Number(vcpu) !== detail.vcpu || Number(mem) !== detail.memory_mb;
   const dnsList = dns.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
   const dnsDirty = detail.dns != null && dnsList.join(",") !== (detail.dns || []).join(",");
 
   async function save(payload, okTitle) {
     setBusy(true);
     try {
-      const r = await updateContainer(ct.nom, payload);
+      const r = await updateContainer(ct.name, payload);
       setDetail(r);
-      pushToast({ kind: "success", title: okTitle, message: r.a_redemarrer ? t("cd.nextStart") : ct.nom });
+      pushToast({ kind: "success", title: okTitle, message: r.needs_restart ? t("cd.nextStart") : ct.name });
       refreshExtras();
     } catch (e) {
-      setBoot(detail.demarrage_auto); // the box shows what the server kept
+      setBoot(detail.autostart); // the box shows what the server kept
       pushToast({ kind: "error", title: t("cd.saveFailed"), message: errorMessage(e) });
     } finally { setBusy(false); }
   }
@@ -125,8 +125,8 @@ export function ContainerSummary({ resource: ct }) {
           <dl className="nx-dl2">
             <dt>IP</dt><dd className="nx-mono">{detail.ip || <span className="nx-muted">{t("ct.noIp")}</span>}</dd>
             <dt>{t("cd.interfaces")}</dt>
-            <dd>{detail.interfaces.length === 0 ? <span className="nx-muted">—</span> : <ul className="nx-plainlist">{detail.interfaces.map((i) => <li key={i.mac || i.reseau} className="nx-mono">{i.reseau || "—"} · {i.mac || "—"}</li>)}</ul>}</dd>
-            {detail.utilisateur_ssh && <><dt>SSH</dt><dd className="nx-mono">{detail.utilisateur_ssh}{detail.ip ? `@${detail.ip}` : ""}</dd></>}
+            <dd>{detail.interfaces.length === 0 ? <span className="nx-muted">—</span> : <ul className="nx-plainlist">{detail.interfaces.map((i) => <li key={i.mac || i.network} className="nx-mono">{i.network || "—"} · {i.mac || "—"}</li>)}</ul>}</dd>
+            {detail.ssh_user && <><dt>SSH</dt><dd className="nx-mono">{detail.ssh_user}{detail.ip ? `@${detail.ip}` : ""}</dd></>}
           </dl>
           {detail.dns == null ? <p className="nx-muted" style={{ margin: "var(--space-3) 0 0" }}>{t("cd.dnsUnknown")}</p> : (
             <>
@@ -137,10 +137,10 @@ export function ContainerSummary({ resource: ct }) {
         </Card>
       </div>
       <Card title={t("cd.options")}>
-        <label className="nx-check"><input type="checkbox" checked={boot} disabled={!caps.admin || busy} onChange={(e) => { setBoot(e.target.checked); save({ demarrage_auto: e.target.checked }, t("cd.bootSaved")); }} /> {t("cd.boot")}</label>
+        <label className="nx-check"><input type="checkbox" checked={boot} disabled={!caps.admin || busy} onChange={(e) => { setBoot(e.target.checked); save({ autostart: e.target.checked }, t("cd.bootSaved")); }} /> {t("cd.boot")}</label>
         <p className="nx-muted" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("cd.bootHelp")}</p>
       </Card>
-      <NotesCard kind="container" name={ct.nom} canEdit={caps.admin} />
+      <NotesCard kind="container" name={ct.name} canEdit={caps.admin} />
     </>
   );
 }
@@ -150,7 +150,7 @@ export function ContainerConsolePage({ resource: ct }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
   const [logs, setLogs] = useState(false);
-  const on = ct.etat === "actif";
+  const on = ct.state === "active";
   return (
     <Card title={t("tab.console")}>
       {ct.mode === "application" ? (
@@ -158,18 +158,18 @@ export function ContainerConsolePage({ resource: ct }) {
           <p className="nx-muted" style={{ marginTop: 0 }}>{t("cd.appConsole")}</p>
           <div className="nx-ra" style={{ justifyContent: "flex-start" }}>
             <button type="button" className="nx-btn" onClick={() => setLogs(true)}>{t("ct.logs")}</button>
-            {on && caps.admin && <button type="button" className="nx-btn" onClick={() => openShell(ct.nom)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>}
+            {on && caps.admin && <button type="button" className="nx-btn" onClick={() => openShell(ct.name)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>}
           </div>
           {on && caps.admin && <p className="nx-muted" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("ct.shellHelp")}</p>}
-          <ContainerLogs name={logs ? ct.nom : null} onClose={() => setLogs(false)} />
+          <ContainerLogs name={logs ? ct.name : null} onClose={() => setLogs(false)} />
         </>
       ) : !on ? <p className="nx-muted" style={{ margin: 0 }}>{t("cd.consoleStopped")}</p>
         : !caps.admin ? <p className="nx-muted" style={{ margin: 0 }}>{t("cd.consoleAdmin")}</p> : (
           <>
             <p className="nx-muted" style={{ marginTop: 0 }}>{t("cd.consoleHelp")}</p>
             <div className="nx-ra" style={{ justifyContent: "flex-start" }}>
-              <button type="button" className="nx-btn nx-btn--primary" onClick={() => openTerminal(ct.nom)}><SquareTerminal size={15} aria-hidden="true" />{t("ct.terminal")}</button>
-              <button type="button" className="nx-btn" onClick={() => openShell(ct.nom)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>
+              <button type="button" className="nx-btn nx-btn--primary" onClick={() => openTerminal(ct.name)}><SquareTerminal size={15} aria-hidden="true" />{t("ct.terminal")}</button>
+              <button type="button" className="nx-btn" onClick={() => openShell(ct.name)}><TerminalSquare size={15} aria-hidden="true" />{t("ct.shell")}</button>
             </div>
             <p className="nx-muted" style={{ margin: "var(--space-2) 0 0", fontSize: "var(--fs-13)" }}>{t("ct.shellHelp")}</p>
           </>
@@ -189,17 +189,17 @@ export function ContainerBackupsPage({ resource: ct }) {
   const [backups, setBackups] = useState(null);
   const [error, setError] = useState(null);
   const load = useCallback(async () => {
-    try { const b = await fetchContainerBackups(); setBackups((Array.isArray(b) ? b : []).filter((x) => x.container_name === ct.nom)); setError(null); }
+    try { const b = await fetchContainerBackups(); setBackups((Array.isArray(b) ? b : []).filter((x) => x.container_name === ct.name)); setError(null); }
     catch (e) { setError(errorMessage(e)); }
-  }, [ct.nom]);
+  }, [ct.name]);
   useEffect(() => { if (caps.admin) load(); }, [load, caps.admin]);
   if (!caps.admin) return <Card title={t("tab.backups")}><p className="nx-muted" style={{ margin: 0 }}>{t("cd.backupsAdmin")}</p></Card>;
   if (error && !backups) return <ErrorState message={error} onRetry={load} />;
-  const on = ct.etat === "actif";
+  const on = ct.state === "active";
   const del = t("menu.delete").replace("…", "");
   const nameCheck = (v) => (NAME_RE.test(v) ? "" : t("ct.nameRule"));
   async function backupNow() {
-    try { await createContainerBackup(ct.nom); pushToast({ kind: "success", title: t("ct.backupStarted"), message: ct.nom }); setTimeout(load, 2000); }
+    try { await createContainerBackup(ct.name); pushToast({ kind: "success", title: t("ct.backupStarted"), message: ct.name }); setTimeout(load, 2000); }
     catch (e) { pushToast({ kind: "error", title: t("ct.backupFailed"), message: errorMessage(e) }); }
   }
   async function restore(b) {
@@ -223,11 +223,11 @@ export function ContainerBackupsPage({ resource: ct }) {
             <tbody>
               {backups.map((b) => (
                 <tr key={b.id}>
-                  <td><StatusIndicator kind="task" wire={backupWire(b.statut)} /></td>
-                  <th scope="row" style={{ fontWeight: 400 }}>{new Date(b.cree_le).toLocaleString(lang)}</th>
-                  <td className="nx-num nx-mono">{b.taille_octets ? formatSizeMb(b.taille_octets / 1048576, lang) : "—"}</td>
+                  <td><StatusIndicator kind="task" wire={backupWire(b.status)} /></td>
+                  <th scope="row" style={{ fontWeight: 400 }}>{new Date(b.created_at).toLocaleString(lang)}</th>
+                  <td className="nx-num nx-mono">{b.size_bytes ? formatSizeMb(b.size_bytes / 1048576, lang) : "—"}</td>
                   <td><div className="nx-ra">
-                    {b.statut === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
+                    {b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.restore_backup_x", { v: b.id })} onClick={() => restore(b)}>{t("ct.restore")}</button>}
                     <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={del} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>
                   </div></td>
                 </tr>

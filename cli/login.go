@@ -235,10 +235,10 @@ func cmdStatus() error {
 }
 
 type vmInfo struct {
-	Name    string  `json:"nom"`
-	State   string  `json:"etat"`
+	Name    string  `json:"name"`
+	State   string  `json:"state"`
 	IP      *string `json:"ip"`
-	SSHUser *string `json:"utilisateur_ssh"`
+	SSHUser *string `json:"ssh_user"`
 	Node    string  `json:"node"`
 }
 

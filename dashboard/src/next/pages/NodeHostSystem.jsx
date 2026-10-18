@@ -40,17 +40,17 @@ export function NodeUpdatesPage({ resource: node }) {
     try { setData(await fetchHostUpdates(refresh)); setError(null); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }, []);
   useEffect(() => { if (local && isAdmin) load(); }, [load, local, isAdmin]);
-  if (!local) return <EmptyState title={t("nn.remoteTitle", { name: node.nom })} help={t("nn.remoteHelp")} />;
+  if (!local) return <EmptyState title={t("nn.remoteTitle", { name: node.name })} help={t("nn.remoteHelp")} />;
   if (!isAdmin) return <PermissionNotice requires={t("top.role.admin")} />;
   if (error && !data) return <ErrorState message={error} onRetry={() => load()} />;
   if (!data) return <Loading />;
-  if (!data.disponible) return <Card title={t("hu.title")}><p className="nx-muted" style={{ margin: 0 }}>{t("hu.noApt")}</p></Card>;
+  if (!data.available) return <Card title={t("hu.title")}><p className="nx-muted" style={{ margin: 0 }}>{t("hu.noApt")}</p></Card>;
 
-  const own = data.paquets.find((p) => p.nom === "hyperlite");
-  const list = data.paquets.filter((p) => p.nom !== "hyperlite" && (!only || p.securite));
-  const security = data.paquets.filter((p) => p.securite).length;
+  const own = data.packages.find((p) => p.name === "hyperlite");
+  const list = data.packages.filter((p) => p.name !== "hyperlite" && (!only || p.security));
+  const security = data.packages.filter((p) => p.security).length;
   async function upgrade() {
-    const names = list.map((p) => p.nom);
+    const names = list.map((p) => p.name);
     if (!(await confirmAction({ title: t("hu.confirmTitle", { n: names.length }), message: t("hu.confirmMsg"), confirmLabel: t("hu.upgrade") }))) return;
     try {
       await upgradeHostPackages(names);
@@ -60,12 +60,12 @@ export function NodeUpdatesPage({ resource: node }) {
   }
   return (
     <>
-      {data.redemarrage_requis && (
+      {data.restart_required && (
         <div className="nx-pending" role="status" style={{ margin: "0 0 var(--space-3)" }}>
-          {t("hu.reboot", { pkgs: data.paquets_redemarrage.join(", ") || "—" })}
+          {t("hu.reboot", { pkgs: data.packages_needing_restart.join(", ") || "—" })}
         </div>
       )}
-      <Card title={t("hu.title")} note={data.actualise_le ? t("hu.refreshed", { d: formatDateTime(data.actualise_le, lang) }) : null} flush actions={<>
+      <Card title={t("hu.title")} note={data.refreshed_at ? t("hu.refreshed", { d: formatDateTime(data.refreshed_at, lang) }) : null} flush actions={<>
         <label className="nx-check"><input type="checkbox" checked={only} onChange={(e) => setOnly(e.target.checked)} /> {t("hu.onlySecurity", { n: security })}</label>
         <button type="button" className="nx-btn" disabled={busy} onClick={() => load(true)}>{busy ? t("hu.refreshing") : t("hu.refresh")}</button>
         <button type="button" className="nx-btn nx-btn--primary" disabled={busy || list.length === 0} onClick={upgrade}>{t("hu.upgradeN", { n: list.length })}</button>
@@ -76,7 +76,7 @@ export function NodeUpdatesPage({ resource: node }) {
             <table className="nx-table">
               <thead><tr><th scope="col">{t("hu.package")}</th><th scope="col">{t("hu.installed")}</th><th scope="col">{t("hu.available")}</th><th scope="col"><span className="nx-sr">{t("hu.kind")}</span></th></tr></thead>
               <tbody>{list.map((p) => (
-                <tr key={p.nom}><th scope="row" className="nx-mono">{p.nom}</th><td className="nx-mono nx-muted">{p.depuis}</td><td className="nx-mono">{p.version}</td><td>{p.securite && <Chip tone="warning">{t("hu.security")}</Chip>}</td></tr>
+                <tr key={p.name}><th scope="row" className="nx-mono">{p.name}</th><td className="nx-mono nx-muted">{p.since}</td><td className="nx-mono">{p.version}</td><td>{p.security && <Chip tone="warning">{t("hu.security")}</Chip>}</td></tr>
               ))}</tbody>
             </table>
           </TableWrap>
@@ -93,25 +93,25 @@ function AutoUpdatesCard() {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [d, setD] = useState(null);
-  const [f, setF] = useState({ actif: true, heure: "03:30" });
+  const [f, setF] = useState({ active: true, time: "03:30" });
   const [error, setError] = useState(null);
-  const fill = (x) => { setD(x); setF({ actif: x.actif, heure: x.heure }); };
+  const fill = (x) => { setD(x); setF({ active: x.active, time: x.time }); };
   const load = useCallback(() => fetchAutoUpdates().then((x) => { fill(x); setError(null); }).catch((e) => setError(errorMessage(e))), []);
   useEffect(() => { load(); }, [load]);
   if (error && !d) return <Card title={t("au2.title")}><ErrorState message={error} onRetry={load} /></Card>;
   if (!d) return <Card title={t("au2.title")}><Loading /></Card>;
-  const dirty = f.actif !== d.actif || f.heure !== d.heure;
+  const dirty = f.active !== d.active || f.time !== d.time;
   async function save() {
-    try { fill(await setAutoUpdates(f.actif, f.heure)); pushToast({ kind: "success", title: t("hs.saved") }); }
+    try { fill(await setAutoUpdates(f.active, f.time)); pushToast({ kind: "success", title: t("hs.saved") }); }
     catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
   }
   return (
-    <Card title={t("au2.title")} actions={<button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || !/^\d\d:\d\d$/.test(f.heure)} onClick={save}>{t("hs.save")}</button>}>
+    <Card title={t("au2.title")} actions={<button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || !/^\d\d:\d\d$/.test(f.time)} onClick={save}>{t("hs.save")}</button>}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("au2.help")}</p>
-      {!d.installe && <p className="nx-pending" role="status">{t("au2.notInstalled")}</p>}
-      <label className="nx-check"><input type="checkbox" checked={f.actif} onChange={(e) => setF({ ...f, actif: e.target.checked })} /> {t("au2.enable")}</label>
+      {!d.installed && <p className="nx-pending" role="status">{t("au2.notInstalled")}</p>}
+      <label className="nx-check"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> {t("au2.enable")}</label>
       <div className="nx-fg" style={{ marginTop: "var(--space-3)" }}>
-        <Field label={t("au2.time")} hint={t("au2.timeHint")}>{(p) => <input {...p} type="time" className="nx-inp" disabled={!f.actif} value={f.heure} onChange={(e) => setF({ ...f, heure: e.target.value })} />}</Field>
+        <Field label={t("au2.time")} hint={t("au2.timeHint")}>{(p) => <input {...p} type="time" className="nx-inp" disabled={!f.active} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} />}</Field>
       </div>
     </Card>
   );
@@ -137,7 +137,7 @@ function ChannelCard() {
     <Card title={t("ch.title")} actions={<button type="button" className="nx-btn nx-btn--primary" disabled={f === d.canal} onClick={save}>{t("hs.save")}</button>}>
       <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
         <legend className="nx-sr">{t("ch.title")}</legend>
-        {d.canaux.map((c) => (
+        {d.channels.map((c) => (
           <label key={c} className="nx-check" style={{ alignItems: "flex-start", marginBottom: "var(--space-2)" }}>
             <input type="radio" name="update-channel" value={c} checked={f === c} onChange={() => setF(c)} />
             <span><strong>{t(`ch.${c}`)}</strong><br /><span className="nx-muted" style={{ fontSize: "var(--fs-13)" }}>{t(`ch.${c}Help`)}</span></span>
@@ -153,28 +153,28 @@ function DnsCard() {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [d, setD] = useState(null);
-  const [f, setF] = useState({ serveurs: "", recherche: "" });
+  const [f, setF] = useState({ servers: "", recherche: "" });
   const [error, setError] = useState(null);
-  const fill = (x) => { setD(x); setF({ serveurs: x.serveurs.join(" "), recherche: x.recherche.join(" ") }); };
+  const fill = (x) => { setD(x); setF({ servers: x.servers.join(" "), recherche: x.recherche.join(" ") }); };
   const load = useCallback(() => fetchHostDns().then((x) => { fill(x); setError(null); }).catch((e) => setError(errorMessage(e))), []);
   useEffect(() => { load(); }, [load]);
   if (error && !d) return <Card title={t("hs.dns")}><ErrorState message={error} onRetry={load} /></Card>;
   if (!d) return <Card title={t("hs.dns")}><Loading /></Card>;
-  const servers = words(f.serveurs);
-  const bad = { serveurs: servers.length === 0 || servers.length > 3 || servers.some((s) => !IP.test(s)), recherche: words(f.recherche).some((s) => !HOST.test(s)) };
-  const dirty = f.serveurs !== d.serveurs.join(" ") || f.recherche !== d.recherche.join(" ");
+  const servers = words(f.servers);
+  const bad = { servers: servers.length === 0 || servers.length > 3 || servers.some((s) => !IP.test(s)), recherche: words(f.recherche).some((s) => !HOST.test(s)) };
+  const dirty = f.servers !== d.servers.join(" ") || f.recherche !== d.recherche.join(" ");
   async function save() {
-    try { fill(await setHostDns({ serveurs: servers, recherche: words(f.recherche) })); pushToast({ kind: "success", title: t("hs.saved") }); }
+    try { fill(await setHostDns({ servers: servers, recherche: words(f.recherche) })); pushToast({ kind: "success", title: t("hs.saved") }); }
     catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
   }
   return (
-    <Card title={t("hs.dns")} note={t(`hs.dnsBy.${d.gere_par}`)}>
+    <Card title={t("hs.dns")} note={t(`hs.dnsBy.${d.managed_by}`)}>
       {!d.modifiable && <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("hs.dnsReadOnly")}</p>}
       <div className="nx-fg">
-        <Field label={t("hs.dnsServers")} hint={t("hs.dnsServersHint")} error={d.modifiable && bad.serveurs ? t("hs.dnsServersRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.serveurs} onChange={(e) => setF((x) => ({ ...x, serveurs: e.target.value }))} />}</Field>
+        <Field label={t("hs.dnsServers")} hint={t("hs.dnsServersHint")} error={d.modifiable && bad.servers ? t("hs.dnsServersRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.servers} onChange={(e) => setF((x) => ({ ...x, servers: e.target.value }))} />}</Field>
         <Field label={t("hs.dnsSearch")} help={t("hlp.dnsSearch")} error={d.modifiable && bad.recherche ? t("hs.dnsSearchRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!d.modifiable} value={f.recherche} onChange={(e) => setF((x) => ({ ...x, recherche: e.target.value }))} />}</Field>
       </div>
-      {d.modifiable && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.serveurs || bad.recherche} onClick={save}>{t("hs.save")}</button></div>}
+      {d.modifiable && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.servers || bad.recherche} onClick={save}>{t("hs.save")}</button></div>}
     </Card>
   );
 }
@@ -186,28 +186,28 @@ function TimeCard() {
   const [zones, setZones] = useState([]);
   const [f, setF] = useState(null);
   const [error, setError] = useState(null);
-  const fill = (x) => { setD(x); setF({ fuseau: x.fuseau || "", ntp: x.ntp, serveurs: x.serveurs_ntp.join(" ") }); };
+  const fill = (x) => { setD(x); setF({ timezone: x.timezone || "", ntp: x.ntp, servers: x.ntp_servers.join(" ") }); };
   const load = useCallback(() => Promise.all([fetchHostTime(), fetchHostTimezones().catch(() => [])])
     .then(([x, z]) => { fill(x); setZones(z); setError(null); }).catch((e) => setError(errorMessage(e))), []);
   useEffect(() => { load(); }, [load]);
   if (error && !d) return <Card title={t("hs.time")}><ErrorState message={error} onRetry={load} /></Card>;
   if (!d) return <Card title={t("hs.time")}><Loading /></Card>;
-  const servers = words(f.serveurs);
+  const servers = words(f.servers);
   const badServers = servers.some((s) => !IP.test(s) && !HOST.test(s));
-  const dirty = f.fuseau !== (d.fuseau || "") || f.ntp !== d.ntp || f.serveurs !== d.serveurs_ntp.join(" ");
+  const dirty = f.timezone !== (d.timezone || "") || f.ntp !== d.ntp || f.servers !== d.ntp_servers.join(" ");
   async function save() {
     try {
-      fill(await setHostTime({ fuseau: f.fuseau !== d.fuseau ? f.fuseau : null, ntp: f.ntp !== d.ntp ? f.ntp : null, serveurs_ntp: d.timesyncd ? servers : null }));
+      fill(await setHostTime({ timezone: f.timezone !== d.timezone ? f.timezone : null, ntp: f.ntp !== d.ntp ? f.ntp : null, ntp_servers: d.timesyncd ? servers : null }));
       pushToast({ kind: "success", title: t("hs.saved") });
     } catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
   }
   return (
-    <Card title={t("hs.time")} note={d.synchronise ? t("hs.synced") : t("hs.notSynced")}>
+    <Card title={t("hs.time")} note={d.synced ? t("hs.synced") : t("hs.notSynced")}>
       <div className="nx-fg">
-        <Field label={t("hs.timezone")}>{(p) => <select {...p} className="nx-inp" value={f.fuseau} onChange={(e) => setF((x) => ({ ...x, fuseau: e.target.value }))}>
-          {(zones.includes(f.fuseau) ? zones : [f.fuseau, ...zones]).map((z) => <option key={z} value={z}>{z}</option>)}
+        <Field label={t("hs.timezone")}>{(p) => <select {...p} className="nx-inp" value={f.timezone} onChange={(e) => setF((x) => ({ ...x, timezone: e.target.value }))}>
+          {(zones.includes(f.timezone) ? zones : [f.timezone, ...zones]).map((z) => <option key={z} value={z}>{z}</option>)}
         </select>}</Field>
-        {d.timesyncd && <Field label={t("hs.ntpServers")} hint={t("hs.ntpServersHint")} error={badServers ? t("hs.ntpServersRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.serveurs} onChange={(e) => setF((x) => ({ ...x, serveurs: e.target.value }))} />}</Field>}
+        {d.timesyncd && <Field label={t("hs.ntpServers")} hint={t("hs.ntpServersHint")} error={badServers ? t("hs.ntpServersRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.servers} onChange={(e) => setF((x) => ({ ...x, servers: e.target.value }))} />}</Field>}
       </div>
       <label className="nx-check"><input type="checkbox" checked={f.ntp} onChange={(e) => setF((x) => ({ ...x, ntp: e.target.checked }))} /> {t("hs.ntp")}</label>
       <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || badServers} onClick={save}>{t("hs.save")}</button></div>
@@ -219,29 +219,29 @@ function SyslogCard() {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [d, setD] = useState(null);
-  const [f, setF] = useState({ hote: "", port: "514", protocole: "udp" });
+  const [f, setF] = useState({ host: "", port: "514", protocol: "udp" });
   const [error, setError] = useState(null);
-  const fill = (x) => { setD(x); setF({ hote: x.cible?.hote || "", port: String(x.cible?.port || 514), protocole: x.cible?.protocole || "udp" }); };
+  const fill = (x) => { setD(x); setF({ host: x.target?.host || "", port: String(x.target?.port || 514), protocol: x.target?.protocol || "udp" }); };
   const load = useCallback(() => fetchHostSyslog().then((x) => { fill(x); setError(null); }).catch((e) => setError(errorMessage(e))), []);
   useEffect(() => { load(); }, [load]);
   if (error && !d) return <Card title={t("hs.syslog")}><ErrorState message={error} onRetry={load} /></Card>;
   if (!d) return <Card title={t("hs.syslog")}><Loading /></Card>;
-  if (!d.disponible) return <Card title={t("hs.syslog")}><p className="nx-muted" style={{ margin: 0 }}>{t("hs.noRsyslog")}</p></Card>;
+  if (!d.available) return <Card title={t("hs.syslog")}><p className="nx-muted" style={{ margin: 0 }}>{t("hs.noRsyslog")}</p></Card>;
   const port = Number(f.port);
-  const bad = { hote: f.hote !== "" && !IP.test(f.hote) && !HOST.test(f.hote), port: !Number.isInteger(port) || port < 1 || port > 65535 };
-  const dirty = f.hote !== (d.cible?.hote || "") || port !== (d.cible?.port || 514) || f.protocole !== (d.cible?.protocole || "udp");
+  const bad = { host: f.host !== "" && !IP.test(f.host) && !HOST.test(f.host), port: !Number.isInteger(port) || port < 1 || port > 65535 };
+  const dirty = f.host !== (d.target?.host || "") || port !== (d.target?.port || 514) || f.protocol !== (d.target?.protocol || "udp");
   async function save() {
-    try { fill(await setHostSyslog({ hote: f.hote || null, port, protocole: f.protocole })); pushToast({ kind: "success", title: t("hs.saved") }); }
+    try { fill(await setHostSyslog({ host: f.host || null, port, protocol: f.protocol })); pushToast({ kind: "success", title: t("hs.saved") }); }
     catch (e) { pushToast({ kind: "error", title: t("hs.saveFailed"), message: errorMessage(e) }); }
   }
   return (
-    <Card title={t("hs.syslog")} note={d.cible ? t("hs.syslogOn") : t("hs.syslogOff")}>
+    <Card title={t("hs.syslog")} note={d.target ? t("hs.syslogOn") : t("hs.syslogOff")}>
       <div className="nx-fg">
-        <Field label={t("hs.syslogHost")} hint={t("hs.syslogHostHint")} error={bad.hote ? t("hs.syslogHostRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.hote} placeholder="logs.example.org" onChange={(e) => setF((x) => ({ ...x, hote: e.target.value.trim() }))} />}</Field>
+        <Field label={t("hs.syslogHost")} hint={t("hs.syslogHostHint")} error={bad.host ? t("hs.syslogHostRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.host} placeholder="logs.example.org" onChange={(e) => setF((x) => ({ ...x, host: e.target.value.trim() }))} />}</Field>
         <Field label={t("hs.syslogPort")} error={bad.port ? t("hs.syslogPortRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" inputMode="numeric" value={f.port} onChange={(e) => setF((x) => ({ ...x, port: e.target.value.trim() }))} />}</Field>
-        <Field label={t("hs.syslogProto")} help={t("hlp.syslogProto")}>{(p) => <select {...p} className="nx-inp" value={f.protocole} onChange={(e) => setF((x) => ({ ...x, protocole: e.target.value }))}><option value="udp">UDP</option><option value="tcp">TCP</option></select>}</Field>
+        <Field label={t("hs.syslogProto")} help={t("hlp.syslogProto")}>{(p) => <select {...p} className="nx-inp" value={f.protocol} onChange={(e) => setF((x) => ({ ...x, protocol: e.target.value }))}><option value="udp">UDP</option><option value="tcp">TCP</option></select>}</Field>
       </div>
-      <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.hote || bad.port} onClick={save}>{t("hs.save")}</button></div>
+      <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" disabled={!dirty || bad.host || bad.port} onClick={save}>{t("hs.save")}</button></div>
     </Card>
   );
 }

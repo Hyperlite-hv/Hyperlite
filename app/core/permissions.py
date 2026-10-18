@@ -45,12 +45,12 @@ ALL_PRIVILEGES = {
 # the global admin/viewer roles): convenient shortcuts over the same
 # privilege catalog as the custom roles below, not a separate mechanism.
 ROLES = {
-    "lecteur": {
+    "drive": {
         "label": "Reader",
         "description": "View (state, metrics, journal) on the assigned resource.",
         "privileges": {"vm.view", "container.view"},
     },
-    "operateur": {
+    "operator": {
         "label": "Operator",
         "description": "Start / stop / restart, graphical console, SSH terminal and workstation tunnel, on the assigned resource.",
         "privileges": {
@@ -63,7 +63,7 @@ ROLES = {
             "container.console",
         },
     },
-    "gestionnaire": {
+    "manager": {
         "label": "Manager",
         "description": "Operator + snapshots, CPU/RAM/disk resizing, hardware (disks/network), options (start at boot, notes, tags), without creating or deleting VMs.",
         "privileges": {
@@ -85,7 +85,7 @@ ROLES = {
 
 
 # ---- Custom roles ----
-# Same principle as the predefined roles above, but the privilege set is chosen
+# Same principle as the predefined roles above, purpose the privilege set is chosen
 # freely (see ALL_PRIVILEGES). They are identified in acl.role by the string
 # "custom:<id>" so they can never collide with the keys of the predefined roles.
 
@@ -221,7 +221,7 @@ def list_acl():
     pools = {p["id"]: p["name"] for p in list_pools()}
     for a in acl:
         if a["subject_type"] == "group":
-            a["subject_label"] = groups.get(int(a["subject_id"]), f"groupe#{a['subject_id']}")
+            a["subject_label"] = groups.get(int(a["subject_id"]), f"group#{a['subject_id']}")
         else:
             a["subject_label"] = a["subject_id"]
         if a["resource_type"] == "pool":
@@ -303,7 +303,7 @@ def has_privilege(user, vm_name, privilege):
 
 def has_container_privilege(user, container_name, privilege):
     """Equivalent of has_privilege() for LXC containers: the same role catalog
-    (lecteur/operateur/gestionnaire/custom), with resource_type='container' in
+    (drive/operator/manager/custom), with resource_type='container' in
     the ACL instead of 'vm'. There is NO grouping by pool for containers in
     this first pass (the pools of app/routers/pools.py are a VM-only concept,
     "VM added to the pool"): a known limitation, documented rather than

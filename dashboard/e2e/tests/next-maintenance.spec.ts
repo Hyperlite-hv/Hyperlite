@@ -12,7 +12,7 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 async function open(page: Page, lang = "en") {
   await page.addInitScript((l) => { if (!localStorage.getItem("hyperlite-ui")) { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", l); } }, lang);
   await page.goto("/");
-  await page.getByLabel(/Username|Nom d.utilisateur/).fill(ADMIN.username);
+  await page.getByLabel(/Username|Nom d.user/).fill(ADMIN.username);
   await page.getByLabel(/^(Password|Mot de passe)$/).fill(ADMIN.password);
   await page.getByRole("button", { name: /Sign in|Se connecter/ }).click();
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
@@ -22,10 +22,10 @@ test("the real backend answers a read-only drain plan for this host", async ({ r
   const token = await apiLogin(request);
   const r = await request.get("/nodes/local/drain-plan", { headers: { Authorization: `Bearer ${token}` } });
   expect(r.status(), await r.text()).toBe(200);
-  const plan = (await r.json()) as { migrables: string[]; non_migrables: { nom: string; raison: string }[] };
+  const plan = (await r.json()) as { migrables: string[]; non_migrables: { name: string; reason: string }[] };
   // No target: nothing moves, and every VM of the host is listed with a reason.
   expect(plan.migrables).toEqual([]);
-  for (const vm of plan.non_migrables) expect(vm.raison.length).toBeGreaterThan(0);
+  for (const vm of plan.non_migrables) expect(vm.reason.length).toBeGreaterThan(0);
 });
 
 test("enter maintenance: the plan is shown per target, the drain is confirmed, the banner ends it", async ({ page }) => {
@@ -33,24 +33,24 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
   let posted: unknown = null;
   let deleted = 0;
   const plans = {
-    peer: { migrables: ["e2e-web"], non_migrables: [{ nom: "e2e-off", raison: "Stopped: only running VMs are live-migrated, it stays on this node" }] },
-    none: { migrables: [], non_migrables: [{ nom: "e2e-web", raison: "No target chosen" }, { nom: "e2e-off", raison: "Stopped" }] },
+    peer: { migrables: ["e2e-web"], non_migrables: [{ name: "e2e-off", reason: "Stopped: only running VMs are live-migrated, it stays on this node" }] },
+    none: { migrables: [], non_migrables: [{ name: "e2e-web", reason: "No target chosen" }, { name: "e2e-off", reason: "Stopped" }] },
   };
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
     const url = new URL(req.url());
     const path = url.pathname;
-    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "online" }]);
-    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0, stockage_capacite_go: 100, stockage_disponible_go: 50 });
+    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" }]);
+    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_actives: 0, vms_stopped: 0, storage_capacity_gb: 100, storage_available_gb: 50 });
     if (req.method() === "GET" && /\/nodes\/maintenance$/.test(path)) return json(route, state);
     if (req.method() === "GET" && /\/nodes\/local\/drain-plan$/.test(path)) return json(route, url.searchParams.get("target_node") === "peer" ? plans.peer : plans.none);
     if (req.method() === "POST" && /\/nodes\/local\/maintenance$/.test(path)) {
       posted = req.postDataJSON();
       state = [{ node: "local", started_by: "admin", started_at: new Date().toISOString() }];
-      return json(route, { node: "local", en_maintenance: true, task_id: "t1", ...plans.peer }, 202);
+      return json(route, { node: "local", in_maintenance: true, task_id: "t1", ...plans.peer }, 202);
     }
-    if (req.method() === "DELETE" && /\/nodes\/local\/maintenance$/.test(path)) { deleted += 1; state = []; return json(route, { node: "local", en_maintenance: false }); }
+    if (req.method() === "DELETE" && /\/nodes\/local\/maintenance$/.test(path)) { deleted += 1; state = []; return json(route, { node: "local", in_maintenance: false }); }
     return route.fallback();
   });
 

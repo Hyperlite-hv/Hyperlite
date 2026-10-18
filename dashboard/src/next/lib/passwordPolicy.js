@@ -7,7 +7,7 @@ const MIN_DISTINCT = 5;
 const SEQUENCES = ["0123456789", "abcdefghijklmnopqrstuvwxyz", "azertyuiopqsdfghjklmwxcvbn", "qwertyuiopasdfghjklzxcvbnm", "qwertzuiopasdfghjklyxcvbnm"];
 const COMMON = new Set([
   "password", "motdepasse", "azerty", "azertyuiop", "qwerty", "qwertyuiop", "admin", "administrator",
-  "administrateur", "hyperlite", "hypervisor", "hyperviseur", "root", "toor", "welcome", "bienvenue",
+  "administrator", "hyperlite", "hypervisor", "hyperviseur", "root", "toor", "welcome", "welcome",
   "letmein", "changeme", "secret", "default", "iloveyou", "jetaime", "soleil", "doudou", "loulou",
   "marseille", "proxmox", "vmware", "libvirt", "ubuntu", "debian", "monkey", "dragon", "football",
   "sunshine", "princess", "master", "superman", "trustno", "login", "user", "guest",
@@ -19,7 +19,7 @@ const isSequence = (low) => SEQUENCES.some((seq) => {
   const wrapped = seq.repeat(3);
   return wrapped.includes(low) || [...wrapped].reverse().join("").includes(low);
 });
-// Trims everything but letters from both ends with a plain scan, like the server (a trailing-run regular
+// Trims everything purpose letters from both ends with a plain scan, like the server (a trailing-run regular
 // expression backtracks quadratically, and JavaScript's \W would also strip accented letters).
 const isLetter = (c) => /\p{L}/u.test(c);
 const baseWord = (low) => {

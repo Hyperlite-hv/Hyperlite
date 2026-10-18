@@ -19,9 +19,9 @@ function go(v) {
 }
 
 function zfsState(s) {
-  if (!s || s.zfs_installe == null) return NA;
-  if (s.zfs_disponible) return "Available";
-  if (s.zfs_installe) return "Installed, kernel module not loaded";
+  if (!s || s.zfs_installed == null) return NA;
+  if (s.zfs_available) return "Available";
+  if (s.zfs_installed) return "Installed, kernel module not loaded";
   return "Not installed";
 }
 
@@ -29,7 +29,7 @@ const SECURE_BOOT = {
   active: "Active",
   inactive: "Inactive",
   bios_legacy: "Legacy BIOS (no UEFI)",
-  uefi_inconnu: "UEFI, state unknown",
+  uefi_unknown: "UEFI, state unknown",
 };
 
 const BINARIES = ["qemu-img", "virsh", "zfs", "zpool", "git", "gh", "xorriso", "nginx"];
@@ -42,74 +42,74 @@ export function flattenCapabilities(c) {
   const add = (section, key, label, value) => rows.push({ section, key, label, value: value ?? NA });
   const cpu = c.cpu || {};
   add("Hardware", "cpu.arch", "Architecture", cpu.architecture);
-  add("Hardware", "cpu.model", "CPU model", cpu.modele);
-  add("Hardware", "cpu.cores", "Logical cores", cpu.coeurs_logiques);
-  add("Hardware", "cpu.virt", "Hardware virtualization (KVM)", yesNo(cpu.virtualisation_materielle));
-  add("Hardware", "cpu.numa", "NUMA nodes", cpu.numa_noeuds);
-  const mem = c.memoire || {};
-  add("Hardware", "mem.total", "Total memory", mem.totale_mo != null ? `${mem.totale_mo} MB` : NA);
-  add("Hardware", "mem.avail", "Available memory", mem.disponible_mo != null ? `${mem.disponible_mo} MB` : NA);
+  add("Hardware", "cpu.model", "CPU model", cpu.model);
+  add("Hardware", "cpu.cores", "Logical cores", cpu.logical_cores);
+  add("Hardware", "cpu.virt", "Hardware virtualization (KVM)", yesNo(cpu.hardware_virtualization));
+  add("Hardware", "cpu.numa", "NUMA nodes", cpu.numa_nodes);
+  const mem = c.memory || {};
+  add("Hardware", "mem.total", "Total memory", mem.total_mb != null ? `${mem.total_mb} MB` : NA);
+  add("Hardware", "mem.avail", "Available memory", mem.available_mb != null ? `${mem.available_mb} MB` : NA);
   const virt = c.virtualisation || {};
   add("Virtualization", "virt.type", "Hypervisor", virt.hyperviseur);
-  add("Virtualisation", "virt.libvirt", "Version libvirt", version(virt.version_libvirt));
-  add("Virtualisation", "virt.qemu", "Version QEMU", version(virt.version_hyperviseur));
-  add("Virtualization", "virt.lxc", "LXC containers", yesNo(virt.conteneurs_lxc_disponibles, "Available", "Unavailable"));
-  const st = c.stockage || {};
+  add("Virtualisation", "virt.libvirt", "Version libvirt", version(virt.libvirt_version));
+  add("Virtualisation", "virt.qemu", "Version QEMU", version(virt.hypervisor_version));
+  add("Virtualization", "virt.lxc", "LXC containers", yesNo(virt.lxc_containers_available, "Available", "Unavailable"));
+  const st = c.storage || {};
   add("Storage", "st.zfs", "ZFS", zfsState(st));
-  add("Storage", "st.pool_total", "Default pool: total", go(st.pool_defaut_total_go));
-  add("Storage", "st.pool_free", "Default pool: free", go(st.pool_defaut_disponible_go));
-  const net = c.reseau || {};
+  add("Storage", "st.pool_total", "Default pool: total", go(st.default_pool_total_gb));
+  add("Storage", "st.pool_free", "Default pool: free", go(st.default_pool_available_gb));
+  const net = c.network || {};
   add("Network", "net.ifaces", "Interfaces",
-    net.interfaces ? net.interfaces.map((i) => `${i.nom}${i.pont ? " (bridge)" : ""}${i.vlan ? " (VLAN)" : ""} ${i.etat}`).join(", ") || "none" : NA);
+    net.interfaces ? net.interfaces.map((i) => `${i.name}${i.bridge ? " (bridge)" : ""}${i.vlan ? " (VLAN)" : ""} ${i.state}`).join(", ") || "none" : NA);
   add("Network", "net.libvirt", "libvirt networks",
-    net.reseaux_libvirt ? net.reseaux_libvirt.map((n) => `${n.nom}${n.actif ? "" : " (inactive)"}`).join(", ") || "none" : NA);
-  add("Security", "sec.sb", "Secure Boot", c.securite?.secure_boot ? (SECURE_BOOT[c.securite.secure_boot] || c.securite.secure_boot) : NA);
-  const sw = c.logiciel || {};
+    net.libvirt_networks ? net.libvirt_networks.map((n) => `${n.name}${n.active ? "" : " (inactive)"}`).join(", ") || "none" : NA);
+  add("Security", "sec.sb", "Secure Boot", c.security?.secure_boot ? (SECURE_BOOT[c.security.secure_boot] || c.security.secure_boot) : NA);
+  const sw = c.software || {};
   BINARIES.forEach((b) => add("Software", `sw.${b}`, b, sw[b] == null ? NA : sw[b] ? "Present" : "Absent"));
-  if (sw.dependances_python) {
-    Object.entries(sw.dependances_python).forEach(([m, ok]) =>
+  if (sw.python_dependencies) {
+    Object.entries(sw.python_dependencies).forEach(([m, ok]) =>
       add("Python dependencies", `py.${m}`, m, ok ? "Importable" : "Absent"));
   }
   return rows;
 }
 
-// Features derived from the profile: { id, label, etat: "actif"|"limite"|"unknown", detail }
+// Features derived from the profile: { id, label, state: "active"|"limite"|"unknown", detail }
 export function deriveFeatures(c) {
   if (!c) return [];
   const f = [];
-  const virt = c.cpu?.virtualisation_materielle;
+  const virt = c.cpu?.hardware_virtualization;
   f.push({
     id: "kvm", label: "KVM virtual machines",
-    etat: virt == null ? "unknown" : virt ? "actif" : "limite",
+    state: virt == null ? "unknown" : virt ? "active" : "limite",
     detail: virt === false ? "Hardware virtualization missing or disabled (BIOS, nesting): only LXC containers remain usable" : null,
   });
-  const lxc = c.virtualisation?.conteneurs_lxc_disponibles;
+  const lxc = c.virtualisation?.lxc_containers_available;
   f.push({
     id: "lxc", label: "LXC containers",
-    etat: lxc == null ? "unknown" : lxc ? "actif" : "limite",
+    state: lxc == null ? "unknown" : lxc ? "active" : "limite",
     detail: lxc === false ? "libvirt LXC driver missing (package libvirt-daemon-driver-lxc)" : null,
   });
-  const st = c.stockage || {};
+  const st = c.storage || {};
   f.push({
     id: "zfs", label: "ZFS storage (zvols, snapshots)",
-    etat: st.zfs_disponible == null ? "unknown" : st.zfs_disponible ? "actif" : "limite",
-    detail: st.zfs_disponible === false
-      ? (st.zfs_installe ? "Kernel module not loaded"
-        + (c.securite?.secure_boot === "active" ? ": Secure Boot active, MOK key must be enrolled" : "")
+    state: st.zfs_available == null ? "unknown" : st.zfs_available ? "active" : "limite",
+    detail: st.zfs_available === false
+      ? (st.zfs_installed ? "Kernel module not loaded"
+        + (c.security?.secure_boot === "active" ? ": Secure Boot active, MOK key must be enrolled" : "")
         : "ZFS not installed") : null,
   });
-  const sw = c.logiciel || {};
-  if ("bibliotheque_websocket" in sw) {
+  const sw = c.software || {};
+  if ("websocket_library" in sw) {
     f.push({
       id: "ws", label: "Host shell, consoles and terminals (WebSocket)",
-      etat: sw.bibliotheque_websocket ? "actif" : "limite",
-      detail: sw.bibliotheque_websocket ? null : "WebSocket library missing (uvicorn[standard])",
+      state: sw.websocket_library ? "active" : "limite",
+      detail: sw.websocket_library ? null : "WebSocket library missing (uvicorn[standard])",
     });
   }
-  const py = sw.dependances_python;
+  const py = sw.python_dependencies;
   if (py) {
     const ok = py.pyotp && py.qrcode;
-    f.push({ id: "2fa", label: "2FA authentication", etat: ok ? "actif" : "limite", detail: ok ? null : "pyotp/qrcode missing" });
+    f.push({ id: "2fa", label: "2FA authentication", state: ok ? "active" : "limite", detail: ok ? null : "pyotp/qrcode missing" });
   }
   return f;
 }

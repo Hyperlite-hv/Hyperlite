@@ -34,7 +34,7 @@ def create_group(payload: GroupCreate, user: dict = Depends(require_role("admin"
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=422, detail=f"A group named '{name}' already exists") from None
     log_action(user["username"], "create_group", name, "success")
-    return {"id": group_id, "name": name, "membres": []}
+    return {"id": group_id, "name": name, "members": []}
 
 
 class GroupRename(BaseModel):

@@ -9,23 +9,23 @@ export const LOCAL = "local";
 
 export function vmKey(vm) {
   if (!vm) return null;
-  return !vm.node || vm.node === LOCAL ? vm.nom : `${vm.nom}@${vm.node}`;
+  return !vm.node || vm.node === LOCAL ? vm.name : `${vm.name}@${vm.node}`;
 }
 
 export function parseVmKey(key) {
   const s = String(key ?? "");
   const at = s.lastIndexOf("@");
-  return at > 0 ? { nom: s.slice(0, at), node: s.slice(at + 1) } : { nom: s, node: LOCAL };
+  return at > 0 ? { name: s.slice(0, at), node: s.slice(at + 1) } : { name: s, node: LOCAL };
 }
 
 // The VM a key designates. A bare name means the local host's VM, else the only VM with that name.
 export function findVm(vms, key) {
   if (key == null) return undefined;
-  const { nom, node } = parseVmKey(key);
+  const { name, node } = parseVmKey(key);
   const list = vms || [];
-  const exact = list.find((v) => v.nom === nom && (v.node || LOCAL) === node);
+  const exact = list.find((v) => v.name === name && (v.node || LOCAL) === node);
   if (exact || String(key).includes("@")) return exact;
-  const same = list.filter((v) => v.nom === nom);
+  const same = list.filter((v) => v.name === name);
   return same.length === 1 ? same[0] : undefined;
 }
 

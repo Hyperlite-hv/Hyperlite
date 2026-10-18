@@ -19,7 +19,7 @@ def _store():
     return registry.settings().sync
 
 
-ACCESS = ("desactive", "admins", "tous")
+ACCESS = ("disabled", "admins", "all")
 DEFAULT = "admins"
 _KEY = "api_docs_access"
 
@@ -46,7 +46,7 @@ def set_access(value):
 
 def allowed(user, value=None):
     value = value or access()
-    return bool(user) and (value == "tous" or (value == "admins" and user.get("role") == "admin"))
+    return bool(user) and (value == "all" or (value == "admins" and user.get("role") == "admin"))
 
 
 def _role_of(username):

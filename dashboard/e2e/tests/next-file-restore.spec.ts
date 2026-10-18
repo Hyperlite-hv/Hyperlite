@@ -7,13 +7,13 @@ import type { Route } from "@playwright/test";
 const NAME = "e2e-fr-web";
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { nom: NAME, etat: "arrete", id: null, uuid: NAME, vcpu: 1, memoire_mo: 1024, ip: null, utilisateur_ssh: null, uptime_s: null, os: "Debian", stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 1024, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
 
 test("file-level restore: browse a backup and download a file", async ({ page }) => {
   const calls: string[] = [];
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm])) : r.fallback()));
-  await page.route(new RegExp(`/vms/${NAME}/backups$`), (r) => (api(r) ? r.fulfill(json([{ id: 41, vm_name: NAME, statut: "succeeded", mode: "cold", cree_le: "2026-09-01T02:00:00Z", taille_octets: 1048576, chemin: "/b/41", verification: null }])) : r.fallback()));
+  await page.route(new RegExp(`/vms/${NAME}/backups$`), (r) => (api(r) ? r.fulfill(json([{ id: 41, vm_name: NAME, status: "succeeded", mode: "cold", created_at: "2026-09-01T02:00:00Z", size_bytes: 1048576, path: "/b/41", verification: null }])) : r.fallback()));
   await page.route(new RegExp(`/vms/${NAME}/backup-schedule$`), (r) => (api(r) ? r.fulfill(json(null)) : r.fallback()));
   await page.route(/\/backups\/41\/files$/, (r) => { calls.push("open"); return r.fulfill(json({ session: "s1", vm: NAME, filesystems: [{ device: "/dev/sda1", type: "ext4", size: 10485760, label: "root" }] })); });
   await page.route(/\/file-restore\/s1\/ls\?.*/, (r) => {

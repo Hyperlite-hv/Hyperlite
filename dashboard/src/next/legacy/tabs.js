@@ -37,7 +37,7 @@ import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPerm
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
-  exports: ExportsPage, permissions: SecurityPage, reseau: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
+  exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
   nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage,
 };
 export const NODE_TABS = {

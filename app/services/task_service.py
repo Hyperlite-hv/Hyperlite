@@ -13,11 +13,11 @@ class TaskNotFound(LookupError):
 
 def _with_cancel(task):
     """Whether a Cancel button makes sense: a running task that can be stopped, or one nobody runs any more."""
-    running = task["statut"] in ("running", "pending")
+    running = task["status"] in ("running", "pending")
     # A clean stop exists; or nobody runs it any more (closing is safe); otherwise it only ends by itself.
-    task["arret_propre"] = running and task_core.cancellable(task["id"])
-    task["orpheline"] = running and not task_core.is_live(task["id"])
-    task["annulable"] = task["arret_propre"] or task["orpheline"]
+    task["clean_shutdown"] = running and task_core.cancellable(task["id"])
+    task["orphaned"] = running and not task_core.is_live(task["id"])
+    task["cancellable"] = task["clean_shutdown"] or task["orphaned"]
     return task
 
 
@@ -31,7 +31,7 @@ async def get_task(task_id):
         raise TaskNotFound(task_id)
     # The audit entries of the same target, so the detail view shows the full story on click (exact failure
     # reason, related actions...).
-    task["logs"] = await registry.audit().for_resource(task["cible"])
+    task["logs"] = await registry.audit().for_resource(task["target"])
     return _with_cancel(task)
 
 

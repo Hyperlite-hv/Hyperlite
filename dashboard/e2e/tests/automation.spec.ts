@@ -44,7 +44,7 @@ async function createHostJob(page: Page, name: string, command: string) {
 async function runsOf(request: import("@playwright/test").APIRequestContext, name: string) {
   const jobs = (await (await request.get("/jobs", { headers: auth() })).json()) as Array<{ id: number; name: string }>;
   const job = jobs.find((j) => j.name === name)!;
-  return (await (await request.get(`/jobs/${job.id}/runs`, { headers: auth() })).json()) as Array<{ statut: string; dry_run: number | boolean }>;
+  return (await (await request.get(`/jobs/${job.id}/runs`, { headers: auth() })).json()) as Array<{ status: string; dry_run: number | boolean }>;
 }
 
 test.describe("Automation jobs (real backend)", () => {
@@ -57,7 +57,7 @@ test.describe("Automation jobs (real backend)", () => {
 
     await page.getByRole("button", { name: `Run ${OK_JOB}`, exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Run", exact: true }).click();
-    await expect.poll(async () => (await runsOf(request, OK_JOB)).filter((r) => !r.dry_run).map((r) => r.statut), { timeout: 30_000 }).toEqual(["success"]);
+    await expect.poll(async () => (await runsOf(request, OK_JOB)).filter((r) => !r.dry_run).map((r) => r.status), { timeout: 30_000 }).toEqual(["success"]);
     expect(existsSync(MARKER), "the real run executed the command").toBe(true);
   });
 
@@ -66,7 +66,7 @@ test.describe("Automation jobs (real backend)", () => {
     await createHostJob(page, FAIL_JOB, "exit 3");
     await page.getByRole("button", { name: `Run ${FAIL_JOB}`, exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Run", exact: true }).click();
-    await expect.poll(async () => (await runsOf(request, FAIL_JOB)).map((r) => r.statut), { timeout: 30_000 }).toEqual(["failed"]);
+    await expect.poll(async () => (await runsOf(request, FAIL_JOB)).map((r) => r.status), { timeout: 30_000 }).toEqual(["failed"]);
   });
 
   test("a job name that already exists is refused", async ({ page }) => {

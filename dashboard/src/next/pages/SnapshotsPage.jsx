@@ -18,11 +18,11 @@ export default function SnapshotsPage() {
   const [rows, setRows] = useState(null);
   const ctx = useContextTarget(); // right click on a snapshot: where to manage it
   const local = vms.filter((v) => v.node === "local").slice(0, MAX_VMS);
-  const key = local.map((v) => v.nom).join("|");
+  const key = local.map((v) => v.name).join("|");
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(local.map((v) => fetchSnapshots(v.nom).then((s) => (Array.isArray(s) ? s.map((x) => ({ ...x, vm: v.nom })) : [])).catch(() => [])))
+    Promise.all(local.map((v) => fetchSnapshots(v.name).then((s) => (Array.isArray(s) ? s.map((x) => ({ ...x, vm: v.name })) : [])).catch(() => [])))
       .then((all) => { if (!cancelled) setRows(all.flat()); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -39,9 +39,9 @@ export default function SnapshotsPage() {
               <thead><tr><th scope="col">VM</th><th scope="col">{t("ns.col.name")}</th><th scope="col">{t("snap.created")}</th><th scope="col">{t("snap.description")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
                 {rows.map((s) => (
-                  <tr key={`${s.vm}:${s.nom}`} className={ctx.is("snap", `${s.vm}:${s.nom}`) ? "is-ctx" : undefined} onContextMenu={ctx.open("snap", s, `${s.vm}:${s.nom}`)}>
+                  <tr key={`${s.vm}:${s.name}`} className={ctx.is("snap", `${s.vm}:${s.name}`) ? "is-ctx" : undefined} onContextMenu={ctx.open("snap", s, `${s.vm}:${s.name}`)}>
                     <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", s.vm, "summary")}>{s.vm}</button></th>
-                    <td className="nx-mono">{s.nom}{s.actuel ? ` · ${t("snap.current")}` : ""}</td>
+                    <td className="nx-mono">{s.name}{s.current ? ` · ${t("snap.current")}` : ""}</td>
                     <td className="nx-mono">{formatDateTime(s.date_creation, lang) || "—"}</td>
                     <td>{s.description || <span className="nx-muted">—</span>}</td>
                     <td><div className="nx-ra"><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", s.vm, "snapshots")}>{t("snap.manage")}</button></div></td>
@@ -52,7 +52,7 @@ export default function SnapshotsPage() {
           </TableWrap>
         )}
       </div>
-      <ActionsContextMenu ctx={ctx} label={(s) => t("ctx.menuOf", { name: `${s.vm} · ${s.nom}` })} entries={(s) => [
+      <ActionsContextMenu ctx={ctx} label={(s) => t("ctx.menuOf", { name: `${s.vm} · ${s.name}` })} entries={(s) => [
         { key: "manage", icon: "open", label: t("ctx.manageSnapshots"), run: () => navigateTo("vm", s.vm, "snapshots") },
         { key: "vm", icon: "open", label: t("ctx.openVm"), run: () => navigateTo("vm", s.vm, "summary") },
       ]} />

@@ -50,14 +50,14 @@ def restore(database, tmp_path, monkeypatch):
     backup = tmp_path / "bk"
     backup.mkdir()
     (backup / "sda.qcow2").write_text("x")
-    (backup / "manifest.json").write_text(json.dumps({"fichiers": [{"nom": "sda.qcow2", "role": "disque"}]}))
+    (backup / "manifest.json").write_text(json.dumps({"files": [{"name": "sda.qcow2", "role": "disk"}]}))
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (1, 'web', ?, 'succeeded', '2026-01-01', 'cold')",
+            "INSERT INTO backups (id, vm_name, path, status, created_at, mode) VALUES (1, 'web', ?, 'succeeded', '2026-01-01', 'cold')",
             (str(backup),),
         )
         conn.execute(
-            "INSERT INTO backups (id, vm_name, chemin, statut, cree_le, mode) VALUES (2, 'web', ?, 'failed', '2026-01-01', 'cold')",
+            "INSERT INTO backups (id, vm_name, path, status, created_at, mode) VALUES (2, 'web', ?, 'failed', '2026-01-01', 'cold')",
             (str(backup),),
         )
         conn.commit()
@@ -101,13 +101,13 @@ def test_refusals(client, auth_headers, restore, monkeypatch):
     admin = auth_headers("root", "admin")
     assert "finished backup" in client.post("/backups/2/files", headers=admin).json()["detail"]
     assert "not found" in client.post("/backups/9/files", headers=admin).json()["detail"]
-    (restore / "manifest.json").write_text(json.dumps({"fichiers": [{"nom": "broken.qcow2", "role": "disque"}]}))
+    (restore / "manifest.json").write_text(json.dumps({"files": [{"name": "broken.qcow2", "role": "disk"}]}))
     (restore / "broken.qcow2").write_text("x")
     r = client.post("/backups/1/files", headers=admin)
     assert r.status_code == 422 and "cannot open the disk image" in r.json()["detail"]
     monkeypatch.setattr(fr, "_interpreter", [None])
     assert "python3-guestfs" in client.post("/backups/1/files", headers=admin).json()["detail"]
-    assert client.get("/file-restore/status", headers=admin).json()["disponible"] is False
+    assert client.get("/file-restore/status", headers=admin).json()["available"] is False
 
 
 def test_sessions_are_per_user_and_limited(restore, monkeypatch, tmp_path):

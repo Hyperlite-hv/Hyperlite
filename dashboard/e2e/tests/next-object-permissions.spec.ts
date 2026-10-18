@@ -6,13 +6,13 @@ import type { Route } from "@playwright/test";
 const NAME = "e2e-perm-web";
 const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { nom: NAME, etat: "arrete", id: null, uuid: NAME, vcpu: 1, memoire_mo: 1024, ip: null, utilisateur_ssh: null, uptime_s: null, os: "Debian", stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "stopped", id: null, uuid: NAME, vcpu: 1, memory_mb: 1024, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, agent_invite: null, firmware: "bios" };
 const row = (id: number, subject: string, role: string, pool: string | null) => ({
   id, subject_type: "user", subject_id: subject, subject_label: subject, role, resource_type: pool ? "pool" : "vm", resource_id: pool ? "1" : NAME, resource_label: pool || NAME, herite_de: pool,
 });
 
 test("VM permissions tab: own and inherited assignments, add and remove", async ({ page }) => {
-  let acl = [row(1, "bob", "operateur", null), row(2, "erin", "lecteur", "web")];
+  let acl = [row(1, "bob", "operator", null), row(2, "erin", "drive", "web")];
   const created: unknown[] = [];
   const deleted: string[] = [];
   await uiLogin(page);
@@ -20,7 +20,7 @@ test("VM permissions tab: own and inherited assignments, add and remove", async 
   await page.route(new RegExp(`/acl/object/vm/${NAME}$`), (r) => (api(r) ? r.fulfill(json(acl)) : r.fallback()));
   await page.route(/\/users$/, (r) => (api(r) ? r.fulfill(json([{ username: "admin", role: "admin" }, { username: "bob", role: "viewer" }, { username: "carol", role: "viewer" }])) : r.fallback()));
   await page.route(/\/groups$/, (r) => (api(r) ? r.fulfill(json([])) : r.fallback()));
-  await page.route(/\/acl\/roles$/, (r) => (api(r) ? r.fulfill(json({ lecteur: { label: "Reader", description: "View" }, operateur: { label: "Operator", description: "Power" } })) : r.fallback()));
+  await page.route(/\/acl\/roles$/, (r) => (api(r) ? r.fulfill(json({ drive: { label: "Reader", description: "View" }, operator: { label: "Operator", description: "Power" } })) : r.fallback()));
   await page.route(/\/acl\/custom-roles$/, (r) => (api(r) ? r.fulfill(json([])) : r.fallback()));
   await page.route(/\/acl(\/\d+)?$/, (r) => {
     if (!api(r)) return r.fallback();
@@ -50,7 +50,7 @@ test("VM permissions tab: own and inherited assignments, add and remove", async 
   const add = main.getByRole("region", { name: "Add an assignment" });
   await expect(add.getByLabel("Subject").locator("option")).toHaveText(["Choose…", "bob", "carol"]);
   await add.getByLabel("Subject").selectOption("carol");
-  await add.getByLabel("Role").selectOption("lecteur");
+  await add.getByLabel("Role").selectOption("drive");
   await add.getByRole("button", { name: "Assign" }).click();
   await expect(table.getByRole("row", { name: /carol.*Reader.*This object/ })).toBeVisible();
 
@@ -58,6 +58,6 @@ test("VM permissions tab: own and inherited assignments, add and remove", async 
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
   await expect(table.getByRole("row", { name: /bob/ })).toHaveCount(0);
 
-  expect(created).toEqual([{ subject_type: "user", subject_id: "carol", role: "lecteur", resource_type: "vm", resource_id: NAME }]);
+  expect(created).toEqual([{ subject_type: "user", subject_id: "carol", role: "drive", resource_type: "vm", resource_id: NAME }]);
   expect(deleted).toEqual(["1"]);
 });

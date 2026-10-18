@@ -43,7 +43,7 @@ def test_notes_and_tags_are_stored_per_object_and_cleared_when_empty(database):
     assert object_meta.get("vm", "web") == {"notes": "Front of the shop.\nAsk Ana.", "tags": ["prod"]}
     assert object_meta.get("vm", "web", "n2")["tags"] == ["lab"]
     listing = object_meta.list_all("vm")
-    assert {(m["node"], m["nom"], tuple(m["tags"]), m["a_des_notes"]) for m in listing} == {
+    assert {(m["node"], m["name"], tuple(m["tags"]), m["has_notes"]) for m in listing} == {
         ("local", "web", ("prod",), True),
         ("n2", "web", ("lab",), True),
     }
@@ -86,10 +86,10 @@ def test_the_api_checks_rights_and_existence(client, auth_headers, hosts):
     assert client.get("/meta/vm/web", headers=viewer).json()["notes"] == "Shop front"
     assert client.put("/meta/vm/web", json={"notes": "mine now"}, headers=viewer).status_code == 403
     assert client.put("/meta/node/local", json={"notes": "x"}, headers=viewer).status_code == 403
-    assert {m["nom"] for m in client.get("/meta?kind=vm", headers=viewer).json()} == {"web", "far"}
+    assert {m["name"] for m in client.get("/meta?kind=vm", headers=viewer).json()} == {"web", "far"}
 
-    permissions.create_acl("user", "otto", "operateur", "vm", "web")
-    permissions.create_acl("user", "mia", "gestionnaire", "vm", "web")
+    permissions.create_acl("user", "otto", "operator", "vm", "web")
+    permissions.create_acl("user", "mia", "manager", "vm", "web")
     otto, mia = auth_headers("otto", role="viewer"), auth_headers("mia", role="viewer")
     assert client.get("/meta/vm/web", headers=otto).status_code == 200
     assert client.put("/meta/vm/web", json={"notes": "x"}, headers=otto).status_code == 403

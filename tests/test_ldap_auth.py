@@ -105,10 +105,10 @@ def test_settings_api(client, auth_headers, directory):
     cfg = client.get("/ldap/config", headers=admin).json()
     assert cfg["bind_password_set"] is True and "bind_password" not in cfg
     r = client.post("/ldap/test", json={"username": "alice", "password": "alicepw"}, headers=admin)
-    assert r.status_code == 200 and r.json()["utilisateur"]["role"] == "admin"
-    assert client.post("/ldap/test", json={"username": "alice", "password": "no"}, headers=admin).json()[
-        "utilisateur"
-    ] == {"accepte": False}
+    assert r.status_code == 200 and r.json()["user"]["role"] == "admin"
+    assert client.post("/ldap/test", json={"username": "alice", "password": "no"}, headers=admin).json()["user"] == {
+        "accepted": False
+    }
     for bad, message in [
         ({"url": "http://x", "base_dn": BASE}, "ldap://"),
         ({"url": "ldaps://x", "starttls": True, "base_dn": BASE}, "StartTLS"),

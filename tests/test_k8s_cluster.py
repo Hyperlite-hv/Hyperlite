@@ -94,8 +94,8 @@ def _wait_status(client, headers, name, timeout=5):
     deadline = time.time() + timeout
     while time.time() < deadline:
         rows = client.get("/kubernetes/clusters", headers=headers).json()
-        row = next((r for r in rows if r["nom"] == name), None)
-        if row and row["statut"] != "creating":
+        row = next((r for r in rows if r["name"] == name), None)
+        if row and row["status"] != "creating":
             return row
         time.sleep(0.02)
     raise AssertionError("cluster provisioning did not finish")
@@ -103,13 +103,13 @@ def _wait_status(client, headers, name, timeout=5):
 
 def test_a_cluster_is_built_server_first_then_workers_and_hands_over_a_kubeconfig(k8s, client, auth_headers, database):
     admin = auth_headers("admin")
-    r = client.post("/kubernetes/clusters", json={"nom": "demo", "workers": 2}, headers=admin)
+    r = client.post("/kubernetes/clusters", json={"name": "demo", "workers": 2}, headers=admin)
     assert r.status_code == 202, r.text
     row = _wait_status(client, admin, "demo")
-    assert row["statut"] == "ready", row
-    assert row["serveur"] == "demo-server" and row["workers"] == ["demo-worker-1", "demo-worker-2"]
-    assert row["version"] == "v1.36.4+k3s1" and row["adresse"] == "10.0.0.10"
-    assert row["kubeconfig_disponible"] is True and "jeton" not in row and "kubeconfig" not in row
+    assert row["status"] == "ready", row
+    assert row["server"] == "demo-server" and row["workers"] == ["demo-worker-1", "demo-worker-2"]
+    assert row["version"] == "v1.36.4+k3s1" and row["address"] == "10.0.0.10"
+    assert row["kubeconfig_available"] is True and "token" not in row and "kubeconfig" not in row
 
     installs = [c for c in k8s["calls"] if c[0] == "install"]
     assert [(c[1], c[2]) for c in installs] == [
@@ -131,9 +131,9 @@ def test_a_cluster_is_built_server_first_then_workers_and_hands_over_a_kubeconfi
 
     audit_module._AUDIT_QUEUE.join()  # audit entries are written by a background thread
     with database.get_conn() as conn:
-        stored = conn.execute("SELECT jeton, kubeconfig FROM k8s_clusters WHERE nom = 'demo'").fetchone()
+        stored = conn.execute("SELECT token, kubeconfig FROM k8s_clusters WHERE name = 'demo'").fetchone()
         audit = [r["action"] for r in conn.execute("SELECT action FROM audit_log").fetchall()]
-    assert "BBBB" not in stored["kubeconfig"] and len(stored["jeton"]) > 64  # encrypted at rest
+    assert "BBBB" not in stored["kubeconfig"] and len(stored["token"]) > 64  # encrypted at rest
     assert "download_kubeconfig" in audit
 
 
@@ -143,25 +143,25 @@ def test_a_failure_names_the_step_and_leaves_the_cluster_in_error(k8s, client, a
 
     monkeypatch.setattr(k8s["module"], "install_k3s", broken)
     admin = auth_headers("admin")
-    client.post("/kubernetes/clusters", json={"nom": "broken", "workers": 1}, headers=admin)
+    client.post("/kubernetes/clusters", json={"name": "broken", "workers": 1}, headers=admin)
     row = _wait_status(client, admin, "broken")
-    assert row["statut"] == "failed"
-    assert row["erreur"].startswith("installing the k3s server:")
+    assert row["status"] == "failed"
+    assert row["error"].startswith("installing the k3s server:")
     assert client.get("/kubernetes/clusters/broken/kubeconfig", headers=admin).status_code == 409
 
 
 @pytest.mark.parametrize(
     ("payload", "status"),
     [
-        ({"nom": "Bad_Name"}, 422),
-        ({"nom": "ab"}, 422),
-        ({"nom": "demo", "workers": 0}, 422),
-        ({"nom": "demo", "workers": 6}, 422),
-        ({"nom": "demo", "memoire_mo": 512}, 422),
-        ({"nom": "demo", "disque_go": 5}, 422),
-        ({"nom": "demo", "reseau": "nope"}, 422),
-        ({"nom": "demo", "reseau": "down"}, 422),
-        ({"nom": "taken"}, 409),
+        ({"name": "Bad_Name"}, 422),
+        ({"name": "ab"}, 422),
+        ({"name": "demo", "workers": 0}, 422),
+        ({"name": "demo", "workers": 6}, 422),
+        ({"name": "demo", "memory_mb": 512}, 422),
+        ({"name": "demo", "disk_gb": 5}, 422),
+        ({"name": "demo", "network": "nope"}, 422),
+        ({"name": "demo", "network": "down"}, 422),
+        ({"name": "taken"}, 409),
     ],
 )
 def test_requests_are_checked_before_anything_is_created(k8s, client, auth_headers, payload, status):
@@ -175,8 +175,8 @@ def test_requests_are_checked_before_anything_is_created(k8s, client, auth_heade
 
 def test_only_administrators_create_clusters_or_read_their_credentials(k8s, client, auth_headers):
     viewer = auth_headers("viewer", role="viewer")
-    assert client.post("/kubernetes/clusters", json={"nom": "demo"}, headers=viewer).status_code == 403
-    client.post("/kubernetes/clusters", json={"nom": "demo", "workers": 1}, headers=auth_headers("admin"))
+    assert client.post("/kubernetes/clusters", json={"name": "demo"}, headers=viewer).status_code == 403
+    client.post("/kubernetes/clusters", json={"name": "demo", "workers": 1}, headers=auth_headers("admin"))
     _wait_status(client, viewer, "demo")
     assert client.get("/kubernetes/clusters/demo/kubeconfig", headers=viewer).status_code == 403
 
@@ -185,7 +185,7 @@ def test_deleting_a_cluster_removes_its_vms_and_its_record(k8s, client, auth_hea
     from app.routers.vms import lifecycle
 
     admin = auth_headers("admin")
-    client.post("/kubernetes/clusters", json={"nom": "demo", "workers": 1}, headers=admin)
+    client.post("/kubernetes/clusters", json={"name": "demo", "workers": 1}, headers=admin)
     _wait_status(client, admin, "demo")
 
     deleted = []
@@ -220,13 +220,13 @@ def test_deleting_a_cluster_removes_its_vms_and_its_record(k8s, client, auth_hea
 def test_a_restart_during_provisioning_is_reported(k8s, database):
     with database.get_conn() as conn:
         conn.execute(
-            "INSERT INTO k8s_clusters (nom, reseau, serveur, workers, vcpu, memoire_mo, disque_go, statut, cree_le) "
+            "INSERT INTO k8s_clusters (name, network, server, workers, vcpu, memory_mb, disk_gb, status, created_at) "
             "VALUES ('half', 'default', 'half-server', '[]', 2, 2048, 20, 'creating', 'now')"
         )
         conn.commit()
     k8s["module"].recover_interrupted()
     row = k8s["module"].get_cluster("half")
-    assert row["statut"] == "failed" and "restart" in row["erreur"]
+    assert row["status"] == "failed" and "restart" in row["error"]
 
 
 def test_the_join_token_never_appears_on_a_command_line(database, monkeypatch):
@@ -315,7 +315,7 @@ def test_a_cluster_shown_ready_can_be_deleted_at_once(k8s, client, auth_headers,
     monkeypatch.setattr(k8s_cluster, "finish_task", slow_finish)
     monkeypatch.setattr(lifecycle, "delete_vm", lambda vm, confirm, node, user: None)
     admin = auth_headers("admin")
-    client.post("/kubernetes/clusters", json={"nom": "demo", "workers": 1}, headers=admin)
-    assert _wait_status(client, admin, "demo")["statut"] == "ready"
+    client.post("/kubernetes/clusters", json={"name": "demo", "workers": 1}, headers=admin)
+    assert _wait_status(client, admin, "demo")["status"] == "ready"
     r = client.delete("/kubernetes/clusters/demo?confirm=true", headers=admin)
     assert r.status_code == 200, r.text

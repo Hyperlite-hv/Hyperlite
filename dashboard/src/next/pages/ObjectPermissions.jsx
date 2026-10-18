@@ -91,5 +91,5 @@ function ObjectPermissions({ kind, name }) {
   );
 }
 
-export function VmPermissionsPage({ resource }) { return <ObjectPermissions kind="vm" name={resource.nom} />; }
-export function ContainerPermissionsPage({ resource }) { return <ObjectPermissions kind="container" name={resource.nom} />; }
+export function VmPermissionsPage({ resource }) { return <ObjectPermissions kind="vm" name={resource.name} />; }
+export function ContainerPermissionsPage({ resource }) { return <ObjectPermissions kind="container" name={resource.name} />; }

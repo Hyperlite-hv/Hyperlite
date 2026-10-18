@@ -63,11 +63,11 @@ def test_an_older_database_is_renamed_once_after_a_copy(database, monkeypatch):
         }
     with database.get_conn() as db:
         assert db.execute("SELECT role FROM users WHERE username = 'bob'").fetchone()[0] == "viewer"
-        assert db.execute("SELECT statut FROM tasks").fetchone()[0] == "running"
-        assert db.execute("SELECT statut FROM nodes").fetchone()[0] == "offline"
-        db.execute("UPDATE tasks SET statut = 'succeeded'")  # the CHECK names the new values
+        assert db.execute("SELECT status FROM tasks").fetchone()[0] == "running"
+        assert db.execute("SELECT status FROM nodes").fetchone()[0] == "offline"
+        db.execute("UPDATE tasks SET status = 'succeeded'")  # the CHECK names the new values
         with pytest.raises(sqlite3.IntegrityError):
-            db.execute("UPDATE tasks SET statut = 'termine'")
+            db.execute("UPDATE tasks SET status = 'termine'")
         assert db.execute("SELECT seq FROM sqlite_sequence WHERE name = 'users'").fetchone()[0] >= 1
     copy = path.with_name(path.name + schema_v1.BACKUP_SUFFIX)
     assert "nom" in columns(copy, "webauthn_credentials")  # the database as it was
@@ -162,3 +162,22 @@ def test_a_backup_made_before_the_renames_reads_with_the_new_mode(tmp_path):
     (tmp_path / backup_integrity.MANIFEST).write_text(json.dumps({"version": 1, "vm": "web", "mode": "chaud"}))
     assert backup_integrity.read_manifest(tmp_path)["mode"] == "live"
     assert json.loads((tmp_path / backup_integrity.MANIFEST).read_text())["mode"] == "chaud"  # never rewritten
+
+
+def test_a_configuration_copy_made_before_the_renames_is_read_with_the_new_names(tmp_path):
+    import tarfile
+
+    from app.core import config_copy
+
+    work = tmp_path / "old"
+    work.mkdir()
+    (work / "meta.json").write_text(json.dumps({"version": 1, "controleur": "pve-a", "cree_le": "t", "empreinte": "e"}))
+    (work / "cles.env").write_text("HYPERLITE_SECRET_KEY=s\n")
+    (work / "hyperlite.db").write_bytes(b"")
+    bundle = tmp_path / "config-1.tar.gz"
+    with tarfile.open(bundle, "w:gz") as tar:
+        for name in ("hyperlite.db", "cles.env", "meta.json"):
+            tar.add(work / name, arcname=name)
+    meta, extracted = config_copy.read_bundle(bundle)
+    assert meta == {"version": 1, "controller": "pve-a", "created_at": "t", "fingerprint": "e"}
+    assert (extracted / "keys.env").read_text() == "HYPERLITE_SECRET_KEY=s\n"

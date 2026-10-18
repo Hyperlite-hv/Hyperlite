@@ -15,7 +15,7 @@ const LIMIT = 300;
 const EMPTY_F = { result: "", action: "", username: "", resource: "", from: "", to: "" };
 
 // Audit journal (GET /audit, administrators): every filter of the API — result, action, user, resource,
-// from AND to (`jusqu_a`, never exposed before) — with typing debounce, live refresh and CSV export.
+// from AND to (`until`, never exposed before) — with typing debounce, live refresh and CSV export.
 // embedded: the Audit log tab of the Activity page (ActivityHub.jsx), under its header.
 export default function JournalPage({ embedded = false }) {
   const t = useT();
@@ -31,7 +31,7 @@ export default function JournalPage({ embedded = false }) {
   const [exporting, setExporting] = useState(false);
   const [retentionOpen, setRetentionOpen] = useState(false);
   const pushToast = useInfraStore((s) => s.pushToast);
-  const filters = (a) => ({ result: a.result, action: a.action, username: a.username, resource: a.resource, depuis: iso(a.from), jusqu_a: iso(a.to) });
+  const filters = (a) => ({ result: a.result, action: a.action, username: a.username, resource: a.resource, since: iso(a.from), until: iso(a.to) });
 
   useEffect(() => { const h = setTimeout(() => setApplied(f), 300); return () => clearTimeout(h); }, [f]); // debounce typing
   useEffect(() => { fetchAuditActions().then((a) => setActions(Array.isArray(a) ? a : [])).catch(() => {}); }, []);

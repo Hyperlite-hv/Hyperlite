@@ -81,13 +81,13 @@ router = APIRouter(prefix="/containers", tags=["containers"])
 
 STATE_NAMES = {
     libvirt.VIR_DOMAIN_NOSTATE: "unknown",
-    libvirt.VIR_DOMAIN_RUNNING: "actif",
-    libvirt.VIR_DOMAIN_BLOCKED: "bloque",
-    libvirt.VIR_DOMAIN_PAUSED: "en_pause",
-    libvirt.VIR_DOMAIN_SHUTDOWN: "en_arret",
-    libvirt.VIR_DOMAIN_SHUTOFF: "arrete",
-    libvirt.VIR_DOMAIN_CRASHED: "plante",
-    libvirt.VIR_DOMAIN_PMSUSPENDED: "suspendu",
+    libvirt.VIR_DOMAIN_RUNNING: "active",
+    libvirt.VIR_DOMAIN_BLOCKED: "blocked",
+    libvirt.VIR_DOMAIN_PAUSED: "paused",
+    libvirt.VIR_DOMAIN_SHUTDOWN: "shutting_down",
+    libvirt.VIR_DOMAIN_SHUTOFF: "stopped",
+    libvirt.VIR_DOMAIN_CRASHED: "crashed",
+    libvirt.VIR_DOMAIN_PMSUSPENDED: "suspended",
 }
 
 
@@ -109,15 +109,15 @@ def _summary(domain):
     app = get_container_app(domain.name())
     storage = get_container_storage(domain.name())
     return {
-        "stockage": storage["pool"] if storage else None,
-        "mode": "application" if app else "systeme",
+        "storage": storage["pool"] if storage else None,
+        "mode": "application" if app else "system",
         "image": app["image"] if app else None,
-        "nom": domain.name(),
+        "name": domain.name(),
         "id": domain.ID() if active else None,
         "uuid": domain.UUIDString(),
-        "etat": STATE_NAMES.get(state, "unknown"),
+        "state": STATE_NAMES.get(state, "unknown"),
         "vcpu": nvcpu,
-        "memoire_mo": maxmem // 1024,
+        "memory_mb": maxmem // 1024,
         # An application container has no DHCP lease: its address is the one libvirt set on its interface.
         "ip": (app["ip"] if app else _get_ip(domain)) if active else None,
     }
@@ -135,9 +135,9 @@ class ContainerCreate(BaseModel):
     # Docker Hub image reference (or any OCI registry), e.g. "ubuntu:22.04",
     # "alpine:3.19", "nginx:latest". See container_builder.pull_image_rootfs.
     image: str | None = None
-    # "application": run the image's own process (the default with an image); "systeme": boot it as a small
+    # "application": run the image's own process (the default with an image); "system": boot it as a small
     # system with systemd and sshd (the only choice without an image). See container_builder.read_image_config.
-    mode: Literal["application", "systeme"] | None = None
+    mode: Literal["application", "system"] | None = None
     # A "dir" storage pool to hold the container's filesystem (None: the default /var/lib/libvirt/containers).
     storage_pool: str | None = None
     # Application containers only: replaces the image's Entrypoint+Cmd, and adds to or overrides its environment.
@@ -194,10 +194,10 @@ def _detail(domain):
     """The summary plus what the container's own page shows: interfaces, DNS servers, start at boot."""
     name = domain.name()
     summary = _summary(domain)
-    summary["utilisateur_ssh"] = get_container_ssh_user(name)
+    summary["ssh_user"] = get_container_ssh_user(name)
     summary["interfaces"] = container_config.interfaces(domain)
     summary["dns"] = container_config.read_dns(name)
-    summary["demarrage_auto"] = bool(domain.autostart())
+    summary["autostart"] = bool(domain.autostart())
     return summary
 
 
@@ -205,7 +205,7 @@ class ContainerUpdate(BaseModel):
     vcpu: int | None = Field(default=None, ge=1)
     memory_mb: int | None = Field(default=None, ge=128)
     # Started with the host (libvirt's autostart: containers start in no particular order, and quickly).
-    demarrage_auto: bool | None = None
+    autostart: bool | None = None
     dns: list[str] | None = Field(default=None, max_length=8)
 
 
@@ -227,12 +227,12 @@ def update_container(name: str, payload: ContainerUpdate, user: dict = Depends(r
                 servers = container_config.write_dns(name, payload.dns)
                 changes.append(f"DNS {', '.join(servers)}")
             if payload.vcpu is not None or payload.memory_mb is not None:
-                restart = container_config.set_resources(conn, domain, payload.vcpu, payload.memory_mb)["a_redemarrer"]
+                restart = container_config.set_resources(conn, domain, payload.vcpu, payload.memory_mb)["needs_restart"]
                 domain = conn.lookupByName(name)  # the definition was replaced
                 changes.append(f"{payload.vcpu or '-'} vCPU, {payload.memory_mb or '-'} MB")
-            if payload.demarrage_auto is not None:
-                domain.setAutostart(1 if payload.demarrage_auto else 0)
-                changes.append(f"start at boot {'on' if payload.demarrage_auto else 'off'}")
+            if payload.autostart is not None:
+                domain.setAutostart(1 if payload.autostart else 0)
+                changes.append(f"start at boot {'on' if payload.autostart else 'off'}")
         except container_config.ConfigError as e:
             log_action(user["username"], "update_container", name, "failed", str(e))
             raise HTTPException(status_code=422, detail=str(e)) from e
@@ -243,7 +243,7 @@ def update_container(name: str, payload: ContainerUpdate, user: dict = Depends(r
         if not changes:
             raise HTTPException(status_code=422, detail="No change requested")
         log_action(user["username"], "update_container", name, "success", "; ".join(changes))
-        return {**_detail(domain), "a_redemarrer": restart}
+        return {**_detail(domain), "needs_restart": restart}
     finally:
         conn.close()
 
@@ -314,15 +314,15 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
 
     if payload.vcpu > _limits["vcpu"]["max"]:
         _errs.append(f"vCPU: {payload.vcpu} is above the limit ({_limits['vcpu']['max']}, {_origin(_limits['vcpu'])})")
-    if payload.memory_mb > _limits["memoire_mo"]["max"]:
+    if payload.memory_mb > _limits["memory_mb"]["max"]:
         _errs.append(
             f"Memory: {payload.memory_mb} MB is above the limit "
-            f"({_limits['memoire_mo']['max']} MB, {_origin(_limits['memoire_mo'])})"
+            f"({_limits['memory_mb']['max']} MB, {_origin(_limits['memory_mb'])})"
         )
     if _errs:
         raise HTTPException(status_code=422, detail=" ; ".join(_errs))
     errors = []
-    mode = payload.mode or ("application" if payload.image else "systeme")
+    mode = payload.mode or ("application" if payload.image else "system")
     name_error = validate_name(payload.name, "container")
     if name_error:
         errors.append(name_error)
@@ -445,7 +445,7 @@ def _create_app_container(conn, payload, user, task_id, storage=None):
     try:
         domain.create()
     except libvirt.libvirtError as e:
-        # Defined but not started (a wrong command, for instance): kept, so it can be fixed or deleted.
+        # Defined purpose not started (a wrong command, for instance): kept, so it can be fixed or deleted.
         msg = describe_exception(e)
         log_action(
             user["username"],
@@ -455,7 +455,9 @@ def _create_app_container(conn, payload, user, task_id, storage=None):
             f"defined, start failed: {msg}",
             task_id=task_id,
         )
-        raise HTTPException(status_code=500, detail=f"Container defined but its process did not start: {msg}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Container defined purpose its process did not start: {msg}"
+        ) from e
     log_action(
         user["username"], "create_container", payload.name, "success", f"application {payload.image}", task_id=task_id
     )
@@ -491,7 +493,7 @@ def start_container(name: str, user: dict = Depends(require_container_privilege(
 
 # How long a container gets to stop by itself before it is stopped by force, as `docker stop` does (10 s there).
 # An application container's process gets SIGTERM; a system container's init shuts its services down first.
-STOP_GRACE_S = {"application": 30, "systeme": 90}
+STOP_GRACE_S = {"application": 30, "system": 90}
 
 
 def _force_stop_later(name, run_id, grace_s):
@@ -546,10 +548,10 @@ def stop_container(
             raise HTTPException(status_code=500, detail=msg) from e
         grace = None
         if not force:
-            grace = STOP_GRACE_S["application" if get_container_app(name) else "systeme"]
+            grace = STOP_GRACE_S["application" if get_container_app(name) else "system"]
             threading.Thread(target=_force_stop_later, args=(name, run_id, grace), daemon=True).start()
         log_action(user["username"], "stop_container", name, "success", "forced" if force else None)
-        return {"ok": True, "arret_force_apres_s": grace}
+        return {"ok": True, "force_stop_after_s": grace}
     finally:
         conn.close()
 
@@ -704,7 +706,7 @@ def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depe
             logger.debug("Ignored exception in clone_container()", exc_info=True)
 
         if domain.isActive():
-            log_action(user["username"], "clone_container", name, "failed", "conteneur actif", task_id=task_id)
+            log_action(user["username"], "clone_container", name, "failed", "container active", task_id=task_id)
             raise HTTPException(status_code=409, detail="Stop the container before cloning it")
 
         try:
@@ -824,7 +826,7 @@ def restore_container_backup(
 ):
     maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
     row = backup_service.get_container_backup(backup_id)
-    if not row or row["statut"] != "succeeded":
+    if not row or row["status"] != "succeeded":
         raise HTTPException(status_code=404, detail="Backup not found or incomplete")
     target_name = payload.new_name or row["container_name"]
     name_error = validate_name(target_name, "container")
@@ -843,7 +845,7 @@ def restore_container_backup(
             logger.debug("Ignored exception in restore_container_backup()", exc_info=True)
 
         try:
-            rootfs = restore_container_rootfs(Path(row["chemin"]), target_name, original_name=row["container_name"])
+            rootfs = restore_container_rootfs(Path(row["path"]), target_name, original_name=row["container_name"])
         except (subprocess.CalledProcessError, ValueError) as e:
             msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
             raise HTTPException(status_code=500, detail=f"Restore failed: {msg}") from e
@@ -899,7 +901,7 @@ def container_logs(name: str, lines: int = 300, user: dict = Depends(require_con
     finally:
         conn.close()
     tail = container_console.read_tail(container_rootfs_path(name), max(1, min(lines, 5000)))
-    return {"nom": name, "actif": active, "disponible": tail is not None, "lignes": tail or []}
+    return {"name": name, "active": active, "available": tail is not None, "lines": tail or []}
 
 
 # ---- Web terminal (SSH, same mechanism as app/routers/vms.py) ----
@@ -942,7 +944,7 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_container_pri
         ticket = secrets.token_urlsafe(24)
         TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL)
         log_action(user["username"], "create_container_terminal_ticket", name, "success")
-        return {"ticket": ticket, "utilisateur": ssh_user, "expire_dans_s": TERMINAL_TICKET_TTL}
+        return {"ticket": ticket, "user": ssh_user, "expires_in_s": TERMINAL_TICKET_TTL}
     finally:
         conn.close()
 
@@ -1056,7 +1058,7 @@ def create_shell_ticket(name: str, user: dict = Depends(require_role("admin"))):
     ticket = secrets.token_urlsafe(24)
     SHELL_TICKETS[ticket] = (name, user["username"], now + TERMINAL_TICKET_TTL)
     log_action(user["username"], "create_container_shell_ticket", name, "success")
-    return {"ticket": ticket, "expire_dans_s": TERMINAL_TICKET_TTL}
+    return {"ticket": ticket, "expires_in_s": TERMINAL_TICKET_TTL}
 
 
 @router.websocket("/{name}/shell")

@@ -9,7 +9,7 @@ import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
 import { PageHeader, Card, Loading } from "../components/ui";
 
-const ACCESS = ["desactive", "admins", "tous"];
+const ACCESS = ["disabled", "admins", "all"];
 
 // Administration › API: a button that opens Swagger (/docs) in a new tab, where "Authorize" signs in and the API can
 // be called; and, for administrators, who may open it. See app/core/api_docs.py.
@@ -45,15 +45,15 @@ export default function ApiPage() {
       {error && !state ? <ErrorState message={error} onRetry={load} /> : !state ? <Loading /> : (
         <>
           <Card title={t("api.docs")}>
-            <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t(state.autorise ? "api.openHelp" : state.acces === "desactive" ? "api.closed" : "api.notOpen")}</p>
-            {state.autorise && <button type="button" className="nx-btn nx-btn--primary" disabled={opening} onClick={open}><ExternalLink size={15} aria-hidden="true" />{t("api.open")}</button>}
+            <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t(state.allowed ? "api.openHelp" : state.access === "disabled" ? "api.closed" : "api.notOpen")}</p>
+            {state.allowed && <button type="button" className="nx-btn nx-btn--primary" disabled={opening} onClick={open}><ExternalLink size={15} aria-hidden="true" />{t("api.open")}</button>}
           </Card>
           {caps.admin && (
             <Card title={t("api.accessTitle")}>
               <div className="nx-f">
                 <span className="nx-f-label" id="api-access">{t("api.accessLabel")}</span>
                 <div className="nx-seg2" role="group" aria-labelledby="api-access">
-                  {ACCESS.map((v) => <button key={v} type="button" aria-pressed={state.acces === v} onClick={() => state.acces !== v && change(v)}>{t(`api.access.${v}`)}</button>)}
+                  {ACCESS.map((v) => <button key={v} type="button" aria-pressed={state.access === v} onClick={() => state.access !== v && change(v)}>{t(`api.access.${v}`)}</button>)}
                 </div>
                 <span className="nx-f-h">{t("api.accessHelp")}</span>
               </div>
