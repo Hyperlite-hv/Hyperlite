@@ -128,7 +128,7 @@ def test_the_sso_handoff_is_single_use_and_short_lived(database, monkeypatch):
 
 def test_the_exchange_gives_a_session_or_asks_for_the_second_factor(client, make_user, database):
     make_user("gia", "viewer", PASSWORD)
-    client.cookies.set("hl_sso_handoff", sso.create_handoff("gia"), path="/auth/sso")
+    client.cookies.set("hl_sso_handoff", sso.create_handoff("gia"), path="/api/v1/auth/sso")
     r = client.post("/auth/sso/exchange")
     assert r.status_code == 200 and r.json()["access_token"] and r.json()["username"] == "gia"
     assert client.post("/auth/sso/exchange").status_code == 401  # the code is spent
@@ -136,7 +136,7 @@ def test_the_exchange_gives_a_session_or_asks_for_the_second_factor(client, make
     with database.get_conn() as conn:
         conn.execute("UPDATE users SET totp_enabled = 1, totp_secret = 'x' WHERE username = 'gia'")
         conn.commit()
-    client.cookies.set("hl_sso_handoff", sso.create_handoff("gia"), path="/auth/sso")
+    client.cookies.set("hl_sso_handoff", sso.create_handoff("gia"), path="/api/v1/auth/sso")
     body = client.post("/auth/sso/exchange").json()
     assert body["require_2fa"] is True and "access_token" not in body
 

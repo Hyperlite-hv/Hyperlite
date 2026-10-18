@@ -332,9 +332,9 @@ def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, au
     object_meta.put("vm", "web", "Front", ["prod"])  # written while shadow mode is off: not copied
     assert switch.files == {}
     admin = auth_headers("root", "admin")
-    assert client.post("/cfs/shadow/activer", headers=auth_headers("watcher", "viewer")).status_code == 403
+    assert client.post("/cfs/shadow/enable", headers=auth_headers("watcher", "viewer")).status_code == 403
 
-    assert client.post("/cfs/shadow/activer", headers=admin).json()["deleted"] == 0
+    assert client.post("/cfs/shadow/enable", headers=admin).json()["deleted"] == 0
     assert switch.calls == [("enable", "--now")]
     assert shadow.enabled() and "/db/object_meta/vm/hv-test/web" in switch.files
     object_meta.put("vm", "db", "", ["prod"])  # from now on every change is copied
@@ -343,7 +343,7 @@ def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, au
     body = client.get("/cfs/shadow", headers=admin).json()
     assert body["active"] and not body["force"] and body["installed"] and body["differences"] == 0
 
-    assert client.post("/cfs/shadow/desactiver", headers=admin).json() == {"active": False}
+    assert client.post("/cfs/shadow/disable", headers=admin).json() == {"active": False}
     assert switch.calls[-1] == ("disable", "--now")
     assert not shadow.enabled()
     object_meta.put("vm", "cache", "", ["prod"])
@@ -354,19 +354,19 @@ def test_the_button_starts_the_daemon_turns_shadow_mode_on_and_copies(client, au
 def test_the_button_says_why_it_cannot_turn_shadow_mode_on(client, auth_headers, switch):
     admin = auth_headers("root", "admin")
     switch.systemctl_ok = False
-    response = client.post("/cfs/shadow/activer", headers=admin)
+    response = client.post("/cfs/shadow/enable", headers=admin)
     assert response.status_code == 503 and "did not start" in response.json()["detail"]
     assert not shadow.enabled()
 
     switch.binary.unlink()
-    response = client.post("/cfs/shadow/activer", headers=admin)
+    response = client.post("/cfs/shadow/enable", headers=admin)
     assert response.status_code == 503 and "not installed" in response.json()["detail"]
     assert client.get("/cfs/shadow", headers=admin).json()["installed"] is False
 
 
 def test_shadow_mode_forced_in_env_cannot_be_turned_off_from_the_page(client, auth_headers, switch, monkeypatch):
     monkeypatch.setenv("HYPERLITE_CFS_SHADOW", "1")
-    response = client.post("/cfs/shadow/desactiver", headers=auth_headers("root", "admin"))
+    response = client.post("/cfs/shadow/disable", headers=auth_headers("root", "admin"))
     assert response.status_code == 409 and "HYPERLITE_CFS_SHADOW=1" in response.json()["detail"]
     assert switch.calls == []
 
