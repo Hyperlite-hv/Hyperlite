@@ -13,7 +13,7 @@ StartLimitIntervalSec=0
 Type=simple
 Environment=HYPERLITE_CFS_MODE=
 EnvironmentFile=-/etc/default/hyperlite-cfs
-ExecStart=/usr/local/sbin/hyperlite-cfs $HYPERLITE_CFS_MODE --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket
+ExecStart=/usr/lib/hyperlite/hyperlite-cfs $HYPERLITE_CFS_MODE --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket
 StateDirectory=hyperlite-cfs
 StateDirectoryMode=0700
 RuntimeDirectory=hyperlite-cfs

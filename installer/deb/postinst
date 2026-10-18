@@ -35,27 +35,9 @@ if ! python3 "$PREFLIGHT" --only system --offline; then
     log "WARNING: blocking preflight on an upgrade, continuing (instance already configured)."
 fi
 
-log "Python environment (venv)"
-if [ ! -x "$APP_DIR/venv/bin/python3" ]; then
-    python3 -m venv "$APP_DIR/venv"
-fi
-# requirements.txt pins every package, pip included, with its hashes (generated from requirements.in): what is
-# installed is what CI tested, and a file whose hash differs is refused. From the offline bundle (the ISO, the offline
-# update: PIP_NO_INDEX) the wheels were built and checked against these hashes in CI, and the bundle is signed; a wheel
-# built from a source package (libvirt-python) cannot have the source's hash, so they are installed by version only.
-if [ -n "${PIP_NO_INDEX:-}" ]; then
-    REQS=$(mktemp)
-    sed -E -e 's/[[:space:]]*\\$//' -e '/^[[:space:]]*--hash=/d' "$APP_DIR/requirements.txt" > "$REQS"
-    "$APP_DIR/venv/bin/pip" install --no-input -r "$REQS" --quiet
-    rm -f "$REQS"
-else
-    "$APP_DIR/venv/bin/pip" install --no-input --require-hashes -r "$APP_DIR/requirements.txt" --quiet
-fi
-# python-jose (and its vulnerable ecdsa dependency) was replaced by PyJWT and passlib by bcrypt; drop them from venvs created by older versions.
-"$APP_DIR/venv/bin/pip" uninstall -y python-jose ecdsa passlib >/dev/null 2>&1 || true
-
-log "preflight check (Python dependencies actually importable)"
-if ! python3 "$PREFLIGHT" --only python --python "$APP_DIR/venv/bin/python3" --requirements "$APP_DIR/requirements.txt"; then
+log "Python environment (venv, built in CI and shipped in the package)"
+RUNTIME=/usr/lib/hyperlite
+if ! bash "$APP_DIR/scripts/install-venv.sh" "$APP_DIR" "$RUNTIME"; then
     log "ERROR: unusable Python dependencies, the service is not (re)started."
     exit 1
 fi
@@ -89,16 +71,13 @@ else
     log "upgrade: existing secrets/config kept as is"
 fi
 
-# hyperlite-cfs, the replicated configuration (cfs/): built here against this system's Corosync and SQLite libraries,
-# its unit installed but left disabled until a cluster is set up. Hyperlite does not use it yet, so a failed build
-# is reported and the installation goes on.
-log "hyperlite-cfs (replicated configuration, not used by Hyperlite yet)"
-CFS_BUILT=0
-if bash "$APP_DIR/scripts/build-cfs.sh" "$APP_DIR"; then
-    CFS_BUILT=1
-else
-    log "WARNING: hyperlite-cfs could not be built (output above); Hyperlite runs as before without it."
-fi
+# hyperlite-cfs, the replicated configuration: built in CI, shipped at /usr/lib/hyperlite/hyperlite-cfs. Its unit is
+# installed but left disabled until a cluster is set up. Older versions built it on the node into /usr/local/sbin:
+# that name now points at the shipped one, for one version, for the scripts that still use it.
+log "hyperlite-cfs (replicated configuration)"
+ln -sfn "$RUNTIME/hyperlite-cfs" /usr/local/sbin/hyperlite-cfs
+rm -rf "$APP_DIR/data/cfs-build" "$APP_DIR/data/cfs-build.log"
+CFS_BUILT=1
 
 log "systemd service"
 cp "$APP_DIR/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
