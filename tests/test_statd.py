@@ -42,7 +42,7 @@ def test_the_table_keeps_current_and_stale_statuses_and_drops_gone_or_unreadable
     ]
     table = statd.table()
     assert set(table) == {"pve-a", "pve-b"}
-    assert table["pve-a"] == {"vms": [{"name": "web"}], "age_s": 2.0, "stale": False}
+    assert table["pve-a"] == {"vms": [{"name": "web"}], "age_s": 2.0, "stale": False, "api": 0}
     assert table["pve-b"]["stale"] is True
 
 

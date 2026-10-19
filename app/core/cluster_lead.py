@@ -94,6 +94,10 @@ def read_only_reason():
         reason = None if _shadow()._get_client().status().quorate else NO_QUORUM
     except (CfsError, OSError):
         reason = NO_DAEMON
+    if reason is None:
+        from app.core import cluster_v1  # imports cluster_view, which imports this module
+
+        reason = cluster_v1.read_only_reason()  # some members still run a version before 1.0
     with _quorum_lock:
         _quorum = (now, reason)
     return reason
