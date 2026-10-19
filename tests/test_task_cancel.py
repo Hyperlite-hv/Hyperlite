@@ -77,9 +77,9 @@ def test_the_api_lists_logs_and_cancels_with_the_right_rules(client, auth_header
     viewer = auth_headers("viewer", role="viewer")
     task_id = tasks.create_task("move_disk", "web", username="admin")
     tasks.register_cancel(task_id)
-    listed = next(t for t in client.get("/tasks", headers=admin).json() if t["id"] == task_id)
+    listed = next(t for t in client.get("/tasks", headers=admin).json()["items"] if t["id"] == task_id)
     assert listed["cancellable"] and listed["clean_shutdown"] and not listed["orphaned"]
-    assert client.get(f"/tasks/{task_id}/log", headers=viewer).json()[0]["message"] == "Started by admin"
+    assert client.get(f"/tasks/{task_id}/log", headers=viewer).json()["items"][0]["message"] == "Started by admin"
     assert client.get("/tasks/nope/log", headers=admin).status_code == 404
     assert client.post(f"/tasks/{task_id}/cancel", headers=viewer).status_code == 403  # not theirs
     assert client.post(f"/tasks/{task_id}/cancel", headers=admin).json() == {"result": "requested"}

@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/pools", tags=["pools"])
@@ -20,7 +21,7 @@ class PoolMemberAdd(BaseModel):
 
 @router.get("")
 def list_pools(user: dict = Depends(require_role("admin"))):
-    return perm.list_pools()
+    return listing(perm.list_pools())
 
 
 @router.post("", status_code=201)

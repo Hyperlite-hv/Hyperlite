@@ -30,6 +30,10 @@ words:
 | Global roles | `admin`, `viewer` |
 | Backup frequency and mode | `daily`, `weekly`, `monthly`; `live`, `cold` |
 
+Every list answers `{"items": [...], "total": n}` (`app/core/listing.py`). A list that gathers every node of a cluster
+(`?cluster=true`) adds `"unreachable"`, the members that did not answer, and the VM list `"stale"`, the members whose
+figures are older than 30 s.
+
 Inside v1 a change is only ever an addition (a route, an optional field, a documented new value); anything else waits
 for a v2, served next to v1.
 

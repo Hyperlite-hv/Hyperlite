@@ -11,6 +11,7 @@ from app.core import login_guard, renaming, webauthn_keys
 from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.client_address import client_address
+from app.core.listing import listing
 from app.core.password_policy import password_problem
 from app.core.permissions import delete_acl_for_user, get_user_groups, remove_group_member
 from app.core.security import (
@@ -442,7 +443,7 @@ def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(ge
 
 @router.get("/webauthn/keys")
 def list_webauthn_keys(user: dict = Depends(get_session_user)):
-    return webauthn_keys.list_keys(user["username"])
+    return listing(webauthn_keys.list_keys(user["username"]))
 
 
 @router.post("/webauthn/keys/options")
@@ -488,7 +489,7 @@ def webauthn_delete(request: Request, key_id: int, payload: WebAuthnDelete, user
 # the token is not a valid JWT).
 @router.get("/tokens")
 def get_api_tokens(user: dict = Depends(get_current_user)):
-    return list_tokens(user["username"])
+    return listing(list_tokens(user["username"]))
 
 
 @router.post("/tokens", status_code=201)
@@ -605,7 +606,7 @@ def logout(token: str = Depends(oauth2_scheme), user: dict = Depends(get_current
 
 @router.get("/users")
 async def list_users(user: dict = Depends(require_role("admin"))):
-    return await account_service.list_users()
+    return listing(await account_service.list_users())
 
 
 @router.post("/users", status_code=201)

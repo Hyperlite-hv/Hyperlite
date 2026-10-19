@@ -10,6 +10,7 @@ from app.core import cluster_view
 from app.core import tasks as task_core
 from app.core.audit import log_action
 from app.core.csv_export import csv_lines
+from app.core.listing import listing
 from app.core.security import get_current_user
 from app.services import task_service
 
@@ -40,11 +41,11 @@ async def list_tasks(
     filters |= {"object": object, "family": family}
     rows = await task_service.list_tasks(filters, sort, position, limit)
     if not cluster:
-        return rows
+        return listing(rows)
     params = {**filters, "node": cluster_view.node_filter(node), "sort": sort, "position": position, "limit": limit}
     answers, missing = await run_in_threadpool(cluster_view.gather, user["username"], "/tasks", params)
     merged = cluster_view.merge(rows, answers, sort, reverse=position != "asc", limit=limit)
-    return {"items": merged, "unreachable": missing}
+    return listing(merged, unreachable=missing)
 
 
 async def _on_peer(on, task_id, user, method, path):
@@ -109,9 +110,9 @@ async def get_task(task_id: str, on: str | None = None, user: dict = Depends(get
 async def get_task_log(task_id: str, on: str | None = None, user: dict = Depends(get_current_user)):
     """What the task did, line by line (its own log, distinct from the audit entries of its target)."""
     if (body := await _on_peer(on, task_id, user, "GET", f"/tasks/{task_id}/log")) is not None:
-        return body
+        return body  # the member's own answer, already a list of v1
     try:
-        return await task_service.task_log(task_id)
+        return listing(await task_service.task_log(task_id))
     except task_service.TaskNotFound:
         raise HTTPException(status_code=404, detail="Task not found") from None
 

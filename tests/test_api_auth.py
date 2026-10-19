@@ -172,12 +172,12 @@ def test_notification_channel_configuration_is_only_visible_to_administrators(cl
     )
     assert created.status_code == 201
 
-    seen_by_admin = client.get("/notifications/channels", headers=admin).json()
+    seen_by_admin = client.get("/notifications/channels", headers=admin).json()["items"]
     assert seen_by_admin[0]["config"]["url"] == hook
 
     seen_by_observer = client.get("/notifications/channels", headers=observer)
     assert seen_by_observer.status_code == 200
-    assert seen_by_observer.json()[0]["name"] == "chat"
+    assert seen_by_observer.json()["items"][0]["name"] == "chat"
     assert "SECRET-TOKEN" not in seen_by_observer.text
 
 
@@ -195,7 +195,7 @@ def test_smtp_password_is_never_returned_even_to_administrators(client, auth_hea
     )
     response = client.get("/notifications/channels", headers=admin)
     assert "hunter2" not in response.text
-    assert response.json()[0]["config"]["smtp_password_set"] is True
+    assert response.json()["items"][0]["config"]["smtp_password_set"] is True
 
 
 def _next_code(secret):

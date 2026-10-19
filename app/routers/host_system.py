@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.core import host_system
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, task_log
 
@@ -139,7 +140,7 @@ def get_time(user: dict = Depends(require_role("admin"))):
 
 @router.get("/time/zones")
 def get_timezones(user: dict = Depends(require_role("admin"))):
-    return host_system.timezones()
+    return listing(host_system.timezones())
 
 
 @router.put("/time")

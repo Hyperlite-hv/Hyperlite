@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.core import firmware, maintenance, templates_store, vm_locks
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
+from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import IMAGES_DIR, create_cloudinit_reseed_iso, validate_name
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 
 @router.get("")
 def list_templates(user: dict = Depends(get_current_user)):
-    return templates_store.list_templates()
+    return listing(templates_store.list_templates())
 
 
 class ConvertRequest(BaseModel):

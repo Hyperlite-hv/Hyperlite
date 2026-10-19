@@ -126,7 +126,7 @@ def test_this_node_is_never_listed_among_the_remote_nodes(nodes_api, database): 
     with database.get_conn() as db:  # the shared table lists every member, this one included
         db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('hv-test', 'self.lan', 't')")
         db.commit()
-    assert [n["name"] for n in client.get("/nodes", headers=viewer).json()] == ["pve-b"]
+    assert [n["name"] for n in client.get("/nodes", headers=viewer).json()["items"]] == ["pve-b"]
     from app.repositories.sqlite.nodes import SqliteNodeStore
 
     assert SqliteNodeStore().get("hv-test") is None and SqliteNodeStore().get("pve-b") is not None

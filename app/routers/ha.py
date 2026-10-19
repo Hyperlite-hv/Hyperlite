@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core import ha, ha_fencing, ha_watch, maintenance
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.services import node_service
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/ha", tags=["ha"])
 @router.get("")
 async def list_protected(user: dict = Depends(get_current_user)):
     rows = await run_in_threadpool(ha.list_protected)
-    return [{**row, "node_status": await node_service.status(row["node"])} for row in rows]
+    return listing([{**row, "node_status": await node_service.status(row["node"])} for row in rows])
 
 
 class EnableRequest(BaseModel):
@@ -89,7 +90,7 @@ def _known_node(node):
 
 @router.get("/fencing")
 def list_fencing(user: dict = Depends(require_role("admin"))):
-    return ha_fencing.list_all()
+    return listing(ha_fencing.list_all())
 
 
 class FencingSettings(BaseModel):

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
+from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
@@ -45,7 +46,7 @@ def _iso_in_use(conn, iso_path: str) -> bool:
 def list_isos(user: dict = Depends(get_current_user)):
     from app.core.iso_share import local_isos
 
-    return local_isos()
+    return listing(local_isos())
 
 
 @router.get("/cluster")

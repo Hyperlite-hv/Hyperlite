@@ -60,6 +60,7 @@ from app.core.container_meta import (
 from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn
+from app.core.listing import listing
 from app.core.network_alloc import allocate_static_ip, generate_mac, network_gateway, release_static_ip
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_container_privilege, require_role
@@ -149,7 +150,7 @@ class ContainerCreate(BaseModel):
 def list_containers(user: dict = Depends(get_current_user)):
     conn = open_lxc_conn()
     try:
-        return [_summary(d) for d in conn.listAllDomains()]
+        return listing([_summary(d) for d in conn.listAllDomains()])
     finally:
         conn.close()
 
@@ -157,7 +158,7 @@ def list_containers(user: dict = Depends(get_current_user)):
 @router.get("/docker-hub/search")
 def search_docker_hub(q: str = "", user: dict = Depends(get_current_user)):
     try:
-        return search_images(q)
+        return listing(search_images(q))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
@@ -174,7 +175,7 @@ def image_environment(image: str = "", user: dict = Depends(get_current_user)):
 # "Container 'backups' not found" instead of the list of backups.
 @router.get("/backups")
 async def list_container_backups(user: dict = Depends(get_current_user)):
-    return await backup_service.list_container_backups()
+    return listing(await backup_service.list_container_backups())
 
 
 @router.get("/{name}")

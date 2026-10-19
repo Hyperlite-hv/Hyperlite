@@ -22,6 +22,7 @@ from app.core.cluster import (
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_remote_capabilities
 from app.core.libvirt_utils import open_conn
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.core.tasks import (
     cancel_requested,
@@ -61,7 +62,7 @@ async def list_nodes(user: dict = Depends(get_current_user)):
     its own backups and history, app/core/cluster_view.py), not a node driven over SSH only."""
     nodes = await node_service.list_with_live()
     members = {n["name"] for n in await run_in_threadpool(cluster_view.members)}
-    return [{**n, "member": n["name"] in members} for n in nodes]
+    return listing([{**n, "member": n["name"] in members} for n in nodes])
 
 
 class NodeTest(BaseModel):
@@ -326,7 +327,7 @@ def _plan(source, target):
 
 @router.get("/maintenance")
 def list_maintenance(user: dict = Depends(get_current_user)):
-    return maintenance.list_all()
+    return listing(maintenance.list_all())
 
 
 @router.get("/{name}/drain-plan")
