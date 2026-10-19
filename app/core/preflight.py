@@ -338,11 +338,11 @@ def check_system(offline=False):
 
     url = _apt_source_url()
     if url is None:
-        out.append(_c("depot_apt", OK, "No hyperlite apt repository configured (offline or local installation)"))
+        out.append(_c("apt_repository", OK, "No hyperlite apt repository configured (offline or local installation)"))
     elif urllib.parse.urlparse(url).scheme not in ("http", "https"):
-        out.append(_c("depot_apt", OK, f"Repository {url} (non-HTTP scheme, network check skipped)"))
+        out.append(_c("apt_repository", OK, f"Repository {url} (non-HTTP scheme, network check skipped)"))
     elif offline:
-        out.append(_c("depot_apt", OK, f"Repository {url} (network check skipped: --offline)"))
+        out.append(_c("apt_repository", OK, f"Repository {url} (network check skipped: --offline)"))
     else:
         try:
             # The URL scheme is validated by require_http_url() or is a constant https URL.
@@ -350,11 +350,11 @@ def check_system(offline=False):
                 urllib.request.Request(url.rstrip("/") + "/dists/stable/InRelease", method="HEAD"),  # noqa: S310
                 timeout=5,
             ):
-                out.append(_c("depot_apt", OK, f"apt repository reachable: {url}"))
+                out.append(_c("apt_repository", OK, f"apt repository reachable: {url}"))
         except Exception as e:
             out.append(
                 _c(
-                    "depot_apt",
+                    "apt_repository",
                     WARNING,
                     f"apt repository {url} unreachable ({type(e).__name__})",
                     feature="Hyperlite updates",

@@ -199,9 +199,9 @@ test.describe("Account security", () => {
 test.describe("Settings persist and secrets are never returned", () => {
   test("no deployment profile or allocation policy: Hyperlite sets no ceiling of its own on a VM but the host's threads", async ({ page, request }) => {
     const limits = (await (await request.get("/host/limits", { headers: auth() })).json()) as Record<string, { source?: string; max?: number }>;
-    for (const key of ["memory_mb", "disk_gb", "disks"]) expect(limits[key].source, key).toBe("technique");
+    for (const key of ["memory_mb", "disk_gb", "disks"]) expect(limits[key].source, key).toBe("technical");
     // A VM's vCPUs stop at the host's CPU threads, as on Proxmox.
-    expect(limits.vcpu.source).toBe("materiel");
+    expect(limits.vcpu.source).toBe("hardware");
     expect(limits.vcpu.max).toBeGreaterThanOrEqual(1);
     await uiLogin(page);
     await goTo(page, "Compatibility");

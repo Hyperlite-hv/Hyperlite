@@ -242,7 +242,8 @@ type vmInfo struct {
 	Node    string  `json:"node"`
 }
 
-var stateLabel = map[string]string{"actif": "running", "arrete": "stopped", "suspendu": "paused", "plante": "crashed"}
+// The VM states of the API (app/routers/vms/_shared.py) as this listing shows them; the others are shown as they are.
+var stateLabel = map[string]string{"active": "running", "shutting_down": "shutting down"}
 
 func cmdVMs(flag string) error {
 	s, err := serverFor(flag)

@@ -108,7 +108,7 @@ def test_each_kind_of_disk_gets_the_right_plan_or_a_clear_refusal():
     assert disk_resize.plan(_disk("vdc")) == ({"kind": "zvol", "pool": "tank", "zvol": "vm1-disk1"}, None)
     assert disk_resize.not_growable_code(_disk("vdd")) == "iscsi"
     assert "storage server" in disk_resize.plan(_disk("vdd"))[1][1]
-    assert disk_resize.not_growable_code(_disk("vde")) == "non_gere"
+    assert disk_resize.not_growable_code(_disk("vde")) == "unsupported"
     assert "CD-ROM" in disk_resize.plan(_disk("sdz"))[1][1]
     assert disk_resize.find_disk(FakeDomain(), "vdq") is None
 
@@ -218,7 +218,7 @@ def test_the_disk_list_says_which_disks_can_be_grown(api):
     r = api["client"].get("/vms/vm1/disks", headers=api["headers"])
     assert r.status_code == 200, r.text
     codes = {d["target"]: d["not_growable"] for d in r.json()["items"]}
-    assert codes == {"vda": None, "vdb": None, "vdc": None, "vdd": "iscsi", "vde": "non_gere", "sdz": "non_gere"}
+    assert codes == {"vda": None, "vdb": None, "vdc": None, "vdd": "iscsi", "vde": "unsupported", "sdz": "unsupported"}
 
 
 def test_a_refused_resize_keeps_the_replication_chain(api, monkeypatch):
