@@ -172,6 +172,8 @@ def forward_to(param, refuse_others=None):
         query = urllib.parse.urlencode([(k, v) for k, v in request.query_params.multi_items() if k != param])
         path = request.scope.get("raw_path", b"").decode("latin-1") or urllib.parse.quote(request.url.path)
         path = path.split("?", 1)[0] + (f"?{query}" if query else "")
+        if path.startswith("/api/v1/"):
+            path = path[len("/api/v1") :]  # the member's API prefix is added by peer_api, as for every call
         body = None
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             raw = await request.body()

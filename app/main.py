@@ -67,6 +67,7 @@ from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
 from app.routers.replication import router as replication_router
+from app.routers.sso import pages as sso_pages
 from app.routers.sso import router as sso_router
 from app.routers.storage import router as storage_router
 from app.routers.tasks import router as tasks_router
@@ -75,6 +76,7 @@ from app.routers.update import router as update_router
 from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
 from app.routers.vms import router as vms_router
+from app.routers.workstation import pages as workstation_pages
 from app.routers.workstation import router as workstation_router
 
 
@@ -137,44 +139,55 @@ async def remember_client_ip(request: Request, call_next):
         request_ip.reset(token)
 
 
-app.include_router(auth_router)
-app.include_router(sso_router)
-app.include_router(dashboard_router)
-app.include_router(vms_router)
-app.include_router(storage_router)
-app.include_router(network_router)
-app.include_router(templates_router)
-app.include_router(isos_router)
-app.include_router(audit_router)
-app.include_router(tasks_router)
-app.include_router(groups_router)
-app.include_router(pools_router)
-app.include_router(acl_router)
-app.include_router(host_router)
-app.include_router(update_router)
-app.include_router(metrics_router)
-app.include_router(backups_router)
-app.include_router(jobs_router)
-app.include_router(nodes_router)
-app.include_router(containers_router)
-app.include_router(vm_disks_router)
-app.include_router(vm_export_router)
-app.include_router(ha_router)
-app.include_router(notifications_router)
-app.include_router(workstation_router)
-app.include_router(kubernetes_router)
-app.include_router(meta_router)
-app.include_router(cfs_router)
-app.include_router(cluster_setup_router)
-app.include_router(cluster_update_router)
-app.include_router(certificate_router)
-app.include_router(host_system_router)
-app.include_router(metric_servers_router)
-app.include_router(backup_groups_router)
-app.include_router(replication_router)
-app.include_router(file_restore_router)
-app.include_router(ldap_router)
-app.include_router(api_docs_router)
+# Every route of the API under one versioned prefix (docs/design/api-v1.md): a client names the contract it was written
+# for, and a later incompatible version can live next to it. Old addresses answer 410 (gone_before_v1 below).
+API = "/api/v1"
+_API_ROUTERS = (
+    auth_router,
+    sso_router,
+    dashboard_router,
+    vms_router,
+    storage_router,
+    network_router,
+    templates_router,
+    isos_router,
+    audit_router,
+    tasks_router,
+    groups_router,
+    pools_router,
+    acl_router,
+    host_router,
+    update_router,
+    metrics_router,
+    backups_router,
+    jobs_router,
+    nodes_router,
+    containers_router,
+    vm_disks_router,
+    vm_export_router,
+    ha_router,
+    notifications_router,
+    workstation_router,
+    kubernetes_router,
+    meta_router,
+    cfs_router,
+    cluster_setup_router,
+    cluster_update_router,
+    certificate_router,
+    host_system_router,
+    metric_servers_router,
+    backup_groups_router,
+    replication_router,
+    file_restore_router,
+    ldap_router,
+    api_docs_router,
+)
+for _router in _API_ROUTERS:
+    app.include_router(_router, prefix=API)
+# Opened by a browser or written in another system's configuration, not called by an API client: they stay where they
+# were (the SSO sign-in and the callback an identity provider was given, the client's download).
+app.include_router(sso_pages)
+app.include_router(workstation_pages)
 if not _API_DOCS:
     # Swagger for the accounts an administrator chose (app/core/api_docs.py); HYPERLITE_API_DOCS=1 serves FastAPI's
     # own public pages instead, for development.
@@ -297,7 +310,7 @@ def serve_ui(request: Request, path: str = ""):
 
 # Requests that change nothing in the cluster's configuration, or must work to see why it is read-only: signing in and
 # out. Everything else that changes something is refused on a node that lost the quorum (cluster_lead.read_only_reason).
-_READ_ONLY_EXEMPT = ("/auth/login", "/auth/logout")
+_READ_ONLY_EXEMPT = (f"{API}/auth/login", f"{API}/auth/logout")
 
 
 @app.middleware("http")
@@ -308,6 +321,34 @@ async def read_only_without_quorum(request: Request, call_next):
         reason = await run_in_threadpool(cluster_lead.read_only_reason)
         if reason:
             return JSONResponse(status_code=503, content={"detail": reason})
+    return await call_next(request)
+
+
+# The API before 1.0 had no prefix. A client still calling those addresses (a script, an old hyperlite-cli) gets a
+# clear answer naming what to do, never the dashboard page or a bare 404 (docs/design/api-v1.md, "Old clients").
+_OLD_ROUTES = []
+
+
+def _old_routes():
+    from starlette.routing import compile_path
+
+    if not _OLD_ROUTES:
+        for router in _API_ROUTERS:
+            _OLD_ROUTES.extend(compile_path(route.path)[0] for route in router.routes if getattr(route, "path", None))
+    return _OLD_ROUTES
+
+
+@app.middleware("http")
+async def gone_before_v1(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith(API + "/") and any(rx.match(path) for rx in _old_routes()):
+        cli = request.headers.get("user-agent", "").startswith("hyperlite-cli/")
+        detail = (
+            "This hyperlite-cli is older than the server: update it (Account > Workstation client)"
+            if cli
+            else f"This address is gone since Hyperlite 1.0: use {API}{path}"
+        )
+        return JSONResponse(status_code=410, content={"detail": detail, "code": "api_gone"})
     return await call_next(request)
 
 

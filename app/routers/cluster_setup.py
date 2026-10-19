@@ -57,7 +57,7 @@ def cluster_state(user: dict = Depends(require_role("admin"))):
     return cluster_setup.state()
 
 
-@router.post("/creer")
+@router.post("/create")
 def create_cluster(payload: CreateRequest, user: dict = Depends(require_role("admin"))):
     try:
         return cluster_setup.create(payload.name, payload.address, user["username"])
@@ -78,7 +78,7 @@ def join_information(user: dict = Depends(require_role("admin"))):
     return info
 
 
-@router.post("/rejoindre")
+@router.post("/join")
 def join_cluster(payload: JoinRequest, user: dict = Depends(require_role("admin"))):
     try:
         return cluster_setup.join(payload.information, payload.address, payload.confirmation, user["username"])
@@ -111,7 +111,7 @@ def set_primary(payload: PrimaryRequest, user: dict = Depends(require_role("admi
         _failed(user, "cluster_primary", payload.name or "none", e)
 
 
-@router.post("/members/{name}/retirer")
+@router.post("/members/{name}/remove")
 def remove_member(name: str, payload: RemoveRequest, user: dict = Depends(require_role("admin"))):
     try:
         return cluster_setup.remove_member(name, payload.confirmation, user["username"])

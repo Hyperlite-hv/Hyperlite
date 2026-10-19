@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test, ADMIN } from "../support/fixtures";
+import { expect, test, ADMIN, apiRoute } from "../support/fixtures";
 
 // Containers page. LXC needs a debootstrapped image the throwaway test host does not have, so the
 // /containers API is replaced by a small stateful stand-in: this checks the page's behaviour
@@ -14,7 +14,7 @@ async function mockApi(page: Page) {
   await page.route(/\/containers(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
     if (!req.url().includes("/containers") || req.resourceType() === "document") return route.fallback();
-    const path = new URL(req.url()).pathname.replace(/^.*\/containers/, "");
+    const path = apiRoute(req.url()).replace(/^.*\/containers/, "");
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
     if (req.method() === "GET" && path === "") return json(cts);
     if (req.method() === "GET" && path.startsWith("/backups")) return json([]);

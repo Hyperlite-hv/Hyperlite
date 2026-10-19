@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // The LDAP / Active Directory card of the authentication page: settings checked in the form, a test that names the
@@ -13,7 +13,7 @@ test("LDAP settings: check, test, save", async ({ page }) => {
   await uiLogin(page);
   await page.route(/\/ldap\/(config|test)$/, (r) => {
     if (!api(r)) return r.fallback();
-    const path = new URL(r.request().url()).pathname;
+    const path = apiRoute(r.request().url());
     if (r.request().method() === "GET") return r.fulfill(json(saved));
     sent.push([path, r.request().postDataJSON()]);
     if (path.endsWith("/test")) return r.fulfill(json({ connection: true, user: { accepted: true, dn: "uid=alice,ou=people,dc=example,dc=org", groups: ["cn=hv-admins"], role: "admin" } }));

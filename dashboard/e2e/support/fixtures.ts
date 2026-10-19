@@ -38,7 +38,29 @@ export async function goTo(page: Page, label: string) {
   await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: new RegExp(`^${escaped}( \\d+)?$`) }).click();
 }
 
+/** The API's own prefix (app/main.py): tests name a route as the API documents it ("/vms"), as the dashboard does. */
+export const API = "/api/v1";
+/** The route a request named, without the API's prefix: what a test compares ("/ldap/test"). */
+export const apiRoute = (url: string) => new URL(url).pathname.replace(/^\/api\/v1(?=\/)/, "");
+export const apiPath = (url: string) => (url.startsWith("/") && !url.startsWith("/api/") && url !== "/health" ? API + url : url);
+
+function prefixed(request: APIRequestContext): APIRequestContext {
+  const calls = new Set(["get", "post", "put", "patch", "delete", "head", "fetch"]);
+  return new Proxy(request, {
+    get(target, key, receiver) {
+      const value = Reflect.get(target, key, receiver);
+      if (typeof key === "string" && calls.has(key)) {
+        return (url: string, options?: object) => (value as (u: string, o?: object) => unknown).call(target, apiPath(url), options);
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export const test = base.extend<{ problems: BrowserProblems }>({
+  request: async ({ request }, use) => {
+    await use(prefixed(request));
+  },
   problems: async ({ page }, use) => {
     const problems: BrowserProblems = [];
     page.on("pageerror", (e) => {

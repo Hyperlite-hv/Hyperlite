@@ -1,5 +1,5 @@
 import type { Route } from "@playwright/test";
-import { ADMIN, apiLogin, expect, test } from "../support/fixtures";
+import { ADMIN, apiLogin, expect, test, apiRoute } from "../support/fixtures";
 
 // Configuration copy on the Nodes page. The CI host has no second node, so the node list and the copies are
 // stand-ins; the real backend is only asked for its (empty) copy status. The copy itself (snapshot, transfer,
@@ -24,7 +24,7 @@ test("each node shows its last copy, a failure its reason, and Copy now sends it
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
-    const path = new URL(req.url()).pathname;
+    const path = apiRoute(req.url());
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [
       { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" },
       { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, status: "online" },

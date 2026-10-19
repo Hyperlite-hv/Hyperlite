@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // Basic container actions: the variables an image requires (asked for, with a generated password), renaming a
@@ -19,7 +19,7 @@ async function serve(page: import("@playwright/test").Page) {
   await page.route(/\/containers(\/[^/?]+(\/[a-z-]+)?)?(\?.*)?$/, async (r) => {
     if (!api(r)) return r.fallback();
     const req = r.request();
-    const path = new URL(req.url()).pathname.replace(/^.*\/containers/, "");
+    const path = apiRoute(req.url()).replace(/^.*\/containers/, "");
     if (path === "/image-env" || path === "/docker-hub/search") return r.fallback();
     if (req.method() === "GET" && path === "") return r.fulfill(json(cts));
     if (req.method() === "GET" && path === "/backups") return r.fulfill(json([]));

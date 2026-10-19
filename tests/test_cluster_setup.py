@@ -363,9 +363,9 @@ def test_the_api(host, client, auth_headers):
     admin, viewer = auth_headers("alice"), auth_headers("olga", role="viewer")
     assert client.get("/cluster", headers=viewer).status_code == 403
     assert client.get("/cluster", headers=admin).json()["in_cluster"] is False
-    r = client.post("/cluster/creer", json={"name": "prod", "address": "192.0.2.99"}, headers=admin)
+    r = client.post("/cluster/create", json={"name": "prod", "address": "192.0.2.99"}, headers=admin)
     assert r.status_code == 409 and "not an address of this node" in r.json()["detail"]
-    r = client.post("/cluster/creer", json={"name": "prod", "address": ADDRESS}, headers=admin)
+    r = client.post("/cluster/create", json={"name": "prod", "address": ADDRESS}, headers=admin)
     assert r.status_code == 200 and r.json()["name"] == "prod"
     assert client.post("/cluster/adhesion", headers=viewer).status_code == 403
     info = client.post("/cluster/adhesion", headers=admin).json()

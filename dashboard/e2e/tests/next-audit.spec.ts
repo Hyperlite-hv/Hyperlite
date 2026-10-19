@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page, APIRequestContext } from "@playwright/test";
-import { apiLogin, expect, test, ADMIN, PREFIX } from "../support/fixtures";
+import { apiLogin, expect, test, ADMIN, PREFIX, apiRoute } from "../support/fixtures";
 import en from "../../src/next/i18n/en.js";
 
 // Rigorous audit of the rebuilt interface in Chromium: every page in both themes and languages
@@ -34,7 +34,7 @@ function collect(page: Page) {
   const found: string[] = [];
   page.on("pageerror", (e) => found.push(`pageerror: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) found.push(`console: ${m.text().slice(0, 200)}`); });
-  page.on("response", (r) => { if (r.status() >= 400 && !IGNORED_HTTP.some((rx) => rx.test(r.url()))) found.push(`HTTP ${r.status()} ${new URL(r.url()).pathname}`); });
+  page.on("response", (r) => { if (r.status() >= 400 && !IGNORED_HTTP.some((rx) => rx.test(r.url()))) found.push(`HTTP ${r.status()} ${apiRoute(r.url())}`); });
   return found;
 }
 

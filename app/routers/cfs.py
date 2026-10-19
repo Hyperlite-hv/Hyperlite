@@ -40,7 +40,7 @@ def shadow_seed(user: dict = Depends(require_role("admin"))):
     return done
 
 
-@router.post("/shadow/activer")
+@router.post("/shadow/enable")
 def shadow_turn_on(user: dict = Depends(require_role("admin"))):
     """Start hyperlite-cfs, turn shadow mode on and make the first copy."""
     try:
@@ -52,7 +52,7 @@ def shadow_turn_on(user: dict = Depends(require_role("admin"))):
     return done
 
 
-@router.post("/shadow/desactiver")
+@router.post("/shadow/disable")
 def shadow_turn_off(user: dict = Depends(require_role("admin"))):
     """Stop copying and stop hyperlite-cfs; SQLite was the source of truth throughout, so nothing else changes."""
     try:

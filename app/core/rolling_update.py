@@ -84,6 +84,18 @@ def _ssh(node, args, stdin=None, timeout=60, connect_timeout=10):
 
 
 def peer_api(node, username, method, path, body=None, timeout=60, connect_timeout=10):
+    """(status, decoded body) of a call to `node`'s own API, under /api/v1. A member that does not know that address yet
+    (a version before 1.0, during the update to it) answers a bare 404: the call is made again at the old one."""
+    old = path[len("/api/v1") :] if path.startswith("/api/v1/") else path
+    if not path.startswith("/api/"):
+        path = "/api/v1" + path  # the members' API (app/main.py); callers name the route, as within the API
+    status, answer = _peer_api(node, username, method, path, body, timeout, connect_timeout)
+    if status == 404 and answer == {"detail": "Not Found"}:
+        return _peer_api(node, username, method, old, body, timeout, connect_timeout)
+    return status, answer
+
+
+def _peer_api(node, username, method, path, body=None, timeout=60, connect_timeout=10):
     """(status, decoded body) of a call to `node`'s own API. Status 0: the API did not answer (restarting).
     Over HTTPS to the member, its certificate pinned (app/core/peer_https.py); over SSH when that cannot be done."""
     from app.core import peer_https

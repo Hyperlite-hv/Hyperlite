@@ -56,7 +56,8 @@ class Api:
 
     def _send(self, method, path, body=None, headers=None, timeout=120):
         # The operator gives the nodes' https:// addresses (HL_NODES).
-        req = urllib.request.Request(self.url + path, data=body, method=method, headers=headers or {})  # noqa: S310
+        url = self.url + ("/api/v1" + path if path != "/health" else path)  # the API's prefix (app/main.py)
+        req = urllib.request.Request(url, data=body, method=method, headers=headers or {})  # noqa: S310
         if self.token:
             req.add_header("Authorization", f"Bearer {self.token}")
         try:

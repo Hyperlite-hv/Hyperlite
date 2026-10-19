@@ -1,5 +1,5 @@
 import type { Page, Route } from "@playwright/test";
-import { ADMIN, apiLogin, expect, test } from "../support/fixtures";
+import { ADMIN, apiLogin, expect, test, apiRoute } from "../support/fixtures";
 
 // Node maintenance from the node's Actions menu. The spec files share one backend and run in parallel, so the
 // real host is never put in maintenance here (that would refuse the VM creations of the other files): the
@@ -40,7 +40,7 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
     const url = new URL(req.url());
-    const path = url.pathname;
+    const path = apiRoute(url.href);
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" }]);
     if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_running: 0, vms_stopped: 0, storage_capacity_gb: 100, storage_available_gb: 50 });
     if (req.method() === "GET" && /\/nodes\/maintenance$/.test(path)) return json(route, state);

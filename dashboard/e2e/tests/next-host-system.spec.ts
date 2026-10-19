@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // The node's system settings: package updates (security filter, Hyperlite's own package left out, the upgrade
@@ -12,7 +12,7 @@ test("node updates and system settings", async ({ page }) => {
   await uiLogin(page);
   await page.route(/\/host\/system\/.*/, (r) => {
     if (!api(r)) return r.fallback();
-    const path = new URL(r.request().url()).pathname.replace("/host/system/", "");
+    const path = apiRoute(r.request().url()).replace("/host/system/", "");
     const method = r.request().method();
     if (method !== "GET") sent.push([method, path, r.request().postDataJSON()]);
     if (path === "updates") return r.fulfill(json({

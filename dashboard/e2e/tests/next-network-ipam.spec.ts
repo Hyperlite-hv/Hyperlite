@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // Editing a NAT network (DHCP range live, subnet at the next restart) and its reservations, one made from a lease.
@@ -17,7 +17,7 @@ test("network: edit subnet and DHCP, restart, reserve an address from a lease an
   await page.route(new RegExp(`/networks/${NAME}(/.*)?(\\?.*)?$`), (r) => {
     if (!api(r)) return r.fallback();
     const url = new URL(r.request().url());
-    const rest = url.pathname.split(`/networks/${NAME}`)[1];
+    const rest = apiRoute(url.href).split(`/networks/${NAME}`)[1];
     const method = r.request().method();
     if (rest === "/firewall") return r.fulfill(json({ default_policy: "accept", rules: [] }));
     if (method !== "GET") calls.push([method, rest, r.request().postDataJSON?.() ?? null]);

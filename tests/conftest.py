@@ -74,6 +74,18 @@ def client(database):
     from app.main import app
 
     vm_limits._cache.update(at=0.0, value=None)
+    # The API under its prefix (app/main.py): a test names a route as the API documents it ("/vms"). What lives at the
+    # root (/health, the SSO sign-in, the dashboard's pages) is reached with root_client.
+    return TestClient(app, base_url="http://testserver/api/v1/")
+
+
+@pytest.fixture()
+def root_client(database):
+    """HTTP client for the addresses outside the API: /health, the SSO sign-in and callback, downloads, the pages."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
     return TestClient(app)
 
 

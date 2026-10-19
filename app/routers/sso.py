@@ -21,6 +21,9 @@ from app.core.security import create_access_token, create_preauth_token, get_use
 from app.services import account_service
 
 router = APIRouter(prefix="/auth/sso", tags=["sso"])
+# What a browser opens, not a client of the API: the sign-in redirection, and the callback the identity provider was
+# given (its redirect URI). They stay at the root, outside /api/v1, so an IdP configured before keeps working.
+pages = APIRouter(prefix="/auth/sso", tags=["sso"])
 
 
 class SSOConfigIn(BaseModel):
@@ -39,17 +42,20 @@ class SSOConfigIn(BaseModel):
 
 # Both cookies are HttpOnly (no script reads them), limited to the SSO endpoints, and SameSite=Lax: sent on the
 # top-level redirect back from the identity provider, never on a request another site makes in the background.
+# The binding goes from the sign-in to the callback (both at the root); the hand-off from the callback to the exchange
+# the dashboard calls, under the API's prefix.
 BINDING_COOKIE = "hl_sso_binding"
 HANDOFF_COOKIE = "hl_sso_handoff"
 COOKIE_PATH = "/auth/sso"
+HANDOFF_PATH = "/api/v1/auth/sso"
 
 
-def _set_cookie(response, request, name, value, max_age):
+def _set_cookie(response, request, name, value, max_age, path=COOKIE_PATH):
     response.set_cookie(
         name,
         value,
         max_age=max_age,
-        path=COOKIE_PATH,
+        path=path,
         httponly=True,
         samesite="lax",
         secure=request.url.scheme == "https",
@@ -130,7 +136,7 @@ def test_sso(user: dict = Depends(require_role("admin"))):
     }
 
 
-@router.get("/login")
+@pages.get("/login")
 def sso_login(request: Request):
     config = sso.get_config()
     if not config or not config["enabled"]:
@@ -152,7 +158,7 @@ def sso_login(request: Request):
     return response
 
 
-@router.get("/callback")
+@pages.get("/callback")
 def sso_callback(
     request: Request,
     code: str | None = None,
@@ -205,7 +211,9 @@ def sso_callback(
     log_action(db_user["username"], "login", "auth", "success", "SSO identity validated")
     response = RedirectResponse("/?sso=1")
     response.delete_cookie(BINDING_COOKIE, path=COOKIE_PATH)
-    _set_cookie(response, request, HANDOFF_COOKIE, sso.create_handoff(db_user["username"]), sso.HANDOFF_TTL_S)
+    _set_cookie(
+        response, request, HANDOFF_COOKIE, sso.create_handoff(db_user["username"]), sso.HANDOFF_TTL_S, HANDOFF_PATH
+    )
     return response
 
 
@@ -218,7 +226,7 @@ def sso_exchange(request: Request):
     user = get_user(username) if username else None
     if user is None:
         response = JSONResponse(status_code=401, content={"detail": "SSO sign-in expired, try again"})
-        response.delete_cookie(HANDOFF_COOKIE, path=COOKIE_PATH)
+        response.delete_cookie(HANDOFF_COOKIE, path=HANDOFF_PATH)
         return response
     methods = [m for m, on in (("totp", user["totp_enabled"]), ("webauthn", webauthn_keys.has_keys(username))) if on]
     if methods:
@@ -236,5 +244,5 @@ def sso_exchange(request: Request):
             "password_change_required": bool(user.get("must_change_password")),
         }
     response = JSONResponse(content=body)
-    response.delete_cookie(HANDOFF_COOKIE, path=COOKIE_PATH)
+    response.delete_cookie(HANDOFF_COOKIE, path=HANDOFF_PATH)
     return response

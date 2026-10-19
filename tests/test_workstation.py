@@ -167,7 +167,7 @@ def test_tunnel_relays_bytes_both_ways(client, make_user):
     make_user("alice")
     port = _echo_server()
     ticket = workstation.issue_tunnel_ticket("vm1", "127.0.0.1", port, "alice")
-    with client.websocket_connect(f"/vms/vm1/tunnel?ticket={ticket}") as ws:
+    with client.websocket_connect(f"/api/v1/vms/vm1/tunnel?ticket={ticket}") as ws:
         ws.send_bytes(b"SSH-2.0-test\r\n")
         assert ws.receive_bytes() == b"SSH-2.0-test\r\n"
         assert workstation.open_tunnel_count("alice") == 1
@@ -177,7 +177,10 @@ def test_tunnel_relays_bytes_both_ways(client, make_user):
 def test_tunnel_refuses_a_bad_ticket_with_a_reason(client):
     from starlette.websockets import WebSocketDisconnect
 
-    with client.websocket_connect("/vms/vm1/tunnel?ticket=nope") as ws, pytest.raises(WebSocketDisconnect) as closed:
+    with (
+        client.websocket_connect("/api/v1/vms/vm1/tunnel?ticket=nope") as ws,
+        pytest.raises(WebSocketDisconnect) as closed,
+    ):
         ws.receive_bytes()
     assert closed.value.code == 4401
 
@@ -188,10 +191,12 @@ def test_client_download_is_public_and_listed(client, auth_headers, tmp_path, mo
     monkeypatch.setattr(router, "CLI_DIST", tmp_path)
     (tmp_path / "windows-amd64").mkdir()
     (tmp_path / "windows-amd64" / "hyperlite.exe").write_bytes(b"MZ binary")
-    got = client.get("/downloads/hyperlite/windows-amd64")
+    got = client.get("http://testserver/downloads/hyperlite/windows-amd64")
     assert got.status_code == 200 and got.content == b"MZ binary"
-    assert client.get("/downloads/hyperlite/linux-amd64").status_code == 404
-    assert client.get("/downloads/hyperlite/windows-amd64..").status_code == 404  # only listed platforms
+    assert client.get("http://testserver/downloads/hyperlite/linux-amd64").status_code == 404
+    assert (
+        client.get("http://testserver/downloads/hyperlite/windows-amd64..").status_code == 404
+    )  # only listed platforms
     listed = client.get("/workstation/config", headers=auth_headers("alice")).json()["downloads"]
     assert [d["platform"] for d in listed] == ["windows-amd64"] and len(listed[0]["sha256"]) == 64
 

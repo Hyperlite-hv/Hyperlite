@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { setAuthToken, setUnauthorizedHandler } from "../api/client";
+import { apiPath } from "../api/prefix";
 
 const KEY_TOKEN = "hyperlite_token";
 const KEY_USERNAME = "hyperlite_username";
@@ -45,7 +46,7 @@ export const useAuthStore = create((set, get) => ({
     if (params.get("sso") === "1") {
       window.history.replaceState({}, "", window.location.pathname);
       try {
-        const res = await fetch("/auth/sso/exchange", { method: "POST", credentials: "same-origin" });
+        const res = await fetch(apiPath("/auth/sso/exchange"), { method: "POST", credentials: "same-origin" });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data) throw new Error((data && data.detail) || "SSO sign-in failed");
         if (data.require_2fa) {
@@ -71,7 +72,7 @@ export const useAuthStore = create((set, get) => ({
     }
     setAuthToken(token);
     try {
-      const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(apiPath("/auth/me"), { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("session expired");
       const me = await res.json();
       set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local", mustChangePassword: !!me.password_change_required, status: "authenticated" });
@@ -86,7 +87,7 @@ export const useAuthStore = create((set, get) => ({
   // UI (status badge) sees the up-to-date state without having to sign in again.
   async refreshMe() {
     if (!get().token) return;
-    const res = await fetch("/auth/me", { headers: { Authorization: `Bearer ${get().token}` } });
+    const res = await fetch(apiPath("/auth/me"), { headers: { Authorization: `Bearer ${get().token}` } });
     if (!res.ok) return;
     const me = await res.json();
     set({ totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local" });
@@ -105,7 +106,7 @@ export const useAuthStore = create((set, get) => ({
     set({ error: null });
     const body = new URLSearchParams({ username, password });
     if (remember) body.set("remember", "true");
-    const res = await fetch("/auth/login", {
+    const res = await fetch(apiPath("/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
@@ -129,7 +130,7 @@ export const useAuthStore = create((set, get) => ({
 
   async loginWith2FA(preAuthToken, code, username) {
     set({ error: null });
-    const res = await fetch("/auth/login/2fa", {
+    const res = await fetch(apiPath("/auth/login/2fa"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ preauth_token: preAuthToken, code }),
@@ -148,7 +149,7 @@ export const useAuthStore = create((set, get) => ({
   async loginWithSecurityKey(preAuthToken, username, getAssertion) {
     set({ error: null });
     const post = async (url, payload) => {
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await fetch(apiPath(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       let data = null;
       try { data = await res.json(); } catch { /* no body */ }
       if (!res.ok) throw new Error((data && data.detail) || "Security key refused");
@@ -170,7 +171,7 @@ export const useAuthStore = create((set, get) => ({
   logout() {
     const token = get().token;
     if (token) {
-      fetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
+      fetch(apiPath("/auth/logout"), { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
     }
     clearStoredSession();
     setAuthToken(null);
