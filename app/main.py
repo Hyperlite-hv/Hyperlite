@@ -7,11 +7,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core import cluster_view, ha_selffence, initial_password, inventory_cache, rolling_update, version
+from app.core import cluster_view, error_codes, ha_selffence, initial_password, inventory_cache, rolling_update, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -205,7 +208,7 @@ def serve_favicon():
     favicon_path = f"{DASHBOARD_DIST}/favicon.svg"
     if os.path.isfile(favicon_path):
         return FileResponse(favicon_path, media_type="image/svg+xml")
-    return JSONResponse(status_code=404, content={"detail": "favicon not found"})
+    return JSONResponse(status_code=404, content={"detail": "favicon not found", "code": "not_found"})
 
 
 def _environment_label():
@@ -292,7 +295,7 @@ def serve_ui(request: Request, path: str = ""):
     # Only a browser navigating asks for HTML. An API client calling a path that does not exist (a typo, a route of
     # another version) got the dashboard page with a 200, which reads as a success: it gets a JSON 404.
     if "text/html" not in request.headers.get("accept", ""):
-        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        return JSONResponse(status_code=404, content={"detail": "Not Found", "code": "not_found"})
     dashboard_index = f"{DASHBOARD_DIST}/index.html"
     if os.path.isfile(dashboard_index):
         return FileResponse(dashboard_index, headers=NO_CACHE_HEADERS)
@@ -371,7 +374,7 @@ async def read_only_without_quorum(request: Request, call_next):
 
         reason = await run_in_threadpool(cluster_lead.read_only_reason)
         if reason:
-            return JSONResponse(status_code=503, content={"detail": reason})
+            return JSONResponse(status_code=503, content={"detail": reason, "code": "read_only"})
     return await call_next(request)
 
 
@@ -419,7 +422,10 @@ async def no_id_handler(request: Request, exc: NoId):
     # In a cluster whose hyperlite-cfs does not answer, a new object cannot get a safe id (app/repositories/cfs/ids.py).
     return JSONResponse(
         status_code=503,
-        content={"detail": "The cluster configuration service does not answer: nothing new can be created right now"},
+        content={
+            "detail": "The cluster configuration service does not answer: nothing new can be created right now",
+            "code": "cluster_unavailable",
+        },
     )
 
 
@@ -429,10 +435,24 @@ async def forwarded_handler(request: Request, exc: cluster_view.Forwarded):
     return JSONResponse(status_code=exc.status, content=exc.body)
 
 
+# Every error of the API names a code of app/core/error_codes.py next to its sentence: its own, or its status's.
+@app.exception_handler(StarletteHTTPException)
+async def http_error_handler(request: Request, exc: StarletteHTTPException):
+    code = getattr(exc, "code", None) or error_codes.for_status(exc.status_code)
+    return JSONResponse(
+        status_code=exc.status_code, content={"detail": exc.detail, "code": code}, headers=getattr(exc, "headers", None)
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors()), "code": "invalid"})
+
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     print(f"UNHANDLED ERROR on {request.method} {request.url.path}: {exc!r}", flush=True)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    return JSONResponse(status_code=500, content={"detail": "Internal server error", "code": "internal"})
 
 
 def on_startup():

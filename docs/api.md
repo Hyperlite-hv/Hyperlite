@@ -34,7 +34,32 @@ for a v2, served next to v1.
 
 ## Errors
 
-Errors are returned as JSON `{"detail": "..."}` with an appropriate HTTP status. Messages are in English and, for infrastructure failures, categorized into an actionable cause (see `app/core/error_messages.py`).
+Errors are returned as JSON `{"detail": "...", "code": "..."}` with an appropriate HTTP status. `detail` is for a
+person: in English and, for infrastructure failures, categorized into an actionable cause (see
+`app/core/error_messages.py`); it may change. `code` is for a script: one of the list below, which only ever grows
+(`app/core/error_codes.py`). An error that names nothing more precise has its status's code.
+
+| Code | Meaning |
+|---|---|
+| `invalid` | The request is not valid: a field is missing or wrong (400, 422). |
+| `unauthorized` | No session, or one that expired or was revoked (401). |
+| `forbidden` | The account may not do this (403). |
+| `not_found` | Nothing by that name or id (404). |
+| `method_not_allowed` | The route exists, not with this method (405). |
+| `conflict` | The request conflicts with the current state: a name already taken, a VM that must be stopped (409). |
+| `too_large` | The upload or body is larger than allowed (413). |
+| `locked` | Another operation holds the object (423). |
+| `too_many_requests` | Too many attempts: wait before trying again (429). |
+| `internal` | An error of the server: its log has the details (500). |
+| `not_implemented` | Not supported on this node (501). |
+| `peer_error` | Another member of the cluster did not answer or failed (502). |
+| `unavailable` | The node cannot do this right now (503). |
+| `timeout` | Something the request waited for did not answer in time (504). |
+| `api_gone` | An address of the API before 1.0: the detail names the one to use (410). |
+| `changed_elsewhere` | Another node of the cluster changed the same thing first: nothing was applied (409). |
+| `not_confirmed` | The cluster did not take the change in time, or refused it: it is copied when it answers (503). |
+| `read_only` | This node changes nothing right now (no quorum, a cluster update): the detail says why (503). |
+| `cluster_unavailable` | The cluster's configuration service does not answer: nothing new can be created (503). |
 
 ## Long operations
 

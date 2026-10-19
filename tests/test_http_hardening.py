@@ -112,7 +112,7 @@ def test_an_unknown_api_path_is_a_json_404_and_a_page_is_the_dashboard(client, m
     (tmp_path / "index.html").write_text("<!doctype html><title>Hyperlite</title>")
     monkeypatch.setattr(main, "DASHBOARD_DIST", str(tmp_path))
     r = client.get("/kubernetes", headers={"Accept": "application/json"})
-    assert r.status_code == 404 and r.json() == {"detail": "Not Found"}
+    assert r.status_code == 404 and r.json() == {"detail": "Not Found", "code": "not_found"}
     assert client.get("/no/such/route").status_code == 404
     page = client.get("/vm/web", headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
     assert page.status_code == 200 and "<title>Hyperlite</title>" in page.text
