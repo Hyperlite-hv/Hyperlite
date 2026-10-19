@@ -1754,6 +1754,7 @@ export default {
   "nt.ev.restore_backup": "Restauration de sauvegarde",
   "nt.ev.verify_backup": "Vérification de sauvegarde (sauvegarde corrompue)",
   "nt.ev.auto_cleanup_warning": "Avertissement de suppression automatique (VM inactive)",
+  "nt.ev.cfs_conflict": "Modification de configuration écrasée par le cluster",
   "nt.addBtn": "Ajouter le canal",
   "au.desc": "Tâches en plusieurs étapes exécutées sur vos VM (installation, configuration).",
   "au.createBtn": "Créer la tâche",
