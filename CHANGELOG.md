@@ -147,6 +147,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- Replication: the first copy of a VM that could not be made (an old qcow2 disk, a raw disk) failed on a database error that hid why; it now says why, and the job's page shows it.
+
 - In a cluster, a node back after a network cut is shown as on line and listed again within about 10 seconds: it stayed offline until the next check, up to a minute, and the Activity views skipped it meanwhile. A node still sending its status is asked whatever the last check said.
 
 - In a cluster, a configuration change answers once the cluster took it, as on Proxmox: the node first takes in what the other nodes changed just before, and when another node changed the same thing first the answer is an error (409, "changed on another node meanwhile", nothing applied) instead of a success undone a second later. A change the cluster refuses (no quorum) or does not confirm within 15 seconds answers 503. When the cluster overrides a change made in the background (a task, a scheduler), a notification is sent (new event, on for channels that receive every event). Error answers made by Hyperlite itself (no quorum, these) now carry the security headers too.
