@@ -23,12 +23,12 @@ def small_host(monkeypatch):
 
 def test_the_host_size_caps_a_vms_vcpus_only(small_host):
     limits = vm_limits.compute_limits(force=True)
-    assert limits["disk_gb"]["source"] == "technique"
+    assert limits["disk_gb"]["source"] == "technical"
     # More memory or disk than the hardware is the administrator's choice, as in Proxmox or vSphere.
     assert vm_limits.validate_vm_resources(vcpu=4, memory_mb=65536, disk_sizes=[500]) == []
     # More vCPUs than the host's threads is refused, as on Proxmox (a cluster of 2 x 64 vCPUs on 12 threads was
     # accepted).
-    assert limits["vcpu"] == {"min": 1, "max": 4, "source": "materiel", "detail": "this host has 4 CPU threads"}
+    assert limits["vcpu"] == {"min": 1, "max": 4, "source": "hardware", "detail": "this host has 4 CPU threads"}
     errors = vm_limits.validate_vm_resources(vcpu=5)
     assert errors and "4 CPU threads" in errors[0]
     # The hardware is still reported, for the non-blocking warning of the creation form.
@@ -65,7 +65,7 @@ def test_the_profile_and_policy_endpoints_are_gone(client, auth_headers):
     headers = auth_headers("root")
     assert client.put("/host/allocation", headers=headers, json={"politique": "libre"}).status_code in (404, 405)
     assert client.put("/host/profile", headers=headers, json={"profil": "standard"}).status_code in (404, 405)
-    assert client.get("/host/limits", headers=headers).json()["disk_gb"]["source"] == "technique"
+    assert client.get("/host/limits", headers=headers).json()["disk_gb"]["source"] == "technical"
 
 
 def test_an_administrator_cap_lower_than_the_host_wins(small_host, monkeypatch):

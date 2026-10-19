@@ -66,7 +66,7 @@ def compute_limits(force=False):
             value[key] = {
                 "min": MINIMUMS[key],
                 "max": TECHNICAL_MAX[key],
-                "source": "technique",
+                "source": "technical",
                 "detail": "no limit set by Hyperlite (technical ceiling only)",
             }
     # A VM never gets more vCPUs than this host has CPU threads, as on Proxmox: they would only queue for the same
@@ -78,7 +78,7 @@ def compute_limits(force=False):
         value["vcpu"] = {
             "min": MINIMUMS["vcpu"],
             "max": threads,
-            "source": "materiel",
+            "source": "hardware",
             "detail": f"this host has {threads} CPU threads",
         }
     disk_free = _detect_disk_free_gb()

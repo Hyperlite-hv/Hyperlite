@@ -125,7 +125,7 @@ def test_every_node_gets_the_pool_and_a_failing_one_is_reported(client, auth_hea
     r = client.post("/storage", json={**NFS, "all_nodes": True}, headers=auth_headers("alice"))
     assert r.status_code == 201
     states = {x["node"]: x["state"] for x in r.json()["results"]}
-    assert states == {"local": "cree", "n2": "cree", "n3": "failed"}
+    assert states == {"local": "created", "n2": "created", "n3": "failed"}
     assert "access denied" in next(x for x in r.json()["results"] if x["node"] == "n3")["detail"]
     assert "nas" in cluster_of_three["local"].pools and "nas" in cluster_of_three["n2"].pools
     assert "nas" not in cluster_of_three["n3"].pools  # the ghost definition is removed
@@ -137,7 +137,7 @@ def test_a_pool_already_there_is_kept_and_a_choice_of_nodes_is_honoured(client, 
     headers = auth_headers("alice")
     client.post("/storage?node=n2", json=NFS, headers=headers)
     r = client.post("/storage", json={**NFS, "nodes": ["local", "n2"]}, headers=headers)
-    assert {x["node"]: x["state"] for x in r.json()["results"]} == {"local": "cree", "n2": "exists"}
+    assert {x["node"]: x["state"] for x in r.json()["results"]} == {"local": "created", "n2": "exists"}
     assert client.get("/storage/shared", headers=headers).json()["items"][0]["all_nodes"] is False
     assert client.post("/storage", json={**NFS, "nodes": ["n9"]}, headers=headers).status_code == 404
 
@@ -183,7 +183,7 @@ def test_a_node_registered_later_gets_the_pools_declared_for_every_node(
         db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('n4', 'n4.lan', 'now')")
         db.commit()
     result = storage.apply_shared_pools("n4", "alice")
-    assert [(r["name"], r["state"]) for r in result] == [("nas", "cree")]
+    assert [(r["name"], r["state"]) for r in result] == [("nas", "created")]
     assert cluster_of_three["n4"].secrets == [b"s3cret"]  # the CHAP password reached the new node
     assert "n4" in shared_pools.get("nas")["nodes"]
 

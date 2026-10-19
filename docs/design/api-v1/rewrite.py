@@ -19,11 +19,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 NAMES = json.loads((Path(__file__).resolve().parent / "names.json").read_text())
+# Values the glossary lacked, found in the code afterwards (2026-10-18 and 19).
 EXTRA = {
     "etiquette": "tag",
     "creation": "creating",
     "suppression": "deleting",
-}  # the glossary of 2026-10-18 lacked them
+    "degrade": "degraded",
+    "actives": "active",
+    "cree": "created",
+    "depot_apt": "apt_repository",
+    "lien": "link",
+    "materiel": "hardware",
+    "non_configure": "not_configured",
+    "non_gere": "unsupported",
+    "technique": "technical",
+}
 SKIP = {
     "app/core/schema_v1.py",  # it holds the old names on purpose, and so do its tests
     "tests/test_schema_v1.py",

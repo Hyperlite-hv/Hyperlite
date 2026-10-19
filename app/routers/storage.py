@@ -34,7 +34,7 @@ POOL_STATE_NAMES = {
     0: "inactive",  # VIR_STORAGE_POOL_INACTIVE
     1: "building",  # VIR_STORAGE_POOL_BUILDING
     2: "active",  # VIR_STORAGE_POOL_RUNNING
-    3: "degrade",  # VIR_STORAGE_POOL_DEGRADED
+    3: "degraded",  # VIR_STORAGE_POOL_DEGRADED
     4: "inaccessible",  # VIR_STORAGE_POOL_INACCESSIBLE
 }
 
@@ -481,7 +481,7 @@ def create_on_nodes(payload, targets, user):
     node failing (unreachable, NFS client missing) does not stop the others."""
     results = []
     for key in targets:
-        entry = {"node": key, "state": "cree", "detail": None, "warning": None}
+        entry = {"node": key, "state": "created", "detail": None, "warning": None}
         try:
             if _exists_on(payload.name, key):
                 entry["state"] = "exists"

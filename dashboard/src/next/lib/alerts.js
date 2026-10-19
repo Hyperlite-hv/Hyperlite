@@ -10,7 +10,7 @@ export function deriveAlerts({ nodes = [], vms = [], storagePools = [], tasks = 
   }
   for (const p of storagePools) {
     const used = p.capacity_gb ? ((p.capacity_gb - (p.available_gb ?? p.capacity_gb)) / p.capacity_gb) * 100 : 0;
-    if (p.state === "degrade" || p.state === "inaccessible") out.push({ id: `pool:${p.node}:${p.name}`, level: p.state === "inaccessible" ? "danger" : "warning", text: p.name, kind: "pool-state", target: { type: "node", id: p.node, tab: "disk" } });
+    if (p.state === "degraded" || p.state === "inaccessible") out.push({ id: `pool:${p.node}:${p.name}`, level: p.state === "inaccessible" ? "danger" : "warning", text: p.name, kind: "pool-state", target: { type: "node", id: p.node, tab: "disk" } });
     else if (used >= 90) out.push({ id: `pool:${p.node}:${p.name}`, level: "danger", text: `${p.name} ${Math.round(used)}%`, kind: "pool-full", target: { type: "node", id: p.node, tab: "disk" } });
     else if (used >= 80) out.push({ id: `pool:${p.node}:${p.name}`, level: "warning", text: `${p.name} ${Math.round(used)}%`, kind: "pool-high", target: { type: "node", id: p.node, tab: "disk" } });
   }

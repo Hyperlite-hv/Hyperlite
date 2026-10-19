@@ -61,7 +61,7 @@ def dashboard(user: dict = Depends(get_current_user)):
             },
             "vms": {
                 "total": total,
-                "actives": active,
+                "active": active,
                 "stopped": inactive,
             },
             "available_memory_mb": round(mem_available_kb / 1024, 1) if mem_available_kb else None,
@@ -69,7 +69,7 @@ def dashboard(user: dict = Depends(get_current_user)):
                 "capacity_gb": round(capacity / (1024**3), 2) if capacity else None,
                 "available_gb": round(available / (1024**3), 2) if available else None,
             },
-            "infrastructure_state": "ok" if connected else "degrade",
+            "infrastructure_state": "ok" if connected else "degraded",
             # Why this node changes nothing right now (a cluster node that lost the quorum), or None: the dashboard
             # shows it above every page (app/core/cluster_lead.py).
             "read_only": cluster_lead.read_only_reason(),
