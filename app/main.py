@@ -253,7 +253,8 @@ def health(request: Request):
 
     conn = open_conn()
     try:
-        body = {"status": "ok", "environment": _environment_label()}
+        # "api": the version of the API (/api/v1), for a client to know which addresses and names to use.
+        body = {"status": "ok", "environment": _environment_label(), "api": 1}
         if optional_user(request) is None:
             if _is_loopback(request):
                 body["hyperlite_version"] = _running_version()
