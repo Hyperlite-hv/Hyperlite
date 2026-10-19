@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 
 # The daemon is local; a copy waits at most this long, so a stuck daemon slows a write by seconds, not minutes.
 TIMEOUT_S = 2.0
+# A request that changed the configuration waits at most this long for the cluster to take it (confirm(), Antho
+# 2026-10-18: 15 s, for clusters over a slow or distant link), then answers 503 and the copy loop carries on.
+CONFIRM_S = 15.0
 EXAMPLES = 20  # paths listed per kind of difference in the report
 
 _PLAIN = re.compile(r"^[A-Za-z0-9-][A-Za-z0-9._-]*$")
@@ -217,6 +220,12 @@ class _Stats:
 _stats = _Stats()
 _client = None
 _client_lock = threading.Lock()
+# One drain at a time (the copy loop and the requests that confirm their changes): an entry is never copied twice.
+_drain_lock = threading.Lock()
+# Outbox ids a request waits for (confirm), and what became of those a drain handled: None copied, else the path the
+# cluster kept its own version of.
+_awaited = set()
+_outcomes = {}
 
 
 def _get_client():
@@ -301,8 +310,9 @@ def _write_checked(client, path, data, base):
         raise _Dropped(path) from None
 
 
-def _dropped(paths):
-    """Report the changes of this node the cluster overrode, and have the cluster's values applied here again."""
+def _dropped(paths, answered=()):
+    """Report the changes of this node the cluster overrode, and have the cluster's values applied here again. Those of
+    a request (answered: it answers 409, confirm()) are audited only; those of background work are notified too."""
     from app.core.audit import log_action
     from app.repositories.cfs import inbound  # imports this module
 
@@ -314,6 +324,7 @@ def _dropped(paths):
             "system", "cfs_conflict", path, "failed",
             "Changed on this node while the cluster changed it too (this node was cut off, or both changed it at "
             "once): the cluster's version is kept",
+            notify=path not in answered,
         )  # fmt: skip
     inbound.reapply()
 
@@ -322,16 +333,22 @@ def drain(limit=500):
     """Copy what the outbox lists, oldest first; returns how many entries were copied. Stops at the first failure and
     keeps the rest for the next call, so the daemon receives the changes in the order SQLite made them. In a cluster,
     an entry the cluster changed since this node last saw it keeps the cluster's version (_write_checked)."""
+    with _drain_lock:
+        return _drain(limit)[0]
+
+
+def _drain(limit):
+    """drain(), under _drain_lock. Returns (entries copied, the error that stopped it or None)."""
     if not enabled():
         with _db() as db:  # shadow mode off: nothing is owed to the daemon
             db.execute("DELETE FROM cfs_outbox")
             db.commit()
-        return 0
+        return 0, None
     with _db() as db:
         rows = db.execute("SELECT id, tbl, pk FROM cfs_outbox ORDER BY id LIMIT ?", (limit,)).fetchall()
         bases = dict(db.execute("SELECT path, version FROM cfs_base").fetchall()) if rows else {}
     if not rows:
-        return 0
+        return 0, None
     known = tables()
     # A row changed several times is copied once, in the place of its last change.
     last = {}
@@ -342,11 +359,13 @@ def drain(limit=500):
     copied = 0
     seen = {}  # path -> version after this drain (None: absent)
     dropped = []
+    answered = set()  # dropped paths a request waits for
+    error = None
     try:
         client = _get_client()
     except (CfsError, OSError) as e:
         _failed("hyperlite-cfs", e)
-        return 0
+        return 0, e
     try:
         # One writer outside a cluster: the daemon holds what this node wrote, nothing to compare.
         cluster = client.status().mode == "cluster"
@@ -356,9 +375,11 @@ def drain(limit=500):
         tbl, pk = next(iter(last))
         table = known.get(tbl)
         _failed(table.path(json.loads(pk)) if table else "hyperlite-cfs", e)
-        return 0
+        return 0, e
     for (tbl, pk), _ in last.items():
         table = known.get(tbl)
+        ids_ = [r["id"] for r in rows if (r["tbl"], r["pk"]) == (tbl, pk)]
+        outcome = None
         if table is not None:
             path, data = table.entry(json.loads(pk))
             try:
@@ -369,10 +390,17 @@ def drain(limit=500):
                 copied += 1
             except _Dropped:
                 dropped.append(path)
+                outcome = path
             except (CfsError, OSError) as e:
                 _failed(path, e)
+                error = e
                 break
-        done += [r["id"] for r in rows if (r["tbl"], r["pk"]) == (tbl, pk)]
+        done += ids_
+        for i in ids_:
+            if i in _awaited:
+                _outcomes[i] = outcome
+                if outcome:
+                    answered.add(outcome)
     if done or seen:
         with _db() as db:
             db.executemany("DELETE FROM cfs_outbox WHERE id = ?", [(i,) for i in done])
@@ -385,8 +413,73 @@ def drain(limit=500):
     with _stats.lock:
         _stats.copies += copied
     if dropped:
-        _dropped(dropped)
-    return copied
+        _dropped(dropped, answered)
+    return copied, error
+
+
+class Changed(Exception):
+    """The cluster kept another node's version of what the request changed (confirm())."""
+
+    def __init__(self, paths):
+        super().__init__(", ".join(paths))
+        self.paths = paths
+
+
+class NotConfirmed(Exception):
+    """The cluster did not take the request's changes in time, or refused them (no quorum): a fixed sentence."""
+
+
+def confirm(wanted, timeout=None):
+    """Copy the outbox entries `wanted` (a request's, confirm.py) and return once the cluster took them all. Raises
+    Changed when it kept another node's version of one (that node changed it first), NotConfirmed when it could not
+    take them within `timeout` (CONFIRM_S) or refused them: they stay in the outbox, for the copy loop."""
+    from app.repositories.cfs import inbound  # imports this module
+
+    wanted = set(wanted)
+    if not wanted:
+        return
+    deadline = time.monotonic() + (CONFIRM_S if timeout is None else timeout)
+    with _drain_lock:
+        _awaited.update(wanted)
+    try:
+        while True:
+            error = None
+            if _drain_lock.acquire(timeout=max(deadline - time.monotonic(), 0)):
+                try:
+                    error = _drain(500)[1]
+                finally:
+                    _drain_lock.release()
+            with _db() as db:
+                left = {
+                    r[0]
+                    for r in db.execute(
+                        "SELECT id FROM cfs_outbox WHERE id BETWEEN ? AND ?", (min(wanted), max(wanted))
+                    ).fetchall()
+                } & wanted
+            if not left:
+                with _drain_lock:
+                    changed = sorted({_outcomes[i] for i in wanted if _outcomes.get(i)})
+                if changed:
+                    # The cluster's values back on this node before the answer leaves, so a reload shows them.
+                    try:
+                        inbound.apply()
+                    except Exception as e:  # the apply loop brings them within seconds anyway
+                        logger.debug("hyperlite-cfs: the cluster's values not applied at once: %s", e)
+                    raise Changed(changed)
+                return
+            if isinstance(error, ReadOnly):
+                raise NotConfirmed(f"The cluster refused the change: {describe(error)}")
+            if time.monotonic() >= deadline:
+                why = f" ({describe(error)})" if error is not None else ""
+                raise NotConfirmed(
+                    f"The cluster did not confirm the change in time{why}: it is copied as soon as the cluster answers"
+                )
+            time.sleep(0.2)
+    finally:
+        with _drain_lock:
+            _awaited.difference_update(wanted)
+            for i in wanted:
+                _outcomes.pop(i, None)
 
 
 def _loop():
