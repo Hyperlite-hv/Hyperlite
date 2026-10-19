@@ -134,12 +134,18 @@ func call(s *server, method, path string, in, out any) error {
 		var payload struct {
 			Detail any    `json:"detail"`
 			Error  string `json:"error"`
+			Code   string `json:"code"`
 		}
 		if json.Unmarshal(data, &payload) == nil {
 			e.code = payload.Error
 			if d, ok := payload.Detail.(string); ok {
 				e.detail = d
 			}
+		}
+		// A server before 1.0 has no /api/v1: it answers every address there with a bare "Not Found", which a server
+		// of 1.0 or later never does (its errors name a code).
+		if resp.StatusCode == http.StatusNotFound && e.detail == "Not Found" && payload.Code == "" {
+			e.detail = "this server runs a Hyperlite version before 1.0: update it, or use a hyperlite-cli of its version"
 		}
 		if resp.StatusCode == http.StatusUnauthorized && e.code == "" {
 			e.detail = "the session of this workstation is no longer valid: run hyperlite login " + s.URL
