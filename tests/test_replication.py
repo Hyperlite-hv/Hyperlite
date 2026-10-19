@@ -176,3 +176,17 @@ def test_the_api_is_for_administrators(client, auth_headers, vms, monkeypatch):
     deleted_again = client.delete(f"/replication/jobs/{job_id}", headers=admin)
     assert deleted.status_code == 200
     assert deleted_again.status_code == 404
+
+
+def test_a_first_copy_that_fails_says_why_and_records_its_target(database, monkeypatch):
+    """e2e, 2026-10-19: the first copy of a VM with an old qcow2 disk failed with "NOT NULL constraint failed:
+    replication_state.cible_dir", the state of a VM never copied had no target, and that error hid the reason."""
+
+    def refuse(vm_name, target_dir):
+        raise replication.ReplicationError("Disk sdb is an old qcow2 (version 2) without dirty bitmaps")
+
+    monkeypatch.setattr(replication, "_replicate", refuse)
+    with pytest.raises(replication.ReplicationError, match="old qcow2"):
+        replication.replicate("web", "/srv/other-site")
+    state = replication._store().state("web")
+    assert state["statut"] == "echec" and state["cible_dir"] == "/srv/other-site" and "old qcow2" in state["erreur"]
