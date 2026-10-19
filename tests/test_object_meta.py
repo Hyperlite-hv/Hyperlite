@@ -86,7 +86,7 @@ def test_the_api_checks_rights_and_existence(client, auth_headers, hosts):
     assert client.get("/meta/vm/web", headers=viewer).json()["notes"] == "Shop front"
     assert client.put("/meta/vm/web", json={"notes": "mine now"}, headers=viewer).status_code == 403
     assert client.put("/meta/node/local", json={"notes": "x"}, headers=viewer).status_code == 403
-    assert {m["name"] for m in client.get("/meta?kind=vm", headers=viewer).json()} == {"web", "far"}
+    assert {m["name"] for m in client.get("/meta?kind=vm", headers=viewer).json()["items"]} == {"web", "far"}
 
     permissions.create_acl("user", "otto", "operator", "vm", "web")
     permissions.create_acl("user", "mia", "manager", "vm", "web")

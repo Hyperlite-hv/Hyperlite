@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 from app.services import account_service
 
@@ -36,12 +37,12 @@ def get_roles_catalog(user: dict = Depends(require_role("admin"))):
 def get_privileges_catalog(user: dict = Depends(require_role("admin"))):
     """Full catalog of privileges (key -> label), used to build the custom role
     builder (checkboxes)."""
-    return perm.ALL_PRIVILEGES
+    return listing(perm.ALL_PRIVILEGES)
 
 
 @router.get("/custom-roles")
 def list_custom_roles(user: dict = Depends(require_role("admin"))):
-    return perm.list_custom_roles()
+    return listing(perm.list_custom_roles())
 
 
 @router.post("/custom-roles", status_code=201)
@@ -92,12 +93,12 @@ def object_acl(resource_type: str, resource_id: str, user: dict = Depends(requir
     ones it inherits from its pools."""
     if resource_type not in ("vm", "container"):
         raise HTTPException(status_code=422, detail="resource_type must be 'vm' or 'container'")
-    return perm.acl_for_object(resource_type, resource_id)
+    return listing(perm.acl_for_object(resource_type, resource_id))
 
 
 @router.get("")
 def list_acl(user: dict = Depends(require_role("admin"))):
-    return perm.list_acl()
+    return listing(perm.list_acl())
 
 
 @router.post("", status_code=201)

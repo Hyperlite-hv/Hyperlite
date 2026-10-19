@@ -111,9 +111,9 @@ def test_object_acl_lists_own_and_pool_assignments(client, auth_headers):
     permissions.create_acl("user", "ct", "drive", "container", "vm-a")
     admin = auth_headers("root", "admin")
 
-    rows = client.get("/acl/object/vm/vm-a", headers=admin).json()
+    rows = client.get("/acl/object/vm/vm-a", headers=admin).json()["items"]
     assert [(r["subject_id"], r["inherited_from"]) for r in rows] == [("bob", None), ("erin", "web")]
-    rows = client.get("/acl/object/container/vm-a", headers=admin).json()
+    rows = client.get("/acl/object/container/vm-a", headers=admin).json()["items"]
     assert [r["subject_id"] for r in rows] == ["ct"]
 
     assert client.get("/acl/object/pool/1", headers=admin).status_code == 422

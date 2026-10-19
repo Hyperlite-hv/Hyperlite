@@ -28,6 +28,13 @@ export function setUnauthorizedHandler(fn) {
 
 const READ_TIMEOUT_MS = 30000;
 
+// A list of the API (app/core/listing.py) is {items, total}: the screens use its items. A list that gathers several
+// nodes (cluster=true) is read whole, for its "unreachable" and "stale" members.
+async function realList(path, opts) {
+  const data = await realFetch(path, opts);
+  return data && Array.isArray(data.items) ? data.items : data;
+}
+
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const sent = token;
@@ -102,7 +109,7 @@ export async function fetchHostTime() {
   return realFetch("/host/system/time");
 }
 export async function fetchHostTimezones() {
-  return realFetch("/host/system/time/zones");
+  return realList("/host/system/time/zones");
 }
 export async function setHostTime(payload) {
   return realFetch("/host/system/time", { method: "PUT", ...jsonBody(payload) });
@@ -280,7 +287,7 @@ export async function fetchVMs() {
   const others = remotes.filter((n) => !n.member);
   const lists = await Promise.all(others.map(async (n) => {
     try {
-      const vms = await realFetch(`/vms?node=${encodeURIComponent(n.name)}`);
+      const vms = await realList(`/vms?node=${encodeURIComponent(n.name)}`);
       return vms.map((v) => mapVm(v, n.name));
     } catch { return []; /* node unreachable for now */ }
   }));
@@ -296,14 +303,14 @@ function mapPool(p, nodeId) {
 }
 
 export async function fetchStoragePools() {
-  const localPools = await realFetch("/storage");
+  const localPools = await realList("/storage");
   let result = localPools.map((p) => mapPool(p, "local"));
 
   try {
     const remotes = await fetchRemoteNodes();
     const remoteLists = await Promise.all(remotes.map(async (n) => {
       try {
-        const pools = await realFetch(`/storage?node=${encodeURIComponent(n.name)}`);
+        const pools = await realList(`/storage?node=${encodeURIComponent(n.name)}`);
         return pools.map((p) => mapPool(p, n.name));
       } catch { return []; }
     }));
@@ -314,7 +321,7 @@ export async function fetchStoragePools() {
 }
 
 export async function fetchNetworks() {
-  const nets = await realFetch("/networks");
+  const nets = await realList("/networks");
   return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true }));
 }
 export async function fetchNetworkDetail(name) {
@@ -328,7 +335,7 @@ export async function deleteNetwork(name) {
 }
 // The host's interfaces a bridged network can sit on (existing bridges, NICs, bonds, VLANs; Wi-Fi listed as unusable).
 export async function fetchHostInterfaces() {
-  return realFetch("/networks/host-interfaces");
+  return realList("/networks/host-interfaces");
 }
 // Subnet, DHCP range and mode of a NAT/isolated network; `a_redemarrer` when the change waits for its restart.
 export async function editNetwork(name, payload) {
@@ -400,14 +407,14 @@ export async function verifyBackup(id, on) {
 // Recovery of a lost site (app/core/site_recovery.py): the other site's backups found in a directory of this node,
 // then restored here as new VMs.
 export async function scanSiteBackups(path) {
-  return realFetch(`/backups/site-recovery/scan?path=${encodeURIComponent(path)}`);
+  return realList(`/backups/site-recovery/scan?path=${encodeURIComponent(path)}`);
 }
 export async function startSiteRecovery(elements, network) {
   return realFetch("/backups/site-recovery", { method: "POST", ...jsonBody({ elements, network: network || null }) });
 }
 // Replication to another site (app/core/replication.py): jobs and each VM's last copy.
 export async function fetchReplicationJobs() {
-  return realFetch("/replication/jobs");
+  return realList("/replication/jobs");
 }
 export async function createReplicationJob(payload) {
   return realFetch("/replication/jobs", { method: "POST", ...jsonBody(payload) });
@@ -422,7 +429,7 @@ export async function runReplicationJob(id) {
   return realFetch(`/replication/jobs/${id}/run`, { method: "POST" });
 }
 export async function fetchReplicationStatus() {
-  return realFetch("/replication/status");
+  return realList("/replication/status");
 }
 export async function fetchBackupSchedule(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backup-schedule`);
@@ -435,7 +442,7 @@ export async function deleteBackupSchedule(name) {
 }
 
 export async function fetchIsoTemplates() {
-  return realFetch("/isos");
+  return realList("/isos");
 }
 export async function deleteIso(filename, node = "local") {
   return realFetch(`/isos/${encodeURIComponent(filename)}?confirm=true&node=${encodeURIComponent(node)}`, { method: "DELETE" });
@@ -450,7 +457,7 @@ export async function copyIso(name, source, targets) {
 
 // ---- Kubernetes (k3s) clusters on VMs ----
 export async function fetchK8sClusters() {
-  return realFetch("/kubernetes/clusters");
+  return realList("/kubernetes/clusters");
 }
 export async function createK8sCluster(payload) {
   return realFetch("/kubernetes/clusters", { method: "POST", ...jsonBody(payload) });
@@ -473,7 +480,7 @@ export async function fetchKubeconfig(name) {
 
 // ---- Importable disks (importing a VM from a disk file) ----
 export async function fetchVmDisks() {
-  return realFetch("/vm-disks");
+  return realList("/vm-disks");
 }
 export async function deleteVmDisk(filename) {
   return realFetch(`/vm-disks/${encodeURIComponent(filename)}`, { method: "DELETE" });
@@ -481,7 +488,7 @@ export async function deleteVmDisk(filename) {
 
 // ---- VM export ----
 export async function fetchVmExports() {
-  return realFetch("/vm-exports");
+  return realList("/vm-exports");
 }
 export async function exportVM(name) {
   return realFetch(`/vms/${encodeURIComponent(name)}/export`, { method: "POST" });
@@ -556,12 +563,12 @@ export async function fetchAuditLog(filters = {}) {
   return realFetch(`/audit?${clusterQuery(filters)}`);
 }
 export async function fetchAuditActions() {
-  return realFetch("/audit/actions?cluster=true");
+  return realList("/audit/actions?cluster=true");
 }
 
 // ---- Automation: the job engine (real: /jobs, see app/routers/jobs.py) ----
 export async function fetchJobs() {
-  return realFetch("/jobs");
+  return realList("/jobs");
 }
 export async function fetchJob(id) {
   return realFetch(`/jobs/${id}`);
@@ -576,7 +583,7 @@ export async function runJob(id, targets, dryRun) {
   return realFetch(`/jobs/${id}/run`, { method: "POST", ...jsonBody({ targets, dry_run: dryRun }) });
 }
 export async function fetchJobRuns(id) {
-  return realFetch(`/jobs/${id}/runs`);
+  return realList(`/jobs/${id}/runs`);
 }
 export async function fetchJobRun(runId) {
   return realFetch(`/jobs/runs/${runId}`);
@@ -584,7 +591,7 @@ export async function fetchJobRun(runId) {
 
 // ---- Multi-node (real: /nodes, see app/routers/nodes.py) ----
 export async function fetchRemoteNodes() {
-  return realFetch("/nodes");
+  return realList("/nodes");
 }
 export async function fetchClusterPubkey() {
   return realFetch("/nodes/cluster-pubkey");
@@ -672,7 +679,7 @@ export async function applyUpdate(system = true) {
 
 // ---- Users (real) ----
 export async function fetchUsers() {
-  return realFetch("/auth/users");
+  return realList("/auth/users");
 }
 export async function createUser(username, password, role) {
   return realFetch("/auth/users", { method: "POST", ...jsonBody({ username, password, role }) });
@@ -731,7 +738,7 @@ export async function migrateVM(name, targetNode, sourceNode, ignorerVerificatio
 // ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode;
 // targetNode null only marks the node.
 export async function fetchNodeMaintenance() {
-  return realFetch("/nodes/maintenance");
+  return realList("/nodes/maintenance");
 }
 export async function fetchDrainPlan(node, targetNode) {
   const qs = targetNode ? `?target_node=${encodeURIComponent(targetNode)}` : "";
@@ -768,7 +775,7 @@ export function saveHaSettings(payload) {
   return realFetch("/ha/settings", { method: "PUT", ...jsonBody(payload) });
 }
 export function fetchFencing() {
-  return realFetch("/ha/fencing");
+  return realList("/ha/fencing");
 }
 export function saveFencing(node, payload) {
   return realFetch(`/ha/fencing/${encodeURIComponent(node)}`, { method: "PUT", ...jsonBody(payload) });
@@ -783,7 +790,7 @@ export function checkLeases(node) {
   return realFetch(`/ha/leases/${encodeURIComponent(node)}`);
 }
 export async function fetchHaProtected() {
-  return realFetch("/ha");
+  return realList("/ha");
 }
 export async function enableHa(name, node) {
   return realFetch(`/ha/${encodeURIComponent(name)}/enable`, { method: "POST", ...jsonBody({ node: node && node !== "local" ? node : null }) });
@@ -811,7 +818,7 @@ export async function fetchNotifyEvents() {
   return realFetch("/notifications/events");
 }
 export async function fetchNotificationChannels() {
-  return realFetch("/notifications/channels");
+  return realList("/notifications/channels");
 }
 export async function createNotificationChannel(payload) {
   return realFetch("/notifications/channels", { method: "POST", ...jsonBody(payload) });
@@ -943,7 +950,7 @@ export function fetchHostDevices() {
   return realFetch("/host/devices");
 }
 export function fetchVMHostDevices(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs`);
+  return realList(`/vms/${encodeURIComponent(name)}/hostdevs`);
 }
 export function attachVMHostDevice(name, device, confirm = false) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs`, { method: "POST", ...jsonBody({ device, confirm }) });
@@ -954,16 +961,16 @@ export function detachVMHostDevice(name, device) {
 export async function fetchVMMetricsHistory(name, range = "1h", node = null) {
   const params = new URLSearchParams({ range });
   if (node && node !== "local") params.set("node", node);
-  return realFetch(`/vms/${encodeURIComponent(name)}/metrics/history?${params}`);
+  return realList(`/vms/${encodeURIComponent(name)}/metrics/history?${params}`);
 }
 // History of a node: "local" = this host, otherwise a registered remote node.
 export async function fetchNodeMetricsHistory(node, range = "1h") {
-  return realFetch(`/nodes/${encodeURIComponent(node)}/metrics/history?range=${encodeURIComponent(range)}`);
+  return realList(`/nodes/${encodeURIComponent(node)}/metrics/history?range=${encodeURIComponent(range)}`);
 }
 export async function fetchStorageHistory(range = "24h", node = null) {
   const params = new URLSearchParams({ range });
   if (node) params.set("node", node);
-  return realFetch(`/storage/history?${params}`);
+  return realList(`/storage/history?${params}`);
 }
 export async function fetchNodeHardware(node) {
   return realFetch(`/nodes/${encodeURIComponent(node)}/hardware`);
@@ -973,7 +980,7 @@ export async function testNodeConnection(payload) {
 }
 // Grouped backup jobs (admin): all VMs of this node, a tag's or a pool's, on one schedule.
 export async function fetchBackupGroups() {
-  return realFetch("/backup-groups");
+  return realList("/backup-groups");
 }
 export async function createBackupGroup(payload) {
   return realFetch("/backup-groups", { method: "POST", ...jsonBody(payload) });
@@ -988,7 +995,7 @@ export async function runBackupGroup(id) {
   return realFetch(`/backup-groups/${id}/run`, { method: "POST" });
 }
 export async function fetchBackupSchedules() {
-  return realFetch("/backup-schedules");
+  return realList("/backup-schedules");
 }
 // How long the users' addresses are kept: the access log's daily files and the audit log (0: none / for ever).
 export function fetchRetention() {
@@ -1038,7 +1045,7 @@ export async function deleteVolume(pool, name) {
   return realFetch(`/storage/${encodeURIComponent(pool)}/volumes/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
 }
 export async function fetchVolumes(pool) {
-  return realFetch(`/storage/${encodeURIComponent(pool)}/volumes`);
+  return realList(`/storage/${encodeURIComponent(pool)}/volumes`);
 }
 // Shared storage: node is optional, the same convention as the rest (fetchVMs,
 // fetchStoragePools...): it creates/deletes a pool on a registered remote node
@@ -1057,7 +1064,7 @@ export async function createStoragePool(payload, node) {
 }
 // Storage declared for several nodes (NFS, iSCSI): which pools, and on which nodes.
 export async function fetchSharedPools() {
-  return realFetch("/storage/shared");
+  return realList("/storage/shared");
 }
 // everywhere: a shared pool is removed from every node that has it, with its definition.
 export async function deleteStoragePool(poolName, node, detach = false, everywhere = false) {
@@ -1083,7 +1090,7 @@ export async function createHostTerminalTicket() {
 
 // ---- Snapshots (real) ----
 export async function fetchSnapshots(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/snapshots`);
+  return realList(`/vms/${encodeURIComponent(name)}/snapshots`);
 }
 export async function createSnapshot(name, snapshotName, description) {
   return realFetch(`/vms/${encodeURIComponent(name)}/snapshots`, { method: "POST", ...jsonBody({ name: snapshotName, description }) });
@@ -1097,7 +1104,7 @@ export async function deleteSnapshot(name, snapName) {
 
 // ---- Templates (real) ----
 export async function fetchTemplates() {
-  return realFetch("/templates");
+  return realList("/templates");
 }
 export async function createTemplateFromVM(vmName, templateName) {
   return realFetch(`/templates/from-vm/${encodeURIComponent(vmName)}`, { method: "POST", ...jsonBody({ template_name: templateName || null }) });
@@ -1111,7 +1118,7 @@ export async function deleteTemplate(templateName) {
 
 // ---- Granular permissions (real): groups, pools, ACL ----
 export async function fetchGroups() {
-  return realFetch("/groups");
+  return realList("/groups");
 }
 export async function createGroup(name) {
   return realFetch("/groups", { method: "POST", ...jsonBody({ name }) });
@@ -1127,7 +1134,7 @@ export async function removeGroupMember(groupId, username) {
 }
 
 export async function fetchPools() {
-  return realFetch("/pools");
+  return realList("/pools");
 }
 export async function createPool(name, description = "") {
   return realFetch("/pools", { method: "POST", ...jsonBody({ name, description }) });
@@ -1146,24 +1153,24 @@ export async function fetchAclRoles() {
   return realFetch("/acl/roles");
 }
 export async function fetchAcl() {
-  return realFetch("/acl");
+  return realList("/acl");
 }
 export async function createAcl(payload) {
   return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
 }
 // Assignments on one VM or container, with those a VM inherits from its pools (`herite_de`).
 export async function fetchObjectAcl(kind, name) {
-  return realFetch(`/acl/object/${kind}/${encodeURIComponent(name)}`);
+  return realList(`/acl/object/${kind}/${encodeURIComponent(name)}`);
 }
 export async function deleteAcl(aclId) {
   return realFetch(`/acl/${aclId}`, { method: "DELETE" });
 }
 
 export async function fetchPrivileges() {
-  return realFetch("/acl/privileges");
+  return realList("/acl/privileges");
 }
 export async function fetchCustomRoles() {
-  return realFetch("/acl/custom-roles");
+  return realList("/acl/custom-roles");
 }
 export async function createCustomRole(name, privileges) {
   return realFetch("/acl/custom-roles", { method: "POST", ...jsonBody({ name, privileges }) });
@@ -1174,7 +1181,7 @@ export async function deleteCustomRole(roleId) {
 
 // ---- LXC containers (real: GET/POST/DELETE /containers) ----
 export async function fetchContainers() {
-  return realFetch("/containers");
+  return realList("/containers");
 }
 // One container's details (interfaces, DNS servers, start at boot) and changing them (administrator).
 export async function fetchContainer(name) {
@@ -1184,7 +1191,7 @@ export async function updateContainer(name, payload) {
   return realFetch(`/containers/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
 }
 export async function searchDockerHub(query) {
-  return realFetch(`/containers/docker-hub/search?q=${encodeURIComponent(query)}`);
+  return realList(`/containers/docker-hub/search?q=${encodeURIComponent(query)}`);
 }
 export async function createContainer(payload) {
   return realFetch("/containers", { method: "POST", ...jsonBody(payload) });
@@ -1223,7 +1230,7 @@ export async function cloneContainer(name, newName) {
   return realFetch(`/containers/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
 export async function fetchContainerBackups() {
-  return realFetch("/containers/backups");
+  return realList("/containers/backups");
 }
 export async function createContainerBackup(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/backups`, { method: "POST" });
@@ -1249,7 +1256,7 @@ export async function disable2FA(password, code) {
 }
 // Security keys (WebAuthn), self-service: list, registration challenge, registration, removal (password).
 export function fetchSecurityKeys() {
-  return realFetch("/auth/webauthn/keys");
+  return realList("/auth/webauthn/keys");
 }
 export function securityKeyOptions(password) {
   return realFetch("/auth/webauthn/keys/options", { method: "POST", ...jsonBody({ password: password || "" }) });
@@ -1276,7 +1283,7 @@ export async function decideCliRequest(code, approve) {
 
 // External metric servers the collector pushes to (InfluxDB 2, Graphite); admin only.
 export async function fetchMetricServers() {
-  return realFetch("/metric-servers");
+  return realList("/metric-servers");
 }
 export async function createMetricServer(payload) {
   return realFetch("/metric-servers", { method: "POST", ...jsonBody(payload) });
@@ -1343,7 +1350,7 @@ export async function openSwagger() {
   return realFetch("/api-docs/ticket", { method: "POST" });
 }
 export async function fetchApiTokens() {
-  return realFetch("/auth/tokens");
+  return realList("/auth/tokens");
 }
 // expiresDays: null for a token that never expires (an explicit choice).
 export async function createApiToken(name, expiresDays = 90) {

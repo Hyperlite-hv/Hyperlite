@@ -249,10 +249,13 @@ func cmdVMs(flag string) error {
 	if err != nil {
 		return err
 	}
-	var vms []vmInfo
-	if err := call(s, "GET", "/vms", nil, &vms); err != nil {
+	var list struct {
+		Items []vmInfo `json:"items"` // a list of the API: {items, total}
+	}
+	if err := call(s, "GET", "/vms", nil, &list); err != nil {
 		return err
 	}
+	vms := list.Items
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tSTATE\tIP\tSSH USER\t")
 	for _, vm := range vms {

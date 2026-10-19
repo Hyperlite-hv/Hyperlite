@@ -135,7 +135,7 @@ def test_draining_marks_the_node_then_migrates_each_vm_as_its_own_task(cluster):
     assert [t["target"] for t in _tasks(cluster["db"], "migrate_vm")] == ["db", "web"]
     drain = _tasks(cluster["db"], "drain_node")
     assert len(drain) == 1 and drain[0]["id"] == body["task_id"] and drain[0]["status"] == "succeeded"
-    assert [m["node"] for m in c.get("/nodes/maintenance", headers=h).json()] == ["local"]
+    assert [m["node"] for m in c.get("/nodes/maintenance", headers=h).json()["items"]] == ["local"]
 
 
 def test_a_failed_migration_fails_the_drain_task_with_its_name(cluster):
@@ -179,7 +179,7 @@ def test_ending_the_maintenance(cluster):
     maintenance.enter("n2", "admin1")
     assert c.delete("/nodes/n2/maintenance", headers=h).json() == {"node": "n2", "in_maintenance": False}
     assert c.delete("/nodes/n2/maintenance", headers=h).status_code == 404
-    assert c.get("/nodes/maintenance", headers=h).json() == []
+    assert c.get("/nodes/maintenance", headers=h).json()["items"] == []
 
 
 def test_an_observer_can_read_but_not_change_maintenance(cluster, auth_headers):

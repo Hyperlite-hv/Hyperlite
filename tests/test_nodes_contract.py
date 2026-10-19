@@ -52,7 +52,7 @@ def test_the_list_carries_every_field_and_the_live_figures(nodes_api, database):
     with database.get_conn() as db:
         db.execute("INSERT INTO node_live (name, ts, reachable, cpu_pct) VALUES ('n2', 't', 1, 12.5)")
         db.commit()
-    listed = client.get("/nodes", headers=viewer).json()
+    listed = client.get("/nodes", headers=viewer).json()["items"]
     assert [n["name"] for n in listed] == ["n2", "n3"]  # sorted by name
     assert set(listed[0]) == NODE_KEYS | {"member"}  # the list says which nodes are members of this node's cluster
     assert [n["member"] for n in listed] == [False, False]  # outside a cluster: none
@@ -95,5 +95,5 @@ def test_the_ha_list_reports_each_node_state(nodes_api, database):
             "('web', 'n2', 'a', 'now'), ('db', 'local', 'a', 'now'), ('old', 'gone', 'a', 'now')"
         )
         db.commit()
-    states = {r["vm_name"]: r["node_status"] for r in client.get("/ha", headers=viewer).json()}
+    states = {r["vm_name"]: r["node_status"] for r in client.get("/ha", headers=viewer).json()["items"]}
     assert states == {"web": "online", "db": "online", "old": "unknown"}

@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.core import k8s_cluster
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 
 router = APIRouter(prefix="/kubernetes", tags=["kubernetes"])
@@ -24,7 +25,7 @@ def _fail(e):
 
 @router.get("/clusters")
 def list_clusters(user: dict = Depends(get_current_user)):
-    return k8s_cluster.list_clusters()
+    return listing(k8s_cluster.list_clusters())
 
 
 @router.post("/clusters", status_code=202)

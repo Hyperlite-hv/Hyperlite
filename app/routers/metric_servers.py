@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.core import metric_export
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/metric-servers", tags=["metrics"])
@@ -28,7 +29,7 @@ class MetricServer(BaseModel):
 
 @router.get("")
 def list_metric_servers(user: dict = Depends(require_role("admin"))):
-    return metric_export.list_servers()
+    return listing(metric_export.list_servers())
 
 
 @router.post("", status_code=201)

@@ -9,6 +9,7 @@ from app.core.audit import log_action
 from app.core.libvirt_utils import (
     open_conn,
 )
+from app.core.listing import listing
 from app.core.security import get_current_user
 from app.routers.vms._shared import _domain_summaries, _domain_summary, router
 
@@ -58,7 +59,10 @@ def _cluster_vms(username):
             code, body = cluster_view.forward(member, username, "GET", "/vms")
         except cluster_view.PeerError:
             return member["name"], None
-        return member["name"], body if code == 200 and isinstance(body, list) else None
+        if code != 200:
+            return member["name"], None
+        vms = body.get("items") if isinstance(body, dict) else body  # a member's list (v1: {items, total})
+        return member["name"], vms if isinstance(vms, list) else None
 
     if ask:
         with ThreadPoolExecutor(max_workers=min(16, len(ask))) as pool:
@@ -67,7 +71,7 @@ def _cluster_vms(username):
                     unreachable.append(name)
                 else:
                     items += [{**v, "node": name} for v in vms]
-    return {"items": items, "stale": stale, "unreachable": unreachable}
+    return listing(items, stale=stale, unreachable=unreachable)
 
 
 @router.get("", dependencies=[Depends(_on_member)])
@@ -97,7 +101,7 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
     finally:
         conn.close()
     log_action(user["username"], "list_vms", "vms", "success")
-    return result
+    return listing(result)
 
 
 @router.get("/{name}")
