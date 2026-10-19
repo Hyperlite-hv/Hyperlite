@@ -82,7 +82,7 @@ def test_a_vanished_snapshot_does_not_break_the_list(database, client, auth_head
     monkeypatch.setattr(snapshots, "_zvol_disks_of_domain", lambda domain: [], raising=False)
     r = client.get("/vms/vm1/snapshots", headers=auth_headers("admin"))
     assert r.status_code == 200, r.text
-    assert [s["name"] for s in r.json()] == ["kept"]
+    assert [s["name"] for s in r.json()["items"]] == ["kept"]
 
 
 def test_a_vanished_pool_does_not_break_the_list(database, client, auth_headers, monkeypatch):
@@ -93,4 +93,4 @@ def test_a_vanished_pool_does_not_break_the_list(database, client, auth_headers,
     monkeypatch.setattr(storage.zfs_storage, "list_pools", lambda: [])
     r = client.get("/storage", headers=auth_headers("admin"))
     assert r.status_code == 200, r.text
-    assert [p["name"] for p in r.json()] == ["default"]
+    assert [p["name"] for p in r.json()["items"]] == ["default"]

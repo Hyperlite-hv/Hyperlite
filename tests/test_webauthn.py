@@ -118,7 +118,7 @@ def test_a_registered_key_becomes_the_second_factor_at_sign_in(client, alice):
     )
     assert r.status_code == 200, r.text
     assert r.json()["access_token"]
-    assert client.get("/auth/webauthn/keys", headers=alice).json()[0]["used_at"]
+    assert client.get("/auth/webauthn/keys", headers=alice).json()["items"][0]["used_at"]
 
     # The same answer again: its challenge was used up.
     replay = client.post(
@@ -211,7 +211,7 @@ def test_totp_and_keys_are_both_offered_and_removing_a_key_takes_the_password(cl
     key_id = register(client, alice, SoftKey()).json()["id"]
     assert password_step(client)["methods"] == ["totp", "webauthn"]
     r = client.request("DELETE", f"/auth/webauthn/keys/{key_id}", json={"password": "wrong"}, headers=alice)
-    assert r.status_code == 400 and len(client.get("/auth/webauthn/keys", headers=alice).json()) == 1
+    assert r.status_code == 400 and len(client.get("/auth/webauthn/keys", headers=alice).json()["items"]) == 1
     r = client.request("DELETE", f"/auth/webauthn/keys/{key_id}", json={"password": PASSWORD}, headers=alice)
     assert r.status_code == 200 and r.json()["keys"] == []
     assert password_step(client)["methods"] == ["totp"]

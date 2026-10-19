@@ -129,7 +129,7 @@ def test_every_node_gets_the_pool_and_a_failing_one_is_reported(client, auth_hea
     assert "access denied" in next(x for x in r.json()["results"] if x["node"] == "n3")["detail"]
     assert "nas" in cluster_of_three["local"].pools and "nas" in cluster_of_three["n2"].pools
     assert "nas" not in cluster_of_three["n3"].pools  # the ghost definition is removed
-    shared = client.get("/storage/shared", headers=auth_headers("bob")).json()
+    shared = client.get("/storage/shared", headers=auth_headers("bob")).json()["items"]
     assert shared == [{"name": "nas", "type": "netfs", "all_nodes": True, "nodes": ["local", "n2"]}]
 
 
@@ -138,7 +138,7 @@ def test_a_pool_already_there_is_kept_and_a_choice_of_nodes_is_honoured(client, 
     client.post("/storage?node=n2", json=NFS, headers=headers)
     r = client.post("/storage", json={**NFS, "nodes": ["local", "n2"]}, headers=headers)
     assert {x["node"]: x["state"] for x in r.json()["results"]} == {"local": "cree", "n2": "exists"}
-    assert client.get("/storage/shared", headers=headers).json()[0]["all_nodes"] is False
+    assert client.get("/storage/shared", headers=headers).json()["items"][0]["all_nodes"] is False
     assert client.post("/storage", json={**NFS, "nodes": ["n9"]}, headers=headers).status_code == 404
 
 
@@ -150,7 +150,7 @@ def test_only_shared_storage_goes_on_several_nodes(client, auth_headers, cluster
 def test_nowhere_is_an_error_not_a_saved_definition(client, auth_headers, cluster_of_three):
     r = client.post("/storage", json={**NFS, "nodes": ["n3"]}, headers=auth_headers("alice"))
     assert r.status_code == 502 and "n3:" in r.json()["detail"]
-    assert client.get("/storage/shared", headers=auth_headers("bob")).json() == []
+    assert client.get("/storage/shared", headers=auth_headers("bob")).json()["items"] == []
 
 
 def test_a_node_registered_later_gets_the_pools_declared_for_every_node(
@@ -176,7 +176,7 @@ def test_a_node_registered_later_gets_the_pools_declared_for_every_node(
     with database.get_conn() as db:
         stored = json.loads(db.execute("SELECT definition FROM shared_pools").fetchone()[0])
     assert stored["chap_password"] != "s3cret"  # encrypted at rest
-    assert "chap_password" not in json.dumps(client.get("/storage/shared", headers=headers).json())
+    assert "chap_password" not in json.dumps(client.get("/storage/shared", headers=headers).json()["items"])
 
     cluster_of_three["n4"] = _Host()
     with database.get_conn() as db:
@@ -194,7 +194,7 @@ def test_a_shared_pool_is_removed_from_every_node_with_its_definition(client, au
     r = client.delete("/storage/nas?confirm=true&everywhere=true", headers=headers)
     assert r.status_code == 200 and {x["node"] for x in r.json()["results"]} == {"local", "n2"}
     assert all("nas" not in h.pools for h in cluster_of_three.values())
-    assert client.get("/storage/shared", headers=headers).json() == []
+    assert client.get("/storage/shared", headers=headers).json()["items"] == []
 
 
 def test_a_renamed_node_stays_in_the_shared_pool(database):

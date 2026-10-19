@@ -58,3 +58,14 @@ def test_a_member_on_1_0_is_called_once(monkeypatch):
     )
     assert rolling_update.peer_api({"name": "pve-b"}, "ana", "GET", "/vms/web") == (404, {"detail": "No VM web"})
     assert calls == ["/api/v1/vms/web"]  # a real 404 of the API is not a member before 1.0
+
+
+def test_every_list_answers_items_and_total(client, auth_headers):
+    headers = auth_headers("ana")
+    client.post("/groups", json={"name": "ops"}, headers=headers)
+    groups = client.get("/groups", headers=headers).json()
+    assert (
+        set(groups) == {"items", "total"} and [g["name"] for g in groups["items"]] == ["ops"] and groups["total"] == 1
+    )
+    tasks = client.get("/tasks", headers=headers).json()
+    assert set(tasks) == {"items", "total"} and tasks["total"] == len(tasks["items"])

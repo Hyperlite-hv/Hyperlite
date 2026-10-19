@@ -22,6 +22,7 @@ from app.core.backups import (
     verify_backup,
 )
 from app.core.libvirt_utils import open_conn
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task
 from app.core.vm_builder import validate_name
@@ -49,9 +50,9 @@ async def list_all_backups(cluster: bool = False, user: dict = Depends(get_curre
     answer; outside a cluster this node's, in the same shape."""
     rows = await backup_service.list_all()
     if not cluster:
-        return rows
+        return listing(rows)
     answers, missing = await run_in_threadpool(cluster_view.gather, user["username"], "/backups", {})
-    return {"items": cluster_view.merge(rows, answers, "created_at"), "unreachable": missing}
+    return listing(cluster_view.merge(rows, answers, "created_at"), unreachable=missing)
 
 
 class RecoveryItem(BaseModel):
@@ -68,7 +69,7 @@ class RecoveryRequest(BaseModel):
 def scan_foreign_backups(path: str, user: dict = Depends(require_role("admin"))):
     """The backups another site wrote under `path` (an NFS share of this site, for instance), per VM."""
     try:
-        return site_recovery.scan(path)
+        return listing(site_recovery.scan(path))
     except site_recovery.RecoveryError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
 
@@ -88,14 +89,14 @@ def start_site_recovery(payload: RecoveryRequest, user: dict = Depends(require_r
 @router.get("/backup-schedules")
 async def list_backup_schedules(user: dict = Depends(get_current_user)):
     """Every scheduled backup, so a list page can tell which VMs have none."""
-    return await backup_service.list_schedules()
+    return listing(await backup_service.list_schedules())
 
 
 @router.get("/vms/{name}/backups")
 async def list_vm_backups(
     name: str, user: dict = Depends(require_vm_privilege("vm.view")), _: None = Depends(_on_vm_node)
 ):
-    return await backup_service.list_for_vm(name)
+    return listing(await backup_service.list_for_vm(name))
 
 
 class BackupRequest(BaseModel):

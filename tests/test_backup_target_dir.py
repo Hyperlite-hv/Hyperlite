@@ -71,4 +71,4 @@ def test_a_schedule_is_for_a_vm_of_this_node(started, client, auth_headers):
     body = {"frequency": "daily", "time": "02:00"}
     admin = auth_headers("admin")
     assert client.put("/vms/nope/backup-schedule", json=body, headers=admin).status_code == 404
-    assert client.get("/backup-schedules", headers=admin).json() == []
+    assert client.get("/backup-schedules", headers=admin).json()["items"] == []

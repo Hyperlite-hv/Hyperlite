@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { ADMIN, apiLogin, expect, PREFIX, test } from "../support/fixtures";
+import { ADMIN, apiLogin, expect, PREFIX, test, listing } from "../support/fixtures";
 
 // VM Configure / Snapshots / Backup pages against a real (stopped) VM on the real backend.
 const stamp = Date.now().toString().slice(-6);
@@ -156,12 +156,12 @@ test("hardware: host devices — the real inventory protects the host, a USB key
 test("hardware and network: attach and detach a disk with confirmation, VLAN only where it applies, interface list is shown", async ({ page, request }) => {
   // The real networks (NAT, isolated) cannot carry a tag; an Open vSwitch one is added to the list to check the range.
   await page.route(/\/networks$/, async (route) => {
-    const real = (await (await route.fetch()).json()) as Record<string, unknown>[];
-    await route.fulfill({ json: [...real, { name: "e2e-ovs", type: "bridge", active: true, autostart: true, bridge: "ovsbr0", macvtap: false, network: null, dhcp: false, vlan: true }] });
+    const real = ((await (await route.fetch()).json()) as { items: Record<string, unknown>[] }).items;
+    await route.fulfill({ json: listing([...real, { name: "e2e-ovs", type: "bridge", active: true, autostart: true, bridge: "ovsbr0", macvtap: false, network: null, dhcp: false, vlan: true }]) });
   });
   await open(page, "hardware");
   const main = page.getByRole("main");
-  const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length;
+  const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length; // the fixture reads a list's items
   const before = await disks();
   await expect(main.getByRole("heading", { level: 2, name: /^Disks/ })).toBeVisible({ timeout: 20_000 });
   // Adding a disk opens a side drawer.

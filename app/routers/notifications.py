@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.core import notifications as notif
 from app.core.audit import log_action
 from app.core.http_safety import require_http_url
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -37,7 +38,7 @@ def list_channels(user: dict = Depends(get_current_user)):
         elif c["type"] == "email" and c["config"].get("smtp_password"):
             c["config"]["smtp_password_set"] = True
             c["config"]["smtp_password"] = None
-    return channels
+    return listing(channels)
 
 
 class ChannelCreate(BaseModel):

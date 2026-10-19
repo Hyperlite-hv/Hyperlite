@@ -162,7 +162,7 @@ def test_api_is_admin_only_and_due_jobs_move_to_their_next_run(client, auth_head
     r = client.post("/backup-groups", json=_job(), headers=admin)
     assert r.status_code == 201, r.text
     job = r.json()
-    assert client.get("/backup-groups", headers=admin).json()[0]["vms"] == ["web"]
+    assert client.get("/backup-groups", headers=admin).json()["items"][0]["vms"] == ["web"]
     assert client.get("/backup-groups", headers=auth_headers("watcher", "viewer")).status_code == 403
     assert client.post("/backup-groups", json=_job(name="bad", target_dir="/etc"), headers=admin).status_code == 422
 

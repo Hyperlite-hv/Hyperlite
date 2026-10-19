@@ -13,6 +13,7 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
+from app.core.listing import listing
 from app.core.security import get_current_user, require_vm_privilege
 from app.core.tasks import create_task, finish_task, task_log
 from app.core.vm_builder import (
@@ -83,7 +84,7 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
                         raise
                     logger.debug("Snapshot vanished while listing %s: %s", name, e)
         log_action(user["username"], "list_snapshots", name, "success")
-        return result
+        return listing(result)
     finally:
         conn.close()
 

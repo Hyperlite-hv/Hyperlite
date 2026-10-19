@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.core import object_meta
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, open_lxc_conn
+from app.core.listing import listing
 from app.core.permissions import has_container_privilege, has_privilege
 from app.core.security import get_current_user
 
@@ -60,7 +61,7 @@ def _kind(kind):
 @router.get("")
 def list_meta(kind: str | None = None, user: dict = Depends(get_current_user)):
     """Tags of every object (and whether it has notes), for the lists and the tag filter."""
-    return object_meta.list_all(_kind(kind) if kind else None)
+    return listing(object_meta.list_all(_kind(kind) if kind else None))
 
 
 @router.get("/{kind}/{name}")

@@ -277,7 +277,7 @@ def test_an_image_runs_its_own_process_with_a_fixed_address(api, client, auth_he
     assert client.delete("/containers/web", headers=admin).status_code == 400  # irreversible: confirmed only
     assert client.delete("/containers/web?confirm=true", headers=admin).status_code == 200
     assert api["reserved"] == {}  # the address goes back to the network
-    assert client.get("/containers", headers=admin).json() == []
+    assert client.get("/containers", headers=admin).json()["items"] == []
 
 
 @pytest.mark.parametrize(

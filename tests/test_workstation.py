@@ -62,7 +62,7 @@ def test_device_sign_in_needs_a_web_session_and_hands_out_one_expiring_token(cli
     # the token works and is listed as a workstation token
     me = client.get("/workstation/config", headers={"Authorization": f"Bearer {granted['access_token']}"})
     assert me.status_code == 200 and me.json()["tunnel_ports"] == [22, 3389]
-    tokens = client.get("/auth/tokens", headers=headers).json()
+    tokens = client.get("/auth/tokens", headers=headers).json()["items"]
     assert [t["kind"] for t in tokens if t["name"] == "Workstation: PC-ALICE"] == ["cli"]
 
 

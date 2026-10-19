@@ -16,6 +16,7 @@ from app.core.audit import log_action
 from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
 from app.core.vm_limits import validate_vm_resources
@@ -180,7 +181,7 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
             p["node"] = node or "local"
             p.setdefault("path", None)
         log_action(user["username"], "list_storage_pools", "storage", "success")
-        return result
+        return listing(result)
     finally:
         conn.close()
 
@@ -539,7 +540,7 @@ def apply_shared_pools(node_name, username):
 @router.get("/shared")
 def list_shared_pools(user: dict = Depends(get_current_user)):
     """The pools declared for several nodes, and which ones (no secret)."""
-    return [{k: v for k, v in e.items() if k != "definition"} for e in shared_pools.list_all()]
+    return listing([{k: v for k, v in e.items() if k != "definition"} for e in shared_pools.list_all()])
 
 
 def _chap_usage(pool_root):
@@ -868,7 +869,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
             for vol in result:
                 vol["used"] = vol["path"] in in_use
             log_action(user["username"], "list_volumes", pool_name, "success")
-            return result
+            return listing(result)
 
         try:
             pool = conn.storagePoolLookupByName(pool_name)
@@ -889,7 +890,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
                 }
             )
         log_action(user["username"], "list_volumes", pool_name, "success")
-        return result
+        return listing(result)
     finally:
         conn.close()
 

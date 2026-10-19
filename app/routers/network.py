@@ -13,6 +13,7 @@ from app.core import network_edit, renaming
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn
+from app.core.listing import listing
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
@@ -141,7 +142,7 @@ def list_networks(user: dict = Depends(get_current_user)):
             summary["vms"] = vm_counts.get(summary["name"], 0)
             result.append(summary)
         log_action(user["username"], "list_networks", "networks", "success")
-        return result
+        return listing(result)
     finally:
         conn.close()
 
@@ -151,7 +152,7 @@ def host_interfaces(user: dict = Depends(require_role("admin"))):
     """The host's interfaces a bridged network can sit on (app/core/host_interfaces.py), read-only."""
     from app.core.host_interfaces import list_host_interfaces
 
-    return list_host_interfaces()
+    return listing(list_host_interfaces())
 
 
 @router.get("/{name}")

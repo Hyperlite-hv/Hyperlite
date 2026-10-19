@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core import replication
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/replication", tags=["backups"])
@@ -23,7 +24,7 @@ class ReplicationJob(BaseModel):
 
 @router.get("/jobs")
 def list_jobs(user: dict = Depends(require_role("admin"))):
-    return replication.list_jobs()
+    return listing(replication.list_jobs())
 
 
 @router.post("/jobs", status_code=201)
@@ -70,4 +71,4 @@ def run_job(job_id: int, user: dict = Depends(require_role("admin"))):
 
 @router.get("/status")
 def status(user: dict = Depends(require_role("admin"))):
-    return replication.status()
+    return listing(replication.status())

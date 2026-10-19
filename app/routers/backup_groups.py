@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.core import backup_groups
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/backup-groups", tags=["backups"])
@@ -30,7 +31,7 @@ class GroupJob(BaseModel):
 
 @router.get("")
 def list_group_jobs(user: dict = Depends(require_role("admin"))):
-    return backup_groups.list_jobs()
+    return listing(backup_groups.list_jobs())
 
 
 @router.post("", status_code=201)

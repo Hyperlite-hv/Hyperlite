@@ -133,8 +133,8 @@ def test_an_objects_history_matches_its_exact_name_and_kind(client, auth_headers
     for type_, target in (("start_vm", "web"), ("start_vm", "web-02"), ("backup_container", "web"), ("clone_vm", "db")):
         tasks.finish_task(tasks.create_task(type_, target), "succeeded")
     admin = auth_headers("admin")
-    vm = client.get("/tasks?object=web&family=vm", headers=admin).json()
+    vm = client.get("/tasks?object=web&family=vm", headers=admin).json()["items"]
     assert [(t["type"], t["target"]) for t in vm] == [("start_vm", "web")]
-    ct = client.get("/tasks?object=web&family=container", headers=admin).json()
+    ct = client.get("/tasks?object=web&family=container", headers=admin).json()["items"]
     assert [(t["type"], t["target"]) for t in ct] == [("backup_container", "web")]
     assert client.get("/tasks?family=other", headers=admin).status_code == 422

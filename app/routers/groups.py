@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -21,7 +22,7 @@ class MemberAdd(BaseModel):
 
 @router.get("")
 def list_groups(user: dict = Depends(require_role("admin"))):
-    return perm.list_groups()
+    return listing(perm.list_groups())
 
 
 @router.post("", status_code=201)

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.core import renaming
 from app.core.audit import log_action
 from app.core.jobs import JobRunRefused, start_job_run
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.services import automation_service as automation
 
@@ -30,7 +31,7 @@ class JobCreate(BaseModel):
 
 @router.get("")
 async def list_jobs(user: dict = Depends(get_current_user)):
-    return await automation.list_jobs()
+    return listing(await automation.list_jobs())
 
 
 @router.get("/{job_id}")
@@ -115,7 +116,7 @@ async def run_job_endpoint(job_id: int, payload: RunRequest, user: dict = Depend
 
 @router.get("/{job_id}/runs")
 async def list_job_runs(job_id: int, user: dict = Depends(get_current_user)):
-    return await automation.list_runs(job_id)
+    return listing(await automation.list_runs(job_id))
 
 
 @router.get("/runs/{run_id}")

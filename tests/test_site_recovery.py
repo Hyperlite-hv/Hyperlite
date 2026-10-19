@@ -201,7 +201,7 @@ def test_the_endpoints_are_for_administrators(client, auth_headers, tmp_path, co
     write_backup(tmp_path / "share", "web", "20261001T0000001")
     admin = auth_headers("admin1")
     r = client.get("/backups/site-recovery/scan", params={"path": str(tmp_path / "share")}, headers=admin)
-    assert r.status_code == 200 and r.json()[0]["vm"] == "web"
+    assert r.status_code == 200 and r.json()["items"][0]["vm"] == "web"
     assert client.get("/backups/site-recovery/scan", params={"path": "/etc"}, headers=admin).status_code == 422
     watcher = auth_headers("watcher", role="viewer")
     assert client.get("/backups/site-recovery/scan", params={"path": str(tmp_path)}, headers=watcher).status_code == 403

@@ -51,7 +51,7 @@ def test_the_local_list_keeps_its_shape_and_names_the_node(cluster, client, auth
     (cluster["local"] / "debian.iso").write_bytes(b"d")
     r = client.get("/isos", headers=auth_headers("viewer", role="viewer"))
     assert r.status_code == 200
-    [iso] = r.json()
+    [iso] = r.json()["items"]
     assert iso["name"] == "debian.iso" and iso["node"] == "local"
     assert {"size_mb", "added_at", "location"} <= set(iso)
 

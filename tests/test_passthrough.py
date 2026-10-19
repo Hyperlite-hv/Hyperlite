@@ -203,10 +203,10 @@ def test_a_pci_device_needs_a_confirmation_then_is_given_and_taken_back(api):
     r = c.post("/vms/vm1/hostdevs", json={"device": "pci_0000_01_00_0", "confirm": True}, headers=h)
     assert r.status_code == 201, r.text
     assert r.json()["added"] == ["pci_0000_01_00_0", "pci_0000_01_00_1"]
-    listed = c.get("/vms/vm1/hostdevs", headers=h).json()
+    listed = c.get("/vms/vm1/hostdevs", headers=h).json()["items"]
     assert [(d["address"], d["present"]) for d in listed] == [("0000:01:00.0", True), ("0000:01:00.1", True)]
     assert c.delete("/vms/vm1/hostdevs/pci_0000_01_00_1", headers=h).status_code == 200
-    assert [d["id"] for d in c.get("/vms/vm1/hostdevs", headers=h).json()] == ["pci_0000_01_00_0"]
+    assert [d["id"] for d in c.get("/vms/vm1/hostdevs", headers=h).json()["items"]] == ["pci_0000_01_00_0"]
 
 
 def test_a_usb_device_goes_to_a_running_vm_and_the_host_inventory_shows_who_has_it(api):

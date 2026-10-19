@@ -136,7 +136,7 @@ def test_stay_signed_in_issues_a_longer_session(client, make_user):
 def test_the_user_list_shows_the_last_login_and_the_2fa_state(client, make_user):
     make_user("alice")
     token = _login(client, "alice")["access_token"]
-    users = client.get("/auth/users", headers={"Authorization": f"Bearer {token}"}).json()
+    users = client.get("/auth/users", headers={"Authorization": f"Bearer {token}"}).json()["items"]
     alice = next(u for u in users if u["username"] == "alice")
     assert alice["totp_enabled"] is False
     assert datetime.fromisoformat(alice["last_login_at"]) > datetime.now(UTC) - timedelta(minutes=1)
@@ -149,7 +149,7 @@ def test_audit_entries_record_the_source_address_and_can_be_counted(client, make
     token = _login(client, "alice")["access_token"]
     audit._AUDIT_QUEUE.join()
     headers = {"Authorization": f"Bearer {token}"}
-    entries = client.get("/audit", params={"action": "login"}, headers=headers).json()
+    entries = client.get("/audit", params={"action": "login"}, headers=headers).json()["items"]
     assert entries and entries[0]["ip"] == "testclient"
     assert client.get("/audit/count", params={"action": "login"}, headers=headers).json()["total"] == len(entries)
 
@@ -163,7 +163,7 @@ def test_every_backup_schedule_can_be_listed(client, make_user, database):
             "VALUES ('web', 'daily', '02:00', '/tmp', 3, 1, '2030-01-01T02:00:00+00:00')"
         )
         conn.commit()
-    rows = client.get("/backup-schedules", headers={"Authorization": f"Bearer {token}"}).json()
+    rows = client.get("/backup-schedules", headers={"Authorization": f"Bearer {token}"}).json()["items"]
     assert [r["vm_name"] for r in rows] == ["web"]
 
 
@@ -185,12 +185,15 @@ def test_node_and_storage_history_are_served_per_node_and_pool(client, make_user
             [(now, "local", "default", 100.0, 23.0), (now, "n2", "ssd", 200.0, 142.0)],
         )
         conn.commit()
-    assert client.get("/nodes/local/metrics/history", headers=headers).json()[0]["cpu_pct"] == 10.0
-    assert client.get("/nodes/n2/metrics/history", headers=headers).json()[0]["cpu_pct"] == 46.0
-    assert client.get("/vms/web/metrics/history", params={"node": "n2"}, headers=headers).json()[0]["cpu_pct"] == 7.0
-    pools = client.get("/storage/history", params={"range": "1h"}, headers=headers).json()
+    assert client.get("/nodes/local/metrics/history", headers=headers).json()["items"][0]["cpu_pct"] == 10.0
+    assert client.get("/nodes/n2/metrics/history", headers=headers).json()["items"][0]["cpu_pct"] == 46.0
+    assert (
+        client.get("/vms/web/metrics/history", params={"node": "n2"}, headers=headers).json()["items"][0]["cpu_pct"]
+        == 7.0
+    )
+    pools = client.get("/storage/history", params={"range": "1h"}, headers=headers).json()["items"]
     assert {(p["node"], p["pool"]) for p in pools} == {("local", "default"), ("n2", "ssd")}
-    only_n2 = client.get("/storage/history", params={"range": "1h", "node": "n2"}, headers=headers).json()
+    only_n2 = client.get("/storage/history", params={"range": "1h", "node": "n2"}, headers=headers).json()["items"]
     assert only_n2 == [
         {"node": "n2", "pool": "ssd", "points": [{"ts": now, "capacity_b": 200.0, "allocation_b": 142.0}]}
     ]

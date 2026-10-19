@@ -93,7 +93,7 @@ def k8s(database, monkeypatch, tmp_path):
 def _wait_status(client, headers, name, timeout=5):
     deadline = time.time() + timeout
     while time.time() < deadline:
-        rows = client.get("/kubernetes/clusters", headers=headers).json()
+        rows = client.get("/kubernetes/clusters", headers=headers).json()["items"]
         row = next((r for r in rows if r["name"] == name), None)
         if row and row["status"] != "creating":
             return row
@@ -170,7 +170,7 @@ def test_requests_are_checked_before_anything_is_created(k8s, client, auth_heade
     r = client.post("/kubernetes/clusters", json=payload, headers=auth_headers("admin"))
     assert r.status_code == status, r.text
     assert k8s["calls"] == []
-    assert client.get("/kubernetes/clusters", headers=auth_headers("viewer", role="viewer")).json() == []
+    assert client.get("/kubernetes/clusters", headers=auth_headers("viewer", role="viewer")).json()["items"] == []
 
 
 def test_only_administrators_create_clusters_or_read_their_credentials(k8s, client, auth_headers):
@@ -213,7 +213,7 @@ def test_deleting_a_cluster_removes_its_vms_and_its_record(k8s, client, auth_hea
         ("destroy", "demo-worker-1"),
         ("delete", "demo-worker-1"),
     ]
-    assert client.get("/kubernetes/clusters", headers=admin).json() == []
+    assert client.get("/kubernetes/clusters", headers=admin).json()["items"] == []
     assert client.delete("/kubernetes/clusters/demo?confirm=true", headers=admin).status_code == 404
 
 

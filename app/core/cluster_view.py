@@ -131,6 +131,7 @@ def merge(local, answers, key, reverse=True, limit=None):
     me = self_node.name()
     rows = [{**r, "on": me} for r in local]
     for name, body in answers.items():
+        body = body.get("items", []) if isinstance(body, dict) else body  # a member's list (v1: {items, total})
         rows += [{**r, "on": name} for r in body if isinstance(r, dict)] if isinstance(body, list) else []
     rows.sort(key=lambda r: (r.get(key) is not None, r.get(key) or ""), reverse=reverse)
     return rows[:limit] if limit else rows

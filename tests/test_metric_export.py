@@ -84,12 +84,12 @@ def test_api_manages_servers_and_pushes_to_influxdb(client, auth_headers, influx
     path, auth, sent = _Influx.received[-1]
     assert path == "/api/v2/write?org=lab&bucket=hv&precision=s" and auth == "Token s3cret"
     assert sent.startswith("hyperlite,scope=host,target=host cpu_pct=12.5")
-    assert client.get("/metric-servers", headers=admin).json()[0]["last_sent_at"]
+    assert client.get("/metric-servers", headers=admin).json()["items"][0]["last_sent_at"]
 
     _Influx.status = 401
     r = client.post(f"/metric-servers/{server['id']}/test", headers=admin)
     assert r.status_code == 502 and "InfluxDB answered 401" in r.json()["detail"]
-    assert "unauthorized" in client.get("/metric-servers", headers=admin).json()[0]["last_error"]
+    assert "unauthorized" in client.get("/metric-servers", headers=admin).json()["items"][0]["last_error"]
 
     r = client.put(f"/metric-servers/{server['id']}", json=body | {"token": "", "bucket": "hv2"}, headers=admin)
     assert r.status_code == 200 and r.json()["bucket"] == "hv2"
@@ -97,7 +97,7 @@ def test_api_manages_servers_and_pushes_to_influxdb(client, auth_headers, influx
     me.push(ROWS, 1700000000)
     assert _Influx.received[-1][1] == "Token s3cret"  # an empty token on update keeps the stored one
     assert client.delete(f"/metric-servers/{server['id']}", headers=admin).status_code == 200
-    assert client.get("/metric-servers", headers=admin).json() == []
+    assert client.get("/metric-servers", headers=admin).json()["items"] == []
 
 
 def test_graphite_receives_plaintext_and_an_unreachable_server_is_recorded(database):

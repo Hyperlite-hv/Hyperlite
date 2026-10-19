@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core import access_log, audit, cluster_view
 from app.core.audit import log_action
 from app.core.csv_export import csv_lines
+from app.core.listing import listing
 from app.core.security import require_role
 from app.services import audit_service
 
@@ -31,9 +32,9 @@ async def list_audit(
     f = audit_service.filters(action, result, username, resource, since, until)
     rows = await audit_service.query(f, limit)
     if not cluster:
-        return rows
+        return listing(rows)
     answers, missing = await run_in_threadpool(cluster_view.gather, user["username"], "/audit", {**f, "limit": limit})
-    return {"items": cluster_view.merge(rows, answers, "timestamp", limit=limit), "unreachable": missing}
+    return listing(cluster_view.merge(rows, answers, "timestamp", limit=limit), unreachable=missing)
 
 
 @router.get("/count")
@@ -65,12 +66,13 @@ async def list_audit_actions(cluster: bool = False, user: dict = Depends(require
     endpoints are added. cluster: seen on any member."""
     actions = await audit_service.actions()
     if not cluster:
-        return actions
+        return listing(actions)
     answers, _ = await run_in_threadpool(cluster_view.gather, user["username"], "/audit/actions", {})
     seen = set(actions)
     for body in answers.values():
-        seen |= {a for a in body if isinstance(a, str)} if isinstance(body, list) else set()
-    return sorted(seen)
+        names = body.get("items", []) if isinstance(body, dict) else body  # a member's list (v1: {items, total})
+        seen |= {a for a in names if isinstance(a, str)} if isinstance(names, list) else set()
+    return listing(sorted(seen))
 
 
 @router.get("/export.csv")

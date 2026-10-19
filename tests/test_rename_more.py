@@ -338,7 +338,7 @@ def test_an_api_token_is_renamed_by_its_owner_only(client, auth_headers):
     token = client.post("/auth/tokens", json={"name": "ci"}, headers=alice).json()["id"]
     assert client.patch(f"/auth/tokens/{token}", json={"name": "x"}, headers=bob).status_code == 404
     assert client.patch(f"/auth/tokens/{token}", json={"name": "gitlab-ci"}, headers=alice).status_code == 200
-    assert client.get("/auth/tokens", headers=alice).json()[0]["name"] == "gitlab-ci"
+    assert client.get("/auth/tokens", headers=alice).json()["items"][0]["name"] == "gitlab-ci"
 
 
 # ---- Files ----

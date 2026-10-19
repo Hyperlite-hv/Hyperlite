@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from app.core import vm_locks
 from app.core.audit import log_action
 from app.core.backups import refuse_vm_with_block_disks
+from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import require_role, require_vm_privilege
 from app.core.vm_export import EXPORTS_DIR, list_exports, run_export
@@ -36,7 +37,7 @@ DOWNLOAD_TICKET_TTL = 60
 
 @router.get("/vm-exports")
 def list_vm_exports(user: dict = Depends(require_role("admin"))):
-    return list_exports()
+    return listing(list_exports())
 
 
 @router.post("/vms/{name}/export", status_code=202)

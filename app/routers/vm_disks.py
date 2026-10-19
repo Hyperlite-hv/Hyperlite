@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
+from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
@@ -33,7 +34,7 @@ def list_vm_disks(user: dict = Depends(get_current_user)):
     for p in sorted(IMPORTED_DISKS_DIR.iterdir()):
         if p.is_file():
             result.append({"name": p.name, "size_mb": round(p.stat().st_size / (1024 * 1024), 1)})
-    return result
+    return listing(result)
 
 
 @router.post("", status_code=201)

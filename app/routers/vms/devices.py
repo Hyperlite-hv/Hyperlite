@@ -11,6 +11,7 @@ from app.core import checkpoints, disk_move, disk_resize, network_edit, passthro
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import lookup_volume, open_conn, pool_for_path
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
 from app.core.vm_limits import validate_vm_resources
@@ -341,7 +342,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
                 }
             )
         log_action(user["username"], "get_vm_disks", name, "success")
-        return disks
+        return listing(disks)
     finally:
         conn.close()
 
@@ -585,7 +586,7 @@ def get_vm_hostdevs(name: str, user: dict = Depends(require_role("admin"))):
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-        return _hostdev_listing(conn, domain)
+        return listing(_hostdev_listing(conn, domain))
     finally:
         conn.close()
 

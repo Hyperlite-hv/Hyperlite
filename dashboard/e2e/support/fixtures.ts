@@ -1,4 +1,4 @@
-import { expect, test as base, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test as base, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
 
 export const ADMIN = { username: "admin", password: process.env.E2E_ADMIN_PASSWORD ?? "E2e-Quartz-Harbor-2026" };
 export const PREFIX = "e2e-";
@@ -38,6 +38,9 @@ export async function goTo(page: Page, label: string) {
   await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: new RegExp(`^${escaped}( \\d+)?$`) }).click();
 }
 
+/** A list as the API answers it (app/core/listing.py), for a route a test serves itself. */
+export const listing = <T>(items: T[]) => ({ items, total: items.length });
+
 /** The API's own prefix (app/main.py): tests name a route as the API documents it ("/vms"), as the dashboard does. */
 export const API = "/api/v1";
 /** The route a request named, without the API's prefix: what a test compares ("/ldap/test"). */
@@ -50,7 +53,23 @@ function prefixed(request: APIRequestContext): APIRequestContext {
     get(target, key, receiver) {
       const value = Reflect.get(target, key, receiver);
       if (typeof key === "string" && calls.has(key)) {
-        return (url: string, options?: object) => (value as (u: string, o?: object) => unknown).call(target, apiPath(url), options);
+        return async (url: string, options?: object) => {
+          const response = (await (value as (u: string, o?: object) => Promise<APIResponse>).call(target, apiPath(url), options));
+          // A list of the API ({items, total}) is read as its items, as the dashboard reads it (realList).
+          return new Proxy(response, {
+            get(res, k, r) {
+              if (k !== "json") {
+                const v = Reflect.get(res, k, r);
+                return typeof v === "function" ? v.bind(res) : v;
+              }
+              return async () => {
+                const body = await res.json();
+                const keys = body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body).sort().join() : "";
+                return keys === "items,total" ? body.items : body;
+              };
+            },
+          });
+        };
       }
       return typeof value === "function" ? value.bind(target) : value;
     },
