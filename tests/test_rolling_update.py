@@ -225,3 +225,89 @@ def test_the_plan_judges_each_node_against_a_target(monkeypatch):
     monkeypatch.setattr(rolling_update, "node_plan", plan)
     rolling_update.cluster_plan("alice", None)
     assert sorted(seen) == [("local", "pve3"), ("pve2", "pve3"), ("pve3", maintenance.LOCAL)]
+
+
+# ---- The update to 1.0 (docs/design/api-v1.md, "The cluster update") ----
+
+
+def test_crossing_to_1_0_is_told_by_the_versions():
+    assert rolling_update.crosses_1_0({"commit_local": "2026.10.18.2047", "commit_distant": "1:1.0.0"})
+    assert rolling_update.crosses_1_0({"commit_local": "2026.10.18.2047", "commit_distant": "1.0.0"})
+    assert not rolling_update.crosses_1_0({"commit_local": "2026.10.18.2047", "commit_distant": "2026.10.19.0900"})
+    assert not rolling_update.crosses_1_0({"commit_local": "1:1.0.0", "commit_distant": "1:1.0.1"})
+    assert not rolling_update.crosses_1_0({"commit_local": "2026.10.18.2047", "commit_distant": None})
+
+
+class FakeTo1_0:
+    """Nodes on a dated version whose update installs 1.0: once on it, only /health is theirs to answer."""
+
+    def __init__(self, failing=()):
+        self.failing = set(failing)
+        self.calls, self.applied = [], set()
+
+    def api(self, node, username, method, path, body=None, timeout=60):
+        name = node["name"]
+        self.calls.append((name, method, path))
+        on_1_0 = name in self.applied and name not in self.failing
+        if on_1_0:
+            assert path == "/health", f"{name} runs 1.0: {method} {path} is gone there"
+            return 200, {"status": "ok", "hyperlite_version": "1:1.0.0"}
+        if path == "/update/check":
+            return 200, {"verifiable": True, "a_jour": False, "commit_local": "2026.10.18.2047",
+                         "commit_distant": "1:1.0.0", "systeme": {"paquets": 0}}  # fmt: skip
+        if (method, path) == ("POST", "/update/apply"):
+            self.applied.add(name)
+            return 202, {"task_id": f"t-{name}"}
+        if path == "/health":
+            return 200, {"status": "ok", "hyperlite_version": "2026.10.18.2047"}
+        if path.startswith("/tasks/"):
+            return 200, {"statut": "echec", "erreur": "dpkg: the new version did not configure"}
+        raise AssertionError(f"unexpected call {method} {path}")
+
+
+@pytest.fixture()
+def to_1_0(cluster, monkeypatch):
+    def make(**kw):
+        cluster()  # peers, lock, polling as for every run
+        fake = FakeTo1_0(**kw)
+        monkeypatch.setattr(rolling_update, "peer_api", fake.api)
+        monkeypatch.setattr(rolling_update, "_drain", lambda *a: pytest.fail("no node is emptied on the way to 1.0"))
+        return fake
+
+    return make
+
+
+def _run_to_1_0(database, local_tasks):
+    task_id = create_task("cluster_update", "cluster", username="alice")
+
+    def start_local(username):
+        from app.core.tasks import finish_task
+
+        tid = create_task("hyperlite_update", "hyperlite", username=username)
+        finish_task(tid, "termine")
+        local_tasks.append(tid)
+        return tid
+
+    local_check = lambda: ({"verifiable": True, "a_jour": False, "commit_local": "2026.10.18.2047",  # noqa: E731
+                            "commit_distant": "1:1.0.0", "systeme": {}}, "stable")  # fmt: skip
+    rolling_update.run(task_id, "alice", False, start_local, lambda: True, local_check)
+    with database.get_conn() as conn:
+        row = conn.execute("SELECT statut, erreur FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return row["statut"], row["erreur"]
+
+
+def test_to_1_0_every_node_is_updated_in_place_and_then_only_its_health_is_asked(to_1_0, database):
+    fake = to_1_0()
+    local = []
+    assert _run_to_1_0(database, local) == ("termine", None)
+    assert fake.applied == {"pve2", "pve3"} and len(local) == 1  # this node last
+    for name in ("pve2", "pve3"):
+        after = fake.calls[[c[:3] for c in fake.calls].index((name, "POST", "/update/apply")) + 1 :]
+        assert all(path == "/health" for n, _, path in after if n == name)
+    assert not maintenance.get("pve2") and not maintenance.get(maintenance.LOCAL)  # nobody in maintenance
+
+
+def test_to_1_0_a_node_whose_update_fails_stops_the_run_with_why(to_1_0, database):
+    to_1_0(failing={"pve2"})
+    status, error = _run_to_1_0(database, [])
+    assert status == "echec" and "pve2: the update failed: dpkg: the new version did not configure" in error
