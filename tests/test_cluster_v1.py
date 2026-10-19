@@ -74,6 +74,25 @@ def test_the_leader_rewrites_the_old_rows_once_every_member_runs_1_0(fake, membe
     assert cluster_v1.step() is True  # done once for the cluster
 
 
+def test_the_cluster_configuration_is_rewritten_too(fake, members):
+    from app.core import cluster_setup
+
+    members["statuses"] = {"pve-b": status(1)}
+    fake.put(
+        cluster_setup.CONF_PATH,
+        json.dumps(
+            {
+                "cluster": "labo",
+                "version": 5,
+                "membres": [{"nom": "pve-a", "nodeid": 1, "adresse": "10.0.0.1", "voix": 1}],
+            }
+        ).encode(),
+    )
+    cluster_v1.step()
+    conf = json.loads(fake.files[cluster_setup.CONF_PATH])
+    assert conf["members"] == [{"name": "pve-a", "nodeid": 1, "address": "10.0.0.1", "votes": 1}]
+
+
 def test_a_change_made_after_the_rewrite_goes_out(fake, members):
     members["statuses"] = {"pve-b": status(1)}
     fake.remote("/db/backup_jobs/3", {"id": 3, "vm_name": "web", "frequence": "quotidien", "heure": "02:00",

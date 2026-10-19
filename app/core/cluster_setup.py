@@ -185,6 +185,9 @@ def render(conf):
 
 def _check_conf(conf):
     """A configuration from the tree or from another node, checked before anything is written from it."""
+    from app.core import schema_v1
+
+    conf = schema_v1.cluster_conf(conf)  # written by a version before 1.0: its names were French
     try:
         checked = {"cluster": _cluster_name(conf["cluster"]), "version": int(conf["version"]), "members": []}
         for m in conf["members"]:

@@ -95,6 +95,19 @@ def rewrite():
                 done += 1
             except (Conflict, NotFound):
                 logger.info("%s changed meanwhile: rewritten at the next round", path)
+    from app.core import cluster_setup
+
+    try:
+        entry = client.get(cluster_setup.CONF_PATH)
+        conf = json.loads(entry.data)
+        new = schema_v1.cluster_conf(conf)
+        if new != conf:
+            client.put(cluster_setup.CONF_PATH, json.dumps(new).encode(), entry.version)
+            done += 1
+    except NotFound:
+        pass  # not a cluster (yet)
+    except Conflict:
+        logger.info("The cluster's configuration changed meanwhile: rewritten at the next round")
     if moved:
         # Only the names changed: a node that held a row at its version before holds it at its version after, and its
         # next change of it starts from there (never taken for another node's change, shadow._write_checked).
