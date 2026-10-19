@@ -389,7 +389,7 @@ export async function fetchAllBackups() {
   return realFetch("/backups?cluster=true");
 }
 export async function fetchVMBackups(name, node) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`);
+  return realList(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`);
 }
 export async function createBackup(name, targetDir = null, node) {
   return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
@@ -628,7 +628,7 @@ export async function fetchTaskDetail(id, on) {
 }
 // A task's own log, and asking it to stop (force: close the record of one that cannot stop, administrator only).
 export async function fetchTaskLog(id, on) {
-  return realFetch(`/tasks/${encodeURIComponent(id)}/log${onNode(on)}`);
+  return realList(`/tasks/${encodeURIComponent(id)}/log${onNode(on)}`);
 }
 export async function cancelTask(id, force = false, on) {
   const query = [force ? "force=true" : "", on ? `on=${encodeURIComponent(on)}` : ""].filter(Boolean).join("&");
@@ -883,7 +883,7 @@ export async function renameVM(name, newName, node = null) {
 // ---- Notes and tags of VMs, containers and nodes (GET /meta, GET/PUT /meta/{kind}/{name}); a VM's node travels
 // with the call, a node is identified by its own name.
 export async function fetchMetaList(kind = null) {
-  return realFetch(`/meta${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`);
+  return realList(`/meta${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`);
 }
 export async function fetchMeta(kind, name, node = null) {
   const q = node && node !== "local" && kind === "vm" ? `?node=${encodeURIComponent(node)}` : "";
@@ -1012,7 +1012,7 @@ export async function fetchProvisioningStatus(name) {
 }
 const nodeQs = (node) => (node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "");
 export async function fetchVMDisks(name, node = null) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/disks${nodeQs(node)}`);
+  return realList(`/vms/${encodeURIComponent(name)}/disks${nodeQs(node)}`);
 }
 export async function attachDisk(name, volumeName, targetDev, pool = "default") {
   return realFetch(`/vms/${encodeURIComponent(name)}/disks`, { method: "POST", ...jsonBody({ volume_name: volumeName, pool, target_dev: targetDev }) });
