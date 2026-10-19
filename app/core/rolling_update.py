@@ -143,6 +143,19 @@ def peers():
 # ---- The plan, shown before starting ----
 
 
+def _major(version):
+    """The major number of a version: 1 for "1.0.0" or "1:1.0.0" (the package's epoch), 0 for the dated ones."""
+    head = str(version or "").split(":")[-1].split(".")[0]
+    return int(head) if head.isdigit() and int(head) < 1000 else 0
+
+
+def crosses_1_0(check):
+    """True when a node's update goes from a dated version to 1.0 or later. API v1 renames the API and the replicated
+    configuration (docs/design/api-v1.md, "The cluster update"): the cluster is then updated whole, each node once and
+    its VMs left where they run, never moved to or from a node already on 1.0, which this version cannot talk to."""
+    return _major(check.get("commit_local")) < 1 <= _major(check.get("commit_distant"))
+
+
 def _needs_update(check):
     """True when a node's /update/check says its update would change something."""
     sys_ = check.get("systeme") or {}
@@ -185,6 +198,10 @@ def node_plan(node, username, local_check=None, target=None):
         }
     )
     out["a_faire"] = bool(out["verifiable"] and _needs_update(check))
+    out["vers_1_0"] = crosses_1_0(check)
+    if out["vers_1_0"]:
+        out["vms_a_migrer"], out["vms_bloquees"] = [], []  # updated in place: its VMs keep running there
+        return out
     try:
         from app.core.libvirt_utils import open_conn
 
@@ -236,7 +253,13 @@ def cluster_plan(username, local_check):
             f"{n['nom']} {n.get('canal')}" for n in nodes))  # fmt: skip
     if len(nodes) < 2:
         problems.append("This node is not in a cluster with other nodes")
-    return {"noeuds": nodes, "problemes": problems, "a_faire": any(n.get("a_faire") for n in nodes)}
+    return {
+        "noeuds": nodes,
+        "problemes": problems,
+        "a_faire": any(n.get("a_faire") for n in nodes),
+        # To 1.0: no maintenance and no migration; the cluster changes nothing until every node runs 1.0.
+        "vers_1_0": any(n.get("vers_1_0") for n in nodes),
+    }
 
 
 # ---- The run ----
@@ -323,6 +346,9 @@ def _update_peer(task_id, username, node, target, stop_blocked):
     if not _needs_update(check):
         task_log(task_id, f"{name}: up to date, left as it is")
         return False
+    if crosses_1_0(check):
+        _update_peer_to_1_0(task_id, username, node, check)
+        return True
     plan = _drain(task_id, username, name, target)
 
     status, body = peer_api(node, username, "POST", "/update/apply", {"systeme": True})
@@ -365,6 +391,40 @@ def _update_peer(task_id, username, node, target, stop_blocked):
     maintenance.leave(name)
     task_log(task_id, f"{name}: done, out of maintenance")
     return True
+
+
+def _update_peer_to_1_0(task_id, username, node, check):
+    """A node's update to 1.0, in place: no maintenance and no migration (its VMs keep running), and once it runs 1.0
+    it is only watched through /health, which both versions answer: its API moved to /api/v1 and speaks other names.
+    A reboot its Debian packages need is left to Node > Updates."""
+    name = node["name"]
+    before, wanted = check.get("commit_local"), check.get("commit_distant")
+    task_log(task_id, f"{name}: to Hyperlite {wanted} in place, its VMs keep running (no maintenance, no migration)")
+    status, body = peer_api(node, username, "POST", "/update/apply", {"systeme": True})
+    if status != 202:
+        raise RollingError(f"{name}: the update did not start ({_detail(body)})")
+    remote_task = body["task_id"]
+
+    def done():
+        try:
+            s, health = peer_api(node, username, "GET", "/health")
+        except PeerUnreachable:
+            return None  # restarting
+        running = health.get("hyperlite_version") if s == 200 and isinstance(health, dict) else None
+        if running and running != before:
+            return ("updated", running)
+        try:  # still the old version: its task says whether the update failed
+            s, task = peer_api(node, username, "GET", f"/tasks/{remote_task}")
+        except PeerUnreachable:
+            return None
+        if s == 200 and task.get("statut") == "echec":
+            return ("failed", task.get("erreur"))
+        return None
+
+    outcome, detail = _wait(f"{name}: the update to {wanted}", done, UPDATE_TIMEOUT_S)
+    if outcome == "failed":
+        raise RollingError(f"{name}: the update failed: {detail}")
+    task_log(task_id, f"{name}: Hyperlite {detail}")
 
 
 def _reboot_peer(task_id, username, node):
@@ -424,7 +484,8 @@ def run(task_id, username, stop_blocked, start_local_update, restarts_after_upda
             if local_check is not None and not _needs_update(local_check()[0]):
                 task_log(task_id, f"{name}: up to date, left as it is")
             else:
-                _drain(task_id, username, maintenance.LOCAL, ready[-1] if ready else None)
+                if local_check is None or not crosses_1_0(local_check()[0]):
+                    _drain(task_id, username, maintenance.LOCAL, ready[-1] if ready else None)
                 _settings().set_app_setting(SELF_PENDING, json.dumps({"task": task_id, "user": username}))
                 local_task = start_local_update(username)
                 task_log(task_id, f"{name}: updating (task {local_task}); it leaves maintenance once it runs again")
