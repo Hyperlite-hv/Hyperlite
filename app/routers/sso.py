@@ -225,7 +225,9 @@ def sso_exchange(request: Request):
     username = sso.consume_handoff(request.cookies.get(HANDOFF_COOKIE))
     user = get_user(username) if username else None
     if user is None:
-        response = JSONResponse(status_code=401, content={"detail": "SSO sign-in expired, try again"})
+        response = JSONResponse(
+            status_code=401, content={"detail": "SSO sign-in expired, try again", "code": "unauthorized"}
+        )
         response.delete_cookie(HANDOFF_COOKIE, path=HANDOFF_PATH)
         return response
     methods = [m for m, on in (("totp", user["totp_enabled"]), ("webauthn", webauthn_keys.has_keys(username))) if on]

@@ -193,6 +193,24 @@ VALUES = {
     ("k8s_clusters", "status"): {"creation": "creating", "pret": "ready", "echec": "failed", "suppression": "deleting"},
 }
 
+# The cluster's configuration in the replicated tree (app/core/cluster_setup.py, /cluster/corosync.json), as a
+# version before 1.0 wrote it: read with the new names (cluster_conf), rewritten once every member runs 1.0.
+CLUSTER_CONF_MEMBERS = "membres"
+CLUSTER_CONF_MEMBER = {"nom": "name", "adresse": "address", "voix": "votes"}
+
+
+def cluster_conf(conf):
+    """The cluster's configuration with the names of this version, whatever version wrote it."""
+    if not isinstance(conf, dict) or CLUSTER_CONF_MEMBERS not in conf:
+        return conf
+    out = {k: v for k, v in conf.items() if k != CLUSTER_CONF_MEMBERS}
+    out["members"] = [
+        {CLUSTER_CONF_MEMBER.get(k, k): v for k, v in m.items()} if isinstance(m, dict) else m
+        for m in conf[CLUSTER_CONF_MEMBERS]
+    ]
+    return out
+
+
 # A copy of the configuration made before API v1 (app/core/config_copy.py): its metadata and key file.
 CONFIG_COPY_META = {"controleur": "controller", "cree_le": "created_at", "empreinte": "fingerprint"}
 CONFIG_COPY_KEYS = "cles.env"
