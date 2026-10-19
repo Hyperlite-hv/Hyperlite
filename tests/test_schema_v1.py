@@ -181,3 +181,17 @@ def test_a_configuration_copy_made_before_the_renames_is_read_with_the_new_names
     meta, extracted = config_copy.read_bundle(bundle)
     assert meta == {"version": 1, "controller": "pve-a", "created_at": "t", "fingerprint": "e"}
     assert (extracted / "keys.env").read_text() == "HYPERLITE_SECRET_KEY=s\n"
+
+
+def test_the_cluster_configuration_written_before_reads_with_the_new_names():
+    from app.core import cluster_setup
+
+    old = {"cluster": "labo", "version": 5, "membres": [
+        {"nom": "hlc1", "nodeid": 1, "adresse": "10.10.0.11", "voix": 1},
+        {"nom": "hlc2", "nodeid": 2, "adresse": "10.10.0.12", "voix": 2},
+    ]}  # fmt: skip
+    conf = cluster_setup._check_conf(old)  # lab, 2026-10-19: "The cluster's configuration is not valid"
+    assert [(m["name"], m["address"], m["votes"]) for m in conf["members"]] == [
+        ("hlc1", "10.10.0.11", 1),
+        ("hlc2", "10.10.0.12", 2),
+    ]

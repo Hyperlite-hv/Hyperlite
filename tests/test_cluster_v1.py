@@ -74,6 +74,25 @@ def test_the_leader_rewrites_the_old_rows_once_every_member_runs_1_0(fake, membe
     assert cluster_v1.step() is True  # done once for the cluster
 
 
+def test_the_cluster_configuration_is_rewritten_too(fake, members):
+    from app.core import cluster_setup
+
+    members["statuses"] = {"pve-b": status(1)}
+    fake.put(
+        cluster_setup.CONF_PATH,
+        json.dumps(
+            {
+                "cluster": "labo",
+                "version": 5,
+                "membres": [{"nom": "pve-a", "nodeid": 1, "adresse": "10.0.0.1", "voix": 1}],
+            }
+        ).encode(),
+    )
+    cluster_v1.step()
+    conf = json.loads(fake.files[cluster_setup.CONF_PATH])
+    assert conf["members"] == [{"name": "pve-a", "nodeid": 1, "address": "10.0.0.1", "votes": 1}]
+
+
 def test_a_change_made_after_the_rewrite_goes_out(fake, members):
     members["statuses"] = {"pve-b": status(1)}
     fake.remote("/db/backup_jobs/3", {"id": 3, "vm_name": "web", "frequence": "quotidien", "heure": "02:00",
@@ -86,3 +105,25 @@ def test_a_change_made_after_the_rewrite_goes_out(fake, members):
         db.commit()
     assert shadow.drain() == 1 and shadow.report()["conflicts"] == 0  # not taken for another node's change
     assert json.loads(fake.files["/db/backup_jobs/3"])["time"] == "03:00"
+
+
+def test_an_unreadable_member_list_never_reads_as_nobody_behind(fake, members, monkeypatch):
+    """Lab drill, 2026-10-19: the member list (written by the others in the old names) could not be read, every member
+    then counted as on 1.0, and the tree was rewritten under two nodes still on the old version."""
+
+    def unreadable():
+        raise ValueError("The cluster's configuration is not valid")
+
+    monkeypatch.setattr(cluster_view, "members", unreadable)
+    members["statuses"] = {"pve-b": status(0)}
+    assert cluster_v1.behind() == ["pve-b"]
+
+
+def test_this_nodes_changes_wait_while_a_member_is_behind(fake, members):
+    members["statuses"] = {"pve-b": status(0)}
+    with get_conn() as db:
+        db.execute("INSERT INTO groups (name) VALUES ('ops')")
+        db.commit()
+    assert shadow.drain() == 0 and shadow.pending() == 1  # nothing in the new names reaches pve-b
+    members["statuses"]["pve-b"] = status(1)
+    assert shadow.drain() == 1 and shadow.pending() == 0

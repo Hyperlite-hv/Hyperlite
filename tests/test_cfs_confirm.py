@@ -129,7 +129,7 @@ def test_a_single_node_answers_without_waiting(client, admin, fake):
 def test_a_refused_request_waits_for_nothing(client, admin, fake):
     client.post("/groups", json={"name": "dev"}, headers=admin)
     r = client.patch("/groups/7", json={"name": "dev"}, headers=admin)  # the name is taken
-    assert r.status_code == 409 and "code" not in r.json()
+    assert r.status_code == 409 and r.json()["code"] == "conflict"  # the handler's own, never changed_elsewhere
 
 
 def test_only_the_requests_own_entries_are_noted(fake):
