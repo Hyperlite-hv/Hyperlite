@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { ADMIN, apiLogin, expect, PREFIX, test } from "../support/fixtures";
+import { ADMIN, apiLogin, expect, PREFIX, test, apiRoute } from "../support/fixtures";
 
 // Automation against the real backend (a harmless `echo` on the host) and Templates with a stand-in
 // /templates API (the throwaway host has no template).
@@ -74,7 +74,7 @@ test("templates: deploy asks for a valid, unused name; deletion is confirmed", a
     const ok = (b: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
     if (req.method() === "GET") return ok(tpls);
     if (req.method() === "POST") { deployed.push(req.postDataJSON()); return ok({ ok: true }); }
-    if (req.method() === "DELETE") { deleted.push(decodeURIComponent(new URL(req.url()).pathname.split("/").pop()!)); tpls.length = 0; return ok({ ok: true }); }
+    if (req.method() === "DELETE") { deleted.push(decodeURIComponent(apiRoute(req.url()).split("/").pop()!)); tpls.length = 0; return ok({ ok: true }); }
     return route.fallback();
   });
   await open(page, "templates");

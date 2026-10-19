@@ -258,7 +258,11 @@ def replicate(vm_name, target_dir, username="scheduler"):
             result = _replicate(vm_name, target_dir)
         except Exception as e:
             message = str(e) or type(e).__name__
-            _store().save_state(vm_name, status="failed", error=message[:500], updated_at=_now().isoformat())
+            # The first copy of a VM has no state yet: its target is recorded with the failure (a NOT NULL column), or
+            # the database error hid the reason the copy failed.
+            _store().save_state(
+                vm_name, target_dir=target_dir, status="failed", error=message[:500], updated_at=_now().isoformat()
+            )
             raise
     return result
 

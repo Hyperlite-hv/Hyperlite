@@ -27,7 +27,8 @@ function swaggerAssets() {
 // false" disables trust-chain verification for this internal dev proxy only,
 // without which Vite would reject the self-signed certificate.
 const BACKEND = "http://127.0.0.1:8001";
-const proxied = ["/auth", "/dashboard", "/vms", "/storage", "/networks", "/templates", "/isos", "/audit", "/health", "/host", "/nodes", "/tasks", "/containers", "/backups", "/jobs", "/pools", "/groups", "/acl", "/ha", "/notifications", "/update", "/vm-disks", "/vm-exports", "/api-docs", "/docs", "/openapi.json", "/swagger"];
+// The API under /api/v1, and what the backend serves at the root (app/main.py).
+const proxied = ["/api", "/auth/sso", "/downloads", "/health", "/docs", "/openapi.json", "/swagger"];
 
 export default defineConfig({
   plugins: [react(), swaggerAssets()],

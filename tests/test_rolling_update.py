@@ -165,7 +165,7 @@ def test_the_token_goes_through_ssh_input_never_the_command_line(monkeypatch):
     status, body = rolling_update.peer_api(NODES[0], "alice", "POST", "/update/apply", {"system": True})
     assert (status, body) == (202, {"task_id": "t1"})
     request = json.loads(seen["input"])
-    assert request["url"] == "https://127.0.0.1:8000/update/apply" and request["body"] == {"system": True}
+    assert request["url"] == "https://127.0.0.1:8000/api/v1/update/apply" and request["body"] == {"system": True}
     assert request["token"] and request["token"] not in " ".join(seen["argv"])
     # ssh joins its arguments into one command line for the remote shell: the script must survive that splitting.
     import shlex

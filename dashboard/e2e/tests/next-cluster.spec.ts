@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test, ADMIN } from "../support/fixtures";
+import { expect, test, ADMIN, apiRoute } from "../support/fixtures";
 
 // Nodes, High availability and Compatibility pages. The throwaway host has no second machine, so the
 // remote-node and HA endpoints are replaced by stateful stand-ins where a peer is needed.
@@ -21,7 +21,7 @@ test("Nodes: this host is listed and opens its page, add form sends the SSH port
   let added: unknown = null; const removed: string[] = [];
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request(); if (req.resourceType() === "document") return route.fallback();
-    const path = new URL(req.url()).pathname;
+    const path = apiRoute(req.url());
     if (req.method() === "GET" && /\/nodes$/.test(path) && added === "list") return json(route, remote);
     if (req.method() === "POST" && /\/nodes$/.test(path)) { added = req.postDataJSON(); return json(route, { detail: "SSH connection refused" }, 400); }
     if (req.method() === "GET" && /\/summary$/.test(path)) return json(route, { vms_running: 3, vms_stopped: 1, storage_capacity_gb: 500, storage_available_gb: 120 });

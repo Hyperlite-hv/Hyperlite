@@ -1,6 +1,7 @@
 // Single entry point for all the application's data. Everything comes from the
 // real Hyperlite backend (the same paths as the real FastAPI routes, see
 // vite.config.js for the dev proxy).
+import { apiPath } from "./prefix";
 
 import { normalizeDetail } from "../next/lib/errors";
 
@@ -39,7 +40,7 @@ async function realFetch(path, opts = {}) {
   const timer = controller ? setTimeout(() => controller.abort(), READ_TIMEOUT_MS) : null;
   let res;
   try {
-    res = await fetch(path, { ...opts, headers, ...(controller ? { signal: controller.signal } : {}) });
+    res = await fetch(apiPath(path), { ...opts, headers, ...(controller ? { signal: controller.signal } : {}) });
   } catch (e) {
     if (controller?.signal.aborted) throw new Error(`The server did not answer within ${READ_TIMEOUT_MS / 1000} s.`);
     if (e?.name === "AbortError") throw e;
@@ -459,7 +460,7 @@ export async function deleteK8sCluster(name) {
 }
 // The kubeconfig is YAML, not JSON: read it as text, with the same authentication as realFetch.
 export async function fetchKubeconfig(name) {
-  const res = await fetch(`/kubernetes/clusters/${encodeURIComponent(name)}/kubeconfig`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(apiPath(`/kubernetes/clusters/${encodeURIComponent(name)}/kubeconfig`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) {
     let detail = null;
     try { detail = (await res.json()).detail; } catch { /* not JSON: keep the generic message */ }
@@ -490,7 +491,7 @@ export async function deleteVmExport(filename) {
 }
 export async function downloadVmExport(filename) {
   const { ticket } = await realFetch(`/vm-exports/${encodeURIComponent(filename)}/download-ticket`, { method: "POST" });
-  window.open(`/vm-exports/download?ticket=${encodeURIComponent(ticket)}`, "_blank");
+  window.open(apiPath(`/vm-exports/download?ticket=${encodeURIComponent(ticket)}`), "_blank");
 }
 
 // ---- Audit journal (real: the audit_log table, fed by every action) ----
@@ -504,7 +505,7 @@ async function downloadCsv(path, filters, fallbackName) {
   const qs = params.toString();
   let res;
   try {
-    res = await fetch(`${path}${qs ? `?${qs}` : ""}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    res = await fetch(apiPath(`${path}${qs ? `?${qs}` : ""}`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   } catch {
     throw new Error("Cannot reach the server. Check your network connection and try again.");
   }
@@ -643,7 +644,7 @@ export function uploadUpdateFile(file, lang, onProgress) {
     const fd = new FormData();
     fd.append("file", file);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/update/offline?lang=${encodeURIComponent(lang)}`);
+    xhr.open("POST", apiPath(`/update/offline?lang=${encodeURIComponent(lang)}`));
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.addEventListener("progress", (ev) => { if (ev.lengthComputable) onProgress?.(Math.round((ev.loaded / ev.total) * 100)); });
     xhr.addEventListener("load", () => {
@@ -1298,30 +1299,30 @@ export async function seedCfsShadow() {
   return realFetch("/cfs/shadow/seed", { method: "POST" });
 }
 export async function turnCfsShadowOn() {
-  return realFetch("/cfs/shadow/activer", { method: "POST" });
+  return realFetch("/cfs/shadow/enable", { method: "POST" });
 }
 export async function turnCfsShadowOff() {
-  return realFetch("/cfs/shadow/desactiver", { method: "POST" });
+  return realFetch("/cfs/shadow/disable", { method: "POST" });
 }
 // The cluster (admin, app/core/cluster_setup.py): create one, let a node in, join one, remove a member.
 export async function fetchCluster() {
   return realFetch("/cluster");
 }
 export async function createCluster({ name, address }) {
-  return realFetch("/cluster/creer", { method: "POST", ...jsonBody({ name: name.trim(), address: address.trim() }) });
+  return realFetch("/cluster/create", { method: "POST", ...jsonBody({ name: name.trim(), address: address.trim() }) });
 }
 export async function clusterJoinInformation() {
   return realFetch("/cluster/adhesion", { method: "POST" });
 }
 export async function joinCluster({ information, address, confirmation }) {
-  return realFetch("/cluster/rejoindre", { method: "POST", ...jsonBody({ information: information.trim(), address: address.trim(), confirmation: confirmation.trim() }) });
+  return realFetch("/cluster/join", { method: "POST", ...jsonBody({ information: information.trim(), address: address.trim(), confirmation: confirmation.trim() }) });
 }
 // The primary node counts twice in the quorum (null: one vote each).
 export async function setClusterPrimary(name) {
   return realFetch("/cluster/principal", { method: "POST", ...jsonBody({ name: name }) });
 }
 export async function removeClusterMember(name) {
-  return realFetch(`/cluster/members/${encodeURIComponent(name)}/retirer`, { method: "POST", ...jsonBody({ confirmation: name }) });
+  return realFetch(`/cluster/members/${encodeURIComponent(name)}/remove`, { method: "POST", ...jsonBody({ confirmation: name }) });
 }
 // Rolling update of the cluster (app/core/rolling_update.py).
 export async function fetchClusterUpdatePlan() {

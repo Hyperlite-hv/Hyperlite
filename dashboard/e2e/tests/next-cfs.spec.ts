@@ -87,8 +87,8 @@ test("the button turns shadow mode on, and off after a confirmation", async ({ p
   await page.route(/\/cfs\/shadow$/, (route) => route.fulfill({ json: on ? { ...report(0), force: false, installed: true }
     : { active: false, force: false, installed: true, socket: "/run/hyperlite-cfs/socket", copies: 0, failures: 0,
         last_error: null, last_error_at: null, reachable: false, error: "hyperlite-cfs is not running: nothing answers on its socket" } }));
-  await page.route(/\/cfs\/shadow\/activer$/, (route) => { calls.push("on"); on = true; return route.fulfill({ json: { written: 3, deleted: 0 } }); });
-  await page.route(/\/cfs\/shadow\/desactiver$/, (route) => { calls.push("off"); on = false; return route.fulfill({ json: { active: false } }); });
+  await page.route(/\/cfs\/shadow\/enable$/, (route) => { calls.push("on"); on = true; return route.fulfill({ json: { written: 3, deleted: 0 } }); });
+  await page.route(/\/cfs\/shadow\/disable$/, (route) => { calls.push("off"); on = false; return route.fulfill({ json: { active: false } }); });
   await uiLogin(page);
   await goTo(page, "Cluster");
   const main = page.getByRole("main");

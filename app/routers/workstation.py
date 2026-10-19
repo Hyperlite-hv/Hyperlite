@@ -14,6 +14,8 @@ from app.core.audit import log_action
 from app.core.security import get_current_user, oauth2_scheme
 
 router = APIRouter(tags=["workstation"])
+# The client's download, opened by a browser or a deployment tool at a stable address: outside /api/v1.
+pages = APIRouter(tags=["workstation"])
 
 # Built by installer/build-cli.sh and shipped in the package next to the dashboard.
 CLI_DIST = Path(__file__).resolve().parent.parent.parent / "cli" / "dist"
@@ -67,7 +69,7 @@ def workstation_config(user: dict = Depends(get_current_user)):
     }
 
 
-@router.get("/downloads/hyperlite/{platform}", include_in_schema=False)
+@pages.get("/downloads/hyperlite/{platform}", include_in_schema=False)
 def download_client(platform: str):
     """Public on purpose, like any installer: the binary holds no secret, and a
     workstation without a session must be able to fetch it (or a deployment tool)."""

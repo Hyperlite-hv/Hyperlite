@@ -227,7 +227,10 @@ class Http:
     def __init__(self, base):
         import httpx
 
-        self.c = httpx.Client(base_url=base, timeout=600, limits=httpx.Limits(max_connections=64))
+        # The API's prefix (app/main.py): a measure names a route as the API documents it.
+        self.c = httpx.Client(
+            base_url=base.rstrip("/") + "/api/v1/", timeout=600, limits=httpx.Limits(max_connections=64)
+        )
 
     def get(self, path, headers=None):
         return self.c.get(path, headers=headers)

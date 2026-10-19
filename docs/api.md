@@ -1,20 +1,36 @@
 # API conventions
 
-The HTTP API is what the dashboard uses; an interactive OpenAPI description (`/docs`, `/redoc`, `/openapi.json`) is served by the running service when `HYPERLITE_API_DOCS=1` is set (off by default: it answers without authentication). `GET /health` answers everyone with `{"status", "environment"}`; the host name and software versions are only reported to a signed-in caller. Requests are authenticated with `Authorization: Bearer <token>`, where the token is a session JWT (from `POST /auth/login`, or the two-step `POST /auth/login/2fa`) or a personal API token (`hlt_...`).
+The HTTP API is what the dashboard and `hyperlite-cli` use. Every route is under **`/api/v1`**: version 1 of the
+contract, since Hyperlite 1.0. Requests are authenticated with `Authorization: Bearer <token>`, where the token is a
+session JWT (from `POST /api/v1/auth/login`, or the two-step `POST /api/v1/auth/login/2fa`) or a personal API token
+(`hlt_...`). An interactive OpenAPI description (`/docs`, `/openapi.json`) is opened from **Administration › API** by
+the accounts an administrator chose.
 
-## French wire format
+What a browser opens rather than calls stays at the root: `GET /health` (answers everyone with `{"status",
+"environment"}`; the host name and software versions only to a signed-in caller), the SSO sign-in
+`/auth/sso/login` and the callback an identity provider is given (`/auth/sso/callback`), the client download
+`/downloads/hyperlite/{platform}`, and the documentation pages.
 
-For historical reasons the API and the database use French identifiers and values. They are a compatibility contract with the dashboard and with existing installations, so they are **not** renamed in the English code base; only messages, labels and comments are English. Examples:
+Before 1.0 the API had no prefix. Those addresses now answer **410 Gone** with `{"detail": ..., "code": "api_gone"}`
+naming the new address (for an old `hyperlite-cli`, asking to update it), never the dashboard page.
 
-| Kind | Examples |
+## Names
+
+English everywhere (the glossary of the 1.0 renames is `docs/design/api-v1/glossary.md`). Keys are `snake_case`;
+times end in `_at` (ISO 8601, UTC), durations in `_s`, sizes in `_bytes`, `_mb` or `_gb`. Values are lowercase English
+words:
+
+| Kind | Values |
 |---|---|
-| Field names | `name` (name), `state` (state), `memory_mb` (memory in MB), `stockage_total_go`, `created_at`, `status`, `target` |
-| VM states | `active`, `stopped`, `suspended`, `crashed` |
-| Task and backup status | `running`, `succeeded`, `failed`, `success` |
+| VM states | `active`, `stopped`, `paused`, `suspended`, `crashed`, `shutting_down`, `unknown` |
+| Task and backup states | `pending`, `running`, `succeeded`, `failed` |
+| Audit results | `success`, `failed` |
+| Node states | `online`, `offline`, `unknown` |
 | Global roles | `admin`, `viewer` |
 | Backup frequency and mode | `daily`, `weekly`, `monthly`; `live`, `cold` |
 
-The dashboard translates these values for display (`dashboard/src/lib/labels.js`, `StatusBadge`). A future API version could introduce English identifiers; until then, treat the French values as stable.
+Inside v1 a change is only ever an addition (a route, an optional field, a documented new value); anything else waits
+for a v2, served next to v1.
 
 ## Errors
 
@@ -22,7 +38,7 @@ Errors are returned as JSON `{"detail": "..."}` with an appropriate HTTP status.
 
 ## Long operations
 
-Operations that can take time (creation, snapshots, backups, migration, updates) return a task id; poll `GET /tasks/{id}` for progress. `GET /tasks/{id}/log` returns the task's own log, line by line. `POST /tasks/{id}/cancel` asks a running task to stop (`{"resultat": "requested"}`), or closes one that no process runs any more (`"abandoned"`); a task that cannot stop midway answers 409, and an administrator may close its record anyway with `?force=true`. In the task list, `clean_shutdown`, `orphaned` and `cancellable` say which applies; `GET /tasks?objet=<name>&famille=vm|container` is one object's history.
+Operations that can take time (creation, snapshots, backups, migration, updates) return a task id; poll `GET /tasks/{id}` for progress. `GET /tasks/{id}/log` returns the task's own log, line by line. `POST /tasks/{id}/cancel` asks a running task to stop (`{"result": "requested"}`), or closes one that no process runs any more (`"abandoned"`); a task that cannot stop midway answers 409, and an administrator may close its record anyway with `?force=true`. In the task list, `clean_shutdown`, `orphaned` and `cancellable` say which applies; `GET /tasks?object=<name>&family=vm|container` is one object's history.
 
 ## Permissions
 
@@ -51,10 +67,10 @@ Each endpoint requires a global role or a scoped privilege (for example `vm.hard
 | `GET`/`PUT /ldap/config`, `POST /ldap/test` | LDAP / Active Directory sign-in (admin): `url`, `starttls`, `verify_tls`, `ca_cert`, `bind_dn`, write-only `bind_password`, `base_dn`, `user_filter` (with `{username}`), `group_attribute`, `admin_groups`, `allowed_groups`, `enabled`. The test binds with the service account and, given `username` and `password`, says whether they are accepted and with which role. Directory accounts sign in through `POST /auth/login` (`auth_source`: `ldap`). |
 | `POST /host/system/power` | Reboot or power off this node (admin): `action` (`reboot`, `poweroff`), `confirmation` (the host name), `stop_guests` (shut running VMs and containers down first; without it they are a 409). Runs as a task; the node goes down only when every guest stopped. |
 | `GET`/`PUT /host/system/dns`, `/time` (+ `GET /time/zones`), `/syslog` | DNS servers and search domains (`managed_by`, `modifiable`), time zone, NTP and NTP servers, remote syslog (`host`, `port`, `protocol`). Admin. |
-| `PATCH /networks/{name}` | A NAT or isolated network's `mode` (`nat`, `isolated`), `address` (gateway), `netmask` and `dhcp` (`{debut, fin}` or `null`). A DHCP range change is live; the rest waits for the network's restart (`needs_restart`). `GET /networks/{name}` returns `ipam` and `needs_restart`. |
+| `PATCH /networks/{name}` | A NAT or isolated network's `mode` (`nat`, `isolated`), `address` (gateway), `netmask` and `dhcp` (`{start, end}` or `null`). A DHCP range change is live; the rest waits for the network's restart (`needs_restart`). `GET /networks/{name}` returns `ipam` and `needs_restart`. |
 | `POST /networks/{name}/reservations`, `DELETE /networks/{name}/reservations/{mac}` | DHCP reservations: `mac`, `ip`, optional `name`; applied live and in the network's definition. |
 | `GET /meta?kind=`, `GET`/`PUT /meta/{vm,container,node}/{name}?node=` | Notes (plain text) and tags of an object. The listing gives tags and `has_notes`, not the notes. |
-| `GET /cfs/shadow`, `POST /cfs/shadow/seed`, `POST /cfs/shadow/activer`, `POST /cfs/shadow/desactiver` | Shadow mode of `hyperlite-cfs` (admin): `active`, `force` (set by `HYPERLITE_CFS_SHADOW=1`), `installed` (the daemon is on this node), `reachable`, `copies`, `failures`, `last_error`, `daemon` (`mode`, `quorum`, `version`, `entries`), per domain `entries`, `missing`, `extra`, `different` and `examples`, and the total `differences`. The seed makes the daemon hold what SQLite holds (`written`, `deleted`); 409 while shadow mode is off, 503 when the daemon does not answer. `activer` starts `hyperlite-cfs.service`, turns shadow mode on and seeds (503 with the reason when it cannot); `desactiver` turns it off and stops the service (409 while `HYPERLITE_CFS_SHADOW=1` forces it). |
-| `GET /cluster`, `POST /cluster/creer`, `POST /cluster/adhesion`, `POST /cluster/rejoindre`, `POST /cluster/membres/{nom}/retirer` | The cluster (admin, `app/core/cluster_setup.py`): `corosync_installed`, `in_cluster`, `name`, `quorum`, `members` (`name`, `nodeid`, `address`), `node`. `creer` (`name`, `address`) makes this node the first member; `adhesion` returns the join information (`information`, `cluster`, `expire`), a secret valid 30 minutes for one node; `rejoindre` (`information`, `address`, `confirmation` = the cluster's name) makes this node a member, replaces its configuration and keys by the cluster's, and restarts Hyperlite (`restart`); `retirer` (`confirmation` = the member's name) removes a member that is off. 409 with the reason, 503 when hyperlite-cfs does not answer. |
-| `POST /cluster/membres` | Called by a joining node, without a session: `ticket` (from the join information), `name`, `address`, `ssh_key`. Returns the cluster's configuration, Corosync's key (`corosync_key`), the keys of `.env` and the members' SSH keys; 403 for a ticket that is wrong, used or expired. |
+| `GET /cfs/shadow`, `POST /cfs/shadow/seed`, `POST /cfs/shadow/enable`, `POST /cfs/shadow/disable` | Shadow mode of `hyperlite-cfs` (admin): `active`, `force` (set by `HYPERLITE_CFS_SHADOW=1`), `installed` (the daemon is on this node), `reachable`, `copies`, `failures`, `last_error`, `daemon` (`mode`, `quorum`, `version`, `entries`), per domain `entries`, `missing`, `extra`, `different` and `examples`, and the total `differences`. The seed makes the daemon hold what SQLite holds (`written`, `deleted`); 409 while shadow mode is off, 503 when the daemon does not answer. `activer` starts `hyperlite-cfs.service`, turns shadow mode on and seeds (503 with the reason when it cannot); `desactiver` turns it off and stops the service (409 while `HYPERLITE_CFS_SHADOW=1` forces it). |
+| `GET /cluster`, `POST /cluster/create`, `POST /cluster/adhesion`, `POST /cluster/join`, `POST /cluster/members/{name}/remove` | The cluster (admin, `app/core/cluster_setup.py`): `corosync_installed`, `in_cluster`, `name`, `quorum`, `members` (`name`, `nodeid`, `address`), `node`. `creer` (`name`, `address`) makes this node the first member; `adhesion` returns the join information (`information`, `cluster`, `expire`), a secret valid 30 minutes for one node; `rejoindre` (`information`, `address`, `confirmation` = the cluster's name) makes this node a member, replaces its configuration and keys by the cluster's, and restarts Hyperlite (`restart`); `retirer` (`confirmation` = the member's name) removes a member that is off. 409 with the reason, 503 when hyperlite-cfs does not answer. |
+| `POST /cluster/members` | Called by a joining node, without a session: `ticket` (from the join information), `name`, `address`, `ssh_key`. Returns the cluster's configuration, Corosync's key (`corosync_key`), the keys of `.env` and the members' SSH keys; 403 for a ticket that is wrong, used or expired. |
 | `GET`/`PATCH /containers/{name}` | A container's details (`interfaces`, `dns`, `autostart`) and changing `vcpu`, `memory_mb`, `dns`, `autostart`; `needs_restart` says when part of it applies at the next start. |

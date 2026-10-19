@@ -6,6 +6,7 @@ import { formatSizeMb, formatRate } from "../next/lib/format";
 import { getAuthToken } from "../api/client";
 import { useInfraStore } from "../store/useInfraStore";
 import { Card } from "@/components/ui/card";
+import { apiPath } from "../api/prefix";
 
 function formatEta(seconds) {
   if (!isFinite(seconds) || seconds <= 0) return "--";
@@ -36,7 +37,7 @@ export default function IsoUploadDropzone({ onDone, labels = {} }) {
     fd.append("file", file);
     const startedAt = Date.now();
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/isos");
+    xhr.open("POST", apiPath("/isos"));
     const token = getAuthToken();
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.addEventListener("progress", (ev) => {

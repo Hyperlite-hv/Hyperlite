@@ -1,6 +1,6 @@
 import { existsSync, rmSync } from "node:fs";
 import type { Page } from "@playwright/test";
-import { apiLogin, expect, test, ADMIN, PREFIX } from "../support/fixtures";
+import { apiLogin, expect, test, ADMIN, PREFIX, apiRoute } from "../support/fixtures";
 
 // Rebuilt Storage and Network pages against the real libvirt backend.
 const stamp = Date.now().toString().slice(-6);
@@ -153,7 +153,7 @@ test.describe("Journal, Backups, Exports and the administrator gate", () => {
     const created = await request.post("/auth/users", { headers: auth(), data: { ...OBS, role: "viewer" } });
     expect(created.ok()).toBe(true);
     const failures: string[] = [];
-    page.on("response", (r) => { if (r.status() === 403) failures.push(new URL(r.url()).pathname); });
+    page.on("response", (r) => { if (r.status() === 403) failures.push(apiRoute(r.url())); });
     await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "en"); });
     await page.goto("/");
     await page.getByLabel("Username").fill(OBS.username);

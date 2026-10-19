@@ -82,20 +82,20 @@ def test_api_documentation_is_off_by_default(client):
 
 
 def test_health_tells_an_anonymous_caller_nothing_about_the_host(client, libvirt_up):
-    r = client.get("/health")
+    r = client.get("http://testserver/health")
     assert r.status_code == 200
     assert set(r.json()) == {"status", "environment"}
 
 
 def test_health_gives_the_details_to_a_signed_in_caller(client, auth_headers, libvirt_up):
-    r = client.get("/health", headers=auth_headers("alice"))
+    r = client.get("http://testserver/health", headers=auth_headers("alice"))
     body = r.json()
     assert body["hostname"] == "hv-01"
     assert body["hyperlite_version"] and body["kernel"] and body["python_version"]
 
 
 def test_health_ignores_an_invalid_token(client, libvirt_up):
-    r = client.get("/health", headers={"Authorization": "Bearer not-a-token"})
+    r = client.get("http://testserver/health", headers={"Authorization": "Bearer not-a-token"})
     assert set(r.json()) == {"status", "environment"}
 
 
