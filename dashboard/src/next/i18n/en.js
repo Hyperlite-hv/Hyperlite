@@ -1723,6 +1723,7 @@ export default {
   "nt.ev.restore_backup": "Backup restore",
   "nt.ev.verify_backup": "Backup verification (a corrupted backup)",
   "nt.ev.auto_cleanup_warning": "Automatic deletion warning (inactive VM)",
+  "nt.ev.cfs_conflict": "Configuration change overridden by the cluster",
   "nt.addBtn": "Add the channel",
   "au.desc": "Multi-step tasks run on your VMs (installation, configuration).",
   "au.createBtn": "Create the task",

@@ -45,6 +45,9 @@ NOTIFY_EVENTS = {
     # inactive VM: same notification event, and the message text tells an
     # "automatic deletion" apart from a manual one.
     "auto_cleanup_warning": "Automatic deletion warning (inactive VM)",
+    # A change made by background work on this node (a task, a scheduler) that the cluster overrode with another
+    # node's (app/repositories/cfs/shadow.py). A request's own conflict answers 409 instead, never notified.
+    "cfs_conflict": "Configuration change overridden by the cluster",
 }
 
 

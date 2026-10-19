@@ -88,3 +88,23 @@ def test_in_a_cluster_each_node_refreshes_only_the_protected_vms_it_hosts(databa
     monkeypatch.setattr(cluster_lead, "in_cluster", lambda: False)  # a controller of SSH-driven nodes: all of them
     ha.sync_protected_vms()
     assert opened == [None, "pve-b"]
+
+
+def test_a_node_down_is_checked_again_sooner(poll, monkeypatch):
+    waits = []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        if len(waits) == 2:
+            raise SystemExit  # out of the endless loop
+
+    monkeypatch.setattr(cluster.time, "sleep", sleep)
+    poll["up"] = False
+    with pytest.raises(SystemExit):
+        cluster._poll_nodes()
+    assert waits == [cluster.OFFLINE_POLL_S, cluster.OFFLINE_POLL_S]
+    poll["up"] = True
+    waits.clear()
+    with pytest.raises(SystemExit):
+        cluster._poll_nodes()
+    assert waits == [cluster.POLL_INTERVAL_S, cluster.POLL_INTERVAL_S]

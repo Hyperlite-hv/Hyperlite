@@ -131,10 +131,17 @@ def _ensure_writer_started():
 
 
 def log_action(
-    username: str, action: str, resource: str, result: str, error_message: str | None = None, task_id: str | None = None
+    username: str,
+    action: str,
+    resource: str,
+    result: str,
+    error_message: str | None = None,
+    task_id: str | None = None,
+    notify: bool = True,
 ):
     """task_id: when provided (see app.core.tasks.create_task), the matching task
-    is closed too. This stays SYNCHRONOUS (unlike the audit write itself, see
+    is closed too. notify=False: no notification even for an event of NOTIFY_EVENTS (the person who caused it was
+    already told, as a refused change answered 409). This stays SYNCHRONOUS (unlike the audit write itself, see
     above) because callers read the task status right after: a task stuck in
     "running" until a queue drains would be a real regression. A
     log_action(..., "success") or (..., "failed") call already marks the end of
@@ -163,12 +170,13 @@ def log_action(
     # timeout per channel), and blocking the HTTP response while a remote webhook
     # answers (or times out) would be a robustness problem in itself, independent
     # of SQLite.
-    from app.core.notifications import NOTIFY_EVENTS, notify
+    from app.core.notifications import NOTIFY_EVENTS
+    from app.core.notifications import notify as send
 
-    if action in NOTIFY_EVENTS:
+    if notify and action in NOTIFY_EVENTS:
         title = f"{NOTIFY_EVENTS[action]} — {resource}"
         # Read by a person (a chat channel, a mailbox): what happened, then the detail. It was the raw action key
         # and the stored result ("create_vm on 'web': success").
         outcome = "succeeded" if result == "success" else "failed"
         message = f"{NOTIFY_EVENTS[action]} of '{resource}' {outcome}" + (f": {error_message}" if error_message else "")
-        threading.Thread(target=notify, args=(action, title, message, result), daemon=True).start()
+        threading.Thread(target=send, args=(action, title, message, result), daemon=True).start()
