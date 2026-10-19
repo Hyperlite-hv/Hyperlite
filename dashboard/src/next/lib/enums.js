@@ -17,7 +17,7 @@ const NODE_STATES = {
 };
 const POOL_STATES = {
   active: { key: "state.active", shape: "dot", tone: "success" },
-  degrade: { key: "state.degraded", shape: "triangle", tone: "warning" },
+  degraded: { key: "state.degraded", shape: "triangle", tone: "warning" },
   inactive: { key: "state.inactive", shape: "square", tone: "offline" },
   inaccessible: { key: "state.unreachable", shape: "diamond", tone: "danger" },
   building: { key: "state.building", shape: "ring", tone: "info" },

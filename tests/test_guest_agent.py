@@ -76,7 +76,7 @@ def test_the_state_comes_from_the_channel_without_calling_the_agent():
     assert guest_agent.state(FakeDomain(channel="connected")) == "active"
     assert guest_agent.state(FakeDomain(channel="disconnected")) == "inactive"
     assert guest_agent.state(FakeDomain(channel="")) == "inactive"
-    assert guest_agent.state(FakeDomain(channel=None)) == "non_configure"
+    assert guest_agent.state(FakeDomain(channel=None)) == "not_configured"
     assert guest_agent.state(FakeDomain(active=False)) is None
     assert FakeDomain().calls == []
 

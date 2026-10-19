@@ -206,7 +206,7 @@ export async function fetchNodes() {
     uptime_s: d.live?.uptime_s ?? d.hypervisor.uptime_s,
     ip: d.live?.address ?? null,
     version: `Hyperlite (${d.hypervisor.type})`,
-    vms_running: d.vms.actives,
+    vms_running: d.vms.active,
     vms_stopped: d.vms.stopped,
     // Why this node changes nothing right now (a cluster node that lost the quorum), or null.
     read_only: d.read_only ?? null,

@@ -332,7 +332,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
                     "bus": target.get("bus") if target is not None else None,
                     "type": disk.get("device"),
                     "source": path,
-                    # null when the disk can be grown, else why not ("iscsi", "non_gere"); see disk_resize.
+                    # null when the disk can be grown, else why not ("iscsi", "unsupported"); see disk_resize.
                     "not_growable": disk_resize.not_growable_code(disk),
                     **(
                         _disk_size(domain, conn, dev, path)

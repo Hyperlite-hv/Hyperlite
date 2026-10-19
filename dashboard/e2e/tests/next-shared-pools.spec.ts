@@ -20,7 +20,7 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
     if (route.request().method() !== "POST") return route.fallback();
     sent.push(route.request().postDataJSON());
     return json(route, { name: "nas", shared: true, all_nodes: true, results: [
-      { node: "local", state: "cree", detail: null, warning: null },
+      { node: "local", state: "created", detail: null, warning: null },
       { node: "peer", state: "failed", detail: "mount.nfs: access denied by server", warning: null },
     ] }, 201);
   });

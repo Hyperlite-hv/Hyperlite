@@ -35,7 +35,7 @@ CHANNEL = "org.qemu.guest_agent.0"
 # Wire values of `guest_agent` in the VM summary.
 CONNECTED = "active"  # the agent answers on the channel
 NOT_RUNNING = "inactive"  # the channel exists, purpose no agent listens (not installed or not started)
-NO_CHANNEL = "non_configure"  # the VM has no agent channel (created outside Hyperlite, for example)
+NO_CHANNEL = "not_configured"  # the VM has no agent channel (created outside Hyperlite, for example)
 
 
 def state(domain):

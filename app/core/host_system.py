@@ -294,7 +294,7 @@ def _resolv_manager():
         target = os.readlink(RESOLV_CONF)
         if "systemd/resolve" in target:
             return "systemd-resolved"
-        return "lien"
+        return "link"
     try:
         head = RESOLV_CONF.read_text()[:2000].lower()
     except OSError:
