@@ -1167,7 +1167,7 @@ export async function deleteAcl(aclId) {
 }
 
 export async function fetchPrivileges() {
-  return realList("/acl/privileges");
+  return realFetch("/acl/privileges"); // a catalogue {privilege: label}
 }
 export async function fetchCustomRoles() {
   return realList("/acl/custom-roles");

@@ -37,7 +37,7 @@ def get_roles_catalog(user: dict = Depends(require_role("admin"))):
 def get_privileges_catalog(user: dict = Depends(require_role("admin"))):
     """Full catalog of privileges (key -> label), used to build the custom role
     builder (checkboxes)."""
-    return listing(perm.ALL_PRIVILEGES)
+    return perm.ALL_PRIVILEGES  # a catalogue {privilege: label}, not a list
 
 
 @router.get("/custom-roles")

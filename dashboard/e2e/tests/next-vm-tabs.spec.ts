@@ -161,7 +161,7 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN onl
   });
   await open(page, "hardware");
   const main = page.getByRole("main");
-  const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as { items: unknown[] }).items.length;
+  const disks = async () => ((await (await request.get(`/vms/${NAME}/disks`, { headers: auth() })).json()) as unknown[]).length; // the fixture reads a list's items
   const before = await disks();
   await expect(main.getByRole("heading", { level: 2, name: /^Disks/ })).toBeVisible({ timeout: 20_000 });
   // Adding a disk opens a side drawer.
