@@ -369,6 +369,13 @@ def _drain(limit):
     try:
         # One writer outside a cluster: the daemon holds what this node wrote, nothing to compare.
         cluster = client.status().mode == "cluster"
+        if cluster:
+            from app.core import cluster_v1
+
+            if cluster_v1.behind():
+                # Members before 1.0 cannot apply rows in the new names: this node's changes wait in the outbox until
+                # every member runs 1.0 (docs/design/api-v1.md, "The cluster update").
+                return 0, None
     except (CfsError, OSError) as e:
         # Nothing goes out without knowing whether the cluster's versions must be checked; the error names the change
         # that waits.

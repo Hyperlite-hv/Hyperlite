@@ -105,3 +105,25 @@ def test_a_change_made_after_the_rewrite_goes_out(fake, members):
         db.commit()
     assert shadow.drain() == 1 and shadow.report()["conflicts"] == 0  # not taken for another node's change
     assert json.loads(fake.files["/db/backup_jobs/3"])["time"] == "03:00"
+
+
+def test_an_unreadable_member_list_never_reads_as_nobody_behind(fake, members, monkeypatch):
+    """Lab drill, 2026-10-19: the member list (written by the others in the old names) could not be read, every member
+    then counted as on 1.0, and the tree was rewritten under two nodes still on the old version."""
+
+    def unreadable():
+        raise ValueError("The cluster's configuration is not valid")
+
+    monkeypatch.setattr(cluster_view, "members", unreadable)
+    members["statuses"] = {"pve-b": status(0)}
+    assert cluster_v1.behind() == ["pve-b"]
+
+
+def test_this_nodes_changes_wait_while_a_member_is_behind(fake, members):
+    members["statuses"] = {"pve-b": status(0)}
+    with get_conn() as db:
+        db.execute("INSERT INTO groups (name) VALUES ('ops')")
+        db.commit()
+    assert shadow.drain() == 0 and shadow.pending() == 1  # nothing in the new names reaches pve-b
+    members["statuses"]["pve-b"] = status(1)
+    assert shadow.drain() == 1 and shadow.pending() == 0

@@ -3,8 +3,8 @@ configuration change with 1.0, so the cluster changes nothing while some members
 and the leader rewrites the replicated configuration once every member runs 1.0.
 
 Each node says which API it writes in the status it sends every 10 s (statd.summary, "api"). A member that sends one
-without it (a version before 1.0) holds the cluster read-only, with its name in the reason (cluster_lead): the members
-on 1.0 would otherwise write rows it cannot apply. A member that sends nothing (down, cut off) holds nothing back: the
+without it (a version before 1.0) holds the cluster read-only, with its name in the reason (cluster_lead), and the
+members on 1.0 copy nothing into the tree meanwhile (shadow.drain): rows in the new names it could not apply. A member that sends nothing (down, cut off) holds nothing back: the
 rows it wrote before are read with the new names (schema_v1.row), and it is updated when it comes back.
 
 Once no member is behind, the leader rewrites every row of the tree still written with the old names, each with
@@ -36,11 +36,14 @@ def behind():
         at, names = _behind
         if now - at < _TTL_S:
             return names
-    from app.core import cluster_view, statd
+    from app.core import self_node, statd
 
+    # From the statuses alone (every node of this cluster's status group): the member list itself may be what a member
+    # before 1.0 wrote in other names, and a list that cannot be read must never read as "nobody is behind" (the lab
+    # drill of 2026-10-19 rewrote the tree under two nodes still on the old version that way).
     try:
-        members = {m["name"] for m in cluster_view.members()}
-        names = sorted(name for name, s in statd.table().items() if name in members and s.get("api", 0) < API_VERSION)
+        me = self_node.name()
+        names = sorted(name for name, s in statd.table().items() if name != me and s.get("api", 0) < API_VERSION)
     except Exception as e:  # nothing known: nothing held back on a guess
         logger.debug("Members' versions not read: %s", e)
         names = []
