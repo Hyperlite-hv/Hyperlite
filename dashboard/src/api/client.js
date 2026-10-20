@@ -210,6 +210,8 @@ export async function fetchNodes() {
     vms_stopped: d.vms.stopped,
     // Why this node changes nothing right now (a cluster node that lost the quorum), or null.
     read_only: d.read_only ?? null,
+    read_only_cause: d.read_only_cause ?? null,
+    read_only_waiting_for: d.read_only_waiting_for ?? [],
   };
 
   // Registered remote nodes. They used to be missing here: this function only ever

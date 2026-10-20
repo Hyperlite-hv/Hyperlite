@@ -350,6 +350,8 @@ export default {
   "inv.updated": "Mis à jour {t}",
   "inv.stale": "Les données peuvent être périmées",
   "ro.banner": "Ce nœud a perdu le quorum du cluster : rien ne peut être modifié depuis lui (VM comprises) tant qu’il ne rejoint pas la majorité des nœuds. La page Cluster montre les nœuds qu’il voit.",
+  "ro.update": "Le cluster passe à Hyperlite 1.0 : {nodes} a encore une version antérieure. Rien ne peut être modifié tant que tous les nœuds ne sont pas en 1.0 ; les VM continuent de tourner. Mettez-le à jour depuis son propre tableau de bord, ou par la mise à jour du cluster.",
+  "ro.noDaemon": "Le service de cluster de ce nœud ne répond pas : rien ne peut être modifié depuis lui tant qu’il ne répond pas.",
   "inv.poolNote": "Pool = pool de ressources (Sécurité). Les pools de stockage sont sous chaque nœud en mode Serveur.",
   "inv.local": "local",
   "inv.offlineSince": "Hors ligne",
