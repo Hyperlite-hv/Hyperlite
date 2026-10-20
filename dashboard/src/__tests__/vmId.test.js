@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 import { findVm, parseVmKey, vmKey } from "../next/lib/vmId";
 
 const vms = [
-  { nom: "test", node: "local" },
-  { nom: "test", node: "node-b" },
-  { nom: "only-remote", node: "node-b" },
+  { name: "test", node: "local" },
+  { name: "test", node: "node-b" },
+  { name: "only-remote", node: "node-b" },
 ];
 
 describe("VM identity (node, name)", () => {
   it("keeps the bare name for a local VM and adds the node otherwise", () => {
     expect(vmKey(vms[0])).toBe("test");
     expect(vmKey(vms[1])).toBe("test@node-b");
-    expect(parseVmKey("test@node-b")).toEqual({ nom: "test", node: "node-b" });
-    expect(parseVmKey("test")).toEqual({ nom: "test", node: "local" });
+    expect(parseVmKey("test@node-b")).toEqual({ name: "test", node: "node-b" });
+    expect(parseVmKey("test")).toEqual({ name: "test", node: "local" });
   });
   it("tells two homonymous VMs apart", () => {
     expect(findVm(vms, "test")).toBe(vms[0]);

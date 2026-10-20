@@ -44,7 +44,7 @@ def get_plan(user: dict = Depends(require_role("admin"))):
 class RollingRequest(BaseModel):
     # VMs that cannot move (local disks, passthrough): stopped for their node's reboot (True), or that node's reboot is
     # left for later (False). They keep running through the package update either way.
-    arreter_bloquees: bool = False
+    stop_blocked: bool = False
 
 
 @router.post("", status_code=202)
@@ -57,9 +57,9 @@ def start_rolling_update(payload: RollingRequest, user: dict = Depends(require_r
         if _running() is not None or update._update_in_progress():
             raise HTTPException(status_code=409, detail="An update is already running on this node")
         plan = rolling_update.cluster_plan(user["username"], _local_check)
-        if plan["problemes"]:
-            raise HTTPException(status_code=409, detail="; ".join(plan["problemes"]))
-        if not plan["a_faire"]:
+        if plan["problems"]:
+            raise HTTPException(status_code=409, detail="; ".join(plan["problems"]))
+        if not plan["to_do"]:
             raise HTTPException(status_code=409, detail="Every node is up to date")
         task_id = create_task("cluster_update", "cluster", node=None, username=user["username"])
 
@@ -69,11 +69,11 @@ def start_rolling_update(payload: RollingRequest, user: dict = Depends(require_r
     def restarts():
         return update._dpkg_installed_version() != version.STARTUP_VERSION
 
-    log_action(user["username"], "cluster_update", "cluster", "succes", f"started on {len(plan['noeuds'])} nodes")
+    log_action(user["username"], "cluster_update", "cluster", "success", f"started on {len(plan['nodes'])} nodes")
     threading.Thread(
         target=rolling_update.run,
-        args=(task_id, user["username"], payload.arreter_bloquees, start_local, restarts, _local_check),
+        args=(task_id, user["username"], payload.stop_blocked, start_local, restarts, _local_check),
         name="rolling-update",
         daemon=True,
     ).start()
-    return {"task_id": task_id, "noeuds": [n["nom"] for n in plan["noeuds"]]}
+    return {"task_id": task_id, "nodes": [n["name"] for n in plan["nodes"]]}

@@ -52,13 +52,13 @@ export default function UpdateDialog({ onClose }) {
     try { await deleteUpdateFile(); setFile(null); } catch (e) { setError(errorMessage(e)); }
   }
 
-  const sys = info?.systeme;
-  const hyperliteNew = Boolean(info?.verifiable && !info.a_jour);
-  const debianNew = (sys?.paquets ?? 0) > 0;
+  const sys = info?.system;
+  const hyperliteNew = Boolean(info?.verifiable && !info.up_to_date);
+  const debianNew = (sys?.packages ?? 0) > 0;
   const nothing = info?.verifiable && !hyperliteNew && !debianNew;
 
   async function back() {
-    if (!(await confirmAction({ title: t("upd.backTitle", { version: info.precedente }), message: t("upd.backMsg"), confirmLabel: t("upd.back", { version: info.precedente }) }))) return;
+    if (!(await confirmAction({ title: t("upd.backTitle", { version: info.previous }), message: t("upd.backMsg"), confirmLabel: t("upd.back", { version: info.previous }) }))) return;
     start("rollback");
   }
 
@@ -66,15 +66,15 @@ export default function UpdateDialog({ onClose }) {
   async function start(kind = "online") {
     setPhase("updating");
     setError(null);
-    const target = kind === "rollback" ? info.precedente : kind === "file" ? file.version : info.commit_distant;
-    const restarts = kind === "rollback" || (kind === "file" ? file.version !== file.installee : hyperliteNew);
+    const target = kind === "rollback" ? info.previous : kind === "file" ? file.version : info.remote_commit;
+    const restarts = kind === "rollback" || (kind === "file" ? file.version !== file.installed : hyperliteNew);
     try {
       const { task_id } = kind === "rollback" ? await rollbackUpdate() : kind === "file" ? await applyUpdateFile(true) : await applyUpdate(true);
       for (;;) {
         const task = await fetchTaskDetail(task_id);
-        setProgress(task.progres ?? 0);
-        if (task.statut === "echec") { setPhase("failed"); setError(task.erreur); return; }
-        if (task.statut === "termine") break;
+        setProgress(task.progress ?? 0);
+        if (task.status === "failed") { setPhase("failed"); setError(task.error); return; }
+        if (task.status === "succeeded") break;
         await wait(1500);
       }
       if (restarts) {
@@ -106,7 +106,7 @@ export default function UpdateDialog({ onClose }) {
   }
 
   const step = [...STEPS].reverse().find(([pct]) => progress >= pct)?.[1] ?? "upd.step.prepare";
-  const rebootNow = after?.systeme?.redemarrage_requis;
+  const rebootNow = after?.system?.restart_required;
 
   return (
     <div className="nx-scrim" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -135,11 +135,11 @@ export default function UpdateDialog({ onClose }) {
               <>
                 <dl className="nx-dl">
                   <dt>Hyperlite</dt>
-                  <dd>{file.version === file.installee ? t("upd.fileSame", { version: file.version }) : t("upd.hyperliteNew", { from: file.installee, to: file.version })}</dd>
+                  <dd>{file.version === file.installed ? t("upd.fileSame", { version: file.version }) : t("upd.hyperliteNew", { from: file.installed, to: file.version })}</dd>
                   <dt>{t("upd.debian")}</dt>
                   <dd>{t("upd.fileDebian", { debian: file.debian })}</dd>
                 </dl>
-                {file.plus_ancienne && <p className="nx-error" role="alert">{t("upd.fileOlder", { version: file.version, installed: file.installee })}</p>}
+                {file.oldest && <p className="nx-error" role="alert">{t("upd.fileOlder", { version: file.version, installed: file.installed })}</p>}
                 {file.notes && (
                   <section aria-label={t("upd.notes")} className="nx-logs" tabIndex={0} style={{ maxHeight: "14rem", overflow: "auto", whiteSpace: "pre-wrap" }}>
                     <strong>{file.version}</strong>{"\n"}{file.notes.trim()}
@@ -153,7 +153,7 @@ export default function UpdateDialog({ onClose }) {
               {file
                 ? <button type="button" className="nx-btn" onClick={dropFile}>{t("upd.fileRemove")}</button>
                 : <button type="button" className="nx-btn" disabled={sending !== null} onClick={() => setFromFile(false)}>{t("upd.fileBack")}</button>}
-              <button type="button" className="nx-btn nx-btn--primary" disabled={!file || file.plus_ancienne} onClick={() => start("file")}>{t("upd.fileApply")}</button>
+              <button type="button" className="nx-btn nx-btn--primary" disabled={!file || file.oldest} onClick={() => start("file")}>{t("upd.fileApply")}</button>
             </div>
           </>
         )}
@@ -167,33 +167,33 @@ export default function UpdateDialog({ onClose }) {
 
         {phase === "idle" && info && !fromFile && (
           <>
-            {!info.verifiable && <p role="alert">{info.erreur}</p>}
+            {!info.verifiable && <p role="alert">{info.error}</p>}
             {!info.verifiable && <p className="nx-muted" style={{ margin: 0 }}>{t("upd.offlineHint")}</p>}
             {info.verifiable && (
               <>
                 <dl className="nx-dl">
                   <dt>Hyperlite</dt>
-                  <dd>{hyperliteNew ? t("upd.hyperliteNew", { from: info.commit_local, to: info.commit_distant }) : t("upd.hyperliteCurrent", { version: info.commit_local })}</dd>
+                  <dd>{hyperliteNew ? t("upd.hyperliteNew", { from: info.commit_local, to: info.remote_commit }) : t("upd.hyperliteCurrent", { version: info.commit_local })}</dd>
                   <dt>{t("upd.debian")}</dt>
-                  <dd>{!sys ? t("upd.debianUnknown") : debianNew ? t(sys.paquets === 1 ? "upd.debianOne" : "upd.debianMany", { n: sys.paquets, s: sys.securite }) : t("upd.debianCurrent")}</dd>
+                  <dd>{!sys ? t("upd.debianUnknown") : debianNew ? t(sys.packages === 1 ? "upd.debianOne" : "upd.debianMany", { n: sys.packages, s: sys.security }) : t("upd.debianCurrent")}</dd>
                 </dl>
                 {info.rolled_back && <p className="nx-banner" role="status">{t("upd.rolledBack")}</p>}
                 {info.notes?.length > 0 && (
                   <section aria-label={t("upd.notes")} className="nx-logs" tabIndex={0} style={{ maxHeight: "14rem", overflow: "auto", whiteSpace: "pre-wrap" }}>
-                    {info.notes.map((n) => <div key={n.version} lang={n.langue}><strong>{n.version}</strong>{"\n"}{n.texte.trim()}{"\n\n"}</div>)}
+                    {info.notes.map((n) => <div key={n.version} lang={n.language}><strong>{n.version}</strong>{"\n"}{n.text.trim()}{"\n\n"}</div>)}
                   </section>
                 )}
-                {sys?.redemarrage_prevu?.length > 0 && (
-                  <p className="nx-banner" role="status">{t("upd.rebootAhead", { pkgs: sys.redemarrage_prevu.join(", ") })}</p>
+                {sys?.restart_scheduled?.length > 0 && (
+                  <p className="nx-banner" role="status">{t("upd.rebootAhead", { pkgs: sys.restart_scheduled.join(", ") })}</p>
                 )}
-                {sys?.redemarrage_requis && <p className="nx-banner" role="status">{t("upd.rebootPending")}</p>}
+                {sys?.restart_required && <p className="nx-banner" role="status">{t("upd.rebootPending")}</p>}
                 <p className="nx-muted" style={{ margin: 0 }}>{nothing ? t("upd.nothing") : t("upd.safe")}</p>
               </>
             )}
             <div className="nx-dialog-actions">
               <button type="button" className="nx-btn" onClick={onClose}>{t("upd.close")}</button>
               <button type="button" className={info.verifiable ? "nx-btn nx-btn--ghost" : "nx-btn nx-btn--primary"} onClick={() => setFromFile(true)}>{t("upd.fromFile")}</button>
-              {info.precedente && <button type="button" className="nx-btn" onClick={back}>{t("upd.back", { version: info.precedente })}</button>}
+              {info.previous && <button type="button" className="nx-btn" onClick={back}>{t("upd.back", { version: info.previous })}</button>}
               {info.verifiable && <button type="button" className="nx-btn nx-btn--primary" disabled={nothing} onClick={() => start("online")}>{t("upd.apply")}</button>}
             </div>
           </>

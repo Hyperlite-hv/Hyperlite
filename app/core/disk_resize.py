@@ -31,7 +31,7 @@ FILE_FORMATS = ("qcow2", "raw")
 
 # Why a disk cannot be grown, as a stable code the dashboard translates.
 NOT_GROWABLE_ISCSI = "iscsi"
-NOT_GROWABLE_UNSUPPORTED = "non_gere"
+NOT_GROWABLE_UNSUPPORTED = "unsupported"
 
 
 class ResizeError(Exception):

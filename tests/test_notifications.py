@@ -106,7 +106,7 @@ def test_smtp_password_is_encrypted_at_rest(database):
 
 
 def test_an_audited_event_reads_as_a_sentence(database, monkeypatch):
-    """It was the raw action key and the stored result: "create_vm on 'web': succes"."""
+    """It was the raw action key and the stored result: "create_vm on 'web': success"."""
     from app.core import audit
     from app.core.notifications import notify as audit_notify
 
@@ -121,6 +121,6 @@ def test_an_audited_event_reads_as_a_sentence(database, monkeypatch):
                 sent.append(self.args)
 
     monkeypatch.setattr(audit, "threading", types.SimpleNamespace(Thread=_Thread))
-    audit.log_action("alice", "create_vm", "web", "succes")
-    audit.log_action("alice", "backup_vm", "web", "echec", "disk full")
+    audit.log_action("alice", "create_vm", "web", "success")
+    audit.log_action("alice", "backup_vm", "web", "failed", "disk full")
     assert [a[2] for a in sent] == ["VM creation of 'web' succeeded", "VM backup of 'web' failed: disk full"]

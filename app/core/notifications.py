@@ -29,7 +29,7 @@ def _store():
 
 
 NOTIFY_EVENTS = {
-    "node_statut_change": "Node state change",
+    "node_status_change": "Node state change",
     "ha_alert": "HA alert (protected node down)",
     "hyperlite_update": "Hyperlite update",
     "update_available": "New Hyperlite version available (to be applied)",
@@ -184,7 +184,7 @@ def _send_email(config, title, message, event, result):
 _SENDERS = {"webhook": _send_webhook, "email": _send_email}
 
 
-def send_to_channel(channel, title, message, event="test", result="succes"):
+def send_to_channel(channel, title, message, event="test", result="success"):
     """Send to ONE specific channel. Also used by the UI's "Test" button
     (event='test', never filtered by NOTIFY_EVENTS)."""
     sender = _SENDERS.get(channel["type"])
@@ -193,7 +193,7 @@ def send_to_channel(channel, title, message, event="test", result="succes"):
     sender(channel["config"], title, message, event, result)
 
 
-def notify(event, title, message, result="succes"):
+def notify(event, title, message, result="success"):
     """Entry point used by the rest of the application (cluster.py, ha.py,
     audit.py...). Fully best-effort: a sending error on ONE channel never
     prevents the others and NEVER raises to the caller (sending a notification
@@ -212,4 +212,4 @@ def notify(event, title, message, result="succes"):
             # cycle if so.
             from app.core.audit import log_action
 
-            log_action("system", "notification_echec", channel["name"], "echec", str(e)[:300])
+            log_action("system", "notification_failed", channel["name"], "failed", str(e)[:300])

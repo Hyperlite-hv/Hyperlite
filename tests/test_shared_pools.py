@@ -122,37 +122,35 @@ NFS = {"name": "nas", "type": "netfs", "nfs_host": "192.168.1.10", "nfs_export_p
 
 
 def test_every_node_gets_the_pool_and_a_failing_one_is_reported(client, auth_headers, cluster_of_three):
-    r = client.post("/storage", json={**NFS, "tous_les_noeuds": True}, headers=auth_headers("alice"))
+    r = client.post("/storage", json={**NFS, "all_nodes": True}, headers=auth_headers("alice"))
     assert r.status_code == 201
-    states = {x["noeud"]: x["etat"] for x in r.json()["resultats"]}
-    assert states == {"local": "cree", "n2": "cree", "n3": "echec"}
-    assert "access denied" in next(x for x in r.json()["resultats"] if x["noeud"] == "n3")["detail"]
+    states = {x["node"]: x["state"] for x in r.json()["results"]}
+    assert states == {"local": "created", "n2": "created", "n3": "failed"}
+    assert "access denied" in next(x for x in r.json()["results"] if x["node"] == "n3")["detail"]
     assert "nas" in cluster_of_three["local"].pools and "nas" in cluster_of_three["n2"].pools
     assert "nas" not in cluster_of_three["n3"].pools  # the ghost definition is removed
-    shared = client.get("/storage/shared", headers=auth_headers("bob")).json()
-    assert shared == [{"nom": "nas", "type": "netfs", "tous_les_noeuds": True, "noeuds": ["local", "n2"]}]
+    shared = client.get("/storage/shared", headers=auth_headers("bob")).json()["items"]
+    assert shared == [{"name": "nas", "type": "netfs", "all_nodes": True, "nodes": ["local", "n2"]}]
 
 
 def test_a_pool_already_there_is_kept_and_a_choice_of_nodes_is_honoured(client, auth_headers, cluster_of_three):
     headers = auth_headers("alice")
     client.post("/storage?node=n2", json=NFS, headers=headers)
-    r = client.post("/storage", json={**NFS, "noeuds": ["local", "n2"]}, headers=headers)
-    assert {x["noeud"]: x["etat"] for x in r.json()["resultats"]} == {"local": "cree", "n2": "existe"}
-    assert client.get("/storage/shared", headers=headers).json()[0]["tous_les_noeuds"] is False
-    assert client.post("/storage", json={**NFS, "noeuds": ["n9"]}, headers=headers).status_code == 404
+    r = client.post("/storage", json={**NFS, "nodes": ["local", "n2"]}, headers=headers)
+    assert {x["node"]: x["state"] for x in r.json()["results"]} == {"local": "created", "n2": "exists"}
+    assert client.get("/storage/shared", headers=headers).json()["items"][0]["all_nodes"] is False
+    assert client.post("/storage", json={**NFS, "nodes": ["n9"]}, headers=headers).status_code == 404
 
 
 def test_only_shared_storage_goes_on_several_nodes(client, auth_headers, cluster_of_three):
-    r = client.post(
-        "/storage", json={"name": "dirs", "type": "dir", "tous_les_noeuds": True}, headers=auth_headers("a")
-    )
+    r = client.post("/storage", json={"name": "dirs", "type": "dir", "all_nodes": True}, headers=auth_headers("a"))
     assert r.status_code == 422 and "NFS or iSCSI" in r.json()["detail"]
 
 
 def test_nowhere_is_an_error_not_a_saved_definition(client, auth_headers, cluster_of_three):
-    r = client.post("/storage", json={**NFS, "noeuds": ["n3"]}, headers=auth_headers("alice"))
+    r = client.post("/storage", json={**NFS, "nodes": ["n3"]}, headers=auth_headers("alice"))
     assert r.status_code == 502 and "n3:" in r.json()["detail"]
-    assert client.get("/storage/shared", headers=auth_headers("bob")).json() == []
+    assert client.get("/storage/shared", headers=auth_headers("bob")).json()["items"] == []
 
 
 def test_a_node_registered_later_gets_the_pools_declared_for_every_node(
@@ -171,32 +169,32 @@ def test_a_node_registered_later_gets_the_pools_declared_for_every_node(
             "iscsi_target": "iqn.2005-10.org.freenas.ctl:vms",
             "chap_user": "hyper",
             "chap_password": "s3cret",
-            "tous_les_noeuds": True,
+            "all_nodes": True,
         },
         headers=headers,
     )
     with database.get_conn() as db:
         stored = json.loads(db.execute("SELECT definition FROM shared_pools").fetchone()[0])
     assert stored["chap_password"] != "s3cret"  # encrypted at rest
-    assert "chap_password" not in json.dumps(client.get("/storage/shared", headers=headers).json())
+    assert "chap_password" not in json.dumps(client.get("/storage/shared", headers=headers).json()["items"])
 
     cluster_of_three["n4"] = _Host()
     with database.get_conn() as db:
         db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('n4', 'n4.lan', 'now')")
         db.commit()
     result = storage.apply_shared_pools("n4", "alice")
-    assert [(r["nom"], r["etat"]) for r in result] == [("nas", "cree")]
+    assert [(r["name"], r["state"]) for r in result] == [("nas", "created")]
     assert cluster_of_three["n4"].secrets == [b"s3cret"]  # the CHAP password reached the new node
-    assert "n4" in shared_pools.get("nas")["noeuds"]
+    assert "n4" in shared_pools.get("nas")["nodes"]
 
 
 def test_a_shared_pool_is_removed_from_every_node_with_its_definition(client, auth_headers, cluster_of_three):
     headers = auth_headers("alice")
-    client.post("/storage", json={**NFS, "tous_les_noeuds": True}, headers=headers)
-    r = client.delete("/storage/nas?confirm=true&partout=true", headers=headers)
-    assert r.status_code == 200 and {x["noeud"] for x in r.json()["resultats"]} == {"local", "n2"}
+    client.post("/storage", json={**NFS, "all_nodes": True}, headers=headers)
+    r = client.delete("/storage/nas?confirm=true&everywhere=true", headers=headers)
+    assert r.status_code == 200 and {x["node"] for x in r.json()["results"]} == {"local", "n2"}
     assert all("nas" not in h.pools for h in cluster_of_three.values())
-    assert client.get("/storage/shared", headers=headers).json() == []
+    assert client.get("/storage/shared", headers=headers).json()["items"] == []
 
 
 def test_a_renamed_node_stays_in_the_shared_pool(database):
@@ -207,4 +205,4 @@ def test_a_renamed_node_stays_in_the_shared_pool(database):
         db.commit()
     shared_pools.save({**NFS, "nfs_version": "4.2"}, True, ["local", "n2"], "alice")
     renaming.node_records("n2", "rack2")
-    assert shared_pools.get("nas")["noeuds"] == ["local", "rack2"]
+    assert shared_pools.get("nas")["nodes"] == ["local", "rack2"]

@@ -60,7 +60,7 @@ function ObjectPermissions({ kind, name }) {
   return (
     <>
       <Card title={t("op.title")} flush>
-        <p className="nx-muted" style={{ margin: "var(--space-3) var(--space-4)", fontSize: "var(--fs-13)" }}>{t("op.global", { admins: byRole("admin"), observers: byRole("observateur") })}</p>
+        <p className="nx-muted" style={{ margin: "var(--space-3) var(--space-4)", fontSize: "var(--fs-13)" }}>{t("op.global", { admins: byRole("admin"), observers: byRole("viewer") })}</p>
         {data.acl.length === 0 ? <p className="nx-muted" style={{ margin: "0 var(--space-4) var(--space-4)" }}>{t(kind === "vm" ? "op.noneVm" : "op.none")}</p> : (
           <TableWrap label={t("op.title")}>
             <table className="nx-table">
@@ -70,8 +70,8 @@ function ObjectPermissions({ kind, name }) {
                   <tr key={a.id}>
                     <th scope="row">{subject(a)}</th>
                     <td><Chip tone="accent">{data.roles[a.role]?.label || a.role}</Chip></td>
-                    <td>{a.herite_de ? <button type="button" className="nx-lnk" onClick={() => navigateTo("datacenter", null, "permissions")}>{t("op.pool", { pool: a.herite_de })}</button> : <span className="nx-muted">{t("op.direct")}</span>}</td>
-                    <td><div className="nx-ra">{!a.herite_de && <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("op.removeX", { who: subject(a) })} onClick={() => remove(a)}>{t("sec.remove")}</button>}</div></td>
+                    <td>{a.inherited_from ? <button type="button" className="nx-lnk" onClick={() => navigateTo("datacenter", null, "permissions")}>{t("op.pool", { pool: a.inherited_from })}</button> : <span className="nx-muted">{t("op.direct")}</span>}</td>
+                    <td><div className="nx-ra">{!a.inherited_from && <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("op.removeX", { who: subject(a) })} onClick={() => remove(a)}>{t("sec.remove")}</button>}</div></td>
                   </tr>
                 ))}
               </tbody>
@@ -91,5 +91,5 @@ function ObjectPermissions({ kind, name }) {
   );
 }
 
-export function VmPermissionsPage({ resource }) { return <ObjectPermissions kind="vm" name={resource.nom} />; }
-export function ContainerPermissionsPage({ resource }) { return <ObjectPermissions kind="container" name={resource.nom} />; }
+export function VmPermissionsPage({ resource }) { return <ObjectPermissions kind="vm" name={resource.name} />; }
+export function ContainerPermissionsPage({ resource }) { return <ObjectPermissions kind="container" name={resource.name} />; }

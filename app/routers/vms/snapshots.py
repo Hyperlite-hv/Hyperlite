@@ -13,6 +13,7 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
+from app.core.listing import listing
 from app.core.security import get_current_user, require_vm_privilege
 from app.core.tasks import create_task, finish_task, task_log
 from app.core.vm_builder import (
@@ -34,11 +35,11 @@ def _snapshot_summary(snap):
     except libvirt.libvirtError:
         parent_nom = None
     return {
-        "nom": snap.getName(),
+        "name": snap.getName(),
         "description": desc_elem.text if desc_elem is not None else None,
-        "date_creation": creation_elem.text if creation_elem is not None else None,
-        "etat_vm": state_elem.text if state_elem is not None else None,
-        "actuel": snap.isCurrent() == 1,
+        "created_at": creation_elem.text if creation_elem is not None else None,
+        "vm_state": state_elem.text if state_elem is not None else None,
+        "current": snap.isCurrent() == 1,
         "parent": parent_nom,
     }
 
@@ -50,7 +51,7 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "list_snapshots", name, "echec", "VM not found")
+            log_action(user["username"], "list_snapshots", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         zvol_specs = _zvol_disks_of_domain(domain)
@@ -62,11 +63,11 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
             pool0, name0 = zvol_specs[0]
             result = [
                 {
-                    "nom": s["nom"],
+                    "name": s["name"],
                     "description": None,
-                    "date_creation": str(s["creation_epoch"]),
-                    "etat_vm": "disque_seul",
-                    "actuel": False,
+                    "created_at": str(s["creation_epoch"]),
+                    "vm_state": "disk_only",
+                    "current": False,
                     "parent": None,
                 }
                 for s in zfs_storage.list_zvol_snapshots(pool0, name0)
@@ -82,8 +83,8 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
                     if e.get_error_code() != libvirt.VIR_ERR_NO_DOMAIN_SNAPSHOT:
                         raise
                     logger.debug("Snapshot vanished while listing %s: %s", name, e)
-        log_action(user["username"], "list_snapshots", name, "succes")
-        return result
+        log_action(user["username"], "list_snapshots", name, "success")
+        return listing(result)
     finally:
         conn.close()
 
@@ -106,12 +107,12 @@ def _create_snapshot_job(task_id, username, vm_name, snap_name, snap_xml):
             # libvirt refuses an offline snapshot while a replication checkpoint exists.
             checkpoints.release(domain, vm_name)
         domain.snapshotCreateXML(snap_xml, 0)
-        finish_task(task_id, "termine")
-        log_action(username, "create_snapshot", vm_name, "succes", f"Snapshot '{snap_name}'")
+        finish_task(task_id, "succeeded")
+        log_action(username, "create_snapshot", vm_name, "success", f"Snapshot '{snap_name}'")
     except Exception as e:  # any error closes the task: libvirt's, and dropping the replication bitmaps
         msg = describe_exception(e)
-        finish_task(task_id, "echec", msg)
-        log_action(username, "create_snapshot", vm_name, "echec", f"Snapshot '{snap_name}': {msg}")
+        finish_task(task_id, "failed", msg)
+        log_action(username, "create_snapshot", vm_name, "failed", f"Snapshot '{snap_name}': {msg}")
     finally:
         conn.close()
 
@@ -123,12 +124,12 @@ def _create_zvol_snapshot_job(task_id, username, vm_name, zvol_specs, snap_name)
     (task_id, 202) on both sides, so no frontend change is needed."""
     try:
         zfs_storage.snapshot_zvols(zvol_specs, snap_name)
-        finish_task(task_id, "termine")
-        log_action(username, "create_snapshot", vm_name, "succes", f"Snapshot '{snap_name}'")
+        finish_task(task_id, "succeeded")
+        log_action(username, "create_snapshot", vm_name, "success", f"Snapshot '{snap_name}'")
     except Exception as e:
         msg = e.message if isinstance(e, zfs_storage.ZfsError) else describe_exception(e)
-        finish_task(task_id, "echec", msg)
-        log_action(username, "create_snapshot", vm_name, "echec", f"Snapshot '{snap_name}': {msg}")
+        finish_task(task_id, "failed", msg)
+        log_action(username, "create_snapshot", vm_name, "failed", f"Snapshot '{snap_name}': {msg}")
 
 
 @router.post("/{name}/snapshots", status_code=202)
@@ -138,12 +139,12 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_snapshot", name, "echec", "VM not found")
+            log_action(user["username"], "create_snapshot", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         name_error = validate_name(payload.name, "snapshot")
         if name_error:
-            log_action(user["username"], "create_snapshot", name, "echec", name_error)
+            log_action(user["username"], "create_snapshot", name, "failed", name_error)
             raise HTTPException(status_code=422, detail=name_error)
         iscsi.refuse_if_iscsi(domain, "A snapshot")
 
@@ -165,18 +166,18 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             except BaseException:
                 claim.release()
                 raise
-            return {"task_id": task_id, "nom": payload.name, "statut": "en_cours"}
+            return {"task_id": task_id, "name": payload.name, "status": "running"}
 
         # QEMU cannot save a running VM's state while its firmware is in pflash (every UEFI VM): libvirt would fail
         # the task after the fact with "internal snapshots of a VM with pflash based firmware are not supported".
         if domain.isActive() and firmware.is_pflash(ET.fromstring(domain.XMLDesc(0))):
             msg = "This VM uses UEFI firmware: its snapshots are taken while it is stopped. Shut it down, then take the snapshot"
-            log_action(user["username"], "create_snapshot", name, "echec", msg)
+            log_action(user["username"], "create_snapshot", name, "failed", msg)
             raise HTTPException(status_code=409, detail=msg)
 
         try:
             domain.snapshotLookupByName(payload.name)
-            log_action(user["username"], "create_snapshot", name, "echec", f"Snapshot '{payload.name}' already exists")
+            log_action(user["username"], "create_snapshot", name, "failed", f"Snapshot '{payload.name}' already exists")
             raise HTTPException(status_code=422, detail=f"A snapshot '{payload.name}' already exists for this VM")
         except libvirt.libvirtError:
             logger.debug("Ignored exception in create_snapshot()", exc_info=True)
@@ -204,7 +205,7 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
             claim.release()
             raise
 
-        return {"task_id": task_id, "nom": payload.name, "statut": "en_cours"}
+        return {"task_id": task_id, "name": payload.name, "status": "running"}
     finally:
         conn.close()
 
@@ -217,12 +218,12 @@ def _restore_snapshot_job(task_id, username, vm_name, snapshot_name):
         # A revert rewrites the disk without marking the replication bitmap: the next copy must be a full one.
         checkpoints.release(domain, vm_name)
         domain.revertToSnapshot(snap, 0)
-        finish_task(task_id, "termine")
-        log_action(username, "restore_snapshot", vm_name, "succes", f"Snapshot '{snapshot_name}'")
+        finish_task(task_id, "succeeded")
+        log_action(username, "restore_snapshot", vm_name, "success", f"Snapshot '{snapshot_name}'")
     except Exception as e:  # any error closes the task: libvirt's, and dropping the replication bitmaps
         msg = describe_exception(e)
-        finish_task(task_id, "echec", msg)
-        log_action(username, "restore_snapshot", vm_name, "echec", f"Snapshot '{snapshot_name}': {msg}")
+        finish_task(task_id, "failed", msg)
+        log_action(username, "restore_snapshot", vm_name, "failed", f"Snapshot '{snapshot_name}': {msg}")
     finally:
         conn.close()
 
@@ -230,12 +231,12 @@ def _restore_snapshot_job(task_id, username, vm_name, snapshot_name):
 def _restore_zvol_snapshot_job(task_id, username, vm_name, zvol_specs, snapshot_name):
     try:
         zfs_storage.rollback_zvols(zvol_specs, snapshot_name)
-        finish_task(task_id, "termine")
-        log_action(username, "restore_snapshot", vm_name, "succes", f"Snapshot '{snapshot_name}'")
+        finish_task(task_id, "succeeded")
+        log_action(username, "restore_snapshot", vm_name, "success", f"Snapshot '{snapshot_name}'")
     except Exception as e:
         msg = e.message if isinstance(e, zfs_storage.ZfsError) else describe_exception(e)
-        finish_task(task_id, "echec", msg)
-        log_action(username, "restore_snapshot", vm_name, "echec", f"Snapshot '{snapshot_name}': {msg}")
+        finish_task(task_id, "failed", msg)
+        log_action(username, "restore_snapshot", vm_name, "failed", f"Snapshot '{snapshot_name}': {msg}")
 
 
 @router.post("/{name}/snapshots/{snapshot_name}/restore", status_code=202)
@@ -247,7 +248,7 @@ def restore_snapshot(
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "restore_snapshot", name, "echec", "VM not found")
+            log_action(user["username"], "restore_snapshot", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         zvol_specs = _zvol_disks_of_domain(domain)
@@ -263,7 +264,7 @@ def restore_snapshot(
                     user["username"],
                     "restore_snapshot",
                     snapshot_name,
-                    "echec",
+                    "failed",
                     "VM running (it must be stopped for a ZFS rollback)",
                 )
                 raise HTTPException(
@@ -275,7 +276,7 @@ def restore_snapshot(
                     user["username"],
                     "restore_snapshot",
                     name,
-                    "echec",
+                    "failed",
                     f"Snapshot '{snapshot_name}': confirmation missing",
                 )
                 raise HTTPException(
@@ -295,19 +296,23 @@ def restore_snapshot(
                 raise
             return {
                 "task_id": task_id,
-                "statut": "en_cours",
+                "status": "running",
                 "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
             }
 
         try:
             domain.snapshotLookupByName(snapshot_name)
         except libvirt.libvirtError:
-            log_action(user["username"], "restore_snapshot", name, "echec", f"Snapshot '{snapshot_name}' not found")
+            log_action(user["username"], "restore_snapshot", name, "failed", f"Snapshot '{snapshot_name}' not found")
             raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found") from None
 
         if not confirm:
             log_action(
-                user["username"], "restore_snapshot", name, "echec", f"Snapshot '{snapshot_name}': confirmation missing"
+                user["username"],
+                "restore_snapshot",
+                name,
+                "failed",
+                f"Snapshot '{snapshot_name}': confirmation missing",
             )
             raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore")
 
@@ -326,7 +331,7 @@ def restore_snapshot(
 
         return {
             "task_id": task_id,
-            "statut": "en_cours",
+            "status": "running",
             "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
         }
     finally:
@@ -352,7 +357,7 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_snapshot", name, "echec", "VM not found", task_id=task_id)
+            log_action(user["username"], "delete_snapshot", name, "failed", "VM not found", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         zvol_specs = _zvol_disks_of_domain(domain)
@@ -364,20 +369,20 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
                     user["username"],
                     "delete_snapshot",
                     name,
-                    "echec",
+                    "failed",
                     f"Snapshot '{snapshot_name}': {e.message}",
                     task_id=task_id,
                 )
                 raise HTTPException(status_code=500, detail=f"Deletion error: {e.message}") from e
-            finish_task(task_id, "termine")
-            log_action(user["username"], "delete_snapshot", name, "succes", f"Snapshot '{snapshot_name}'")
+            finish_task(task_id, "succeeded")
+            log_action(user["username"], "delete_snapshot", name, "success", f"Snapshot '{snapshot_name}'")
             return {"message": f"Snapshot '{snapshot_name}' deleted"}
 
         try:
             snap = domain.snapshotLookupByName(snapshot_name)
         except libvirt.libvirtError:
             log_action(
-                user["username"], "delete_snapshot", name, "echec", f"Snapshot '{snapshot_name}' not found",
+                user["username"], "delete_snapshot", name, "failed", f"Snapshot '{snapshot_name}' not found",
                 task_id=task_id,
             )  # fmt: skip
             raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found") from None
@@ -390,20 +395,20 @@ def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_
                 user["username"],
                 "delete_snapshot",
                 name,
-                "echec",
+                "failed",
                 f"Snapshot '{snapshot_name}': {msg}",
                 task_id=task_id,
             )
             raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
 
-        finish_task(task_id, "termine")
-        log_action(user["username"], "delete_snapshot", name, "succes", f"Snapshot '{snapshot_name}'")
+        finish_task(task_id, "succeeded")
+        log_action(user["username"], "delete_snapshot", name, "success", f"Snapshot '{snapshot_name}'")
         return {"message": f"Snapshot '{snapshot_name}' deleted"}
     except HTTPException:
         raise
     except Exception as e:  # never a task left running: closed with what happened
         log_action(
-            user["username"], "delete_snapshot", name, "echec", f"Snapshot '{snapshot_name}': {describe_exception(e)}",
+            user["username"], "delete_snapshot", name, "failed", f"Snapshot '{snapshot_name}': {describe_exception(e)}",
             task_id=task_id,
         )  # fmt: skip
         raise

@@ -39,7 +39,7 @@ async function wizardToAdvanced(page: Page, name: string) {
 }
 
 test("the wizard offers Secure Boot when the host has it and sends the choice", async ({ page }) => {
-  await page.route(/\/host\/firmware$/, (route) => json(route, { uefi: true, uefi_secure: true, raison: null }));
+  await page.route(/\/host\/firmware$/, (route) => json(route, { uefi: true, uefi_secure: true, reason: null }));
   let posted: Record<string, unknown> | null = null;
   await page.route(/\/vms$/, (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -62,7 +62,7 @@ test("the wizard offers Secure Boot when the host has it and sends the choice", 
 
 test("without swtpm the Secure Boot choice is disabled and the wizard says what to install", async ({ page }) => {
   const reason = "No software TPM on this host: install the swtpm and swtpm-tools packages";
-  await page.route(/\/host\/firmware$/, (route) => json(route, { uefi: true, uefi_secure: false, raison: reason }));
+  await page.route(/\/host\/firmware$/, (route) => json(route, { uefi: true, uefi_secure: false, reason: reason }));
   await open(page, "fr");
   await page.getByRole("button", { name: "Créer" }).click();
   await page.getByRole("menuitem", { name: "Machine virtuelle" }).click();
@@ -86,8 +86,8 @@ test("without swtpm the Secure Boot choice is disabled and the wizard says what 
 test("a real Secure Boot VM starts with its TPM, refuses a live snapshot, and is deleted with its NVRAM", async ({ page, request }) => {
   const token = await apiLogin(request);
   const auth = { Authorization: `Bearer ${token}` };
-  const support = (await (await request.get("/host/firmware", { headers: auth })).json()) as { uefi_secure: boolean; raison: string | null };
-  test.skip(!support.uefi_secure, `This host cannot build a Secure Boot VM: ${support.raison}`);
+  const support = (await (await request.get("/host/firmware", { headers: auth })).json()) as { uefi_secure: boolean; reason: string | null };
+  test.skip(!support.uefi_secure, `This host cannot build a Secure Boot VM: ${support.reason}`);
   try {
     const res = await request.post("/vms", { headers: auth, data: { name: NAME, vcpu: 1, memory_mb: 512, disks: [{ size_gb: 3 }], network: "hyperlite-isolated", username: "tester", password: "Testpass1", firmware: "uefi_secure" } });
     expect(res.ok(), await res.text()).toBe(true);
@@ -108,7 +108,7 @@ test("a real Secure Boot VM starts with its TPM, refuses a live snapshot, and is
     await expect(main.getByRole("button", { name: "Create a snapshot" })).toBeDisabled();
 
     await request.post(`/vms/${NAME}/stop?force=true`, { headers: auth });
-    await expect.poll(async () => ((await (await request.get(`/vms/${NAME}`, { headers: auth })).json()) as { etat: string }).etat, { timeout: 60_000 }).toBe("arrete");
+    await expect.poll(async () => ((await (await request.get(`/vms/${NAME}`, { headers: auth })).json()) as { state: string }).state, { timeout: 60_000 }).toBe("stopped");
     await page.reload();
     await expect(main.getByRole("button", { name: "Create a snapshot" })).toBeEnabled({ timeout: 20_000 });
   } finally {

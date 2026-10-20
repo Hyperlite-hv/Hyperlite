@@ -39,9 +39,9 @@ def test_a_change_drops_it_even_a_reading_in_progress(database):
 
     inventory_cache.invalidate()
     assert inventory_cache.get("k3", lambda: "before") == "before"
-    log_action("alice", "start_vm", "web", "succes")
+    log_action("alice", "start_vm", "web", "success")
     assert inventory_cache.get("k3", lambda: "after") == "after"
-    log_action("alice", "list_vms", "vms", "succes")  # a read changes nothing
+    log_action("alice", "list_vms", "vms", "success")  # a read changes nothing
     assert inventory_cache.get("k3", lambda: "again") == "after"
 
     # A reading that started before a change is not kept: it may not show it.

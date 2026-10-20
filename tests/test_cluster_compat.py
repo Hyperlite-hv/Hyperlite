@@ -113,13 +113,13 @@ def by_id(checks):
 
 
 def blocking(checks):
-    return sorted(check["id"] for check in checks if check["statut"] == "blocking")
+    return sorted(check["id"] for check in checks if check["status"] == "blocking")
 
 
 def test_compatible_hosts_and_a_simple_vm_pass_every_check():
     checks = cc.check_vm_migration(FakeConn(), FakeConn(networks=["default"]), FakeDomain(SIMPLE_VM))
     assert blocking(checks) == []
-    assert cc.report(checks)["resume"]["bloquant"] is False
+    assert cc.report(checks)["summary"]["blocking"] is False
 
 
 def test_different_architectures_block():
@@ -132,7 +132,7 @@ def test_missing_kvm_on_the_destination_blocks():
 
 def test_older_destination_qemu_only_warns():
     checks = by_id(cc.check_pair(FakeConn(qemu_version=10000000), FakeConn(qemu_version=7002022)))
-    assert checks["version_qemu"]["statut"] == "warning"
+    assert checks["version_qemu"]["status"] == "warning"
 
 
 def test_incompatible_cpu_blocks():
@@ -142,12 +142,12 @@ def test_incompatible_cpu_blocks():
 
 def test_a_stopped_vm_cannot_be_live_migrated():
     checks = cc.check_vm_migration(FakeConn(), FakeConn(networks=["default"]), FakeDomain(SIMPLE_VM, active=False))
-    assert "etat_vm" in blocking(checks)
+    assert "vm_state" in blocking(checks)
 
 
 def test_name_collision_on_the_destination_blocks():
     dest = FakeConn(networks=["default"], existing_vms=["vm1"])
-    assert "nom_libre" in blocking(cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM)))
+    assert "name_available" in blocking(cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM)))
 
 
 def test_unknown_machine_type_blocks():
@@ -157,7 +157,7 @@ def test_unknown_machine_type_blocks():
 
 
 def test_missing_network_on_the_destination_blocks():
-    assert "reseau:default" in blocking(cc.check_vm_migration(FakeConn(), FakeConn(), FakeDomain(SIMPLE_VM)))
+    assert "network:default" in blocking(cc.check_vm_migration(FakeConn(), FakeConn(), FakeDomain(SIMPLE_VM)))
 
 
 def test_block_device_disks_are_not_migratable():
@@ -166,23 +166,23 @@ def test_block_device_disks_are_not_migratable():
         "<disk type='block' device='disk'><driver type='raw'/><source dev='/dev/zvol/tank/vm1'/>",
     )
     checks = cc.check_vm_migration(FakeConn(), FakeConn(networks=["default"]), FakeDomain(xml))
-    assert "disque:vda" in blocking(checks)
+    assert "disk:vda" in blocking(checks)
 
 
 def test_insufficient_destination_disk_space_blocks():
     dest = FakeConn(networks=["default"], disk_gib=5)
-    assert "espace_disque" in blocking(cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM)))
+    assert "disk_space" in blocking(cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM)))
 
 
 def test_insufficient_destination_memory_blocks():
     dest = FakeConn(networks=["default"], free_kib=512 * 1024)
-    assert "memoire" in blocking(cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM)))
+    assert "memory" in blocking(cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM)))
 
 
 def test_passthrough_devices_block():
     xml = SIMPLE_VM.replace("</devices>", "<hostdev type='pci'/></devices>")
     checks = cc.check_vm_migration(FakeConn(), FakeConn(networks=["default"]), FakeDomain(xml))
-    assert "peripheriques" in blocking(checks)
+    assert "devices" in blocking(checks)
 
 
 def test_uefi_vm_needs_firmware_on_the_destination():
@@ -197,7 +197,7 @@ def test_a_crashing_check_becomes_a_warning_instead_of_failing_the_diagnostic():
             raise RuntimeError("boom")
 
     checks = by_id(cc.check_vm_migration(FakeConn(), Broken(networks=["default"]), FakeDomain(SIMPLE_VM)))
-    assert checks["memoire"]["statut"] == "warning"
+    assert checks["memory"]["status"] == "warning"
 
 
 @pytest.mark.parametrize("version,expected", [(9000000, "9.0.0"), (11003001, "11.3.1")])
@@ -226,7 +226,7 @@ def test_the_vm_cpu_is_compared_as_defined_not_as_it_runs(monkeypatch):
             return libvirt.VIR_CPU_COMPARE_INCOMPATIBLE if 'check="full"' in xml else libvirt.VIR_CPU_COMPARE_SUPERSET
 
     checks = by_id(cc.check_vm_migration(FakeConn(), Dst(), Domain(live)))
-    assert checks["cpu_vm"]["statut"] == cc.OK
+    assert checks["cpu_vm"]["status"] == cc.OK
 
 
 def test_a_disk_on_shared_storage_based_on_a_local_image_is_refused(monkeypatch):
@@ -247,7 +247,7 @@ def test_a_disk_on_shared_storage_based_on_a_local_image_is_refused(monkeypatch)
             return vm if flags & libvirt.VIR_DOMAIN_XML_MIGRATABLE else chain
 
     checks = by_id(cc.check_vm_migration(FakeConn(), FakeConn(), Domain(chain)))
-    assert checks["disque:vda"]["statut"] == cc.BLOCKING and "only this node has" in checks["disque:vda"]["message"]
+    assert checks["disk:vda"]["status"] == cc.BLOCKING and "only this node has" in checks["disk:vda"]["message"]
 
 
 def test_a_cpu_model_unknown_to_the_destination_is_found_in_any_language():
@@ -257,7 +257,7 @@ def test_a_cpu_model_unknown_to_the_destination_is_found_in_any_language():
     dst = FakeConn()
     dst.cpu_models = ["qemu64", "Skylake-Client"]
     r = cc._cpu_result("cpu", dst, xml, "Physical CPU of the source")
-    assert r["statut"] == cc.WARNING and "Sapphire-Rapids" in r["message"]
+    assert r["status"] == cc.WARNING and "Sapphire-Rapids" in r["message"]
 
     class FrenchDst(FakeConn):
         def compareCPU(self, xml, flags):
@@ -266,7 +266,7 @@ def test_a_cpu_model_unknown_to_the_destination_is_found_in_any_language():
             raise e
 
     r = cc._cpu_result("cpu", FrenchDst(), xml, "Physical CPU of the source")
-    assert r["statut"] == cc.WARNING and "Sapphire-Rapids" in r["message"]
+    assert r["status"] == cc.WARNING and "Sapphire-Rapids" in r["message"]
 
     dst.cpu_models = ["qemu64", "Sapphire-Rapids"]  # known: compared as before
-    assert cc._cpu_result("cpu", dst, xml, "Physical CPU of the source")["statut"] == cc.OK
+    assert cc._cpu_result("cpu", dst, xml, "Physical CPU of the source")["status"] == cc.OK

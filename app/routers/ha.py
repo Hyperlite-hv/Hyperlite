@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core import ha, ha_fencing, ha_watch, maintenance
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.services import node_service
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/ha", tags=["ha"])
 @router.get("")
 async def list_protected(user: dict = Depends(get_current_user)):
     rows = await run_in_threadpool(ha.list_protected)
-    return [{**row, "statut_noeud": await node_service.statut(row["node"])} for row in rows]
+    return listing([{**row, "node_status": await node_service.status(row["node"])} for row in rows])
 
 
 class EnableRequest(BaseModel):
@@ -64,18 +65,18 @@ def watch_status(user: dict = Depends(get_current_user)):
 
 
 class HaSettings(BaseModel):
-    temoin: str = Field("", max_length=260)
-    seuil_suspect: int = 3
-    seuil_panne: int = 6
+    witness: str = Field("", max_length=260)
+    suspect_threshold: int = 3
+    failure_threshold: int = 6
 
 
 @router.put("/settings")
 def put_settings(payload: HaSettings, user: dict = Depends(require_role("admin"))):
     try:
-        result = ha_watch.save_settings(payload.temoin, payload.seuil_suspect, payload.seuil_panne)
+        result = ha_watch.save_settings(payload.witness, payload.suspect_threshold, payload.failure_threshold)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "ha_settings", "ha", "succes", f"witness={payload.temoin or 'none'}")
+    log_action(user["username"], "ha_settings", "ha", "success", f"witness={payload.witness or 'none'}")
     return result
 
 
@@ -89,17 +90,17 @@ def _known_node(node):
 
 @router.get("/fencing")
 def list_fencing(user: dict = Depends(require_role("admin"))):
-    return ha_fencing.list_all()
+    return listing(ha_fencing.list_all())
 
 
 class FencingSettings(BaseModel):
-    methode: str
-    adresse: str | None = Field(None, max_length=253)
+    method: str
+    address: str | None = Field(None, max_length=253)
     port: int | None = None
-    utilisateur: str | None = Field(None, max_length=64)
+    user: str | None = Field(None, max_length=64)
     # Absent or empty: keep the stored password.
     secret: str | None = Field(None, max_length=256)
-    tls_non_verifie: bool = False
+    tls_unverified: bool = False
 
 
 @router.put("/fencing/{node}")
@@ -108,17 +109,17 @@ def put_fencing(node: str, payload: FencingSettings, user: dict = Depends(requir
     try:
         result = ha_fencing.save(
             node,
-            payload.methode,
-            payload.adresse,
+            payload.method,
+            payload.address,
             payload.port,
-            payload.utilisateur,
+            payload.user,
             payload.secret or None,
-            payload.tls_non_verifie,
+            payload.tls_unverified,
             user["username"],
         )
     except ha_fencing.FencingError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
-    log_action(user["username"], "ha_fencing_set", node, "succes", payload.methode)
+    log_action(user["username"], "ha_fencing_set", node, "success", payload.method)
     return result
 
 
@@ -126,7 +127,7 @@ def put_fencing(node: str, payload: FencingSettings, user: dict = Depends(requir
 def delete_fencing(node: str, user: dict = Depends(require_role("admin"))):
     if not ha_fencing.delete(node):
         raise HTTPException(status_code=404, detail="No fencing is set for this node")
-    log_action(user["username"], "ha_fencing_delete", node, "succes")
+    log_action(user["username"], "ha_fencing_delete", node, "success")
     return {"message": "Fencing settings removed"}
 
 
@@ -137,7 +138,9 @@ def test_fencing(node: str, user: dict = Depends(require_role("admin"))):
         result = ha_fencing.test(node)
     except ha_fencing.FencingError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
-    log_action(user["username"], "ha_fencing_test", node, "succes" if result["ok"] else "echec", result["detail"][:300])
+    log_action(
+        user["username"], "ha_fencing_test", node, "success" if result["ok"] else "failed", result["detail"][:300]
+    )
     return result
 
 

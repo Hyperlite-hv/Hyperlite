@@ -31,11 +31,11 @@ def test_shared_pools(repo):
     store = repo.sync
     store.save_shared_pool("nfs", '{"name": "nfs"}', 1, '["n1"]', "alice", "t0")
     store.save_shared_pool("iscsi", '{"name": "iscsi"}', 0, "[]", "alice", "t0")
-    assert [p["nom"] for p in run(repo.shared_pools())] == ["iscsi", "nfs"]
-    assert [p["nom"] for p in store.shared_pools(every_node_only=True)] == ["nfs"]
+    assert [p["name"] for p in run(repo.shared_pools())] == ["iscsi", "nfs"]
+    assert [p["name"] for p in store.shared_pools(every_node_only=True)] == ["nfs"]
     store.set_shared_pool_nodes("nfs", '["n1", "n2"]')
     store.rename_shared_pool("nfs", "nas", '{"name": "nas"}')
-    assert store.shared_pool("nfs") is None and store.shared_pool("nas")["noeuds"] == '["n1", "n2"]'
+    assert store.shared_pool("nfs") is None and store.shared_pool("nas")["nodes"] == '["n1", "n2"]'
     store.delete_shared_pool("nas")
     assert store.shared_pool("nas") is None
 
@@ -43,13 +43,13 @@ def test_shared_pools(repo):
 def test_k8s_clusters(repo):
     store = repo.sync
     store.create_k8s_cluster("k", "lan", "k-server", '["k-worker-1"]', 2, 2048, 20, "task", "alice", "t0")
-    store.update_k8s_cluster("k", {"statut": "pret", "kubeconfig": "sealed"})
+    store.update_k8s_cluster("k", {"status": "ready", "kubeconfig": "sealed"})
     with pytest.raises(ValueError):
-        store.update_k8s_cluster("k", {"nom": "x"})
-    assert run(repo.k8s_clusters())[0]["statut"] == "pret"
-    store.update_k8s_cluster("k", {"statut": "creation"})
+        store.update_k8s_cluster("k", {"name": "x"})
+    assert run(repo.k8s_clusters())[0]["status"] == "ready"
+    store.update_k8s_cluster("k", {"status": "creating"})
     store.fail_interrupted_k8s_clusters("Interrupted")
-    assert (store.k8s_cluster("k")["statut"], store.k8s_cluster("k")["erreur"]) == ("echec", "Interrupted")
+    assert (store.k8s_cluster("k")["status"], store.k8s_cluster("k")["error"]) == ("failed", "Interrupted")
     store.delete_k8s_cluster("k")
     assert store.k8s_clusters() == []
 
@@ -78,6 +78,6 @@ def test_update_check_settings_and_config_copies(repo):
     store.set_app_setting("k", "v2")
     assert store.app_setting("k") == "v2"
     store.record_config_copy("n1", "t0", "ok", 10, "abc", None)
-    store.record_config_copy("n1", "t1", "echec", None, None, "ssh")
+    store.record_config_copy("n1", "t1", "failed", None, None, "ssh")
     copy = store.config_copies()[0]
-    assert (copy["statut"], copy["taille"], copy["empreinte"], copy["erreur"]) == ("echec", 10, "abc", "ssh")
+    assert (copy["status"], copy["size"], copy["fingerprint"], copy["error"]) == ("failed", 10, "abc", "ssh")

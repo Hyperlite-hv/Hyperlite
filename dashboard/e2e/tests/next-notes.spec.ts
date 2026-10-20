@@ -35,12 +35,12 @@ test("notes and tags of a node: edited, validated, kept as plain text after a re
 });
 
 test("tags in the VM list: shown under the name, a click or the menu filters by tag, search finds them", async ({ page }) => {
-  const vm = (nom: string) => ({ nom, etat: "arrete", id: null, uuid: nom, vcpu: 1, memoire_mo: 512, ip: null, utilisateur_ssh: null, uptime_s: null, os: "Debian", stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios" });
+  const vm = (name: string) => ({ name, state: "stopped", id: null, uuid: name, vcpu: 1, memory_mb: 512, ip: null, ssh_user: null, uptime_s: null, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" });
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm("e2e-tag-db"), vm("e2e-tag-web"), vm("e2e-tag-lab")])) : r.fallback()));
   await page.route(/\/meta(\?.*)?$/, (r) => (api(r) ? r.fulfill(json([
-    { kind: "vm", node: "local", nom: "e2e-tag-db", tags: ["prod", "database"], a_des_notes: true },
-    { kind: "vm", node: "local", nom: "e2e-tag-web", tags: ["prod"], a_des_notes: false },
+    { kind: "vm", node: "local", name: "e2e-tag-db", tags: ["prod", "database"], has_notes: true },
+    { kind: "vm", node: "local", name: "e2e-tag-web", tags: ["prod"], has_notes: false },
   ])) : r.fallback()));
   await page.goto("/datacenter?tab=vms");
   const table = page.getByRole("table");

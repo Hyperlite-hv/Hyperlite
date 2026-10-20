@@ -3,7 +3,7 @@ import { expect, goTo, test, uiLogin } from "../support/fixtures";
 // Right click on a VM or a node in a list opens its actions at the pointer: the same entries as the Actions menu
 // of its page, with the same rules (unavailable entries say why). The VM is added to the list answer, so the test
 // does not depend on the VMs of the test machine; no action is run.
-const FAKE = { nom: "e2e-ctx-demo", etat: "arrete", vcpu: 1, memoire_mo: 512, ip: null, uuid: "00000000-0000-0000-0000-0000000c7c70", os: null, uptime_s: null };
+const FAKE = { name: "e2e-ctx-demo", state: "stopped", vcpu: 1, memory_mb: 512, ip: null, uuid: "00000000-0000-0000-0000-0000000c7c70", os: null, uptime_s: null };
 
 test("right click on a VM row opens its actions at the pointer", async ({ page }) => {
   // The dashboard asks GET /vms?cluster=true ({items: [...]}, phase E); a bare list is the older shape.

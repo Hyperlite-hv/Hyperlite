@@ -99,7 +99,7 @@ def node_debian():
 
 def inspect(path=None):
     """What an update file brings, once its signature and its contents are checked against each other:
-    {"version", "debian", "files", "notes": {"en": text, "fr": text}, "taille_mo"}."""
+    {"version", "debian", "files", "notes": {"en": text, "fr": text}, "size_mb"}."""
     path = path or upload_path()
     try:
         tar = tarfile.open(path, "r:")  # noqa: SIM115 -- closed by the with below, once opened
@@ -151,7 +151,7 @@ def inspect(path=None):
         "debian": debian,
         "files": files,
         "notes": notes,
-        "taille_mo": round(Path(path).stat().st_size / (1024 * 1024), 1),
+        "size_mb": round(Path(path).stat().st_size / (1024 * 1024), 1),
     }
 
 

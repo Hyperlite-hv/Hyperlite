@@ -73,14 +73,14 @@ def reload_media(domain, vm_name):
 
 
 def get_state(vm_name):
-    """What Hyperlite last wrote: {"utilisateur", "cles_ssh", "modifie_le"} (no password: never stored)."""
+    """What Hyperlite last wrote: {"user", "ssh_keys", "modified_at"} (no password: never stored)."""
     row = _store().cloudinit(vm_name)
     if not row:
         return None
     return {
-        "utilisateur": row["username"],
-        "cles_ssh": json.loads(row["ssh_keys"] or "[]"),
-        "modifie_le": row["updated_at"],
+        "user": row["username"],
+        "ssh_keys": json.loads(row["ssh_keys"] or "[]"),
+        "modified_at": row["updated_at"],
     }
 
 

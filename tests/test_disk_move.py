@@ -132,16 +132,16 @@ def test_the_endpoint_runs_the_move_as_a_task(api, database, monkeypatch):
         "move",
         lambda domain, dev, how, delete, progress, stop=None: (
             calls.append((dev, how["dest"], delete))
-            or {"source": how["source"], "destination": how["dest"], "source_supprimee": delete}
+            or {"source": how["source"], "destination": how["dest"], "source_deleted": delete}
         ),
     )
     r = api["client"].post(
         "/vms/vm1/disks/vda/move", json={"pool": "nfs1", "delete_source": True}, headers=api["headers"]
     )
     assert r.status_code == 202, r.text
-    assert r.json()["destination"] == "/mnt/nfs1/vm1.qcow2" and r.json()["a_chaud"] is False
+    assert r.json()["destination"] == "/mnt/nfs1/vm1.qcow2" and r.json()["live"] is False
     assert calls == [("vda", "/mnt/nfs1/vm1.qcow2", True)]
-    assert _task(database)["statut"] == "termine"
+    assert _task(database)["status"] == "succeeded"
 
 
 def test_a_failed_move_fails_its_task_with_the_reason(api, database, monkeypatch):
@@ -153,7 +153,7 @@ def test_a_failed_move_fails_its_task_with_the_reason(api, database, monkeypatch
         api["client"].post("/vms/vm1/disks/vda/move", json={"pool": "nfs1"}, headers=api["headers"]).status_code == 202
     )
     task = _task(database)
-    assert task["statut"] == "echec" and "no space left" in task["erreur"]
+    assert task["status"] == "failed" and "no space left" in task["error"]
 
 
 def test_refusals_come_back_before_any_task(api, database):
@@ -167,5 +167,5 @@ def test_refusals_come_back_before_any_task(api, database):
 
 
 def test_only_an_admin_can_move_a_disk(api, auth_headers):
-    headers = auth_headers("watcher", role="observateur")
+    headers = auth_headers("watcher", role="viewer")
     assert api["client"].post("/vms/vm1/disks/vda/move", json={"pool": "nfs1"}, headers=headers).status_code == 403

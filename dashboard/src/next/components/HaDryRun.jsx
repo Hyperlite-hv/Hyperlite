@@ -15,7 +15,7 @@ export function HaWatchBanner({ status }) {
   if (!status) return null;
   return (
     <div className="nx-bn" data-tone="info" role="status"><FlaskConical size={16} aria-hidden="true" />
-      <span className="nx-bn-t"><b>{t("hw.dryRun")}</b> {t("hw.dryRunHelp")}{status.raison && <><br />{t("hw.autoOff", { reason: status.raison })}</>}</span>
+      <span className="nx-bn-t"><b>{t("hw.dryRun")}</b> {t("hw.dryRunHelp")}{status.reason && <><br />{t("hw.autoOff", { reason: status.reason })}</>}</span>
     </div>
   );
 }
@@ -32,23 +32,23 @@ export function HaSettingsCard({ status, onSaved }) {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (status && !form) setForm({ ...status.reglages }); }, [status, form]);
+  useEffect(() => { if (status && !form) setForm({ ...status.settings }); }, [status, form]);
   if (!form) return null;
-  const s = Number(form.seuil_suspect), p = Number(form.seuil_panne);
+  const s = Number(form.suspect_threshold), p = Number(form.failure_threshold);
   const bad = !Number.isInteger(s) || !Number.isInteger(p) || s < 1 || s >= p || p > 60;
   async function save(e) {
     e.preventDefault();
     if (bad) return;
     setBusy(true);
-    try { const r = await saveHaSettings({ temoin: form.temoin.trim(), seuil_suspect: s, seuil_panne: p }); setForm({ ...r }); pushToast({ kind: "success", title: t("hw.saved") }); onSaved(); }
+    try { const r = await saveHaSettings({ witness: form.witness.trim(), suspect_threshold: s, failure_threshold: p }); setForm({ ...r }); pushToast({ kind: "success", title: t("hw.saved") }); onSaved(); }
     catch (er) { pushToast({ kind: "error", title: t("hw.saveFailed"), message: errorMessage(er) }); } finally { setBusy(false); }
   }
   return (
     <Card title={t("hw.settings")}>
       <form onSubmit={save} className="nx-fg nx-fg--3">
-        <Field label={t("hw.witness")} hint={t("hw.witnessHelp")}>{(pp) => <input {...pp} className="nx-inp nx-mono" aria-label={t("hw.witness")} placeholder="nas.example.lan" value={form.temoin} onChange={(e) => setForm({ ...form, temoin: e.target.value })} />}</Field>
-        <Field label={t("hw.suspect")} unit={t("hw.rounds")} error={bad ? t("hw.thresholdRule") : null} hint={t("hw.suspectHelp")}>{(pp) => <input {...pp} className="nx-inp nx-mono" aria-label={t("hw.suspect")} type="number" min={1} max={59} value={form.seuil_suspect} onChange={(e) => setForm({ ...form, seuil_suspect: e.target.value })} />}</Field>
-        <Field label={t("hw.failed")} unit={t("hw.rounds")} hint={t("hw.failedHelp")}>{(pp) => <input {...pp} className="nx-inp nx-mono" aria-label={t("hw.failed")} type="number" min={2} max={60} value={form.seuil_panne} onChange={(e) => setForm({ ...form, seuil_panne: e.target.value })} />}</Field>
+        <Field label={t("hw.witness")} hint={t("hw.witnessHelp")}>{(pp) => <input {...pp} className="nx-inp nx-mono" aria-label={t("hw.witness")} placeholder="nas.example.lan" value={form.witness} onChange={(e) => setForm({ ...form, witness: e.target.value })} />}</Field>
+        <Field label={t("hw.suspect")} unit={t("hw.rounds")} error={bad ? t("hw.thresholdRule") : null} hint={t("hw.suspectHelp")}>{(pp) => <input {...pp} className="nx-inp nx-mono" aria-label={t("hw.suspect")} type="number" min={1} max={59} value={form.suspect_threshold} onChange={(e) => setForm({ ...form, suspect_threshold: e.target.value })} />}</Field>
+        <Field label={t("hw.failed")} unit={t("hw.rounds")} hint={t("hw.failedHelp")}>{(pp) => <input {...pp} className="nx-inp nx-mono" aria-label={t("hw.failed")} type="number" min={2} max={60} value={form.failure_threshold} onChange={(e) => setForm({ ...form, failure_threshold: e.target.value })} />}</Field>
         <div className="nx-fa"><button type="submit" className="nx-btn" disabled={busy || bad}>{t("sso.save")}</button></div>
       </form>
     </Card>
@@ -60,17 +60,17 @@ const METHODS = ["ipmi", "redfish", "amt", "lease_only"];
 function FencingDrawer({ node, name, current, onClose, onDone }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
-  const [form, setForm] = useState({ methode: "ipmi", adresse: "", port: "", utilisateur: "", secret: "", tls_non_verifie: false });
+  const [form, setForm] = useState({ method: "ipmi", address: "", port: "", user: "", secret: "", tls_unverified: false });
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (node) setForm({ methode: current?.methode || "ipmi", adresse: current?.adresse || "", port: current?.port || "", utilisateur: current?.utilisateur || "", secret: "", tls_non_verifie: !!current?.tls_non_verifie });
+    if (node) setForm({ method: current?.method || "ipmi", address: current?.address || "", port: current?.port || "", user: current?.user || "", secret: "", tls_unverified: !!current?.tls_unverified });
   }, [node, current]);
-  const bmc = form.methode !== "lease_only";
-  const missing = bmc && (!form.adresse.trim() || !form.utilisateur.trim() || (!form.secret && !current?.secret_defini));
+  const bmc = form.method !== "lease_only";
+  const missing = bmc && (!form.address.trim() || !form.user.trim() || (!form.secret && !current?.secret_set));
   async function save() {
     setBusy(true);
     try {
-      await saveFencing(node, { methode: form.methode, adresse: bmc ? form.adresse.trim() : null, port: bmc && form.port ? Number(form.port) : null, utilisateur: bmc ? form.utilisateur.trim() : null, secret: form.secret || null, tls_non_verifie: form.tls_non_verifie });
+      await saveFencing(node, { method: form.method, address: bmc ? form.address.trim() : null, port: bmc && form.port ? Number(form.port) : null, user: bmc ? form.user.trim() : null, secret: form.secret || null, tls_unverified: form.tls_unverified });
       pushToast({ kind: "success", title: t("hw.fencingSaved"), message: node }); onDone(); onClose();
     } catch (er) { pushToast({ kind: "error", title: t("hw.fencingFailed"), message: errorMessage(er) }); } finally { setBusy(false); }
   }
@@ -79,13 +79,13 @@ function FencingDrawer({ node, name, current, onClose, onDone }) {
       <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
       <button type="button" className="nx-btn nx-btn--primary" disabled={busy || missing} onClick={save}>{t("sso.save")}</button>
     </>}>
-      <Field label={t("hw.method")} hint={t(`hw.m.${form.methode}Help`)}>{(p) => <select {...p} className="nx-inp" aria-label={t("hw.method")} value={form.methode} onChange={(e) => setForm({ ...form, methode: e.target.value })}>{METHODS.map((m) => <option key={m} value={m}>{t(`hw.m.${m}`)}</option>)}</select>}</Field>
+      <Field label={t("hw.method")} hint={t(`hw.m.${form.method}Help`)}>{(p) => <select {...p} className="nx-inp" aria-label={t("hw.method")} value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{METHODS.map((m) => <option key={m} value={m}>{t(`hw.m.${m}`)}</option>)}</select>}</Field>
       {bmc && <>
-        <Field label={t("hw.address")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("hw.address")} placeholder="10.0.0.20" value={form.adresse} onChange={(e) => setForm({ ...form, adresse: e.target.value })} />}</Field>
+        <Field label={t("hw.address")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("hw.address")} placeholder="10.0.0.20" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />}</Field>
         <Field label={t("hw.port")} hint={t("hw.portHelp")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("hw.port")} type="number" min={1} max={65535} value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} />}</Field>
-        <Field label={t("hw.user")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("hw.user")} autoComplete="off" value={form.utilisateur} onChange={(e) => setForm({ ...form, utilisateur: e.target.value })} />}</Field>
-        <Field label={t("hw.password")} hint={current?.secret_defini ? t("hw.passwordKept") : null}>{(p) => <input {...p} className="nx-inp" aria-label={t("hw.password")} type="password" autoComplete="new-password" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} />}</Field>
-        {form.methode !== "ipmi" && <label className="nx-check"><input type="checkbox" checked={form.tls_non_verifie} onChange={(e) => setForm({ ...form, tls_non_verifie: e.target.checked })} /> {t("hw.tlsInsecure")}</label>}
+        <Field label={t("hw.user")}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("hw.user")} autoComplete="off" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />}</Field>
+        <Field label={t("hw.password")} hint={current?.secret_set ? t("hw.passwordKept") : null}>{(p) => <input {...p} className="nx-inp" aria-label={t("hw.password")} type="password" autoComplete="new-password" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} />}</Field>
+        {form.method !== "ipmi" && <label className="nx-check"><input type="checkbox" checked={form.tls_unverified} onChange={(e) => setForm({ ...form, tls_unverified: e.target.checked })} /> {t("hw.tlsInsecure")}</label>}
       </>}
     </SideDrawer>
   );
@@ -108,7 +108,7 @@ export function FencingCard({ nodes }) {
   useEffect(() => { reload(); }, [reload]);
   const names = ["local", ...nodes.filter((n) => n.id !== "local").map((n) => n.id)];
   const byNode = Object.fromEntries((list || []).map((f) => [f.node, f]));
-  const label = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const label = (id) => nodes.find((n) => n.id === id)?.name || id;
   async function test(node) {
     setBusy(node);
     try { const r = await testFencing(node); setResults({ ...results, [node]: r }); }
@@ -116,7 +116,7 @@ export function FencingCard({ nodes }) {
   }
   async function leases(node) {
     setBusy(node);
-    try { const r = await checkLeases(node); setResults({ ...results, [`${node}:l`]: { ok: r.actif, detail: r.detail } }); }
+    try { const r = await checkLeases(node); setResults({ ...results, [`${node}:l`]: { ok: r.active, detail: r.detail } }); }
     catch (er) { pushToast({ kind: "error", title: t("hw.leasesFailed"), message: errorMessage(er) }); } finally { setBusy(null); }
   }
   async function remove(node) {
@@ -138,9 +138,9 @@ export function FencingCard({ nodes }) {
               return (
                 <tr key={node}>
                   <th scope="row" className="nx-mono">{label(node)}</th>
-                  <td>{f ? <>{t(`hw.m.${f.methode}`)}{f.adresse && <span className="nx-muted nx-mono"> · {f.adresse}</span>}</> : <span className="nx-muted">{t("hw.none")}</span>}</td>
+                  <td>{f ? <>{t(`hw.m.${f.method}`)}{f.address && <span className="nx-muted nx-mono"> · {f.address}</span>}</> : <span className="nx-muted">{t("hw.none")}</span>}</td>
                   <td className="nx-wrapcell">
-                    {r && <div className={r.ok ? "" : "nx-f-h is-error"}>{r.ok && r.alimentation ? t("hw.power", { state: r.alimentation.toUpperCase() }) : r.detail}</div>}
+                    {r && <div className={r.ok ? "" : "nx-f-h is-error"}>{r.ok && r.power ? t("hw.power", { state: r.power.toUpperCase() }) : r.detail}</div>}
                     {l && <div className={l.ok ? "nx-f-h" : "nx-f-h is-error"}>{t("hw.leasesResult", { detail: l.detail })}</div>}
                   </td>
                   <td><div className="nx-ra">

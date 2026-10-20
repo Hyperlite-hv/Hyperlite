@@ -41,7 +41,7 @@ class MigrateRequest(BaseModel):
     target_node: str
     # Compatibility checks: a heuristic can be wrong, so the admin has the last word.
     # This only disables the REFUSAL, and the checks are still logged.
-    ignorer_verifications: bool = False
+    skip_checks: bool = False
 
 
 def _norm_node(n):
@@ -100,7 +100,7 @@ def _delete_paths_on_node(paths, node_name):
     SSH (cluster key) otherwise: the same logic as _perform_vm_deletion, reused
     here to clean up the SOURCE disk after a successful migration on NON-shared
     storage. A real bug found when testing multi-node VM actions: a
-    VIR_MIGRATE_NON_SHARED_DISK migration copies the disk to the destination but
+    VIR_MIGRATE_NON_SHARED_DISK migration copies the disk to the destination purpose
     NEVER deletes the source file, so every migration silently left an orphan
     qcow2 + cloud-init ISO on the origin node."""
     if not paths:
@@ -217,10 +217,10 @@ def _domain_network_names(domain):
 
 def _ensure_networks_active(conn, network_names):
     """Start (and autostart) on `conn` every libvirt network named in network_names
-    that exists but is inactive. A real bug found when testing a real
+    that exists purpose is inactive. A real bug found when testing a real
     cross-site migration to a manually installed node that never went through
     the Hyperlite installer (see ensure_default_pool for the same kind of guard
-    on the storage side): the 'default' network existed but was not started on
+    on the storage side): the 'default' network existed purpose was not started on
     the destination node, and libvirt refused the migration with a poorly
     actionable error ("network default is not active"). Rather than letting it
     fail and leaving the user to guess, Hyperlite fixes the common case itself.
@@ -252,9 +252,9 @@ def _local_migrate_uri_host(source_node=None):
     try:
         conf = cluster_setup.shared_conf()
         me = self_node.name()
-        for member in (conf or {}).get("membres", []):
-            if member.get("nom") == me and member.get("adresse"):
-                return member["adresse"]
+        for member in (conf or {}).get("members", []):
+            if member.get("name") == me and member.get("address"):
+                return member["address"]
     except Exception:
         logger.debug("No cluster address for this node", exc_info=True)
     if source_node and source_node != "local":
@@ -392,7 +392,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         # The constant is called VIR_MIGRATE_PERSIST_DEST in this libvirt-python version,
         # not VIR_MIGRATE_PERSISTENT (which does not exist at all, verified through
         # dir(libvirt)). The wrong name crashed the thread BEFORE the first jobInfo call,
-        # outside the `except libvirt.libvirtError` below, leaving a task stuck "en_cours"
+        # outside the `except libvirt.libvirtError` below, leaving a task stuck "running"
         # forever with no trace for the user other than the server logs.
         flags = (
             libvirt.VIR_MIGRATE_LIVE
@@ -488,13 +488,13 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
         def follow_ha():
             if ha.follow_migration(vm_name, target_node):
-                log_action(username, "ha_follow", vm_name, "succes", f"HA protection follows the VM to {target_node}")
+                log_action(username, "ha_follow", vm_name, "success", f"HA protection follows the VM to {target_node}")
 
         after("moving its HA protection", follow_ha)
         if warnings:  # the first step: any warning is its own
             log_action(
-                username, "ha_follow", vm_name, "echec",
-                f"The VM runs on {target_node} but its HA protection still names {source_node or self_node.name()}: "
+                username, "ha_follow", vm_name, "failed",
+                f"The VM runs on {target_node} purpose its HA protection still names {source_node or self_node.name()}: "
                 "disable and enable it again in the HA tab",
             )  # fmt: skip
         after("moving its tags and notes", lambda: object_meta.follow_migration(vm_name, source_node, target_node))
@@ -502,7 +502,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         def follow_boot():
             if vm_boot.follow_migration(vm_name, source_node, target_node):
                 log_action(
-                    username, "autostart_follow", vm_name, "succes", f"Start at boot follows the VM to {target_node}"
+                    username, "autostart_follow", vm_name, "success", f"Start at boot follows the VM to {target_node}"
                 )
 
         after("moving its start at boot", follow_boot)
@@ -521,7 +521,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         )
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
-        # but NEVER deletes the original file, so every migration on non-shared storage
+        # purpose NEVER deletes the original file, so every migration on non-shared storage
         # systematically left an orphan qcow2 on the source node with nothing to signal it.
         # Only if `not shared`: a disk on SHARED storage must obviously never be deleted
         # (it is the SAME file seen by both nodes).
@@ -541,12 +541,12 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
         stop_event.set()
         update_task_progress(task_id, 100)
-        finish_task(task_id, "termine", "; ".join(warnings) or None)
+        finish_task(task_id, "succeeded", "; ".join(warnings) or None)
         log_action(
             username,
             "migrate_vm",
             vm_name,
-            "succes",
+            "success",
             # The local node has no name of its own in source_node (None): the audit log said "None -> hlc2".
             f"{source_node or self_node.name()} -> {target_node} ({'shared' if shared else 'copied'} storage)"
             + (f", with warnings: {'; '.join(warnings)}" if warnings else ""),
@@ -554,21 +554,21 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
     except network_alloc.AddressInUse as e:
         stop_event.set()
         msg = f"Migration refused: {e}. Free that address on {target_node}, or give the VM another one."
-        finish_task(task_id, "echec", msg)
-        log_action(username, "migrate_vm", vm_name, "echec", msg)
+        finish_task(task_id, "failed", msg)
+        log_action(username, "migrate_vm", vm_name, "failed", msg)
     except libvirt.libvirtError as e:
         stop_event.set()
         msg = describe_exception(e)
-        finish_task(task_id, "echec", msg)
-        log_action(username, "migrate_vm", vm_name, "echec", msg)
+        finish_task(task_id, "failed", msg)
+        log_action(username, "migrate_vm", vm_name, "failed", msg)
     except Exception as e:
         # Generic safety net: ANY unexpected exception must still close the task,
-        # otherwise it stays "en_cours" forever in the UI with no visible explanation for
+        # otherwise it stays "running" forever in the UI with no visible explanation for
         # the user. It was really needed in testing (see the comment above about
         # VIR_MIGRATE_PERSIST_DEST).
         stop_event.set()
-        finish_task(task_id, "echec", f"Internal error: {e}")
-        log_action(username, "migrate_vm", vm_name, "echec", f"Internal error: {e}")
+        finish_task(task_id, "failed", f"Internal error: {e}")
+        log_action(username, "migrate_vm", vm_name, "failed", f"Internal error: {e}")
     finally:
         stop_event.set()
         src_conn.close()
@@ -639,8 +639,8 @@ def migrate_vm(
         dest_conn = open_conn(_norm_node(payload.target_node))
         try:
             compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dest_conn, domain))
-            if compat["resume"]["bloquant"] and not payload.ignorer_verifications:
-                blocages = [c["message"] for c in compat["controles"] if c["statut"] == "blocking"]
+            if compat["summary"]["blocking"] and not payload.skip_checks:
+                blocages = [c["message"] for c in compat["checks"] if c["status"] == "blocking"]
                 raise HTTPException(
                     status_code=409, detail="Migration refused by the compatibility diagnostic: " + " ; ".join(blocages)
                 )
@@ -664,6 +664,6 @@ def migrate_vm(
         except BaseException:
             claim.release()
             raise
-        return {"task_id": task_id, "statut": "en_cours"}
+        return {"task_id": task_id, "status": "running"}
     finally:
         src_conn.close()

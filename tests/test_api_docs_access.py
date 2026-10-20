@@ -5,15 +5,18 @@ cookie is checked against the setting at each page; /docs and /openapi.json are 
 def _open(client, headers):
     r = client.post("/api-docs/ticket", headers=headers)
     assert r.status_code == 200, r.text
-    return client.get(r.json()["url"], follow_redirects=False)
+    return client.get("http://testserver" + r.json()["url"], follow_redirects=False)
 
 
 def test_administrators_open_swagger_by_default_and_nobody_without_the_button(client, auth_headers):
     admin = auth_headers("alice")
-    viewer = auth_headers("olga", role="observateur")
-    assert client.get("/api-docs/acces", headers=viewer).json() == {"acces": "admins", "autorise": False}
+    viewer = auth_headers("olga", role="viewer")
+    assert client.get("/api-docs/access", headers=viewer).json() == {"access": "admins", "allowed": False}
     assert client.post("/api-docs/ticket", headers=viewer).status_code == 403
-    assert client.get("/docs").status_code == 403 and client.get("/openapi.json").status_code == 403
+    assert (
+        client.get("http://testserver/docs").status_code == 403
+        and client.get("http://testserver/openapi.json").status_code == 403
+    )
 
     r = _open(client, admin)
     assert r.status_code == 303 and r.headers["location"] == "/docs"
@@ -23,28 +26,28 @@ def test_administrators_open_swagger_by_default_and_nobody_without_the_button(cl
         and "httponly" in r.headers["set-cookie"].lower()
         and "samesite=strict" in r.headers["set-cookie"].lower()
     )
-    page = client.get("/docs", cookies={"hl_docs": cookie})
+    page = client.get("http://testserver/docs", cookies={"hl_docs": cookie})
     assert page.status_code == 200 and "/swagger/swagger-ui-bundle.js" in page.text  # served here, no CDN
-    schema = client.get("/openapi.json", cookies={"hl_docs": cookie}).json()
-    assert "/vms" in schema["paths"] and "JetonAPI" in schema["components"]["securitySchemes"]
+    schema = client.get("http://testserver/openapi.json", cookies={"hl_docs": cookie}).json()
+    assert "/api/v1/vms" in schema["paths"] and "ApiToken" in schema["components"]["securitySchemes"]
     # "Authorize" takes a user name and password, or an API token.
-    assert {"JetonAPI": []} in schema["paths"]["/vms"]["get"]["security"]
+    assert {"ApiToken": []} in schema["paths"]["/api/v1/vms"]["get"]["security"]
 
 
 def test_a_ticket_is_used_once(client, auth_headers):
     admin = auth_headers("alice")
     url = client.post("/api-docs/ticket", headers=admin).json()["url"]
-    assert client.get(url, follow_redirects=False).status_code == 303
-    assert client.get(url, follow_redirects=False).status_code == 403
+    assert client.get("http://testserver" + url, follow_redirects=False).status_code == 303
+    assert client.get("http://testserver" + url, follow_redirects=False).status_code == 403
 
 
 def test_withdrawing_the_access_cuts_an_open_swagger(client, auth_headers):
     admin = auth_headers("alice")
-    viewer = auth_headers("olga", role="observateur")
-    assert client.put("/api-docs/acces", json={"acces": "tous"}, headers=viewer).status_code == 403
-    client.put("/api-docs/acces", json={"acces": "tous"}, headers=admin)
+    viewer = auth_headers("olga", role="viewer")
+    assert client.put("/api-docs/access", json={"access": "all"}, headers=viewer).status_code == 403
+    client.put("/api-docs/access", json={"access": "all"}, headers=admin)
     cookie = _open(client, viewer).cookies.get("hl_docs")
-    assert client.get("/openapi.json", cookies={"hl_docs": cookie}).status_code == 200
-    client.put("/api-docs/acces", json={"acces": "admins"}, headers=admin)
-    assert client.get("/openapi.json", cookies={"hl_docs": cookie}).status_code == 403
-    assert client.put("/api-docs/acces", json={"acces": "public"}, headers=admin).status_code == 422
+    assert client.get("http://testserver/openapi.json", cookies={"hl_docs": cookie}).status_code == 200
+    client.put("/api-docs/access", json={"access": "admins"}, headers=admin)
+    assert client.get("http://testserver/openapi.json", cookies={"hl_docs": cookie}).status_code == 403
+    assert client.put("/api-docs/access", json={"access": "public"}, headers=admin).status_code == 422

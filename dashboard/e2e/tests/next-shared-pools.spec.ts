@@ -1,4 +1,4 @@
-import { expect, goTo, test, uiLogin } from "../support/fixtures";
+import { expect, goTo, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // Shared storage on several nodes, as on Proxmox. The test host is a single node: a remote node, the creation
@@ -9,9 +9,9 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
-    const path = new URL(req.url()).pathname;
-    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "en_ligne" }]);
-    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0 });
+    const path = apiRoute(req.url());
+    if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [{ id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" }]);
+    if (req.method() === "GET" && /\/nodes\/peer\/summary$/.test(path)) return json(route, { connected: true, vms_running: 0, vms_stopped: 0 });
     return route.fallback();
   });
   await page.route("**/storage/support", (route) => json(route, { nfs: "ok", zfs: "ok", iscsi: "ok", iscsi_initiator: null }));
@@ -19,9 +19,9 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
   await page.route(/\/storage(\?.*)?$/, async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     sent.push(route.request().postDataJSON());
-    return json(route, { nom: "nas", partage: true, tous_les_noeuds: true, resultats: [
-      { noeud: "local", etat: "cree", detail: null, avertissement: null },
-      { noeud: "peer", etat: "echec", detail: "mount.nfs: access denied by server", avertissement: null },
+    return json(route, { name: "nas", shared: true, all_nodes: true, results: [
+      { node: "local", state: "created", detail: null, warning: null },
+      { node: "peer", state: "failed", detail: "mount.nfs: access denied by server", warning: null },
     ] }, 201);
   });
   await uiLogin(page);
@@ -45,5 +45,5 @@ test("an NFS pool goes on every node by default, each node's outcome is shown, a
   await expect(page.getByText("Pool nas created on 1 node(s)")).toBeVisible();
   await expect(page.getByText("Failed on 1 node(s)")).toBeVisible();
   await expect(page.getByText(/access denied by server/).first()).toBeVisible();
-  expect(sent[0]).toMatchObject({ name: "nas", type: "netfs", tous_les_noeuds: true });
+  expect(sent[0]).toMatchObject({ name: "nas", type: "netfs", all_nodes: true });
 });

@@ -70,7 +70,7 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
     await goTo(page, "ISO images and templates");
     await page.getByLabel("ISO image file").setInputFiles({ name: file, mimeType: "application/octet-stream", buffer: Buffer.alloc(4096, 1) });
     await expect(page.getByRole("button", { name: `Delete ISO ${file}` })).toBeVisible();
-    expect(await listNames(request, "/isos", "nom")).toContain(file);
+    expect(await listNames(request, "/isos", "name")).toContain(file);
     await page.reload();
     await expect(page.getByRole("button", { name: `Delete ISO ${file}` })).toBeVisible();
 
@@ -79,7 +79,7 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
     };
     await confirmDeletion(page, trigger, file, /^Delete$/);
     await expect(page.getByRole("button", { name: `Delete ISO ${file}` })).toHaveCount(0);
-    expect(await listNames(request, "/isos", "nom")).not.toContain(file);
+    expect(await listNames(request, "/isos", "name")).not.toContain(file);
   });
 });
 
@@ -87,7 +87,7 @@ test.afterAll(async ({ request }) => {
   // Remove anything left behind by a failed run: only resources created by these tests (prefix).
   for (const [path, key, del] of [
     ["/groups", "name", "/groups/"],
-    ["/isos", "nom", "/isos/"],
+    ["/isos", "name", "/isos/"],
   ] as const) {
     const res = await request.get(path, { headers: auth() });
     if (!res.ok()) continue;

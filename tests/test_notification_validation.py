@@ -107,5 +107,5 @@ def test_an_edit_is_validated_like_a_creation(client, auth_headers):
 def test_only_administrators_edit_a_channel(client, auth_headers):
     admin = auth_headers("admin")
     channel_id, _ = _email_channel(client, admin)
-    viewer = auth_headers("olga", role="observateur")
+    viewer = auth_headers("olga", role="viewer")
     assert client.patch(f"/notifications/channels/{channel_id}", headers=viewer, json={"name": "x"}).status_code == 403

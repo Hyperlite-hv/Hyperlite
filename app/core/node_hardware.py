@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 
 PROBE_SCRIPT = r"""
 # The tools' own field names are parsed: in the host's language, lscpu said "Socket(s)\u00a0:" and "Thread(s) par
-# coeur" on a French host, and no CPU topology was found (the node page showed its 12 threads as "12 cores").
+# core" on a French host, and no CPU topology was found (the node page showed its 12 threads as "12 cores").
 export LC_ALL=C
 echo '@@links'
 for i in /sys/class/net/*; do
   n=$(basename "$i"); [ "$n" = lo ] && continue
   kind=virtuel
-  [ -e "$i/device" ] && kind=physique
-  [ -d "$i/bridge" ] && kind=pont
+  [ -e "$i/device" ] && kind=physical
+  [ -d "$i/bridge" ] && kind=bridge
   [ -d "$i/wireless" ] && kind=wifi
   [ -e "/proc/net/vlan/$n" ] && kind=vlan
   echo "$n|$(cat "$i/operstate" 2>/dev/null)|$(cat "$i/address" 2>/dev/null)|$(cat "$i/mtu" 2>/dev/null)|$(cat "$i/speed" 2>/dev/null)|$kind"
@@ -79,14 +79,14 @@ def parse(text):
         name, state, mac, mtu, speed, kind = parts
         interfaces.append(
             {
-                "nom": name,
-                "etat": state or "inconnu",
+                "name": name,
+                "state": state or "unknown",
                 "type": kind,
                 "mac": mac or None,
                 "mtu": int(mtu) if mtu.isdigit() else None,
                 # The kernel reports -1 (or nothing) when the link is down or the driver does not know.
-                "debit_mbps": int(speed) if speed.isdigit() and int(speed) > 0 else None,
-                "adresses": addresses.get(name, []),
+                "throughput_mbps": int(speed) if speed.isdigit() and int(speed) > 0 else None,
+                "addresses": addresses.get(name, []),
             }
         )
 
@@ -94,7 +94,7 @@ def parse(text):
     for line in s.get("smart", "").splitlines():
         name, _, verdict = line.partition("|")
         v = verdict.strip().upper()
-        health[name] = "ok" if v in ("PASSED", "OK") else ("echec" if v else None)
+        health[name] = "ok" if v in ("PASSED", "OK") else ("failed" if v else None)
     disks = []
     for dev in (_json(s.get("lsblk", "")) or {}).get("blockdevices", []):
         if dev.get("type") != "disk":
@@ -104,12 +104,12 @@ def parse(text):
         size = dev.get("size")
         disks.append(
             {
-                "nom": dev.get("name"),
-                "modele": (dev.get("model") or "").strip() or None,
+                "name": dev.get("name"),
+                "model": (dev.get("model") or "").strip() or None,
                 "type": kind,
-                "taille_go": round(int(size) / 1024**3, 1) if size is not None and str(size).isdigit() else None,
-                "sante": health.get(dev.get("name")),
-                "points_montage": sorted(set(_mounts(dev))),
+                "size_gb": round(int(size) / 1024**3, 1) if size is not None and str(size).isdigit() else None,
+                "health": health.get(dev.get("name")),
+                "mount_points": sorted(set(_mounts(dev))),
             }
         )
 
@@ -122,14 +122,14 @@ def parse(text):
             return int(v) if v and str(v).isdigit() else None
 
         cpu = {
-            "modele": fields.get("Model name"),
+            "model": fields.get("Model name"),
             "sockets": _int("Socket(s)"),
-            "coeurs_par_socket": _int("Core(s) per socket"),
-            "threads_par_coeur": _int("Thread(s) per core"),
+            "cores_per_socket": _int("Core(s) per socket"),
+            "threads_per_core": _int("Thread(s) per core"),
             "threads": _int("CPU(s)"),
-            "virtualisation": fields.get("Virtualization"),
+            "virtualization": fields.get("Virtualization"),
         }
-    return {"interfaces": interfaces, "disques": disks, "cpu": cpu}
+    return {"interfaces": interfaces, "disks": disks, "cpu": cpu}
 
 
 def get_hardware(node=None):

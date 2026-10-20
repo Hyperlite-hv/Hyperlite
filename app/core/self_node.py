@@ -95,28 +95,28 @@ def migrate(db):
     under it. A leftover "local" row replaces a row that already names the node (it is the newer one)."""
     global _name
     forced = (os.environ.get("HYPERLITE_NODE_NAME") or "").strip().lower()
-    row = db.execute("SELECT valeur FROM app_settings WHERE cle = ?", (SETTING,)).fetchone()
+    row = db.execute("SELECT value FROM app_settings WHERE key = ?", (SETTING,)).fetchone()
     own = forced or (row[0] if row else None) or _from_hostname()
     if not row:
-        db.execute("INSERT INTO app_settings (cle, valeur) VALUES (?, ?)", (SETTING, own))
+        db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)", (SETTING, own))
     for table, column, where in _NODE_COLUMNS:
         # Names come from the list above, values are bound.
         db.execute(
             f"UPDATE OR REPLACE {table} SET {column} = ? WHERE {column} = 'local'{where}",  # noqa: S608
             (own,),
         )
-    for nom, noeuds in db.execute("SELECT nom, noeuds FROM shared_pools").fetchall():
+    for name, noeuds in db.execute("SELECT name, nodes FROM shared_pools").fetchall():
         nodes = json.loads(noeuds or "[]")
         if LOCAL in nodes:
             fixed = sorted({own if n == LOCAL else n for n in nodes})
-            db.execute("UPDATE shared_pools SET noeuds = ? WHERE nom = ?", (json.dumps(fixed), nom))
+            db.execute("UPDATE shared_pools SET nodes = ? WHERE name = ?", (json.dumps(fixed), name))
     # The tasks are this node's own history. Before the node had a name of its own they recorded the host name
     # libvirt gave (it changes with the host: "hyperlite.home", then "antho"), "local" or nothing, so the node's
     # pages showed none of them. Once: every task that names no registered node is this node's.
-    if not db.execute("SELECT 1 FROM app_settings WHERE cle = ?", (TASKS_SETTING,)).fetchone():
+    if not db.execute("SELECT 1 FROM app_settings WHERE key = ?", (TASKS_SETTING,)).fetchone():
         known = [r[0] for r in db.execute("SELECT name FROM nodes")] + [own]
         marks = ",".join("?" * len(known))
         db.execute(f"UPDATE tasks SET node = ? WHERE node IS NULL OR node NOT IN ({marks})", (own, *known))  # noqa: S608
-        db.execute("INSERT INTO app_settings (cle, valeur) VALUES (?, '1')", (TASKS_SETTING,))
+        db.execute("INSERT INTO app_settings (key, value) VALUES (?, '1')", (TASKS_SETTING,))
     with _lock:
         _name = None if forced else own

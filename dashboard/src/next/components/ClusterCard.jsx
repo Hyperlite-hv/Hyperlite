@@ -28,8 +28,8 @@ export default function ClusterCard() {
   const [state, setState] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [create, setCreate] = useState({ nom: "", adresse: "" });
-  const [join, setJoin] = useState({ information: "", adresse: "", confirmation: "" });
+  const [create, setCreate] = useState({ name: "", address: "" });
+  const [join, setJoin] = useState({ information: "", address: "", confirmation: "" });
   const [info, setInfo] = useState(null);
   const load = () => fetchCluster().then((r) => { setState(r); setError(null); }).catch((e) => setError(errorMessage(e)));
   useEffect(() => { load(); }, []);
@@ -49,8 +49,8 @@ export default function ClusterCard() {
 
   async function onCreate(e) {
     e.preventDefault();
-    if (!(await confirmAction({ title: t("cl.createTitle", { name: create.nom }), message: t("cl.createMsg"), confirmLabel: t("cl.create"), danger: false }))) return;
-    await run(() => createCluster(create), () => ({ title: t("cl.created", { name: create.nom }) }));
+    if (!(await confirmAction({ title: t("cl.createTitle", { name: create.name }), message: t("cl.createMsg"), confirmLabel: t("cl.create"), danger: false }))) return;
+    await run(() => createCluster(create), () => ({ title: t("cl.created", { name: create.name }) }));
   }
 
   async function onJoin(e) {
@@ -58,7 +58,7 @@ export default function ClusterCard() {
     const name = clusterOf(join.information);
     if (!(await confirmAction({ title: t("cl.joinTitle", { name }), message: t("cl.joinMsg"), confirmLabel: t("cl.join") }))) return;
     const done = await run(() => joinCluster(join), () => ({ title: t("cl.joined", { name }), message: t("cl.joinedMsg") }));
-    if (done) setJoin({ information: "", adresse: "", confirmation: "" });
+    if (done) setJoin({ information: "", address: "", confirmation: "" });
   }
 
   async function onInformation() {
@@ -68,40 +68,40 @@ export default function ClusterCard() {
 
   // The primary node keeps the quorum alone with one other node: that node never makes it read-only.
   async function onPrimary(member) {
-    const unset = member.voix > 1;
-    const title = t(unset ? "cl.unsetPrimaryTitle" : "cl.primaryTitle", { name: member.nom });
-    if (!(await confirmAction({ title, message: t(unset ? "cl.unsetPrimaryMsg" : "cl.primaryMsg", { name: member.nom }), confirmLabel: t(unset ? "cl.unsetPrimary" : "cl.makePrimary") }))) return;
-    await run(() => setClusterPrimary(unset ? null : member.nom), () => ({ title: t(unset ? "cl.unsetPrimaryDone" : "cl.primaryDone", { name: member.nom }) }));
+    const unset = member.votes > 1;
+    const title = t(unset ? "cl.unsetPrimaryTitle" : "cl.primaryTitle", { name: member.name });
+    if (!(await confirmAction({ title, message: t(unset ? "cl.unsetPrimaryMsg" : "cl.primaryMsg", { name: member.name }), confirmLabel: t(unset ? "cl.unsetPrimary" : "cl.makePrimary") }))) return;
+    await run(() => setClusterPrimary(unset ? null : member.name), () => ({ title: t(unset ? "cl.unsetPrimaryDone" : "cl.primaryDone", { name: member.name }) }));
   }
 
   async function onRemove(member) {
-    if (!(await confirmAction({ title: t("cl.removeTitle", { name: member.nom }), message: t("cl.removeMsg"), confirmLabel: t("cl.remove") }))) return;
-    await run(() => removeClusterMember(member.nom), () => ({ title: t("cl.removed", { name: member.nom }) }));
+    if (!(await confirmAction({ title: t("cl.removeTitle", { name: member.name }), message: t("cl.removeMsg"), confirmLabel: t("cl.remove") }))) return;
+    await run(() => removeClusterMember(member.name), () => ({ title: t("cl.removed", { name: member.name }) }));
   }
 
   if (error && !state) return <Card title={t("cl.title")}><InlineError message={error} onRetry={load} /></Card>;
   if (!state) return null;
   const joinName = clusterOf(join.information);
 
-  if (state.en_cluster) {
+  if (state.in_cluster) {
     return (
-      <Card title={t("cl.inCluster", { name: state.nom ?? "…" })}>
-        {state.erreur && <div className="nx-bn" data-tone="danger" role="alert">{state.erreur}</div>}
+      <Card title={t("cl.inCluster", { name: state.name ?? "…" })}>
+        {state.error && <div className="nx-bn" data-tone="danger" role="alert">{state.error}</div>}
         <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t(state.quorum ? "cl.quorate" : "cl.noQuorum")}</p>
         <TableWrap label={t("cl.members")}>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("cl.member")}</th><th scope="col">{t("cl.nodeid")}</th><th scope="col">{t("cl.address")}</th><th scope="col">{t("cl.votes")}</th><th scope="col"><span className="nx-sr">{t("cl.actions")}</span></th></tr></thead>
             <tbody>
-              {state.membres.map((m) => (
-                <tr key={m.nom}>
-                  <th scope="row">{m.nom}{m.nom === state.noeud && <span className="nx-f-h"> — {t("cl.thisNode")}</span>}</th>
+              {state.members.map((m) => (
+                <tr key={m.name}>
+                  <th scope="row">{m.name}{m.name === state.node && <span className="nx-f-h"> — {t("cl.thisNode")}</span>}</th>
                   <td>{m.nodeid}</td>
-                  <td className="nx-mono">{m.adresse}</td>
-                  <td>{m.voix > 1 ? <span className="nx-chip" data-tone="info" title={t("cl.primaryHelp")}><Star size={12} aria-hidden="true" /> {t("cl.primary")} · {m.voix}</span> : (m.voix ?? 1)}</td>
+                  <td className="nx-mono">{m.address}</td>
+                  <td>{m.votes > 1 ? <span className="nx-chip" data-tone="info" title={t("cl.primaryHelp")}><Star size={12} aria-hidden="true" /> {t("cl.primary")} · {m.votes}</span> : (m.votes ?? 1)}</td>
                   <td><div className="nx-ra">
-                    <button type="button" className="nx-btn" disabled={busy} onClick={() => onPrimary(m)}>{t(m.voix > 1 ? "cl.unsetPrimary" : "cl.makePrimary")}</button>
-                    {m.nom !== state.noeud && (
-                    <button type="button" className="nx-btn" disabled={busy} onClick={() => onRemove(m)} aria-label={t("cl.removeLabel", { name: m.nom })}><Trash2 size={15} aria-hidden="true" />{t("cl.remove")}</button>
+                    <button type="button" className="nx-btn" disabled={busy} onClick={() => onPrimary(m)}>{t(m.votes > 1 ? "cl.unsetPrimary" : "cl.makePrimary")}</button>
+                    {m.name !== state.node && (
+                    <button type="button" className="nx-btn" disabled={busy} onClick={() => onRemove(m)} aria-label={t("cl.removeLabel", { name: m.name })}><Trash2 size={15} aria-hidden="true" />{t("cl.remove")}</button>
                     )}
                   </div></td>
                 </tr>
@@ -128,22 +128,22 @@ export default function ClusterCard() {
   return (
     <Card title={t("cl.title")}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t("cl.intro")}</p>
-      {!state.corosync_installe && <div className="nx-bn" data-tone="warning" role="note">{t("cl.noCorosync")}</div>}
+      {!state.corosync_installed && <div className="nx-bn" data-tone="warning" role="note">{t("cl.noCorosync")}</div>}
       <div className="nx-formgrid">
         <form className="nx-form" onSubmit={onCreate} aria-labelledby="cl-create">
           <h3 id="cl-create" className="nx-f-label">{t("cl.createHeading")}</h3>
-          <label>{t("cl.name")}<input className="nx-input" value={create.nom} maxLength={15} onChange={(e) => setCreate({ ...create, nom: e.target.value })} placeholder="prod" autoComplete="off" /></label>
-          <label>{t("cl.addressOfThisNode")}<input className="nx-input nx-mono" value={create.adresse} onChange={(e) => setCreate({ ...create, adresse: e.target.value })} placeholder="192.0.2.10" autoComplete="off" /></label>
+          <label>{t("cl.name")}<input className="nx-input" value={create.name} maxLength={15} onChange={(e) => setCreate({ ...create, name: e.target.value })} placeholder="prod" autoComplete="off" /></label>
+          <label>{t("cl.addressOfThisNode")}<input className="nx-input nx-mono" value={create.address} onChange={(e) => setCreate({ ...create, address: e.target.value })} placeholder="192.0.2.10" autoComplete="off" /></label>
           <p className="nx-f-h">{t("cl.addressHelp")}</p>
-          <div><button type="submit" className="nx-btn nx-btn--primary" disabled={busy || !state.corosync_installe || !create.nom || !create.adresse}><Network size={15} aria-hidden="true" />{t("cl.create")}</button></div>
+          <div><button type="submit" className="nx-btn nx-btn--primary" disabled={busy || !state.corosync_installed || !create.name || !create.address}><Network size={15} aria-hidden="true" />{t("cl.create")}</button></div>
         </form>
         <form className="nx-form" onSubmit={onJoin} aria-labelledby="cl-join">
           <h3 id="cl-join" className="nx-f-label">{t("cl.joinHeading")}</h3>
           <label>{t("cl.informationLabel")}<textarea className="nx-input nx-mono" rows={4} value={join.information} onChange={(e) => setJoin({ ...join, information: e.target.value })} spellCheck={false} /></label>
-          <label>{t("cl.addressOfThisNode")}<input className="nx-input nx-mono" value={join.adresse} onChange={(e) => setJoin({ ...join, adresse: e.target.value })} placeholder="192.0.2.11" autoComplete="off" /></label>
+          <label>{t("cl.addressOfThisNode")}<input className="nx-input nx-mono" value={join.address} onChange={(e) => setJoin({ ...join, address: e.target.value })} placeholder="192.0.2.11" autoComplete="off" /></label>
           <div className="nx-notice nx-notice--warning" role="note">{t("cl.joinWarning")}</div>
           <label>{joinName ? t("cl.typeName", { name: joinName }) : t("cl.typeNameWait")}<input className="nx-input nx-mono" value={join.confirmation} onChange={(e) => setJoin({ ...join, confirmation: e.target.value })} autoComplete="off" spellCheck={false} /></label>
-          <div><button type="submit" className="nx-btn nx-btn--danger" disabled={busy || !state.corosync_installe || !joinName || !join.adresse || join.confirmation.trim() !== joinName}><UserPlus size={15} aria-hidden="true" />{t("cl.join")}</button></div>
+          <div><button type="submit" className="nx-btn nx-btn--danger" disabled={busy || !state.corosync_installed || !joinName || !join.address || join.confirmation.trim() !== joinName}><UserPlus size={15} aria-hidden="true" />{t("cl.join")}</button></div>
         </form>
       </div>
     </Card>

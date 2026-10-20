@@ -15,7 +15,7 @@ export const useMetaStore = create((set, get) => ({
     try {
       const list = await fetchMetaList();
       const byKey = {};
-      for (const m of Array.isArray(list) ? list : []) byKey[keyOf(m.kind, m.node, m.nom)] = m;
+      for (const m of Array.isArray(list) ? list : []) byKey[keyOf(m.kind, m.node, m.name)] = m;
       set({ byKey, loaded: true, loading: false });
     } catch {
       set({ loading: false, loaded: true });

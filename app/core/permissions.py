@@ -1,5 +1,5 @@
 """Granular permissions, Proxmox-style: user groups + VM pools + scoped roles +
-assignments (ACLs), on top of the two existing global roles (admin/observateur,
+assignments (ACLs), on top of the two existing global roles (admin/viewer,
 see app/core/security.py, unchanged).
 
 Principle: additive only. An admin remains admin everywhere and an observer
@@ -42,15 +42,15 @@ ALL_PRIVILEGES = {
 }
 
 # Predefined, scoped roles that can be assigned through an ACL (distinct from
-# the global admin/observateur roles): convenient shortcuts over the same
+# the global admin/viewer roles): convenient shortcuts over the same
 # privilege catalog as the custom roles below, not a separate mechanism.
 ROLES = {
-    "lecteur": {
+    "drive": {
         "label": "Reader",
         "description": "View (state, metrics, journal) on the assigned resource.",
         "privileges": {"vm.view", "container.view"},
     },
-    "operateur": {
+    "operator": {
         "label": "Operator",
         "description": "Start / stop / restart, graphical console, SSH terminal and workstation tunnel, on the assigned resource.",
         "privileges": {
@@ -63,7 +63,7 @@ ROLES = {
             "container.console",
         },
     },
-    "gestionnaire": {
+    "manager": {
         "label": "Manager",
         "description": "Operator + snapshots, CPU/RAM/disk resizing, hardware (disks/network), options (start at boot, notes, tags), without creating or deleting VMs.",
         "privileges": {
@@ -85,7 +85,7 @@ ROLES = {
 
 
 # ---- Custom roles ----
-# Same principle as the predefined roles above, but the privilege set is chosen
+# Same principle as the predefined roles above, purpose the privilege set is chosen
 # freely (see ALL_PRIVILEGES). They are identified in acl.role by the string
 # "custom:<id>" so they can never collide with the keys of the predefined roles.
 
@@ -221,7 +221,7 @@ def list_acl():
     pools = {p["id"]: p["name"] for p in list_pools()}
     for a in acl:
         if a["subject_type"] == "group":
-            a["subject_label"] = groups.get(int(a["subject_id"]), f"groupe#{a['subject_id']}")
+            a["subject_label"] = groups.get(int(a["subject_id"]), f"group#{a['subject_id']}")
         else:
             a["subject_label"] = a["subject_id"]
         if a["resource_type"] == "pool":
@@ -233,9 +233,9 @@ def list_acl():
 
 def acl_for_object(resource_type, resource_id):
     """Assignments that give rights on one VM or container: its own, then (VMs only) those of the pools that
-    contain it, each with `herite_de` naming the pool so the page can say where the right comes from."""
+    contain it, each with `inherited_from` naming the pool so the page can say where the right comes from."""
     entries = [
-        dict(a, herite_de=None)
+        dict(a, inherited_from=None)
         for a in list_acl()
         if a["resource_type"] == resource_type and a["resource_id"] == resource_id
     ]
@@ -243,7 +243,7 @@ def acl_for_object(resource_type, resource_id):
         pools = {p["id"]: p["name"] for p in list_pools() if resource_id in p["vms"]}
         for a in list_acl():
             if a["resource_type"] == "pool" and a["resource_id"].isdigit() and int(a["resource_id"]) in pools:
-                entries.append(dict(a, herite_de=pools[int(a["resource_id"])]))
+                entries.append(dict(a, inherited_from=pools[int(a["resource_id"])]))
     return entries
 
 
@@ -273,11 +273,11 @@ def delete_acl_for_user(username):
 
 def has_privilege(user, vm_name, privilege):
     """True if `user` has the requested privilege on `vm_name`, through their global
-    role (admin/observateur) OR an ACL (direct or through a group) on this VM
+    role (admin/viewer) OR an ACL (direct or through a group) on this VM
     OR on a pool that contains it."""
     if user["role"] == "admin":
         return True
-    if user["role"] == "observateur" and privilege in {"vm.view", "vm.console"}:
+    if user["role"] == "viewer" and privilege in {"vm.view", "vm.console"}:
         return True  # unchanged historical behaviour: read + VNC console at the global read level (not the SSH terminal, which was already admin-only before this system)
 
     group_ids = set(get_user_groups(user["username"]))
@@ -303,14 +303,14 @@ def has_privilege(user, vm_name, privilege):
 
 def has_container_privilege(user, container_name, privilege):
     """Equivalent of has_privilege() for LXC containers: the same role catalog
-    (lecteur/operateur/gestionnaire/custom), with resource_type='container' in
+    (drive/operator/manager/custom), with resource_type='container' in
     the ACL instead of 'vm'. There is NO grouping by pool for containers in
     this first pass (the pools of app/routers/pools.py are a VM-only concept,
     "VM added to the pool"): a known limitation, documented rather than
     silently absent."""
     if user["role"] == "admin":
         return True
-    if user["role"] == "observateur" and privilege == "container.view":
+    if user["role"] == "viewer" and privilege == "container.view":
         return True  # same principle as vm.view: global read access for observers, not the terminal
 
     group_ids = set(get_user_groups(user["username"]))

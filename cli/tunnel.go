@@ -42,7 +42,7 @@ func dialTunnel(ctx context.Context, s *server, vm string, port int) (net.Conn, 
 	if err := call(s, "POST", "/vms/"+url.PathEscape(vm)+"/tunnel-ticket", map[string]int{"port": port}, &ticket); err != nil {
 		return nil, err
 	}
-	wsURL := strings.Replace(s.URL, "http", "ws", 1) + "/vms/" + url.PathEscape(vm) + "/tunnel?ticket=" + url.QueryEscape(ticket.Ticket)
+	wsURL := strings.Replace(s.URL, "http", "ws", 1) + apiPrefix + "/vms/" + url.PathEscape(vm) + "/tunnel?ticket=" + url.QueryEscape(ticket.Ticket)
 	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	c, _, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{

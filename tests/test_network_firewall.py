@@ -80,7 +80,7 @@ def test_rules_are_stateful_ordered_and_end_with_the_default_policy():
 def test_applying_puts_our_chain_first_in_forward_and_rebuilds_it(iptables, database):
     iptables.chains["FORWARD"] = [["-j", "LIBVIRT_FWX"]]
     result = fw.apply_network_firewall(Conn(), "lab", CONFIG)
-    assert result == {"pont": "virbr7", "regles_appliquees": 2}
+    assert result == {"bridge": "virbr7", "applied_rules": 2}
     assert iptables.chains["FORWARD"][0] == ["-j", fw.UMBRELLA_CHAIN]  # evaluated before libvirt's chains
     chain = fw._chain_name("lab")
     assert iptables.chains[chain] == fw._build_rule_specs("virbr7", CONFIG)

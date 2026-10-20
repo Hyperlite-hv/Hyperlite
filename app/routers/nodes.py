@@ -22,6 +22,7 @@ from app.core.cluster import (
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_remote_capabilities
 from app.core.libvirt_utils import open_conn
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.core.tasks import (
     cancel_requested,
@@ -57,11 +58,11 @@ async def _require(name):
 @router.get("")
 async def list_nodes(user: dict = Depends(get_current_user)):
     """Registered remote nodes, each with its latest live figures ("live", None until the
-    metrics collector has reached it once). "membre": a member of this node's cluster (it runs Hyperlite and keeps
+    metrics collector has reached it once). "member": a member of this node's cluster (it runs Hyperlite and keeps
     its own backups and history, app/core/cluster_view.py), not a node driven over SSH only."""
     nodes = await node_service.list_with_live()
     members = {n["name"] for n in await run_in_threadpool(cluster_view.members)}
-    return [{**n, "membre": n["name"] in members} for n in nodes]
+    return listing([{**n, "member": n["name"] in members} for n in nodes])
 
 
 class NodeTest(BaseModel):
@@ -77,7 +78,7 @@ def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
     if not HOST_RE.match(payload.hostname) or not USER_RE.match(payload.ssh_user):
         raise HTTPException(status_code=422, detail="Invalid address or SSH user")
     ok, detail = test_node_connection(payload.hostname, payload.ssh_user, payload.ssh_port)
-    log_action(user["username"], "test_node", payload.hostname, "succes" if ok else "echec", None if ok else detail)
+    log_action(user["username"], "test_node", payload.hostname, "success" if ok else "failed", None if ok else detail)
     # The raw libvirt/SSH error stays in the audit log; the browser gets a fixed reason.
     if ok:
         return {"ok": True, "detail": payload.hostname}
@@ -143,13 +144,13 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     try:
         from app.routers.storage import apply_shared_pools
 
-        node = {**node, "pools_partages": apply_shared_pools(payload.name, user["username"])}
+        node = {**node, "shared_pools": apply_shared_pools(payload.name, user["username"])}
     except Exception:
         logger.warning("Shared storage not applied to the new node %s", payload.name, exc_info=True)
     # Compatibility diagnostic from the local host to the new node: informational, it
     # never cancels the registration.
     try:
-        node = {**node, "compatibilite": _compat_with_local(payload.name)}
+        node = {**node, "compatibility": _compat_with_local(payload.name)}
     except Exception:
         logger.warning("Compatibility diagnostic for the new node is unavailable", exc_info=True)
     return node
@@ -169,8 +170,8 @@ def config_copy_now(user: dict = Depends(require_role("admin"))):
     from app.core import config_copy
 
     results = config_copy.copy_now(force=True, username=user["username"])
-    log_action(user["username"], "config_copy", "cluster", "succes", f"{len(results)} node(s)")
-    return {"resultats": results, "copies": config_copy.status()}
+    log_action(user["username"], "config_copy", "cluster", "success", f"{len(results)} node(s)")
+    return {"results": results, "copies": config_copy.status()}
 
 
 @router.get("/{name}/summary")
@@ -273,7 +274,7 @@ async def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depend
         raise HTTPException(status_code=409, detail=f"Node '{name}' is busy ({', '.join(busy)}): try again later")
     await run_in_threadpool(renaming.node_records, name, new)
     await run_in_threadpool(rename_reverse_trust, name, new)
-    log_action(user["username"], "rename_node", name, "succes", f"-> {new}")
+    log_action(user["username"], "rename_node", name, "success", f"-> {new}")
     return await node_service.wire_with_live(new)
 
 
@@ -326,7 +327,7 @@ def _plan(source, target):
 
 @router.get("/maintenance")
 def list_maintenance(user: dict = Depends(get_current_user)):
-    return maintenance.list_all()
+    return listing(maintenance.list_all())
 
 
 @router.get("/{name}/drain-plan")
@@ -371,7 +372,7 @@ def _drain_job(parent_id, username, source, target, names):
                     task_log(parent_id, f"Migrating {vm_name} ({i + 1}/{len(names)})")
                     _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
                     current.pop("task", None)
-                if task_status(task_id) != "termine":
+                if task_status(task_id) != "succeeded":
                     failed.append(vm_name)
             update_task_progress(parent_id, int((i + 1) * 100 / len(names)))
     except Exception as e:
@@ -388,8 +389,8 @@ def _drain_job(parent_id, username, source, target, names):
         why = "drain cancelled" if cancel_requested(parent_id) else "maintenance ended"
         summary += f"; not started ({why}): {', '.join(not_started)}"
     ok = not failed and not not_started
-    finish_task(parent_id, "termine" if ok else "echec", None if ok else summary)
-    log_action(username, "drain_node", source, "succes" if ok else "echec", summary)
+    finish_task(parent_id, "succeeded" if ok else "failed", None if ok else summary)
+    log_action(username, "drain_node", source, "success" if ok else "failed", summary)
 
 
 @router.post("/{name}/maintenance", status_code=202)
@@ -409,11 +410,11 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
             result = _plan(source, target)
         except HTTPException as e:
             # A node that is down is still worth marking: it must not become a migration or HA target.
-            log_action(user["username"], "enter_maintenance", source, "succes", "node unreachable, nothing migrated")
+            log_action(user["username"], "enter_maintenance", source, "success", "node unreachable, nothing migrated")
             raise HTTPException(
-                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, but no VM was migrated"
+                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, purpose no VM was migrated"
             ) from e
-        if result["migrables"]:
+        if result["migratable"]:
             task_id = create_task("drain_node", source, node=source, username=user["username"])
     finally:
         if task_id is None:
@@ -425,12 +426,12 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
         user["username"],
         "enter_maintenance",
         source,
-        "succes",
-        f"target {target or 'none'}; to migrate: {len(result['migrables'])}; staying: {len(result['non_migrables'])}",
+        "success",
+        f"target {target or 'none'}; to migrate: {len(result['migratable'])}; staying: {len(result['not_migratable'])}",
     )
     if task_id:
-        _run_in_background(_drain_job, task_id, user["username"], source, target, result["migrables"])
-    return {"node": source, "en_maintenance": True, "task_id": task_id, **result}
+        _run_in_background(_drain_job, task_id, user["username"], source, target, result["migratable"])
+    return {"node": source, "in_maintenance": True, "task_id": task_id, **result}
 
 
 @router.delete("/{name}/maintenance")
@@ -438,5 +439,5 @@ def leave_maintenance(name: str, user: dict = Depends(require_role("admin"))):
     source = maintenance.label(name)
     if not maintenance.leave(source):
         raise HTTPException(status_code=404, detail=f"Node '{source}' is not in maintenance")
-    log_action(user["username"], "leave_maintenance", source, "succes")
-    return {"node": source, "en_maintenance": False}
+    log_action(user["username"], "leave_maintenance", source, "success")
+    return {"node": source, "in_maintenance": False}

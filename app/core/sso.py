@@ -10,11 +10,11 @@ app/core/security.py for Hyperlite session JWTs) to validate the signature of
 the ID token returned by the IdP.
 
 Role mapping: the role model of this project is BINARY at the global level
-(`users.role` is only 'admin' or 'observateur', see app/core/database.py;
+(`users.role` is only 'admin' or 'viewer', see app/core/database.py;
 fine-grained access goes through the ACLs, groups and custom roles of
 app/core/permissions.py, not through this global role). An SSO account gets
 'admin' if one of its IdP groups (configurable claim name, default "groups")
-is in the "admin groups" list configured in Hyperlite, and 'observateur' (the
+is in the "admin groups" list configured in Hyperlite, and 'viewer' (the
 most restrictive) otherwise. The role is RE-RESOLVED on EVERY SSO login, not
 only when the account is created: a user removed from the admin group on the
 IdP side loses Hyperlite admin rights at the next login instead of staying an
@@ -243,9 +243,9 @@ def validate_id_token(config, discovery_doc, id_token, nonce):
 def resolve_role(config, claims):
     admin_groups = {g.strip() for g in (config.get("admin_groups") or "").split(",") if g.strip()}
     if not admin_groups:
-        return "observateur"
+        return "viewer"
     user_groups = set(claims.get(config.get("group_claim") or "groups") or [])
-    return "admin" if user_groups & admin_groups else "observateur"
+    return "admin" if user_groups & admin_groups else "viewer"
 
 
 def resolve_username(claims):

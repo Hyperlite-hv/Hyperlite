@@ -57,24 +57,24 @@ def test_import_installs_the_pair_keeps_the_previous_and_restarts(client, auth_h
     signed, signed_key = _pem_pair(issuer_key=ca_key, issuer_cn="Test CA")
 
     admin = auth_headers("root", "admin")
-    r = client.post("/host/certificate", json={"certificat": signed, "cle": signed_key, "chaine": chain}, headers=admin)
+    r = client.post("/host/certificate", json={"certificate": signed, "key": signed_key, "chain": chain}, headers=admin)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert (body["sujet"], body["noms"], body["auto_signe"], body["source"], body["precedent"]) == (
+    assert (body["subject"], body["names"], body["self_signed"], body["source"], body["previous"]) == (
         "hv1.example.org",
         ["hv1.example.org"],
         False,
         "import",
         True,
     )
-    assert body["emetteur"] == "CN=Test CA" and 88 <= body["jours_restants"] <= 90
+    assert body["issuer"] == "CN=Test CA" and 88 <= body["days_left"] <= 90
     assert restarts == [True]
     assert (tls_dir / "hyperlite.key").stat().st_mode & 0o777 == 0o600
     assert (tls_dir / "hyperlite.crt").read_text().count("BEGIN CERTIFICATE") == 2
 
     r = client.post("/host/certificate/previous", headers=admin)
-    assert r.json()["sujet"] == "old.example.org" and restarts == [True, True]
-    assert client.get("/host/certificate", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert r.json()["subject"] == "old.example.org" and restarts == [True, True]
+    assert client.get("/host/certificate", headers=auth_headers("watcher", "viewer")).status_code == 403
 
 
 @pytest.mark.parametrize(
@@ -89,7 +89,7 @@ def test_import_installs_the_pair_keeps_the_previous_and_restarts(client, auth_h
 )
 def test_bad_pairs_are_refused_and_nothing_changes(client, auth_headers, tls_dir, restarts, make, message):
     cert, key = make()
-    r = client.post("/host/certificate", json={"certificat": cert, "cle": key}, headers=auth_headers("root", "admin"))
+    r = client.post("/host/certificate", json={"certificate": cert, "key": key}, headers=auth_headers("root", "admin"))
     assert r.status_code == 422 and message in r.json()["detail"]
     assert restarts == [] and not (tls_dir / "hyperlite.crt").exists()
 
@@ -152,7 +152,7 @@ def test_acme_failure_returns_certbot_last_lines(client, auth_headers, monkeypat
     monkeypatch.setattr(tls_certs.subprocess, "run", fake_run)
     r = client.post(
         "/host/certificate/acme",
-        json={"domaine": "hv1.example.org", "email": "ops@example.org"},
+        json={"domain": "hv1.example.org", "email": "ops@example.org"},
         headers=auth_headers("root", "admin"),
     )
     assert r.status_code == 502 and "likely firewall problem" in r.json()["detail"]

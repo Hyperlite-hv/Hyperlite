@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.core import notifications as notif
 from app.core.audit import log_action
 from app.core.http_safety import require_http_url
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -37,7 +38,7 @@ def list_channels(user: dict = Depends(get_current_user)):
         elif c["type"] == "email" and c["config"].get("smtp_password"):
             c["config"]["smtp_password_set"] = True
             c["config"]["smtp_password"] = None
-    return channels
+    return listing(channels)
 
 
 class ChannelCreate(BaseModel):
@@ -73,7 +74,7 @@ def create_channel(payload: ChannelCreate, user: dict = Depends(require_role("ad
     channel_id = notif.create_channel(
         payload.type, payload.name.strip(), payload.config, payload.events, user["username"]
     )
-    log_action(user["username"], "create_notification_channel", payload.name, "succes")
+    log_action(user["username"], "create_notification_channel", payload.name, "success")
     return {"id": channel_id}
 
 
@@ -111,7 +112,7 @@ def update_channel(channel_id: int, payload: ChannelUpdate, user: dict = Depends
     ):
         raise HTTPException(status_code=404, detail="Channel not found")
     changed = sorted(k for k in payload.model_fields_set if k != "clear_smtp_password")
-    log_action(user["username"], "update_notification_channel", str(channel_id), "succes", ", ".join(changed))
+    log_action(user["username"], "update_notification_channel", str(channel_id), "success", ", ".join(changed))
     return {"message": "Channel updated"}
 
 
@@ -119,7 +120,7 @@ def update_channel(channel_id: int, payload: ChannelUpdate, user: dict = Depends
 def delete_channel(channel_id: int, user: dict = Depends(require_role("admin"))):
     if not notif.delete_channel(channel_id):
         raise HTTPException(status_code=404, detail="Channel not found")
-    log_action(user["username"], "delete_notification_channel", str(channel_id), "succes")
+    log_action(user["username"], "delete_notification_channel", str(channel_id), "success")
     return {"message": "Channel deleted"}
 
 
@@ -131,7 +132,7 @@ def test_channel(channel_id: int, user: dict = Depends(require_role("admin"))):
     try:
         notif.send_to_channel(channel, "Notification test", "This is a test sent from Hyperlite.")
     except Exception as e:
-        log_action(user["username"], "test_notification_channel", channel["name"], "echec", str(e)[:300])
+        log_action(user["username"], "test_notification_channel", channel["name"], "failed", str(e)[:300])
         raise HTTPException(status_code=502, detail=f"Sending failed: {e}") from e
-    log_action(user["username"], "test_notification_channel", channel["name"], "succes")
+    log_action(user["username"], "test_notification_channel", channel["name"], "success")
     return {"message": "Test notification sent"}

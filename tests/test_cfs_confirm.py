@@ -61,7 +61,7 @@ def test_a_change_starts_from_what_the_cluster_changed_just_before(client, admin
     r = client.delete("/groups/7", headers=admin)
     assert r.status_code == 200, r.text
     assert "/db/groups/7" not in fake.files and rows("SELECT id FROM groups") == []
-    assert shadow.report()["conflits"] == 0 and shadow.pending() == 0
+    assert shadow.report()["conflicts"] == 0 and shadow.pending() == 0
 
 
 def test_another_nodes_change_that_comes_first_is_a_409(client, admin, fake, notified, monkeypatch):
@@ -129,7 +129,7 @@ def test_a_single_node_answers_without_waiting(client, admin, fake):
 def test_a_refused_request_waits_for_nothing(client, admin, fake):
     client.post("/groups", json={"name": "dev"}, headers=admin)
     r = client.patch("/groups/7", json={"name": "dev"}, headers=admin)  # the name is taken
-    assert r.status_code == 409 and "code" not in r.json()
+    assert r.status_code == 409 and r.json()["code"] == "conflict"  # the handler's own, never changed_elsewhere
 
 
 def test_only_the_requests_own_entries_are_noted(fake):

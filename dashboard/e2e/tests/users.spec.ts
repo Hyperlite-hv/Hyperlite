@@ -26,14 +26,14 @@ test.describe("Users and permissions", () => {
   test("an administrator creates a read-only user from the Permissions tab", async ({ page, request, problems }) => {
     await uiLogin(page);
     await goTo(page, "Users and access");
-    await createUser(page, "observateur");
+    await createUser(page, "viewer");
     await expect(page.getByRole("combobox", { name: `Role of ${OBSERVER.username}` })).toBeVisible();
 
     // The user really exists on the backend, with the read-only role.
     const token = await apiLogin(request);
     const users = await (await request.get("/auth/users", { headers: { Authorization: `Bearer ${token}` } })).json();
     const created = users.find((u: { username: string }) => u.username === OBSERVER.username);
-    expect(created?.role).toBe("observateur");
+    expect(created?.role).toBe("viewer");
 
     // The list is still correct after a reload.
     await page.reload();
@@ -63,7 +63,7 @@ test.describe("Users and permissions", () => {
       ["create VM", () => request.post("/vms", { headers: h, data: { name: `${PREFIX}denied`, vcpu: 1, memory_mb: 256, disks: [{ size_gb: 1 }], network: "default", username: "u", password: "pppp" } })],
       ["create user", () => request.post("/auth/users", { headers: h, data: { username: `${PREFIX}x`, password: "pppp", role: "admin" } })],
       ["delete user", () => request.delete(`/auth/users/${ADMIN.username}`, { headers: h })],
-      ["create network", () => request.post("/networks", { headers: h, data: { name: `${PREFIX}n`, mode: "isole" } })],
+      ["create network", () => request.post("/networks", { headers: h, data: { name: `${PREFIX}n`, mode: "isolated" } })],
       ["create storage pool", () => request.post("/storage", { headers: h, data: { name: `${PREFIX}p`, type: "dir" } })],
       ["SSO config", () => request.get("/auth/sso/config", { headers: h })],
       ["host shell ticket", () => request.post("/host/terminal-ticket", { headers: h })],

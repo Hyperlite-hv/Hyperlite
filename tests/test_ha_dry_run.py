@@ -10,11 +10,11 @@ import pytest
 from app.core import ha_fencing, ha_watch, secrets_crypto
 
 
-def add_node(database, name, statut="en_ligne"):
+def add_node(database, name, status="online"):
     with database.get_conn() as db:
         db.execute(
-            "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, statut, added_at) VALUES (?, ?, 'root', 22, ?, '2026-01-01')",
-            (name, f"{name}.example.lan", statut),
+            "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, status, added_at) VALUES (?, ?, 'root', 22, ?, '2026-01-01')",
+            (name, f"{name}.example.lan", status),
         )
         db.commit()
 
@@ -38,16 +38,16 @@ def vm_row(database, vm):
 
 def test_fencing_settings_keep_the_password_encrypted_and_never_return_it(database):
     saved = ha_fencing.save("node2", "ipmi", "10.0.0.20", None, "ADMIN", "s3cret-pw", username="admin")
-    assert saved["secret_defini"] is True and "secret" not in saved
+    assert saved["secret_set"] is True and "secret" not in saved
     with database.get_conn() as db:
         stored = db.execute("SELECT secret FROM node_fencing WHERE node = 'node2'").fetchone()["secret"]
     assert stored != "s3cret-pw" and secrets_crypto.decrypt(stored) == "s3cret-pw"
     # An update without a password keeps the stored one.
-    ha_fencing.save("node2", "redfish", "bmc2.example.lan", 443, "root", None, tls_non_verifie=True)
-    assert ha_fencing.get("node2")["methode"] == "redfish" and ha_fencing.get("node2")["secret_defini"]
+    ha_fencing.save("node2", "redfish", "bmc2.example.lan", 443, "root", None, tls_unverified=True)
+    assert ha_fencing.get("node2")["method"] == "redfish" and ha_fencing.get("node2")["secret_set"]
     # Leases only: no BMC, nothing kept.
     lease = ha_fencing.save("node2", "lease_only")
-    assert lease["adresse"] is None and lease["secret_defini"] is False
+    assert lease["address"] is None and lease["secret_set"] is False
 
 
 @pytest.mark.parametrize(
@@ -93,7 +93,7 @@ def test_the_fencing_test_only_reads_the_power_state_with_the_password_on_stdin(
     ha_fencing.save("node2", "ipmi", "10.0.0.20", 623, "ADMIN", "s3cret-pw")
     assert ha_fencing.test("node2") == {
         "ok": True,
-        "alimentation": "on",
+        "power": "on",
         "detail": "Power state read through fence_ipmilan",
     }
     assert (tmp / "argv").read_text().strip() == ""  # nothing on the command line
@@ -125,7 +125,7 @@ def watch(database, monkeypatch):
     answers = {}
     monkeypatch.setattr(ha_watch, "probe", lambda node: answers.get(node["name"], (True, True)))
     monkeypatch.setattr(ha_watch, "_tcp", lambda host, port, timeout=3: not host.startswith("node2"))
-    monkeypatch.setattr(ha_watch, "witness_reachable", lambda temoin: True if temoin else None)
+    monkeypatch.setattr(ha_watch, "witness_reachable", lambda witness: True if witness else None)
     sent = []
     monkeypatch.setattr("app.core.notifications.notify", lambda *a, **k: sent.append(a))
     return answers, sent
@@ -142,13 +142,11 @@ def test_a_silent_node_goes_suspect_then_failed_and_the_decision_is_recorded_not
     protect(database, "web", "node2")
     answers["node2"] = (False, False)
     rounds(3)
-    assert vm_row(database, "web")["etat_ha"] == "suspect"
+    assert vm_row(database, "web")["ha_state"] == "suspect"
     rounds(3)
     row = vm_row(database, "web")
     # Two nodes, no witness: automatic restart is structurally off, whatever the fencing.
-    assert row["etat_ha"] == "en_panne" and row["derniere_action"].startswith(
-        "Manual recovery: Two nodes and no witness"
-    )
+    assert row["ha_state"] == "down" and row["last_action"].startswith("Manual recovery: Two nodes and no witness")
     assert len(sent) == 1 and sent[0][0] == "ha_alert"
     rounds(3)
     assert len(sent) == 1  # one notification per transition, not per round
@@ -156,8 +154,7 @@ def test_a_silent_node_goes_suspect_then_failed_and_the_decision_is_recorded_not
     answers["node2"] = (True, True)
     rounds(1)
     assert (
-        vm_row(database, "web")["etat_ha"] == "ok"
-        and vm_row(database, "web")["derniere_action"] == "Node reachable again"
+        vm_row(database, "web")["ha_state"] == "ok" and vm_row(database, "web")["last_action"] == "Node reachable again"
     )
 
 
@@ -170,7 +167,7 @@ def test_with_a_witness_and_fencing_it_says_what_it_would_do_and_where(database,
     ha_fencing.save("node2", "ipmi", "10.0.0.20", None, "ADMIN", "pw")
     answers["node2"] = (False, False)
     rounds(6)
-    assert vm_row(database, "db")["derniere_action"] == (
+    assert vm_row(database, "db")["last_action"] == (
         "Would power node2 off through IPMI, confirm it is off, then restart the VM on local (dry run: nothing done)"
     )
 
@@ -183,17 +180,17 @@ def test_without_fencing_or_when_isolated_it_would_not_act(database, watch, monk
     ha_watch.save_settings("nas.example.lan", 3, 6)
     answers["node2"] = (False, False)
     rounds(6)
-    assert vm_row(database, "db")["derniere_action"] == "Manual recovery: no fencing is set for node2"
+    assert vm_row(database, "db")["last_action"] == "Manual recovery: no fencing is set for node2"
 
     # The controller reaches nobody: it may be the isolated one.
     answers["node2"] = (True, True)
     rounds(1)
     monkeypatch.setattr(ha_watch, "_tcp", lambda host, port, timeout=3: False)
-    monkeypatch.setattr(ha_watch, "witness_reachable", lambda temoin: False)
+    monkeypatch.setattr(ha_watch, "witness_reachable", lambda witness: False)
     ha_fencing.save("node2", "lease_only")
     answers["node2"] = (False, False)
     rounds(6)
-    assert vm_row(database, "db")["derniere_action"].startswith("No action: this controller reaches only 1 of 4 voters")
+    assert vm_row(database, "db")["last_action"].startswith("No action: this controller reaches only 1 of 4 voters")
 
 
 def test_libvirt_down_with_ssh_up_is_not_a_failure(database, watch):
@@ -203,12 +200,12 @@ def test_libvirt_down_with_ssh_up_is_not_a_failure(database, watch):
     answers["node2"] = (False, True)
     rounds(10)
     row = vm_row(database, "web")
-    assert row["etat_ha"] == "libvirt_injoignable" and "most likely still run" in row["derniere_action"]
+    assert row["ha_state"] == "libvirt_unreachable" and "most likely still run" in row["last_action"]
     assert sent == []
 
 
 def test_settings_are_validated(database):
-    assert ha_watch.save_settings("192.0.2.5:22", 2, 5)["temoin"] == "192.0.2.5:22"
+    assert ha_watch.save_settings("192.0.2.5:22", 2, 5)["witness"] == "192.0.2.5:22"
     for bad in (("nas; reboot", 3, 6), ("nas.lan", 6, 3), ("nas.lan:ssh", 3, 6)):
         with pytest.raises(ValueError):
             ha_watch.save_settings(*bad)
@@ -224,7 +221,7 @@ def test_settings_are_validated(database):
 )
 def test_the_lease_check_reads_the_libvirt_settings(qemu, lockd, active, text):
     result = ha_watch._lockd_state(qemu, lockd)
-    assert result["actif"] is active and text in result["detail"]
+    assert result["active"] is active and text in result["detail"]
 
 
 # --- API ---------------------------------------------------------------------------------------------------------------
@@ -237,15 +234,15 @@ def test_fencing_endpoints_are_admin_only_and_hide_the_password(client, auth_hea
     admin = auth_headers("admin1")
     r = client.put(
         "/ha/fencing/node2",
-        json={"methode": "ipmi", "adresse": "10.0.0.20", "utilisateur": "ADMIN", "secret": "pw"},
+        json={"method": "ipmi", "address": "10.0.0.20", "user": "ADMIN", "secret": "pw"},
         headers=admin,
     )
-    assert r.status_code == 200 and "secret" not in r.json() and r.json()["secret_defini"]
-    assert client.post("/ha/fencing/node2/test", headers=admin).json()["alimentation"] == "off"
-    assert client.put("/ha/fencing/ghost", json={"methode": "lease_only"}, headers=admin).status_code == 404
+    assert r.status_code == 200 and "secret" not in r.json() and r.json()["secret_set"]
+    assert client.post("/ha/fencing/node2/test", headers=admin).json()["power"] == "off"
+    assert client.put("/ha/fencing/ghost", json={"method": "lease_only"}, headers=admin).status_code == 404
     status = client.get("/ha/status", headers=admin).json()
-    assert status["mode"] == "essai" and status["redemarrage_auto_possible"] is False
-    watcher = auth_headers("watcher", role="observateur")
+    assert status["mode"] == "attempt" and status["auto_restart_possible"] is False
+    watcher = auth_headers("watcher", role="viewer")
     assert client.get("/ha/fencing", headers=watcher).status_code == 403
     assert client.post("/ha/fencing/node2/test", headers=watcher).status_code == 403
     assert client.get("/ha/status", headers=watcher).status_code == 200

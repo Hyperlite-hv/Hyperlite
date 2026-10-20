@@ -94,7 +94,7 @@ def test_the_drive_is_rebuilt_with_a_new_instance_id(images, database):
         assert "/user-data" in listing.stdout and "/meta-data" in listing.stdout
     assert iso.read_bytes() != b"old"
     assert not list(images.glob(".*.new"))
-    assert cloudinit_edit.get_state("web")["cles_ssh"] == [KEY]
+    assert cloudinit_edit.get_state("web")["ssh_keys"] == [KEY]
 
 
 def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_headers, images, monkeypatch):
@@ -121,18 +121,17 @@ def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_header
         ),
     )
     admin = auth_headers("admin")
-    assert client.get("/vms/web/cloud-init", headers=admin).json()["disponible"] is True
-    assert client.get("/vms/iso-vm/cloud-init", headers=admin).json()["disponible"] is False
+    assert client.get("/vms/web/cloud-init", headers=admin).json()["available"] is True
+    assert client.get("/vms/iso-vm/cloud-init", headers=admin).json()["available"] is False
 
-    r = client.put("/vms/web/cloud-init", json={"utilisateur": "ana", "cles_ssh": [KEY]}, headers=admin)
+    r = client.put("/vms/web/cloud-init", json={"user": "ana", "ssh_keys": [KEY]}, headers=admin)
     assert r.status_code == 200, r.text
-    assert r.json()["utilisateur"] == "ana" and r.json()["cles_ssh"] == [KEY] and "mot_de_passe" not in r.json()
+    assert r.json()["user"] == "ana" and r.json()["ssh_keys"] == [KEY] and "password" not in r.json()
     assert written == [("web", "ana", None, [KEY])]
-    assert client.put("/vms/iso-vm/cloud-init", json={"utilisateur": "ana"}, headers=admin).status_code == 409
+    assert client.put("/vms/iso-vm/cloud-init", json={"user": "ana"}, headers=admin).status_code == 409
     assert (
-        client.put("/vms/web/cloud-init", json={"utilisateur": "ana", "cles_ssh": ["nope"]}, headers=admin).status_code
-        == 422
+        client.put("/vms/web/cloud-init", json={"user": "ana", "ssh_keys": ["nope"]}, headers=admin).status_code == 422
     )
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.get("/vms/web/cloud-init", headers=viewer).status_code == 200
-    assert client.put("/vms/web/cloud-init", json={"utilisateur": "x"}, headers=viewer).status_code == 403
+    assert client.put("/vms/web/cloud-init", json={"user": "x"}, headers=viewer).status_code == 403

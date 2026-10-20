@@ -40,8 +40,8 @@ export default function Palette({ open, onClose, setWizards }) {
     const match = (s) => !nq || normalize(s).includes(nq);
     const res = [
       { group: "cmd.group.resources", id: "dc", label: t("inv.datacenter"), hint: null, state: null, hay: t("inv.datacenter"), run: () => select("datacenter", null) },
-      ...nodes.map((n) => ({ group: "cmd.group.resources", id: `n:${n.id}`, label: n.nom, hint: t("res.node"), state: stateInfo("node", n.etat), hay: `${n.nom} ${n.ip || ""}`, run: () => select("node", n.id) })),
-      ...vms.map((v) => ({ group: "cmd.group.resources", id: `v:${v.node}:${v.nom}`, label: v.nom, hint: [v.ip, nodes.find((n) => n.id === v.node)?.nom].filter(Boolean).join(" · "), state: stateInfo("vm", v.etat), hay: `${v.nom} ${v.ip || ""} ${v.os || ""} ${v.etat} ${v.node}`, run: () => select("vm", vmKey(v)) })),
+      ...nodes.map((n) => ({ group: "cmd.group.resources", id: `n:${n.id}`, label: n.name, hint: t("res.node"), state: stateInfo("node", n.state), hay: `${n.name} ${n.ip || ""}`, run: () => select("node", n.id) })),
+      ...vms.map((v) => ({ group: "cmd.group.resources", id: `v:${v.node}:${v.name}`, label: v.name, hint: [v.ip, nodes.find((n) => n.id === v.node)?.name].filter(Boolean).join(" · "), state: stateInfo("vm", v.state), hay: `${v.name} ${v.ip || ""} ${v.os || ""} ${v.state} ${v.node}`, run: () => select("vm", vmKey(v)) })),
     ].filter((i) => match(i.hay)).slice(0, 30);
     const actions = [];
     if (caps.create) {
@@ -50,10 +50,10 @@ export default function Palette({ open, onClose, setWizards }) {
     }
     // Contextual VM actions only when the query names a VM exactly enough to be unambiguous.
     if (nq) {
-      for (const v of vms.filter((x) => normalize(x.nom).includes(nq)).slice(0, 3)) {
+      for (const v of vms.filter((x) => normalize(x.name).includes(nq)).slice(0, 3)) {
         for (const a of ["start", "stop", "restart"]) {
           const st = vmActionState(a, v, caps);
-          if (st.enabled) actions.push({ group: "cmd.group.actions", id: `a:${a}:${v.nom}`, label: `${t(`menu.${a}`)} ${v.nom}`, run: () => vmActions.run(v, a) });
+          if (st.enabled) actions.push({ group: "cmd.group.actions", id: `a:${a}:${v.name}`, label: `${t(`menu.${a}`)} ${v.name}`, run: () => vmActions.run(v, a) });
         }
       }
     }

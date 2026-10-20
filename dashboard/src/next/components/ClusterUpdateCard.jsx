@@ -20,7 +20,7 @@ export default function ClusterUpdateCard() {
   const [stopBlocked, setStopBlocked] = useState(false);
   const [started, setStarted] = useState(null);
 
-  useEffect(() => { fetchCluster().then((s) => setInCluster(Boolean(s?.en_cluster))).catch(() => {}); }, []);
+  useEffect(() => { fetchCluster().then((s) => setInCluster(Boolean(s?.in_cluster))).catch(() => {}); }, []);
   if (!inCluster) return null;
 
   async function prepare() {
@@ -32,7 +32,7 @@ export default function ClusterUpdateCard() {
   }
 
   async function start() {
-    const order = plan.noeuds.map((n) => n.nom).join(" → ");
+    const order = plan.nodes.map((n) => n.name).join(" → ");
     if (!(await confirmAction({ title: t("cu.confirmTitle"), message: t("cu.confirmMsg", { order }), confirmLabel: t("cu.start") }))) return;
     try {
       const r = await startClusterUpdate(stopBlocked);
@@ -43,7 +43,7 @@ export default function ClusterUpdateCard() {
     }
   }
 
-  const blocked = plan?.noeuds.some((n) => n.vms_bloquees?.length && n.redemarrage);
+  const blocked = plan?.nodes.some((n) => n.vms_blocked?.length && n.restart);
   return (
     <Card title={t("cu.title")} actions={<button type="button" className="nx-btn" disabled={loading} onClick={prepare}><RefreshCw size={15} aria-hidden="true" />{t(plan ? "cu.refresh" : "cu.prepare")}</button>}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-3)" }}>{t("cu.intro")}</p>
@@ -51,10 +51,10 @@ export default function ClusterUpdateCard() {
       {error && <InlineError message={error} onRetry={prepare} />}
       {plan && !loading && (
         <>
-          {plan.problemes.length > 0 && (
+          {plan.problems.length > 0 && (
             <div className="nx-bn" data-tone="danger" role="alert">
               <strong>{t("cu.blockedTitle")}</strong>
-              <ul style={{ margin: "var(--space-1) 0 0", paddingLeft: "1.2em" }}>{plan.problemes.map((p) => <li key={p}>{p}</li>)}</ul>
+              <ul style={{ margin: "var(--space-1) 0 0", paddingLeft: "1.2em" }}>{plan.problems.map((p) => <li key={p}>{p}</li>)}</ul>
             </div>
           )}
           <TableWrap label={t("cu.title")}>
@@ -64,15 +64,15 @@ export default function ClusterUpdateCard() {
                 <th scope="col">{t("cu.reboot")}</th><th scope="col">{t("cu.vmsMoved")}</th><th scope="col">{t("cu.vmsStaying")}</th>
               </tr></thead>
               <tbody>
-                {plan.noeuds.map((n) => (
-                  <tr key={n.nom}>
-                    <th scope="row">{n.nom}{n.local && <span className="nx-f-h"> — {t("cu.thisNodeLast")}</span>}</th>
-                    <td>{!n.joignable || !n.verifiable ? <span className="nx-error">{n.erreur || t("cu.unreachable")}</span>
-                      : n.hyperlite_a_jour ? t("cu.current", { version: n.version }) : `${n.version} → ${n.candidate}`}</td>
-                    <td>{n.paquets ?? "—"}</td>
-                    <td>{n.redemarrage ? t("cu.yes") : t("cu.no")}</td>
-                    <td>{n.vms_a_migrer?.length ?? 0}</td>
-                    <td>{n.vms_bloquees?.length ? n.vms_bloquees.join(", ") : "—"}</td>
+                {plan.nodes.map((n) => (
+                  <tr key={n.name}>
+                    <th scope="row">{n.name}{n.local && <span className="nx-f-h"> — {t("cu.thisNodeLast")}</span>}</th>
+                    <td>{!n.reachable || !n.verifiable ? <span className="nx-error">{n.error || t("cu.unreachable")}</span>
+                      : n.hyperlite_up_to_date ? t("cu.current", { version: n.version }) : `${n.version} → ${n.candidate}`}</td>
+                    <td>{n.packages ?? "—"}</td>
+                    <td>{n.restart ? t("cu.yes") : t("cu.no")}</td>
+                    <td>{n.vms_to_migrate?.length ?? 0}</td>
+                    <td>{n.vms_blocked?.length ? n.vms_blocked.join(", ") : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -86,7 +86,7 @@ export default function ClusterUpdateCard() {
           <p className="nx-f-h" style={{ margin: "var(--space-3) 0" }}>{t("cu.how")}</p>
           {started
             ? <p role="status">{t("cu.startedMsg")}</p>
-            : <button type="button" className="nx-btn nx-btn--primary" disabled={plan.problemes.length > 0 || !plan.a_faire} onClick={start}><Rocket size={15} aria-hidden="true" />{plan.a_faire ? t("cu.start") : t("cu.allCurrent")}</button>}
+            : <button type="button" className="nx-btn nx-btn--primary" disabled={plan.problems.length > 0 || !plan.to_do} onClick={start}><Rocket size={15} aria-hidden="true" />{plan.to_do ? t("cu.start") : t("cu.allCurrent")}</button>}
         </>
       )}
     </Card>
