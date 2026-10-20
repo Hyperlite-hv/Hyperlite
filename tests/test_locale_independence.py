@@ -1,5 +1,5 @@
 """Hyperlite runs on servers in any language (#448, F1): libvirtd writes its errors in the system's language ("Modèle
-de CPU inconnu" on a French server), and the service ran in the system's locale too, so the tools it reads answered in
+de CPU unknown" on a French server), and the service ran in the system's locale too, so the tools it reads answered in
 it. The service runs in C.UTF-8, and no code reads the text of an error: error codes and exception types only."""
 
 import re

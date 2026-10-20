@@ -60,7 +60,7 @@ def tick(conn):
             and (state == libvirt.VIR_DOMAIN_CRASHED or was_running)
         ):
             crashes.append((name, why))
-            log_action("system", "vm_crashed", name, "echec", why)
+            log_action("system", "vm_crashed", name, "failed", why)
     _last = now
     return crashes
 

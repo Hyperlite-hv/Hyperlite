@@ -61,14 +61,14 @@ def _describe(cert):
     cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     not_after = cert.not_valid_after_utc
     return {
-        "sujet": cn[0].value if cn else cert.subject.rfc4514_string(),
-        "emetteur": cert.issuer.rfc4514_string(),
-        "noms": names,
-        "debut": cert.not_valid_before_utc.isoformat(),
-        "fin": not_after.isoformat(),
-        "jours_restants": (not_after - datetime.datetime.now(datetime.UTC)).days,
-        "auto_signe": cert.issuer == cert.subject,
-        "empreinte_sha256": cert.fingerprint(hashes.SHA256()).hex(":").upper(),
+        "subject": cn[0].value if cn else cert.subject.rfc4514_string(),
+        "issuer": cert.issuer.rfc4514_string(),
+        "names": names,
+        "start": cert.not_valid_before_utc.isoformat(),
+        "end": not_after.isoformat(),
+        "days_left": (not_after - datetime.datetime.now(datetime.UTC)).days,
+        "self_signed": cert.issuer == cert.subject,
+        "fingerprint_sha256": cert.fingerprint(hashes.SHA256()).hex(":").upper(),
     }
 
 
@@ -82,7 +82,7 @@ def info():
         "present": True,
         "source": _source(),
         "certbot": shutil.which("certbot") is not None,
-        "precedent": (TLS_DIR / "hyperlite.crt.previous").exists(),
+        "previous": (TLS_DIR / "hyperlite.crt.previous").exists(),
         **_describe(certs[0]),
     }
 

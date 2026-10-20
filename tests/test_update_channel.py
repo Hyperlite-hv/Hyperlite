@@ -44,12 +44,12 @@ def test_a_node_without_the_repository_has_no_channel(source):
 def test_the_api(source, client, auth_headers):
     source.write_text(LINE + "\n")
     admin = auth_headers("root")
-    assert client.get("/update/channel", headers=admin).json() == {"canal": "stable", "canaux": ["stable", "test"]}
-    r = client.put("/update/channel", json={"canal": "test"}, headers=admin)
-    assert r.status_code == 200 and r.json()["canal"] == "test"
-    assert client.put("/update/channel", json={"canal": "nightly"}, headers=admin).status_code == 422
-    eve = auth_headers("eve", role="observateur")
-    assert client.put("/update/channel", json={"canal": "stable"}, headers=eve).status_code == 403
+    assert client.get("/update/channel", headers=admin).json() == {"channel": "stable", "channels": ["stable", "test"]}
+    r = client.put("/update/channel", json={"channel": "test"}, headers=admin)
+    assert r.status_code == 200 and r.json()["channel"] == "test"
+    assert client.put("/update/channel", json={"channel": "nightly"}, headers=admin).status_code == 422
+    eve = auth_headers("eve", role="viewer")
+    assert client.put("/update/channel", json={"channel": "stable"}, headers=eve).status_code == 403
     assert host_system.channel() == "test"
 
 

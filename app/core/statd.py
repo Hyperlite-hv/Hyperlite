@@ -48,7 +48,10 @@ def summary():
         vms = inventory(conn)["vms"]
     finally:
         conn.close()
-    return {"node": self_node.name(), "at": time.time(), "vms": vms}
+    from app.core import cluster_v1
+
+    # "api": the version of the API and of the names this node writes: the others know when every member runs 1.0.
+    return {"node": self_node.name(), "at": time.time(), "api": cluster_v1.API_VERSION, "vms": vms}
 
 
 def encode(data):
@@ -96,7 +99,7 @@ def table():
         except (ValueError, KeyError, TypeError, zlib.error):
             logger.warning("A status that could not be read (node id %s)", s.node)
             continue
-        out[name] = {"vms": vms, "age_s": round(age, 1), "stale": age > STALE_S}
+        out[name] = {"vms": vms, "age_s": round(age, 1), "stale": age > STALE_S, "api": data.get("api", 0)}
     return out
 
 

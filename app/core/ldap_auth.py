@@ -7,7 +7,7 @@ with the typed password, which is the check itself. An empty password is refused
 directories accept an empty password as an anonymous bind, which would let anyone in.
 
 On success the account exists locally with auth_source 'ldap' and the directory entry's DN; its role is given by the
-directory groups at each sign-in: a member of an administrator group is `admin`, anyone else `observateur` (scoped
+directory groups at each sign-in: a member of an administrator group is `admin`, anyone else `viewer` (scoped
 rights then come from ACLs, as for any account). When allowed groups are set, a user in none of them is refused.
 The local password of such an account is a random secret nobody knows: it can only sign in through the directory.
 """
@@ -211,7 +211,7 @@ def check(cfg, username, password):
 
 
 def role_for(cfg, groups):
-    """'admin', 'observateur', or None when allowed groups are set and the user is in none of them."""
+    """'admin', 'viewer', or None when allowed groups are set and the user is in none of them."""
     have = _names(groups)
     allowed = _configured(cfg["allowed_groups"])
     admins = _configured(cfg["admin_groups"])
@@ -219,7 +219,7 @@ def role_for(cfg, groups):
         return "admin"
     if allowed and not allowed & have:
         return None
-    return "observateur"
+    return "viewer"
 
 
 def provision(username, dn, role):
@@ -269,17 +269,17 @@ def test(fields_override=None, username=None, password=None):
             service.unbind()
     except LDAPException as e:
         raise LdapError(f"The directory could not be reached: {e}") from e
-    out = {"connexion": True}
+    out = {"connection": True}
     if username:
         result = check(cfg, username, password)
         if result is None:
-            out["utilisateur"] = {"accepte": False}
+            out["user"] = {"accepted": False}
         else:
             dn, groups = result
-            out["utilisateur"] = {
-                "accepte": True,
+            out["user"] = {
+                "accepted": True,
                 "dn": dn,
-                "groupes": [str(g) for g in groups],
+                "groups": [str(g) for g in groups],
                 "role": role_for(cfg, groups),
             }
     return out

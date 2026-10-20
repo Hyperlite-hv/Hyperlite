@@ -20,7 +20,7 @@ class ConfigError(ValueError):
 
 
 def interfaces(domain):
-    """[{"reseau", "mac"}] of the container's network interfaces."""
+    """[{"network", "mac"}] of the container's network interfaces."""
     root = ET.fromstring(domain.XMLDesc(0))
     out = []
     for iface in root.findall("./devices/interface"):
@@ -28,7 +28,7 @@ def interfaces(domain):
         mac = iface.find("mac")
         out.append(
             {
-                "reseau": (source.get("network") or source.get("bridge")) if source is not None else None,
+                "network": (source.get("network") or source.get("bridge")) if source is not None else None,
                 "mac": mac.get("address") if mac is not None else None,
             }
         )
@@ -84,7 +84,7 @@ def write_dns(name, servers):
 
 
 def set_resources(conn, domain, vcpu=None, memory_mb=None):
-    """Change the definition, and the memory live when the container runs. Returns {"a_redemarrer": bool}: True
+    """Change the definition, and the memory live when the container runs. Returns {"needs_restart": bool}: True
     when part of the change only applies at the next start."""
     root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
     restart = False
@@ -110,4 +110,4 @@ def set_resources(conn, domain, vcpu=None, memory_mb=None):
         except libvirt.libvirtError:
             # Above the limit the running container was started with: it applies at the next start.
             restart = True
-    return {"a_redemarrer": restart}
+    return {"needs_restart": restart}

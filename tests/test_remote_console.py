@@ -82,7 +82,7 @@ def node(tmp_path, monkeypatch):
 
 def test_the_console_of_a_remote_vm_goes_through_its_node(client, node):
     runtime.CONSOLE_TICKETS["t1"] = ("web", node.vnc_port, 10**12, "node-b")
-    with client.websocket_connect("/vms/web/console?ticket=t1") as ws:
+    with client.websocket_connect("/api/v1/vms/web/console?ticket=t1") as ws:
         ws.send_bytes(b"hello")
         assert ws.receive_bytes() == b"VNC:hello"
 
@@ -90,14 +90,20 @@ def test_the_console_of_a_remote_vm_goes_through_its_node(client, node):
 def test_an_unknown_host_key_is_refused(client, node, tmp_path):
     (tmp_path / "known_hosts").write_text("")  # the node's key was never recorded
     runtime.CONSOLE_TICKETS["t2"] = ("web", node.vnc_port, 10**12, "node-b")
-    with pytest.raises(WebSocketDisconnect) as closed, client.websocket_connect("/vms/web/console?ticket=t2") as ws:
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        client.websocket_connect("/api/v1/vms/web/console?ticket=t2") as ws,
+    ):
         ws.receive_bytes()
     assert closed.value.code == 1011
 
 
 def test_a_ticket_is_bound_to_its_vm(client):
     runtime.CONSOLE_TICKETS["t3"] = ("other", 5900, 10**12, None)
-    with pytest.raises(WebSocketDisconnect) as closed, client.websocket_connect("/vms/web/console?ticket=t3") as ws:
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        client.websocket_connect("/api/v1/vms/web/console?ticket=t3") as ws,
+    ):
         ws.receive_bytes()
     assert closed.value.code == 4401
 

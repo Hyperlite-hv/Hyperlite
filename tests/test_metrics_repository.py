@@ -42,10 +42,10 @@ def test_export_servers(repo):
     assert store.name_taken("influx") and not store.name_taken("influx", server_id)
     store.save_server(["influx", "influxdb", "http://i:8086", None, None, "org", "b2", "hyperlite", 0], None, server_id)
     server = store.get_server(server_id)
-    assert (server["bucket"], server["jeton"], server["actif"]) == ("b2", "encrypted", 0)  # the token is kept
+    assert (server["bucket"], server["token"], server["active"]) == ("b2", "encrypted", 0)  # the token is kept
     assert store.list_servers(active_only=True) == []
     store.record_send(server_id, error="refused")
-    assert store.get_server(server_id)["derniere_erreur"] == "refused"
+    assert store.get_server(server_id)["last_error"] == "refused"
     store.record_send(server_id, sent_at="t")
-    assert (store.get_server(server_id)["dernier_envoi"], store.get_server(server_id)["derniere_erreur"]) == ("t", None)
+    assert (store.get_server(server_id)["last_sent_at"], store.get_server(server_id)["last_error"]) == ("t", None)
     assert store.delete_server(server_id) and not store.delete_server(server_id)

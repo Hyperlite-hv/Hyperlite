@@ -10,12 +10,12 @@ from app.core import preflight
 
 
 def statuses(checks):
-    return {check["id"]: check["statut"] for check in checks}
+    return {check["id"]: check["status"] for check in checks}
 
 
 def test_current_interpreter_has_every_required_python_module():
     checks = preflight.check_python(requirements="requirements.txt")
-    assert [c for c in checks if c["statut"] == "blocking"] == []
+    assert [c for c in checks if c["status"] == "blocking"] == []
     assert statuses(checks)["python:websocket"] == "ok"
 
 
@@ -24,12 +24,12 @@ def test_a_bare_interpreter_reports_blocking_missing_modules(tmp_path):
     bare.write_text('#!/bin/sh\nexec /usr/bin/env python3 -S -c "$2" "$3"\n')
     bare.chmod(0o755)
     checks = preflight.check_python(str(bare))
-    assert any(c["statut"] == "blocking" for c in checks)
+    assert any(c["status"] == "blocking" for c in checks)
 
 
 def test_missing_interpreter_is_blocking(tmp_path):
     checks = preflight.check_python(str(tmp_path / "does-not-exist"))
-    assert checks[0]["statut"] == "blocking"
+    assert checks[0]["status"] == "blocking"
 
 
 def test_websocket_library_absence_only_disables_the_related_features(monkeypatch):
@@ -43,8 +43,8 @@ def test_websocket_library_absence_only_disables_the_related_features(monkeypatc
         },
     )
     checks = {c["id"]: c for c in preflight.check_python()}
-    assert checks["python:websocket"]["statut"] == "disabled"
-    assert not any(c["statut"] == "blocking" for c in checks.values())
+    assert checks["python:websocket"]["status"] == "disabled"
+    assert not any(c["status"] == "blocking" for c in checks.values())
 
 
 def test_a_broken_optional_module_disables_its_feature_only(monkeypatch):
@@ -54,7 +54,7 @@ def test_a_broken_optional_module_disables_its_feature_only(monkeypatch):
         preflight, "probe_python", lambda python=None: {"modules": modules, "versions": {}, "websocket": "websockets"}
     )
     checks = {c["id"]: c for c in preflight.check_python()}
-    assert checks["python:pyotp"]["statut"] == "disabled"
+    assert checks["python:pyotp"]["status"] == "disabled"
 
 
 def test_a_broken_required_module_blocks(monkeypatch):
@@ -86,36 +86,36 @@ def test_non_root_execution_is_blocking(monkeypatch):
 @pytest.mark.parametrize("ram_mb,expected", [(512, "blocking"), (2048, "warning"), (8192, "ok")])
 def test_memory_thresholds(monkeypatch, ram_mb, expected):
     monkeypatch.setattr(preflight, "_mem_total_mb", lambda: ram_mb)
-    assert statuses(preflight.check_system(offline=True))["memoire"] == expected
+    assert statuses(preflight.check_system(offline=True))["memory"] == expected
 
 
 def test_secure_boot_disables_zfs_instead_of_blocking(monkeypatch):
     monkeypatch.setattr(preflight, "_secure_boot", lambda: "active")
     monkeypatch.setattr(preflight, "_zfs_module_loaded", lambda: False)
     checks = {c["id"]: c for c in preflight.check_system(offline=True)}
-    assert checks["zfs"]["statut"] == "disabled"
-    assert "ZFS" in checks["zfs"]["fonctionnalite"]
+    assert checks["zfs"]["status"] == "disabled"
+    assert "ZFS" in checks["zfs"]["feature"]
 
 
 def test_missing_kvm_disables_vms_but_does_not_block(monkeypatch):
     monkeypatch.setattr(preflight, "_kvm_device_present", lambda: False)
     checks = {c["id"]: c for c in preflight.check_system(offline=True)}
-    assert checks["virtualisation_materielle"]["statut"] == "disabled"
-    assert "KVM" in checks["virtualisation_materielle"]["fonctionnalite"]
+    assert checks["hardware_virtualization"]["status"] == "disabled"
+    assert "KVM" in checks["hardware_virtualization"]["feature"]
 
 
 def test_kvm_present_with_hardware_virtualisation_is_ok(monkeypatch):
     monkeypatch.setattr(preflight, "_kvm_device_present", lambda: True)
     monkeypatch.setattr(preflight, "_read", lambda path: "flags : fpu vmx sse2" if str(path) == "/proc/cpuinfo" else "")
-    assert statuses(preflight.check_system(offline=True))["virtualisation_materielle"] == "ok"
+    assert statuses(preflight.check_system(offline=True))["hardware_virtualization"] == "ok"
 
 
 def test_summary_counts_and_blocking_flag():
-    checks = [{"statut": "ok"}, {"statut": "disabled", "fonctionnalite": "ZFS"}, {"statut": "blocking"}]
+    checks = [{"status": "ok"}, {"status": "disabled", "feature": "ZFS"}, {"status": "blocking"}]
     summary = preflight.summarize(checks)
-    assert summary["bloquant"] is True
-    assert summary["compte"]["disabled"] == 1
-    assert summary["fonctionnalites_desactivees"] == ["ZFS"]
+    assert summary["blocking"] is True
+    assert summary["account"]["disabled"] == 1
+    assert summary["disabled_features"] == ["ZFS"]
 
 
 def test_command_line_exit_code_reflects_blocking_checks(tmp_path):
@@ -126,7 +126,7 @@ def test_command_line_exit_code_reflects_blocking_checks(tmp_path):
         check=False,
     )
     assert result.returncode == 1
-    assert json.loads(result.stdout)["resume"]["bloquant"] is True
+    assert json.loads(result.stdout)["summary"]["blocking"] is True
 
 
 def test_script_runs_with_only_the_standard_library():
@@ -140,4 +140,4 @@ def test_script_runs_with_only_the_standard_library():
         check=False,
     )
     assert result.returncode in (0, 1), result.stderr
-    assert "controles" in json.loads(result.stdout)
+    assert "checks" in json.loads(result.stdout)

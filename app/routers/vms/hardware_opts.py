@@ -29,13 +29,13 @@ def _apply(user, name, action, detail, change):
             try:
                 result = change(conn, domain)
             except opts.OptionError as e:
-                log_action(user["username"], action, name, "echec", str(e))
+                log_action(user["username"], action, name, "failed", str(e))
                 raise HTTPException(status_code=422, detail=str(e)) from e
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
-                log_action(user["username"], action, name, "echec", msg)
+                log_action(user["username"], action, name, "failed", msg)
                 raise HTTPException(status_code=500, detail=msg) from e
-            log_action(user["username"], action, name, "succes", detail)
+            log_action(user["username"], action, name, "success", detail)
             return {**opts.describe(conn.lookupByName(name)), **(result or {})}
         finally:
             conn.close()
@@ -49,8 +49,8 @@ def get_hardware_options(name: str, user: dict = Depends(require_vm_privilege("v
         described = opts.describe(domain)
         return {
             **described,
-            "machines_plus_recentes": opts.newer_machines(conn, described["machine"]),
-            "en_marche": bool(domain.isActive()),
+            "newer_machines": opts.newer_machines(conn, described["machine"]),
+            "running": bool(domain.isActive()),
         }
     finally:
         conn.close()
@@ -82,7 +82,7 @@ def set_disk_options(
 
 
 class BootOrder(BaseModel):
-    ordre: list[str] = Field(min_length=1, max_length=32)
+    position: list[str] = Field(min_length=1, max_length=32)
 
 
 @router.put("/{name}/boot-order")
@@ -91,21 +91,21 @@ def set_boot_order(name: str, payload: BootOrder, user: dict = Depends(require_v
         user,
         name,
         "set_boot_order",
-        " > ".join(payload.ordre),
-        lambda conn, d: opts.set_boot_order(conn, d, payload.ordre),
+        " > ".join(payload.position),
+        lambda conn, d: opts.set_boot_order(conn, d, payload.position),
     )
 
 
 class Balloon(BaseModel):
-    actif: bool
-    minimum_mo: int | None = Field(default=None, ge=256)
+    active: bool
+    minimum_mb: int | None = Field(default=None, ge=256)
 
 
 @router.put("/{name}/balloon")
 def set_balloon(name: str, payload: Balloon, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    detail = f"on, minimum {payload.minimum_mo} MB" if payload.actif else "off"
+    detail = f"on, minimum {payload.minimum_mb} MB" if payload.active else "off"
     return _apply(
-        user, name, "set_balloon", detail, lambda conn, d: opts.set_balloon(conn, d, payload.actif, payload.minimum_mo)
+        user, name, "set_balloon", detail, lambda conn, d: opts.set_balloon(conn, d, payload.active, payload.minimum_mb)
     )
 
 

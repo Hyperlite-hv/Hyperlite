@@ -23,6 +23,52 @@ NOT_FRENCH = {
 }
 
 WHOLE = {
+    # Keys the extraction missed, found in the code on 2026-10-19 (English-looking, or not in the word lists).
+    # English words too, renamed by hand where they are keys (rewrite.py KEEP): resume, reception, retire, JetonAPI.
+    "resume": "summary",
+    "reception": "inbound",
+    "retire": "removed",
+    "JetonAPI": "ApiToken",
+    "agent_invite": "guest_agent",
+    "appliques": "applied",
+    "blocs": "blocks",
+    "canal": "channel",
+    "commit_distant": "remote_commit",
+    "cpu_pourcent": "cpu_percent",
+    "date_creation": "created_at",
+    "debit_mbps": "throughput_mbps",
+    "debut": "start",
+    "fin": "end",
+    "demon": "daemon",
+    "domaines": "domains",
+    "ecarts": "differences",
+    "emission_ko_s": "sent_kb_s",
+    "emplacement": "location",
+    "entrees": "entries",
+    "herite_de": "inherited_from",
+    "hyperviseur": "hypervisor",
+    "illisible": "unreadable",
+    "joignables": "reachable",
+    "lecture_ko_s": "read_kb_s",
+    "masque": "netmask",
+    "migrables": "migratable",
+    "non_migrables": "not_migratable",
+    "non_agrandissable": "not_growable",
+    "physique": "physical",
+    "points_montage": "mount_points",
+    "precedent": "previous",
+    "recherche": "search",
+    "reception_ko_s": "received_kb_s",
+    "sans_quorum": "without_quorum",
+    "virtualisation": "virtualization",
+    "vms_actives": "vms_running",
+    "zfs_module_charge": "zfs_module_loaded",
+    # Columns the word lists missed (an English word, or a compound), found in the schema on 2026-10-18.
+    "but": "purpose",
+    "horodatage": "timestamp",
+    "joignable": "reachable",
+    "version_hyperviseur": "hypervisor_version",
+    "version_libvirt": "libvirt_version",
     # Task, VM, pool and node states, results and frequencies (stored and returned values).
     "en_cours": "running",
     "en_attente": "pending",
@@ -200,7 +246,7 @@ WHOLE = {
     "hl_sso_handoff": "hl_sso_handoff",
     "pre_auth_token": "preauth_token",
     "uefi_inconnu": "uefi_unknown",
-    "step_ordre": "step_order",
+    "step_ordre": "step_position",  # Antho, 2026-10-18: "order" is reserved in SQL
 }
 
 WORDS = {
@@ -350,7 +396,7 @@ WORDS = {
     "numero": "number",
     "objet": "object",
     "officielle": "official",
-    "ordre": "order",
+    "ordre": "position",  # Antho, 2026-10-18: "order" is reserved in SQL
     "outils": "tools",
     "ouvert": "open",
     "panne": "failure",

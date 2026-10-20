@@ -58,7 +58,7 @@ def test_without_the_quorum_nothing_changes_and_reading_still_works(node):
     assert client.post("/vms/web/start", headers=headers).status_code == 503  # VMs too, as on Proxmox
     assert client.delete("/groups/1", headers=headers).status_code == 503
     assert client.get("/groups", headers=headers).status_code == 200
-    assert client.get("/groups", headers=headers).json() == []  # nothing was created
+    assert client.get("/groups", headers=headers).json()["items"] == []  # nothing was created
 
 
 def test_signing_in_and_out_still_work_without_the_quorum(node):

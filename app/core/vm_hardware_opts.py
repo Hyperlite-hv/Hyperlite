@@ -66,7 +66,7 @@ def describe(domain):
             boot.append((int(order.get("order", "99")), dev))
         disks.append(
             {
-                "cible": dev,
+                "target": dev,
                 "type": disk.get("device"),
                 "bus": target.get("bus"),
                 "cache": driver.get("cache") if driver is not None else None,
@@ -91,13 +91,13 @@ def describe(domain):
     current = int(root.findtext("currentMemory") or root.findtext("memory") or 0) // 1024
     os_type = root.find("./os/type")
     return {
-        "disques": disks,
+        "disks": disks,
         "interfaces": interfaces,
-        "ordre_demarrage": [dev for _order, dev in sorted(boot)],
+        "boot_order": [dev for _order, dev in sorted(boot)],
         "ballooning": {
-            "actif": balloon is not None and balloon.get("model") not in (None, "none"),
-            "memoire_mo": memory,
-            "minimum_mo": current,
+            "active": balloon is not None and balloon.get("model") not in (None, "none"),
+            "memory_mb": memory,
+            "minimum_mb": current,
         },
         "machine": os_type.get("machine") if os_type is not None else None,
     }
@@ -130,7 +130,7 @@ def _ensure_iothread(root):
 
 
 def set_disk_options(conn, domain, dev, opts):
-    """opts: cache, discard, io, iothread (bool), iops, mbps (0 or None: no limit). Returns {"a_redemarrer"}."""
+    """opts: cache, discard, io, iothread (bool), iops, mbps (0 or None: no limit). Returns {"needs_restart"}."""
     _validate_disk(opts)
     root = _inactive_root(domain)
     disk = _disk(root, dev)
@@ -171,7 +171,7 @@ def set_disk_options(conn, domain, dev, opts):
     if domain.isActive():
         domain.setBlockIoTune(dev, {"total_iops_sec": iops, "total_bytes_sec": bps}, libvirt.VIR_DOMAIN_AFFECT_LIVE)
         restart = dict(driver.attrib) != before
-    return {"a_redemarrer": restart}
+    return {"needs_restart": restart}
 
 
 def set_boot_order(conn, domain, order):
@@ -205,7 +205,7 @@ def set_boot_order(conn, domain, order):
 
 
 def set_balloon(conn, domain, enabled, minimum_mb=None):
-    """Enabled: a virtio balloon, and the guest may be squeezed down to minimum_mb. Returns {"a_redemarrer"}."""
+    """Enabled: a virtio balloon, and the guest may be squeezed down to minimum_mb. Returns {"needs_restart"}."""
     root = _inactive_root(domain)
     memory = int(root.findtext("memory") or 0)
     devices = root.find("devices")
@@ -235,7 +235,7 @@ def set_balloon(conn, domain, enabled, minimum_mb=None):
             domain.setMemoryFlags(int(current.text), libvirt.VIR_DOMAIN_AFFECT_LIVE)
         elif had != enabled:
             restart = True
-    return {"a_redemarrer": restart}
+    return {"needs_restart": restart}
 
 
 # Versioned machine names carry a number (pc-q35-8.2) or, on some distributions, a release name (pc-i440fx-noble):

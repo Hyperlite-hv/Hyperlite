@@ -22,19 +22,16 @@ def test_vm_side_records(repo):
     store.set_vm_ssh_user("web", "ubuntu")
     store.set_vm_ssh_user("web", "debian")
     store.set_vm_os_label("web", "Debian 13")
-    store.mark_provisioning("web", "debian", "t0", "task-1")
     assert (store.vm_ssh_user("web"), store.vm_os_label("web")) == ("debian", "Debian 13")
-    assert store.provisioning("web") == {"os_family": "debian", "started_at": "t0", "task_id": "task-1"}
     store.save_cloudinit("web", "ops", '["ssh-ed25519 AAAA"]', "t1")
     assert store.cloudinit("web")["username"] == "ops"
     for delete in (
         store.delete_vm_ssh_user,
         store.delete_vm_os_label,
-        store.clear_provisioning,
         store.delete_cloudinit,
     ):
         delete("web")
-    assert store.vm_ssh_user("web") is None and store.provisioning("web") is None and store.cloudinit("web") is None
+    assert store.vm_ssh_user("web") is None and store.cloudinit("web") is None
 
 
 def test_inactivity_policy(repo):

@@ -97,8 +97,8 @@ def test_windows_driver_media_does_not_replace_or_boot_before_installer():
     assert xml.find("devices/controller[@type='scsi']").get("model") == "virtio-scsi"
 
 
-def test_driver_media_has_unique_target_with_linux_seed_media():
-    xml = build(iso_path="/isos/linux.iso", seed_iso_path="/images/seed.iso", drivers_iso_path="/isos/extra.iso")
+def test_driver_media_has_unique_target_next_to_the_installation_iso():
+    xml = build(iso_path="/isos/linux.iso", drivers_iso_path="/isos/extra.iso")
     targets = [d.find("target").get("dev") for d in xml.findall("devices/disk")]
     assert len(targets) == len(set(targets))
 
@@ -118,7 +118,7 @@ def test_windows_profile_uses_native_sata_and_network_devices():
 
 
 def test_windows_iso_detection():
-    from app.core.unattended_install import detect_windows
+    from app.core.guest_hardware import detect_windows
 
     assert detect_windows("fr-fr_windows_server_2025_x64.iso")
     assert not detect_windows("ubuntu-26.04-live-server.iso")

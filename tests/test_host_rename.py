@@ -29,8 +29,8 @@ def host(tmp_path, monkeypatch):
 def test_a_full_name_sets_the_host_name_and_the_hosts_line(host):
     host_system, hosts, calls = host
     assert host_system.set_hostname("PVE1.lan", current="hyperlite.home") == {
-        "nom": "pve1.lan",
-        "ancien": "hyperlite.home",
+        "name": "pve1.lan",
+        "old": "hyperlite.home",
     }
     assert calls == [["sethostname", "pve1"]]
     assert (hosts.parent / "hostname").read_text() == "pve1\n"
@@ -79,8 +79,8 @@ def test_a_refused_host_name_leaves_the_files(host, monkeypatch):
 
 
 def test_renaming_the_node_is_for_administrators(client, auth_headers, host):
-    r = client.put("/host/system/hostname", json={"nom": "pve1"}, headers=auth_headers("olga", role="observateur"))
+    r = client.put("/host/system/hostname", json={"name": "pve1"}, headers=auth_headers("olga", role="viewer"))
     assert r.status_code == 403
-    r = client.put("/host/system/hostname", json={"nom": "pve1.home"}, headers=auth_headers("alice"))
-    assert r.status_code == 200 and r.json()["nom"] == "pve1.home"
-    assert client.put("/host/system/hostname", json={"nom": "no way"}, headers=auth_headers("bob")).status_code == 422
+    r = client.put("/host/system/hostname", json={"name": "pve1.home"}, headers=auth_headers("alice"))
+    assert r.status_code == 200 and r.json()["name"] == "pve1.home"
+    assert client.put("/host/system/hostname", json={"name": "no way"}, headers=auth_headers("bob")).status_code == 422

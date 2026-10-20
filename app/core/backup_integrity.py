@@ -2,13 +2,14 @@
 VMs (NVRAM and TPM) saved and put back with the disks.
 
 Manifest (`manifest.json` next to the files of a backup):
-  {"version": 1, "vm": ..., "source": host name, "mode": "chaud"|"froid", "cree_le": ..., "firmware": "bios"|"uefi"|"uefi_secure",
-   "fichiers": [{"nom": "sda.qcow2", "role": "disque", "cible": "sda", "taille": ..., "sha256": ...},
-                {"nom": "nvram.fd", "role": "nvram", ...}, {"nom": "tpm.tar", "role": "tpm", ...},
-                {"nom": "vm-config.json", "role": "config", ...}]}
+  {"version": 1, "vm": ..., "source": host name, "mode": "live"|"cold", "created_at": ...,
+   "firmware": "bios"|"uefi"|"uefi_secure",
+   "files": [{"name": "sda.qcow2", "role": "disk", "target": "sda", "size": ..., "sha256": ...},
+                {"name": "nvram.fd", "role": "nvram", ...}, {"name": "tpm.tar", "role": "tpm", ...},
+                {"name": "vm-config.json", "role": "config", ...}]}
 
 Verification recomputes every checksum and runs `qemu-img check` on each disk image. A backup is then
-"verifie" (every file present, same checksum, images consistent) or "corrompu" (with what is wrong), with the date.
+"verified" (every file present, same checksum, images consistent) or "corrupted" (with what is wrong), with the date.
 A backup made before manifests existed is checked with what it has: its images, and its single-disk checksum.
 
 UEFI firmware state:
@@ -33,7 +34,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import firmware
+from app.core import firmware, schema_v1
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,8 @@ NVRAM_DIR = Path("/var/lib/libvirt/qemu/nvram")
 SWTPM_DIR = Path("/var/lib/libvirt/swtpm")
 VERIFY_EVERY_DAYS = 7
 
-VERIFIED = "verifie"
-CORRUPT = "corrompu"
+VERIFIED = "verified"
+CORRUPT = "corrupted"
 
 
 def sha256_of(path):
@@ -129,18 +130,18 @@ def restore_firmware_state(src_dir, domain):
 
 def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks, replication=None):
     """disks: [(target dev, Path of the copied image)]. Every other file of the backup is listed by its role.
-    `replication`: for a point of a replication chain (app/core/replication.py), {"type": "complet" | "incremental",
-    "chaine": the chain's first point, "parent": the previous point or None}."""
+    `replication`: for a point of a replication chain (app/core/replication.py), {"type": "full" | "incremental",
+    "chain": the chain's first point, "parent": the previous point or None}."""
     dest_dir = Path(dest_dir)
     files = []
     for dev, path in disks:
-        files.append({"nom": Path(path).name, "role": "disque", "cible": dev})
+        files.append({"name": Path(path).name, "role": "disk", "target": dev})
     for name, role in ((NVRAM_FILE, "nvram"), (TPM_FILE, "tpm"), ("vm-config.json", "config")):
         if (dest_dir / name).is_file():
-            files.append({"nom": name, "role": role})
+            files.append({"name": name, "role": role})
     for entry in files:
-        path = dest_dir / entry["nom"]
-        entry["taille"] = path.stat().st_size
+        path = dest_dir / entry["name"]
+        entry["size"] = path.stat().st_size
         entry["sha256"] = sha256_of(path)
     manifest = {
         "version": MANIFEST_VERSION,
@@ -149,9 +150,9 @@ def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks, replication=No
         # comes from.
         "source": socket.gethostname(),
         "mode": mode,
-        "cree_le": _now(),
+        "created_at": _now(),
         "firmware": firmware_kind,
-        "fichiers": files,
+        "files": files,
     }
     if replication:
         manifest["replication"] = replication
@@ -160,10 +161,15 @@ def write_manifest(dest_dir, vm_name, mode, firmware_kind, disks, replication=No
 
 
 def read_manifest(src_dir):
+    """The manifest of a backup, in the names of this version whatever version wrote it; None without one."""
     try:
-        return json.loads((Path(src_dir) / MANIFEST).read_text())
+        manifest = json.loads((Path(src_dir) / MANIFEST).read_text())
     except (OSError, ValueError):
         return None
+    # Backups made before API v1 stay readable for ever and are never rewritten (docs/design/api-v1.md, "Files on disk").
+    if isinstance(manifest, dict) and manifest.get("mode") in schema_v1.MANIFEST_MODES:
+        manifest["mode"] = schema_v1.MANIFEST_MODES[manifest["mode"]]
+    return manifest
 
 
 # --- Verification -----------------------------------------------------------------------------------------------
@@ -239,20 +245,20 @@ def _verify_one(src_dir, single_checksum=None, progress=lambda pct: None):
             problems.append(f"{images[0].name}: checksum differs from the one recorded at backup time")
         return (CORRUPT if problems else VERIFIED), problems, len(images)
 
-    entries = manifest.get("fichiers") or []
-    if not any(e.get("role") == "disque" for e in entries):
+    entries = manifest.get("files") or []
+    if not any(e.get("role") == "disk" for e in entries):
         problems.append("The manifest lists no disk")
     for i, entry in enumerate(entries):
-        name = Path(str(entry.get("nom", ""))).name  # a manifest never points outside its own directory
+        name = Path(str(entry.get("name", ""))).name  # a manifest never points outside its own directory
         path = src_dir / name
         if not name or not path.is_file():
             problems.append(f"{name or '?'}: missing")
             continue
-        if path.stat().st_size != entry.get("taille"):
-            problems.append(f"{name}: size differs ({path.stat().st_size} instead of {entry.get('taille')} bytes)")
+        if path.stat().st_size != entry.get("size"):
+            problems.append(f"{name}: size differs ({path.stat().st_size} instead of {entry.get('size')} bytes)")
         elif sha256_of(path) != entry.get("sha256"):
             problems.append(f"{name}: checksum differs, the file changed since the backup")
-        if entry.get("role") == "disque":
+        if entry.get("role") == "disk":
             error = _qemu_img_check(path)
             if error:
                 problems.append(f"{name}: {error}")

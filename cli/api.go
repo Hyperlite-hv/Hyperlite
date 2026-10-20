@@ -93,6 +93,10 @@ func (e *apiError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.status)
 }
 
+// apiPrefix is where the server's API lives (Hyperlite 1.0 and later). An older server does not know it, and a server
+// newer than this client answers 410 at an address it removed: both are said plainly (see call).
+const apiPrefix = "/api/v1"
+
 // call sends a JSON request and decodes the JSON answer into out (when not nil).
 func call(s *server, method, path string, in, out any) error {
 	var body io.Reader
@@ -103,7 +107,7 @@ func call(s *server, method, path string, in, out any) error {
 		}
 		body = bytes.NewReader(data)
 	}
-	req, err := http.NewRequest(method, s.URL+path, body)
+	req, err := http.NewRequest(method, s.URL+apiPrefix+path, body)
 	if err != nil {
 		return err
 	}
@@ -130,12 +134,18 @@ func call(s *server, method, path string, in, out any) error {
 		var payload struct {
 			Detail any    `json:"detail"`
 			Error  string `json:"error"`
+			Code   string `json:"code"`
 		}
 		if json.Unmarshal(data, &payload) == nil {
 			e.code = payload.Error
 			if d, ok := payload.Detail.(string); ok {
 				e.detail = d
 			}
+		}
+		// A server before 1.0 has no /api/v1: it answers every address there with a bare "Not Found", which a server
+		// of 1.0 or later never does (its errors name a code).
+		if resp.StatusCode == http.StatusNotFound && e.detail == "Not Found" && payload.Code == "" {
+			e.detail = "this server runs a Hyperlite version before 1.0: update it, or use a hyperlite-cli of its version"
 		}
 		if resp.StatusCode == http.StatusUnauthorized && e.code == "" {
 			e.detail = "the session of this workstation is no longer valid: run hyperlite login " + s.URL

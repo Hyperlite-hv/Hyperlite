@@ -34,7 +34,7 @@ export default function NodeSummary({ resource: node }) {
   const [recent, setRecent] = useState(null);
   const nodeId = node?.id;
   const taskNode = nodeId;
-  const loadRecent = () => fetchTasks({ node: taskNode, limit: 6, tri: "cree_le", ordre: "desc" }).then((r) => setRecent(asList(r))).catch(() => setRecent([]));
+  const loadRecent = () => fetchTasks({ node: taskNode, limit: 6, sort: "created_at", position: "desc" }).then((r) => setRecent(asList(r))).catch(() => setRecent([]));
   useEffect(() => { loadRecent(); }, [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
   usePolling(loadRecent, 10000);
 
@@ -42,12 +42,12 @@ export default function NodeSummary({ resource: node }) {
   if (!node) return null;
   const rows = (hist.rows || []).slice(-60);
   const pools = storagePools.filter((p) => p.node === nodeId);
-  const running = nodeVms.filter((v) => v.etat === "actif").length;
+  const running = nodeVms.filter((v) => v.state === "active").length;
   const alerts = deriveAlerts({ nodes: [node], vms: nodeVms, storagePools: pools, tasks: [] });
-  const memP = pct(node.memoire_utilisee_mo, node.memoire_totale_mo);
+  const memP = pct(node.used_memory_mb, node.memoire_totale_mo);
   const stoP = pct(node.stockage_utilise_go, node.stockage_total_go);
-  const qemu = formatVersionInt(node.version_hyperviseur);
-  const lv = formatVersionInt(node.version_libvirt);
+  const qemu = formatVersionInt(node.hypervisor_version);
+  const lv = formatVersionInt(node.libvirt_version);
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
   const today = new Date().toDateString();
 
@@ -61,8 +61,8 @@ export default function NodeSummary({ resource: node }) {
       )}
       <KpiStrip label={t("ns.resources")} items={[
         { id: "cpu", label: t("ns.cpu"), value: node.cpu_utilisation != null ? fmt1(node.cpu_utilisation, lang) : "—", unit: node.cpu_utilisation != null ? "%" : null, sub: [node.cpu_coeurs && t("nd.cores", { n: node.cpu_coeurs }), node.cpu_modele].filter(Boolean).join(" · ") || t("ns.collecting"), spark: rows.map((r) => r.cpu_pct), onClick: () => navigateTo("node", nodeId, "perf") },
-        { id: "mem", label: t("ns.memory"), value: node.memoire_utilisee_mo != null ? formatSizeMb(node.memoire_utilisee_mo, lang) : "—", unit: node.memoire_totale_mo ? `/ ${formatSizeMb(node.memoire_totale_mo, lang)}` : null, sub: memP != null ? t("ns.usedPct", { p: Math.round(memP) }) : t("ns.collecting"), spark: rows.map((r) => pct(r.mem_used_mb, r.mem_total_mb)), onClick: () => navigateTo("node", nodeId, "perf") },
-        { id: "sto", label: t("ns.storage"), value: node.stockage_utilise_go != null ? formatSizeGb(node.stockage_utilise_go, lang) : "—", unit: node.stockage_total_go ? `/ ${formatSizeGb(node.stockage_total_go, lang)}` : null, sub: stoP != null ? t("ns.poolPct", { pool: pools[0]?.nom || "default", p: Math.round(stoP) }) : "", onClick: () => navigateTo("node", nodeId, "disk") },
+        { id: "mem", label: t("ns.memory"), value: node.used_memory_mb != null ? formatSizeMb(node.used_memory_mb, lang) : "—", unit: node.memoire_totale_mo ? `/ ${formatSizeMb(node.memoire_totale_mo, lang)}` : null, sub: memP != null ? t("ns.usedPct", { p: Math.round(memP) }) : t("ns.collecting"), spark: rows.map((r) => pct(r.mem_used_mb, r.mem_total_mb)), onClick: () => navigateTo("node", nodeId, "perf") },
+        { id: "sto", label: t("ns.storage"), value: node.stockage_utilise_go != null ? formatSizeGb(node.stockage_utilise_go, lang) : "—", unit: node.stockage_total_go ? `/ ${formatSizeGb(node.stockage_total_go, lang)}` : null, sub: stoP != null ? t("ns.poolPct", { pool: pools[0]?.name || "default", p: Math.round(stoP) }) : "", onClick: () => navigateTo("node", nodeId, "disk") },
         { id: "vms", label: t("nav.vms"), value: running, unit: t("ov.ofRunning", { n: nodeVms.length }), sub: t("ov.stoppedN", { n: nodeVms.length - running }), onClick: () => navigateTo("datacenter", null, "vms") },
       ]} />
 
@@ -74,12 +74,12 @@ export default function NodeSummary({ resource: node }) {
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ns.col.name")}</th><th scope="col" className="nx-num">{t("ns.vcpuRam")}</th><th scope="col">{t("vmlist.ip")}</th><th scope="col">{t("ns.col.uptime")}</th></tr></thead>
                 <tbody>
                   {nodeVms.map((v) => (
-                    <tr key={v.nom}>
-                      <td><StatusIndicator kind="vm" wire={v.etat} /></td>
-                      <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(v), "summary")}>{v.nom}</button>{v.os && <small>{v.os}</small>}</th>
-                      <td className="nx-num nx-mono">{v.vcpu} · {formatSizeMb(v.memoire_mo, lang)}</td>
+                    <tr key={v.name}>
+                      <td><StatusIndicator kind="vm" wire={v.state} /></td>
+                      <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmKey(v), "summary")}>{v.name}</button>{v.os && <small>{v.os}</small>}</th>
+                      <td className="nx-num nx-mono">{v.vcpu} · {formatSizeMb(v.memory_mb, lang)}</td>
                       <td className="nx-mono">{v.ip || <span className="nx-muted">—</span>}</td>
-                      <td className="nx-mono nx-muted">{v.etat === "actif" ? formatUptimeLong(v.uptime_s, lang) || "—" : "—"}</td>
+                      <td className="nx-mono nx-muted">{v.state === "active" ? formatUptimeLong(v.uptime_s, lang) || "—" : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -106,10 +106,10 @@ export default function NodeSummary({ resource: node }) {
         {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
           <ul className="nx-list2">
             {recent.map((r) => {
-              const at = r.debut_le || r.cree_le;
+              const at = r.started_at || r.created_at;
               return (
-                <li key={r.id}><StatusIndicator kind="task" wire={r.statut} compact />
-                  <div className="nx-list2-main">{taskLabel(r.type)}{r.cible ? <> · <b>{r.cible}</b></> : null}<div className="nx-list2-sub">{r.username || t("ov.system")}</div></div>
+                <li key={r.id}><StatusIndicator kind="task" wire={r.status} compact />
+                  <div className="nx-list2-main">{taskLabel(r.type)}{r.target ? <> · <b>{r.target}</b></> : null}<div className="nx-list2-sub">{r.username || t("ov.system")}</div></div>
                   <span className="nx-list2-t">{new Date(at).toDateString() === today ? clockTime(at, lang) : formatDateTime(at, lang)}</span></li>
               );
             })}

@@ -67,7 +67,7 @@ def check_once():
                 _check_vm(conn, row)
             except Exception as e:
                 logger.exception("Automatic deletion check of %s failed", row["vm_name"])
-                log_action("system", "auto_cleanup_check", row["vm_name"], "echec", f"Check failed: {e!r}"[:500])
+                log_action("system", "auto_cleanup_check", row["vm_name"], "failed", f"Check failed: {e!r}"[:500])
     finally:
         conn.close()
 
@@ -78,7 +78,7 @@ def _warn(vm_name, inactive_days):
         f"VM '{vm_name}' will be deleted automatically in {WARNING_HOURS_BEFORE} h or more "
         f"(stopped for {inactive_days}+ days, threshold set at creation)"
     )
-    log_action("system", "auto_cleanup_warning", vm_name, "succes", msg)
+    log_action("system", "auto_cleanup_warning", vm_name, "success", msg)
 
 
 def _check_vm(conn, row):
@@ -129,9 +129,9 @@ def _check_vm(conn, row):
         try:
             _perform_vm_deletion(conn, domain, vm_name)
             msg = f"Automatic deletion: stopped for {row['inactive_days']}+ days (threshold set at creation)"
-            log_action("system", "delete_vm", vm_name, "succes", msg)
+            log_action("system", "delete_vm", vm_name, "success", msg)
         except Exception as e:
-            log_action("system", "delete_vm", vm_name, "echec", f"Automatic deletion failed: {e!r}")
+            log_action("system", "delete_vm", vm_name, "failed", f"Automatic deletion failed: {e!r}")
 
 
 def _loop():

@@ -14,11 +14,11 @@ def _rows(database):
 
 
 def test_successful_reads_are_not_audited_but_failures_and_actions_are(database):
-    audit.log_action("alice", "list_vms", "vms", "succes")
-    audit.log_action("alice", "get_vm", "web", "succes")
-    audit.log_action("alice", "get_vm", "ghost", "echec", "VM not found")
-    audit.log_action("alice", "start_vm", "web", "succes")
-    assert _rows(database) == [("get_vm", "echec"), ("start_vm", "succes")]
+    audit.log_action("alice", "list_vms", "vms", "success")
+    audit.log_action("alice", "get_vm", "web", "success")
+    audit.log_action("alice", "get_vm", "ghost", "failed", "VM not found")
+    audit.log_action("alice", "start_vm", "web", "success")
+    assert _rows(database) == [("get_vm", "failed"), ("start_vm", "success")]
 
 
 def test_a_lost_entry_is_logged_without_what_came_from_the_request(database, monkeypatch, caplog):
@@ -27,7 +27,7 @@ def test_a_lost_entry_is_logged_without_what_came_from_the_request(database, mon
 
     monkeypatch.setattr(audit._AUDIT_QUEUE, "put_nowait", _full)
     with caplog.at_level(logging.ERROR, logger=audit.__name__):
-        audit.log_action("alice", "change_password", "alice", "echec", "rejected: Tr0ub4dor&3")
+        audit.log_action("alice", "change_password", "alice", "failed", "rejected: Tr0ub4dor&3")
     assert "change_password" in caplog.text
     assert "Tr0ub4dor" not in caplog.text and "alice" not in caplog.text
 
@@ -71,7 +71,7 @@ def test_entries_older_than_the_retention_are_deleted(database, monkeypatch):
     with database.get_conn() as conn:
         for age in (400, 10):
             conn.execute(
-                "INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES (?, 'x', 'a', 'r', 'succes')",
+                "INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES (?, 'x', 'a', 'r', 'success')",
                 ((now - timedelta(days=age)).isoformat(),),
             )
         conn.commit()
@@ -84,11 +84,11 @@ def test_entries_older_than_the_retention_are_deleted(database, monkeypatch):
 def test_the_reads_logged_before_are_removed_at_start(database):
     """102,073 of 102,926 entries of an audited host were successful reads logged before they no longer were."""
     rows = [
-        ("list_vms", "succes"),
-        ("get_vm", "succes"),
-        ("list_networks", "echec"),  # a failed read stays: it may tell of a problem
-        ("create_vm", "succes"),
-        ("listen_x", "succes"),  # not a read: no underscore after "list"
+        ("list_vms", "success"),
+        ("get_vm", "success"),
+        ("list_networks", "failed"),  # a failed read stays: it may tell of a problem
+        ("create_vm", "success"),
+        ("listen_x", "success"),  # not a read: no underscore after "list"
     ]
     with database.get_conn() as conn:
         for action, result in rows:

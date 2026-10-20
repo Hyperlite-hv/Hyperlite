@@ -227,10 +227,10 @@ def _finish_point(domain, vm_name, point_dir, disks, kind, chain, parent, runnin
     backup_integrity.write_manifest(
         point_dir,
         vm_name,
-        "chaud" if running else "froid",
+        "live" if running else "cold",
         firmware.of_domain(ET.fromstring(domain.XMLDesc(0))),
         images,
-        replication={"type": kind, "chaine": chain, "parent": parent},
+        replication={"type": kind, "chain": chain, "parent": parent},
     )
 
 
@@ -241,8 +241,8 @@ def _prune(vm_dir, current_chain):
         if point.is_symlink() or not point.is_dir():
             continue
         info = (backup_integrity.read_manifest(point) or {}).get("replication")
-        if info and info.get("chaine"):
-            chains.setdefault(info["chaine"], []).append(point)
+        if info and info.get("chain"):
+            chains.setdefault(info["chain"], []).append(point)
     keep = sorted(set(chains) | {current_chain}, reverse=True)[:KEEP_CHAINS]
     for chain, points in chains.items():
         if chain not in keep:
@@ -251,7 +251,7 @@ def _prune(vm_dir, current_chain):
 
 
 def replicate(vm_name, target_dir, username="scheduler"):
-    """Make the next point of `vm_name` under `target_dir`. Returns "complet", "incremental" or "inchange"."""
+    """Make the next point of `vm_name` under `target_dir`. Returns "full", "incremental" or "unchanged"."""
     claim = vm_locks.claim(vm_name, "a replication")
     with claim:
         try:
@@ -261,7 +261,7 @@ def replicate(vm_name, target_dir, username="scheduler"):
             # The first copy of a VM has no state yet: its target is recorded with the failure (a NOT NULL column), or
             # the database error hid the reason the copy failed.
             _store().save_state(
-                vm_name, cible_dir=target_dir, statut="echec", erreur=message[:500], maj_le=_now().isoformat()
+                vm_name, target_dir=target_dir, status="failed", error=message[:500], updated_at=_now().isoformat()
             )
             raise
     return result
@@ -286,15 +286,15 @@ def _replicate(vm_name, target_dir):
         disks = disks_of(domain)
         state = _store().state(vm_name) or {}
         running = domain.isActive()
-        same_target = state.get("cible_dir") == str(root)
-        previous = state.get("dernier_point") if same_target else None
+        same_target = state.get("target_dir") == str(root)
+        previous = state.get("last_point") if same_target else None
         previous_ok = bool(previous) and all((vm_dir / previous / f"{dev}.qcow2").is_file() for dev, _p in disks)
 
         last_checkpoint = state.get("checkpoint")
         chain_alive = previous_ok and last_checkpoint in checkpoints.names(domain)
-        if not running and previous_ok and state.get("mtime_disques") == _disks_mtime(disks):
-            _store().save_state(vm_name, statut="ok", erreur=None, maj_le=_now().isoformat())
-            return "inchange"
+        if not running and previous_ok and state.get("disks_mtime") == _disks_mtime(disks):
+            _store().save_state(vm_name, status="ok", error=None, updated_at=_now().isoformat())
+            return "unchanged"
         paused = not running and not _has_hostdev(domain)
 
         vm_dir.mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,7 @@ def _replicate(vm_name, target_dir):
             if incremental:
                 _create_incremental_targets(disks, point_dir, previous)
                 _run_backup_job(domain, disks, point_dir, new_checkpoint, last_checkpoint)
-                kind, chain, parent, points = "incremental", state["chaine"], previous, int(state["points"]) + 1
+                kind, chain, parent, points = "incremental", state["chain"], previous, int(state["points"]) + 1
             else:
                 # A new chain: the old checkpoints would only accumulate bitmaps in the disks.
                 checkpoints.release(domain, vm_name)
@@ -318,7 +318,7 @@ def _replicate(vm_name, target_dir):
                 else:
                     _cold_copy(disks, point_dir)
                     new_checkpoint = None
-                kind, chain, parent, points = "complet", stamp, None, 1
+                kind, chain, parent, points = "full", stamp, None, 1
             if incremental and last_checkpoint:
                 # Only the newest checkpoint is needed; keeping the old ones would grow every disk with bitmaps.
                 try:
@@ -341,18 +341,18 @@ def _replicate(vm_name, target_dir):
                 domain.destroy()
         _store().save_state(
             vm_name,
-            cible_dir=str(root),
-            chaine=chain,
-            dernier_point=stamp,
+            target_dir=str(root),
+            chain=chain,
+            last_point=stamp,
             checkpoint=new_checkpoint,
             points=points,
-            dernier_ok_le=_now().isoformat(),
-            mtime_disques=None if domain.isActive() else _disks_mtime(disks),
-            statut="ok",
-            erreur=None,
-            maj_le=_now().isoformat(),
+            last_success_at=_now().isoformat(),
+            disks_mtime=None if domain.isActive() else _disks_mtime(disks),
+            status="ok",
+            error=None,
+            updated_at=_now().isoformat(),
         )
-        if kind == "complet":
+        if kind == "full":
             _prune(vm_dir, chain)
         return kind
     finally:
@@ -368,14 +368,14 @@ def forget(vm_name):
 
 
 def validate(payload):
-    name = (payload.get("nom") or "").strip()
+    name = (payload.get("name") or "").strip()
     if not backup_groups.NAME_RE.match(name):
         raise ReplicationError("Invalid name: letters, digits, spaces, dots, dashes, 64 characters at most")
     selection = payload.get("selection")
-    value = (payload.get("valeur") or "").strip() or None
-    if selection not in ("toutes", "etiquette", "pool"):
-        raise ReplicationError("selection must be toutes, etiquette or pool")
-    if selection == "etiquette":
+    value = (payload.get("value") or "").strip() or None
+    if selection not in ("all", "tag", "pool"):
+        raise ReplicationError("selection must be all, etiquette or pool")
+    if selection == "tag":
         tags = object_meta.normalize_tags([value or ""])
         if not tags:
             raise ReplicationError("Choose the tag whose VMs are replicated")
@@ -388,22 +388,22 @@ def validate(payload):
     else:
         value = None
     try:
-        target = backup_groups.validate_target(payload.get("cible_dir"))
+        target = backup_groups.validate_target(payload.get("target_dir"))
     except backup_groups.GroupError as e:
         raise ReplicationError(str(e)) from None
     if not target:
         raise ReplicationError("Choose the directory of the other site's storage")
-    interval = payload.get("intervalle_minutes", DEFAULT_INTERVAL)
+    interval = payload.get("interval_minutes", DEFAULT_INTERVAL)
     if not isinstance(interval, int) or not MIN_INTERVAL <= interval <= MAX_INTERVAL:
         raise ReplicationError(f"The interval must be {MIN_INTERVAL} to {MAX_INTERVAL} minutes")
     return {
-        "nom": name,
+        "name": name,
         "selection": selection,
-        "valeur": value,
-        "exclues": sorted({str(v) for v in payload.get("exclues") or [] if v}),
-        "cible_dir": target,
-        "intervalle_minutes": interval,
-        "actif": 1 if payload.get("actif", True) else 0,
+        "value": value,
+        "excluded": sorted({str(v) for v in payload.get("excluded") or [] if v}),
+        "target_dir": target,
+        "interval_minutes": interval,
+        "active": 1 if payload.get("active", True) else 0,
     }
 
 
@@ -416,7 +416,7 @@ def save_job(payload, job_id=None):
         elif not _store().update_job(job_id, values, next_run):
             return None
     except sqlite3.IntegrityError:  # the name is unique (the type, not the text of the message)
-        raise ReplicationError(f"A replication job is already named {values['nom']}") from None
+        raise ReplicationError(f"A replication job is already named {values['name']}") from None
     return job_with_vms(_store().get_job(job_id))
 
 
@@ -424,7 +424,7 @@ def job_with_vms(job):
     if job:
         job = dict(job)
         job["vms"] = backup_groups.resolve(job)
-        job["en_cours"] = job["id"] in _running_jobs
+        job["running"] = job["id"] in _running_jobs
     return job
 
 
@@ -447,7 +447,7 @@ def run_job(job, username="scheduler"):
 
         def one(vm):
             try:
-                return vm, replicate(vm, job["cible_dir"], username)
+                return vm, replicate(vm, job["target_dir"], username)
             except vm_locks.VmBusy as e:
                 return vm, f"skipped: {e}"
             except Exception as e:
@@ -467,12 +467,12 @@ def _run_and_record(job, username):
     from app.core.audit import log_action
 
     results = run_job(job, username)
-    failed = {vm: r for vm, r in results.items() if r not in ("complet", "incremental", "inchange")}
+    failed = {vm: r for vm, r in results.items() if r not in ("full", "incremental", "unchanged")}
     log_action(
         username,
         "replication",
-        job["nom"],
-        "echec" if failed else "succes",
+        job["name"],
+        "failed" if failed else "success",
         "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VM(s)",
     )
 
@@ -492,8 +492,8 @@ def run_due(now):
         _store().record_run(
             job["id"],
             now.isoformat(),
-            (now + timedelta(minutes=job["intervalle_minutes"])).isoformat(),
-            shared_next=job["prochaine_partagee"] if own else None,
+            (now + timedelta(minutes=job["interval_minutes"])).isoformat(),
+            shared_next=job["next_shared"] if own else None,
         )
         if job["id"] not in _running_jobs:
             start_job(job, "scheduler")
@@ -505,19 +505,19 @@ def status(now=None):
     now = now or _now()
     intervals = {}
     for job in _store().list_jobs():
-        if not job["actif"]:
+        if not job["active"]:
             continue
         for vm in backup_groups.resolve(job):
-            intervals[vm] = min(intervals.get(vm, MAX_INTERVAL), job["intervalle_minutes"])
+            intervals[vm] = min(intervals.get(vm, MAX_INTERVAL), job["interval_minutes"])
     rows = []
     for state in _store().states():
-        last = state.get("dernier_ok_le")
+        last = state.get("last_success_at")
         age = (now - datetime.fromisoformat(last)).total_seconds() if last else None
         interval = intervals.get(state["vm_name"])
         state = dict(state)
         state["age_s"] = int(age) if age is not None else None
-        state["intervalle_minutes"] = interval
-        state["en_retard"] = bool(interval) and (age is None or age > 2 * interval * 60)
+        state["interval_minutes"] = interval
+        state["late"] = bool(interval) and (age is None or age > 2 * interval * 60)
         rows.append(state)
     return rows
 

@@ -14,7 +14,7 @@ A column added to a listed table is copied without changing this file; a new tab
 TABLES = {
     # Accounts and access
     "users": {"priv": True, "volatile": {"last_login_at", "totp_last_step"}},
-    "webauthn_credentials": {"priv": True, "volatile": {"sign_count", "utilise_le"}},
+    "webauthn_credentials": {"priv": True, "volatile": {"sign_count", "used_at"}},
     "api_tokens": {"priv": True, "volatile": {"last_used_at"}},
     # A sign-out revokes its session on every node: a session token is valid on any of them (the signing key is
     # shared), so a revocation only this node knew would leave it usable elsewhere until it expires.
@@ -28,17 +28,17 @@ TABLES = {
     "sso_config": {"priv": True},
     "ldap_config": {"priv": True},
     # Nodes and the cluster
-    "nodes": {"volatile": {"statut", "derniere_verification"}},
+    "nodes": {"volatile": {"status", "last_verification"}},
     "node_maintenance": {},
     "node_fencing": {"priv": True},
     "ha_settings": {},
-    "ha_protected_vms": {"volatile": {"last_synced_at", "etat_ha", "derniere_action", "derniere_action_le"}},
+    "ha_protected_vms": {"volatile": {"last_synced_at", "ha_state", "last_action", "last_action_at"}},
     # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode, this node's own
     # name, its pending join, the ticket of its join information, the one-time rewrite of its tasks (they are its own
     # history) and its own step of a rolling update stay per node.
     "app_settings": {
         "local_rows": {
-            "cle": (
+            "key": (
                 "cfs_shadow",
                 "cfs_applied_version",
                 "cfs_mode",
@@ -65,13 +65,13 @@ TABLES = {
     "shared_pools": {},
     "network_firewall": {},
     # Protection and automation
-    "backup_jobs": {"volatile": {"derniere_execution"}},
-    "backup_group_jobs": {"volatile": {"derniere_execution"}},
-    "replication_jobs": {"volatile": {"derniere_execution"}},
+    "backup_jobs": {"volatile": {"last_run"}},
+    "backup_group_jobs": {"volatile": {"last_run"}},
+    "replication_jobs": {"volatile": {"last_run"}},
     "jobs": {},
     "job_steps": {},
     # Integrations
     "notification_channels": {"priv": True},
-    "metric_servers": {"priv": True, "volatile": {"dernier_envoi", "derniere_erreur"}},
-    "k8s_clusters": {"priv": True, "volatile": {"erreur", "task_id"}},
+    "metric_servers": {"priv": True, "volatile": {"last_sent_at", "last_error"}},
+    "k8s_clusters": {"priv": True, "volatile": {"error", "task_id"}},
 }

@@ -129,16 +129,16 @@ class Conn:
 
 def test_the_inventory_says_what_the_host_needs_and_hides_root_hubs(host):
     inv = passthrough.list_devices(Conn())
-    pci = {d["adresse"]: d for d in inv["pci"]}
-    assert inv["iommu"]["actif"] is True
-    assert pci["0000:00:00.0"]["hote"].startswith("PCI bridge")
-    assert pci["0000:02:00.0"]["hote"] == "Graphics card showing the host console"
-    assert "eno1" in pci["0000:03:00.0"]["hote"]
-    assert "nvme0n1p2" in pci["0000:04:00.0"]["hote"]
-    assert pci["0000:01:00.0"]["hote"] is None and pci["0000:05:00.0"]["hote"] is None
-    assert pci["0000:01:00.0"]["groupe"] == ["pci_0000_01_00_0", "pci_0000_01_00_1"]
+    pci = {d["address"]: d for d in inv["pci"]}
+    assert inv["iommu"]["active"] is True
+    assert pci["0000:00:00.0"]["host"].startswith("PCI bridge")
+    assert pci["0000:02:00.0"]["host"] == "Graphics card showing the host console"
+    assert "eno1" in pci["0000:03:00.0"]["host"]
+    assert "nvme0n1p2" in pci["0000:04:00.0"]["host"]
+    assert pci["0000:01:00.0"]["host"] is None and pci["0000:05:00.0"]["host"] is None
+    assert pci["0000:01:00.0"]["group"] == ["pci_0000_01_00_0", "pci_0000_01_00_1"]
     assert pci["0000:01:00.0"]["ids"] == "10de:1b80"
-    assert [d["adresse"] for d in inv["usb"]] == ["001:004", "002:003", "002:005"]
+    assert [d["address"] for d in inv["usb"]] == ["001:004", "002:003", "002:005"]
 
 
 def test_a_gpu_is_given_with_its_whole_iommu_group(host):
@@ -202,11 +202,11 @@ def test_a_pci_device_needs_a_confirmation_then_is_given_and_taken_back(api):
     assert r.status_code == 422 and "confirm" in r.json()["detail"] and vm.hostdevs == []
     r = c.post("/vms/vm1/hostdevs", json={"device": "pci_0000_01_00_0", "confirm": True}, headers=h)
     assert r.status_code == 201, r.text
-    assert r.json()["ajoutes"] == ["pci_0000_01_00_0", "pci_0000_01_00_1"]
-    listed = c.get("/vms/vm1/hostdevs", headers=h).json()
-    assert [(d["adresse"], d["present"]) for d in listed] == [("0000:01:00.0", True), ("0000:01:00.1", True)]
+    assert r.json()["added"] == ["pci_0000_01_00_0", "pci_0000_01_00_1"]
+    listed = c.get("/vms/vm1/hostdevs", headers=h).json()["items"]
+    assert [(d["address"], d["present"]) for d in listed] == [("0000:01:00.0", True), ("0000:01:00.1", True)]
     assert c.delete("/vms/vm1/hostdevs/pci_0000_01_00_1", headers=h).status_code == 200
-    assert [d["id"] for d in c.get("/vms/vm1/hostdevs", headers=h).json()] == ["pci_0000_01_00_0"]
+    assert [d["id"] for d in c.get("/vms/vm1/hostdevs", headers=h).json()["items"]] == ["pci_0000_01_00_0"]
 
 
 def test_a_usb_device_goes_to_a_running_vm_and_the_host_inventory_shows_who_has_it(api):
@@ -220,6 +220,6 @@ def test_a_usb_device_goes_to_a_running_vm_and_the_host_inventory_shows_who_has_
 
 
 def test_only_an_administrator_touches_host_devices(api, auth_headers):
-    headers = auth_headers("watcher", role="observateur")
+    headers = auth_headers("watcher", role="viewer")
     assert api["client"].get("/host/devices", headers=headers).status_code == 403
     assert api["client"].post("/vms/vm1/hostdevs", json={"device": "usb_1_4"}, headers=headers).status_code == 403

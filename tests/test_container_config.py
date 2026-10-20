@@ -83,9 +83,9 @@ def test_the_details_show_interfaces_dns_and_start_at_boot(client, auth_headers,
     r = client.get("/containers/web", headers=auth_headers("admin"))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["interfaces"] == [{"reseau": "default", "mac": "52:54:00:aa:bb:cc"}]
+    assert body["interfaces"] == [{"network": "default", "mac": "52:54:00:aa:bb:cc"}]
     assert body["dns"] == ["1.1.1.1", "9.9.9.9"]
-    assert body["demarrage_auto"] is False
+    assert body["autostart"] is False
 
 
 def test_resources_dns_and_start_at_boot_are_changed(client, auth_headers, lxc):
@@ -96,13 +96,13 @@ def test_resources_dns_and_start_at_boot_are_changed(client, auth_headers, lxc):
     assert r.status_code == 200, r.text
     assert '<memory unit="KiB">786432</memory>' in lxc.xml.replace("'", '"')
     assert lxc.domain.live_mem == 786432  # memory applies live
-    assert r.json()["a_redemarrer"] is False
+    assert r.json()["needs_restart"] is False
     assert (lxc.rootfs / "etc" / "resolv.conf").read_text() == "nameserver 10.0.0.53\nnameserver 2606:4700::1111\n"
 
-    r = client.patch("/containers/web", json={"vcpu": 2, "demarrage_auto": True}, headers=admin)
-    assert r.json()["a_redemarrer"] is True  # the CPU count is read when the container starts
+    r = client.patch("/containers/web", json={"vcpu": 2, "autostart": True}, headers=admin)
+    assert r.json()["needs_restart"] is True  # the CPU count is read when the container starts
     assert lxc.domain.flag == 1
-    assert client.patch("/containers/web", json={"memory_mb": 4096}, headers=admin).json()["a_redemarrer"] is True
+    assert client.patch("/containers/web", json={"memory_mb": 4096}, headers=admin).json()["needs_restart"] is True
 
 
 def test_bad_changes_are_refused(client, auth_headers, lxc):
@@ -112,7 +112,7 @@ def test_bad_changes_are_refused(client, auth_headers, lxc):
     assert client.patch("/containers/web", json={"dns": []}, headers=admin).status_code == 422
     assert client.patch("/containers/web", json={}, headers=admin).status_code == 422
     assert client.patch("/containers/ghost", json={"vcpu": 1}, headers=admin).status_code == 404
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.patch("/containers/web", json={"vcpu": 2}, headers=viewer).status_code == 403
 
 
@@ -130,11 +130,11 @@ def test_a_resolver_link_is_replaced_by_a_file_never_followed(client, auth_heade
 
 
 def test_an_objects_history_matches_its_exact_name_and_kind(client, auth_headers, database):
-    for type_, cible in (("start_vm", "web"), ("start_vm", "web-02"), ("backup_container", "web"), ("clone_vm", "db")):
-        tasks.finish_task(tasks.create_task(type_, cible), "termine")
+    for type_, target in (("start_vm", "web"), ("start_vm", "web-02"), ("backup_container", "web"), ("clone_vm", "db")):
+        tasks.finish_task(tasks.create_task(type_, target), "succeeded")
     admin = auth_headers("admin")
-    vm = client.get("/tasks?objet=web&famille=vm", headers=admin).json()
-    assert [(t["type"], t["cible"]) for t in vm] == [("start_vm", "web")]
-    ct = client.get("/tasks?objet=web&famille=container", headers=admin).json()
-    assert [(t["type"], t["cible"]) for t in ct] == [("backup_container", "web")]
-    assert client.get("/tasks?famille=other", headers=admin).status_code == 422
+    vm = client.get("/tasks?object=web&family=vm", headers=admin).json()["items"]
+    assert [(t["type"], t["target"]) for t in vm] == [("start_vm", "web")]
+    ct = client.get("/tasks?object=web&family=container", headers=admin).json()["items"]
+    assert [(t["type"], t["target"]) for t in ct] == [("backup_container", "web")]
+    assert client.get("/tasks?family=other", headers=admin).status_code == 422

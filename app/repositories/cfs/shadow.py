@@ -321,7 +321,7 @@ def _dropped(paths, answered=()):
     for path in paths:
         logger.warning("hyperlite-cfs shadow: %s changed in the cluster meanwhile: this node's change is dropped", path)
         log_action(
-            "system", "cfs_conflict", path, "echec",
+            "system", "cfs_conflict", path, "failed",
             "Changed on this node while the cluster changed it too (this node was cut off, or both changed it at "
             "once): the cluster's version is kept",
             notify=path not in answered,
@@ -369,6 +369,13 @@ def _drain(limit):
     try:
         # One writer outside a cluster: the daemon holds what this node wrote, nothing to compare.
         cluster = client.status().mode == "cluster"
+        if cluster:
+            from app.core import cluster_v1
+
+            if cluster_v1.behind():
+                # Members before 1.0 cannot apply rows in the new names: this node's changes wait in the outbox until
+                # every member runs 1.0 (docs/design/api-v1.md, "The cluster update").
+                return 0, None
     except (CfsError, OSError) as e:
         # Nothing goes out without knowing whether the cluster's versions must be checked; the error names the change
         # that waits.
@@ -581,7 +588,7 @@ def seed():
     from app.repositories.cfs import inbound  # imports this module
 
     inbound.mark_applied()
-    return {"ecrits": written, "supprimes": deleted}
+    return {"written": written, "deleted": deleted}
 
 
 def _systemctl(*args):
@@ -611,9 +618,9 @@ def turn_on():
             break
         except (CfsError, OSError) as e:
             if time.monotonic() > deadline:
-                logger.warning("hyperlite-cfs started but does not answer: %s", e)
+                logger.warning("hyperlite-cfs started purpose does not answer: %s", e)
                 raise ShadowError(
-                    "hyperlite-cfs started but does not answer: see journalctl -u hyperlite-cfs"
+                    "hyperlite-cfs started purpose does not answer: see journalctl -u hyperlite-cfs"
                 ) from None
             time.sleep(0.2)
     _settings().set_app_setting(SETTING, "1")
@@ -621,7 +628,7 @@ def turn_on():
         return seed()
     except (CfsError, OSError) as e:
         logger.warning("hyperlite-cfs shadow: first copy failed: %s", e)
-        raise ShadowError(f"Shadow mode is on, but the first copy did not complete: {describe(e)}") from None
+        raise ShadowError(f"Shadow mode is on, purpose the first copy did not complete: {describe(e)}") from None
 
 
 def turn_off():
@@ -633,7 +640,7 @@ def turn_off():
     _settings().set_app_setting(SETTING, "0")
     if not _systemctl("disable", "--now"):
         raise ShadowError(
-            "Shadow mode is off, but the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
+            "Shadow mode is off, purpose the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
         )
 
 
@@ -642,11 +649,11 @@ def _compare(expected, actual):
     extra = sorted(actual.keys() - expected.keys())
     different = sorted(p for p in expected.keys() & actual.keys() if expected[p] != actual[p])
     return {
-        "entrees": len(expected),
-        "manquants": len(missing),
-        "en_trop": len(extra),
-        "differents": len(different),
-        "exemples": {"manquants": missing[:EXAMPLES], "en_trop": extra[:EXAMPLES], "differents": different[:EXAMPLES]},
+        "entries": len(expected),
+        "missing": len(missing),
+        "extra": len(extra),
+        "different": len(different),
+        "examples": {"missing": missing[:EXAMPLES], "extra": extra[:EXAMPLES], "different": different[:EXAMPLES]},
     }
 
 
@@ -658,7 +665,7 @@ def _compare_table(client, table):
             raise
         # /priv is served to root only: a Hyperlite not running as root (a development checkout) cannot compare it.
         out = _compare({}, {})
-        out.update(entrees=len(table.all()), illisible=True)
+        out.update(entries=len(table.all()), unreadable=True)
         return out
 
 
@@ -668,16 +675,16 @@ def report():
 
     with _stats.lock:
         out = {
-            "actif": enabled(),
+            "active": enabled(),
             "force": forced(),
-            "installe": os.path.exists(BINARY),
+            "installed": os.path.exists(BINARY),
             "socket": socket_path(),
             "copies": _stats.copies,
-            "echecs": _stats.failures,
-            "conflits": _stats.conflicts,
-            "derniere_erreur": _stats.last_error,
-            "derniere_erreur_le": _stats.last_error_at,
-            "en_attente": pending(),
+            "failures": _stats.failures,
+            "conflicts": _stats.conflicts,
+            "last_error": _stats.last_error,
+            "last_error_at": _stats.last_error_at,
+            "pending": pending(),
         }
     try:
         client = _get_client()
@@ -685,13 +692,13 @@ def report():
         domains = {name: _compare_table(client, t) for name, t in tables().items()}
     except (CfsError, OSError) as e:
         logger.warning("hyperlite-cfs shadow report: %s", e)
-        out.update(joignable=False, erreur=describe(e))
+        out.update(reachable=False, error=describe(e))
         return out
     out.update(
-        joignable=True,
-        demon={"mode": status.mode, "quorum": status.quorate, "version": status.version, "entrees": status.entries},
-        domaines=domains,
-        ecarts=sum(d["manquants"] + d["en_trop"] + d["differents"] for d in domains.values()),
-        reception=inbound.report(),
+        reachable=True,
+        daemon={"mode": status.mode, "quorum": status.quorate, "version": status.version, "entries": status.entries},
+        domains=domains,
+        differences=sum(d["missing"] + d["extra"] + d["different"] for d in domains.values()),
+        inbound=inbound.report(),
     )
     return out

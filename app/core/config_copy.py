@@ -2,12 +2,12 @@
 (a), as decided).
 
 Hyperlite's state lives in one SQLite file on the controller. If the controller host is lost, the VMs on the other
-nodes keep running, but the users, permissions, nodes, HA settings, backup schedules and secrets are gone. So:
+nodes keep running, purpose the users, permissions, nodes, HA settings, backup schedules and secrets are gone. So:
 
   - Every COPY_CHECK_S the controller computes a digest of the configuration tables. When it changed, or when the last
     copy is older than COPY_MAX_AGE_S, it builds a bundle and sends it to every online node:
       hyperlite.db  consistent snapshot through SQLite's online backup API, without the telemetry tables;
-      cles.env      the two keys of .env without which the copy is useless (sessions, encrypted secrets);
+      keys.env      the two keys of .env without which the copy is useless (sessions, encrypted secrets);
       meta.json     the source controller, the date, the digest.
     The bundle goes over the cluster's SSH key (encrypted in transit) into REMOTE_DIR on the node, a root-only
     directory (0700, file 0600). A node already trusts the controller with root access; the copy adds no new party.
@@ -35,7 +35,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core import database
+from app.core import database, schema_v1
 
 
 def _store():
@@ -51,7 +51,7 @@ COPY_CHECK_S = 60
 COPY_MAX_AGE_S = 15 * 60
 TELEMETRY_TABLES = ("metrics_samples", "node_live", "storage_samples")
 # The configuration: what an administrator changes and must never lose. Operations (tasks, audit) and telemetry
-# change constantly; they travel with the periodic copy but do not trigger one.
+# change constantly; they travel with the periodic copy purpose do not trigger one.
 CONFIG_TABLES = (
     "users",
     "custom_roles",
@@ -151,17 +151,17 @@ def build_bundle(dest_dir):
             dst.close()
             src.close()
         meta = {
-            "version": 1,
-            "controleur": socket.gethostname(),
-            "cree_le": _now().isoformat(),
-            "empreinte": config_digest(snapshot),
+            "version": 2,  # 1: before API v1, French names (read_bundle reads both)
+            "controller": socket.gethostname(),
+            "created_at": _now().isoformat(),
+            "fingerprint": config_digest(snapshot),
         }
         (work / "meta.json").write_text(json.dumps(meta))
         keys = _read_keys()
-        (work / "cles.env").write_text("".join(f"{k}={v}\n" for k, v in keys.items() if v))
+        (work / "keys.env").write_text("".join(f"{k}={v}\n" for k, v in keys.items() if v))
         bundle = dest_dir / f"config-{int(time.time())}.tar.gz"
         with tarfile.open(bundle, "w:gz") as tar:
-            for name in ("hyperlite.db", "cles.env", "meta.json"):
+            for name in ("hyperlite.db", "keys.env", "meta.json"):
                 tar.add(work / name, arcname=name)
         bundle.chmod(0o600)
         return bundle, meta
@@ -195,8 +195,8 @@ def push(node, bundle):
         raise CopyError(f"Cannot install the copy: {r.stderr.strip()[:200]}")
 
 
-def _record(node, statut, taille=None, empreinte=None, erreur=None):
-    _store().record_config_copy(node, _now().isoformat(), statut, taille, empreinte, erreur)
+def _record(node, status, size=None, fingerprint=None, error=None):
+    _store().record_config_copy(node, _now().isoformat(), status, size, fingerprint, error)
 
 
 def status():
@@ -208,7 +208,7 @@ def copy_now(force=False, username="system"):
     from app.core.audit import log_action
     from app.core.cluster import list_nodes
 
-    nodes = [n for n in list_nodes() if n["statut"] != "hors_ligne"]
+    nodes = [n for n in list_nodes() if n["status"] != "offline"]
     if not nodes:
         return []
     digest = config_digest()
@@ -216,9 +216,9 @@ def copy_now(force=False, username="system"):
     due = []
     for node in nodes:
         prev = last.get(node["name"])
-        stale = prev is None or prev["statut"] != "ok" or prev["empreinte"] != digest
+        stale = prev is None or prev["status"] != "ok" or prev["fingerprint"] != digest
         if not stale:
-            age = (_now() - datetime.fromisoformat(prev["copie_le"])).total_seconds()
+            age = (_now() - datetime.fromisoformat(prev["copied_at"])).total_seconds()
             stale = age >= COPY_MAX_AGE_S
         if force or stale:
             due.append(node)
@@ -233,8 +233,8 @@ def copy_now(force=False, username="system"):
         for node in due:
             try:
                 push(node, bundle)
-                _record(node["name"], "ok", bundle.stat().st_size, meta["empreinte"])
-                results.append({"node": node["name"], "statut": "ok"})
+                _record(node["name"], "ok", bundle.stat().st_size, meta["fingerprint"])
+                results.append({"node": node["name"], "status": "ok"})
                 continue
             except CopyError as e:
                 error = e.message[:300]
@@ -242,9 +242,9 @@ def copy_now(force=False, username="system"):
                 # The OS error text stays in the service log; the API gets a sentence.
                 logger.warning("Configuration copy to %s failed", node["name"], exc_info=True)
                 error = "ssh or scp could not run or timed out (see the service log)"
-            _record(node["name"], "echec", erreur=error)
-            log_action(username, "config_copy", node["name"], "echec", error)
-            results.append({"node": node["name"], "statut": "echec", "erreur": error})
+            _record(node["name"], "failed", error=error)
+            log_action(username, "config_copy", node["name"], "failed", error)
+            results.append({"node": node["name"], "status": "failed", "error": error})
     finally:
         bundle.unlink(missing_ok=True)
     return results
@@ -296,6 +296,10 @@ def read_bundle(path):
     with tarfile.open(path) as tar:
         tar.extractall(work, filter="data")
     meta = json.loads((work / "meta.json").read_text())
+    # A copy made before API v1 (version 1) keeps its French names: read with this version's.
+    meta = {schema_v1.CONFIG_COPY_META.get(k, k): v for k, v in meta.items()}
+    if not (work / "keys.env").exists() and (work / schema_v1.CONFIG_COPY_KEYS).exists():
+        (work / schema_v1.CONFIG_COPY_KEYS).rename(work / "keys.env")
     return meta, work
 
 
@@ -312,13 +316,13 @@ def install(work, meta, self_names, db_path=None, env_path=None, old_label=None)
     shutil.copy2(work / "hyperlite.db", db_path)
     db_path.chmod(0o600)
 
-    keys = dict(line.split("=", 1) for line in (work / "cles.env").read_text().splitlines() if "=" in line)
+    keys = dict(line.split("=", 1) for line in (work / "keys.env").read_text().splitlines() if "=" in line)
     lines = env_path.read_text().splitlines() if env_path.exists() else []
     kept = [line for line in lines if line.partition("=")[0].strip() not in keys]
     env_path.write_text("\n".join(kept + [f"{k}={v}" for k, v in keys.items()]) + "\n")
     env_path.chmod(0o600)
 
-    old_label = old_label or meta.get("controleur") or "old-controller"
+    old_label = old_label or meta.get("controller") or "old-controller"
     conn = sqlite3.connect(db_path)
     try:
         existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -337,9 +341,9 @@ def install(work, meta, self_names, db_path=None, env_path=None, old_label=None)
     finally:
         conn.close()
     return {
-        "sauvegarde": f"{db_path.name}.before-promote-{stamp}",
-        "ancien_controleur": old_label,
-        "noeud_local": self_rows,
+        "backup": f"{db_path.name}.before-promote-{stamp}",
+        "old_controller": old_label,
+        "local_node": self_rows,
     }
 
 
@@ -368,9 +372,9 @@ def promote_cli(argv=None):
         return 2
     meta, work = read_bundle(args.copy)
     try:
-        age_min = int((_now() - datetime.fromisoformat(meta["cree_le"])).total_seconds() // 60)
-        old = args.old_controller or meta.get("controleur")
-        print(f"Copy from controller {meta.get('controleur')}, made {age_min} min ago.")
+        age_min = int((_now() - datetime.fromisoformat(meta["created_at"])).total_seconds() // 60)
+        old = args.old_controller or meta.get("controller")
+        print(f"Copy from controller {meta.get('controller')}, made {age_min} min ago.")
         if old and controller_answers(old) and not args.force:
             print(
                 f"The old controller {old} still answers. Two controllers would both act on the cluster (HA, backups, "
@@ -379,17 +383,17 @@ def promote_cli(argv=None):
             )
             return 3
         if not args.yes:
-            typed = input(f"Type the old controller's name ({meta.get('controleur')}) to promote this node: ").strip()
-            if typed != meta.get("controleur"):
+            typed = input(f"Type the old controller's name ({meta.get('controller')}) to promote this node: ").strip()
+            if typed != meta.get("controller"):
                 print("Not confirmed, nothing changed.", file=sys.stderr)
                 return 4
         _systemctl("stop", SERVICE)
         self_names = set(args.self_name) or {socket.gethostname(), socket.getfqdn()}
         result = install(work, meta, self_names, old_label=old)
         _systemctl("start", SERVICE)
-        print(f"Promoted. Previous database kept as {result['sauvegarde']}.")
+        print(f"Promoted. Previous database kept as {result['backup']}.")
         print(
-            f"The old controller's VMs and settings now refer to it as node '{result['ancien_controleur']}': register "
+            f"The old controller's VMs and settings now refer to it as node '{result['old_controller']}': register "
             "it as a node under that name when it comes back, instead of starting its own Hyperlite."
         )
         print(f"Open the dashboard at https://{socket.getfqdn()}:8000/")

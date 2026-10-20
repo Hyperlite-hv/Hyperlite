@@ -144,12 +144,11 @@ def test_an_existing_nfs_pool_can_be_checked(database, client, auth_headers, mon
     )
     admin = auth_headers("admin")
     r = client.post("/storage/nas/check-permissions", headers=admin)
-    assert r.status_code == 200 and r.json() == {"nom": "nas", "ok": False, "message": "root_squash…"}
+    assert r.status_code == 200 and r.json() == {"name": "nas", "ok": False, "message": "root_squash…"}
     assert calls == [("/var/lib/libvirt/hyperlite-pools/p", "/srv/vms")]
     assert client.post("/storage/local/check-permissions", headers=admin).status_code == 422
     assert client.post("/storage/off/check-permissions", headers=admin).status_code == 409
     assert client.post("/storage/ghost/check-permissions", headers=admin).status_code == 404
     assert (
-        client.post("/storage/nas/check-permissions", headers=auth_headers("viewer", role="observateur")).status_code
-        == 403
+        client.post("/storage/nas/check-permissions", headers=auth_headers("viewer", role="viewer")).status_code == 403
     )

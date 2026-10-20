@@ -29,7 +29,6 @@ def build(fw, **kwargs):
         ["/var/lib/libvirt/images/vm1.qcow2"],
         "/var/lib/libvirt/images/vm1-cloudinit.iso",
         iso_path="/isos/win11.iso",
-        seed_iso_path="/var/lib/libvirt/images/vm1-oemdrv.iso",
         drivers_iso_path="/isos/virtio-win.iso",
         firmware=fw,
         **kwargs,
@@ -75,8 +74,8 @@ def test_a_uefi_vm_has_no_ide_bus_its_drives_are_sata_and_the_installer_stays_fi
     found = targets(build(fw, disk_bus="sata"))
     assert not [t for t in found.values() if t["bus"] == "ide"]
     assert found["vm1.qcow2"] == {"dev": "sda", "bus": "sata"}
-    drives = [found[n]["dev"] for n in ("win11.iso", "vm1-oemdrv.iso", "vm1-cloudinit.iso", "virtio-win.iso")]
-    assert drives == ["sdw", "sdx", "sdy", "sdz"]
+    drives = [found[n]["dev"] for n in ("win11.iso", "vm1-cloudinit.iso", "virtio-win.iso")]
+    assert drives == ["sdw", "sdy", "sdz"]
 
 
 def test_an_unknown_firmware_is_refused():
@@ -136,7 +135,7 @@ def test_the_host_support_comes_from_libvirt_and_names_what_to_install(xml, uefi
     conn.getDomainCapabilities.return_value = xml
     support = firmware.host_support(conn)
     assert (support["uefi"], support["uefi_secure"]) == (uefi, secure)
-    assert (reason is None and support["raison"] is None) or reason in support["raison"]
+    assert (reason is None and support["reason"] is None) or reason in support["reason"]
     assert firmware.check_choice(conn, firmware.BIOS) is None
     assert (firmware.check_choice(conn, firmware.UEFI_SECURE) is None) == secure
 
@@ -147,7 +146,7 @@ def test_without_kvm_the_support_is_read_for_qemu_and_without_either_nothing_is_
     assert firmware.host_support(conn)["uefi_secure"] is True
     conn.getDomainCapabilities.side_effect = libvirt.libvirtError("no q35")
     support = firmware.host_support(conn)
-    assert support["uefi"] is False and support["uefi_secure"] is False and "q35" in support["raison"]
+    assert support["uefi"] is False and support["uefi_secure"] is False and "q35" in support["reason"]
 
 
 def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path):

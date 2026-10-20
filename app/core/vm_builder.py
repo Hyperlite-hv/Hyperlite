@@ -215,7 +215,7 @@ def create_disk_from_import(vm_name, source_path, target_dir=None):
     """Create the system disk (index 0) of a VM from an already uploaded disk file
     (see app/routers/vm_disks.py) instead of the default Debian cloud image or
     a blank disk: this is the "import a VM from a disk" path of the creation
-    form, an alternative to ISO + kickstart. `qemu-img convert` detects the
+    form, an alternative to installing from an ISO. `qemu-img convert` detects the
     source format by itself (raw/vmdk/vdi/vhd/qcow2/...), nothing to tell it.
     `target_dir`: see create_disk()."""
     target_dir = target_dir or IMAGES_DIR
@@ -366,7 +366,7 @@ def _compute_migratable_cpu_xml():
     host-model, the behaviour before this feature) as soon as only one node
     exists or the computation fails for ANY REASON, so it never blocks VM
     creation. A REAL ENVIRONMENT PROBLEM seen when testing with a real second
-    physical node: two Intel Skylake hosts, but DIFFERENT QEMU/libvirt VERSIONS
+    physical node: two Intel Skylake hosts, purpose DIFFERENT QEMU/libvirt VERSIONS
     ship different CPU model databases. The exact model returned by one
     ('Skylake-Client-v3') is simply UNKNOWN to the other, and `baselineCPU()`
     fails with 'Unknown CPU model'. It is a known limitation, documented rather
@@ -433,7 +433,7 @@ def _generic_portable_cpu_xml():
     'qemu64' model on this QEMU version, and it breaks startup on an Intel host
     unless explicitly disabled (seen when testing this workaround by hand before
     automating it here). `vmx` is disabled too for symmetry and caution: never
-    seen as a real problem, but disabling a feature that is already absent is a
+    seen as a real problem, purpose disabling a feature that is already absent is a
     harmless no-op."""
     return (
         "<cpu mode='custom' match='exact'>"
@@ -452,11 +452,7 @@ def build_domain_xml(
     cloudinit_path,
     network="default",
     iso_path=None,
-    seed_iso_path=None,
     mac=None,
-    kernel_path=None,
-    initrd_path=None,
-    kernel_cmdline=None,
     drivers_iso_path=None,
     disk_bus="scsi",
     interface_model="virtio",
@@ -467,11 +463,10 @@ def build_domain_xml(
     # Boot order PER DEVICE (<boot order='N'/> on each <disk>) rather than the
     # global <os><boot dev=.../></os> list: SeaBIOS does not reliably fall back
     # between several IDE CD-ROMs with the global list (it picks the first CD-ROM
-    # found whatever it is, and gives up if it is not bootable, which failed as soon
-    # as the OEMDRV/cidata answers ISO, never meant to be booted, came before the real
-    # installation ISO). With an explicit per-device order, only the system disk and
-    # the installation ISO carry a <boot order>, and the answers ISO carries none, so
-    # it is never tried as a boot device.
+    # found whatever it is, and gives up if it is not bootable, as the cloud-init or
+    # driver media are). With an explicit per-device order, only the system disk and
+    # the installation ISO carry a <boot order>, so no other medium is ever tried as a
+    # boot device.
     # Each element of disk_paths is either a FILE path (str/Path, the historical
     # qcow2 behaviour) or a (path, 'block') tuple for a raw ZFS zvol (see
     # create_zvol_disk()). A VM can freely mix the two (e.g. a system disk on a zvol
@@ -503,12 +498,8 @@ def build_domain_xml(
       <target dev='{dev}' bus='{disk_bus}'/>{boot_order}
     </disk>"""
 
-    # The installation ISO is placed on 'hda' (the first IDE device): the kickstart
-    # `cdrom` directive (see unattended_install.py) installs from "the first CD-ROM
-    # drive of the system" without scanning the others. Seen in testing: with the
-    # answers ISO on 'hda' and the installation ISO further along, Anaconda picked the
-    # answers ISO (no installable data) and failed with "Installation source not set
-    # up". The real installation medium must therefore always occupy the first slot.
+    # The installation ISO is placed on 'hda' (the first IDE device): installers that look for their medium on
+    # "the first CD-ROM drive of the system" (Anaconda) find it there, whatever other media the VM has.
     iso_xml = ""
     if iso_path:
         dev, bus = fw.cdrom_target("hda", firmware)
@@ -523,8 +514,7 @@ def build_domain_xml(
 
     # cloudinit_path is optional: a VM booted from an installation ISO (blank system
     # disk, see create_vm) has no cloud-init to inject, and the OS and its user
-    # account are created manually by the installer (or automatically through
-    # seed_iso_path, see just below). Never a <boot order>: this disk must never be
+    # account are created by hand in the installer. Never a <boot order>: this disk must never be
     # tried as a boot device, only read by the OS once started.
     cloudinit_xml = ""
     if cloudinit_path:
@@ -535,31 +525,6 @@ def build_domain_xml(
       <source file='{cloudinit_path}'/>
       <target dev='{dev}' bus='{bus}'/>
       <readonly/>
-    </disk>"""
-
-    # seed_iso_path: a small answers ISO (OEMDRV/kickstart or cidata/autoinstall, see
-    # app/core/unattended_install.py). It is attached as a DISK (device='disk'), not
-    # as a CD-ROM: moving the installation ISO to the first IDE position was not
-    # enough. Seen in testing, the kickstart `cdrom` directive kept failing with
-    # "Installation source not set up" as soon as two CD-ROM drives were present,
-    # whatever their order. Presented as a disk rather than a CD-ROM, it can no longer
-    # be mistaken for the installation source (Anaconda does not consider it an
-    # optical drive) while staying detectable by volume label (OEMDRV / cidata): it is
-    # that scan, not the device type, that matters for kickstart/autoinstall
-    # detection. No <boot order> either: never a bootable medium.
-    # No <readonly/> here: libvirt refuses that flag on an IDE disk of type 'disk'
-    # (only cdrom/floppy support it on IDE: "unsupported configuration: readonly ide
-    # disks are not supported", seen in testing). It makes no difference: this file is
-    # throwaway data specific to this VM, not an ISO shared between several VMs like
-    # iso_path.
-    seed_xml = ""
-    if seed_iso_path:
-        dev, bus = fw.cdrom_target("hdb", firmware)
-        seed_xml = f"""
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='raw'/>
-      <source file='{seed_iso_path}'/>
-      <target dev='{dev}' bus='{bus}'/>
     </disk>"""
 
     # Windows Setup needs the VirtIO SCSI driver before it can see the system disk.
@@ -580,22 +545,6 @@ def build_domain_xml(
     # libvirt generate a random one.
     mac_xml = f"<mac address='{mac}'/>\n      " if mac else ""
 
-    # kernel_path/initrd_path: direct boot of a kernel/initrd extracted from the ISO
-    # (see app/core/unattended_install.py::extract_casper_kernel), used ONLY for the
-    # very first boot of an Ubuntu autoinstall (the only way to add the "autoinstall"
-    # keyword to the kernel command line and skip Subiquity's manual confirmation).
-    # IMPORTANT: this override must be removed from the PERSISTENT XML once the
-    # installation is finished (see vms.py::get_vm_provisioning and
-    # strip_install_boot_override below), otherwise the VM would reboot forever into
-    # the live installer instead of the system installed on the disk, since the normal
-    # <boot order> is never consulted while <kernel>/<initrd> are present.
-    os_extra_xml = ""
-    if kernel_path:
-        cmdline_xml = f"\n    <cmdline>{kernel_cmdline}</cmdline>" if kernel_cmdline else ""
-        os_extra_xml = f"""
-    <kernel>{kernel_path}</kernel>
-    <initrd>{initrd_path}</initrd>{cmdline_xml}"""
-
     # Live migration: the cluster's "lowest common denominator" CPU when it can be
     # computed (2+ reachable nodes with compatible CPUs), otherwise the classic
     # host-model. See the docstring of _compute_migratable_cpu_xml for the detail
@@ -612,7 +561,7 @@ def build_domain_xml(
   <memory unit='MiB'>{memory_mb}</memory>
   <currentMemory unit='MiB'>{memory_mb}</currentMemory>
   <vcpu placement='static'>{vcpu}</vcpu>
-  {fw.os_xml(firmware, os_extra_xml)}
+  {fw.os_xml(firmware)}
   {fw.features_xml(firmware)}
   {cpu_xml}
   <clock offset='utc'/>
@@ -621,7 +570,7 @@ def build_domain_xml(
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    {storage_controller}{disks_xml}{iso_xml}{cloudinit_xml}{seed_xml}{drivers_xml}
+    {storage_controller}{disks_xml}{iso_xml}{cloudinit_xml}{drivers_xml}
     <interface type='network'>
       <source network='{network}'/>
       {mac_xml}<model type='{interface_model}'/>
@@ -634,27 +583,3 @@ def build_domain_xml(
   </devices>
 </domain>
 """
-
-
-def strip_install_boot_override(domain_xml):
-    """Remove <kernel>/<initrd>/<cmdline> from a domain's XML, if present. Called
-    once an Ubuntu autoinstall has finished (see vms.py::get_vm_provisioning) so
-    that the following boots use the normal <boot order> (the system disk) again
-    instead of rebooting forever into the live kernel/initrd extracted from the
-    ISO (see build_domain_xml, the kernel_path parameter). It only modifies the
-    PERSISTENT XML (conn.defineXML): the already started domain keeps running
-    with its current live configuration until the next restart, with no
-    interruption."""
-    root = ET.fromstring(domain_xml)
-    os_elem = root.find("os")
-    if os_elem is None:
-        return domain_xml
-    changed = False
-    for tag in ("kernel", "initrd", "cmdline"):
-        elem = os_elem.find(tag)
-        if elem is not None:
-            os_elem.remove(elem)
-            changed = True
-    if not changed:
-        return domain_xml
-    return ET.tostring(root, encoding="unicode")

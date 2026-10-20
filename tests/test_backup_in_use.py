@@ -14,7 +14,7 @@ def _backup(tmp_path, name="web", when="2026-10-01T03:00:00+00:00"):
     folder.mkdir(parents=True)
     (folder / "sda.qcow2").write_bytes(b"disk")
     store = registry.backups().sync
-    backup_id = store.create(name, None, str(folder), "froid", when, None)
+    backup_id = store.create(name, None, str(folder), "cold", when, None)
     store.mark_done(backup_id, 4, "x")
     return backup_id, folder
 

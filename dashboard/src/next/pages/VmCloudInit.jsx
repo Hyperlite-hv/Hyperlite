@@ -28,14 +28,14 @@ export default function VmCloudInitPage({ resource: vm }) {
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     try {
-      const s = await fetchVMCloudInit(vm.nom);
-      setState(s); setUser(s.utilisateur || ""); setKeys((s.cles_ssh || []).join("\n")); setPassword(""); setError(null);
+      const s = await fetchVMCloudInit(vm.name);
+      setState(s); setUser(s.user || ""); setKeys((s.ssh_keys || []).join("\n")); setPassword(""); setError(null);
     } catch (e) { setError(errorMessage(e)); }
-  }, [vm.nom]);
+  }, [vm.name]);
   useEffect(() => { load(); }, [load]);
   if (error && !state) return <ErrorState message={error} onRetry={load} />;
   if (!state) return <Loading />;
-  if (!state.disponible) return <Card title={t("ci.title")}><p className="nx-muted" style={{ margin: 0 }}>{t("ci.none")}</p></Card>;
+  if (!state.available) return <Card title={t("ci.title")}><p className="nx-muted" style={{ margin: 0 }}>{t("ci.none")}</p></Card>;
 
   const list = keysOf(keys);
   const bad = {
@@ -44,18 +44,18 @@ export default function VmCloudInitPage({ resource: vm }) {
     password: password !== "" && password.length < 8,
   };
   const invalid = bad.user || Boolean(bad.keys) || bad.password;
-  const dirty = user !== (state.utilisateur || "") || list.join("\n") !== (state.cles_ssh || []).join("\n") || password !== "";
+  const dirty = user !== (state.user || "") || list.join("\n") !== (state.ssh_keys || []).join("\n") || password !== "";
   async function save() {
     if (invalid) return;
     setBusy(true);
     try {
-      const s = await setVMCloudInit(vm.nom, { utilisateur: user, cles_ssh: list, mot_de_passe: password || null });
+      const s = await setVMCloudInit(vm.name, { user: user, ssh_keys: list, password: password || null });
       setState(s); setPassword("");
-      pushToast({ kind: "success", title: t("ci.saved"), message: t(s.en_marche ? "ci.nextBootRunning" : "ci.nextBoot") });
+      pushToast({ kind: "success", title: t("ci.saved"), message: t(s.running ? "ci.nextBootRunning" : "ci.nextBoot") });
     } catch (e) { pushToast({ kind: "error", title: t("ci.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   return (
-    <Card title={t("ci.title")} note={state.modifie_le ? t("ci.lastChange", { d: formatDateTime(state.modifie_le, lang) }) : null}>
+    <Card title={t("ci.title")} note={state.modified_at ? t("ci.lastChange", { d: formatDateTime(state.modified_at, lang) }) : null}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-4)", fontSize: "var(--fs-13)" }}>{t("ci.help")}</p>
       <div className="nx-stack" style={{ gap: "var(--space-3)" }}>
         <Field label={t("ci.user")} error={bad.user ? t("ci.userRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" disabled={!caps.admin} value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" />}</Field>

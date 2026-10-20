@@ -4,7 +4,7 @@ in the database must not change. SSH and libvirt are replaced by fakes."""
 
 import pytest
 
-NODE_KEYS = {"id", "name", "hostname", "ssh_user", "ssh_port", "statut", "derniere_verification", "added_at", "live"}
+NODE_KEYS = {"id", "name", "hostname", "ssh_user", "ssh_port", "status", "last_verification", "added_at", "live"}
 
 
 @pytest.fixture()
@@ -20,8 +20,8 @@ def nodes_api(client, auth_headers, monkeypatch):
     monkeypatch.setattr(nodes, "rename_reverse_trust", lambda old, new: None)
     monkeypatch.setattr(nodes, "_compat_with_local", lambda name: {"compatible": True})
     monkeypatch.setattr("app.routers.storage.apply_shared_pools", lambda name, username: [])
-    monkeypatch.setattr(nodes, "node_summary", lambda name: {"hostname": f"{name}.lan", "connecte": True})
-    return client, auth_headers("alice"), auth_headers("olga", role="observateur")
+    monkeypatch.setattr(nodes, "node_summary", lambda name: {"hostname": f"{name}.lan", "connected": True})
+    return client, auth_headers("alice"), auth_headers("olga", role="viewer")
 
 
 def _add(client, headers, name="n2", host="10.0.0.2"):
@@ -33,14 +33,14 @@ def test_registering_a_node_returns_it_with_its_checks(nodes_api):
     r = _add(client, admin)
     assert r.status_code == 201
     body = r.json()
-    assert {k: body[k] for k in ("name", "hostname", "ssh_user", "ssh_port", "statut")} == {
+    assert {k: body[k] for k in ("name", "hostname", "ssh_user", "ssh_port", "status")} == {
         "name": "n2",
         "hostname": "10.0.0.2",
         "ssh_user": "root",
         "ssh_port": 22,
-        "statut": "en_ligne",
+        "status": "online",
     }
-    assert body["pools_partages"] == [] and body["compatibilite"] == {"compatible": True}
+    assert body["shared_pools"] == [] and body["compatibility"] == {"compatible": True}
     assert _add(client, admin).status_code == 422  # the same name twice
     assert _add(client, admin, name="bad name").status_code == 422
 
@@ -50,12 +50,12 @@ def test_the_list_carries_every_field_and_the_live_figures(nodes_api, database):
     _add(client, admin, "n3", "10.0.0.3")
     _add(client, admin, "n2", "10.0.0.2")
     with database.get_conn() as db:
-        db.execute("INSERT INTO node_live (name, ts, joignable, cpu_pct) VALUES ('n2', 't', 1, 12.5)")
+        db.execute("INSERT INTO node_live (name, ts, reachable, cpu_pct) VALUES ('n2', 't', 1, 12.5)")
         db.commit()
-    listed = client.get("/nodes", headers=viewer).json()
+    listed = client.get("/nodes", headers=viewer).json()["items"]
     assert [n["name"] for n in listed] == ["n2", "n3"]  # sorted by name
-    assert set(listed[0]) == NODE_KEYS | {"membre"}  # the list says which nodes are members of this node's cluster
-    assert [n["membre"] for n in listed] == [False, False]  # outside a cluster: none
+    assert set(listed[0]) == NODE_KEYS | {"member"}  # the list says which nodes are members of this node's cluster
+    assert [n["member"] for n in listed] == [False, False]  # outside a cluster: none
     assert listed[0]["live"]["cpu_pct"] == 12.5 and listed[1]["live"] is None
 
 
@@ -95,5 +95,5 @@ def test_the_ha_list_reports_each_node_state(nodes_api, database):
             "('web', 'n2', 'a', 'now'), ('db', 'local', 'a', 'now'), ('old', 'gone', 'a', 'now')"
         )
         db.commit()
-    states = {r["vm_name"]: r["statut_noeud"] for r in client.get("/ha", headers=viewer).json()}
-    assert states == {"web": "en_ligne", "db": "en_ligne", "old": "inconnu"}
+    states = {r["vm_name"]: r["node_status"] for r in client.get("/ha", headers=viewer).json()["items"]}
+    assert states == {"web": "online", "db": "online", "old": "unknown"}

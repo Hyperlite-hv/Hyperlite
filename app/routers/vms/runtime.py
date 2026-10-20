@@ -1,8 +1,6 @@
 import logging
-import subprocess
 import time
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from xml.sax.saxutils import escape
@@ -18,18 +16,8 @@ from app.core.libvirt_utils import (
 )
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_vm_privilege
-from app.core.tasks import finish_task
-from app.core.vm_builder import (
-    get_automation_private_key_path,
-    strip_install_boot_override,
-)
-from app.core.vm_meta import (
-    clear_provisioning,
-    get_provisioning,
-    get_vm_ssh_user,
-)
 from app.routers.isos import ISOS_DIR
-from app.routers.vms._shared import _get_ip, router
+from app.routers.vms._shared import router
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +36,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_cdrom", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         iso_filename = Path(payload.iso).name
@@ -104,10 +92,10 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
                 )
                 domain.attachDeviceFlags(new_cdrom_xml, flags)
         except libvirt.libvirtError as exc:
-            log_action(user["username"], "set_vm_cdrom", name, "echec", str(exc))
+            log_action(user["username"], "set_vm_cdrom", name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Mount failed: {exc}") from exc
 
-        log_action(user["username"], "set_vm_cdrom", name, "succes", iso_filename)
+        log_action(user["username"], "set_vm_cdrom", name, "success", iso_filename)
         return {"vm": name, "iso": iso_filename}
     finally:
         conn.close()
@@ -124,7 +112,7 @@ def eject_vm_cdrom(
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "eject_vm_cdrom", name, "echec", "VM not found")
+            log_action(user["username"], "eject_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(0))
@@ -154,23 +142,23 @@ def eject_vm_cdrom(
             new_xml = ET.tostring(cdrom, encoding="unicode")
             domain.updateDeviceFlags(new_xml, flags)
         except libvirt.libvirtError as exc:
-            log_action(user["username"], "eject_vm_cdrom", name, "echec", str(exc))
+            log_action(user["username"], "eject_vm_cdrom", name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Eject failed: {exc}") from exc
 
-        log_action(user["username"], "eject_vm_cdrom", name, "succes")
-        return {"vm": name, "ejecte": True}
+        log_action(user["username"], "eject_vm_cdrom", name, "success")
+        return {"vm": name, "ejected": True}
     finally:
         conn.close()
 
 
 def _stopped_metrics():
     return {
-        "etat": "arrete",
-        "cpu_pourcent": None,
-        "memoire_allouee_mo": None,
-        "memoire_utilisee_mo": None,
-        "disques": [],
-        "reseaux": [],
+        "state": "stopped",
+        "cpu_percent": None,
+        "allocated_memory_mb": None,
+        "used_memory_mb": None,
+        "disks": [],
+        "networks": [],
     }
 
 
@@ -188,7 +176,7 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_metrics", name, "echec", "VM not found")
+            log_action(user["username"], "get_vm_metrics", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if not domain.isActive():
@@ -240,169 +228,53 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         elapsed = max(t2 - t1, 0.001)
 
         nvcpu = info[3] or 1
-        cpu_pourcent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
-        memoire_allouee_mo = round(info[2] / 1024, 1)
+        cpu_percent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
+        allocated_memory_mb = round(info[2] / 1024, 1)
 
-        memoire_utilisee_mo = None
+        used_memory_mb = None
         try:
             mem_stats = domain.memoryStats()
             if "available" in mem_stats and "unused" in mem_stats:
-                memoire_utilisee_mo = round((mem_stats["available"] - mem_stats["unused"]) / 1024, 1)
+                used_memory_mb = round((mem_stats["available"] - mem_stats["unused"]) / 1024, 1)
             elif "rss" in mem_stats:
-                memoire_utilisee_mo = round(mem_stats["rss"] / 1024, 1)
+                used_memory_mb = round(mem_stats["rss"] / 1024, 1)
         except libvirt.libvirtError:
             logger.debug("Ignored exception in get_vm_metrics()", exc_info=True)
 
-        disques = []
+        disks = []
         for dev in disk_devs:
             if dev in disk1 and dev in disk2:
                 rd_rate = max(0, (disk2[dev][1] - disk1[dev][1]) / elapsed)
                 wr_rate = max(0, (disk2[dev][3] - disk1[dev][3]) / elapsed)
-                disques.append(
+                disks.append(
                     {
-                        "cible": dev,
-                        "lecture_ko_s": round(rd_rate / 1024, 1),
-                        "ecriture_ko_s": round(wr_rate / 1024, 1),
+                        "target": dev,
+                        "read_kb_s": round(rd_rate / 1024, 1),
+                        "write_kb_s": round(wr_rate / 1024, 1),
                     }
                 )
 
-        reseaux = []
+        networks = []
         for dev in iface_devs:
             if dev in net1 and dev in net2:
                 rx_rate = max(0, (net2[dev][0] - net1[dev][0]) / elapsed)
                 tx_rate = max(0, (net2[dev][4] - net1[dev][4]) / elapsed)
-                reseaux.append(
+                networks.append(
                     {
                         "interface": dev,
-                        "reception_ko_s": round(rx_rate / 1024, 1),
-                        "emission_ko_s": round(tx_rate / 1024, 1),
+                        "received_kb_s": round(rx_rate / 1024, 1),
+                        "sent_kb_s": round(tx_rate / 1024, 1),
                     }
                 )
 
-        log_action(user["username"], "get_vm_metrics", name, "succes")
+        log_action(user["username"], "get_vm_metrics", name, "success")
         return {
-            "etat": "actif",
-            "cpu_pourcent": cpu_pourcent,
-            "memoire_allouee_mo": memoire_allouee_mo,
-            "memoire_utilisee_mo": memoire_utilisee_mo,
-            "disques": disques,
-            "reseaux": reseaux,
-        }
-    finally:
-        conn.close()
-
-
-# Beyond this delay without a working SSH, passive polling stops and the
-# installation is declared failed. Before, a broken install (an incompatible ISO,
-# a partitioning error, a network outage during the installation...) stayed "in
-# progress" indefinitely and never reported an actionable error (seen in
-# practice: several stale "ubuntu-autoinstall-fix" attempts in the audit log,
-# never cleaned up). 30 minutes is generous for the supported families
-# (kickstart/autoinstall), even on a slow disk.
-PROVISIONING_TIMEOUT_S = 1800
-
-
-@router.get("/{name}/provisioning")
-def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
-    """State of an unattended installation (Kickstart/autoinstall) in progress, for the
-    dashboard's progress bar. The signal used is whether a real SSH
-    authentication with the Hyperlite automation key succeeds, NOT just "port 22
-    answers" (seen in testing on Ubuntu: the live-server ISO runs its own sshd
-    from the very start of the installation, long before the final system exists,
-    so the port is reachable very early without our key being authorized there,
-    which gave a false, premature "finished")."""
-    prov = get_provisioning(name)
-    if not prov:
-        return {"provisioning": False}
-
-    task_id = prov.get("task_id")
-
-    def _fail(reason):
-        clear_provisioning(name)
-        if task_id:
-            finish_task(task_id, "echec", reason)
-        log_action(user["username"], "auto_install", name, "echec", reason)
-        return {"provisioning": False, "failed": True, "erreur": reason}
-
-    conn = open_conn()
-    try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            return _fail("The VM disappeared during the unattended installation (deleted?)")
-
-        started = datetime.fromisoformat(prov["started_at"])
-        elapsed_s = int((datetime.now(UTC) - started).total_seconds())
-
-        if elapsed_s > PROVISIONING_TIMEOUT_S:
-            return _fail(f"Timeout: SSH still unreachable after {elapsed_s // 60} minutes")
-
-        if not domain.isActive():
-            return {"provisioning": True, "phase": "arretee", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
-
-        ip = _get_ip(domain)
-        if not ip:
-            return {"provisioning": True, "phase": "demarrage", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
-
-        username = get_vm_ssh_user(name)
-        key_path = get_automation_private_key_path()
-        try:
-            result = subprocess.run(
-                [
-                    "ssh",
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "UserKnownHostsFile=/dev/null",
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ConnectTimeout=3",
-                    "-i",
-                    str(key_path),
-                    f"{username}@{ip}",
-                    "true",
-                ],
-                capture_output=True,
-                timeout=6,
-            )
-        except subprocess.TimeoutExpired:
-            return {
-                "provisioning": True,
-                "phase": "installation",
-                "os_family": prov["os_family"],
-                "elapsed_s": elapsed_s,
-                "ip": ip,
-            }
-
-        if result.returncode == 0:
-            clear_provisioning(name)
-            # Ubuntu/autoinstall started on a kernel/initrd extracted from the ISO (see
-            # create_vm, extract_casper_kernel) to add "autoinstall" to the command line. That
-            # is no longer needed once the OS is installed on the disk, and leaving it would
-            # make the VM reboot forever into the live installer instead of the installed
-            # system (the normal <boot order>, on the disk, is never consulted while
-            # <kernel>/<initrd> are present). The override is removed from the PERSISTENT XML
-            # only: the VM keeps running without interruption with its current live
-            # configuration until the next restart.
-            if prov["os_family"] == "autoinstall":
-                try:
-                    current_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
-                    new_xml = strip_install_boot_override(current_xml)
-                    if new_xml != current_xml:
-                        conn.defineXML(new_xml)
-                except (libvirt.libvirtError, ET.ParseError):
-                    logger.debug("Ignored exception in get_vm_provisioning()", exc_info=True)
-            if task_id:
-                finish_task(task_id, "termine")
-            log_action(user["username"], "provisioning_complete", name, "succes")
-            return {"provisioning": False, "just_finished": True}
-        return {
-            "provisioning": True,
-            "phase": "installation",
-            "os_family": prov["os_family"],
-            "elapsed_s": elapsed_s,
-            "ip": ip,
+            "state": "active",
+            "cpu_percent": cpu_percent,
+            "allocated_memory_mb": allocated_memory_mb,
+            "used_memory_mb": used_memory_mb,
+            "disks": disks,
+            "networks": networks,
         }
     finally:
         conn.close()

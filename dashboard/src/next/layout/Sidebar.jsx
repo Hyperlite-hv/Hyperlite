@@ -96,7 +96,7 @@ export default function Sidebar({ collapsed }) {
   const [apiOpen, setApiOpen] = useState(false);
   useEffect(() => {
     if (caps.admin) return undefined;
-    const check = () => fetchApiDocsAccess().then((r) => setApiOpen(Boolean(r?.autorise))).catch(() => setApiOpen(false));
+    const check = () => fetchApiDocsAccess().then((r) => setApiOpen(Boolean(r?.allowed))).catch(() => setApiOpen(false));
     check();
     window.addEventListener("nx:api-docs-access", check);
     return () => window.removeEventListener("nx:api-docs-access", check);
@@ -104,7 +104,7 @@ export default function Sidebar({ collapsed }) {
   // On narrow screens the sidebar is a drawer: close it once a page is chosen.
   const goto = (dcTab) => { navigateTo("datacenter", null, dcTab); window.dispatchEvent(new Event("nx:navigated")); };
 
-  const problems = vms.filter((v) => ["plante", "bloque", "inconnu"].includes(v.etat)).length;
+  const problems = vms.filter((v) => ["crashed", "blocked", "unknown"].includes(v.state)).length;
 
   return (
     <nav className={`nx-sidebar${collapsed ? " collapsed" : ""}`} aria-label={t("nav.main")}>
@@ -128,7 +128,7 @@ export default function Sidebar({ collapsed }) {
         <NavGroup label={t("nav.group.infrastructure")}>
           <NavItem icon="nodes" label={t("nav.nodes")} count={nodes.length} active={onDatacenterTab("nodes") || selection.type === "node"} onClick={() => goto("nodes")} />
           <NavItem icon="storage" label={t("nav.storage")} active={onDatacenterTab("storage")} onClick={() => goto("storage")} />
-          <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("reseau")} onClick={() => goto("reseau")} />
+          <NavItem icon="network" label={t("nav.network")} active={onDatacenterTab("network")} onClick={() => goto("network")} />
         </NavGroup>
         <NavGroup label={t("nav.group.cluster")}>
           {caps.admin && <NavItem icon="cfs" label={t("nav.cfs")} active={onDatacenterTab("cfs")} onClick={() => goto("cfs")} />}
