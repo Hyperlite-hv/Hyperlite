@@ -351,6 +351,8 @@ export default {
   "inv.updated": "Updated {t}",
   "inv.stale": "Data may be out of date",
   "ro.banner": "This node has lost the cluster's quorum: nothing can be changed from it (VMs included) until it reaches the majority of the nodes again. The Cluster page shows which nodes it reaches.",
+  "ro.update": "The cluster is being updated to Hyperlite 1.0: {nodes} still runs an earlier version. Nothing can be changed until every node runs 1.0; the VMs keep running. Update it from its own dashboard, or with the cluster update.",
+  "ro.noDaemon": "The cluster service of this node does not answer: nothing can be changed from it until it does.",
   "inv.poolNote": "Pool = resource pool (Security). Storage pools are under each node in Server mode.",
   "inv.local": "local",
   "inv.offlineSince": "Offline",
