@@ -155,8 +155,13 @@ export default function Workspace({ children }) {
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const caps = capabilities(useAuthStore((s) => s.role));
   const failing = useFreshness((s) => s.failing);
-  // A cluster node that lost the quorum changes nothing (as on Proxmox): said above every page while it lasts.
-  const readOnly = Boolean(nodes.find((n) => n.id === "local")?.read_only);
+  // A cluster node that lost the quorum changes nothing (as on Proxmox), nor does a cluster updated to 1.0 while a
+  // member still runs an earlier version: said above every page while it lasts, with its real cause.
+  const localNode = nodes.find((n) => n.id === "local");
+  const readOnly = Boolean(localNode?.read_only);
+  const readOnlyText = localNode?.read_only_cause === "update_to_1_0"
+    ? t("ro.update", { nodes: (localNode.read_only_waiting_for || []).join(", ") })
+    : localNode?.read_only_cause === "no_daemon" ? t("ro.noDaemon") : t("ro.banner");
   const { containers, containersLoaded } = useFreshness(useShallow((s) => ({ containers: s.containers, containersLoaded: s.containersLoaded })));
 
   const resource = selection.type === "vm" ? findVm(vms, selection.id)
@@ -195,7 +200,7 @@ export default function Workspace({ children }) {
   return (
     <main className="nx-main" id="nx-main" tabIndex={-1}>
       {failing && <div className="nx-banner" role="status">▲ {t("inv.stale")}</div>}
-      {readOnly && <div className="nx-banner nx-banner--danger" role="alert">{t("ro.banner")}</div>}
+      {readOnly && <div className="nx-banner nx-banner--danger" role="alert">{readOnlyText}</div>}
       {remote && <div className="nx-banner nx-banner--info" role="status">{t("res.remoteBanner")}</div>}
       <div className="nx-content" data-legacy="true">
         {children}

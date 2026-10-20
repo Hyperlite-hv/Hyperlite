@@ -35,6 +35,19 @@ async function realList(path, opts) {
   return data && Array.isArray(data.items) ? data.items : data;
 }
 
+const RELOADED_AT = "hyperlite.reloadedForApi";
+export function reloadForNewerServer(now = Date.now(), storage = globalThis.sessionStorage, reload = () => globalThis.location?.reload()) {
+  try {
+    const last = Number(storage?.getItem(RELOADED_AT) || 0);
+    if (now - last < 60000) return false;
+    storage?.setItem(RELOADED_AT, String(now));
+  } catch {
+    return false; // no session storage: never reload, rather than risk a loop
+  }
+  reload();
+  return true;
+}
+
 async function realFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const sent = token;
@@ -61,6 +74,10 @@ async function realFetch(path, opts = {}) {
   // Only when the rejected token is still the current one: a request that left with a token replaced since
   // (right after a password change, which revokes the previous one) must not sign the user out.
   if (res.status === 401 && token && token === sent && !path.startsWith("/auth/login")) unauthorizedHandler?.();
+  // The API moved (code api_gone): this page's code is older than the server's, as in a tab left open over an update
+  // that changed the API. It reloads itself once instead of staying blank; at most once a minute, so a server that
+  // keeps answering 410 cannot make it reload forever.
+  if (res.status === 410 && data?.code === "api_gone") reloadForNewerServer();
   if (res.ok && !parsed && (res.headers.get("content-type") || "").includes("application/json")) {
     throw new Error("The server returned an unreadable response.");
   }
@@ -210,6 +227,8 @@ export async function fetchNodes() {
     vms_stopped: d.vms.stopped,
     // Why this node changes nothing right now (a cluster node that lost the quorum), or null.
     read_only: d.read_only ?? null,
+    read_only_cause: d.read_only_cause ?? null,
+    read_only_waiting_for: d.read_only_waiting_for ?? [],
   };
 
   // Registered remote nodes. They used to be missing here: this function only ever
