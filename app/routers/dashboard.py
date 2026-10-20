@@ -70,9 +70,11 @@ def dashboard(user: dict = Depends(get_current_user)):
                 "available_gb": round(available / (1024**3), 2) if available else None,
             },
             "infrastructure_state": "ok" if connected else "degraded",
-            # Why this node changes nothing right now (a cluster node that lost the quorum), or None: the dashboard
-            # shows it above every page (app/core/cluster_lead.py).
+            # Why this node changes nothing right now (a cluster node that lost the quorum, or a cluster updated to 1.0
+            # while a member still runs an earlier version), or None: the dashboard shows it above every page
+            # (app/core/cluster_lead.py), from its cause and the nodes it waits for, in its own language.
             "read_only": cluster_lead.read_only_reason(),
+            **dict(zip(("read_only_cause", "read_only_waiting_for"), cluster_lead.read_only_cause(), strict=True)),
             # Latest load and identity of this host (CPU %, memory, cores, model, kernel,
             # OS, address, versions), recorded by the metrics collector.
             "live": get_node_live("local"),

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- During the update of a cluster to 1.0, the dashboard said the node had lost the quorum: it now says the cluster waits for the nodes still on an earlier version, and names them (the API adds `read_only_cause` and `read_only_waiting_for` next to `read_only`).
+
 ## [1.0.0] - 2026-10-20
 
 ### Added
