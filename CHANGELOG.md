@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- A dashboard tab left open over an update that moves the API reloads itself, instead of staying blank (at most once a minute).
+
+- Hyperlite's own information messages reach the service journal: that a paused job resumed (scheduled backups, replication, start at boot, automatic deletion), or that the replicated configuration was rewritten with the names of API v1, never showed.
+
+- An ISO name is checked where it becomes a path, in the library and over SSH on the other nodes, not only by the callers.
+
 - **Going back to a version before 1.0 is no longer offered**: the update dialog proposed it after the update to 1.0, but 1.0 renamed the database and the cluster's configuration (API v1), which a dated version cannot read, and the return reinstalls the package only. The update to 1.0 keeps no dated package. The dialog's buttons wrap instead of overflowing its left edge.
 
 - During the update of a cluster to 1.0, the dashboard said the node had lost the quorum: it now says the cluster waits for the nodes still on an earlier version, and names them (the API adds `read_only_cause` and `read_only_waiting_for` next to `read_only`).
