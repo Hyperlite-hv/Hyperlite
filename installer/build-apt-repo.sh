@@ -48,8 +48,39 @@ case "$SUITE" in
 esac
 mkdir -p "$APT_REPO/$POOL/h/hyperlite"
 
-log "adding the produced .deb files to $POOL (keeps history so a downgrade stays possible)"
+log "adding the produced .deb files to $POOL"
 cp -n "$REPO_DIR"/installer/hyperlite_*_amd64.deb "$APT_REPO/$POOL/h/hyperlite/" 2>/dev/null || true
+
+# Retention: the newest versions of each pool only. Every publication used to add a package of about 50 MB for good:
+# the mirror reached 2.1 GB, twice what GitHub Pages serves (1 GB), and every publication spent minutes cloning it.
+# The newest stable releases stay, so a downgrade stays possible; the test pool, rebuilt at every merge into test,
+# keeps a few. 0 keeps everything.
+KEEP_STABLE="${HYPERLITE_KEEP_STABLE:-8}"
+KEEP_TEST="${HYPERLITE_KEEP_TEST:-3}"
+prune_pool() { # <pool directory> <versions to keep>
+    local dir="$1" keep="$2" f v i n
+    local -a files=() versions=()
+    [ "$keep" -gt 0 ] || return 0
+    # Ordered by the package's own version, epoch and ~ included, as apt orders them (not by file name: 1:1.0.0
+    # sorts above 2026.10.19.0616, 1.0.1~test.x below 1.0.1).
+    while IFS= read -r f; do
+        v="$(dpkg-deb -f "$f" Version)"
+        i=${#files[@]}
+        while [ "$i" -gt 0 ] && dpkg --compare-versions "${versions[i - 1]}" gt "$v"; do
+            files[i]="${files[i - 1]}" versions[i]="${versions[i - 1]}"
+            i=$((i - 1))
+        done
+        files[i]="$f" versions[i]="$v"
+    done < <(find "$dir" -maxdepth 1 -name 'hyperlite_*_amd64.deb')
+    n=${#files[@]}
+    for ((i = 0; i < n - keep; i++)); do
+        log "retention: removing ${versions[i]} from ${dir#"$APT_REPO"/}"
+        rm -f "${files[i]}"
+    done
+}
+mkdir -p "$APT_REPO/pool/main/h/hyperlite" "$APT_REPO/pool/test/h/hyperlite"
+prune_pool "$APT_REPO/pool/main/h/hyperlite" "$KEEP_STABLE"
+prune_pool "$APT_REPO/pool/test/h/hyperlite" "$KEEP_TEST"
 
 # Both suites are written again at each publication: their index only depends on the pools.
 for suite in stable test; do
@@ -103,4 +134,11 @@ Serving this directory from a single origin (for example nginx, see
 installer/hyperlite-apt-repo.nginx.conf) avoids the problem.
 EOF
 
-log "repository ready in $APT_REPO"
+# GitHub Pages serves 1 GB at most: stop here, before publishing, rather than have the mirror refused or cut off.
+MAX_MB="${HYPERLITE_MIRROR_MAX_MB:-900}"
+SIZE_MB=$(($(du -sb --exclude=.git "$APT_REPO" | cut -f1) / 1048576))
+if [ "$SIZE_MB" -gt "$MAX_MB" ]; then
+    echo "[build-apt-repo] the repository is $SIZE_MB MB, over $MAX_MB MB: lower HYPERLITE_KEEP_STABLE or HYPERLITE_KEEP_TEST" >&2
+    exit 1
+fi
+log "repository ready in $APT_REPO ($SIZE_MB MB)"

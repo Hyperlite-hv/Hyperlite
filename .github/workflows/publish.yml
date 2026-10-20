@@ -3,14 +3,21 @@ name: Publish
 # Builds the package and the ISO, signs the APT repository, publishes it to the mirror and updates the
 # ISO release. All the logic is in scripts/ci-publish.sh.
 #
-# It runs on every push to master, the stable channel, and to test, the test channel (docs/design/updates-1.0.md,
-# section 7; no ISO for test), and by hand. The version is stamped into the artifacts, nothing is committed back, so
-# it cannot trigger itself. The signing key and the mirror deploy key are secrets of the protected `release` environment: they
-# are only available to a job that runs on the protected branch, after the environment's own rules
-# (for example a required reviewer). Pull requests and forks never run this workflow.
+# It publishes every push to master, the stable channel, and to test, the test channel (docs/design/updates-1.0.md,
+# section 7; no ISO for test), once the CI has passed on that very commit: ci.yml calls it after all its jobs. It used
+# to start next to the CI, so a merge whose result the CI then failed (the branch protection does not ask a pull
+# request to be up to date with its base) was published anyway. It also runs by hand. The version is stamped into the
+# artifacts, nothing is committed back, so it cannot trigger itself. The signing key and the mirror deploy key are
+# secrets of the `release` environment, which only master and test may use: a pull request never reaches them.
 on:
-  push:
-    branches: [master, test]
+  workflow_call:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+      skip_iso:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       dry_run:
@@ -23,29 +30,57 @@ on:
         default: false
 
 permissions:
-  contents: write
-
-# One publication at a time, whatever the branch: both push to the same mirror.
-concurrency:
-  group: publish
-  cancel-in-progress: false
+  contents: read
 
 jobs:
+  # A newer commit on the branch publishes after its own CI: this one would only be overwritten, or published after
+  # it with a newer version stamp. No secrets here.
+  tip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      current: ${{ steps.tip.outputs.current }}
+    steps:
+      - id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          tip="$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha)"
+          if [ "$tip" = "$SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$BRANCH has moved on to ${tip:0:8}: ${SHA:0:8} is not published, the newer commit will be"
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
+    needs: tip
+    if: needs.tip.outputs.current == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/test')
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 60
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/test'
+    permissions:
+      contents: write # the ISO release
+    # One publication at a time, whatever the branch: both push to the same mirror. Never cancelled halfway.
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    env:
+      ISO: ${{ github.ref_name == 'master' && !inputs.skip_iso }}
     steps:
-      - uses: actions/checkout@v7
+      # The commit the CI passed, not whatever the branch points to by now.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref_name }}
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # The latest stable Go, not the minimum of go.mod: the shipped binaries embed
           # the standard library, so they get its latest security fixes.
@@ -55,13 +90,17 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils xorriso isolinux syslinux-utils \
-            rsync gnupg openssl cpio genisoimage
+          sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils rsync gnupg openssl
+      - name: Install the ISO tools
+        if: env.ISO == 'true'
+        run: sudo apt-get install -y --no-install-recommends xorriso isolinux syslinux-utils cpio genisoimage
       - name: Install the dashboard dependencies
         working-directory: dashboard
         run: npm ci
+      # 744 MB: only the ISO needs it.
       - name: Cache the Debian installer image
-        uses: actions/cache@v6
+        if: env.ISO == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: installer/.iso-cache
           key: debian-netinst-${{ hashFiles('installer/build-iso.sh') }}
@@ -106,7 +145,7 @@ jobs:
           HYPERLITE_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
-          SKIP_ISO: ${{ inputs.skip_iso && '1' || '0' }}
+          SKIP_ISO: ${{ env.ISO == 'true' && '0' || '1' }}
           HYPERLITE_CHANNEL: ${{ github.ref_name == 'test' && 'test' || 'stable' }}
         run: bash scripts/ci-publish.sh
       - name: Remove the secrets from the runner
