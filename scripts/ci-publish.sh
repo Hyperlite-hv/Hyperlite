@@ -18,6 +18,7 @@
 #   SKIP_VERIFY=1                         do not wait for the public address to serve the new version (local tests)
 #   HYPERLITE_CHANNEL                     stable (default, from master) or test (every merge into test: a pre-release
 #                                         of the next version, 1.0.1~test.20261011.1530, never an ISO)
+#   HYPERLITE_KEEP_STABLE, HYPERLITE_KEEP_TEST   versions the mirror keeps in each pool (installer/build-apt-repo.sh)
 #
 # The version is not committed back to the repository: it is only stamped into the artifacts built
 # here, so publishing needs no write access to the protected branches.
@@ -93,7 +94,9 @@ bash installer/build-apt-repo.sh
 if [ "$DRY_RUN" = "1" ]; then
     log "dry run: the mirror is not updated"
 else
-    bash scripts/publish-gh-pages.sh installer/apt-repo "$HYPERLITE_MIRROR_REPO" "$VERSION" "${SOURCE_COMMIT:0:8}"
+    # The clone of step 1: the mirror is downloaded once.
+    bash scripts/publish-gh-pages.sh installer/apt-repo "$HYPERLITE_MIRROR_REPO" "$VERSION" "${SOURCE_COMMIT:0:8}" \
+        "$WORK/mirror"
 fi
 
 # 4. ISO: build, checksum and signature, then the single moving release.

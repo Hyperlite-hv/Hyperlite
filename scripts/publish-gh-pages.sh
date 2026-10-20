@@ -1,7 +1,7 @@
 #!/bin/bash
 # Publishes the generated APT repository to the gh-pages branch.
 #
-# Usage: publish-gh-pages.sh <apt-repo-dir> <remote-url> <version> <source-commit>
+# Usage: publish-gh-pages.sh <apt-repo-dir> <remote-url> <version> <source-commit> [<gh-pages clone>]
 #
 # Called by scripts/ci-publish.sh. It used to run from a git hook, which inherited Git environment
 # variables (GIT_DIR, GIT_INDEX_FILE...) from the `git pull` that triggered it. Those variables make
@@ -20,15 +20,25 @@ REMOTE="$2"
 VERSION="$3"
 SOURCE_COMMIT="$4"
 
+# Optional: a clone of gh-pages the caller already made (ci-publish.sh clones the mirror to start from it), so the
+# mirror is not downloaded a second time. Should the branch have moved since, the push is refused, never forced.
+CLONE="${5:-}"
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-git clone -q --depth 1 --branch gh-pages "$REMOTE" "$WORK/repo"
+if [ -n "$CLONE" ]; then
+    REPO="$(cd "$CLONE" && pwd)"
+    [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = gh-pages ] || { echo "ERROR: $CLONE is not on gh-pages" >&2; exit 1; }
+else
+    REPO="$WORK/repo"
+    git clone -q --depth 1 --branch gh-pages "$REMOTE" "$REPO"
+fi
 # --checksum: compare contents, never trust size and modification time (signed files often keep
 # the same size from one build to the next).
-rsync -a --checksum --delete --exclude=.git "$SRC"/ "$WORK/repo"/
+rsync -a --checksum --delete --exclude=.git "$SRC"/ "$REPO"/
 
-cd "$WORK/repo"
+cd "$REPO"
 # A CI runner has no git identity; the commit needs one.
 if [ -z "$(git config user.email || true)" ]; then
     git config user.email "publisher@users.noreply.github.com"
@@ -41,8 +51,7 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 # The published index files must be exactly the ones that were just built and signed.
-for f in dists/stable/Release dists/stable/InRelease dists/stable/Release.gpg \
-    dists/stable/main/binary-amd64/Packages dists/stable/main/binary-amd64/Packages.gz; do
+for f in dists/{stable,test}/{Release,InRelease,Release.gpg,main/binary-amd64/Packages,main/binary-amd64/Packages.gz}; do
     if ! git show "HEAD:$f" | cmp -s - "$SRC/$f"; then
         echo "ERROR: $f on gh-pages differs from the freshly built file" >&2
         exit 1
