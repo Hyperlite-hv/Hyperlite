@@ -56,28 +56,28 @@ def _valid_host(value):
         return bool(HOST_RE.match(value or ""))
 
 
-def validate(methode, adresse, port, utilisateur):
+def validate(method, address, port, user):
     """None, or why these settings are refused. Everything here ends up in a fence agent's options."""
-    if methode not in METHODS:
-        return f"Unknown fencing method '{methode}' (expected one of: {', '.join(METHODS)})"
-    if methode == "lease_only":
+    if method not in METHODS:
+        return f"Unknown fencing method '{method}' (expected one of: {', '.join(METHODS)})"
+    if method == "lease_only":
         return None
-    if not adresse or not _valid_host(adresse):
+    if not address or not _valid_host(address):
         return "The BMC address must be a host name or an IP address"
     if port is not None and not 1 <= int(port) <= 65535:
         return "The port must be between 1 and 65535"
-    if not utilisateur or not USER_RE.match(utilisateur):
+    if not user or not USER_RE.match(user):
         return "The BMC user name may contain letters, digits and . _ @ - (64 characters at most)"
     return None
 
 
 def get(node):
-    """The settings of a node without the password ("secret_defini" says whether one is stored), or None."""
+    """The settings of a node without the password ("secret_set" says whether one is stored), or None."""
     out = _store().fencing(node)
     if not out:
         return None
-    out["secret_defini"] = bool(out.pop("secret", None))
-    out["tls_non_verifie"] = bool(out["tls_non_verifie"])
+    out["secret_set"] = bool(out.pop("secret", None))
+    out["tls_unverified"] = bool(out["tls_unverified"])
     return out
 
 
@@ -85,21 +85,19 @@ def list_all():
     return [get(n) for n in _store().fenced_nodes()]
 
 
-def save(
-    node, methode, adresse=None, port=None, utilisateur=None, secret=None, tls_non_verifie=False, username="system"
-):
+def save(node, method, address=None, port=None, user=None, secret=None, tls_unverified=False, username="system"):
     """Create or update. secret None keeps the stored password (the UI never sees it to send it back)."""
-    error = validate(methode, adresse, port, utilisateur)
+    error = validate(method, address, port, user)
     if error:
         raise FencingError(error)
     now = datetime.now(UTC).isoformat()
     existing = _store().fencing(node)
     stored = secrets_crypto.encrypt(secret) if secret else (existing["secret"] if existing else None)
-    if methode == "lease_only":
-        adresse = port = utilisateur = stored = None
+    if method == "lease_only":
+        address = port = user = stored = None
     elif not stored:
         raise FencingError("A password is needed for this method")
-    _store().save_fencing(node, methode, adresse, port, utilisateur, stored, int(bool(tls_non_verifie)), username, now)
+    _store().save_fencing(node, method, address, port, user, stored, int(bool(tls_unverified)), username, now)
     return get(node)
 
 
@@ -109,36 +107,36 @@ def delete(node):
 
 def _agent_input(row, action):
     """The fence agent options, one "name=value" per line on stdin (the agents' documented stdin interface)."""
-    lines = [f"action={action}", f"ip={row['adresse']}", f"username={row['utilisateur']}"]
+    lines = [f"action={action}", f"ip={row['address']}", f"username={row['user']}"]
     try:
         lines.append(f"password={secrets_crypto.decrypt(row['secret'])}")
     except secrets_crypto.SecretUnreadable as e:
         raise FencingError(f"{e} (fencing of {row['node']})", 409) from e
     if row["port"]:
         lines.append(f"ipport={int(row['port'])}")
-    if row["methode"] == "ipmi":
+    if row["method"] == "ipmi":
         lines.append("lanplus=1")  # IPMI 2.0: every BMC of the last fifteen years, and the only encrypted mode
-    if row["methode"] in ("redfish", "amt"):
+    if row["method"] in ("redfish", "amt"):
         lines.append("ssl=1")
-        if row["tls_non_verifie"]:
+        if row["tls_unverified"]:
             lines.append("ssl_insecure=1")
     return "\n".join(lines) + "\n"
 
 
 def test(node):
     """Query the power state through the fence agent. Never powers anything off.
-    Returns {"ok", "alimentation": "on"|"off"|None, "detail"}."""
+    Returns {"ok", "power": "on"|"off"|None, "detail"}."""
     row = _store().fencing(node)
     if row is None:
         raise FencingError("No fencing is set for this node", 404)
-    if row["methode"] == "lease_only":
-        return {"ok": True, "alimentation": None, "detail": "Leases only: there is no power control to test"}
-    agent = AGENTS[row["methode"]]
+    if row["method"] == "lease_only":
+        return {"ok": True, "power": None, "detail": "Leases only: there is no power control to test"}
+    agent = AGENTS[row["method"]]
     path = shutil.which(agent)
     if path is None:
         return {
             "ok": False,
-            "alimentation": None,
+            "power": None,
             "detail": f"{agent} is not installed on this host: apt install fence-agents",
         }
     try:
@@ -148,21 +146,21 @@ def test(node):
     except subprocess.TimeoutExpired:
         return {
             "ok": False,
-            "alimentation": None,
-            "detail": f"No answer from {row['adresse']} within {TEST_TIMEOUT_S} s",
+            "power": None,
+            "detail": f"No answer from {row['address']} within {TEST_TIMEOUT_S} s",
         }
     except OSError:
         # The details stay in the service log: an OS error text is not for the API.
         logger.warning("Fence agent %s could not run for %s", agent, node, exc_info=True)
         return {
             "ok": False,
-            "alimentation": None,
+            "power": None,
             "detail": f"{agent} could not run on this host (see the service log)",
         }
     out = (proc.stdout or "") + (proc.stderr or "")
     state = re.search(r"Status:\s*(ON|OFF)", out, re.IGNORECASE)
     if state:
-        return {"ok": True, "alimentation": state.group(1).lower(), "detail": f"Power state read through {agent}"}
+        return {"ok": True, "power": state.group(1).lower(), "detail": f"Power state read through {agent}"}
     # Keep the agent's own words, without anything that could echo the password back.
     try:
         secret = secrets_crypto.decrypt(row["secret"]) or ""
@@ -171,4 +169,4 @@ def test(node):
     message = " ".join(line.strip() for line in out.splitlines() if line.strip())[-300:]
     if secret:
         message = message.replace(secret, "***")
-    return {"ok": False, "alimentation": None, "detail": message or f"{agent} failed (exit code {proc.returncode})"}
+    return {"ok": False, "power": None, "detail": message or f"{agent} failed (exit code {proc.returncode})"}

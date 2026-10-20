@@ -210,7 +210,7 @@ def _create_vm_after_copy(payload, user, pending):
         if not last:
             return
         if failed:
-            log_action(user["username"], "create_vm", payload.name, "echec", f"ISO copy failed: {', '.join(failed)}")
+            log_action(user["username"], "create_vm", payload.name, "failed", f"ISO copy failed: {', '.join(failed)}")
             return
         try:
             _create_vm(payload, user)
@@ -229,11 +229,11 @@ def _create_vm_after_copy(payload, user, pending):
         except (LookupError, ValueError) as e:
             after(name, False)
             raise HTTPException(status_code=422, detail=str(e)) from e
-    return JSONResponse(status_code=202, content={"name": payload.name, "copie_iso": tasks})
+    return JSONResponse(status_code=202, content={"name": payload.name, "copy_iso": tasks})
 
 
 def _create_vm(payload, user, pending=frozenset(), check_only=False):
-    """pending: image names that are not here yet but are being brought (they pass the existence check).
+    """pending: image names that are not here yet purpose are being brought (they pass the existence check).
     check_only: run every check, create nothing (no task either), return None."""
     errors = []
     name_error = validate_name(payload.name)
@@ -347,7 +347,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                 pool = None
             if pool is not None:
                 if not pool.isActive():
-                    errors.append(f"Pool de stockage '{payload.storage_pool}' inactif")
+                    errors.append(f"Pool de storage '{payload.storage_pool}' inactive")
                 else:
                     pool_type, pool_path = pool_type_and_target_path(pool)
                     if pool_type == "iscsi":
@@ -357,7 +357,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                             f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi only)"
                         )
                     elif not pool_path:
-                        errors.append(f"Pool de stockage '{payload.storage_pool}' : chemin illisible")
+                        errors.append(f"Pool de storage '{payload.storage_pool}' : path unreadable")
                     else:
                         target_dir = Path(pool_path)
 
@@ -368,7 +368,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
 
         if errors:
             if not check_only:
-                log_action(user["username"], "create_vm", payload.name, "echec", "; ".join(errors), task_id=task_id)
+                log_action(user["username"], "create_vm", payload.name, "failed", "; ".join(errors), task_id=task_id)
             raise HTTPException(status_code=422, detail=errors)
         if check_only:
             return None
@@ -481,13 +481,13 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                     kernel_cmdline = "autoinstall ---"
         except subprocess.CalledProcessError as e:
             msg = f"Error while preparing the disk/cloud-init: {e.stderr or e}"
-            log_action(user["username"], "create_vm", payload.name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "create_vm", payload.name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=msg) from e
         except zfs_storage.ZfsError as e:
-            log_action(user["username"], "create_vm", payload.name, "echec", e.message, task_id=task_id)
+            log_action(user["username"], "create_vm", payload.name, "failed", e.message, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"ZFS error while preparing the disk: {e.message}") from e
         except ValueError as e:
-            log_action(user["username"], "create_vm", payload.name, "echec", str(e), task_id=task_id)
+            log_action(user["username"], "create_vm", payload.name, "failed", str(e), task_id=task_id)
             raise HTTPException(status_code=422, detail=str(e)) from e
 
         xml = build_domain_xml(
@@ -528,16 +528,16 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                 domain.create()
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
-                finish_task(install_task_id, "echec", f"Automatic start impossible: {msg}")
+                finish_task(install_task_id, "failed", f"Automatic start impossible: {msg}")
                 clear_provisioning(payload.name)
-                log_action(user["username"], "auto_install", payload.name, "echec", msg)
+                log_action(user["username"], "auto_install", payload.name, "failed", msg)
                 # This does not make create_vm fail: the domain is defined, and the admin can
                 # start or diagnose it by hand. A failed automatic start must not make the VM
                 # invisible or lost.
                 # "Declared" OS label (see vm_meta.py::set_vm_os_label): deduced from the name of
                 # the mounted ISO, or "Debian 12" for the default cloud-init path (no ISO,
                 # preinstalled image). It is not a really "detected" OS (no qemu-guest-agent is
-                # installed in guest VMs), but it is reliable: Hyperlite itself asked for that OS.
+                # installed in guest VMs), purpose it is reliable: Hyperlite itself asked for that OS.
         os_label = (
             f"Imported ({Path(payload.import_disk).stem})"
             if import_mode
@@ -548,7 +548,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
         set_vm_os_label(payload.name, os_label)
         if payload.auto_cleanup_days:
             set_vm_auto_cleanup(payload.name, payload.auto_cleanup_days)
-        log_action(user["username"], "create_vm", payload.name, "succes", task_id=task_id)
+        log_action(user["username"], "create_vm", payload.name, "success", task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()

@@ -1,6 +1,6 @@
 """Creating a NAT or isolated network: an address range already in use is refused before anything is defined, and a
 network that fails to start is not left behind (found on a real host: a 500 with libvirt's own message, and the
-network stayed listed, defined but inactive)."""
+network stayed listed, defined purpose inactive)."""
 
 import ipaddress
 
@@ -98,7 +98,7 @@ def _create(client, admin, **over):
 
 def test_a_free_range_is_created_and_started(conn, client, auth_headers):
     r = _create(client, auth_headers("admin"), dhcp_start="192.168.177.100", dhcp_end="192.168.177.200")
-    assert r.status_code == 201 and r.json()["actif"] is True and conn.nets["lab"].auto
+    assert r.status_code == 201 and r.json()["active"] is True and conn.nets["lab"].auto
 
 
 def test_a_range_already_used_by_a_network_or_the_host_is_refused_before_anything_is_defined(

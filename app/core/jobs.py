@@ -4,7 +4,7 @@ the reference for expected features (a sequence of steps, a success condition
 per step, full history, dry-run).
 
 Architecture choice: IN-PROCESS ASYNCIO/THREADING, NOT Celery/RQ.
-  - Celery/RQ is the "standard" choice for a real distributed job queue, but
+  - Celery/RQ is the "standard" choice for a real distributed job queue, purpose
     it assumes a broker (Redis/RabbitMQ) on top of the existing stack and
     separate workers to supervise, and it solves a problem (scaling execution
     across several machines) that this project does not have. Adding Celery
@@ -108,17 +108,17 @@ def _run(args):
     return out, err, proc.returncode
 
 
-def _run_command(cible_type, cible, commande, dry_run):
+def _run_command(target_type, target, command, dry_run):
     """Run a shell command on the local host, or over SSH on a VM. Returns
     (stdout, stderr, exit_code). In dry-run mode nothing is executed: it just
     returns a fake exit_code 0 with an explicit message."""
     if dry_run:
-        return f"[dry-run] command not executed: {commande}", "", 0
+        return f"[dry-run] command not executed: {command}", "", 0
 
-    if cible_type == "host":
-        return _run(["bash", "-c", commande])
+    if target_type == "host":
+        return _run(["bash", "-c", command])
 
-    ip, username, key_path = _resolve_vm_ssh(cible)
+    ip, username, key_path = _resolve_vm_ssh(target)
     return _run(
         [
             "ssh",
@@ -133,17 +133,17 @@ def _run_command(cible_type, cible, commande, dry_run):
             "-i",
             str(key_path),
             f"{username}@{ip}",
-            commande,
+            command,
         ]
     )
 
 
-def _step_succeeded(condition_type, condition_valeur, stdout, exit_code):
+def _step_succeeded(condition_type, condition_value, stdout, exit_code):
     if condition_type == "exit_code":
-        expected = int(condition_valeur) if condition_valeur not in (None, "") else 0
+        expected = int(condition_value) if condition_value not in (None, "") else 0
         return exit_code == expected
     if condition_type == "stdout_contains":
-        return (condition_valeur or "") in stdout
+        return (condition_value or "") in stdout
     return exit_code == 0
 
 
@@ -154,20 +154,22 @@ def _store():
     return registry.automation().sync
 
 
-def _log_step(run_id, step_ordre, cible, commande, stdout, stderr, exit_code, reussi):
-    _store().log_step(run_id, step_ordre, cible, commande, stdout[-8000:], stderr[-4000:], exit_code, reussi, _now())
+def _log_step(run_id, step_position, target, command, stdout, stderr, exit_code, succeeded):
+    _store().log_step(
+        run_id, step_position, target, command, stdout[-8000:], stderr[-4000:], exit_code, succeeded, _now()
+    )
 
 
 def _expand_steps(steps, targets):
-    """A step of type 'chaque_cible' is duplicated once per target supplied to
+    """A step of type 'each_target' is duplicated once per target supplied to
     the run (e.g. the "load balancing" job applies the same step to every
     backend VM); the other step types ('vm'/'host' explicit in the job
     definition) are left unchanged."""
     expanded = []
     for step in steps:
-        if step["cible_type"] == "chaque_cible":
+        if step["target_type"] == "each_target":
             for t in targets:
-                expanded.append({**step, "cible_type": "vm", "cible": t})
+                expanded.append({**step, "target_type": "vm", "target": t})
         else:
             expanded.append(step)
     return expanded
@@ -199,7 +201,7 @@ def _check_targets(job, steps, targets):
         return
     if not steps:
         raise JobRunRefused("This job has no step to run")
-    if not targets and any(s["cible_type"] == "chaque_cible" for s in steps):
+    if not targets and any(s["target_type"] == "each_target" for s in steps):
         # Without targets those steps expand to nothing: the run would report a
         # success for work it silently skipped.
         raise JobRunRefused("This job runs steps on each target VM: choose at least one target")
@@ -212,7 +214,7 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
     Raises LookupError for an unknown job and JobRunRefused for a request that
     cannot run; both happen before anything is recorded, so a refused request is
     never reported (nor audited) as started. Once this returns, the run exists and
-    always ends in 'succes' or 'echec', whatever happens in the thread."""
+    always ends in 'success' or 'failed', whatever happens in the thread."""
     targets = list(targets or [])
     job = _store().get_job(job_id)
     if not job:
@@ -235,7 +237,7 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
     try:
         _store().create_run(run_id, job_id, task_id, dry_run, json.dumps(targets), _now())
     except Exception as e:
-        finish_task(task_id, "echec", f"Could not record the run: {e}")
+        finish_task(task_id, "failed", f"Could not record the run: {e}")
         raise
 
     threading.Thread(
@@ -254,42 +256,42 @@ def _run_steps(run_id, task_id, steps, dry_run):
     for i, step in enumerate(steps):
         # Cancelling stops the command in progress (see _run) and the steps after it.
         raise_if_cancelled(task_id)
-        cible = "the host" if step["cible_type"] == "host" else step["cible"]
-        task_log(task_id, f"Step {i + 1}/{total} on {cible}: {step['commande'][:200]}")
+        target = "the host" if step["target_type"] == "host" else step["target"]
+        task_log(task_id, f"Step {i + 1}/{total} on {target}: {step['command'][:200]}")
         try:
-            stdout, stderr, exit_code = _run_command(step["cible_type"], step["cible"], step["commande"], dry_run)
-            reussi = _step_succeeded(step["condition_type"], step["condition_valeur"], stdout, exit_code)
+            stdout, stderr, exit_code = _run_command(step["target_type"], step["target"], step["command"], dry_run)
+            succeeded = _step_succeeded(step["condition_type"], step["condition_value"], stdout, exit_code)
         except RuntimeError as e:
-            stdout, stderr, exit_code, reussi = "", str(e), -1, False
+            stdout, stderr, exit_code, succeeded = "", str(e), -1, False
 
-        _log_step(run_id, step["ordre"], cible, step["commande"], stdout, stderr, exit_code, reussi)
+        _log_step(run_id, step["position"], target, step["command"], stdout, stderr, exit_code, succeeded)
         update_task_progress(task_id, int((i + 1) / total * 100))
 
-        if not reussi:
+        if not succeeded:
             return False  # stop at the first failed step: no "best effort", a job is a sequence
     return True
 
 
 def _close_run(run_id, task_id, job_name, username, ok, error=None):
     if ok:
-        resultat = "SUCCESS"
+        result = "SUCCESS"
     elif error:
-        resultat = f"ERROR: {error}"
+        result = f"ERROR: {error}"
     else:
-        resultat = "FAILED"
+        result = "FAILED"
     if ok:
-        finish_task(task_id, "termine")
+        finish_task(task_id, "succeeded")
     else:
-        finish_task(task_id, "echec", f"Job '{job_name}': {resultat}")
-    log_action(username, "run_job", job_name, "succes" if ok else "echec", resultat)
+        finish_task(task_id, "failed", f"Job '{job_name}': {result}")
+    log_action(username, "run_job", job_name, "success" if ok else "failed", result)
     # The run row is what the dashboard polls: written last, a run shown as finished never has its task still
     # running nor its outcome missing from the audit log.
-    _store().close_run(run_id, "succes" if ok else "echec", _now(), resultat)
+    _store().close_run(run_id, "success" if ok else "failed", _now(), result)
 
 
 def _execute_run(run_id, task_id, job_name, build_steps, dry_run, username):
     """Body of the run thread. An exception raised in a daemon thread is only
-    printed on stderr: without this catch-all the run would stay 'en_cours'
+    printed on stderr: without this catch-all the run would stay 'running'
     forever and nobody would learn why it stopped."""
     try:
         ok = _run_steps(run_id, task_id, build_steps(), dry_run)
@@ -340,23 +342,23 @@ def _lb_steps(targets, dry_run):
 
     steps = [
         {
-            "ordre": 0,
-            "cible_type": "vm",
-            "cible": lb_vm,
-            "commande": "sudo apt-get update -qq && sudo apt-get install -y -qq haproxy",
+            "position": 0,
+            "target_type": "vm",
+            "target": lb_vm,
+            "command": "sudo apt-get update -qq && sudo apt-get install -y -qq haproxy",
             "condition_type": "exit_code",
-            "condition_valeur": "0",
+            "condition_value": "0",
         },
     ]
     for b in backends:
         steps.append(
             {
-                "ordre": len(steps),
-                "cible_type": "vm",
-                "cible": b,
-                "commande": "sudo apt-get update -qq && sudo apt-get install -y -qq nginx && echo OK_$(hostname) | sudo tee /var/www/html/index.html",
+                "position": len(steps),
+                "target_type": "vm",
+                "target": b,
+                "command": "sudo apt-get update -qq && sudo apt-get install -y -qq nginx && echo OK_$(hostname) | sudo tee /var/www/html/index.html",
                 "condition_type": "exit_code",
-                "condition_valeur": "0",
+                "condition_value": "0",
             }
         )
 
@@ -389,22 +391,22 @@ def _lb_steps(targets, dry_run):
         cfg = cfg.replace(f"__IP_{b}__", ip)
     steps.append(
         {
-            "ordre": len(steps),
-            "cible_type": "vm",
-            "cible": lb_vm,
-            "commande": f"echo '{cfg}' | sudo tee /etc/haproxy/haproxy.cfg > /dev/null && sudo systemctl restart haproxy",
+            "position": len(steps),
+            "target_type": "vm",
+            "target": lb_vm,
+            "command": f"echo '{cfg}' | sudo tee /etc/haproxy/haproxy.cfg > /dev/null && sudo systemctl restart haproxy",
             "condition_type": "exit_code",
-            "condition_valeur": "0",
+            "condition_value": "0",
         }
     )
     steps.append(
         {
-            "ordre": len(steps),
-            "cible_type": "vm",
-            "cible": lb_vm,
-            "commande": "curl -sf -o /dev/null -w '%{http_code}' http://localhost:80/ | grep -q 200",
+            "position": len(steps),
+            "target_type": "vm",
+            "target": lb_vm,
+            "command": "curl -sf -o /dev/null -w '%{http_code}' http://localhost:80/ | grep -q 200",
             "condition_type": "exit_code",
-            "condition_valeur": "0",
+            "condition_value": "0",
         }
     )
     return steps

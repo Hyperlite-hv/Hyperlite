@@ -10,7 +10,7 @@ export default function CopyIsoDialog({ iso, nodes, holders, onClose, onStarted 
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const candidates = nodes.filter((n) => n.id !== iso.node);
-  const pickable = candidates.filter((n) => !holders.has(n.id) && n.etat === "online");
+  const pickable = candidates.filter((n) => !holders.has(n.id) && n.state === "online");
   const [picked, setPicked] = useState(() => new Set(pickable.length === 1 ? [pickable[0].id] : []));
   const [busy, setBusy] = useState(false);
   const first = useRef(null);
@@ -20,14 +20,14 @@ export default function CopyIsoDialog({ iso, nodes, holders, onClose, onStarted 
 
   const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allPicked = pickable.length > 0 && pickable.every((n) => picked.has(n.id));
-  const nameOf = (id) => nodes.find((n) => n.id === id)?.nom || id;
+  const nameOf = (id) => nodes.find((n) => n.id === id)?.name || id;
 
   async function start() {
     setBusy(true);
     try {
       const targets = [...picked];
-      await copyIso(iso.nom, iso.node, targets);
-      pushToast({ kind: "success", title: t("iso.copyStarted"), message: t("iso.copyStartedMsg", { name: iso.nom, nodes: targets.map(nameOf).join(", ") }) });
+      await copyIso(iso.name, iso.node, targets);
+      pushToast({ kind: "success", title: t("iso.copyStarted"), message: t("iso.copyStartedMsg", { name: iso.name, nodes: targets.map(nameOf).join(", ") }) });
       onStarted?.();
       onClose();
     } catch (e) {
@@ -39,7 +39,7 @@ export default function CopyIsoDialog({ iso, nodes, holders, onClose, onStarted 
   return (
     <div className="nx-scrim" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="nx-dialog" role="dialog" aria-modal="true" aria-labelledby="isocp-title" onKeyDown={(e) => { if (e.key === "Escape" && !busy) { e.stopPropagation(); onClose(); } }}>
-        <h2 id="isocp-title">{t("iso.copyTitle", { name: iso.nom })}</h2>
+        <h2 id="isocp-title">{t("iso.copyTitle", { name: iso.name })}</h2>
         <p className="nx-muted" style={{ margin: 0 }}>{t("iso.copyHelp", { node: nameOf(iso.node) })}</p>
         {candidates.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("iso.noOtherNode")}</p> : (
           <fieldset className="nx-dialog-field" style={{ border: 0, padding: 0, margin: 0, display: "grid", gap: "var(--space-2)" }}>
@@ -50,11 +50,11 @@ export default function CopyIsoDialog({ iso, nodes, holders, onClose, onStarted 
             )}
             {candidates.map((n, i) => {
               const has = holders.has(n.id);
-              const offline = n.etat !== "online";
+              const offline = n.state !== "online";
               return (
                 <label key={n.id} className="nx-check">
                   <input ref={pickable.length <= 1 && i === 0 ? first : undefined} type="checkbox" checked={picked.has(n.id)} disabled={busy || has || offline} onChange={() => toggle(n.id)} />
-                  {" "}{n.nom}
+                  {" "}{n.name}
                   {has && <span className="nx-muted"> · {t("iso.alreadyThere")}</span>}
                   {!has && offline && <span className="nx-muted"> · {t("iso.nodeOffline")}</span>}
                 </label>

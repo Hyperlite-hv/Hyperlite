@@ -48,17 +48,17 @@ def set_vm_auto_cleanup_route(
         try:
             conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_auto_cleanup", name, "echec", "VM not found")
+            log_action(user["username"], "set_auto_cleanup", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
     finally:
         conn.close()
     set_vm_auto_cleanup(name, payload.inactive_days)
-    log_action(user["username"], "set_auto_cleanup", name, "succes", f"seuil {payload.inactive_days} jour(s)")
+    log_action(user["username"], "set_auto_cleanup", name, "success", f"seuil {payload.inactive_days} jour(s)")
     return {"message": f"Automatic cleanup enabled ({payload.inactive_days} day(s) of inactivity)"}
 
 
 @router.delete("/{name}/auto-cleanup")
 def disable_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     delete_vm_auto_cleanup(name)
-    log_action(user["username"], "disable_auto_cleanup", name, "succes")
+    log_action(user["username"], "disable_auto_cleanup", name, "success")
     return {"message": "Automatic cleanup disabled"}

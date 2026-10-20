@@ -1,32 +1,32 @@
 import type { Page } from "@playwright/test";
-import { expect, test, ADMIN } from "../support/fixtures";
+import { expect, test, ADMIN, apiRoute } from "../support/fixtures";
 
 // Containers page. LXC needs a debootstrapped image the throwaway test host does not have, so the
 // /containers API is replaced by a small stateful stand-in: this checks the page's behaviour
 // (payloads, confirmations, gating), not LXC itself.
-type Ct = { nom: string; etat: string; vcpu: number; memoire_mo: number; ip: string | null };
+type Ct = { name: string; state: string; vcpu: number; memory_mb: number; ip: string | null };
 test.describe.configure({ mode: "serial", timeout: 90_000 });
 
 async function mockApi(page: Page) {
-  const cts: Ct[] = [{ nom: "web1", etat: "actif", vcpu: 1, memoire_mo: 512, ip: "192.168.122.50" }, { nom: "db1", etat: "arrete", vcpu: 2, memoire_mo: 1024, ip: null }];
+  const cts: Ct[] = [{ name: "web1", state: "active", vcpu: 1, memory_mb: 512, ip: "192.168.122.50" }, { name: "db1", state: "stopped", vcpu: 2, memory_mb: 1024, ip: null }];
   const calls: string[] = [];
   let created: unknown = null;
   await page.route(/\/containers(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
     if (!req.url().includes("/containers") || req.resourceType() === "document") return route.fallback();
-    const path = new URL(req.url()).pathname.replace(/^.*\/containers/, "");
+    const path = apiRoute(req.url()).replace(/^.*\/containers/, "");
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
     if (req.method() === "GET" && path === "") return json(cts);
     if (req.method() === "GET" && path.startsWith("/backups")) return json([]);
-    if (req.method() === "POST" && path === "") { created = req.postDataJSON(); cts.push({ nom: (created as { name: string }).name, etat: "arrete", vcpu: 1, memoire_mo: 512, ip: null }); return json({ ok: true }); }
+    if (req.method() === "POST" && path === "") { created = req.postDataJSON(); cts.push({ name: (created as { name: string }).name, state: "stopped", vcpu: 1, memory_mb: 512, ip: null }); return json({ ok: true }); }
     const m = path.match(/^\/([^/]+)\/(start|stop)$/);
-    if (req.method() === "POST" && m) { calls.push(`${m[2]} ${m[1]}`); cts.find((c) => c.nom === m[1])!.etat = m[2] === "start" ? "actif" : "arrete"; return json({ ok: true }); }
-    if (req.method() === "DELETE") { calls.push(`delete ${path.slice(1).split("?")[0]}`); const i = cts.findIndex((c) => c.nom === path.slice(1).split("?")[0]); if (i >= 0) cts.splice(i, 1); return json({ ok: true }); }
+    if (req.method() === "POST" && m) { calls.push(`${m[2]} ${m[1]}`); cts.find((c) => c.name === m[1])!.state = m[2] === "start" ? "active" : "stopped"; return json({ ok: true }); }
+    if (req.method() === "DELETE") { calls.push(`delete ${path.slice(1).split("?")[0]}`); const i = cts.findIndex((c) => c.name === path.slice(1).split("?")[0]); if (i >= 0) cts.splice(i, 1); return json({ ok: true }); }
     return route.fallback();
   });
   // A Docker container needs a started NAT or isolated network: give the page one, whatever the test host has.
   await page.route(/\/networks(\?.*)?$/, (route) => (route.request().method() === "GET" && route.request().resourceType() !== "document"
-    ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ nom: "default", type: "nat", pont: "virbr0", actif: true, reseau: "192.168.122.0/24", autostart: true, dhcp: true, vms: [] }]) })
+    ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ name: "default", type: "nat", bridge: "virbr0", active: true, network: "192.168.122.0/24", autostart: true, dhcp: true, vms: [] }]) })
     : route.fallback()));
   return { calls, created: () => created };
 }
@@ -78,7 +78,7 @@ test("lists containers with state text, gates stop/delete behind confirmations, 
   await dlg.getByLabel("Password", { exact: true }).fill("Correct-Horse-1");
   await submit.click();
   await expect(main.getByRole("row", { name: /cache1/ })).toBeVisible({ timeout: 15_000 });
-  expect(api.created()).toMatchObject({ name: "cache1", mode: "systeme", image: "alpine:3.19", username: "ops", vcpu: 1, memory_mb: 512 });
+  expect(api.created()).toMatchObject({ name: "cache1", mode: "system", image: "alpine:3.19", username: "ops", vcpu: 1, memory_mb: 512 });
 
   // Docker (application), the default: the image's own process, a command and environment, no account.
   await main.getByRole("button", { name: "Create a container" }).click();

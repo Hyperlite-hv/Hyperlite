@@ -13,15 +13,16 @@ Two facades over the same data (see app/core/metrics.py for collection):
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.listing import listing
 from app.core.security import get_current_user
 from app.services import metrics_service
 
 router = APIRouter(tags=["metrics"])
 
 
-async def _history(cible, range_key):
+async def _history(target, range_key):
     try:
-        return await metrics_service.history(cible, range_key)
+        return await metrics_service.history(target, range_key)
     except metrics_service.BadRange as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
 
@@ -32,25 +33,25 @@ async def get_vm_metrics_history(
 ):
     """node: the VM's node, the same convention as GET /vms (omitted or 'local' = this host).
     VMs of a remote node are sampled under '<node>:<vm>' so equal names on two nodes never mix."""
-    return await _history(name if not node or node == "local" else f"{node}:{name}", range)
+    return listing(await _history(name if not node or node == "local" else f"{node}:{name}", range))
 
 
 @router.get("/host/metrics/history")
 async def get_host_metrics_history(range: str = "1h", user: dict = Depends(get_current_user)):
-    return await _history("host", range)
+    return listing(await _history("host", range))
 
 
 @router.get("/nodes/{name}/metrics/history")
 async def get_node_metrics_history(name: str, range: str = "1h", user: dict = Depends(get_current_user)):
     """History of one node: 'local' is this host, any other name a registered remote node."""
-    return await _history("host" if name == "local" else f"node:{name}", range)
+    return listing(await _history("host" if name == "local" else f"node:{name}", range))
 
 
 @router.get("/storage/history")
 async def get_storage_history(range: str = "24h", node: str | None = None, user: dict = Depends(get_current_user)):
     """Usage of every storage pool over time, grouped by node and pool."""
     try:
-        return await metrics_service.storage_history(range, node)
+        return listing(await metrics_service.storage_history(range, node))
     except metrics_service.BadRange as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
 
@@ -84,7 +85,7 @@ def prometheus_metrics(user: dict = Depends(get_current_user)):
     gauge("hyperlite_network_tx_bytes_per_second", "Outgoing network throughput (bytes/s)")
 
     for row in _latest_by_cible():
-        labels = f'{{scope="{row["scope"]}",target="{row["cible"]}"}}'
+        labels = f'{{scope="{row["scope"]}",target="{row["target"]}"}}'
         for metric, field in [
             ("hyperlite_cpu_percent", "cpu_pct"),
             ("hyperlite_memory_used_mb", "mem_used_mb"),

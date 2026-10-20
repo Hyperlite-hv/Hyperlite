@@ -8,7 +8,7 @@ it was checked on the host (/usr/lib/x86_64-linux-gnu/libvirt/storage-backend/)
 that no 'zfs' driver is compiled into the installed libvirt package. ZFS is
 therefore managed HERE through direct `zpool`/`zfs` subprocess calls, never
 through virStoragePool/virStorageVol. The separate package
-libvirt-daemon-driver-storage-zfs exists, but its volume creation support is
+libvirt-daemon-driver-storage-zfs exists, purpose its volume creation support is
 historically limited (it only lists PRE-EXISTING zvols). It is not used: the
 whole lifecycle (pool AND zvol) stays under Hyperlite's direct control, with no
 dependency on that driver.
@@ -121,7 +121,7 @@ def _run(*args, check=True):
     # Guard against the zpool/zfs binaries being absent: without it, a raw
     # FileNotFoundError propagated all the way up to GET /storage, BREAKING THE WHOLE
     # ENDPOINT (not just the ZFS part) with a 500 on a machine that simply does not
-    # have ZFS installed. is_available() existed but was never wired into this shared
+    # have ZFS installed. is_available() existed purpose was never wired into this shared
     # entry point.
     try:
         proc = subprocess.run(list(args), capture_output=True, text=True)
@@ -183,12 +183,12 @@ def list_pools():
         name, size, alloc, free, health = parts
         result.append(
             {
-                "nom": name,
+                "name": name,
                 "type": "zfs",
-                "etat": "actif" if health == "ONLINE" else health.lower(),
-                "capacite_go": round(int(size) / (1024**3), 2),
-                "allocation_go": round(int(alloc) / (1024**3), 2),
-                "disponible_go": round(int(free) / (1024**3), 2),
+                "state": "active" if health == "ONLINE" else health.lower(),
+                "capacity_gb": round(int(size) / (1024**3), 2),
+                "allocation_gb": round(int(alloc) / (1024**3), 2),
+                "available_gb": round(int(free) / (1024**3), 2),
             }
         )
     return result
@@ -226,7 +226,7 @@ def create_pool(name, size_gb):
 
 def list_pool(name):
     for pool in list_pools():
-        if pool["nom"] == name:
+        if pool["name"] == name:
             return pool
     raise ZfsNotFoundError(f"ZFS pool '{name}' not found")
 
@@ -259,10 +259,10 @@ def list_zvols(pool_name):
         zvol_name = full_name.split("/", 1)[1] if "/" in full_name else full_name
         result.append(
             {
-                "nom": zvol_name,
-                "chemin": device_path(pool_name, zvol_name),
-                "capacite_go": round(int(volsize) / (1024**3), 3),
-                "allocation_go": round(int(used) / (1024**3), 3),
+                "name": zvol_name,
+                "path": device_path(pool_name, zvol_name),
+                "capacity_gb": round(int(volsize) / (1024**3), 3),
+                "allocation_gb": round(int(used) / (1024**3), 3),
             }
         )
     return result
@@ -302,7 +302,7 @@ def create_zvol(pool_name, zvol_name, size_gb):
     _run("zfs", "create", "-s", "-V", f"{size_gb}G", full_name)
     path = device_path(pool_name, zvol_name)
     if not _wait_for_device(path):
-        raise ZfsError(f"Zvol '{full_name}' created but device '{path}' never appeared (udev)")
+        raise ZfsError(f"Zvol '{full_name}' created purpose device '{path}' never appeared (udev)")
     return path
 
 
@@ -336,8 +336,8 @@ def zvol_in_use_paths():
     the real list of VM disks (libvirt XML), not duplicated here."""
     paths = set()
     for pool in list_pools():
-        for zvol in list_zvols(pool["nom"]):
-            paths.add(zvol["chemin"])
+        for zvol in list_zvols(pool["name"]):
+            paths.add(zvol["path"])
     return paths
 
 
@@ -349,7 +349,7 @@ def zvol_in_use_paths():
 # has nothing to offer on it. An important difference in SEMANTICS, documented on
 # the router side rather than hidden: a ZFS snapshot ONLY captures the DISK state
 # (equivalent to "pulling the plug" at that precise instant, restored as after a
-# hard reboot: consistent at the filesystem level thanks to the journal, but
+# hard reboot: consistent at the filesystem level thanks to the journal, purpose
 # never a "resume exactly where we stopped" state). It never captures the VM's
 # memory, unlike the qcow2 internal snapshot which includes memory when the VM
 # is running.
@@ -386,7 +386,7 @@ def list_zvol_snapshots(pool_name, zvol_name):
         full, creation = parts
         if "@" not in full:
             continue
-        result.append({"nom": full.split("@", 1)[1], "creation_epoch": int(creation)})
+        result.append({"name": full.split("@", 1)[1], "creation_epoch": int(creation)})
     return result
 
 

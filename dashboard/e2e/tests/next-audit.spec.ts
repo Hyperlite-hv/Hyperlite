@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page, APIRequestContext } from "@playwright/test";
-import { apiLogin, expect, test, ADMIN, PREFIX } from "../support/fixtures";
+import { apiLogin, expect, test, ADMIN, PREFIX, apiRoute } from "../support/fixtures";
 import en from "../../src/next/i18n/en.js";
 
 // Rigorous audit of the rebuilt interface in Chromium: every page in both themes and languages
@@ -8,7 +8,7 @@ import en from "../../src/next/i18n/en.js";
 // five viewports, keyboard reachability, dialogs and menus, and a real VM lifecycle.
 // Findings are collected with soft assertions so one run reports everything.
 
-const DC_PAGES = ["summary", "vms", "containers", "storage", "reseau", "templates", "backups", "exports", "snapshots", "activity", "journal", "nodes", "ha", "compat", "permissions", "sso", "automation", "notifications"];
+const DC_PAGES = ["summary", "vms", "containers", "storage", "network", "templates", "backups", "exports", "snapshots", "activity", "journal", "nodes", "ha", "compat", "permissions", "sso", "automation", "notifications"];
 const NODE_PAGES = ["summary", "system", "tasks", "network", "disk", "compat", "shell"];
 const VM_PAGES = ["summary", "console", "hardware", "options", "snapshots", "backup"];
 const FRENCH = /\b(Lecteur|Operateur|Gestionnaire|Chargement|Erreur|Annuler|Créer|Supprimer|Aucun|Aucune|Réseau|Stockage|Sauvegarde|Enregistrer|Activer|Utilisateur|Mot de passe|En cours|Terminé|Échec|Statut|Ajouter|Fermer|Démarrer|Arrêter|Actualiser|Nœud|Hôte|Disque|Mémoire|Modèle|Résumé|Tâches|Conteneurs?|Instantané|En marche|En pause|Tester)\b|[àâçéèêëîïôûùüœ]/;
@@ -34,14 +34,14 @@ function collect(page: Page) {
   const found: string[] = [];
   page.on("pageerror", (e) => found.push(`pageerror: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) found.push(`console: ${m.text().slice(0, 200)}`); });
-  page.on("response", (r) => { if (r.status() >= 400 && !IGNORED_HTTP.some((rx) => rx.test(r.url()))) found.push(`HTTP ${r.status()} ${new URL(r.url()).pathname}`); });
+  page.on("response", (r) => { if (r.status() >= 400 && !IGNORED_HTTP.some((rx) => rx.test(r.url()))) found.push(`HTTP ${r.status()} ${apiRoute(r.url())}`); });
   return found;
 }
 
 async function vmName(request: APIRequestContext) {
   const token = await apiLogin(request);
   const list = await (await request.get("/vms", { headers: { Authorization: `Bearer ${token}` } })).json();
-  return (list as { nom: string }[]).find((v) => !v.nom.startsWith(PREFIX))?.nom ?? (list as { nom: string }[])[0]?.nom;
+  return (list as { name: string }[]).find((v) => !v.name.startsWith(PREFIX))?.name ?? (list as { name: string }[])[0]?.name;
 }
 
 // Privilege identifiers (vm.view, vm.power...) are data, not translation keys: the audit journal rightly shows
@@ -305,7 +305,7 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
   const NAME = `${PREFIX}audit-${Date.now().toString().slice(-6)}`;
   let token = "";
   const auth = () => ({ Authorization: `Bearer ${token}` });
-  const state = async (request: APIRequestContext) => { const r = await request.get(`/vms/${NAME}`, { headers: auth() }); return r.ok() ? ((await r.json()) as { etat: string }).etat : "missing"; };
+  const state = async (request: APIRequestContext) => { const r = await request.get(`/vms/${NAME}`, { headers: auth() }); return r.ok() ? ((await r.json()) as { state: string }).state : "missing"; };
 
   test.beforeAll(async ({ request }) => { token = await apiLogin(request); });
   test.afterAll(async ({ request }) => {
@@ -315,7 +315,7 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     }
     // extra disks attached by the test: removed once the VM no longer uses them
     const vols = await request.get("/storage/default/volumes", { headers: auth() });
-    if (vols.ok()) for (const v of (await vols.json()) as { nom: string }[]) if (v.nom.startsWith(`${NAME}-disk-`)) await request.delete(`/storage/default/volumes/${v.nom}?confirm=true`, { headers: auth() });
+    if (vols.ok()) for (const v of (await vols.json()) as { name: string }[]) if (v.name.startsWith(`${NAME}-disk-`)) await request.delete(`/storage/default/volumes/${v.name}?confirm=true`, { headers: auth() });
   });
 
   test("create through the wizard, see it everywhere, start, force stop with confirmation, delete", async ({ page, request }) => {
@@ -343,7 +343,7 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     // it shows up in the inventory, the VM list and the overview counters
     await page.goto("/datacenter?tab=vms");
     await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible({ timeout: 90_000 });
-    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("arrete");
+    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("stopped");
     await page.goto("/datacenter?tab=vms");
     await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible();
 
@@ -364,7 +364,7 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     await expect(page).toHaveURL(new RegExp(`/vm/${NAME}`));
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(NAME);
     await page.getByRole("button", { name: "Start", exact: true }).click();
-    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("actif");
+    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("active");
     await expect(page.getByRole("main").getByText("Running").first()).toBeVisible({ timeout: 30_000 });
 
     // console tab: the launcher is enabled for a running VM and opens the console window
@@ -387,14 +387,14 @@ test.describe("VM lifecycle from the rebuilt interface (real libvirt)", () => {
     const confirm = page.getByRole("alertdialog");
     await expect(confirm).toBeVisible();
     await confirm.getByRole("button", { name: "Cancel" }).click();
-    expect(await state(request)).toBe("actif");
+    expect(await state(request)).toBe("active");
 
     // force stop: strong confirmation, then it is really stopped
     await page.getByRole("button", { name: /^Actions/ }).click();
     await page.getByRole("menuitem", { name: /Force stop/ }).click();
     await expect(page.getByRole("alertdialog")).toContainText("pulling the power cable");
     await page.getByRole("alertdialog").getByRole("button", { name: "Force stop" }).click();
-    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("arrete");
+    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("stopped");
 
     // the activity page recorded these operations with the right status
     await page.goto("/datacenter?tab=activity");

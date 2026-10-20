@@ -48,11 +48,9 @@ def _bearer(token):
 
 def test_create_user_applies_the_policy(client, auth_headers):
     admin = auth_headers("root-admin")
-    weak = client.post(
-        "/auth/users", headers=admin, json={"username": "bob", "password": "pppp", "role": "observateur"}
-    )
+    weak = client.post("/auth/users", headers=admin, json={"username": "bob", "password": "pppp", "role": "viewer"})
     assert weak.status_code == 422 and "at least 12" in weak.json()["detail"]
-    ok = client.post("/auth/users", headers=admin, json={"username": "bob", "password": GOOD, "role": "observateur"})
+    ok = client.post("/auth/users", headers=admin, json={"username": "bob", "password": GOOD, "role": "viewer"})
     assert ok.status_code == 201
 
 
@@ -61,7 +59,7 @@ def test_create_user_applies_the_policy(client, auth_headers):
 
 def test_admin_reset_signs_out_the_user_and_revokes_its_tokens(client, auth_headers, make_user):
     admin = auth_headers("root-admin")
-    make_user("carol", "observateur", OLD)
+    make_user("carol", "viewer", OLD)
     carol = _bearer(_login(client, "carol", OLD).json()["access_token"])
     api = client.post("/auth/tokens", headers=carol, json={"name": "script"}).json()["token"]
     assert client.get("/auth/me", headers=_bearer(api)).status_code == 200
@@ -78,7 +76,7 @@ def test_admin_reset_signs_out_the_user_and_revokes_its_tokens(client, auth_head
 
 def test_admin_reset_refuses_weak_passwords_sso_accounts_and_self(client, auth_headers, make_user, database):
     admin = auth_headers("root-admin")
-    make_user("dave", "observateur", OLD)
+    make_user("dave", "viewer", OLD)
     weak = client.patch("/auth/users/dave", headers=admin, json={"password": "dave-password"})
     assert weak.status_code == 422
     assert _login(client, "dave", OLD).status_code == 200  # nothing was written
@@ -93,7 +91,7 @@ def test_admin_reset_refuses_weak_passwords_sso_accounts_and_self(client, auth_h
 
 
 def test_observer_cannot_reset_anyone(client, auth_headers, make_user):
-    observer = auth_headers("olivia", role="observateur")
+    observer = auth_headers("olivia", role="viewer")
     make_user("erin", "admin", OLD)
     assert client.patch("/auth/users/erin", headers=observer, json={"password": GOOD}).status_code == 403
 
@@ -102,7 +100,7 @@ def test_observer_cannot_reset_anyone(client, auth_headers, make_user):
 
 
 def test_change_my_password_signs_out_other_sessions_and_keeps_this_one(client, make_user):
-    make_user("frank", "observateur", OLD)
+    make_user("frank", "viewer", OLD)
     first = _bearer(_login(client, "frank", OLD).json()["access_token"])
     other = _bearer(_login(client, "frank", OLD).json()["access_token"])
     time.sleep(1.1)
@@ -119,7 +117,7 @@ def test_change_my_password_signs_out_other_sessions_and_keeps_this_one(client, 
 def test_change_my_password_keeps_stay_signed_in(client, make_user, remember, days):
     import jwt
 
-    make_user(f"kim{days}", "observateur", OLD)
+    make_user(f"kim{days}", "viewer", OLD)
     data = {"username": f"kim{days}", "password": OLD}
     if remember:
         data["remember"] = "true"
@@ -130,7 +128,7 @@ def test_change_my_password_keeps_stay_signed_in(client, make_user, remember, da
 
 
 def test_change_my_password_checks_the_current_one_and_locks_out(client, make_user):
-    make_user("gina", "observateur", OLD)
+    make_user("gina", "viewer", OLD)
     session = _bearer(_login(client, "gina", OLD).json()["access_token"])
     for _ in range(5):
         wrong = client.post(
@@ -142,7 +140,7 @@ def test_change_my_password_checks_the_current_one_and_locks_out(client, make_us
 
 
 def test_change_my_password_refuses_reuse_and_weak_passwords(client, make_user):
-    make_user("hugo", "observateur", OLD)
+    make_user("hugo", "viewer", OLD)
     session = _bearer(_login(client, "hugo", OLD).json()["access_token"])
     same = client.post("/auth/me/password", headers=session, json={"current_password": OLD, "new_password": OLD})
     assert same.status_code == 422
@@ -155,13 +153,13 @@ def test_change_my_password_refuses_reuse_and_weak_passwords(client, make_user):
 def test_change_my_password_needs_the_2fa_code_when_enabled(client, make_user, database):
     import pyotp
 
-    make_user("iris", "observateur", OLD)
+    make_user("iris", "viewer", OLD)
     secret = pyotp.random_base32()
     with database.get_conn() as conn:
         conn.execute("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE username = 'iris'", (secret,))
         conn.commit()
-    pre = _login(client, "iris", OLD).json()["pre_auth_token"]
-    token = client.post("/auth/login/2fa", json={"pre_auth_token": pre, "code": pyotp.TOTP(secret).now()}).json()[
+    pre = _login(client, "iris", OLD).json()["preauth_token"]
+    token = client.post("/auth/login/2fa", json={"preauth_token": pre, "code": pyotp.TOTP(secret).now()}).json()[
         "access_token"
     ]
     session = _bearer(token)
@@ -190,7 +188,7 @@ def test_the_audit_log_never_holds_a_password(client, auth_headers, make_user, d
     from app.core import audit
 
     admin = auth_headers("root-admin")
-    make_user("kate", "observateur", OLD)
+    make_user("kate", "viewer", OLD)
     client.patch("/auth/users/kate", headers=admin, json={"password": GOOD})
     audit._AUDIT_QUEUE.join()
     with database.get_conn() as conn:

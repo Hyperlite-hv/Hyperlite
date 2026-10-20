@@ -29,8 +29,8 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
   const node = selection.type === "node" ? nodes.find((n) => n.id === selection.id) : null;
 
   const crumbs = [];
-  if (selection.type === "node") crumbs.push([t("nav.nodes"), () => navigateTo("datacenter", null, "nodes")], [node?.nom || selection.id]);
-  else if (selection.type === "vm") crumbs.push([t("nav.vms"), () => navigateTo("datacenter", null, "vms")], [parseVmKey(selection.id).nom]);
+  if (selection.type === "node") crumbs.push([t("nav.nodes"), () => navigateTo("datacenter", null, "nodes")], [node?.name || selection.id]);
+  else if (selection.type === "vm") crumbs.push([t("nav.vms"), () => navigateTo("datacenter", null, "vms")], [parseVmKey(selection.id).name]);
   else if (selection.type === "container") crumbs.push([t("nav.containers"), () => navigateTo("datacenter", null, "containers")], [selection.id]);
   else if (page !== "summary") crumbs.push([t(`tab.${page}`)]);
 
@@ -38,7 +38,7 @@ export default function TopBar({ onOpenPalette, onToggleSidebar, wizards, setWiz
     setCreateOpen(false);
     if (kind === "vm" || kind === "container") { setWizards({ [kind]: true }); return; }
     requestIntent(kind);
-    navigateTo("datacenter", null, kind === "pool" ? "storage" : kind === "network" ? "reseau" : "permissions");
+    navigateTo("datacenter", null, kind === "pool" ? "storage" : kind === "network" ? "network" : "permissions");
   };
 
   return (

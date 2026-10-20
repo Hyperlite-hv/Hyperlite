@@ -13,8 +13,8 @@ class Nodes:
     def __init__(self):
         self.status = {}
 
-    def update_status(self, node_id, statut, at):
-        prev, self.status[node_id] = self.status.get(node_id), statut
+    def update_status(self, node_id, status, at):
+        prev, self.status[node_id] = self.status.get(node_id), status
         return prev
 
 

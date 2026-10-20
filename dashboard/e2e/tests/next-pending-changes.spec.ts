@@ -6,16 +6,16 @@ import type { Route } from "@playwright/test";
 const NAME = "e2e-pending-web";
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
-const vm = { nom: NAME, etat: "actif", id: 4, uuid: NAME, vcpu: 2, memoire_mo: 2048, ip: null, utilisateur_ssh: null, uptime_s: 60, os: "Debian", stockage_zfs: false, stockage_iscsi: false, agent_invite: null, firmware: "bios" };
+const vm = { name: NAME, state: "active", id: 4, uuid: NAME, vcpu: 2, memory_mb: 2048, ip: null, ssh_user: null, uptime_s: 60, os: "Debian", zfs_storage: false, iscsi_storage: false, guest_agent: null, firmware: "bios" };
 
 test("pending changes: listed under a running VM's header on every tab", async ({ page }) => {
   let changes = [
-    { cle: "vcpu", objet: null, actuel: "2", prochain: "4" },
-    { cle: "interface", objet: "52:54:00:00:00:02", actuel: null, prochain: "default · e1000" },
+    { key: "vcpu", object: null, current: "2", next: "4" },
+    { key: "interface", object: "52:54:00:00:00:02", current: null, next: "default · e1000" },
   ];
   await uiLogin(page);
   await page.route(/\/vms(\?.*)?$/, (r) => (api(r) && r.request().method() === "GET" ? r.fulfill(json([vm])) : r.fallback()));
-  await page.route(new RegExp(`/vms/${NAME}/pending-changes(\\?.*)?$`), (r) => (api(r) ? r.fulfill(json({ en_marche: true, changements: changes })) : r.fallback()));
+  await page.route(new RegExp(`/vms/${NAME}/pending-changes(\\?.*)?$`), (r) => (api(r) ? r.fulfill(json({ running: true, changes: changes })) : r.fallback()));
 
   await page.goto(`/vm/${NAME}?tab=summary`);
   const banner = page.getByRole("status").filter({ hasText: "Waiting for the VM's next start" });

@@ -1,5 +1,6 @@
 // Loads xterm.js + addon-fit (vendored under public/xterm) on demand, as UMD
 // globals (window.Terminal, window.FitAddon.FitAddon).
+import { apiPath } from "../api/prefix";
 let loaded = false;
 let loading = null;
 
@@ -29,7 +30,7 @@ export function ensureXtermLoaded() {
 
 export function wsUrl(path) {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.host}${path}`;
+  return `${proto}://${window.location.host}${apiPath(path)}`;
 }
 
 // Loads the terminal font before xterm measures its character cell: measured with the fallback font, the cell is

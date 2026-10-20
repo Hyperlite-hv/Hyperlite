@@ -42,7 +42,7 @@ def put_ldap_config(payload: LdapSettings, user: dict = Depends(require_role("ad
         result = ldap_auth.set_config(payload.model_dump())
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "ldap_config", payload.url, "succes", "enabled" if payload.enabled else "disabled")
+    log_action(user["username"], "ldap_config", payload.url, "success", "enabled" if payload.enabled else "disabled")
     return result
 
 

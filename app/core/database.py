@@ -29,18 +29,22 @@ def get_conn():
 
 def init_db():
     with get_conn() as conn:
+        # API v1: the old French names renamed first, before any statement below uses the new ones (app/core/schema_v1.py).
+        from app.core import schema_v1
+
+        schema_v1.migrate(conn, DB_PATH)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 hashed_password TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('admin', 'observateur'))
+                role TEXT NOT NULL CHECK(role IN ('admin', 'viewer'))
             )
         """)
         # TOTP 2FA: a separate ALTER, because `users` already exists in deployed
         # databases (same reason as vm_provisioning/task_id below). totp_secret stays
         # NULL until 2FA is both configured and confirmed (see app/core/twofa.py): a
-        # secret that was generated but never confirmed by a real code must NOT enable
+        # secret that was generated purpose never confirmed by a real code must NOT enable
         # 2FA, otherwise a user who never finished the QR code step would be locked out
         # of their own account.
         for ddl in (
@@ -71,25 +75,25 @@ def init_db():
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
-                cible TEXT,
+                target TEXT,
                 node TEXT,
                 username TEXT,
-                statut TEXT NOT NULL CHECK(statut IN ('en_attente', 'en_cours', 'termine', 'echec')),
-                progres INTEGER NOT NULL DEFAULT 0,
-                cree_le TEXT NOT NULL,
-                debut_le TEXT,
-                fin_le TEXT,
-                erreur TEXT
+                status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'succeeded', 'failed')),
+                progress INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                error TEXT
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_cree_le ON tasks(cree_le)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_cree_le ON tasks(created_at)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS metrics_samples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,
                 tier TEXT NOT NULL CHECK(tier IN ('raw', 'hourly')),
                 scope TEXT NOT NULL CHECK(scope IN ('vm', 'host')),
-                cible TEXT NOT NULL,
+                target TEXT NOT NULL,
                 cpu_pct REAL,
                 mem_used_mb REAL,
                 mem_total_mb REAL,
@@ -99,20 +103,20 @@ def init_db():
                 net_tx_bps REAL
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(cible, tier, ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(target, tier, ts)")
 
         # ---- Security keys and passkeys (WebAuthn, see app/core/webauthn_keys.py) ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS webauthn_credentials (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
-                nom TEXT NOT NULL,
+                name TEXT NOT NULL,
                 credential_id TEXT NOT NULL UNIQUE,
                 public_key TEXT NOT NULL,
                 sign_count INTEGER NOT NULL DEFAULT 0,
                 rp_id TEXT NOT NULL,
-                cree_le TEXT NOT NULL,
-                utilise_le TEXT
+                created_at TEXT NOT NULL,
+                used_at TEXT
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials(username, rp_id)")
@@ -120,11 +124,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS webauthn_challenges (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
-                but TEXT NOT NULL,
+                purpose TEXT NOT NULL,
                 challenge TEXT NOT NULL,
                 rp_id TEXT NOT NULL,
                 origin TEXT NOT NULL,
-                expire_le TEXT NOT NULL
+                expires_at TEXT NOT NULL
             )
         """)
 
@@ -132,11 +136,11 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS config_copies (
                 node TEXT PRIMARY KEY,
-                copie_le TEXT NOT NULL,
-                statut TEXT NOT NULL CHECK(statut IN ('ok', 'echec')),
-                taille INTEGER,
-                empreinte TEXT,
-                erreur TEXT
+                copied_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('ok', 'failed')),
+                size INTEGER,
+                fingerprint TEXT,
+                error TEXT
             )
         """)
 
@@ -145,13 +149,13 @@ def init_db():
             CREATE TABLE IF NOT EXISTS backup_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 vm_name TEXT NOT NULL UNIQUE,
-                frequence TEXT NOT NULL CHECK(frequence IN ('quotidien', 'hebdomadaire', 'mensuel')),
-                heure TEXT NOT NULL,
-                cible_dir TEXT NOT NULL,
+                frequency TEXT NOT NULL CHECK(frequency IN ('daily', 'weekly', 'monthly')),
+                time TEXT NOT NULL,
+                target_dir TEXT NOT NULL,
                 retention_count INTEGER NOT NULL DEFAULT 7,
-                actif INTEGER NOT NULL DEFAULT 1,
-                derniere_execution TEXT,
-                prochaine_execution TEXT NOT NULL
+                active INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                next_run TEXT NOT NULL
             )
         """)
         conn.execute("""
@@ -159,32 +163,32 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 vm_name TEXT NOT NULL,
                 job_id INTEGER,
-                chemin TEXT NOT NULL,
-                taille_octets INTEGER,
+                path TEXT NOT NULL,
+                size_bytes INTEGER,
                 checksum_sha256 TEXT,
-                mode TEXT NOT NULL CHECK(mode IN ('chaud', 'froid')),
-                cree_le TEXT NOT NULL,
-                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'termine', 'echec')),
+                mode TEXT NOT NULL CHECK(mode IN ('live', 'cold')),
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
                 task_id TEXT,
-                erreur TEXT
+                error TEXT
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, cree_le)")
-        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verifie' or 'corrompu'
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, created_at)")
+        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verified' or 'corrupted'
         # with the date and what was wrong.
         for ddl in (
             "ALTER TABLE backups ADD COLUMN verification TEXT",
-            "ALTER TABLE backups ADD COLUMN verifie_le TEXT",
+            "ALTER TABLE backups ADD COLUMN verified_at TEXT",
             "ALTER TABLE backups ADD COLUMN verification_detail TEXT",
             # GFS retention (app/core/backup_retention.py): NULL keeps the plain count of retention_count.
-            "ALTER TABLE backup_jobs ADD COLUMN garder_jours INTEGER",
-            "ALTER TABLE backup_jobs ADD COLUMN garder_semaines INTEGER",
-            "ALTER TABLE backup_jobs ADD COLUMN garder_mois INTEGER",
+            "ALTER TABLE backup_jobs ADD COLUMN keep_days INTEGER",
+            "ALTER TABLE backup_jobs ADD COLUMN keep_weeks INTEGER",
+            "ALTER TABLE backup_jobs ADD COLUMN keep_months INTEGER",
             # A backup made by a grouped job (backup_group_jobs), NULL otherwise.
-            "ALTER TABLE backups ADD COLUMN groupe_id INTEGER",
+            "ALTER TABLE backups ADD COLUMN group_id INTEGER",
             # A backup made by another Hyperlite (another site) and registered here to be restored: the host that
             # made it, from its manifest. NULL for this node's own backups.
-            "ALTER TABLE backups ADD COLUMN importe_de TEXT",
+            "ALTER TABLE backups ADD COLUMN imported_from TEXT",
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
@@ -193,20 +197,20 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS backup_group_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nom TEXT NOT NULL UNIQUE,
-                selection TEXT NOT NULL CHECK(selection IN ('toutes', 'etiquette', 'pool')),
-                valeur TEXT,
-                exclues TEXT NOT NULL DEFAULT '[]',
-                frequence TEXT NOT NULL CHECK(frequence IN ('quotidien', 'hebdomadaire', 'mensuel')),
-                heure TEXT NOT NULL,
-                cible_dir TEXT NOT NULL,
+                name TEXT NOT NULL UNIQUE,
+                selection TEXT NOT NULL CHECK(selection IN ('all', 'tag', 'pool')),
+                value TEXT,
+                excluded TEXT NOT NULL DEFAULT '[]',
+                frequency TEXT NOT NULL CHECK(frequency IN ('daily', 'weekly', 'monthly')),
+                time TEXT NOT NULL,
+                target_dir TEXT NOT NULL,
                 retention_count INTEGER NOT NULL DEFAULT 7,
-                garder_jours INTEGER,
-                garder_semaines INTEGER,
-                garder_mois INTEGER,
-                actif INTEGER NOT NULL DEFAULT 1,
-                derniere_execution TEXT,
-                prochaine_execution TEXT NOT NULL
+                keep_days INTEGER,
+                keep_weeks INTEGER,
+                keep_months INTEGER,
+                active INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                next_run TEXT NOT NULL
             )
         """)
         # In a cluster, this node's own next run of the jobs every node runs for its VMs (grouped backups,
@@ -217,7 +221,7 @@ def init_db():
                 kind TEXT NOT NULL,
                 job_id INTEGER NOT NULL,
                 base TEXT NOT NULL,
-                prochaine_execution TEXT NOT NULL,
+                next_run TEXT NOT NULL,
                 PRIMARY KEY (kind, job_id)
             )
         """)
@@ -226,33 +230,33 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS replication_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nom TEXT NOT NULL UNIQUE,
-                selection TEXT NOT NULL CHECK(selection IN ('toutes', 'etiquette', 'pool')),
-                valeur TEXT,
-                exclues TEXT NOT NULL DEFAULT '[]',
-                cible_dir TEXT NOT NULL,
-                intervalle_minutes INTEGER NOT NULL DEFAULT 15,
-                actif INTEGER NOT NULL DEFAULT 1,
-                derniere_execution TEXT,
-                prochaine_execution TEXT NOT NULL
+                name TEXT NOT NULL UNIQUE,
+                selection TEXT NOT NULL CHECK(selection IN ('all', 'tag', 'pool')),
+                value TEXT,
+                excluded TEXT NOT NULL DEFAULT '[]',
+                target_dir TEXT NOT NULL,
+                interval_minutes INTEGER NOT NULL DEFAULT 15,
+                active INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                next_run TEXT NOT NULL
             )
         """)
         # One row per replicated VM: where its current chain is and how its last copy went.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS replication_state (
                 vm_name TEXT PRIMARY KEY,
-                cible_dir TEXT NOT NULL,
-                chaine TEXT,
-                dernier_point TEXT,
+                target_dir TEXT NOT NULL,
+                chain TEXT,
+                last_point TEXT,
                 checkpoint TEXT,
                 points INTEGER NOT NULL DEFAULT 0,
-                dernier_ok_le TEXT,
+                last_success_at TEXT,
                 -- The disks' newest modification time right after the last copy of a stopped VM: the same value at
                 -- the next run proves nothing started it since (QEMU rewrites the file at least when it stops).
-                mtime_disques REAL,
-                statut TEXT NOT NULL DEFAULT 'jamais',
-                erreur TEXT,
-                maj_le TEXT
+                disks_mtime REAL,
+                status TEXT NOT NULL DEFAULT 'never',
+                error TEXT,
+                updated_at TEXT
             )
         """)
 
@@ -271,12 +275,12 @@ def init_db():
             CREATE TABLE IF NOT EXISTS job_steps (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id INTEGER NOT NULL REFERENCES jobs(id),
-                ordre INTEGER NOT NULL,
-                cible_type TEXT NOT NULL CHECK(cible_type IN ('vm', 'host', 'chaque_cible')),
-                cible TEXT,
-                commande TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                target_type TEXT NOT NULL CHECK(target_type IN ('vm', 'host', 'each_target')),
+                target TEXT,
+                command TEXT NOT NULL,
                 condition_type TEXT NOT NULL DEFAULT 'exit_code' CHECK(condition_type IN ('exit_code', 'stdout_contains')),
-                condition_valeur TEXT
+                condition_value TEXT
             )
         """)
         conn.execute("""
@@ -286,24 +290,24 @@ def init_db():
                 task_id TEXT,
                 dry_run INTEGER NOT NULL DEFAULT 0,
                 targets TEXT,
-                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'succes', 'echec')),
+                status TEXT NOT NULL CHECK(status IN ('running', 'success', 'failed')),
                 started_at TEXT NOT NULL,
                 finished_at TEXT,
-                resultat TEXT
+                result TEXT
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS job_run_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id TEXT NOT NULL REFERENCES job_runs(id),
-                step_ordre INTEGER,
-                cible TEXT,
-                commande TEXT,
+                step_position INTEGER,
+                target TEXT,
+                command TEXT,
                 stdout TEXT,
                 stderr TEXT,
                 exit_code INTEGER,
-                reussi INTEGER,
-                horodatage TEXT NOT NULL
+                succeeded INTEGER,
+                timestamp TEXT NOT NULL
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at)")
@@ -317,8 +321,8 @@ def init_db():
                 hostname TEXT NOT NULL,
                 ssh_user TEXT NOT NULL DEFAULT 'root',
                 ssh_port INTEGER NOT NULL DEFAULT 22,
-                statut TEXT NOT NULL DEFAULT 'inconnu' CHECK(statut IN ('en_ligne', 'hors_ligne', 'inconnu')),
-                derniere_verification TEXT,
+                status TEXT NOT NULL DEFAULT 'unknown' CHECK(status IN ('online', 'offline', 'unknown')),
+                last_verification TEXT,
                 added_at TEXT NOT NULL
             )
         """)
@@ -347,7 +351,7 @@ def init_db():
         # OS label DECLARED when the VM is created (deduced from the chosen
         # template/ISO, see vms.create_vm). It is not "detected" in the strict sense (no
         # qemu-guest-agent is installed in guest VMs, so libvirt cannot read anything from
-        # the inside), but it is reliable because Hyperlite itself started that
+        # the inside), purpose it is reliable because Hyperlite itself started that
         # installation and knows which OS it asked for.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_os_label (
@@ -419,7 +423,7 @@ def init_db():
             conn.execute("INSERT INTO acl SELECT * FROM acl_pre_container_migration")
             conn.execute("DROP TABLE acl_pre_container_migration")
         # Custom roles: the same ACL assignments as the predefined roles
-        # (reader/operator/manager), but the user chooses the privilege subset (see
+        # (reader/operator/manager), purpose the user chooses the privilege subset (see
         # ALL_PRIVILEGES in app/core/permissions.py). They are identified in acl.role by
         # "custom:<id>".
         conn.execute("""
@@ -476,9 +480,9 @@ def init_db():
         # HA dry run (app/core/ha_watch.py): the watcher's view of each protected VM, and what automatic HA would
         # have done when its node failed.
         for ddl in (
-            "ALTER TABLE ha_protected_vms ADD COLUMN etat_ha TEXT",
-            "ALTER TABLE ha_protected_vms ADD COLUMN derniere_action TEXT",
-            "ALTER TABLE ha_protected_vms ADD COLUMN derniere_action_le TEXT",
+            "ALTER TABLE ha_protected_vms ADD COLUMN ha_state TEXT",
+            "ALTER TABLE ha_protected_vms ADD COLUMN last_action TEXT",
+            "ALTER TABLE ha_protected_vms ADD COLUMN last_action_at TEXT",
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
@@ -487,31 +491,31 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS node_fencing (
                 node TEXT PRIMARY KEY,
-                methode TEXT NOT NULL CHECK(methode IN ('ipmi', 'redfish', 'amt', 'lease_only')),
-                adresse TEXT,
+                method TEXT NOT NULL CHECK(method IN ('ipmi', 'redfish', 'amt', 'lease_only')),
+                address TEXT,
                 port INTEGER,
-                utilisateur TEXT,
+                user TEXT,
                 secret TEXT,
-                tls_non_verifie INTEGER NOT NULL DEFAULT 0,
-                modifie_par TEXT,
-                modifie_le TEXT
+                tls_unverified INTEGER NOT NULL DEFAULT 0,
+                modified_by TEXT,
+                modified_at TEXT
             )
         """)
-        conn.execute("CREATE TABLE IF NOT EXISTS ha_settings (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS ha_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         # Storage shared by several nodes (app/core/shared_pools.py): created on each of them, and on the nodes
         # registered later when declared for every node. definition is JSON, its CHAP password encrypted.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS shared_pools (
-                nom TEXT PRIMARY KEY,
+                name TEXT PRIMARY KEY,
                 definition TEXT NOT NULL,
-                tous_les_noeuds INTEGER NOT NULL DEFAULT 0,
-                noeuds TEXT NOT NULL DEFAULT '[]',
-                cree_par TEXT,
-                cree_le TEXT
+                all_nodes INTEGER NOT NULL DEFAULT 0,
+                nodes TEXT NOT NULL DEFAULT '[]',
+                created_by TEXT,
+                created_at TEXT
             )
         """)
         # Settings of the application itself, one value per key (app/core/api_docs.py...).
-        conn.execute("CREATE TABLE IF NOT EXISTS app_settings (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         # Nodes in maintenance: "local" (the host running Hyperlite, not a row of `nodes`) or a registered node
         # name. No new VM lands on them and they are never a migration or HA recovery target.
         conn.execute("""
@@ -540,7 +544,7 @@ def init_db():
         """)
         # API tokens: a credential dedicated to automation (scripts/Terraform), separate
         # from the session JWT (different lifetime and scope: an API token does not
-        # expire after 4 h like a session, but can be revoked individually without
+        # expire after 4 h like a session, purpose can be revoked individually without
         # signing the user out everywhere). ONLY token_hash (SHA-256) is stored, NEVER
         # the plain token: it is shown only ONCE, at creation (see
         # app/core/api_tokens.py), and cannot be recovered afterwards even by an admin
@@ -643,16 +647,16 @@ def init_db():
             CREATE TABLE IF NOT EXISTS container_backups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 container_name TEXT NOT NULL,
-                chemin TEXT NOT NULL,
-                taille_octets INTEGER,
-                cree_le TEXT NOT NULL,
-                statut TEXT NOT NULL CHECK(statut IN ('en_cours', 'termine', 'echec')),
+                path TEXT NOT NULL,
+                size_bytes INTEGER,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
                 task_id TEXT,
-                erreur TEXT
+                error TEXT
             )
         """)
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_container_backups_name ON container_backups(container_name, cree_le)"
+            "CREATE INDEX IF NOT EXISTS idx_container_backups_name ON container_backups(container_name, created_at)"
         )
         # Latest live figures of every node ('local' = this host), refreshed by the
         # metrics collector: the node list and the dashboard read them instead of
@@ -661,7 +665,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS node_live (
                 name TEXT PRIMARY KEY,
                 ts TEXT NOT NULL,
-                joignable INTEGER NOT NULL DEFAULT 1,
+                reachable INTEGER NOT NULL DEFAULT 1,
                 cpu_pct REAL,
                 mem_used_mb REAL,
                 mem_total_mb REAL,
@@ -671,8 +675,8 @@ def init_db():
                 kernel TEXT,
                 os TEXT,
                 address TEXT,
-                version_hyperviseur INTEGER,
-                version_libvirt INTEGER
+                hypervisor_version INTEGER,
+                libvirt_version INTEGER
             )
         """)
         # Storage pool usage over time (same raw/hourly tiers as metrics_samples).
@@ -692,22 +696,22 @@ def init_db():
         # kubeconfig are stored encrypted (app/core/secrets_crypto.py).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS k8s_clusters (
-                nom TEXT PRIMARY KEY,
+                name TEXT PRIMARY KEY,
                 version TEXT,
-                reseau TEXT NOT NULL,
-                serveur TEXT NOT NULL,
+                network TEXT NOT NULL,
+                server TEXT NOT NULL,
                 workers TEXT NOT NULL,
                 vcpu INTEGER NOT NULL,
-                memoire_mo INTEGER NOT NULL,
-                disque_go INTEGER NOT NULL,
-                adresse TEXT,
-                statut TEXT NOT NULL CHECK(statut IN ('creation', 'pret', 'echec', 'suppression')),
-                erreur TEXT,
-                jeton TEXT,
+                memory_mb INTEGER NOT NULL,
+                disk_gb INTEGER NOT NULL,
+                address TEXT,
+                status TEXT NOT NULL CHECK(status IN ('creating', 'ready', 'failed', 'deleting')),
+                error TEXT,
+                token TEXT,
                 kubeconfig TEXT,
                 task_id TEXT,
-                cree_par TEXT,
-                cree_le TEXT NOT NULL
+                created_by TEXT,
+                created_at TEXT NOT NULL
             )
         """)
         for ddl in (
@@ -716,7 +720,7 @@ def init_db():
             # before it are refused (app/core/security.py::set_password, _session_user).
             "ALTER TABLE users ADD COLUMN password_changed_at INTEGER",
             # 1 when the password no longer meets the policy (seen at sign-in, the only moment the plain password
-            # is known): the account can do nothing but change it (app/core/security.py::_session_user).
+            # is known): the account can do nothing purpose change it (app/core/security.py::_session_user).
             "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
             # Source address of the request that produced the audit entry (NULL for
             # background jobs, which have no request).
@@ -769,7 +773,7 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_task_logs_task ON task_logs(task_id)")
         with contextlib.suppress(sqlite3.OperationalError):  # column already exists
-            conn.execute("ALTER TABLE tasks ADD COLUMN annule_par TEXT")
+            conn.execute("ALTER TABLE tasks ADD COLUMN cancelled_by TEXT")
         # Cloud-init edited after creation (app/core/cloudinit_edit.py): the account and keys last written, never a
         # password.
         conn.execute("""
@@ -815,18 +819,18 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS metric_servers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nom TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL UNIQUE,
                 type TEXT NOT NULL,
                 url TEXT,
-                hote TEXT,
+                host TEXT,
                 port INTEGER,
                 org TEXT,
                 bucket TEXT,
-                jeton TEXT,
-                prefixe TEXT NOT NULL DEFAULT 'hyperlite',
-                actif INTEGER NOT NULL DEFAULT 1,
-                dernier_envoi TEXT,
-                derniere_erreur TEXT
+                token TEXT,
+                prefix TEXT NOT NULL DEFAULT 'hyperlite',
+                active INTEGER NOT NULL DEFAULT 1,
+                last_sent_at TEXT,
+                last_error TEXT
             )
         """)
         # The local host used to be stored under a machine-specific label; it is now always "local".
@@ -845,7 +849,7 @@ def init_db():
         # actions (102,073 of 102,926 entries on a host audited before 1.0.0). Nothing writes them any more, so this
         # finds nothing after the first start.
         conn.execute(
-            "DELETE FROM audit_log WHERE result = 'succes' AND (action LIKE 'list\\_%' ESCAPE '\\' "
+            "DELETE FROM audit_log WHERE result = 'success' AND (action LIKE 'list\\_%' ESCAPE '\\' "
             "OR action LIKE 'get\\_%' ESCAPE '\\')"
         )
         conn.commit()

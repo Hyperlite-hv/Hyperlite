@@ -19,7 +19,7 @@ def _store():
     return registry.settings().sync
 
 
-ACCESS = ("desactive", "admins", "tous")
+ACCESS = ("disabled", "admins", "all")
 DEFAULT = "admins"
 _KEY = "api_docs_access"
 
@@ -46,7 +46,7 @@ def set_access(value):
 
 def allowed(user, value=None):
     value = value or access()
-    return bool(user) and (value == "tous" or (value == "admins" and user.get("role") == "admin"))
+    return bool(user) and (value == "all" or (value == "admins" and user.get("role") == "admin"))
 
 
 def _role_of(username):
@@ -102,10 +102,10 @@ def with_token_auth(schema):
     """The OpenAPI schema with an HTTP bearer scheme next to the password flow, so that "Authorize" also takes an
     API token (hlt_...): the same Authorization header, which the API already accepts."""
     components = schema.setdefault("components", {}).setdefault("securitySchemes", {})
-    components["JetonAPI"] = {"type": "http", "scheme": "bearer", "description": "API token (hlt_…) or session token"}
+    components["ApiToken"] = {"type": "http", "scheme": "bearer", "description": "API token (hlt_…) or session token"}
     for path in schema.get("paths", {}).values():
         for operation in path.values():
             security = operation.get("security") if isinstance(operation, dict) else None
-            if security and {"JetonAPI": []} not in security:
-                security.append({"JetonAPI": []})
+            if security and {"ApiToken": []} not in security:
+                security.append({"ApiToken": []})
     return schema

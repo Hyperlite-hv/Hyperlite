@@ -57,17 +57,17 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "start_vm", name, "echec", "VM not found", task_id=task_id)
+            log_action(user["username"], "start_vm", name, "failed", "VM not found", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if domain.isActive():
-            log_action(user["username"], "start_vm", name, "echec", "VM already running", task_id=task_id)
+            log_action(user["username"], "start_vm", name, "failed", "VM already running", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already running")
         # A restore, a cold backup, a disk move or a clone works on the stopped VM's disks: started meanwhile, the VM
         # would write to files being copied or replaced (a restore then deletes them), as Proxmox's lock prevents.
         busy = vm_locks.running(name, node)
         if busy:
             msg = f"VM '{name}' is busy: {busy} is in progress. Start it once it has finished."
-            log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=409, detail=msg)
         stopped = _stopped_networks(conn, domain)
         if stopped:
@@ -75,16 +75,16 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
             msg = (
                 f"The network {', '.join(repr(n) for n in stopped)} of this VM is stopped: start it on the Network page"
             )
-            log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=409, detail=msg)
         try:
             domain.create()
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "start_vm", name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to start the VM: {msg}") from e
         touch_vm_activity(name)  # resets the inactivity counter
-        log_action(user["username"], "start_vm", name, "succes", task_id=task_id)
+        log_action(user["username"], "start_vm", name, "success", task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -93,7 +93,7 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
 # A guest may ignore the shutdown request (the ACPI button pressed while it is still booting, or just after a live
 # migration: twice in a 24 h lab run, the guest healthy and stopping at once on a second request): the VM then kept
 # running, and the request said nothing. The request is sent again after ASK_AGAIN_S while the VM runs; asked with
-# forcer_apres, the VM still running at the end is stopped by force, as Proxmox's shutdown timeout with forceStop.
+# force_after, the VM still running at the end is stopped by force, as Proxmox's shutdown timeout with forceStop.
 FORCE_AFTER_RANGE = (10, 3600)
 ASK_AGAIN_S = (30, 90)
 
@@ -129,10 +129,10 @@ def _watch_stop(name, node, username, force_after=None):
         if domain.isActive():
             domain.destroy()
             log_action(
-                username, "force_stop_vm", name, "succes", f"still running {force_after} s after the shutdown request"
+                username, "force_stop_vm", name, "success", f"still running {force_after} s after the shutdown request"
             )
     except libvirt.libvirtError as e:
-        log_action(username, "force_stop_vm", name, "echec", describe_exception(e))
+        log_action(username, "force_stop_vm", name, "failed", describe_exception(e))
     finally:
         conn.close()
 
@@ -141,13 +141,13 @@ def _watch_stop(name, node, username, force_after=None):
 def stop_vm(
     name: str,
     force: bool = False,
-    forcer_apres: int | None = None,
+    force_after: int | None = None,
     node: str | None = None,
     user: dict = Depends(require_vm_privilege("vm.power")),
 ):
-    if forcer_apres is not None and not FORCE_AFTER_RANGE[0] <= forcer_apres <= FORCE_AFTER_RANGE[1]:
+    if force_after is not None and not FORCE_AFTER_RANGE[0] <= force_after <= FORCE_AFTER_RANGE[1]:
         raise HTTPException(
-            status_code=422, detail=f"forcer_apres: between {FORCE_AFTER_RANGE[0]} and {FORCE_AFTER_RANGE[1]} seconds"
+            status_code=422, detail=f"force_after: between {FORCE_AFTER_RANGE[0]} and {FORCE_AFTER_RANGE[1]} seconds"
         )
     conn = open_conn(node)
     action_name = "force_stop_vm" if force else "stop_vm"
@@ -156,10 +156,10 @@ def stop_vm(
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "stop_vm", name, "echec", "VM not found", task_id=task_id)
+            log_action(user["username"], "stop_vm", name, "failed", "VM not found", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if not domain.isActive():
-            log_action(user["username"], "stop_vm", name, "echec", "VM already stopped", task_id=task_id)
+            log_action(user["username"], "stop_vm", name, "failed", "VM already stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already stopped")
         try:
             method = None
@@ -169,14 +169,14 @@ def stop_vm(
                 method = guest_agent.shutdown(domain)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], action_name, name, "echec", msg, task_id=task_id)
+            log_action(user["username"], action_name, name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to stop the VM: {msg}") from e
         detail = f"via {method}" if method else None
         if not force:
-            if forcer_apres:
-                detail = f"{detail}, forced after {forcer_apres} s if still running"
-            threading.Thread(target=_watch_stop, args=(name, node, user["username"], forcer_apres), daemon=True).start()
-        log_action(user["username"], action_name, name, "succes", detail, task_id=task_id)
+            if force_after:
+                detail = f"{detail}, forced after {force_after} s if still running"
+            threading.Thread(target=_watch_stop, args=(name, node, user["username"], force_after), daemon=True).start()
+        log_action(user["username"], action_name, name, "success", detail, task_id=task_id)
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -192,10 +192,10 @@ def restart_vm(
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "restart_vm", name, "echec", "VM not found", task_id=task_id)
+            log_action(user["username"], "restart_vm", name, "failed", "VM not found", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if not domain.isActive():
-            log_action(user["username"], "restart_vm", name, "echec", "VM stopped", task_id=task_id)
+            log_action(user["username"], "restart_vm", name, "failed", "VM stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is stopped, start it first")
         try:
             method = None
@@ -209,9 +209,11 @@ def restart_vm(
                 method = guest_agent.reboot(domain)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "restart_vm", name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "restart_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to restart the VM: {msg}") from e
-        log_action(user["username"], "restart_vm", name, "succes", f"via {method}" if method else None, task_id=task_id)
+        log_action(
+            user["username"], "restart_vm", name, "success", f"via {method}" if method else None, task_id=task_id
+        )
         return _domain_summary(domain)
     finally:
         conn.close()
@@ -227,7 +229,7 @@ def _perform_vm_deletion(conn, domain, name, node=None):
 
     `node`: None = local VM (the historical behaviour, files removed through
     the LOCAL Path.unlink()). On a REMOTE node, `conn` is a qemu+ssh://
-    connection but disk paths remain paths on the REMOTE FILESYSTEM: a local
+    connection purpose disk paths remain paths on the REMOTE FILESYSTEM: a local
     unlink() could delete the wrong file (or nothing at all) on the local host.
     Remote deletion therefore goes through SSH (the same cluster key as the rest,
     see _copy_file_to_node) rather than unlink()."""
@@ -348,13 +350,13 @@ def _delete_vm(name, confirm, node, user):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "delete_vm", name, "echec", "VM not found", task_id=task_id)
+            log_action(user["username"], "delete_vm", name, "failed", "VM not found", task_id=task_id)
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
         if domain.isActive():
-            log_action(user["username"], "delete_vm", name, "echec", "VM running, it must be stopped", task_id=task_id)
+            log_action(user["username"], "delete_vm", name, "failed", "VM running, it must be stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is running. Stop it before deleting it")
         if not confirm:
-            log_action(user["username"], "delete_vm", name, "echec", "Confirmation manquante", task_id=task_id)
+            log_action(user["username"], "delete_vm", name, "failed", "Confirmation manquante", task_id=task_id)
             raise HTTPException(
                 status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
             )
@@ -363,10 +365,10 @@ def _delete_vm(name, confirm, node, user):
             _perform_vm_deletion(conn, domain, name, node=node)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "delete_vm", name, "echec", msg, task_id=task_id)
+            log_action(user["username"], "delete_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to delete the VM: {msg}") from e
 
-        log_action(user["username"], "delete_vm", name, "succes", task_id=task_id)
+        log_action(user["username"], "delete_vm", name, "success", task_id=task_id)
         return {"message": f"VM '{name}' deleted"}
     finally:
         conn.close()

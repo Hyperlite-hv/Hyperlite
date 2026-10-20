@@ -50,7 +50,7 @@ def test_upgrade_adds_columns_missing_from_an_older_schema(tmp_path, monkeypatch
     old = sqlite3.connect(path)
     old.execute(
         "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, "
-        "hashed_password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'observateur')"
+        "hashed_password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer')"
     )
     old.commit()
     old.close()
@@ -66,7 +66,7 @@ def test_legacy_local_node_label_is_migrated(database):
 
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO tasks (id, type, statut, cree_le, node) VALUES ('t1', 'x', 'termine', 'now', 'kvm-lab')"
+            "INSERT INTO tasks (id, type, status, created_at, node) VALUES ('t1', 'x', 'succeeded', 'now', 'kvm-lab')"
         )
         conn.commit()
     init_db()

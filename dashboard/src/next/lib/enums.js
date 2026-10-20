@@ -2,35 +2,35 @@ import { translate, useLangStore } from "../i18n";
 // Wire values (French, immutable contracts) -> presentation: shape + tone + i18n key.
 // A state is always carried by shape + text + colour, never colour alone.
 const VM_STATES = {
-  actif: { key: "state.running", shape: "dot", tone: "success" },
-  arrete: { key: "state.stopped", shape: "square", tone: "offline" },
-  en_arret: { key: "state.shuttingdown", shape: "square", tone: "offline" },
-  en_pause: { key: "state.paused", shape: "pause", tone: "info" },
-  suspendu: { key: "state.suspended", shape: "half", tone: "info" },
-  bloque: { key: "state.blocked", shape: "triangle", tone: "warning" },
-  plante: { key: "state.crashed", shape: "diamond", tone: "danger" },
-  inconnu: { key: "state.unknown", shape: "ring", tone: "unknown" },
+  active: { key: "state.running", shape: "dot", tone: "success" },
+  stopped: { key: "state.stopped", shape: "square", tone: "offline" },
+  shutting_down: { key: "state.shuttingdown", shape: "square", tone: "offline" },
+  paused: { key: "state.paused", shape: "pause", tone: "info" },
+  suspended: { key: "state.suspended", shape: "half", tone: "info" },
+  blocked: { key: "state.blocked", shape: "triangle", tone: "warning" },
+  crashed: { key: "state.crashed", shape: "diamond", tone: "danger" },
+  unknown: { key: "state.unknown", shape: "ring", tone: "unknown" },
 };
 const NODE_STATES = {
   online: { key: "state.online", shape: "dot", tone: "success" },
-  erreur: { key: "state.offline", shape: "ring", tone: "offline" },
+  error: { key: "state.offline", shape: "ring", tone: "offline" },
 };
 const POOL_STATES = {
-  actif: { key: "state.active", shape: "dot", tone: "success" },
-  degrade: { key: "state.degraded", shape: "triangle", tone: "warning" },
-  inactif: { key: "state.inactive", shape: "square", tone: "offline" },
+  active: { key: "state.active", shape: "dot", tone: "success" },
+  degraded: { key: "state.degraded", shape: "triangle", tone: "warning" },
+  inactive: { key: "state.inactive", shape: "square", tone: "offline" },
   inaccessible: { key: "state.unreachable", shape: "diamond", tone: "danger" },
-  en_construction: { key: "state.building", shape: "ring", tone: "info" },
-  inconnu: { key: "state.unknown", shape: "ring", tone: "unknown" },
+  building: { key: "state.building", shape: "ring", tone: "info" },
+  unknown: { key: "state.unknown", shape: "ring", tone: "unknown" },
 };
 const TASK_STATES = {
-  en_cours: { key: "state.inprogress", shape: "spinner", tone: "info" },
-  en_attente: { key: "state.pending", shape: "ring", tone: "offline" },
-  termine: { key: "state.done", shape: "check", tone: "success" },
-  echec: { key: "state.failed", shape: "cross", tone: "danger" },
+  running: { key: "state.inprogress", shape: "spinner", tone: "info" },
+  pending: { key: "state.pending", shape: "ring", tone: "offline" },
+  succeeded: { key: "state.done", shape: "check", tone: "success" },
+  failed: { key: "state.failed", shape: "cross", tone: "danger" },
 };
 const TABLES = { vm: VM_STATES, container: VM_STATES, node: NODE_STATES, pool: POOL_STATES, storage: POOL_STATES, task: TASK_STATES };
-const UNKNOWN = VM_STATES.inconnu;
+const UNKNOWN = VM_STATES.unknown;
 
 export function stateInfo(kind, wire) {
   return (TABLES[kind] || VM_STATES)[wire] || UNKNOWN;

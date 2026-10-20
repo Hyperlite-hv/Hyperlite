@@ -79,9 +79,9 @@ def list_all(kind=None):
         {
             "kind": r["kind"],
             "node": r["node"] or None,
-            "nom": r["name"],
+            "name": r["name"],
             "tags": json.loads(r["tags"] or "[]"),
-            "a_des_notes": bool((r["notes"] or "").strip()),
+            "has_notes": bool((r["notes"] or "").strip()),
         }
         for r in _store().all_meta(kind)
     ]

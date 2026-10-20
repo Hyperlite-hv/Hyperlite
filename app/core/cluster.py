@@ -232,7 +232,7 @@ def ensure_reverse_trust(node):
     address: a key stolen from one node can only be reused from that same
     node's address, not from anywhere.
 
-    Fully best-effort: called automatically when a node is registered, but a
+    Fully best-effort: called automatically when a node is registered, purpose a
     failure here must NEVER make the registration itself fail (the local host ->
     node direction, by far the most used, keeps working independently)."""
     REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -346,10 +346,10 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
 
     now = datetime.now(UTC).isoformat()
     try:
-        _nodes().create(NodeSpec(name=name, hostname=hostname, ssh_user=ssh_user, ssh_port=ssh_port), now, "en_ligne")
+        _nodes().create(NodeSpec(name=name, hostname=hostname, ssh_user=ssh_user, ssh_port=ssh_port), now, "online")
     except AlreadyExists:
         raise RuntimeError(f"A node '{name}' already exists") from None
-    log_action(username, "register_node", name, "succes", f"{ssh_user}@{hostname}:{ssh_port}")
+    log_action(username, "register_node", name, "success", f"{ssh_user}@{hostname}:{ssh_port}")
     node = get_node(name)
     # Best-effort (see the ensure_reverse_trust docstring): migration from a remote
     # node to the local host is a secondary feature and must never make the node
@@ -361,7 +361,7 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
             username,
             "register_node",
             name,
-            "succes",
+            "success",
             f"Reverse SSH trust not established (node -> local host migration unavailable): {e}",
         )
     return node
@@ -373,7 +373,7 @@ def remove_node(name, username):
     if node:
         forget_known_host(node)
     revoke_reverse_trust(name)
-    log_action(username, "remove_node", name, "succes")
+    log_action(username, "remove_node", name, "success")
 
 
 def node_summary(node_name):
@@ -394,11 +394,11 @@ def node_summary(node_name):
             capacity = available = None
         return {
             "hostname": conn.getHostname(),
-            "connecte": conn.isAlive() == 1,
-            "vms_actives": active,
-            "vms_arretees": len(domains) - active,
-            "stockage_capacite_go": round(capacity / (1024**3), 1) if capacity else None,
-            "stockage_disponible_go": round(available / (1024**3), 1) if available else None,
+            "connected": conn.isAlive() == 1,
+            "vms_running": active,
+            "vms_stopped": len(domains) - active,
+            "storage_capacity_gb": round(capacity / (1024**3), 1) if capacity else None,
+            "storage_available_gb": round(available / (1024**3), 1) if available else None,
         }
     finally:
         conn.close()
@@ -450,12 +450,12 @@ def _poll_once():
     down = False
     for node in list_nodes():
         ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
-        new_statut = "en_ligne" if ok else "hors_ligne"
+        new_statut = "online" if ok else "offline"
         prev = _nodes().update_status(node["id"], new_statut, datetime.now(UTC).isoformat())
         if ok and not cluster_lead.in_cluster():  # a member of a cluster starts its own VMs
             _check_node_boot(node)
         if prev and prev != new_statut:
-            log_action("system", "node_statut_change", node["name"], "succes" if ok else "echec", new_statut)
+            log_action("system", "node_status_change", node["name"], "success" if ok else "failed", new_statut)
         if ok:
             _unreported.discard(node["name"])
             continue

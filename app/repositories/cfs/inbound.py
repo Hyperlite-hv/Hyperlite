@@ -58,8 +58,22 @@ def _problem(text):
 
 
 def _applied_version(db):
-    row = db.execute("SELECT valeur FROM app_settings WHERE cle = ?", (APPLIED,)).fetchone()
+    row = db.execute("SELECT value FROM app_settings WHERE key = ?", (APPLIED,)).fetchone()
     return int(row[0]) if row and str(row[0]).isdigit() else 0
+
+
+def _current_names(table, data):
+    """A row of the tree as this version names its columns (app/core/schema_v1.py: a row written before the API v1
+    renames keeps its old names until the tree is rewritten), in the form shadow.py writes, so that it compares equal
+    to this node's row when they hold the same values."""
+    from app.core import schema_v1
+
+    try:
+        row = json.loads(data)
+    except ValueError:
+        return data
+    renamed = schema_v1.row(table, row)
+    return data if renamed == row else shadow._encode(renamed)
 
 
 def _fill(table, row):
@@ -110,7 +124,7 @@ def apply():
         return None
     tables = shadow.tables()
     versioned = {name: shadow._read_tree_versions(client, t.prefix) for name, t in tables.items()}
-    trees = {name: {p: data for p, (data, _) in tree.items()} for name, tree in versioned.items()}
+    trees = {name: {p: _current_names(name, data) for p, (data, _) in tree.items()} for name, tree in versioned.items()}
     if client.status().version != status.version:
         return None  # changed while it was read: the next round reads it again
     if not any(trees.values()) and any(t.all() for t in tables.values()):
@@ -148,7 +162,7 @@ def apply():
                     _upsert(db, table, _fill(table, row))
                 written += 1
             db.execute(
-                "INSERT INTO app_settings (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (APPLIED, str(status.version)),
             )
             db.execute("DELETE FROM cfs_outbox WHERE id > ?", (top,))  # what was just written came from the tree
@@ -190,7 +204,7 @@ def mark_applied():
         return
     with shadow._db() as db:
         db.execute(
-            "INSERT INTO app_settings (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (APPLIED, str(version)),
         )
         db.execute("DELETE FROM cfs_outbox WHERE tbl = 'app_settings'")
@@ -204,7 +218,7 @@ def mark_applied():
 
 def report():
     with state.lock:
-        return {"appliques": state.applied, "derniere_application": state.last_at, "probleme": state.problem}
+        return {"applied": state.applied, "last_applied": state.last_at, "problem": state.problem}
 
 
 def _loop():

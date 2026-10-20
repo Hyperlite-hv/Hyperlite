@@ -29,9 +29,9 @@ export default function VmSummary({ resource: vm }) {
   const lang = useLangStore((s) => s.lang);
   const { nodes, navigateTo, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, navigateTo: s.navigateTo, pushToast: s.pushToast, refreshAll: s.refreshAll })));
   const hist = useVmHistory(vm, "1h");
-  const running = vm?.etat === "actif";
+  const running = vm?.state === "active";
   const local = vm?.node === "local";
-  const { status: prov, justFinished } = useProvisioningStatus(local ? vm?.nom : null, running && local);
+  const { status: prov, justFinished } = useProvisioningStatus(local ? vm?.name : null, running && local);
   const [snaps, setSnaps] = useState(null);
   const [backups, setBackups] = useState(null);
   const [schedule, setSchedule] = useState(undefined);
@@ -40,7 +40,7 @@ export default function VmSummary({ resource: vm }) {
   const [disks, setDisks] = useState(null);
   const [net, setNet] = useState(null);
   const [recent, setRecent] = useState(null);
-  const name = vm?.nom;
+  const name = vm?.name;
   const node = vm?.node;
   const remote = isRemoteVm(vm);
 
@@ -57,16 +57,16 @@ export default function VmSummary({ resource: vm }) {
     fetchHaProtected().then((r) => setHa(asList(r).some((x) => x.vm_name === name))).catch(() => setHa(false));
     fetchVMAutoCleanup(name).then(setCleanup).catch(() => setCleanup(null));
   }, [name, node]); // eslint-disable-line react-hooks/exhaustive-deps
-  const loadRecent = async () => { if (name) setRecent(asList(await fetchTasks({ cible: name, limit: 6, tri: "cree_le", ordre: "desc" }))); };
+  const loadRecent = async () => { if (name) setRecent(asList(await fetchTasks({ target: name, limit: 6, sort: "created_at", position: "desc" }))); };
   usePolling(loadRecent, 10000, { enabled: !!name });
   useEffect(() => { loadRecent().catch(() => setRecent([])); }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The unattended installation reports its end (or its failure) once, as before.
   useEffect(() => { if (justFinished) { pushToast({ kind: "success", title: t("vm.installDone"), message: t("vm.installDoneMsg", { name }) }); refreshAll?.(); } }, [justFinished]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (prov?.failed) pushToast({ kind: "error", title: t("vm.installFailed"), message: prov.erreur || t("err.unknown") }); }, [prov?.failed]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (prov?.failed) pushToast({ kind: "error", title: t("vm.installFailed"), message: prov.error || t("err.unknown") }); }, [prov?.failed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!vm) return null;
-  const nodeName = nodes.find((n) => n.id === vm.node)?.nom || vm.node;
+  const nodeName = nodes.find((n) => n.id === vm.node)?.name || vm.node;
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
   const rows = (hist.rows || []).slice(-60);
   const last = rows[rows.length - 1];
@@ -79,17 +79,17 @@ export default function VmSummary({ resource: vm }) {
   const split = (s) => { const m = String(s).match(/^([\d.,\s\u202f]+)\s(.+)$/); return m ? [m[1].trim(), m[2]] : [s, null]; };
   const [diskV, diskU] = live && rd != null ? split(rate(rd + (wr || 0))) : ["—", null];
   const [netV, netU] = live && rx != null ? split(rate(rx + (tx || 0))) : ["—", null];
-  const lastBackup = backups && backups.length ? [...backups].sort((a, b) => String(b.cree_le).localeCompare(String(a.cree_le)))[0] : null;
+  const lastBackup = backups && backups.length ? [...backups].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] : null;
   const goPerf = () => navigateTo("vm", vmKey(vm), "perf");
-  const problem = vm.etat === "plante" || vm.etat === "bloque";
+  const problem = vm.state === "crashed" || vm.state === "blocked";
   const today = new Date().toDateString();
   const phase = prov?.phase ? t(`vm.phase.${prov.phase}`) : "";
 
   return (
     <>
       {problem && (
-        <div className="nx-bn" data-tone={vm.etat === "plante" ? "danger" : "warning"} role="status"><TriangleAlert size={16} aria-hidden="true" />
-          <span className="nx-bn-t">{t(vm.etat === "plante" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>
+        <div className="nx-bn" data-tone={vm.state === "crashed" ? "danger" : "warning"} role="status"><TriangleAlert size={16} aria-hidden="true" />
+          <span className="nx-bn-t">{t(vm.state === "crashed" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>
       )}
       {prov?.provisioning && (
         <div className="nx-bn" data-tone="info" role="status"><LoaderCircle size={16} className="nx-spin" aria-hidden="true" />
@@ -99,7 +99,7 @@ export default function VmSummary({ resource: vm }) {
 
       <KpiStrip label={t("ns.resources")} items={[
         { id: "cpu", label: t("ns.cpu"), value: live && last.cpu_pct != null ? Math.round(last.cpu_pct) : "—", unit: live && last.cpu_pct != null ? `% · ${vm.vcpu} vCPU` : `${vm.vcpu} vCPU`, sub: running ? null : t("vm.stoppedShort"), spark: rows.map((r) => r.cpu_pct), onClick: goPerf },
-        { id: "mem", label: t("ns.memory"), value: live && lastMem ? formatSizeMb(lastMem.mem_used_mb, lang) : "—", unit: `/ ${formatSizeMb(vm.memoire_mo, lang)}`, sub: live && memP != null ? `${Math.round(memP)} %` : running ? t("vm.memNeedsAgent") : t("vm.stoppedShort"), spark: rows.map((r) => pct(r.mem_used_mb, r.mem_total_mb)), onClick: goPerf },
+        { id: "mem", label: t("ns.memory"), value: live && lastMem ? formatSizeMb(lastMem.mem_used_mb, lang) : "—", unit: `/ ${formatSizeMb(vm.memory_mb, lang)}`, sub: live && memP != null ? `${Math.round(memP)} %` : running ? t("vm.memNeedsAgent") : t("vm.stoppedShort"), spark: rows.map((r) => pct(r.mem_used_mb, r.mem_total_mb)), onClick: goPerf },
         { id: "disk", label: t("vm.disk"), value: diskV, unit: diskU, sub: live && rd != null ? t("vm.rw", { r: rate(rd), w: rate(wr) }) : running ? t("ns.collecting") : t("vm.stoppedShort"), onClick: goPerf },
         { id: "net", label: t("ns.network"), value: netV, unit: netU, sub: live && rx != null ? t("vm.rxtx", { r: rate(rx), t: rate(tx) }) : running ? t("ns.collecting") : t("vm.stoppedShort"), onClick: goPerf },
       ]} />
@@ -110,20 +110,20 @@ export default function VmSummary({ resource: vm }) {
             <dt>{t("vm.os")}</dt><dd>{vm.os || na}</dd>
             <dt>{t("ns.node")}</dt><dd><button type="button" className="nx-lnk nx-mono" style={{ fontWeight: 500 }} onClick={() => navigateTo("node", vm.node, "summary")}>{nodeName}</button></dd>
             <dt>{t("vh.processor")}</dt><dd className="nx-mono">{vm.vcpu} vCPU</dd>
-            <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memoire_mo, lang)}</dd>
+            <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memory_mb, lang)}</dd>
             <dt>{t("vh.disks")}</dt>
             <dd>{disks == null ? "…" : disks === false ? na : disks.length === 0 ? <span className="nx-muted">{t("vh.noDisks")}</span> : (
-              <ul className="nx-plainlist">{disks.map((d) => <li key={d.cible} className="nx-mono">{d.type === "cdrom" ? <>{[d.cible, t("vh.cdDrive")].join(" · ")}<span className="nx-muted"> · {d.source ? base(d.source) : t("vh.emptyDrive")}</span></> : <>{[d.cible, d.bus?.toUpperCase(), d.taille_go ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(d.taille_go)} ${lang === "fr" ? "Go" : "GB"}` : null].filter(Boolean).join(" · ")}{d.pool ? <span className="nx-muted"> ({d.pool})</span> : d.source ? <span className="nx-muted"> · {base(d.source)}</span> : null}</>}</li>)}</ul>
+              <ul className="nx-plainlist">{disks.map((d) => <li key={d.target} className="nx-mono">{d.type === "cdrom" ? <>{[d.target, t("vh.cdDrive")].join(" · ")}<span className="nx-muted"> · {d.source ? base(d.source) : t("vh.emptyDrive")}</span></> : <>{[d.target, d.bus?.toUpperCase(), d.size_gb ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(d.size_gb)} ${lang === "fr" ? "Go" : "GB"}` : null].filter(Boolean).join(" · ")}{d.pool ? <span className="nx-muted"> ({d.pool})</span> : d.source ? <span className="nx-muted"> · {base(d.source)}</span> : null}</>}</li>)}</ul>
             )}</dd>
             <dt>{t("ns.network")}</dt>
             <dd>{net == null ? "…" : net === false ? na : net.length === 0 ? <span className="nx-muted">—</span> : (
-              <ul className="nx-plainlist">{net.map((i) => <li key={i.mac} className="nx-mono">{i.reseau || i.type_source || "—"} · {i.mac}</li>)}</ul>
+              <ul className="nx-plainlist">{net.map((i) => <li key={i.mac} className="nx-mono">{i.network || i.type_source || "—"} · {i.mac}</li>)}</ul>
             )}</dd>
             <dt>{t("vmlist.ip")}</dt><dd className="nx-mono">{vm.ip || <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
-            <dt>{t("vm.ssh")}</dt><dd className="nx-mono">{vm.utilisateur_ssh ? `${vm.utilisateur_ssh}${vm.ip ? `@${vm.ip}` : ""}` : na}</dd>
-            <dt>{t("vm.tools")}</dt><dd>{vm.agent_invite ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.agent_invite}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
+            <dt>{t("vm.ssh")}</dt><dd className="nx-mono">{vm.ssh_user ? `${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}` : na}</dd>
+            <dt>{t("vm.tools")}</dt><dd>{vm.guest_agent ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.guest_agent}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
             <dt>{t("wz.firmware")}</dt><dd>{vm.firmware ? t(`fw.${vm.firmware}`) : na}</dd>
-            <dt>{t("vm.storageType")}</dt><dd>{vm.stockage_iscsi ? "iSCSI" : vm.stockage_zfs ? "ZFS" : "qcow2"}</dd>
+            <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : "qcow2"}</dd>
             <dt>UUID</dt><dd className="nx-mono nx-muted nx-break">{vm.uuid || na}</dd>
           </dl>
         </Card>
@@ -131,7 +131,7 @@ export default function VmSummary({ resource: vm }) {
           {remote ? <p className="nx-muted" style={{ margin: 0 }}>{t("vm.remoteLocalOnly")}</p> : (
           <ul className="nx-list2">
             <li><Archive size={16} aria-hidden="true" />
-              <div className="nx-list2-main">{t("vm.lastBackup")}<div className="nx-list2-sub">{backups == null ? "…" : lastBackup ? `${formatDateTime(lastBackup.cree_le, lang)} · ${t(lastBackup.statut === "echec" ? "state.failed" : lastBackup.statut === "termine" || lastBackup.statut === "succes" ? "state.done" : "state.inprogress")}` : t("vm.noBackup")}{schedule ? ` · ${t(`vb.f.${schedule.frequence}`)} ${schedule.heure} UTC` : schedule === null ? ` · ${t("vm.noSchedule")}` : ""}</div></div>
+              <div className="nx-list2-main">{t("vm.lastBackup")}<div className="nx-list2-sub">{backups == null ? "…" : lastBackup ? `${formatDateTime(lastBackup.created_at, lang)} · ${t(lastBackup.status === "failed" ? "state.failed" : lastBackup.status === "succeeded" || lastBackup.status === "success" ? "state.done" : "state.inprogress")}` : t("vm.noBackup")}{schedule ? ` · ${t(`vb.f.${schedule.frequency}`)} ${schedule.time} UTC` : schedule === null ? ` · ${t("vm.noSchedule")}` : ""}</div></div>
               <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "backup")}>{schedule ? t("vm.manage") : t("ov.plan")}</button></li>
             <li><Camera size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("tab.snapshots")}<div className="nx-list2-sub">{snaps == null ? "…" : snaps === false ? t("ns.notReported") : snaps.length ? t("vm.snapsN", { n: snaps.length }) : t("vm.snapsNone")}</div></div>
@@ -145,16 +145,16 @@ export default function VmSummary({ resource: vm }) {
         </Card>
       </div>
 
-      <NotesCard kind="vm" name={vm.nom} node={vm.node} canEdit={caps.admin} />
+      <NotesCard kind="vm" name={vm.name} node={vm.node} canEdit={caps.admin} />
 
       <Card title={t("ns.activity")}>
         {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
           <ul className="nx-list2">
             {recent.map((r) => {
-              const at = r.debut_le || r.cree_le;
+              const at = r.started_at || r.created_at;
               return (
-                <li key={r.id}><StatusIndicator kind="task" wire={r.statut} compact />
-                  <div className="nx-list2-main">{taskLabel(r.type)}{r.erreur ? <span className="nx-muted"> — {r.erreur}</span> : null}<div className="nx-list2-sub">{r.username || t("ov.system")}</div></div>
+                <li key={r.id}><StatusIndicator kind="task" wire={r.status} compact />
+                  <div className="nx-list2-main">{taskLabel(r.type)}{r.error ? <span className="nx-muted"> — {r.error}</span> : null}<div className="nx-list2-sub">{r.username || t("ov.system")}</div></div>
                   <span className="nx-list2-t">{new Date(at).toDateString() === today ? clockTime(at, lang) : formatDateTime(at, lang)}</span></li>
               );
             })}

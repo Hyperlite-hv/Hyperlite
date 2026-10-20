@@ -22,7 +22,7 @@ const int = (v, min, max) => v !== "" && v != null && Number.isInteger(Number(v)
 const DEFAULTS = { vcpu: 2, memory_mb: 2048, disk_gb: 20 };
 
 // A stopped network is only offered, never preselected: a VM created on it would not start.
-const defaultNetwork = (networks) => (networks.find((n) => n.actif !== false) || networks[0])?.nom;
+const defaultNetwork = (networks) => (networks.find((n) => n.active !== false) || networks[0])?.name;
 
 function initialForm(nodes, networks, d = DEFAULTS) {
   return {
@@ -69,15 +69,15 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const reloadIsos = () => fetchClusterIsos().then((r) => {
     const all = Array.isArray(r?.isos) ? r.isos : [];
     const local = all.filter((i) => i.node === "local");
-    const here = new Set(local.map((i) => i.nom));
+    const here = new Set(local.map((i) => i.name));
     const remote = [];
-    for (const i of all) if (i.node !== "local" && !here.has(i.nom) && !remote.some((x) => x.nom === i.nom)) remote.push(i);
-    setIsos([...local, ...remote.sort((a, b) => a.nom.localeCompare(b.nom))]);
+    for (const i of all) if (i.node !== "local" && !here.has(i.name) && !remote.some((x) => x.name === i.name)) remote.push(i);
+    setIsos([...local, ...remote.sort((a, b) => a.name.localeCompare(b.name))]);
     loadOk("isos");
   }).catch(loadFailed("isos"));
-  const isoNodeName = (id) => nodes.find((n) => n.id === id)?.nom || id;
-  const isoSub = (iso) => (iso.node === "local" ? `${formatSizeMb(iso.taille_mo, lang)} · ISO`
-    : t("wz.src.remoteIso", { size: formatSizeMb(iso.taille_mo, lang), node: isoNodeName(iso.node) }));
+  const isoNodeName = (id) => nodes.find((n) => n.id === id)?.name || id;
+  const isoSub = (iso) => (iso.node === "local" ? `${formatSizeMb(iso.size_mb, lang)} · ISO`
+    : t("wz.src.remoteIso", { size: formatSizeMb(iso.size_mb, lang), node: isoNodeName(iso.node) }));
   const reloadDisks = () => fetchVmDisks().then((r) => { setDisks(Array.isArray(r) ? r : []); loadOk("disks"); }).catch(loadFailed("disks"));
   // A failed firmware probe must not pass for "this host has no UEFI": the options stay
   // available (the server checks them again) and the failure is shown with a retry.
@@ -97,14 +97,14 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     });
   }
   useEffect(() => { // import mode: preselect the first free disk
-    if (form.importDisk != null && (!form.importDisk || form.importDisk === "__pending__") && disks.length > 0) patch({ importDisk: disks[0].nom });
+    if (form.importDisk != null && (!form.importDisk || form.importDisk === "__pending__") && disks.length > 0) patch({ importDisk: disks[0].name });
   }, [form.importDisk, disks]);
 
   // The inventory may arrive after the dialog is created: fill the node and network as soon as they exist.
   useEffect(() => {
     setForm((f) => {
       const node = f.node || nodes[0]?.id || "";
-      const network = networks.some((n) => n.nom === f.network) ? f.network : defaultNetwork(networks) || f.network;
+      const network = networks.some((n) => n.name === f.network) ? f.network : defaultNetwork(networks) || f.network;
       return node === f.node && network === f.network ? f : { ...f, node, network };
     });
   }, [nodes, networks]);
@@ -112,22 +112,22 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const importMode = form.importDisk != null;
   const manual = Boolean(form.iso) && !installationFamily(form);
   const needsAccount = !importMode && !manual;
-  const taken = useMemo(() => new Set(vms.map((v) => v.nom)), [vms]);
-  const vMin = limits?.vcpu.min ?? 1, vMax = limits?.vcpu.max, mMin = limits?.memoire_mo.min ?? 256, mMax = limits?.memoire_mo.max, dMax = limits?.disque_go.max, dCount = limits?.disques.max;
+  const taken = useMemo(() => new Set(vms.map((v) => v.name)), [vms]);
+  const vMin = limits?.vcpu.min ?? 1, vMax = limits?.vcpu.max, mMin = limits?.memory_mb.min ?? 256, mMax = limits?.memory_mb.max, dMax = limits?.disk_gb.max, dCount = limits?.disks.max;
 
   // iSCSI pool: each disk takes a whole free LUN (created on the storage side), and the chosen LUNs are erased.
-  const iscsiPool = pools.find((p) => p.nom === form.storagePool && p.type === "iscsi") || null;
+  const iscsiPool = pools.find((p) => p.name === form.storagePool && p.type === "iscsi") || null;
   useEffect(() => {
     if (!iscsiPool) { setLuns(null); return undefined; }
     let alive = true;
     setLuns(null);
-    fetchVolumes(iscsiPool.nom)
+    fetchVolumes(iscsiPool.name)
       .then((v) => { if (alive) { setLuns(Array.isArray(v) ? v : []); loadOk("luns"); } })
       .catch((e) => { if (alive) { setLuns([]); loadFailed("luns")(e); } });
     return () => { alive = false; };
-  }, [iscsiPool?.nom, lunsReload]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lunGb = (nom) => Math.max(1, Math.ceil(luns?.find((l) => l.nom === nom)?.capacite_go || 1));
-  const freeLuns = (luns || []).filter((l) => !l.utilise);
+  }, [iscsiPool?.name, lunsReload]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lunGb = (name) => Math.max(1, Math.ceil(luns?.find((l) => l.name === name)?.capacity_gb || 1));
+  const freeLuns = (luns || []).filter((l) => !l.used);
 
   // Every rule returns an i18n key (or "") so the messages follow the language.
   const iscsiErrors = iscsiPool ? {
@@ -146,7 +146,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     placement: !form.node ? { node: "wz.e.node" } : nodes.find((n) => n.id === form.node)?.maintenance || nodes.find((n) => n.id === "local")?.maintenance ? { node: "wz.e.nodeMaint" } : {},
     compute: { ...(!int(form.vcpu, vMin, vMax) ? { vcpu: "wz.e.vcpu" } : {}), ...(!int(form.memory_mb, mMin, mMax) ? { memory_mb: "wz.e.memory" } : {}) },
     storage: iscsiErrors || Object.fromEntries(form.disks.map((d, i) => [`disk${i}`, importMode && i === 0 ? "" : int(d.size_gb, 1, dMax) ? "" : "wz.e.diskSize"]).filter(([, v]) => v)),
-    network: networks.some((n) => n.nom === form.network) ? {} : { network: "wz.e.network" },
+    network: networks.some((n) => n.name === form.network) ? {} : { network: "wz.e.network" },
     advanced: form.autoCleanupEnabled && !int(form.autoCleanupDays, 1, 365) ? { days: "wz.e.days" } : {},
     review: {},
   };
@@ -194,19 +194,19 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
       finally { setBusy(false); }
       return;
     }
-    const taskId = addTask({ type: "create_vm", cible: form.name, node: form.node });
-    try { await createVM(payload); completeTask(taskId, "termine"); await loadAll(); onClose(); reset(); }
-    catch (e) { completeTask(taskId, "echec", errorMessage(e)); setError(errorMessage(e)); }
+    const taskId = addTask({ type: "create_vm", target: form.name, node: form.node });
+    try { await createVM(payload); completeTask(taskId, "succeeded"); await loadAll(); onClose(); reset(); }
+    catch (e) { completeTask(taskId, "failed", errorMessage(e)); setError(errorMessage(e)); }
     finally { setBusy(false); }
   }
 
-  const selectable = pools.filter((p) => ["dir", "netfs", "zfs", "iscsi"].includes(p.type) && p.etat === "actif");
+  const selectable = pools.filter((p) => ["dir", "netfs", "zfs", "iscsi"].includes(p.type) && p.state === "active");
   const family = installationFamily(form);
   const profile = guestProfile(form);
   const radio = (checked, on, title, sub, name, extra = null, disabled = false) => (
     <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`} aria-disabled={disabled || undefined} style={disabled ? { opacity: 0.55 } : undefined}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} disabled={disabled} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
   );
-  const nodeName = nodes.find((n) => n.id === form.node)?.nom || form.node;
+  const nodeName = nodes.find((n) => n.id === form.node)?.name || form.node;
   // What the guest will see as its first, second... disk; the libvirt name (sda) follows in grey for administrators.
   const diskLabel = (i) => (i === 0 ? t("wz.diskSystem") : t("wz.diskN", { n: i + 1 }));
 
@@ -247,7 +247,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
             <div className="nx-form">
               <div className="nx-tiles" role="group" aria-label={t("wz.sourceType")}>
                 <button type="button" className="nx-tile" aria-pressed={!importMode} onClick={() => patch({ importDisk: null })}><b>{t("wz.src.image")}</b><small>{t("wz.src.imageSub")}</small></button>
-                <button type="button" className="nx-tile" aria-pressed={importMode} onClick={() => patch({ iso: "", importDisk: disks[0]?.nom || "__pending__" })}><b>{t("wz.src.importBtn")}</b><small>{t("wz.src.importSub")}</small></button>
+                <button type="button" className="nx-tile" aria-pressed={importMode} onClick={() => patch({ iso: "", importDisk: disks[0]?.name || "__pending__" })}><b>{t("wz.src.importBtn")}</b><small>{t("wz.src.importSub")}</small></button>
               </div>
               <p className="nx-notice" role="note">{sourceNote}</p>
               {isWindowsInstall(form) && <p className="nx-hint">{t("wz.src.windowsNote")}</p>}
@@ -255,7 +255,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <fieldset className="nx-fieldset">
                   <legend>{t("wz.src.disk")}</legend>
                   {loadErrors.disks ? <InlineError message={loadErrors.disks} onRetry={reloadDisks} /> : disks.length === 0 && <span className="nx-muted">{t("wz.src.noDisks")}</span>}
-                  <div className="nx-tiles">{disks.map((d) => radio(form.importDisk === d.nom, () => patch({ importDisk: d.nom }), d.nom, formatSizeMb(d.taille_mo, lang), "import"))}</div>
+                  <div className="nx-tiles">{disks.map((d) => radio(form.importDisk === d.name, () => patch({ importDisk: d.name }), d.name, formatSizeMb(d.size_mb, lang), "import"))}</div>
                   {show("source", "importDisk")}
                   <VmDiskUploadDropzone onDone={reloadDisks} labels={{ drop: t("up.dropDisk"), done: t("up.done"), eta: t("up.eta") }} />
                 </fieldset>
@@ -265,7 +265,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                     <legend>{t("wz.src.iso")}</legend>
                     <div className="nx-tiles">
                       {radio(!form.iso, () => patch({ iso: "" }), t("wz.src.debian"), t("wz.src.debianSub"), "iso")}
-                      {isos.map((iso) => radio(form.iso === iso.nom, () => patch({ iso: iso.nom, isoNode: iso.node }), iso.nom, isoSub(iso), "iso"))}
+                      {isos.map((iso) => radio(form.iso === iso.name, () => patch({ iso: iso.name, isoNode: iso.node }), iso.name, isoSub(iso), "iso"))}
                     </div>
                     {loadErrors.isos && <InlineError message={loadErrors.isos} onRetry={reloadIsos} />}
                   </fieldset>
@@ -299,9 +299,9 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
               <fieldset className="nx-fieldset">
                 <legend>{t("ns.node")}</legend>
                 <div className="nx-tiles">{nodes.map((n) => {
-                  const ram = n.memoire_totale_mo ? (n.memoire_utilisee_mo / n.memoire_totale_mo) * 100 : null;
-                  return radio(form.node === n.id, () => patch({ node: n.id }), n.nom,
-                    n.maintenance ? t("wz.inMaintenance") : [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_actives ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
+                  const ram = n.memoire_totale_mo ? (n.used_memory_mb / n.memoire_totale_mo) * 100 : null;
+                  return radio(form.node === n.id, () => patch({ node: n.id }), n.name,
+                    n.maintenance ? t("wz.inMaintenance") : [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_running ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
                     "node", ram != null && !n.maintenance ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null, Boolean(n.maintenance));
                 })}</div>
                 {show("placement", "node")}
@@ -311,7 +311,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <label>{t("stor.pool")}
                   <select className="nx-input" aria-label={t("a11y.storage_pool")} value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
                     <option value="">{t("wz.r.defaultPool")}</option>
-                    {selectable.map((p) => <option key={p.nom} value={p.nom}>{p.nom} ({p.type === "netfs" ? "NFS" : p.type === "iscsi" ? "iSCSI" : p.type}{p.type === "iscsi" ? "" : `, ${p.disponible_go} GB ${t("stor.free").toLowerCase()}`})</option>)}
+                    {selectable.map((p) => <option key={p.name} value={p.name}>{p.name} ({p.type === "netfs" ? "NFS" : p.type === "iscsi" ? "iSCSI" : p.type}{p.type === "iscsi" ? "" : `, ${p.available_gb} GB ${t("stor.free").toLowerCase()}`})</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.poolHelp")}</span>
                 </label>
@@ -332,14 +332,14 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
           {stepId === "storage" && iscsiPool && (
             <div className="nx-form">
               <fieldset className="nx-fieldset">
-                <legend>{t("vh.disks")} · iSCSI {iscsiPool.nom}</legend>
+                <legend>{t("vh.disks")} · iSCSI {iscsiPool.name}</legend>
                 {luns == null ? <span className="nx-muted">{t("loading")}</span> : freeLuns.length === 0 ? <p className="nx-notice nx-notice--warning" role="note">{t("wz.noFreeLun")}</p> : null}
                 {luns != null && form.disks.map((d, i) => (
                   <div key={i} className="nx-inline">
                     <span style={{ minWidth: "9rem", alignSelf: "center" }}>{diskLabel(i)} <span className="nx-mono nx-muted" title={t("wz.diskDev")}>sd{String.fromCharCode(97 + i)}</span></span>
                     <select className="nx-input" aria-label={t("wz.lunOf", { v: i + 1 })} value={d.lun || ""} onChange={(e) => patch({ disks: form.disks.map((x, k) => (k === i ? { ...x, lun: e.target.value } : x)) })} aria-invalid={attempted && errors.storage[`disk${i}`] ? true : undefined}>
                       <option value="">{t("wz.lunPick")}</option>
-                      {freeLuns.filter((l) => l.nom === d.lun || !form.disks.some((x) => x.lun === l.nom)).map((l) => <option key={l.nom} value={l.nom}>{l.nom} · {formatSizeGb(l.capacite_go, lang)}</option>)}
+                      {freeLuns.filter((l) => l.name === d.lun || !form.disks.some((x) => x.lun === l.name)).map((l) => <option key={l.name} value={l.name}>{l.name} · {formatSizeGb(l.capacity_gb, lang)}</option>)}
                     </select>
                     <button type="button" className="nx-btn" aria-label={t("a11y.remove_disk_x", { v: i + 1 })} disabled={form.disks.length <= 1} onClick={() => patch({ disks: form.disks.filter((_, k) => k !== i) })}>{t("sec.remove")}</button>
                   </div>
@@ -384,8 +384,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
           {stepId === "network" && (
             <fieldset className="nx-fieldset">
               <legend>{t("vh.network")}</legend>
-              <div className="nx-tiles">{networks.map((n) => radio(form.network === n.nom, () => patch({ network: n.nom }), n.nom, `${t(`net.mode.${n.type}`)} · ${n.pont || "—"} · ${n.reseau ? n.reseau.adresse : t("nn.noSubnet")}`, "network", n.actif === false ? <Chip>{t("wz.netStopped")}</Chip> : null))}</div>
-              {networks.find((n) => n.nom === form.network)?.actif === false && <span className="nx-hint">{t("wz.netStoppedHelp")}</span>}
+              <div className="nx-tiles">{networks.map((n) => radio(form.network === n.name, () => patch({ network: n.name }), n.name, `${t(`net.mode.${n.type}`)} · ${n.bridge || "—"} · ${n.network ? n.network.address : t("nn.noSubnet")}`, "network", n.active === false ? <Chip>{t("wz.netStopped")}</Chip> : null))}</div>
+              {networks.find((n) => n.name === form.network)?.active === false && <span className="nx-hint">{t("wz.netStoppedHelp")}</span>}
               {show("network", "network")}
             </fieldset>
           )}
@@ -395,8 +395,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
               {form.iso && !importMode && (
                 <fieldset className="nx-fieldset">
                   <legend>{t("wz.drivers")}</legend>
-                  <select className="nx-input" aria-label={t("a11y.drivers_iso")} value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value, driversIsoNode: isos.find((i) => i.nom === e.target.value)?.node || "local" })}>
-                    <option value="">{t("wz.none")}</option>{isos.filter((i) => i.nom !== form.iso).map((i) => <option key={i.nom} value={i.nom}>{i.node === "local" ? i.nom : `${i.nom} — ${t("wz.src.onNode", { node: isoNodeName(i.node) })}`}</option>)}
+                  <select className="nx-input" aria-label={t("a11y.drivers_iso")} value={form.driversIso || ""} onChange={(e) => patch({ driversIso: e.target.value, driversIsoNode: isos.find((i) => i.name === e.target.value)?.node || "local" })}>
+                    <option value="">{t("wz.none")}</option>{isos.filter((i) => i.name !== form.iso).map((i) => <option key={i.name} value={i.name}>{i.node === "local" ? i.name : `${i.name} — ${t("wz.src.onNode", { node: isoNodeName(i.node) })}`}</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.driversHelp")} <a href="https://virtio-win.github.io/Knowledge-Base/Driver-installation.html" target="_blank" rel="noreferrer">{t("wz.driversLink")}</a></span>
                   <IsoUploadDropzone onDone={reloadIsos} labels={{ drop: t("up.dropIso"), done: t("up.done"), eta: t("up.eta"), input: t("a11y.iso_file") }} />
@@ -410,7 +410,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                   <option value="uefi_secure" disabled={!loadErrors.firmware && !fwSupport?.uefi_secure}>{t("fw.uefi_secure")}</option>
                 </select>
                 <span className="nx-hint">{t(`wz.fw.${vmFirmware(form, fwSupport)}Help`)}{vmFirmware(form, fwSupport) !== "bios" && form.iso && !importMode && ` ${t("wz.fw.keyHelp")}`}</span>
-                {fwSupport && !fwSupport.uefi_secure && fwSupport.raison && <span className="nx-hint">{t("wz.fw.missing", { reason: fwSupport.raison })}</span>}
+                {fwSupport && !fwSupport.uefi_secure && fwSupport.reason && <span className="nx-hint">{t("wz.fw.missing", { reason: fwSupport.reason })}</span>}
                 {loadErrors.firmware && <InlineError message={loadErrors.firmware} onRetry={reloadFirmware} />}
               </label>
               <fieldset className="nx-fieldset">

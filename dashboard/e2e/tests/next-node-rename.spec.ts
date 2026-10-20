@@ -6,7 +6,7 @@ test("the local node is renamed from its Actions menu, with the host name checke
   const sent: unknown[] = [];
   await page.route(/\/host\/system\/hostname$/, (r) => {
     sent.push(r.request().postDataJSON());
-    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ nom: "pve1.home", ancien: "old" }) });
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ name: "pve1.home", old: "old" }) });
   });
   await uiLogin(page);
   await page.goto("/node/local?tab=summary");
@@ -22,6 +22,6 @@ test("the local node is renamed from its Actions menu, with the host name checke
   await prompt.getByLabel("New name").fill("pve1.home");
   await prompt.getByRole("button", { name: "Rename" }).click();
   await expect(page.getByText("Node renamed")).toBeVisible();
-  expect(sent).toEqual([{ nom: "pve1.home" }]);
+  expect(sent).toEqual([{ name: "pve1.home" }]);
   await expect(page).toHaveURL(/\/node\/local/);
 });

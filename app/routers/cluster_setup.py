@@ -1,4 +1,4 @@
-"""Creating and joining a cluster (app/core/cluster_setup.py). Administrators only, except POST /cluster/membres,
+"""Creating and joining a cluster (app/core/cluster_setup.py). Administrators only, except POST /cluster/members,
 which a joining node calls with the one-time ticket of the join information an administrator copied."""
 
 import logging
@@ -16,25 +16,25 @@ router = APIRouter(prefix="/cluster", tags=["cluster"])
 
 
 class CreateRequest(BaseModel):
-    nom: str = Field(min_length=1, max_length=15)
-    adresse: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=15)
+    address: str = Field(min_length=1, max_length=64)
 
 
 class JoinRequest(BaseModel):
     information: str = Field(min_length=1, max_length=2000)
-    adresse: str = Field(min_length=1, max_length=64)
+    address: str = Field(min_length=1, max_length=64)
     confirmation: str = Field(max_length=15)
 
 
 class MemberRequest(BaseModel):
     ticket: str = Field(max_length=100)
-    nom: str = Field(max_length=63)
-    adresse: str = Field(max_length=64)
-    cle_ssh: str = Field(max_length=200)
+    name: str = Field(max_length=63)
+    address: str = Field(max_length=64)
+    ssh_key: str = Field(max_length=200)
 
 
 class PrimaryRequest(BaseModel):
-    nom: str | None = Field(None, max_length=63)  # None: no primary node, one vote each
+    name: str | None = Field(None, max_length=63)  # None: no primary node, one vote each
 
 
 class RemoveRequest(BaseModel):
@@ -43,10 +43,10 @@ class RemoveRequest(BaseModel):
 
 def _failed(user, action, target, error):
     if isinstance(error, cluster_setup.ClusterError):
-        log_action(user["username"], action, target, "echec", str(error))
+        log_action(user["username"], action, target, "failed", str(error))
         raise HTTPException(status_code=409, detail=str(error)) from None
     logger.warning("%s failed: %s", action, error)
-    log_action(user["username"], action, target, "echec", "hyperlite-cfs does not answer")
+    log_action(user["username"], action, target, "failed", "hyperlite-cfs does not answer")
     raise HTTPException(
         status_code=503, detail="hyperlite-cfs does not answer: see journalctl -u hyperlite-cfs"
     ) from None
@@ -57,12 +57,12 @@ def cluster_state(user: dict = Depends(require_role("admin"))):
     return cluster_setup.state()
 
 
-@router.post("/creer")
+@router.post("/create")
 def create_cluster(payload: CreateRequest, user: dict = Depends(require_role("admin"))):
     try:
-        return cluster_setup.create(payload.nom, payload.adresse, user["username"])
+        return cluster_setup.create(payload.name, payload.address, user["username"])
     except (cluster_setup.ClusterError, CfsError, OSError) as e:
-        _failed(user, "cluster_create", payload.nom, e)
+        _failed(user, "cluster_create", payload.name, e)
 
 
 @router.post("/adhesion")
@@ -72,31 +72,33 @@ def join_information(user: dict = Depends(require_role("admin"))):
         info = cluster_setup.join_information()
     except (cluster_setup.ClusterError, CfsError, OSError) as e:
         _failed(user, "cluster_join_information", "cluster", e)
-    log_action(user["username"], "cluster_join_information", info["cluster"], "succes", f"valid until {info['expire']}")
+    log_action(
+        user["username"], "cluster_join_information", info["cluster"], "success", f"valid until {info['expire']}"
+    )
     return info
 
 
-@router.post("/rejoindre")
+@router.post("/join")
 def join_cluster(payload: JoinRequest, user: dict = Depends(require_role("admin"))):
     try:
-        return cluster_setup.join(payload.information, payload.adresse, payload.confirmation, user["username"])
+        return cluster_setup.join(payload.information, payload.address, payload.confirmation, user["username"])
     except (cluster_setup.ClusterError, CfsError, OSError) as e:
         _failed(user, "cluster_join", "cluster", e)
 
 
-@router.post("/membres")
+@router.post("/members")
 def accept_member(payload: MemberRequest):
     """Called by a joining node, not by a browser: the ticket stands for the administrator who copied it."""
     try:
-        return cluster_setup.accept_member(payload.ticket, payload.nom, payload.adresse, payload.cle_ssh)
+        return cluster_setup.accept_member(payload.ticket, payload.name, payload.address, payload.ssh_key)
     except PermissionError as e:
-        log_action("system", "cluster_join", payload.nom[:63], "echec", str(e))
+        log_action("system", "cluster_join", payload.name[:63], "failed", str(e))
         raise HTTPException(status_code=403, detail=str(e)) from None
     except cluster_setup.ClusterError as e:
-        log_action("system", "cluster_join", payload.nom[:63], "echec", str(e))
+        log_action("system", "cluster_join", payload.name[:63], "failed", str(e))
         raise HTTPException(status_code=409, detail=str(e)) from None
     except (CfsError, OSError) as e:
-        logger.warning("Letting %s in failed: %s", payload.nom[:63], e)
+        logger.warning("Letting %s in failed: %s", payload.name[:63], e)
         raise HTTPException(status_code=503, detail="hyperlite-cfs does not answer on this member") from None
 
 
@@ -104,14 +106,14 @@ def accept_member(payload: MemberRequest):
 def set_primary(payload: PrimaryRequest, user: dict = Depends(require_role("admin"))):
     """The primary node counts twice in the quorum: with one other node, it keeps the quorum alone."""
     try:
-        return cluster_setup.set_primary(payload.nom, user["username"])
+        return cluster_setup.set_primary(payload.name, user["username"])
     except (cluster_setup.ClusterError, CfsError, OSError) as e:
-        _failed(user, "cluster_primary", payload.nom or "none", e)
+        _failed(user, "cluster_primary", payload.name or "none", e)
 
 
-@router.post("/membres/{nom}/retirer")
-def remove_member(nom: str, payload: RemoveRequest, user: dict = Depends(require_role("admin"))):
+@router.post("/members/{name}/remove")
+def remove_member(name: str, payload: RemoveRequest, user: dict = Depends(require_role("admin"))):
     try:
-        return cluster_setup.remove_member(nom, payload.confirmation, user["username"])
+        return cluster_setup.remove_member(name, payload.confirmation, user["username"])
     except (cluster_setup.ClusterError, CfsError, OSError) as e:
-        _failed(user, "cluster_remove_member", nom[:63], e)
+        _failed(user, "cluster_remove_member", name[:63], e)

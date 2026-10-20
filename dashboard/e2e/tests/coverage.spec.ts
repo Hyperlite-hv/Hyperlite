@@ -93,30 +93,30 @@ test.describe("Snapshot restore (real backend)", () => {
     const snap = `${PREFIX}s1-${stamp}`;
     const made = await request.post(`/vms/${VM}/snapshots`, { headers: auth(), data: { name: snap } });
     expect(made.ok(), await made.text()).toBe(true);
-    await expect.poll(async () => ((await (await request.get(`/vms/${VM}/snapshots`, { headers: auth() })).json()) as Array<{ nom: string }>).map((s) => s.nom), { timeout: 60_000 }).toContain(snap);
+    await expect.poll(async () => ((await (await request.get(`/vms/${VM}/snapshots`, { headers: auth() })).json()) as Array<{ name: string }>).map((s) => s.name), { timeout: 60_000 }).toContain(snap);
 
     await uiLogin(page, ADMIN.username, ADMIN.password, `/vm/${VM}?tab=hardware`);
     const compute = page.getByRole("main").getByRole("region", { name: "Processor and memory" });
     await compute.getByRole("spinbutton", { name: "Memory in MB" }).fill("512");
     await compute.getByRole("button", { name: "Save", exact: true }).click();
-    await expect.poll(async () => ((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memoire_mo: number }).memoire_mo).toBe(512);
+    await expect.poll(async () => ((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memory_mb: number }).memory_mb).toBe(512);
 
     await page.getByRole("main").getByRole("tab", { name: "Snapshots", exact: true }).click();
     await page.getByRole("button", { name: `Restore snapshot ${snap}` }).click();
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toContainText(snap);
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    expect(((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memoire_mo: number }).memoire_mo, "cancel changes nothing").toBe(512);
+    expect(((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memory_mb: number }).memory_mb, "cancel changes nothing").toBe(512);
 
     await page.getByRole("button", { name: `Restore snapshot ${snap}` }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Restore" }).click();
-    await expect.poll(async () => ((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memoire_mo: number }).memoire_mo, { timeout: 60_000 }).toBe(256);
+    await expect.poll(async () => ((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memory_mb: number }).memory_mb, { timeout: 60_000 }).toBe(256);
   });
 });
 
 test.describe("Two users at the same time", () => {
   test("a user removed by an administrator is signed out on the next action, while the admin session keeps working", async ({ browser, request }) => {
-    const made = await request.post("/auth/users", { headers: auth(), data: { username: USER, password: USER_PASSWORD, role: "observateur" } });
+    const made = await request.post("/auth/users", { headers: auth(), data: { username: USER, password: USER_PASSWORD, role: "viewer" } });
     expect(made.ok(), await made.text()).toBe(true);
     const adminCtx = await browser.newContext({ ignoreHTTPSErrors: true });
     const userCtx = await browser.newContext({ ignoreHTTPSErrors: true });

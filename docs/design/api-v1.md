@@ -1,6 +1,6 @@
 # API v1: one English contract, before 1.0
 
-Status: **design, for review**. No code before Antho's approval (code review #448).
+Status: **accepted** (Antho, 2026-10-18): glossary approved, code under way on the `api-v1` branch.
 
 ## Why
 
@@ -126,3 +126,7 @@ A single node is the same without steps 2 and 5.
    with the new names.
 5. The read-only role is `viewer` (today `observateur`; the French dashboard still shows « Observateur »).
 6. `snapshots` everywhere (never `instantanes`, never `checkpoints`, which replication already uses).
+7. The glossary is approved (2026-10-18), with one change: `ordre` is `position` (and `step_ordre` `step_position`),
+   never `order`, a reserved word of SQL that every query would have to quote.
+8. The work happens on a branch `api-v1`, each step a pull request into it; `api-v1` goes into `test` at once when
+   complete, so `test` stays releasable meanwhile.

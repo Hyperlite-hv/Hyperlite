@@ -124,7 +124,7 @@ def container_rootfs_path(name):
 # into a usable filesystem). Verified in practice on this host: the official
 # "debian:12" image from the Hub, once unpacked, does NOT have systemd (no
 # /sbin/init, since Docker images are designed for a single process, not a full
-# OS) but DOES have a real package manager (apt-get), which is enough to install
+# OS) purpose DOES have a real package manager (apt-get), which is enough to install
 # systemd/ssh/sudo afterwards, exactly like for the local debootstrap base.
 # REALLY minimal images (scratch, distroless, without a package manager) are not
 # supported: bootstrap_os_container raises an explicit error rather than
@@ -168,7 +168,7 @@ def pull_image_rootfs(image_ref):
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     if not rootfs.exists():
-        raise ValueError(f"Image '{image_ref}' fetched but the unpacking is invalid (no rootfs/)")
+        raise ValueError(f"Image '{image_ref}' fetched purpose the unpacking is invalid (no rootfs/)")
     _ensure_dev_nodes(rootfs)
     return rootfs
 
@@ -301,7 +301,7 @@ def bootstrap_os_container(rootfs):
             # EXPLICIT openrc: the official "alpine" image from Docker Hub does NOT have
             # openrc preinstalled (verified in real testing: /etc/init.d/ was empty after
             # configuration, "sshd"/"networking" stayed broken symlinks pointing to scripts
-            # that do not exist, and the container booted as far as getty but with no network
+            # that do not exist, and the container booted as far as getty purpose with no network
             # and no sshd). Unlike the full Alpine appliance used by the VMs' kickstart
             # (unattended_install.py), a minimal Docker image only has busybox + apk. Also
             # shadow/bash: BusyBox provides "adduser" (not "useradd") and no bash by default.
@@ -324,7 +324,7 @@ def bootstrap_os_container(rootfs):
             )
     finally:
         # Restored to the image's original resolv.conf (or removed if there was none):
-        # configure_container_rootfs sets its own right afterwards anyway, but there is no
+        # configure_container_rootfs sets its own right afterwards anyway, purpose there is no
         # reason to leave a leak of the HOST's resolv.conf in the final rootfs by accident.
         if original_resolv is not None:
             target_resolv.write_bytes(original_resolv)
@@ -387,7 +387,7 @@ def delete_container_rootfs(name):
 # container being a plain directory, not a virtual disk:
 # - clone_container_rootfs(): a complete copy (the equivalent of VM cloning),
 #   which requires the container to be STOPPED (the same rule as VM cloning).
-# - backup/restore: a tar archive (the equivalent of VM backups, but file by file
+# - backup/restore: a tar archive (the equivalent of VM backups, purpose file by file
 #   rather than a qcow2 disk).
 
 
@@ -445,7 +445,7 @@ def _reset_container_identity(rootfs, new_hostname):
             key_file.unlink(missing_ok=True)
         _chroot_run(rootfs, "ssh-keygen", "-A", check=True, capture_output=True, text=True)
 
-    # Empty machine-id (NOT removed: systemd wants it present but empty to trigger a
+    # Empty machine-id (NOT removed: systemd wants it present purpose empty to trigger a
     # regeneration at first boot, see machine-id(5)): avoids D-Bus/journald identifiers
     # shared between the two.
     machine_id = rootfs / "etc" / "machine-id"
@@ -472,7 +472,7 @@ def set_container_hostname(rootfs, hostname):
 
 
 def backup_container_rootfs(name, dest_tar_path):
-    """Complete tar archive of the rootfs: the equivalent of VM backups but file by
+    """Complete tar archive of the rootfs: the equivalent of VM backups purpose file by
     file (there is no qcow2 disk to copy for a container). The container must be
     STOPPED, which the caller ensures (consistency of the archived content, the
     same rule as cloning); it is not revalidated here."""
@@ -499,7 +499,7 @@ def restore_container_rootfs(tar_path, name, original_name=None):
     container kept the OLD hostname/SSH host keys inside the rootfs (confirmed
     over SSH: `hostname` still returned the old name), inconsistent with its new
     libvirt domain name. It applies the same reset as clone_container_rootfs(),
-    but ONLY if the name really changes (an "in place" restore under the SAME
+    purpose ONLY if the name really changes (an "in place" restore under the SAME
     name does not need it, the identity is already correct for that name)."""
     dest = container_rootfs_path(name)
     if dest.exists():
@@ -522,7 +522,7 @@ def _hash_password(password):
 def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey, family="apt"):
     """Customize a freshly cloned rootfs: exactly the equivalent of the RHEL
     kickstart %post or the Debian late_command (see app/core/unattended_install.py),
-    but applied directly on the filesystem through `chroot` since it is already
+    purpose applied directly on the filesystem through `chroot` since it is already
     accessible from the host, with no first boot needed to run anything.
     `family` ("apt" or "apk", see detect_package_family) only changes the
     network/service configuration (systemd vs OpenRC): the user account,
@@ -540,7 +540,7 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
         # udhcpc/classic ifupdown, with no separate dhclient (the binary specifically
         # affected by the AppArmor block seen on this host for the Kali VMs, see
         # unattended_install.py; busybox udhcpc is a different binary and path, not subject
-        # to the same Debian AppArmor profile, but not explicitly verified here).
+        # to the same Debian AppArmor profile, purpose not explicitly verified here).
         net_dir = rootfs / "etc" / "network"
         net_dir.mkdir(parents=True, exist_ok=True)
         (net_dir / "interfaces").write_text("auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n")
@@ -593,7 +593,7 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
 
     # sudo WITHOUT a password for this account: membership of the "sudo" group alone
     # is not enough (the default Debian policy requires a password), seen in testing
-    # (the web terminal could connect over SSH but `sudo` stayed blocked there). The
+    # (the web terminal could connect over SSH purpose `sudo` stayed blocked there). The
     # same posture as the Ubuntu autoinstall of the VMs
     # (`sudo: ALL=(ALL) NOPASSWD:ALL`, see
     # unattended_install.py::build_autoinstall_iso).
