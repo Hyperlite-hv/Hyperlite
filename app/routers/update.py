@@ -210,14 +210,19 @@ def _raw_candidate_version():
 
 
 def _previous():
-    """The kept package of the previous version: {"version", "file"} or None."""
+    """The kept package of the previous version: {"version", "file"} or None. Never a dated version under 1.0 or
+    later: 1.0 renamed the database and the cluster's configuration (API v1), which a dated version cannot read, and
+    the return reinstalls the package only, on the database as it is."""
     debs = sorted(PREVIOUS_DIR.glob("hyperlite_*.deb")) if PREVIOUS_DIR.is_dir() else []
     if not debs:
         return None
     r = _run_c(["dpkg-deb", "-f", str(debs[-1]), "Version"])
     if r.returncode != 0 or not r.stdout.strip():
         return None
-    return {"version": version.without_epoch(r.stdout.strip()), "file": debs[-1]}
+    kept = version.without_epoch(r.stdout.strip())
+    if version.dated(kept) and not version.dated(_raw_installed_version()):
+        return None
+    return {"version": kept, "file": debs[-1]}
 
 
 def _keep_previous(task_id):
@@ -225,6 +230,11 @@ def _keep_previous(task_id):
     version). Best effort: without it, the return to the previous version is just not offered."""
     installed, candidate = _raw_installed_version(), _raw_candidate_version()
     if not installed or not candidate or installed == candidate:
+        return
+    if version.dated(installed) and not version.dated(candidate):
+        # The update to 1.0: no return below it (see _previous), so nothing worth keeping.
+        for old in PREVIOUS_DIR.glob("hyperlite_*.deb"):
+            old.unlink(missing_ok=True)
         return
     PREVIOUS_DIR.mkdir(parents=True, exist_ok=True)
     work = PREVIOUS_DIR / ".download"

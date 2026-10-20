@@ -127,3 +127,16 @@ def test_this_nodes_changes_wait_while_a_member_is_behind(fake, members):
     assert shadow.drain() == 0 and shadow.pending() == 1  # nothing in the new names reaches pve-b
     members["statuses"]["pve-b"] = status(1)
     assert shadow.drain() == 1 and shadow.pending() == 0
+
+
+def test_the_dashboard_is_told_the_cluster_waits_for_its_update_not_that_it_lost_the_quorum(
+    client, auth_headers, fake, members, monkeypatch
+):
+    from app.core import cluster_lead
+
+    members["statuses"] = {"pve-b": status(0), "pve-c": status(1)}
+    monkeypatch.setattr(cluster_lead, "_quorum", (0.0, None))
+    assert cluster_lead.read_only_cause() == ("update_to_1_0", ["pve-b"])
+    members["statuses"]["pve-b"] = status(1)
+    monkeypatch.setattr(cluster_lead, "_quorum", (0.0, None))
+    assert cluster_lead.read_only_cause() == (None, [])

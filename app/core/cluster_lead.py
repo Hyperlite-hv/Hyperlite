@@ -103,6 +103,21 @@ def read_only_reason():
     return reason
 
 
+def read_only_cause():
+    """Why read_only_reason() holds this node, for the dashboard's banner in its own language: ("no_quorum",
+    "no_daemon" or "update_to_1_0", the nodes waited for), or (None, []). The reason itself stays the API's text."""
+    reason = read_only_reason()
+    if reason is None:
+        return None, []
+    if reason == NO_QUORUM:
+        return "no_quorum", []
+    if reason == NO_DAEMON:
+        return "no_daemon", []
+    from app.core import cluster_v1
+
+    return "update_to_1_0", cluster_v1.behind()
+
+
 _paused = set()
 
 
