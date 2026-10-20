@@ -1,8 +1,6 @@
 import logging
-import subprocess
 import time
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from xml.sax.saxutils import escape
@@ -18,18 +16,8 @@ from app.core.libvirt_utils import (
 )
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_vm_privilege
-from app.core.tasks import finish_task
-from app.core.vm_builder import (
-    get_automation_private_key_path,
-    strip_install_boot_override,
-)
-from app.core.vm_meta import (
-    clear_provisioning,
-    get_provisioning,
-    get_vm_ssh_user,
-)
 from app.routers.isos import ISOS_DIR
-from app.routers.vms._shared import _get_ip, router
+from app.routers.vms._shared import router
 
 logger = logging.getLogger(__name__)
 
@@ -287,122 +275,6 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
             "used_memory_mb": used_memory_mb,
             "disks": disks,
             "networks": networks,
-        }
-    finally:
-        conn.close()
-
-
-# Beyond this delay without a working SSH, passive polling stops and the
-# installation is declared failed. Before, a broken install (an incompatible ISO,
-# a partitioning error, a network outage during the installation...) stayed "in
-# progress" indefinitely and never reported an actionable error (seen in
-# practice: several stale "ubuntu-autoinstall-fix" attempts in the audit log,
-# never cleaned up). 30 minutes is generous for the supported families
-# (kickstart/autoinstall), even on a slow disk.
-PROVISIONING_TIMEOUT_S = 1800
-
-
-@router.get("/{name}/provisioning")
-def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
-    """State of an unattended installation (Kickstart/autoinstall) in progress, for the
-    dashboard's progress bar. The signal used is whether a real SSH
-    authentication with the Hyperlite automation key succeeds, NOT just "port 22
-    answers" (seen in testing on Ubuntu: the live-server ISO runs its own sshd
-    from the very start of the installation, long before the final system exists,
-    so the port is reachable very early without our key being authorized there,
-    which gave a false, premature "finished")."""
-    prov = get_provisioning(name)
-    if not prov:
-        return {"provisioning": False}
-
-    task_id = prov.get("task_id")
-
-    def _fail(reason):
-        clear_provisioning(name)
-        if task_id:
-            finish_task(task_id, "failed", reason)
-        log_action(user["username"], "auto_install", name, "failed", reason)
-        return {"provisioning": False, "failed": True, "error": reason}
-
-    conn = open_conn()
-    try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            return _fail("The VM disappeared during the unattended installation (deleted?)")
-
-        started = datetime.fromisoformat(prov["started_at"])
-        elapsed_s = int((datetime.now(UTC) - started).total_seconds())
-
-        if elapsed_s > PROVISIONING_TIMEOUT_S:
-            return _fail(f"Timeout: SSH still unreachable after {elapsed_s // 60} minutes")
-
-        if not domain.isActive():
-            return {"provisioning": True, "phase": "stopped", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
-
-        ip = _get_ip(domain)
-        if not ip:
-            return {"provisioning": True, "phase": "boot", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
-
-        username = get_vm_ssh_user(name)
-        key_path = get_automation_private_key_path()
-        try:
-            result = subprocess.run(
-                [
-                    "ssh",
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "UserKnownHostsFile=/dev/null",
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ConnectTimeout=3",
-                    "-i",
-                    str(key_path),
-                    f"{username}@{ip}",
-                    "true",
-                ],
-                capture_output=True,
-                timeout=6,
-            )
-        except subprocess.TimeoutExpired:
-            return {
-                "provisioning": True,
-                "phase": "installation",
-                "os_family": prov["os_family"],
-                "elapsed_s": elapsed_s,
-                "ip": ip,
-            }
-
-        if result.returncode == 0:
-            clear_provisioning(name)
-            # Ubuntu/autoinstall started on a kernel/initrd extracted from the ISO (see
-            # create_vm, extract_casper_kernel) to add "autoinstall" to the command line. That
-            # is no longer needed once the OS is installed on the disk, and leaving it would
-            # make the VM reboot forever into the live installer instead of the installed
-            # system (the normal <boot order>, on the disk, is never consulted while
-            # <kernel>/<initrd> are present). The override is removed from the PERSISTENT XML
-            # only: the VM keeps running without interruption with its current live
-            # configuration until the next restart.
-            if prov["os_family"] == "autoinstall":
-                try:
-                    current_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
-                    new_xml = strip_install_boot_override(current_xml)
-                    if new_xml != current_xml:
-                        conn.defineXML(new_xml)
-                except (libvirt.libvirtError, ET.ParseError):
-                    logger.debug("Ignored exception in get_vm_provisioning()", exc_info=True)
-            if task_id:
-                finish_task(task_id, "succeeded")
-            log_action(user["username"], "provisioning_complete", name, "success")
-            return {"provisioning": False, "just_finished": True}
-        return {
-            "provisioning": True,
-            "phase": "installation",
-            "os_family": prov["os_family"],
-            "elapsed_s": elapsed_s,
-            "ip": ip,
         }
     finally:
         conn.close()

@@ -1,8 +1,5 @@
-// Client-side mirror of app/core/unattended_install.detect_os_family: used only to
-// adapt the wizard text (the backend does its own detection, which is the only one
-// that matters for the real behaviour).
-const KICKSTART_FAMILIES = ["rhel", "centos", "rocky", "almalinux", "alma-", "fedora"];
-const AUTOINSTALL_FAMILIES = ["ubuntu"];
+// Client-side mirror of app/core/guest_hardware: the guest profile an installation ISO gets (Windows, Linux, other),
+// used to adapt the wizard's defaults and text (the backend does its own detection, the one that counts).
 
 export function detectWindows(isoFilename) {
   if (!isoFilename) return false;
@@ -21,10 +18,6 @@ export function guestProfile(form) {
   return /ubuntu|debian|rhel|centos|rocky|alma|fedora|opensuse|sles|archlinux|alpine/i.test(form.iso) ? "linux" : "other";
 }
 
-export function installationFamily(form) {
-  return guestProfile(form) === "linux" ? detectOsFamily(form.iso) : null;
-}
-
 export function diskController(form) {
   if (form.diskController && form.diskController !== "auto") return form.diskController;
   return guestProfile(form) === "linux" ? "virtio-scsi" : "sata";
@@ -35,12 +28,4 @@ export function diskController(form) {
 export function vmFirmware(form, support) {
   if (form.firmware && form.firmware !== "auto") return form.firmware;
   return guestProfile(form) === "windows" && support?.uefi_secure ? "uefi_secure" : "bios";
-}
-
-export function detectOsFamily(isoFilename) {
-  if (!isoFilename) return null;
-  const name = isoFilename.toLowerCase();
-  if (KICKSTART_FAMILIES.some((k) => name.includes(k))) return "kickstart";
-  if (AUTOINSTALL_FAMILIES.some((k) => name.includes(k))) return "autoinstall";
-  return null;
 }

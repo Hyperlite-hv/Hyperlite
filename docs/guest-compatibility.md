@@ -25,7 +25,7 @@ Hyperlite revision.
 | Profile | Automatic disk / network | Firmware | Installation |
 | --- | --- | --- | --- |
 | Windows / Windows Server | SATA AHCI / Intel E1000e | UEFI + Secure Boot + TPM 2.0 when the host has OVMF and swtpm, else legacy BIOS | Interactive; extra storage driver media is unnecessary with inbox AHCI support |
-| Linux | VirtIO SCSI / VirtIO | Legacy BIOS | Existing cloud-init, Kickstart and Ubuntu autoinstall flows; otherwise interactive |
+| Linux | VirtIO SCSI / VirtIO | Legacy BIOS | Interactive |
 | Other / generic | SATA AHCI / Intel E1000e | Legacy BIOS | Interactive; guest drivers and BIOS support must be checked |
 
 The firmware can be overridden at creation: **BIOS**, **UEFI**, or **UEFI + Secure
@@ -35,9 +35,8 @@ for what changes for such a VM). The API field is `firmware` (`bios`, `uefi`,
 
 Automatic detection reads the filename only. Recognized Windows media selects
 Windows; common Linux filenames select Linux; unknown media selects Other.
-An explicit profile overrides detection, including whether unattended installation
-is enabled. Without installation media, the built-in Debian image and disk imports
-retain their existing VirtIO defaults. An imported OS must already have the chosen
+An explicit profile overrides detection. Without installation media, the built-in
+Debian image and disk imports retain their existing VirtIO defaults. An imported OS must already have the chosen
 boot driver and boot with the chosen firmware (choose UEFI for a UEFI-only disk).
 
 The disk controller can be overridden independently: **Automatic**, **SATA**, or

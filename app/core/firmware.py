@@ -35,8 +35,7 @@ CHOICES = (BIOS, UEFI, UEFI_SECURE)
 Q35 = "q35"
 # SATA drives beyond the disks: the disks take sda, sdb... on the same bus when the VM uses SATA disks, so the
 # drives that used to be IDE hda..hdd take the last letters. The installation ISO keeps the lowest one of them,
-# so it is still the first CD-ROM drive of the system (the kickstart `cdrom` directive depends on it, see
-# vm_builder.build_domain_xml).
+# so it is still the first CD-ROM drive of the system (see vm_builder.build_domain_xml).
 _Q35_TARGETS = {"hda": "sdw", "hdb": "sdx", "hdc": "sdy", "hdd": "sdz"}
 
 

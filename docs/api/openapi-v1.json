@@ -17713,52 +17713,6 @@
     ]
    }
   },
-  "/api/v1/vms/{name}/provisioning": {
-   "get": {
-    "description": "State of an unattended installation (Kickstart/autoinstall) in progress, for the\ndashboard's progress bar. The signal used is whether a real SSH\nauthentication with the Hyperlite automation key succeeds, NOT just \"port 22\nanswers\" (seen in testing on Ubuntu: the live-server ISO runs its own sshd\nfrom the very start of the installation, long before the final system exists,\nso the port is reachable very early without our key being authorized there,\nwhich gave a false, premature \"finished\").",
-    "operationId": "get_vm_provisioning_api_v1_vms__name__provisioning_get",
-    "parameters": [
-     {
-      "in": "path",
-      "name": "name",
-      "required": true,
-      "schema": {
-       "title": "Name",
-       "type": "string"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      },
-      "description": "Successful Response"
-     },
-     "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
-     }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ],
-    "summary": "Get Vm Provisioning",
-    "tags": [
-     "vms"
-    ]
-   }
-  },
   "/api/v1/vms/{name}/rename": {
    "post": {
     "operationId": "rename_vm_api_v1_vms__name__rename_post",
