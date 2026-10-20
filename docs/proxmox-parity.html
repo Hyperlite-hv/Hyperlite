@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperlite face à Proxmox VE</title>
+<!-- Hyperlite compared with Proxmox VE: rows from proxmox-parity.json (next to this page), the state of each issue read
+     live from GitHub (a closed issue shows as done), and the roadmap by milestone. No dependency, nothing to build. -->
+<style>
+:root { --bg: #f6f4f2; --surface: #fff; --raised: #efebe8; --ink: #24202a; --muted: #6b6470; --line: #e2ddd9;
+  --accent: #7b3f6e; --ahead: #1f6f8b; --parity: #2e7d4f; --partial: #a86400; --missing: #b3261e; --done: #2e7d4f; }
+@media (prefers-color-scheme: dark) { :root { --bg: #17141a; --surface: #201c24; --raised: #2a2530; --ink: #ece7ef;
+  --muted: #a39aa8; --line: #3a3340; --accent: #d39bc6; --ahead: #6cc3e0; --parity: #6fcf97; --partial: #f2b45a;
+  --missing: #f08a82; --done: #6fcf97; } }
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif }
+main { max-width: 1100px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 36px }
+h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 } h1 em { font-style: normal; color: var(--accent) }
+h2 { font-size: 21px; margin: 0 0 12px } p { margin: 0; max-width: 75ch } .muted { color: var(--muted) }
+header { display: flex; flex-direction: column; gap: 10px }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between }
+.lang a { color: var(--accent); margin-left: 8px; font-size: 13px }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px }
+.kpi b { display: block; font-size: 28px; line-height: 1.1 } .kpi span { color: var(--muted); font-size: 13px }
+.meter { height: 10px; background: var(--raised); border-radius: 99px; overflow: hidden; display: flex }
+.meter i { display: block; height: 100% }
+table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+th, td { text-align: left; vertical-align: top; padding: 9px 11px; border-bottom: 1px solid var(--line) }
+thead th { background: var(--raised); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted) }
+tbody tr:last-child td { border-bottom: 0 } td.feat { font-weight: 600; min-width: 170px }
+.chip { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor }
+.s-ahead { color: var(--ahead) } .s-parity, .s-done { color: var(--done) } .s-partial { color: var(--partial) } .s-missing { color: var(--missing) }
+a { color: var(--accent) } .issue { font-size: 12.5px; white-space: nowrap }
+.filters { display: flex; flex-wrap: wrap; gap: 8px } .filters button { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer }
+.filters button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600 }
+.milestones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px }
+.ms { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px }
+.ms h3 { margin: 0; font-size: 16px } .ms ul { margin: 0; padding-left: 18px; font-size: 13.5px } .ms li.closed { color: var(--muted); text-decoration: line-through }
+.wrap { overflow-x: auto } .note { font-size: 13px; color: var(--muted) }
+@media (max-width: 640px) { th.pve, td.pve { display: none } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="bar"><span class="muted" id="stamp"></span><span class="lang" id="langs"></span></div>
+    <h1 id="title"></h1>
+    <p id="intro"></p>
+  </header>
+  <section><div class="kpis" id="kpis"></div><div class="meter" id="meter" style="margin-top:12px" role="img"></div></section>
+  <section><h2 id="h-roadmap"></h2><div class="milestones" id="milestones"></div></section>
+  <section>
+    <h2 id="h-matrix"></h2>
+    <div class="filters" id="filters" role="group"></div>
+    <div id="matrix" style="display:flex;flex-direction:column;gap:22px;margin-top:14px"></div>
+  </section>
+  <p class="note" id="foot"></p>
+</main>
+<script>
+const REPO = "Hyperlite-hv/Hyperlite";
+const lang = (new URLSearchParams(location.search).get("lang") || (navigator.language || "fr")).startsWith("en") ? "en" : "fr";
+const T = {
+  fr: { title: "Hyperlite face à <em>Proxmox VE</em>", intro: "Fonction par fonction, d'après le code et la documentation de Proxmox VE {pve}. L'état de chaque écart vient en direct de son issue GitHub : une issue fermée s'affiche comme faite.",
+    stamp: "Revu le {d} · issues lues en direct", roadmap: "Feuille de route vers la parité", matrix: "Fonction par fonction",
+    all: "Tout", ahead: "En avance", parity: "Parité", done: "Fait", partial: "Partiel", missing: "Manquant",
+    kTotal: "fonctions comparées", kAt: "au niveau ou devant", kLeft: "écarts à combler", kDone: "écarts fermés",
+    feat: "Fonction", pve: "Proxmox VE", hl: "Hyperlite", st: "État", is: "Issue",
+    offline: "GitHub n'a pas répondu : les états affichés sont ceux du fichier.", open: "ouverte", closed: "fermée",
+    foot: "Données : docs/proxmox-parity.json (à mettre à jour dans la PR qui change une fonction). Issues : étiquette proxmox-parity.", progress: "{c} sur {t} fermées" },
+  en: { title: "Hyperlite and <em>Proxmox VE</em>", intro: "Feature by feature, from the code and the Proxmox VE {pve} documentation. Each gap's state comes live from its GitHub issue: a closed issue shows as done.",
+    stamp: "Reviewed {d} · issues read live", roadmap: "Roadmap to parity", matrix: "Feature by feature",
+    all: "All", ahead: "Ahead", parity: "Parity", done: "Done", partial: "Partial", missing: "Missing",
+    kTotal: "features compared", kAt: "at parity or ahead", kLeft: "gaps to close", kDone: "gaps closed",
+    feat: "Feature", pve: "Proxmox VE", hl: "Hyperlite", st: "State", is: "Issue",
+    offline: "GitHub did not answer: the states shown are the file's.", open: "open", closed: "closed",
+    foot: "Data: docs/proxmox-parity.json (update it in the PR that changes a feature). Issues: label proxmox-parity.", progress: "{c} of {t} closed" } }[lang];
+const SHAPE = { ahead: "▲", parity: "●", done: "✓", partial: "◐", missing: "○" };
+const fmt = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const chip = (s) => `<span class="chip s-${s}">${SHAPE[s]} ${T[s]}</span>`;
+
+async function issues() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/issues?labels=proxmox-parity&state=all&per_page=100`);
+    if (!r.ok) throw new Error(r.status);
+    return new Map((await r.json()).map((i) => [i.number, { state: i.state, title: i.title, url: i.html_url, milestone: i.milestone?.title || null }]));
+  } catch { return null; }
+}
+
+async function main() {
+  document.documentElement.lang = lang;
+  document.getElementById("langs").innerHTML = `<a href="?lang=fr">FR</a><a href="?lang=en">EN</a>`;
+  const [data, live] = await Promise.all([fetch("proxmox-parity.json").then((r) => r.json()), issues()]);
+  document.getElementById("title").innerHTML = T.title;
+  document.getElementById("intro").textContent = fmt(T.intro, { pve: data.proxmox_version });
+  document.getElementById("stamp").textContent = fmt(T.stamp, { d: data.checked }) + (live ? "" : " · " + T.offline);
+  document.getElementById("h-roadmap").textContent = T.roadmap;
+  document.getElementById("h-matrix").textContent = T.matrix;
+  document.getElementById("foot").textContent = T.foot;
+
+  const rows = data.categories.flatMap((c) => c.rows.map((r) => {
+    const i = r.issue && live?.get(r.issue);
+    return { ...r, cat: c, live: i, state: i && i.state === "closed" && (r.status === "missing" || r.status === "partial") ? "done" : r.status };
+  }));
+  const n = (s) => rows.filter((r) => r.state === s).length;
+  const at = n("ahead") + n("parity") + n("done");
+  const gaps = rows.filter((r) => r.status === "missing" || r.status === "partial").length;
+  document.getElementById("kpis").innerHTML = [
+    [rows.length, T.kTotal], [`${Math.round((at / rows.length) * 100)} %`, T.kAt], [n("partial") + n("missing"), T.kLeft], [`${n("done")} / ${gaps}`, T.kDone],
+  ].map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join("");
+  const meter = document.getElementById("meter");
+  meter.innerHTML = ["ahead", "parity", "done", "partial", "missing"].map((s) => `<i class="s-${s}" style="width:${(n(s) / rows.length) * 100}%;background:currentColor" title="${T[s]}: ${n(s)}"></i>`).join("");
+  meter.setAttribute("aria-label", ["ahead", "parity", "done", "partial", "missing"].map((s) => `${T[s]} ${n(s)}`).join(", "));
+
+  // Roadmap: the milestones of the parity issues, in version order, with what each closes.
+  const byMs = new Map();
+  for (const [num, i] of live || []) if (i.milestone) (byMs.get(i.milestone) || byMs.set(i.milestone, []).get(i.milestone)).push({ num, ...i });
+  document.getElementById("milestones").innerHTML = [...byMs.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((m) => {
+    const list = byMs.get(m).sort((a, b) => a.num - b.num);
+    const closed = list.filter((i) => i.state === "closed").length;
+    return `<div class="ms"><h3>${esc(m)}</h3><div class="meter"><i class="s-done" style="width:${(closed / list.length) * 100}%;background:currentColor"></i></div>
+      <span class="muted" style="font-size:13px">${fmt(T.progress, { c: closed, t: list.length })}</span>
+      <ul>${list.map((i) => `<li class="${i.state}"><a href="${i.url}">#${i.num}</a> ${esc(i.title)}</li>`).join("")}</ul></div>`;
+  }).join("") || `<p class="muted">${T.offline}</p>`;
+
+  // The matrix, filterable by state.
+  let filter = "all";
+  const filters = document.getElementById("filters");
+  const draw = () => {
+    filters.innerHTML = ["all", "ahead", "parity", "done", "partial", "missing"].map((s) => `<button type="button" data-s="${s}" aria-pressed="${s === filter}">${s === "all" ? T.all : SHAPE[s] + " " + T[s]} (${s === "all" ? rows.length : n(s)})</button>`).join("");
+    document.getElementById("matrix").innerHTML = data.categories.map((c) => {
+      const shown = rows.filter((r) => r.cat === c && (filter === "all" || r.state === filter));
+      if (!shown.length) return "";
+      return `<div><h3 style="margin:0 0 8px;font-size:16px">${esc(c[lang])}</h3><div class="wrap"><table><thead><tr><th>${T.feat}</th><th class="pve">${T.pve}</th><th>${T.hl}</th><th>${T.st}</th><th>${T.is}</th></tr></thead><tbody>${
+        shown.map((r) => `<tr><td class="feat">${esc(r[lang])}</td><td class="pve">${esc(r.pve)}</td><td>${esc(r.hl)}</td><td>${chip(r.state)}</td><td class="issue">${r.issue ? `<a href="https://github.com/${REPO}/issues/${r.issue}">#${r.issue}</a>${r.live ? ` · ${r.live.milestone ? esc(r.live.milestone) + " · " : ""}${r.live.state === "closed" ? T.closed : T.open}` : ""}` : ""}</td></tr>`).join("")
+      }</tbody></table></div></div>`;
+    }).join("");
+  };
+  filters.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { filter = b.dataset.s; draw(); } });
+  draw();
+}
+main();
+</script>
+</body>
+</html>
