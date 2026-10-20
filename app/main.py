@@ -84,6 +84,16 @@ from app.routers.workstation import pages as workstation_pages
 from app.routers.workstation import router as workstation_router
 
 logger = logging.getLogger(__name__)
+# Hyperlite's own messages, INFO included, go to the service journal: without a handler only warnings did (Python's
+# last resort), so "Replication resumed" or "the configuration is written with the names of API v1" never showed.
+# Few INFO messages, none in a loop. Uvicorn keeps its own loggers.
+_app_log = logging.getLogger("app")
+if not _app_log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    _app_log.addHandler(_handler)
+    _app_log.setLevel(logging.INFO)
+    _app_log.propagate = False
 
 
 @asynccontextmanager

@@ -51,6 +51,14 @@ def valid_iso_name(name):
     return bool(name) and Path(name).name == name and _ISO_NAME.match(name) is not None
 
 
+def _iso_path(name):
+    """The path of an image in the library, for a name checked here and not only by the callers: a path built from
+    a name such as "../x" would leave the library, here and over SSH on the other nodes."""
+    if not valid_iso_name(name):
+        raise ValueError(f"Invalid ISO name '{name}'")
+    return isos_dir() / name
+
+
 def _target(node):
     return f"{node['ssh_user']}@{node['hostname']}"
 
@@ -145,10 +153,12 @@ def resolve_node(node_id):
 
 def iso_size(node, name):
     """Size in bytes of an image in a node's library, None if it is not there."""
+    if not valid_iso_name(name):
+        return None
     if node is None:
-        p = isos_dir() / name
+        p = _iso_path(name)
         return p.stat().st_size if p.is_file() else None
-    r = _ssh(node, ["stat", "-c", "%s", str(isos_dir() / name)], LIST_TIMEOUT_S)
+    r = _ssh(node, ["stat", "-c", "%s", str(_iso_path(name))], LIST_TIMEOUT_S)
     if r.returncode != 0:
         return None
     try:
@@ -171,7 +181,7 @@ def _watch_progress(task_id, node, part_path, total, done):
 
 
 def _copy(name, source, target, task_id, total):
-    final = isos_dir() / name
+    final = _iso_path(name)
     part = isos_dir() / f".{name}{PART_SUFFIX}"
     relay = None
     done = threading.Event()
@@ -272,6 +282,6 @@ def start_copy(name, source_id, target_ids, username, after=None):
 
 
 def delete_remote(node, name):
-    r = _ssh(node, ["rm", "-f", "--", str(isos_dir() / name)], LIST_TIMEOUT_S)
+    r = _ssh(node, ["rm", "-f", "--", str(_iso_path(name))], LIST_TIMEOUT_S)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip()[:300] or "deletion failed")

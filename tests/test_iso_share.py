@@ -175,3 +175,12 @@ def test_an_image_can_be_deleted_on_a_remote_node(cluster, client, auth_headers,
     assert not (lib / "ubuntu.iso").exists()
     assert opened == ["antho"]  # the in-use check reads that node's own VMs
     assert client.delete("/isos/ubuntu.iso?node=ghost&confirm=true", headers=headers).status_code == 404
+
+
+def test_a_name_that_would_leave_the_library_never_becomes_a_path(cluster):
+    from app.core import iso_share
+
+    for name in ("../x.iso", "/etc/passwd", "a/b.iso", ""):
+        assert iso_share.iso_size(None, name) is None
+        with pytest.raises(ValueError):
+            iso_share.delete_remote({"ssh_user": "root", "hostname": "n"}, name)
