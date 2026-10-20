@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Going back to a version before 1.0 is no longer offered**: the update dialog proposed it after the update to 1.0, but 1.0 renamed the database and the cluster's configuration (API v1), which a dated version cannot read, and the return reinstalls the package only. The update to 1.0 keeps no dated package. The dialog's buttons wrap instead of overflowing its left edge.
+
 ## [1.0.0] - 2026-10-20
 
 ### Added

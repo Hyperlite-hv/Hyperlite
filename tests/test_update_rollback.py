@@ -93,3 +93,47 @@ def test_a_version_that_cannot_be_kept_leaves_no_older_one_offered(node, monkeyp
     assert list(update.PREVIOUS_DIR.glob("hyperlite_*.deb")) == []
     assert update._previous() is None
     assert any("will not be offered" in line for line in node["logs"])
+
+
+def test_no_return_below_1_0_once_on_it(node, client, auth_headers, monkeypatch):
+    """1.0 renamed the database and the cluster's configuration (API v1): a dated version kept by the update to 1.0
+    is never offered, nor installed, since it could not read them."""
+    monkeypatch.setattr(
+        update,
+        "_run_c",
+        lambda cmd, **k: subprocess.CompletedProcess(
+            cmd, 0, "2026.10.19.0616\n" if cmd[:2] == ["dpkg-deb", "-f"] else "1:1.0.0", ""
+        ),
+    )
+    monkeypatch.setattr(update, "_raw_installed_version", lambda: "1:1.0.0")
+    update.PREVIOUS_DIR.mkdir(parents=True)
+    (update.PREVIOUS_DIR / "hyperlite_2026.10.19.0616_amd64.deb").write_text("deb")
+    assert update._previous() is None
+    assert client.post("/update/rollback", headers=auth_headers("root")).status_code == 409
+    assert not [c for c in node["run"] if c[:2] == ["apt-get", "install"]]
+
+
+def test_the_update_to_1_0_keeps_no_dated_package(node, monkeypatch):
+    monkeypatch.setattr(update, "_raw_installed_version", lambda: "2026.10.19.0616")
+    monkeypatch.setattr(update, "_raw_candidate_version", lambda: "1:1.0.0")
+    update.PREVIOUS_DIR.mkdir(parents=True)
+    (update.PREVIOUS_DIR / "hyperlite_2026.10.18.2047_amd64.deb").write_text("kept by an earlier update")
+    update._keep_previous("t1")
+    assert list(update.PREVIOUS_DIR.glob("hyperlite_*.deb")) == []
+    assert not [c for c in node["run"] if c[:2] == ["apt-get", "download"]]
+
+
+@pytest.mark.parametrize(
+    ("value", "dated"),
+    [
+        ("2026.10.19.0616", True),
+        ("1:1.0.0", False),
+        ("1.0.1~test.20261020.2039", False),
+        ("2.3.4", False),
+        (None, True),
+    ],
+)
+def test_dated_versions_are_told_apart(value, dated):
+    from app.core import version
+
+    assert version.dated(value) is dated
