@@ -96,6 +96,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- The package repository keeps the 8 newest stable releases and the 3 newest test builds instead of every version ever published: it had reached 2.1 GB, twice what GitHub Pages serves. A downgrade stays possible to any of those 8 releases. A version is published only once the CI has passed on its very commit.
+
 - Faster with many VMs: one reading of a node's VMs serves the VM list and the network list for the requests of the same moment, answers are gzip-compressed (the VM list of 1,000 VMs went from 261 to 27 kB), and the dashboard loads only the language shown. Measured on a node with 1,000 VMs: network list 0.17 s → 0.009 s, VM list p95 with five tabs open 0.37 s → 0.27 s. (#385, #389)
 - A VM (or a Kubernetes node) gets at most as many vCPUs as its host has CPU threads, as on Proxmox; the VMs together may still exceed them. (#368)
 - `corosync` and `unattended-upgrades` are package dependencies; Debian's sample corosync configuration (unencrypted) stays stopped until a cluster is created. (#380, #394)

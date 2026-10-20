@@ -11,12 +11,17 @@ GIT_ENV = {
     "GIT_COMMITTER_NAME": "t",
     "GIT_COMMITTER_EMAIL": "t@example.test",
 }
+# Both suites, as installer/build-apt-repo.sh writes them at every publication.
 INDEX_FILES = {
-    "dists/stable/Release": "release",
-    "dists/stable/InRelease": "inrelease",
-    "dists/stable/Release.gpg": "gpg",
-    "dists/stable/main/binary-amd64/Packages": "packages",
-    "dists/stable/main/binary-amd64/Packages.gz": "packagesgz",
+    f"dists/{suite}/{name}": f"{suite}-{base}"
+    for suite in ("stable", "test")
+    for name, base in {
+        "Release": "release",
+        "InRelease": "inrelease",
+        "Release.gpg": "gpg",
+        "main/binary-amd64/Packages": "packages",
+        "main/binary-amd64/Packages.gz": "packagesgz",
+    }.items()
 }
 
 
@@ -73,8 +78,8 @@ def test_a_second_publication_with_identical_sizes_still_updates_everything(tmp_
     for generation in ("2", "3"):
         _write_repo(built, generation)
         _run(["bash", str(SCRIPT), str(built), str(remote), f"v{generation}", "abc"])
-    assert _published(remote, "dists/stable/Release") == "release-3\n"
-    assert _published(remote, "dists/stable/InRelease") == "inrelease-3\n"
+    assert _published(remote, "dists/stable/Release") == "stable-release-3\n"
+    assert _published(remote, "dists/stable/InRelease") == "stable-inrelease-3\n"
 
 
 def test_nothing_is_committed_when_nothing_changed(tmp_path):
@@ -92,7 +97,7 @@ def test_a_relative_source_path_is_accepted(tmp_path):
     _write_repo(built, "2")
     result = _run(["bash", str(SCRIPT), "apt-repo", str(remote), "v2", "abc"], cwd=tmp_path)
     assert "verified" in result.stdout
-    assert _published(remote, "dists/stable/Release") == "release-2\n"
+    assert _published(remote, "dists/stable/Release") == "stable-release-2\n"
 
 
 def test_it_commits_even_when_git_has_no_identity(tmp_path):
@@ -109,4 +114,33 @@ def test_it_commits_even_when_git_has_no_identity(tmp_path):
         ["bash", str(SCRIPT), str(built), str(remote), "v2", "abc"], env=env, capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
-    assert _published(remote, "dists/stable/Release") == "release-2\n"
+    assert _published(remote, "dists/stable/Release") == "stable-release-2\n"
+
+
+def test_a_clone_already_made_is_published_without_cloning_again(tmp_path):
+    remote = _make_remote(tmp_path)
+    clone = tmp_path / "clone"
+    _run(["git", "clone", "-q", "--depth", "1", "--branch", "gh-pages", f"file://{remote}", str(clone)])
+    built = tmp_path / "apt-repo"
+    _write_repo(built, "2")
+    result = _run(["bash", str(SCRIPT), str(built), "/nonexistent/remote.git", "v2", "abc", str(clone)])
+    assert "verified" in result.stdout
+    assert _published(remote, "dists/test/InRelease") == "test-inrelease-2\n"
+
+
+def test_a_clone_that_fell_behind_the_mirror_is_refused_not_forced(tmp_path):
+    remote = _make_remote(tmp_path)
+    clone = tmp_path / "clone"
+    _run(["git", "clone", "-q", "--branch", "gh-pages", f"file://{remote}", str(clone)])
+    built = tmp_path / "apt-repo"
+    _write_repo(built, "2")
+    _run(["bash", str(SCRIPT), str(built), str(remote), "v2", "abc"])  # another publication, meanwhile
+    _write_repo(built, "3")
+    result = subprocess.run(
+        ["bash", str(SCRIPT), str(built), str(remote), "v3", "abc", str(clone)],
+        env={**os.environ, **GIT_ENV},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert _published(remote, "dists/stable/Release") == "stable-release-2\n"
