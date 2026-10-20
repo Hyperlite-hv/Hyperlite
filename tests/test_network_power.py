@@ -82,7 +82,7 @@ def conn(database, monkeypatch):
 def test_a_stopped_network_can_be_started_and_set_to_start_at_boot(conn, client, auth_headers):
     admin = auth_headers("admin")
     r = client.post("/networks/default/start", headers=admin)
-    assert r.status_code == 200 and r.json()["actif"] is True
+    assert r.status_code == 200 and r.json()["active"] is True
     r = client.put("/networks/default/autostart", json={"autostart": True}, headers=admin)
     assert r.status_code == 200 and r.json()["autostart"] is True
     assert client.post("/networks/default/start", headers=admin).status_code == 200  # already running: no error
@@ -99,11 +99,11 @@ def test_stopping_names_the_running_vms_and_needs_a_confirmation(conn, client, a
     assert r.status_code == 400 and "web" in r.text and "db" not in r.text
     assert conn.nets["lan"].active
     r = client.post("/networks/lan/stop?confirm=true", headers=admin)
-    assert r.status_code == 200 and r.json()["actif"] is False
+    assert r.status_code == 200 and r.json()["active"] is False
 
 
 def test_only_administrators_change_a_network_and_unknown_ones_are_404(conn, client, auth_headers):
-    viewer = auth_headers("viewer", role="observateur")
+    viewer = auth_headers("viewer", role="viewer")
     assert client.post("/networks/default/start", headers=viewer).status_code == 403
     assert client.put("/networks/default/autostart", json={"autostart": True}, headers=viewer).status_code == 403
     assert client.post("/networks/ghost/start", headers=auth_headers("admin")).status_code == 404

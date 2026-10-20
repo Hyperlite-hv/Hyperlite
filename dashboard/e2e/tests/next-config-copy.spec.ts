@@ -1,5 +1,5 @@
 import type { Route } from "@playwright/test";
-import { ADMIN, apiLogin, expect, test } from "../support/fixtures";
+import { ADMIN, apiLogin, expect, test, apiRoute } from "../support/fixtures";
 
 // Configuration copy on the Nodes page. The CI host has no second node, so the node list and the copies are
 // stand-ins; the real backend is only asked for its (empty) copy status. The copy itself (snapshot, transfer,
@@ -17,24 +17,24 @@ test("the real backend answers the copy status", async ({ request }) => {
 
 test("each node shows its last copy, a failure its reason, and Copy now sends it again", async ({ page }) => {
   let copies = [
-    { node: "peer", copie_le: new Date(Date.now() - 120_000).toISOString(), statut: "ok", taille: 81920, empreinte: "x", erreur: null },
-    { node: "far", copie_le: new Date().toISOString(), statut: "echec", taille: null, empreinte: null, erreur: "Copy failed: Connection refused" },
+    { node: "peer", copied_at: new Date(Date.now() - 120_000).toISOString(), status: "ok", size: 81920, fingerprint: "x", error: null },
+    { node: "far", copied_at: new Date().toISOString(), status: "failed", size: null, fingerprint: null, error: "Copy failed: Connection refused" },
   ];
   let posted = 0;
   await page.route(/\/nodes(\/.*)?(\?.*)?$/, async (route) => {
     const req = route.request();
     if (req.resourceType() === "document") return route.fallback();
-    const path = new URL(req.url()).pathname;
+    const path = apiRoute(req.url());
     if (req.method() === "GET" && /\/nodes$/.test(path)) return json(route, [
-      { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, statut: "en_ligne" },
-      { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, statut: "en_ligne" },
+      { id: 9, name: "peer", hostname: "peer.example", ssh_user: "root", ssh_port: 22, status: "online" },
+      { id: 10, name: "far", hostname: "far.example", ssh_user: "root", ssh_port: 22, status: "online" },
     ]);
-    if (req.method() === "GET" && /\/nodes\/(peer|far)\/summary$/.test(path)) return json(route, { connecte: true, vms_actives: 0, vms_arretees: 0 });
+    if (req.method() === "GET" && /\/nodes\/(peer|far)\/summary$/.test(path)) return json(route, { connected: true, vms_running: 0, vms_stopped: 0 });
     if (/\/nodes\/config-copy$/.test(path)) {
       if (req.method() === "POST") {
         posted += 1;
-        copies = copies.map((c) => ({ ...c, statut: "ok", erreur: null, copie_le: new Date().toISOString() }));
-        return json(route, { resultats: [{ node: "peer", statut: "ok" }, { node: "far", statut: "ok" }], copies });
+        copies = copies.map((c) => ({ ...c, status: "ok", error: null, copied_at: new Date().toISOString() }));
+        return json(route, { results: [{ node: "peer", status: "ok" }, { node: "far", status: "ok" }], copies });
       }
       return json(route, copies);
     }

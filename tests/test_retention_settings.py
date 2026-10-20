@@ -74,7 +74,7 @@ def test_the_retention_is_set_and_checked_through_the_api(logs, client, auth_hea
     assert audit.retention_days() == 180  # the setting wins over the environment's value
     assert client.put("/audit/retention", json={"access_log_days": -1}, headers=admin).status_code == 422
     assert client.put("/audit/retention", json={"audit_days": 99999}, headers=admin).status_code == 422
-    observer = auth_headers("eve", role="observateur")
+    observer = auth_headers("eve", role="viewer")
     assert client.put("/audit/retention", json={"audit_days": 1}, headers=observer).status_code == 403
 
 
@@ -84,7 +84,7 @@ def test_the_audit_purge_follows_the_setting(database):
     with database.get_conn() as db:
         for days_ago in (5, 40):
             db.execute(
-                "INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES (?, 'bob', 'x', 'y', 'succes')",
+                "INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES (?, 'bob', 'x', 'y', 'success')",
                 ((datetime.now(UTC) - timedelta(days=days_ago)).isoformat(),),
             )
         db.commit()

@@ -45,14 +45,14 @@ def test_upgradable_packages_are_parsed_with_security_flag(host):
     (host["tmp"] / "reboot_pkgs").write_text("linux-image-6.1\nlibc6\nlibc6\n")
     u = hs.updates(refresh=True)
     assert host["calls"][0] == ["apt-get", "update"]
-    assert [(p["nom"], p["securite"]) for p in u["paquets"]] == [
+    assert [(p["name"], p["security"]) for p in u["packages"]] == [
         ("base-files", False),
         ("openssl", True),
         ("libvirt0", True),
         ("hyperlite", False),
     ]
-    assert u["paquets"][1]["depuis"] == "3.0.13-0ubuntu3.5"
-    assert (u["redemarrage_requis"], u["paquets_redemarrage"]) == (True, ["libc6", "linux-image-6.1"])
+    assert u["packages"][1]["since"] == "3.0.13-0ubuntu3.5"
+    assert (u["restart_required"], u["packages_needing_restart"]) == (True, ["libc6", "linux-image-6.1"])
 
 
 def test_upgrade_names_the_packages_and_leaves_hyperlite_out(host, monkeypatch):
@@ -73,7 +73,7 @@ def test_upgrade_names_the_packages_and_leaves_hyperlite_out(host, monkeypatch):
 def test_dns_follows_who_manages_resolv_conf(host):
     resolv = host["tmp"] / "resolv_conf"
     resolv.write_text("nameserver 1.1.1.1\nsearch lan\n")
-    assert hs.dns() == {"gere_par": "fichier", "modifiable": True, "serveurs": ["1.1.1.1"], "recherche": ["lan"]}
+    assert hs.dns() == {"managed_by": "file", "modifiable": True, "servers": ["1.1.1.1"], "search": ["lan"]}
     hs.set_dns(["9.9.9.9", "2620:fe::fe"], ["example.org"])
     assert resolv.read_text().endswith("nameserver 9.9.9.9\nnameserver 2620:fe::fe\nsearch example.org\n")
 
@@ -86,7 +86,7 @@ def test_dns_follows_who_manages_resolv_conf(host):
     hs.set_dns(["9.9.9.9"], [])
     assert (host["tmp"] / "resolved_dropin").read_text().endswith("[Resolve]\nDNS=9.9.9.9\n")
     assert host["calls"][-1] == ["systemctl", "restart", "systemd-resolved"]
-    assert hs.dns()["serveurs"] == ["9.9.9.9"]
+    assert hs.dns()["servers"] == ["9.9.9.9"]
 
     for servers, search, message in [
         ([], [], "At least one"),
@@ -114,9 +114,9 @@ def test_time_zone_is_checked_against_the_system_list(host):
 def test_remote_syslog_drop_in(host):
     hs.set_syslog("logs.example.org", 6514, "tcp")
     assert (host["tmp"] / "rsyslog_dropin").read_text().endswith("*.* @@logs.example.org:6514\n")
-    assert hs.syslog()["cible"] == {"hote": "logs.example.org", "port": 6514, "protocole": "tcp"}
+    assert hs.syslog()["target"] == {"host": "logs.example.org", "port": 6514, "protocol": "tcp"}
     hs.set_syslog("2001:db8::5", 514, "udp")
-    assert hs.syslog()["cible"] == {"hote": "2001:db8::5", "port": 514, "protocole": "udp"}
+    assert hs.syslog()["target"] == {"host": "2001:db8::5", "port": 514, "protocol": "udp"}
     for host_, port, proto, message in [
         ("a b", 514, "udp", "Invalid syslog"),
         ("logs", 0, "udp", "port"),
@@ -125,7 +125,7 @@ def test_remote_syslog_drop_in(host):
         with pytest.raises(hs.SettingError, match=message):
             hs.set_syslog(host_, port, proto)
     hs.set_syslog(None, 514, "udp")
-    assert hs.syslog()["cible"] is None
+    assert hs.syslog()["target"] is None
 
 
 def test_api_is_admin_only_and_starts_one_upgrade_task(client, auth_headers, host, monkeypatch):
@@ -136,8 +136,8 @@ def test_api_is_admin_only_and_starts_one_upgrade_task(client, auth_headers, hos
 
     host["answers"][("apt", "list")] = APT_LIST
     admin = auth_headers("root", "admin")
-    assert client.get("/host/system/updates", headers=auth_headers("watcher", "observateur")).status_code == 403
-    assert len(client.get("/host/system/updates", headers=admin).json()["paquets"]) == 4
+    assert client.get("/host/system/updates", headers=auth_headers("watcher", "viewer")).status_code == 403
+    assert len(client.get("/host/system/updates", headers=admin).json()["packages"]) == 4
 
     release = threading.Event()
 
@@ -148,18 +148,18 @@ def test_api_is_admin_only_and_starts_one_upgrade_task(client, auth_headers, hos
         return 0
 
     monkeypatch.setattr(hs, "run_upgrade", fake_run)
-    r = client.post("/host/system/updates/upgrade", json={"paquets": ["openssl"]}, headers=admin)
+    r = client.post("/host/system/updates/upgrade", json={"packages": ["openssl"]}, headers=admin)
     assert r.status_code == 202
-    assert client.post("/host/system/updates/upgrade", json={"paquets": ["openssl"]}, headers=admin).status_code == 409
+    assert client.post("/host/system/updates/upgrade", json={"packages": ["openssl"]}, headers=admin).status_code == 409
     release.set()
     for _ in range(50):
-        if tasks.task_status(r.json()["tache"]) == "termine":
+        if tasks.task_status(r.json()["task"]) == "succeeded":
             break
         threading.Event().wait(0.05)
-    assert tasks.task_status(r.json()["tache"]) == "termine"
-    assert any("Setting up openssl" in line["message"] for line in tasks.get_task_log(r.json()["tache"]))
+    assert tasks.task_status(r.json()["task"]) == "succeeded"
+    assert any("Setting up openssl" in line["message"] for line in tasks.get_task_log(r.json()["task"]))
     assert not router._upgrade_lock.locked()
-    assert client.put("/host/system/dns", json={"serveurs": ["nope"]}, headers=admin).status_code == 422
+    assert client.put("/host/system/dns", json={"servers": ["nope"]}, headers=admin).status_code == 422
 
 
 def test_power_needs_the_typed_name_and_stops_guests_first(client, auth_headers, monkeypatch):
@@ -170,7 +170,7 @@ def test_power_needs_the_typed_name_and_stops_guests_first(client, auth_headers,
 
     admin = auth_headers("root", "admin")
     monkeypatch.setattr(router.socket, "gethostname", lambda: "hv1")
-    monkeypatch.setattr(hs, "running_guests", lambda: [("vm", "web"), ("conteneur", "ct1")])
+    monkeypatch.setattr(hs, "running_guests", lambda: [("vm", "web"), ("container", "ct1")])
     scheduled, stopped = [], []
     monkeypatch.setattr(hs, "schedule_power", lambda action: scheduled.append(action))
 
@@ -185,27 +185,25 @@ def test_power_needs_the_typed_name_and_stops_guests_first(client, auth_headers,
         ).status_code
         == 422
     )
-    assert (
-        client.post("/host/system/power", json=body, headers=auth_headers("watcher", "observateur")).status_code == 403
-    )
+    assert client.post("/host/system/power", json=body, headers=auth_headers("watcher", "viewer")).status_code == 403
 
     def wait(task_id):
         for _ in range(100):
-            if tasks.task_status(task_id) != "en_cours":
+            if tasks.task_status(task_id) != "running":
                 return tasks.task_status(task_id)
             threading.Event().wait(0.02)
 
     monkeypatch.setattr(hs, "stop_guests", lambda guests, log: stopped.append(guests) or ["web"])
     r = client.post(
-        "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "arreter_invites": True}, headers=admin
+        "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "stop_guests": True}, headers=admin
     )
-    assert r.status_code == 202 and wait(r.json()["tache"]) == "echec" and scheduled == []
+    assert r.status_code == 202 and wait(r.json()["task"]) == "failed" and scheduled == []
 
     monkeypatch.setattr(hs, "stop_guests", lambda guests, log: [])
     r = client.post(
-        "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "arreter_invites": True}, headers=admin
+        "/host/system/power", json={"action": "poweroff", "confirmation": "hv1", "stop_guests": True}, headers=admin
     )
-    assert wait(r.json()["tache"]) == "termine" and scheduled == ["poweroff"]
+    assert wait(r.json()["task"]) == "succeeded" and scheduled == ["poweroff"]
 
 
 def test_power_is_scheduled_outside_the_service(host, monkeypatch):

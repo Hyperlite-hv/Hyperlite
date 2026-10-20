@@ -3,7 +3,7 @@
 The web terminal of a system container goes through SSH as its user; an application (Docker) container has no SSH
 server and often no account at all. This shell enters the container's namespaces from the host (nsenter, on the
 process libvirt started as the container's PID 1), so it works for both kinds and needs nothing in the container
-but a shell: bash when the image has one, else sh. A distroless image has neither, and says so in the terminal.
+purpose a shell: bash when the image has one, else sh. A distroless image has neither, and says so in the terminal.
 
 It is root inside the container with the host's capabilities (libvirt's LXC driver starts containers without a user
 namespace), which is why only administrators may open it, like the host shell.

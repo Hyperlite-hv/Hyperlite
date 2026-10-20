@@ -1,21 +1,21 @@
 // Display labels for the backend wire values (French identifiers kept as-is on
 // the API; only what the user reads is translated here).
 const STATUS = {
-  en_cours: "Running",
-  termine: "Completed",
-  echec: "Failed",
-  succes: "Success",
+  running: "Running",
+  succeeded: "Completed",
+  failed: "Failed",
+  success: "Success",
 };
 
 const FREQUENCY = {
-  quotidien: "daily",
-  hebdomadaire: "weekly",
-  mensuel: "monthly",
+  daily: "daily",
+  weekly: "weekly",
+  monthly: "monthly",
 };
 
 const BACKUP_MODE = {
-  chaud: "hot",
-  froid: "cold",
+  live: "hot",
+  cold: "cold",
 };
 
 export const statusLabel = (v) => STATUS[v] ?? v;

@@ -13,11 +13,11 @@ class _Domain:
 
 
 def test_deleting_a_vm_removes_its_backup_schedule(database):
-    backup_service.set_schedule("web", "quotidien", "02:00", "/srv/b", 7, None, None, None, "2030-01-01T02:00:00")
-    backup_service.set_schedule("db", "quotidien", "02:00", "/srv/b", 7, None, None, None, "2030-01-01T02:00:00")
+    backup_service.set_schedule("web", "daily", "02:00", "/srv/b", 7, None, None, None, "2030-01-01T02:00:00")
+    backup_service.set_schedule("db", "daily", "02:00", "/srv/b", 7, None, None, None, "2030-01-01T02:00:00")
     with database.get_conn() as conn:
         conn.execute(
-            "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('web', '/srv/b/web/1', 'froid', 'x', 'termine')"
+            "INSERT INTO backups (vm_name, path, mode, created_at, status) VALUES ('web', '/srv/b/web/1', 'cold', 'x', 'succeeded')"
         )
         conn.commit()
     domain = _Domain()
@@ -36,7 +36,7 @@ def test_the_vm_directory_goes_with_its_last_backup(database, tmp_path):
         (tmp_path / "web" / stamp / "sda.qcow2").write_text("x")
         with database.get_conn() as conn:
             cur = conn.execute(
-                "INSERT INTO backups (vm_name, chemin, mode, cree_le, statut) VALUES ('web', ?, 'froid', 'x', 'termine')",
+                "INSERT INTO backups (vm_name, path, mode, created_at, status) VALUES ('web', ?, 'cold', 'x', 'succeeded')",
                 (str(tmp_path / "web" / stamp),),
             )
             conn.commit()

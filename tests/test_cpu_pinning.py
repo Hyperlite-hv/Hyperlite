@@ -88,10 +88,10 @@ def test_the_topology_lists_online_cpus_with_their_cell_and_hyperthread_siblings
     topo = cpu_pinning.host_topology(FakeConn())
     assert [c["id"] for c in topo["cpus"]] == [0, 1, 2, 3, 4, 5, 6, 7]
     cpu2 = next(c for c in topo["cpus"] if c["id"] == 2)
-    assert cpu2 == {"id": 2, "socket": 1, "coeur": 0, "cellule": 1, "freres": [2, 6]}
-    assert topo["cellules"] == [
-        {"id": 0, "cpus": "0-1,4-5", "memoire_mo": 8192},
-        {"id": 1, "cpus": "2-3,6-7", "memoire_mo": 8192},
+    assert cpu2 == {"id": 2, "socket": 1, "core": 0, "cell": 1, "siblings": [2, 6]}
+    assert topo["cells"] == [
+        {"id": 0, "cpus": "0-1,4-5", "memory_mb": 8192},
+        {"id": 1, "cpus": "2-3,6-7", "memory_mb": 8192},
     ]
 
 
@@ -100,7 +100,7 @@ def test_the_topology_lists_online_cpus_with_their_cell_and_hyperthread_siblings
     [
         ("8", False, "no CPU 8"),
         ("0-9", False, "no CPU 8-9"),
-        ("2", True, "2 vCPUs but only 1 CPUs"),
+        ("2", True, "2 vCPUs purpose only 1 CPUs"),
         (None, True, "needs a list"),
     ],
 )
@@ -112,15 +112,15 @@ def test_requests_the_host_cannot_honour_are_refused(cpuset, strict, text):
 
 def test_the_memory_follows_the_cpus_only_when_they_sit_in_one_cell_of_a_multi_cell_host():
     topo = cpu_pinning.host_topology(FakeConn())
-    assert cpu_pinning.plan(topo, 2, "2-3", False)["numa_cellule"] == 1
-    assert cpu_pinning.plan(topo, 2, "1-2", False)["numa_cellule"] is None  # spans both cells
+    assert cpu_pinning.plan(topo, 2, "2-3", False)["numa_cell"] == 1
+    assert cpu_pinning.plan(topo, 2, "1-2", False)["numa_cell"] is None  # spans both cells
     single = cpu_pinning.host_topology(FakeConn(SINGLE_CELL))
-    assert cpu_pinning.plan(single, 2, "0-1", False)["numa_cellule"] is None
+    assert cpu_pinning.plan(single, 2, "0-1", False)["numa_cell"] is None
 
 
 def test_the_xml_is_written_read_back_and_removed():
     root = ET.fromstring(DOMAIN)
-    cpu_pinning.apply_to_xml(root, 2, {"cpus": [2, 3], "strict": True, "numa_cellule": 1})
+    cpu_pinning.apply_to_xml(root, 2, {"cpus": [2, 3], "strict": True, "numa_cell": 1})
     assert root.find("vcpu").get("cpuset") == "2-3"
     assert [(p.get("vcpu"), p.get("cpuset")) for p in root.findall("cputune/vcpupin")] == [("0", "2"), ("1", "3")]
     assert root.find("cputune/emulatorpin").get("cpuset") == "2-3"
@@ -130,10 +130,10 @@ def test_the_xml_is_written_read_back_and_removed():
         def XMLDesc(self, flags):
             return ET.tostring(root, encoding="unicode")
 
-    assert cpu_pinning.read(Dom()) == {"cpuset": "2-3", "strict": True, "numa_cellule": 1}
-    cpu_pinning.apply_to_xml(root, 2, {"cpus": None, "strict": False, "numa_cellule": None})
+    assert cpu_pinning.read(Dom()) == {"cpuset": "2-3", "strict": True, "numa_cell": 1}
+    cpu_pinning.apply_to_xml(root, 2, {"cpus": None, "strict": False, "numa_cell": None})
     assert root.find("cputune") is None and root.find("numatune") is None and "cpuset" not in root.find("vcpu").attrib
-    assert cpu_pinning.read(Dom()) == {"cpuset": None, "strict": False, "numa_cellule": None}
+    assert cpu_pinning.read(Dom()) == {"cpuset": None, "strict": False, "numa_cell": None}
 
 
 @pytest.fixture()
@@ -147,8 +147,8 @@ def test_the_endpoint_pins_a_stopped_vm_and_reports_the_host_topology(api):
     r = api["client"].put("/vms/vm1/cpu-pinning", json={"cpuset": "2-3", "strict": True}, headers=api["headers"])
     assert r.status_code == 200, r.text
     body = r.json()
-    assert (body["cpuset"], body["strict"], body["numa_cellule"], body["redemarrage_requis"]) == ("2-3", True, 1, False)
-    assert len(body["topologie"]["cpus"]) == 8
+    assert (body["cpuset"], body["strict"], body["numa_cell"], body["restart_required"]) == ("2-3", True, 1, False)
+    assert len(body["topology"]["cpus"]) == 8
     assert '<vcpupin vcpu="0" cpuset="2"' in api["conn"].domain.xml
     assert api["conn"].domain.live == {}  # stopped: nothing to pin live
 
@@ -160,7 +160,7 @@ def test_a_running_vm_is_pinned_at_once_and_told_when_its_memory_needs_a_restart
     api["conn"].domain.active = True
     body = api["client"].put("/vms/vm1/cpu-pinning", json={"cpuset": "2-3"}, headers=api["headers"]).json()
     assert api["conn"].domain.live == {0: [2, 3], 1: [2, 3], "emulator": [2, 3]}
-    assert body["redemarrage_requis"] is True  # the memory moves to cell 1 at the next start
+    assert body["restart_required"] is True  # the memory moves to cell 1 at the next start
     body = api["client"].put("/vms/vm1/cpu-pinning", json={"cpuset": None}, headers=api["headers"]).json()
     assert api["conn"].domain.live[0] == list(range(9)) and body["cpuset"] is None
 
@@ -175,5 +175,5 @@ def test_invalid_requests_come_back_as_422_without_touching_the_vm(api):
 
 
 def test_an_observer_cannot_pin(api, auth_headers):
-    headers = auth_headers("watcher", role="observateur")
+    headers = auth_headers("watcher", role="viewer")
     assert api["client"].put("/vms/vm1/cpu-pinning", json={"cpuset": "2"}, headers=headers).status_code == 403

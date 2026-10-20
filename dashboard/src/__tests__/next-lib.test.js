@@ -21,31 +21,31 @@ describe("error normalisation", () => {
 describe("derived alerts", () => {
   it("flags crashed VMs, offline nodes, full pools and failed tasks; sorted by severity", () => {
     const alerts = deriveAlerts({
-      nodes: [{ id: "n", nom: "n", etat: "erreur" }],
-      vms: [{ nom: "a", node: "local", etat: "plante" }, { nom: "b", node: "local", etat: "bloque" }, { nom: "c", node: "local", etat: "actif" }],
-      storagePools: [{ nom: "tank", node: "local", etat: "actif", capacite_go: 100, disponible_go: 5 }, { nom: "ok", node: "local", etat: "actif", capacite_go: 100, disponible_go: 90 }],
-      tasks: [{ id: 1, statut: "echec", type: "backup_vm", cible: "a", erreur: "no space" }],
+      nodes: [{ id: "n", name: "n", state: "error" }],
+      vms: [{ name: "a", node: "local", state: "crashed" }, { name: "b", node: "local", state: "blocked" }, { name: "c", node: "local", state: "active" }],
+      storagePools: [{ name: "tank", node: "local", state: "active", capacity_gb: 100, available_gb: 5 }, { name: "ok", node: "local", state: "active", capacity_gb: 100, available_gb: 90 }],
+      tasks: [{ id: 1, status: "failed", type: "backup_vm", target: "a", error: "no space" }],
     });
     expect(alerts.map((a) => a.kind)).toEqual(["vm-crashed", "pool-full", "task-failed", "vm-blocked", "node-offline"]);
   });
   it("is empty when everything is healthy", () => {
-    expect(deriveAlerts({ nodes: [{ id: "l", nom: "l", etat: "online" }], vms: [{ nom: "a", node: "l", etat: "actif" }] })).toEqual([]);
+    expect(deriveAlerts({ nodes: [{ id: "l", name: "l", state: "online" }], vms: [{ name: "a", node: "l", state: "active" }] })).toEqual([]);
   });
 });
 
 describe("states, capabilities, urls, theme, i18n", () => {
   it("maps every wire state to shape + tone, unknown values fall back", () => {
-    expect(stateInfo("vm", "plante")).toMatchObject({ shape: "diamond", tone: "danger" });
+    expect(stateInfo("vm", "crashed")).toMatchObject({ shape: "diamond", tone: "danger" });
     expect(stateInfo("vm", "n-importe-quoi").tone).toBe("unknown");
-    expect(stateInfo("node", "erreur").tone).toBe("offline");
+    expect(stateInfo("node", "error").tone).toBe("offline");
   });
   it("only admins get power actions, with a reason otherwise; never widens a right", () => {
-    const obs = capabilities("observateur");
-    expect(vmActionState("start", { etat: "arrete" }, obs)).toEqual({ enabled: false, reason: "menu.reason.admin" });
+    const obs = capabilities("viewer");
+    expect(vmActionState("start", { state: "stopped" }, obs)).toEqual({ enabled: false, reason: "menu.reason.admin" });
     const adm = capabilities("admin");
-    expect(vmActionState("start", { etat: "actif" }, adm).enabled).toBe(false);
-    expect(vmActionState("stop", { etat: "actif" }, adm).enabled).toBe(true);
-    expect(vmActionState("delete", { etat: "actif" }, adm).reason).toBe("menu.reason.mustStop");
+    expect(vmActionState("start", { state: "active" }, adm).enabled).toBe(false);
+    expect(vmActionState("stop", { state: "active" }, adm).enabled).toBe(true);
+    expect(vmActionState("delete", { state: "active" }, adm).reason).toBe("menu.reason.mustStop");
   });
   it("keeps the historical URLs", () => {
     expect(selectionToPath({ type: "datacenter" })).toBe("/datacenter");

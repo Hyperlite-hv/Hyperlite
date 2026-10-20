@@ -12,7 +12,7 @@ def _rows(text):
     return list(csv.reader(io.StringIO(text)))
 
 
-def _insert_audit(database, n, action="start_vm", resource="vm1", result="succes"):
+def _insert_audit(database, n, action="start_vm", resource="vm1", result="success"):
     with database.get_conn() as conn:
         conn.executemany(
             "INSERT INTO audit_log (timestamp, username, action, resource, result) VALUES (?, 'bob', ?, ?, ?)",
@@ -29,7 +29,7 @@ def small_batches(monkeypatch):
 def test_the_audit_export_holds_every_matching_entry(client, auth_headers, database, small_batches):
     headers = auth_headers("alice")
     _insert_audit(database, 50)
-    _insert_audit(database, 5, action="delete_vm", result="echec")
+    _insert_audit(database, 5, action="delete_vm", result="failed")
     r = client.get("/audit/export.csv", params={"action": "start_vm"}, headers=headers)
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
@@ -43,7 +43,7 @@ def test_the_audit_export_holds_every_matching_entry(client, auth_headers, datab
 
 
 def test_the_audit_export_is_for_administrators_only(client, auth_headers):
-    r = client.get("/audit/export.csv", headers=auth_headers("olga", role="observateur"))
+    r = client.get("/audit/export.csv", headers=auth_headers("olga", role="viewer"))
     assert r.status_code == 403
 
 
@@ -58,7 +58,7 @@ def test_the_task_export_holds_every_matching_task(client, auth_headers, databas
 
     headers = auth_headers("alice")
     for i in range(20):
-        finish_task(create_task("create_vm", f"vm{i}", node="hv", username="alice"), "termine")
+        finish_task(create_task("create_vm", f"vm{i}", node="hv", username="alice"), "succeeded")
     create_task("delete_vm", "other", node="hv", username="alice")
     r = client.get("/tasks/export.csv", params={"type": "create_vm"}, headers=headers)
     assert r.status_code == 200
@@ -66,4 +66,4 @@ def test_the_task_export_holds_every_matching_task(client, auth_headers, databas
     assert rows[0][:4] == ["id", "created", "type", "target"]
     assert len(rows) == 21
     assert {row[2] for row in rows[1:]} == {"create_vm"}
-    assert {row[6] for row in rows[1:]} == {"termine"}
+    assert {row[6] for row in rows[1:]} == {"succeeded"}

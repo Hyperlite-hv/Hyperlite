@@ -95,35 +95,35 @@ def test_a_per_vm_backup_job_runs_on_the_node_hosting_the_vm(daemon, monkeypatch
     with get_conn() as db:
         for vm in ("web", "elsewhere"):
             db.execute(
-                "INSERT INTO backup_jobs (vm_name, frequence, heure, cible_dir, prochaine_execution) "
-                "VALUES (?, 'quotidien', '02:00', '/b', ?)",
+                "INSERT INTO backup_jobs (vm_name, frequency, time, target_dir, next_run) "
+                "VALUES (?, 'daily', '02:00', '/b', ?)",
                 (vm, past),
             )
         db.commit()
     backups.run_due_schedules(datetime.now(UTC))
     assert ran == ["web"]
     with get_conn() as db:
-        nexts = dict(db.execute("SELECT vm_name, prochaine_execution FROM backup_jobs").fetchall())
+        nexts = dict(db.execute("SELECT vm_name, next_run FROM backup_jobs").fetchall())
     assert nexts["elsewhere"] == past and nexts["web"] > past  # the other node's job is left for it
 
 
 def test_in_a_cluster_each_node_replicates_on_its_own_schedule(daemon, vms, monkeypatch):  # noqa: F811
     started = []
-    monkeypatch.setattr(replication, "start_job", lambda job, user: started.append(job["nom"]))
+    monkeypatch.setattr(replication, "start_job", lambda job, user: started.append(job["name"]))
     job = replication.save_job(job_payload())
-    shared = replication._store().get_job(job["id"])["prochaine_execution"]
+    shared = replication._store().get_job(job["id"])["next_run"]
     now = datetime.now(UTC) + timedelta(seconds=1)
     replication.run_due(now)
     assert started == ["to site B"]
     with get_conn() as db:  # the shared row still says when the other nodes run it
-        assert db.execute("SELECT prochaine_execution FROM replication_jobs").fetchone()[0] == shared
+        assert db.execute("SELECT next_run FROM replication_jobs").fetchone()[0] == shared
     own = (now + timedelta(minutes=15)).isoformat()
-    assert replication.list_jobs()[0]["prochaine_execution"] == own  # what this node shows is its own
+    assert replication.list_jobs()[0]["next_run"] == own  # what this node shows is its own
     replication.run_due(now)
     assert started == ["to site B"]
 
     # An edit (here or on another node) starts the schedule again from the edit.
-    replication.save_job(job_payload(intervalle_minutes=30), job_id=job["id"])
+    replication.save_job(job_payload(interval_minutes=30), job_id=job["id"])
     replication.run_due(now + timedelta(seconds=1))
     assert started == ["to site B", "to site B"]
 
@@ -139,7 +139,7 @@ def test_a_single_node_keeps_moving_the_shared_next_run(database, vms, monkeypat
     replication.run_due(now)
     with get_conn() as db:
         assert (
-            db.execute("SELECT prochaine_execution FROM replication_jobs").fetchone()[0]
+            db.execute("SELECT next_run FROM replication_jobs").fetchone()[0]
             == (now + timedelta(minutes=15)).isoformat()
         )
         assert db.execute("SELECT COUNT(*) FROM schedule_state").fetchone()[0] == 0

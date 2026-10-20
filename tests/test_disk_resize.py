@@ -108,7 +108,7 @@ def test_each_kind_of_disk_gets_the_right_plan_or_a_clear_refusal():
     assert disk_resize.plan(_disk("vdc")) == ({"kind": "zvol", "pool": "tank", "zvol": "vm1-disk1"}, None)
     assert disk_resize.not_growable_code(_disk("vdd")) == "iscsi"
     assert "storage server" in disk_resize.plan(_disk("vdd"))[1][1]
-    assert disk_resize.not_growable_code(_disk("vde")) == "non_gere"
+    assert disk_resize.not_growable_code(_disk("vde")) == "unsupported"
     assert "CD-ROM" in disk_resize.plan(_disk("sdz"))[1][1]
     assert disk_resize.find_disk(FakeDomain(), "vdq") is None
 
@@ -195,7 +195,7 @@ def api(client, auth_headers, monkeypatch, commands):
 def test_the_endpoint_grows_the_disk_and_reports_old_and_new_sizes(api):
     r = api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": 32}, headers=api["headers"])
     assert r.status_code == 200, r.text
-    assert r.json()["ancienne_taille_go"] == 10 and r.json()["taille_go"] == 32 and r.json()["a_chaud"] is False
+    assert r.json()["old_size_gb"] == 10 and r.json()["size_gb"] == 32 and r.json()["live"] is False
     assert api["commands"]["qemu_img"][0][-1] == str(32 * GIB)
 
 
@@ -209,7 +209,7 @@ def test_the_endpoint_refuses_a_shrink_a_bad_target_and_a_size_over_the_limit(ap
 
 
 def test_an_observer_cannot_resize(api, auth_headers):
-    headers = auth_headers("watcher", role="observateur")
+    headers = auth_headers("watcher", role="viewer")
     r = api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": 20}, headers=headers)
     assert r.status_code == 403 and api["commands"]["qemu_img"] == []
 
@@ -217,8 +217,8 @@ def test_an_observer_cannot_resize(api, auth_headers):
 def test_the_disk_list_says_which_disks_can_be_grown(api):
     r = api["client"].get("/vms/vm1/disks", headers=api["headers"])
     assert r.status_code == 200, r.text
-    codes = {d["cible"]: d["non_agrandissable"] for d in r.json()}
-    assert codes == {"vda": None, "vdb": None, "vdc": None, "vdd": "iscsi", "vde": "non_gere", "sdz": "non_gere"}
+    codes = {d["target"]: d["not_growable"] for d in r.json()["items"]}
+    assert codes == {"vda": None, "vdb": None, "vdc": None, "vdd": "iscsi", "vde": "unsupported", "sdz": "unsupported"}
 
 
 def test_a_refused_resize_keeps_the_replication_chain(api, monkeypatch):

@@ -50,7 +50,7 @@ export function contextPoint(e) {
 // State of a list's right-click menu: `open(kind, object)` is the row's onContextMenu handler.
 export function useContextTarget() {
   const [target, setTarget] = useState(null);
-  const open = (kind, obj, key = obj?.nom ?? obj?.id) => (e) => {
+  const open = (kind, obj, key = obj?.name ?? obj?.id) => (e) => {
     e.preventDefault();
     e.stopPropagation();
     setTarget({ kind, obj, key, at: contextPoint(e), el: e.currentTarget });

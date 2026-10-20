@@ -8,32 +8,30 @@ value, which then wins again: the new schedule starts from the edit, on every no
 
 
 def overlay(db, kind, rows, keep_shared=False):
-    """Give each job row this node's next run. keep_shared: also keep the shared value under "prochaine_partagee",
+    """Give each job row this node's next run. keep_shared: also keep the shared value under "next_shared",
     which record() needs."""
     states = {
         r["job_id"]: r
-        for r in db.execute(
-            "SELECT job_id, base, prochaine_execution FROM schedule_state WHERE kind = ?", (kind,)
-        ).fetchall()
+        for r in db.execute("SELECT job_id, base, next_run FROM schedule_state WHERE kind = ?", (kind,)).fetchall()
     }
     for row in rows:
-        shared = row["prochaine_execution"]
+        shared = row["next_run"]
         if keep_shared:
-            row["prochaine_partagee"] = shared
+            row["next_shared"] = shared
         state = states.get(row["id"])
         if state and state["base"] == shared:
-            row["prochaine_execution"] = state["prochaine_execution"]
+            row["next_run"] = state["next_run"]
     return rows
 
 
 def due(db, kind, rows, now):
-    return [r for r in overlay(db, kind, rows, keep_shared=True) if r["prochaine_execution"] <= now]
+    return [r for r in overlay(db, kind, rows, keep_shared=True) if r["next_run"] <= now]
 
 
 def record(db, kind, job_id, base, next_run):
     db.execute(
-        "INSERT INTO schedule_state (kind, job_id, base, prochaine_execution) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(kind, job_id) DO UPDATE SET base = excluded.base, prochaine_execution = excluded.prochaine_execution",
+        "INSERT INTO schedule_state (kind, job_id, base, next_run) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(kind, job_id) DO UPDATE SET base = excluded.base, next_run = excluded.next_run",
         (kind, job_id, base, next_run),
     )
 

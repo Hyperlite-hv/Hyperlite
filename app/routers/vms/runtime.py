@@ -48,7 +48,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_cdrom", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         iso_filename = Path(payload.iso).name
@@ -104,10 +104,10 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
                 )
                 domain.attachDeviceFlags(new_cdrom_xml, flags)
         except libvirt.libvirtError as exc:
-            log_action(user["username"], "set_vm_cdrom", name, "echec", str(exc))
+            log_action(user["username"], "set_vm_cdrom", name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Mount failed: {exc}") from exc
 
-        log_action(user["username"], "set_vm_cdrom", name, "succes", iso_filename)
+        log_action(user["username"], "set_vm_cdrom", name, "success", iso_filename)
         return {"vm": name, "iso": iso_filename}
     finally:
         conn.close()
@@ -124,7 +124,7 @@ def eject_vm_cdrom(
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "eject_vm_cdrom", name, "echec", "VM not found")
+            log_action(user["username"], "eject_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(0))
@@ -154,23 +154,23 @@ def eject_vm_cdrom(
             new_xml = ET.tostring(cdrom, encoding="unicode")
             domain.updateDeviceFlags(new_xml, flags)
         except libvirt.libvirtError as exc:
-            log_action(user["username"], "eject_vm_cdrom", name, "echec", str(exc))
+            log_action(user["username"], "eject_vm_cdrom", name, "failed", str(exc))
             raise HTTPException(status_code=500, detail=f"Eject failed: {exc}") from exc
 
-        log_action(user["username"], "eject_vm_cdrom", name, "succes")
-        return {"vm": name, "ejecte": True}
+        log_action(user["username"], "eject_vm_cdrom", name, "success")
+        return {"vm": name, "ejected": True}
     finally:
         conn.close()
 
 
 def _stopped_metrics():
     return {
-        "etat": "arrete",
-        "cpu_pourcent": None,
-        "memoire_allouee_mo": None,
-        "memoire_utilisee_mo": None,
-        "disques": [],
-        "reseaux": [],
+        "state": "stopped",
+        "cpu_percent": None,
+        "allocated_memory_mb": None,
+        "used_memory_mb": None,
+        "disks": [],
+        "networks": [],
     }
 
 
@@ -188,7 +188,7 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "get_vm_metrics", name, "echec", "VM not found")
+            log_action(user["username"], "get_vm_metrics", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if not domain.isActive():
@@ -240,53 +240,53 @@ def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
         elapsed = max(t2 - t1, 0.001)
 
         nvcpu = info[3] or 1
-        cpu_pourcent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
-        memoire_allouee_mo = round(info[2] / 1024, 1)
+        cpu_percent = round(max(0.0, min(100.0, ((cpu2 - cpu1) / (elapsed * 1e9)) * 100 / nvcpu)), 1)
+        allocated_memory_mb = round(info[2] / 1024, 1)
 
-        memoire_utilisee_mo = None
+        used_memory_mb = None
         try:
             mem_stats = domain.memoryStats()
             if "available" in mem_stats and "unused" in mem_stats:
-                memoire_utilisee_mo = round((mem_stats["available"] - mem_stats["unused"]) / 1024, 1)
+                used_memory_mb = round((mem_stats["available"] - mem_stats["unused"]) / 1024, 1)
             elif "rss" in mem_stats:
-                memoire_utilisee_mo = round(mem_stats["rss"] / 1024, 1)
+                used_memory_mb = round(mem_stats["rss"] / 1024, 1)
         except libvirt.libvirtError:
             logger.debug("Ignored exception in get_vm_metrics()", exc_info=True)
 
-        disques = []
+        disks = []
         for dev in disk_devs:
             if dev in disk1 and dev in disk2:
                 rd_rate = max(0, (disk2[dev][1] - disk1[dev][1]) / elapsed)
                 wr_rate = max(0, (disk2[dev][3] - disk1[dev][3]) / elapsed)
-                disques.append(
+                disks.append(
                     {
-                        "cible": dev,
-                        "lecture_ko_s": round(rd_rate / 1024, 1),
-                        "ecriture_ko_s": round(wr_rate / 1024, 1),
+                        "target": dev,
+                        "read_kb_s": round(rd_rate / 1024, 1),
+                        "write_kb_s": round(wr_rate / 1024, 1),
                     }
                 )
 
-        reseaux = []
+        networks = []
         for dev in iface_devs:
             if dev in net1 and dev in net2:
                 rx_rate = max(0, (net2[dev][0] - net1[dev][0]) / elapsed)
                 tx_rate = max(0, (net2[dev][4] - net1[dev][4]) / elapsed)
-                reseaux.append(
+                networks.append(
                     {
                         "interface": dev,
-                        "reception_ko_s": round(rx_rate / 1024, 1),
-                        "emission_ko_s": round(tx_rate / 1024, 1),
+                        "received_kb_s": round(rx_rate / 1024, 1),
+                        "sent_kb_s": round(tx_rate / 1024, 1),
                     }
                 )
 
-        log_action(user["username"], "get_vm_metrics", name, "succes")
+        log_action(user["username"], "get_vm_metrics", name, "success")
         return {
-            "etat": "actif",
-            "cpu_pourcent": cpu_pourcent,
-            "memoire_allouee_mo": memoire_allouee_mo,
-            "memoire_utilisee_mo": memoire_utilisee_mo,
-            "disques": disques,
-            "reseaux": reseaux,
+            "state": "active",
+            "cpu_percent": cpu_percent,
+            "allocated_memory_mb": allocated_memory_mb,
+            "used_memory_mb": used_memory_mb,
+            "disks": disks,
+            "networks": networks,
         }
     finally:
         conn.close()
@@ -320,9 +320,9 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
     def _fail(reason):
         clear_provisioning(name)
         if task_id:
-            finish_task(task_id, "echec", reason)
-        log_action(user["username"], "auto_install", name, "echec", reason)
-        return {"provisioning": False, "failed": True, "erreur": reason}
+            finish_task(task_id, "failed", reason)
+        log_action(user["username"], "auto_install", name, "failed", reason)
+        return {"provisioning": False, "failed": True, "error": reason}
 
     conn = open_conn()
     try:
@@ -338,11 +338,11 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
             return _fail(f"Timeout: SSH still unreachable after {elapsed_s // 60} minutes")
 
         if not domain.isActive():
-            return {"provisioning": True, "phase": "arretee", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
+            return {"provisioning": True, "phase": "stopped", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
 
         ip = _get_ip(domain)
         if not ip:
-            return {"provisioning": True, "phase": "demarrage", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
+            return {"provisioning": True, "phase": "boot", "os_family": prov["os_family"], "elapsed_s": elapsed_s}
 
         username = get_vm_ssh_user(name)
         key_path = get_automation_private_key_path()
@@ -394,8 +394,8 @@ def get_vm_provisioning(name: str, user: dict = Depends(get_current_user)):
                 except (libvirt.libvirtError, ET.ParseError):
                     logger.debug("Ignored exception in get_vm_provisioning()", exc_info=True)
             if task_id:
-                finish_task(task_id, "termine")
-            log_action(user["username"], "provisioning_complete", name, "succes")
+                finish_task(task_id, "succeeded")
+            log_action(user["username"], "provisioning_complete", name, "success")
             return {"provisioning": False, "just_finished": True}
         return {
             "provisioning": True,

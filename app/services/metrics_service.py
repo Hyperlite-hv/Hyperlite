@@ -26,9 +26,9 @@ def _window(range_key):
     return tier, (datetime.now(UTC) - delta).isoformat()
 
 
-async def history(cible, range_key):
+async def history(target, range_key):
     tier, since = _window(range_key)
-    return await registry.metrics().history(cible, tier, since)
+    return await registry.metrics().history(target, tier, since)
 
 
 async def storage_history(range_key, node=None):

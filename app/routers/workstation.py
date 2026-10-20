@@ -14,6 +14,8 @@ from app.core.audit import log_action
 from app.core.security import get_current_user, oauth2_scheme
 
 router = APIRouter(tags=["workstation"])
+# The client's download, opened by a browser or a deployment tool at a stable address: outside /api/v1.
+pages = APIRouter(tags=["workstation"])
 
 # Built by installer/build-cli.sh and shipped in the package next to the dashboard.
 CLI_DIST = Path(__file__).resolve().parent.parent.parent / "cli" / "dist"
@@ -67,7 +69,7 @@ def workstation_config(user: dict = Depends(get_current_user)):
     }
 
 
-@router.get("/downloads/hyperlite/{platform}", include_in_schema=False)
+@pages.get("/downloads/hyperlite/{platform}", include_in_schema=False)
 def download_client(platform: str):
     """Public on purpose, like any installer: the binary holds no secret, and a
     workstation without a session must be able to fetch it (or a deployment tool)."""
@@ -115,7 +117,7 @@ def cli_token(device_code: str = Body(..., embed=True)):
     if status != "approved":
         code = {"pending": "authorization_pending", "denied": "access_denied"}.get(status, "expired_token")
         return JSONResponse(status_code=400, content={"error": code})
-    log_action(info["username"], "cli_login", info["hostname"], "succes")
+    log_action(info["username"], "cli_login", info["hostname"], "success")
     return {
         "access_token": info["token"],
         "token_id": info["token_id"],
@@ -153,7 +155,7 @@ def cli_approve(user_code: str, user: dict = Depends(_session_user)):
     req = workstation.decide_request(user_code, user["username"], approve=True)
     if req is None:
         raise HTTPException(status_code=404, detail="Unknown or expired code")
-    log_action(user["username"], "cli_approve", req["hostname"], "succes")
+    log_action(user["username"], "cli_approve", req["hostname"], "success")
     return {"ok": True, "hostname": req["hostname"]}
 
 
@@ -162,5 +164,5 @@ def cli_deny(user_code: str, user: dict = Depends(_session_user)):
     req = workstation.decide_request(user_code, user["username"], approve=False)
     if req is None:
         raise HTTPException(status_code=404, detail="Unknown or expired code")
-    log_action(user["username"], "cli_deny", req["hostname"], "succes")
+    log_action(user["username"], "cli_deny", req["hostname"], "success")
     return {"ok": True}

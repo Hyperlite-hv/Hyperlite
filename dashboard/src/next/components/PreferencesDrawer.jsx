@@ -42,7 +42,7 @@ export default function PreferencesDrawer({ open, onClose }) {
         <legend>{t("prefs.pools")}</legend>
         {pools.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("ov.noPools")}</p> : (
           <div className="nx-checks">{pools.map((p) => (
-            <label key={poolKey(p)} className="nx-check"><input type="checkbox" checked={isShown(p)} onChange={() => toggle(p)} /> {p.nom} <span className="nx-muted">· {nodes.find((n) => n.id === p.node)?.nom || p.node}</span></label>
+            <label key={poolKey(p)} className="nx-check"><input type="checkbox" checked={isShown(p)} onChange={() => toggle(p)} /> {p.name} <span className="nx-muted">· {nodes.find((n) => n.id === p.node)?.name || p.node}</span></label>
           ))}</div>
         )}
       </fieldset>

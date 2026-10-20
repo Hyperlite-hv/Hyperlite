@@ -1,4 +1,13 @@
 {
+ "JetonAPI": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/api_docs.py"
+  ],
+  "seen": 1
+ },
  "a_chaud": {
   "kinds": [
    "string"
@@ -158,6 +167,18 @@
   ],
   "seen": 2
  },
+ "agent_invite": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/guest_agent.py",
+   "app/routers/vms/_shared.py",
+   "dashboard/src/api/client.js",
+   "dashboard/src/next/pages/VmSummary.jsx"
+  ],
+  "seen": 4
+ },
  "ajoutee_le": {
   "kinds": [
    "string"
@@ -260,6 +281,16 @@
    "table tasks"
   ],
   "seen": 1
+ },
+ "appliques": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/inbound.py",
+   "dashboard/src/next/pages/CfsPage.jsx"
+  ],
+  "seen": 2
  },
  "arbre_propre": {
   "kinds": [
@@ -429,6 +460,15 @@
   ],
   "seen": 1
  },
+ "blocs": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
  "bloquant": {
   "kinds": [
    "string"
@@ -458,6 +498,76 @@
    "app/routers/update.py"
   ],
   "seen": 1
+ },
+ "but": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/audit.py",
+   "app/core/backups.py",
+   "app/core/cluster.py",
+   "app/core/cluster_compat.py",
+   "app/core/config_copy.py",
+   "app/core/container_builder.py",
+   "app/core/container_shell.py",
+   "app/core/cpu_pinning.py",
+   "app/core/database.py",
+   "app/core/disk_move.py",
+   "app/core/error_messages.py",
+   "app/core/guest_agent.py",
+   "app/core/ha.py",
+   "app/core/ha_selffence.py",
+   "app/core/ha_watch.py",
+   "app/core/host_capabilities.py",
+   "app/core/host_interfaces.py",
+   "app/core/host_stats.py",
+   "app/core/iso_share.py",
+   "app/core/jobs.py",
+   "app/core/libvirt_utils.py",
+   "app/core/network_firewall.py",
+   "app/core/permissions.py",
+   "app/core/preflight.py",
+   "app/core/secrets_crypto.py",
+   "app/core/security.py",
+   "app/core/tasks.py",
+   "app/core/version.py",
+   "app/core/vm_builder.py",
+   "app/core/workstation.py",
+   "app/core/zfs_storage.py",
+   "app/main.py",
+   "app/repositories/cfs/shadow.py",
+   "app/repositories/sqlite/identity.py",
+   "app/routers/auth.py",
+   "app/routers/containers.py",
+   "app/routers/host.py",
+   "app/routers/jobs.py",
+   "app/routers/network.py",
+   "app/routers/nodes.py",
+   "app/routers/storage.py",
+   "app/routers/update.py",
+   "app/routers/vm_disks.py",
+   "app/routers/vms/create.py",
+   "app/routers/vms/firewall.py",
+   "app/routers/vms/lifecycle.py",
+   "app/routers/vms/migration.py",
+   "app/routers/vms/settings.py"
+  ],
+  "seen": 48
+ },
+ "canal": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py",
+   "app/routers/update.py",
+   "dashboard/src/api/client.js",
+   "dashboard/src/next/i18n/fr.js",
+   "dashboard/src/next/pages/NodeHostSystem.jsx"
+  ],
+  "seen": 5
  },
  "canaux": {
   "kinds": [
@@ -743,6 +853,18 @@
   ],
   "seen": 5
  },
+ "commit_distant": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/rolling_update.py",
+   "app/core/update_check.py",
+   "app/routers/update.py",
+   "dashboard/src/next/components/UpdateDialog.jsx"
+  ],
+  "seen": 4
+ },
  "compatibilite": {
   "kinds": [
    "string"
@@ -890,6 +1012,15 @@
   ],
   "seen": 2
  },
+ "cpu_pourcent": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 1
+ },
  "cree_le": {
   "kinds": [
    "column",
@@ -925,6 +1056,40 @@
    "app/routers/cluster_setup.py"
   ],
   "seen": 1
+ },
+ "date_creation": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/snapshots.py",
+   "dashboard/src/next/pages/SnapshotsPage.jsx",
+   "dashboard/src/next/pages/VmSnapshotsBackup.jsx"
+  ],
+  "seen": 3
+ },
+ "debit_mbps": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/node_hardware.py",
+   "dashboard/src/next/pages/NodePages.jsx"
+  ],
+  "seen": 2
+ },
+ "debut": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/network_edit.py",
+   "app/core/tls_certs.py",
+   "app/routers/network.py",
+   "dashboard/src/next/components/NetworkIpam.jsx",
+   "dashboard/src/store/useInfraStore.js"
+  ],
+  "seen": 5
  },
  "debut_le": {
   "kinds": [
@@ -988,6 +1153,16 @@
    "app/core/vm_boot.py"
   ],
   "seen": 1
+ },
+ "demon": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "dashboard/src/next/pages/CfsPage.jsx"
+  ],
+  "seen": 2
  },
  "dependances_python": {
   "kinds": [
@@ -1291,6 +1466,16 @@
   ],
   "seen": 1
  },
+ "domaines": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "dashboard/src/next/pages/CfsPage.jsx"
+  ],
+  "seen": 2
+ },
  "doudou": {
   "kinds": [
    "string"
@@ -1299,6 +1484,16 @@
    "app/core/password_policy.py"
   ],
   "seen": 1
+ },
+ "ecarts": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "dashboard/src/next/pages/CfsPage.jsx"
+  ],
+  "seen": 2
  },
  "echec": {
   "kinds": [
@@ -1360,6 +1555,25 @@
    "app/core/tls_certs.py"
   ],
   "seen": 1
+ },
+ "emission_ko_s": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 1
+ },
+ "emplacement": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/iso_share.py",
+   "dashboard/src/next/pages/LibraryPage.jsx"
+  ],
+  "seen": 2
  },
  "empreinte": {
   "kinds": [
@@ -1515,6 +1729,16 @@
    "app/repositories/cfs/shadow.py"
   ],
   "seen": 1
+ },
+ "entrees": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "dashboard/src/next/pages/CfsPage.jsx"
+  ],
+  "seen": 2
  },
  "envoyes": {
   "kinds": [
@@ -1721,6 +1945,22 @@
    "app/core/site_recovery.py"
   ],
   "seen": 4
+ },
+ "fin": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/network_edit.py",
+   "app/core/tls_certs.py",
+   "app/routers/certificate.py",
+   "app/routers/network.py",
+   "dashboard/src/next/components/CertificateCard.jsx",
+   "dashboard/src/next/components/NetworkIpam.jsx",
+   "dashboard/src/next/i18n/fr.js",
+   "dashboard/src/store/useInfraStore.js"
+  ],
+  "seen": 8
  },
  "fin_le": {
   "kinds": [
@@ -1948,6 +2188,17 @@
   ],
   "seen": 3
  },
+ "herite_de": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/permissions.py",
+   "dashboard/src/api/client.js",
+   "dashboard/src/next/pages/ObjectPermissions.jsx"
+  ],
+  "seen": 3
+ },
  "heure": {
   "kinds": [
    "column",
@@ -1991,6 +2242,17 @@
   ],
   "seen": 1
  },
+ "horodatage": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/repositories/sqlite/automation.py"
+  ],
+  "seen": 2
+ },
  "hors_ligne": {
   "kinds": [
    "string"
@@ -2029,6 +2291,22 @@
   ],
   "seen": 1
  },
+ "hyperviseur": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/password_policy.py",
+   "app/routers/dashboard.py",
+   "dashboard/src/api/client.js",
+   "dashboard/src/lib/capabilitiesView.js",
+   "dashboard/src/next/i18n/fr.js",
+   "dashboard/src/next/lib/passwordPolicy.js",
+   "dashboard/src/next/windows/HostShellWindow.jsx"
+  ],
+  "seen": 8
+ },
  "ignorer_verifications": {
   "kinds": [
    "field"
@@ -2037,6 +2315,18 @@
    "app/routers/vms/migration.py"
   ],
   "seen": 1
+ },
+ "illisible": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py",
+   "app/routers/vms/create.py",
+   "dashboard/src/next/i18n/fr.js",
+   "dashboard/src/next/pages/CfsPage.jsx"
+  ],
+  "seen": 4
  },
  "importe_de": {
   "kinds": [
@@ -2194,6 +2484,29 @@
   ],
   "seen": 1
  },
+ "joignable": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/core/rolling_update.py",
+   "app/repositories/cfs/shadow.py",
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 4
+ },
+ "joignables": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_watch.py",
+   "dashboard/src/next/i18n/fr.js"
+  ],
+  "seen": 2
+ },
  "jours_restants": {
   "kinds": [
    "string"
@@ -2248,6 +2561,15 @@
   ],
   "where": [
    "app/core/permissions.py"
+  ],
+  "seen": 1
+ },
+ "lecture_ko_s": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
   ],
   "seen": 1
  },
@@ -2324,6 +2646,18 @@
    "app/repositories/cfs/shadow.py"
   ],
   "seen": 1
+ },
+ "masque": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/network_edit.py",
+   "app/routers/network.py",
+   "dashboard/src/next/components/NetworkIpam.jsx",
+   "dashboard/src/next/pages/NetworkPage.jsx"
+  ],
+  "seen": 4
  },
  "membre": {
   "kinds": [
@@ -2435,6 +2769,18 @@
    "app/core/ha_watch.py",
    "app/routers/ha.py",
    "table node_fencing"
+  ],
+  "seen": 4
+ },
+ "migrables": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/maintenance.py",
+   "app/core/rolling_update.py",
+   "app/routers/nodes.py",
+   "dashboard/src/next/components/MaintenanceDialog.jsx"
   ],
   "seen": 4
  },
@@ -2582,6 +2928,28 @@
    "app/routers/update.py"
   ],
   "seen": 2
+ },
+ "non_agrandissable": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/devices.py",
+   "dashboard/src/next/pages/VmConfigure.jsx"
+  ],
+  "seen": 2
+ },
+ "non_migrables": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/maintenance.py",
+   "app/core/rolling_update.py",
+   "app/routers/nodes.py",
+   "dashboard/src/next/components/MaintenanceDialog.jsx"
+  ],
+  "seen": 4
  },
  "notification_echec": {
   "kinds": [
@@ -2790,6 +3158,20 @@
   ],
   "seen": 1
  },
+ "physique": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_interfaces.py",
+   "app/core/node_hardware.py",
+   "app/core/vm_limits.py",
+   "dashboard/src/components/OverallocationNote.jsx",
+   "dashboard/src/next/i18n/en.js",
+   "dashboard/src/next/i18n/fr.js"
+  ],
+  "seen": 6
+ },
  "pilote": {
   "kinds": [
    "string"
@@ -2817,6 +3199,16 @@
    "app/routers/update.py"
   ],
   "seen": 1
+ },
+ "points_montage": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/node_hardware.py",
+   "dashboard/src/next/pages/NodePages.jsx"
+  ],
+  "seen": 2
  },
  "pont": {
   "kinds": [
@@ -2865,6 +3257,16 @@
   "where": [
    "app/routers/auth.py",
    "app/routers/sso.py"
+  ],
+  "seen": 2
+ },
+ "precedent": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/tls_certs.py",
+   "dashboard/src/next/components/CertificateCard.jsx"
   ],
   "seen": 2
  },
@@ -3028,6 +3430,24 @@
   ],
   "seen": 5
  },
+ "reception": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/repositories/cfs/shadow.py"
+  ],
+  "seen": 1
+ },
+ "reception_ko_s": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/runtime.py"
+  ],
+  "seen": 1
+ },
  "recharge_a_chaud": {
   "kinds": [
    "string"
@@ -3036,6 +3456,18 @@
    "app/routers/vms/settings.py"
   ],
   "seen": 1
+ },
+ "recherche": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_system.py",
+   "app/routers/host_system.py",
+   "dashboard/src/next/i18n/fr.js",
+   "dashboard/src/next/pages/NodeHostSystem.jsx"
+  ],
+  "seen": 4
  },
  "redemarrage": {
   "kinds": [
@@ -3189,6 +3621,24 @@
   ],
   "seen": 2
  },
+ "resume": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/preflight.py"
+  ],
+  "seen": 1
+ },
+ "retire": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/routers/vms/devices.py"
+  ],
+  "seen": 1
+ },
  "retirer": {
   "kinds": [
    "path"
@@ -3213,6 +3663,15 @@
   ],
   "where": [
    "app/core/node_hardware.py"
+  ],
+  "seen": 1
+ },
+ "sans_quorum": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/ha_selffence.py"
   ],
   "seen": 1
  },
@@ -3812,6 +4271,43 @@
   ],
   "seen": 2
  },
+ "version_hyperviseur": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/core/host_capabilities.py",
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 3
+ },
+ "version_libvirt": {
+  "kinds": [
+   "column",
+   "string"
+  ],
+  "where": [
+   "app/core/database.py",
+   "app/core/host_capabilities.py",
+   "app/repositories/sqlite/nodes.py"
+  ],
+  "seen": 3
+ },
+ "virtualisation": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py",
+   "app/core/node_hardware.py",
+   "dashboard/src/lib/capabilitiesView.js",
+   "dashboard/src/next/i18n/fr.js",
+   "dashboard/src/next/pages/NodePages.jsx"
+  ],
+  "seen": 5
+ },
  "virtualisation_materielle": {
   "kinds": [
    "string"
@@ -3851,6 +4347,18 @@
    "app/core/rolling_update.py"
   ],
   "seen": 1
+ },
+ "vms_actives": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/cluster.py",
+   "dashboard/src/api/client.js",
+   "dashboard/src/next/pages/NodesPage.jsx",
+   "dashboard/src/next/wizard/CreateVmWizard.jsx"
+  ],
+  "seen": 4
  },
  "vms_arretees": {
   "kinds": [
@@ -3898,6 +4406,15 @@
   "seen": 1
  },
  "zfs_installe": {
+  "kinds": [
+   "string"
+  ],
+  "where": [
+   "app/core/host_capabilities.py"
+  ],
+  "seen": 1
+ },
+ "zfs_module_charge": {
   "kinds": [
    "string"
   ],
