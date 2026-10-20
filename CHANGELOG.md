@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-20
+
 ### Added
 
 - The rolling update of a cluster knows the update to Hyperlite 1.0: its API and replicated configuration change names, so every node is updated in place, its VMs left where they run (no maintenance, no migration to or from a node already on 1.0, which an older version cannot talk to), this node last, each followed through `/health`. A cluster must be on this version before it is updated to 1.0.
@@ -96,6 +98,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- **API v1**, a change for the scripts that call the API: every route under `/api/v1` (the old addresses answer `410 Gone`, code `api_gone`, naming the new one); every name in English, keys, values and the database (418 names, the database migrated in place); every list answers `{items, total}` and every error `{detail, code}`, its code from a fixed list documented in `docs/api.md`; `/health` says `"api": 1`. Its contract, `docs/api/openapi-v1.json`, only ever grows: the CI refuses any change that is not an addition. A cluster updated to 1.0 is read-only while a member still runs an earlier version, then its replicated configuration is rewritten once with the new names. The dashboard and the `hyperlite` client use it; an older client says it must be updated.
+
 - The package repository keeps the 8 newest stable releases and the 3 newest test builds instead of every version ever published: it had reached 2.1 GB, twice what GitHub Pages serves. A downgrade stays possible to any of those 8 releases. A version is published only once the CI has passed on its very commit.
 
 - Faster with many VMs: one reading of a node's VMs serves the VM list and the network list for the requests of the same moment, answers are gzip-compressed (the VM list of 1,000 VMs went from 261 to 27 kB), and the dashboard loads only the language shown. Measured on a node with 1,000 VMs: network list 0.17 s → 0.009 s, VM list p95 with five tabs open 0.37 s → 0.27 s. (#385, #389)
@@ -135,7 +139,7 @@ All notable changes to this project are documented here. The format is based on 
 
 - The APT repository address now lives in one file (`installer/apt-source.conf`) read by the ISO build, the post-install script, the mirror check and the publishing hook; a test fails if another address is hard-coded.
 
-- All repository content, user-facing text, logs and error messages are now in English. API and database wire identifiers and values are unchanged (French) for compatibility.
+- All repository content, user-facing text, logs and error messages are now in English. API and database wire identifiers and values stayed French until API v1 renamed them (above).
 - The web dashboard requires Node.js 20.19+ to build (React Router 7, Vite 7).
 - The legacy vanilla-JS frontend (`/legacy`, `/static`) was removed; the React dashboard is the only interface.
 - The APT repository location used by the appliance installer is configurable (`HYPERLITE_APT_URL`) instead of being hard-coded.
