@@ -56,7 +56,8 @@ class Api:
 
     def _send(self, method, path, body=None, headers=None, timeout=120):
         # The operator gives the nodes' https:// addresses (HL_NODES).
-        req = urllib.request.Request(self.url + path, data=body, method=method, headers=headers or {})  # noqa: S310
+        url = self.url + ("/api/v1" + path if path != "/health" else path)  # the API's prefix (app/main.py)
+        req = urllib.request.Request(url, data=body, method=method, headers=headers or {})  # noqa: S310
         if self.token:
             req.add_header("Authorization", f"Bearer {self.token}")
         try:
@@ -124,7 +125,7 @@ def populate(args):
     for node, api in apis().items():
         status, _ = api.upload("/isos", ISO, iso)
         print(f"{node}: ISO {status}", flush=True)
-        existing = {v.get("nom") for v in (api.call("GET", "/vms")[1] or [])}
+        existing = {v.get("name") for v in ((api.call("GET", "/vms")[1] or {}).get("items") or [])}
         todo = [n for n in names(node, args.per_node) if n not in existing]
         t0, failures = time.perf_counter(), []
 
@@ -168,7 +169,7 @@ def ui_vm_list(api):
     nodes_list = [n for n in (nodes_list or []) if isinstance(n, dict) and n.get("name")] if s2 == 200 else []
     if isinstance(data, dict):
         total += len(data.get("items") or [])
-        others = [n["name"] for n in nodes_list if not n.get("membre")]
+        others = [n["name"] for n in nodes_list if not n.get("member")]
     else:
         total += len(data or [])
         others = [n["name"] for n in nodes_list]
@@ -235,7 +236,7 @@ def meta(args):
     them all (GET /meta: every object's tags, replicated through hyperlite-cfs)."""
     all_apis = list(apis().items())
     (node, api), others = all_apis[0], all_apis[1:]
-    vms = [v["nom"] for v in api.call("GET", "/vms")[1] if v["nom"].startswith(PREFIX)]
+    vms = [v["name"] for v in api.call("GET", "/vms")[1]["items"] if v["name"].startswith(PREFIX)]
     tag = f"scale{time.strftime('%H%M%S')}"
     t0 = time.perf_counter()
     with cf.ThreadPoolExecutor(8) as pool:
@@ -254,10 +255,12 @@ def meta(args):
 
 def cleanup(args):
     for node, api in apis().items():
-        vms = [v["nom"] for v in (api.call("GET", "/vms")[1] or []) if v["nom"].startswith(PREFIX)]
+        vms = [
+            v["name"] for v in ((api.call("GET", "/vms")[1] or {}).get("items") or []) if v["name"].startswith(PREFIX)
+        ]
         for name in vms:
             if any(
-                v.get("nom") == name and v.get("etat") == "actif" for v in [api.call("GET", f"/vms/{name}")[1] or {}]
+                v.get("name") == name and v.get("state") == "active" for v in [api.call("GET", f"/vms/{name}")[1] or {}]
             ):
                 api.call("POST", f"/vms/{name}/stop?force=true")
         with cf.ThreadPoolExecutor(args.parallel) as pool:

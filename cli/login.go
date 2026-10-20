@@ -235,24 +235,28 @@ func cmdStatus() error {
 }
 
 type vmInfo struct {
-	Name    string  `json:"nom"`
-	State   string  `json:"etat"`
+	Name    string  `json:"name"`
+	State   string  `json:"state"`
 	IP      *string `json:"ip"`
-	SSHUser *string `json:"utilisateur_ssh"`
+	SSHUser *string `json:"ssh_user"`
 	Node    string  `json:"node"`
 }
 
-var stateLabel = map[string]string{"actif": "running", "arrete": "stopped", "suspendu": "paused", "plante": "crashed"}
+// The VM states of the API (app/routers/vms/_shared.py) as this listing shows them; the others are shown as they are.
+var stateLabel = map[string]string{"active": "running", "shutting_down": "shutting down"}
 
 func cmdVMs(flag string) error {
 	s, err := serverFor(flag)
 	if err != nil {
 		return err
 	}
-	var vms []vmInfo
-	if err := call(s, "GET", "/vms", nil, &vms); err != nil {
+	var list struct {
+		Items []vmInfo `json:"items"` // a list of the API: {items, total}
+	}
+	if err := call(s, "GET", "/vms", nil, &list); err != nil {
 		return err
 	}
+	vms := list.Items
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tSTATE\tIP\tSSH USER\t")
 	for _, vm := range vms {

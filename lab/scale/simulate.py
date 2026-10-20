@@ -161,7 +161,7 @@ def setup(nodes, per_node):
     with database.get_conn() as db:
         db.execute("DELETE FROM nodes")
         db.executemany(
-            "INSERT INTO nodes (name, hostname, statut, added_at) VALUES (?, ?, 'en_ligne', '2026-10-18T00:00:00+00:00')",
+            "INSERT INTO nodes (name, hostname, status, added_at) VALUES (?, ?, 'online', '2026-10-18T00:00:00+00:00')",
             [(n, f"10.0.{i // 250}.{i % 250 + 1}") for i, n in enumerate(names)],
         )
         if not db.execute("SELECT 1 FROM users WHERE username = 'admin'").fetchone():
@@ -180,7 +180,7 @@ def setup(nodes, per_node):
     lu.open_conn = open_conn
     cluster_lead.mode = lambda record=True: "cluster"
     cluster_lead.read_only_reason = lambda: None
-    cluster_setup.shared_conf = lambda: {"membres": [{"nom": n} for n in ["node000", *names]]}
+    cluster_setup.shared_conf = lambda: {"members": [{"name": n} for n in ["node000", *names]]}
 
     def peer_api(node, username, method, path, body=None, timeout=60, connect_timeout=5):
         time.sleep(Costs.ssh + Costs.rtt)  # an SSH session to the member, then its answer
@@ -227,7 +227,10 @@ class Http:
     def __init__(self, base):
         import httpx
 
-        self.c = httpx.Client(base_url=base, timeout=600, limits=httpx.Limits(max_connections=64))
+        # The API's prefix (app/main.py): a measure names a route as the API documents it.
+        self.c = httpx.Client(
+            base_url=base.rstrip("/") + "/api/v1/", timeout=600, limits=httpx.Limits(max_connections=64)
+        )
 
     def get(self, path, headers=None):
         return self.c.get(path, headers=headers)

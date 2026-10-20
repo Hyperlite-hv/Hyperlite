@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 from app.services import account_service
 
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/acl", tags=["acl"])
 class AclCreate(BaseModel):
     subject_type: str  # "user" | "group"
     subject_id: str  # username, or group id (as text)
-    role: str  # "lecteur" | "operateur" | "gestionnaire" | "custom:<id>"
+    role: str  # "drive" | "operator" | "manager" | "custom:<id>"
     resource_type: str  # "vm" | "pool" | "container" (containers are not grouped by pool for now)
     resource_id: str  # VM/container name, or pool id (as text)
 
@@ -36,12 +37,12 @@ def get_roles_catalog(user: dict = Depends(require_role("admin"))):
 def get_privileges_catalog(user: dict = Depends(require_role("admin"))):
     """Full catalog of privileges (key -> label), used to build the custom role
     builder (checkboxes)."""
-    return perm.ALL_PRIVILEGES
+    return perm.ALL_PRIVILEGES  # a catalogue {privilege: label}, not a list
 
 
 @router.get("/custom-roles")
 def list_custom_roles(user: dict = Depends(require_role("admin"))):
-    return perm.list_custom_roles()
+    return listing(perm.list_custom_roles())
 
 
 @router.post("/custom-roles", status_code=201)
@@ -55,7 +56,7 @@ def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_r
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception:
         raise HTTPException(status_code=422, detail=f"A role named '{name}' already exists") from None
-    log_action(user["username"], "create_custom_role", f"{name} ({','.join(payload.privileges)})", "succes")
+    log_action(user["username"], "create_custom_role", f"{name} ({','.join(payload.privileges)})", "success")
     return {"id": role_id, "key": f"custom:{role_id}", "name": name, "privileges": payload.privileges}
 
 
@@ -75,14 +76,14 @@ def rename_custom_role(role_id: int, payload: CustomRoleRename, user: dict = Dep
         raise HTTPException(status_code=409, detail=str(e)) from e
     if old is None:
         raise HTTPException(status_code=404, detail="Not found")
-    log_action(user["username"], "rename_custom_role", old, "succes", f"-> {name}")
+    log_action(user["username"], "rename_custom_role", old, "success", f"-> {name}")
     return {"id": role_id, "name": name}
 
 
 @router.delete("/custom-roles/{role_id}")
 def delete_custom_role(role_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_custom_role(role_id)
-    log_action(user["username"], "delete_custom_role", str(role_id), "succes")
+    log_action(user["username"], "delete_custom_role", str(role_id), "success")
     return {"message": "Role deleted"}
 
 
@@ -92,12 +93,12 @@ def object_acl(resource_type: str, resource_id: str, user: dict = Depends(requir
     ones it inherits from its pools."""
     if resource_type not in ("vm", "container"):
         raise HTTPException(status_code=422, detail="resource_type must be 'vm' or 'container'")
-    return perm.acl_for_object(resource_type, resource_id)
+    return listing(perm.acl_for_object(resource_type, resource_id))
 
 
 @router.get("")
 def list_acl(user: dict = Depends(require_role("admin"))):
-    return perm.list_acl()
+    return listing(perm.list_acl())
 
 
 @router.post("", status_code=201)
@@ -126,7 +127,7 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
         user["username"],
         "create_acl",
         f"{payload.subject_type}:{payload.subject_id} -> {payload.role} @ {payload.resource_type}:{payload.resource_id}",
-        "succes",
+        "success",
     )
     return {"id": acl_id}
 
@@ -134,5 +135,5 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
 @router.delete("/{acl_id}")
 def delete_acl(acl_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_acl(acl_id)
-    log_action(user["username"], "delete_acl", str(acl_id), "succes")
+    log_action(user["username"], "delete_acl", str(acl_id), "success")
     return {"message": "Assignment deleted"}

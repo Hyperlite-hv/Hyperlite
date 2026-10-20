@@ -28,10 +28,10 @@ export default function ExportsPage() {
   useEffect(() => { load(); }, [load]);
   usePolling(load, 8000);
 
-  async function download(nom) { try { await downloadVmExport(nom); } catch (e) { pushToast({ kind: "error", title: t("ex.downloadFailed"), message: errorMessage(e) }); } }
-  async function remove(nom) {
-    if (!(await confirmAction({ title: t("ex.deleteTitle"), message: t("ex.deleteMsg", { name: nom }), confirmLabel: t("vx.delete"), danger: true }))) return;
-    try { await deleteVmExport(nom); pushToast({ kind: "success", title: t("ex.deleted"), message: nom }); load(); }
+  async function download(name) { try { await downloadVmExport(name); } catch (e) { pushToast({ kind: "error", title: t("ex.downloadFailed"), message: errorMessage(e) }); } }
+  async function remove(name) {
+    if (!(await confirmAction({ title: t("ex.deleteTitle"), message: t("ex.deleteMsg", { name: name }), confirmLabel: t("vx.delete"), danger: true }))) return;
+    try { await deleteVmExport(name); pushToast({ kind: "success", title: t("ex.deleted"), message: name }); load(); }
     catch (e) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(e) }); }
   }
   const fmt = (ts) => new Intl.DateTimeFormat(lang, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(ts));
@@ -48,13 +48,13 @@ export default function ExportsPage() {
                 <thead><tr><th scope="col">{t("ex.file")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("ex.created")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.nom} className={ctx.is("ex", r.nom) ? "is-ctx" : undefined} onContextMenu={ctx.open("ex", r)}>
-                      <th scope="row" className="nx-mono nx-wrapcell" style={{ fontWeight: 500 }}>{r.nom}</th>
-                      <td className="nx-num nx-mono">{r.taille_octets ? formatSizeMb(r.taille_octets / 1048576, lang) : "—"}</td>
-                      <td className="nx-mono">{fmt(r.modifie_le)}</td>
+                    <tr key={r.name} className={ctx.is("ex", r.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ex", r)}>
+                      <th scope="row" className="nx-mono nx-wrapcell" style={{ fontWeight: 500 }}>{r.name}</th>
+                      <td className="nx-num nx-mono">{r.size_bytes ? formatSizeMb(r.size_bytes / 1048576, lang) : "—"}</td>
+                      <td className="nx-mono">{fmt(r.modified_at)}</td>
                       <td><div className="nx-ra">
-                        <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.download_export_x", { v: r.nom })} onClick={() => download(r.nom)}><Download size={14} aria-hidden="true" />{t("ex.download")}</button>
-                        <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_export_x", { v: r.nom })} title={t("vx.delete")} onClick={() => remove(r.nom)}><Trash2 size={15} aria-hidden="true" /></button>
+                        <button type="button" className="nx-btn nx-btn--sm" aria-label={t("a11y.download_export_x", { v: r.name })} onClick={() => download(r.name)}><Download size={14} aria-hidden="true" />{t("ex.download")}</button>
+                        <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_export_x", { v: r.name })} title={t("vx.delete")} onClick={() => remove(r.name)}><Trash2 size={15} aria-hidden="true" /></button>
                       </div></td>
                     </tr>
                   ))}
@@ -63,11 +63,11 @@ export default function ExportsPage() {
             </TableWrap>
           )}
       </div>
-      <ActionsContextMenu ctx={ctx} label={(r) => t("ctx.menuOf", { name: r.nom })} entries={(r) => [
-        { key: "download", icon: "download", label: t("ex.download"), run: () => download(r.nom) },
-        { key: "name", icon: "copy", label: t("ctx.copyName"), run: () => navigator.clipboard?.writeText(r.nom) },
+      <ActionsContextMenu ctx={ctx} label={(r) => t("ctx.menuOf", { name: r.name })} entries={(r) => [
+        { key: "download", icon: "download", label: t("ex.download"), run: () => download(r.name) },
+        { key: "name", icon: "copy", label: t("ctx.copyName"), run: () => navigator.clipboard?.writeText(r.name) },
         "-",
-        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(r.nom) },
+        { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(r.name) },
       ]} />
     </>
   );

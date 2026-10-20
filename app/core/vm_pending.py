@@ -105,20 +105,20 @@ def _fields(xml):
     vcpu = root.find("vcpu")
     fields = {
         ("vcpu", None): (vcpu.text or "").strip() if vcpu is not None else None,
-        ("memoire", None): _mib(root.find("memory")),
+        ("memory", None): _mib(root.find("memory")),
         ("machine", None): os_type.get("machine") if os_type is not None else None,
         ("cpu", None): cpu_desc,
         ("firmware", None): firmware,
-        ("demarrage", None): _boot_order(root),
-        ("ballon", None): (
+        ("boot", None): _boot_order(root),
+        ("balloon", None): (
             root.find("devices/memballoon").get("model") if root.find("devices/memballoon") is not None else None
         ),
-        ("graphique", None): ", ".join(g.get("type") for g in root.findall("devices/graphics")) or None,
+        ("graphics", None): ", ".join(g.get("type") for g in root.findall("devices/graphics")) or None,
     }
     for disk in root.findall("devices/disk"):
         target = disk.find("target")
         if target is not None and target.get("dev"):
-            fields[("disque", target.get("dev"))] = _disk(disk)
+            fields[("disk", target.get("dev"))] = _disk(disk)
     for iface in root.findall("devices/interface"):
         mac = iface.find("mac")
         if mac is not None and mac.get("address"):
@@ -130,14 +130,14 @@ def _fields(xml):
 
 
 def diff(live_xml, next_xml):
-    """Fields whose value at the next start differs from the running one; `actuel` or `prochain` is None for a
+    """Fields whose value at the next start differs from the running one; `current` or `next` is None for a
     device only in one of the two."""
     live, nxt = _fields(live_xml), _fields(next_xml)
     changes = []
     for key in list(live) + [k for k in nxt if k not in live]:
         now, after = live.get(key), nxt.get(key)
         if now != after:
-            changes.append({"cle": key[0], "objet": key[1], "actuel": now, "prochain": after})
+            changes.append({"key": key[0], "object": key[1], "current": now, "next": after})
     return changes
 
 

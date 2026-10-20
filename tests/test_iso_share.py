@@ -15,9 +15,9 @@ def _wait_tasks(database, task_ids, timeout=5):
     while time.time() < deadline:
         with database.get_conn() as conn:
             rows = [
-                conn.execute("SELECT id, statut, erreur FROM tasks WHERE id = ?", (tid,)).fetchone() for tid in task_ids
+                conn.execute("SELECT id, status, error FROM tasks WHERE id = ?", (tid,)).fetchone() for tid in task_ids
             ]
-        if all(r is not None and r["statut"] != "en_cours" for r in rows):
+        if all(r is not None and r["status"] != "running" for r in rows):
             return {r["id"]: dict(r) for r in rows}
         time.sleep(0.02)
     raise AssertionError("copy tasks did not finish")
@@ -38,22 +38,22 @@ def test_the_cluster_list_shows_every_node_and_reports_the_ones_that_cannot_be_r
     cluster["add_node"]("down", "10.0.0.3", reachable=False)
     cluster["add_node"]("bare", "10.0.0.4", library=False)
 
-    r = client.get("/isos/cluster", headers=auth_headers("viewer", role="observateur"))
+    r = client.get("/isos/cluster", headers=auth_headers("viewer", role="viewer"))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert sorted((i["node"], i["nom"]) for i in body["isos"]) == [("antho", "ubuntu.iso"), ("local", "debian.iso")]
-    errors = {u["node"]: u["erreur"] for u in body["injoignables"]}
+    assert sorted((i["node"], i["name"]) for i in body["isos"]) == [("antho", "ubuntu.iso"), ("local", "debian.iso")]
+    errors = {u["node"]: u["error"] for u in body["unreachable"]}
     assert set(errors) == {"down", "bare"}
     assert "no Hyperlite ISO library" in errors["bare"]
 
 
 def test_the_local_list_keeps_its_shape_and_names_the_node(cluster, client, auth_headers):
     (cluster["local"] / "debian.iso").write_bytes(b"d")
-    r = client.get("/isos", headers=auth_headers("viewer", role="observateur"))
+    r = client.get("/isos", headers=auth_headers("viewer", role="viewer"))
     assert r.status_code == 200
-    [iso] = r.json()
-    assert iso["nom"] == "debian.iso" and iso["node"] == "local"
-    assert {"taille_mo", "ajoutee_le", "emplacement"} <= set(iso)
+    [iso] = r.json()["items"]
+    assert iso["name"] == "debian.iso" and iso["node"] == "local"
+    assert {"size_mb", "added_at", "location"} <= set(iso)
 
 
 def test_copying_to_several_nodes_lands_complete_files_under_their_final_name(cluster, client, auth_headers, database):
@@ -63,14 +63,14 @@ def test_copying_to_several_nodes_lands_complete_files_under_their_final_name(cl
 
     r = client.post(
         "/isos/copy",
-        json={"nom": "debian.iso", "source": "local", "cibles": ["antho", "other"]},
+        json={"name": "debian.iso", "source": "local", "targets": ["antho", "other"]},
         headers=auth_headers("admin"),
     )
     assert r.status_code == 202, r.text
-    tasks = r.json()["taches"]
+    tasks = r.json()["tasks"]
     assert [t["node"] for t in tasks] == ["antho", "other"]
     done = _wait_tasks(database, [t["task_id"] for t in tasks])
-    assert all(t["statut"] == "termine" for t in done.values()), done
+    assert all(t["status"] == "succeeded" for t in done.values()), done
 
     for lib in (antho, other):
         assert (lib / "debian.iso").read_bytes() == b"x" * 4096
@@ -82,10 +82,12 @@ def test_copying_to_several_nodes_lands_complete_files_under_their_final_name(cl
 def test_an_image_can_be_brought_from_a_node_to_this_host(cluster, client, auth_headers, database):
     (cluster["add_node"]("antho", "10.0.0.2") / "ubuntu.iso").write_bytes(b"u" * 100)
     r = client.post(
-        "/isos/copy", json={"nom": "ubuntu.iso", "source": "antho", "cibles": ["local"]}, headers=auth_headers("admin")
+        "/isos/copy",
+        json={"name": "ubuntu.iso", "source": "antho", "targets": ["local"]},
+        headers=auth_headers("admin"),
     )
     assert r.status_code == 202, r.text
-    _wait_tasks(database, [r.json()["taches"][0]["task_id"]])
+    _wait_tasks(database, [r.json()["tasks"][0]["task_id"]])
     assert (cluster["local"] / "ubuntu.iso").read_bytes() == b"u" * 100
     assert not list(cluster["local"].glob(".*"))
 
@@ -94,10 +96,10 @@ def test_a_copy_between_two_remote_nodes_is_relayed_and_leaves_nothing_behind(cl
     (cluster["add_node"]("antho", "10.0.0.2") / "alma.iso").write_bytes(b"a" * 50)
     other = cluster["add_node"]("other", "10.0.0.5")
     r = client.post(
-        "/isos/copy", json={"nom": "alma.iso", "source": "antho", "cibles": ["other"]}, headers=auth_headers("admin")
+        "/isos/copy", json={"name": "alma.iso", "source": "antho", "targets": ["other"]}, headers=auth_headers("admin")
     )
     assert r.status_code == 202, r.text
-    _wait_tasks(database, [r.json()["taches"][0]["task_id"]])
+    _wait_tasks(database, [r.json()["tasks"][0]["task_id"]])
     assert (other / "alma.iso").read_bytes() == b"a" * 50
     assert not list(cluster["local"].iterdir())
 
@@ -113,21 +115,21 @@ def test_a_failed_copy_is_reported_and_leaves_no_partial_file(cluster, client, a
         raise RuntimeError("Connection reset by peer")
 
     monkeypatch.setattr(iso_share, "_scp", broken_scp)
-    r = client.post("/isos/copy", json={"nom": "debian.iso", "cibles": ["antho"]}, headers=auth_headers("admin"))
-    task = _wait_tasks(database, [r.json()["taches"][0]["task_id"]]).popitem()[1]
-    assert task["statut"] == "echec" and "Connection reset" in task["erreur"]
+    r = client.post("/isos/copy", json={"name": "debian.iso", "targets": ["antho"]}, headers=auth_headers("admin"))
+    task = _wait_tasks(database, [r.json()["tasks"][0]["task_id"]]).popitem()[1]
+    assert task["status"] == "failed" and "Connection reset" in task["error"]
     assert list(lib.iterdir()) == []
 
 
 @pytest.mark.parametrize(
     ("payload", "status"),
     [
-        ({"nom": "../etc/passwd.iso", "cibles": ["antho"]}, 422),
-        ({"nom": "debian.iso", "cibles": []}, 422),
-        ({"nom": "debian.iso", "cibles": ["local"]}, 422),
-        ({"nom": "debian.iso", "cibles": ["ghost"]}, 404),
-        ({"nom": "missing.iso", "cibles": ["antho"]}, 404),
-        ({"nom": "debian.iso", "cibles": ["dup"]}, 409),
+        ({"name": "../etc/passwd.iso", "targets": ["antho"]}, 422),
+        ({"name": "debian.iso", "targets": []}, 422),
+        ({"name": "debian.iso", "targets": ["local"]}, 422),
+        ({"name": "debian.iso", "targets": ["ghost"]}, 404),
+        ({"name": "missing.iso", "targets": ["antho"]}, 404),
+        ({"name": "debian.iso", "targets": ["dup"]}, 409),
     ],
 )
 def test_copy_requests_are_validated_before_anything_starts(cluster, client, auth_headers, payload, status):
@@ -144,8 +146,8 @@ def test_only_an_administrator_can_copy(cluster, client, auth_headers):
     cluster["add_node"]("antho", "10.0.0.2")
     r = client.post(
         "/isos/copy",
-        json={"nom": "debian.iso", "cibles": ["antho"]},
-        headers=auth_headers("viewer", role="observateur"),
+        json={"name": "debian.iso", "targets": ["antho"]},
+        headers=auth_headers("viewer", role="viewer"),
     )
     assert r.status_code == 403
 

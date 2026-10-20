@@ -27,7 +27,7 @@ export default function ConsoleWindow() {
     return () => clearInterval(id);
   }, [name, node, status]);
   return (
-    <StandaloneWindow title={name} icon={Monitor} badge={vm && <StatePill kind="vm" wire={vm.etat} />}>
+    <StandaloneWindow title={name} icon={Monitor} badge={vm && <StatePill kind="vm" wire={vm.state} />}>
       {error && <p className="nx-f-h is-error" role="alert">{error}</p>}
       {vm ? <VmConsole resource={vm} standalone initialMode={initialMode} /> : !error && <Loading />}
     </StandaloneWindow>

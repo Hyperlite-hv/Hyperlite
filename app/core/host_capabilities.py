@@ -36,7 +36,7 @@ def _cpu_capabilities_local(conn):
     # Hardware virtualization availability: deduced from the presence of a
     # capability domain of type='kvm' in the libvirt capabilities. This is more
     # reliable than parsing /proc/cpuinfo by hand (libvirt has already verified it,
-    # including the cases where /dev/kvm exists but is unusable for some reason).
+    # including the cases where /dev/kvm exists purpose is unusable for some reason).
     kvm_disponible = any(
         dom.get("type") == "kvm" for guest in root.findall("guest") for dom in guest.findall("arch/domain")
     )
@@ -46,10 +46,10 @@ def _cpu_capabilities_local(conn):
 
     return {
         "architecture": arch,
-        "modele": model,
-        "coeurs_logiques": os.cpu_count(),
-        "virtualisation_materielle": kvm_disponible,
-        "numa_noeuds": len(numa_detail) or None,
+        "model": model,
+        "logical_cores": os.cpu_count(),
+        "hardware_virtualization": kvm_disponible,
+        "numa_nodes": len(numa_detail) or None,
         "numa_detail": numa_detail or None,
     }
 
@@ -65,8 +65,8 @@ def _memory_capabilities_local():
     except (OSError, ValueError, IndexError):
         logger.debug("Ignored exception in _memory_capabilities_local()", exc_info=True)
     return {
-        "totale_mo": round(info["MemTotal"] / 1024) if "MemTotal" in info else None,
-        "disponible_mo": round(info["MemAvailable"] / 1024) if "MemAvailable" in info else None,
+        "total_mb": round(info["MemTotal"] / 1024) if "MemTotal" in info else None,
+        "available_mb": round(info["MemAvailable"] / 1024) if "MemAvailable" in info else None,
     }
 
 
@@ -89,16 +89,16 @@ def _zfs_module_loaded_local():
 def _storage_capabilities_local():
     from app.core import zfs_storage
 
-    zfs_installe = zfs_storage.is_available()
-    zfs_module_charge = _zfs_module_loaded_local() if zfs_installe else False
+    zfs_installed = zfs_storage.is_available()
+    zfs_module_loaded = _zfs_module_loaded_local() if zfs_installed else False
     result = {
-        "zfs_installe": zfs_installe,
-        "zfs_module_charge": zfs_module_charge,
+        "zfs_installed": zfs_installed,
+        "zfs_module_loaded": zfs_module_loaded,
         # "available" = really usable right now, not just installed. This is the field
         # the rest of the code (derived limits, the Compatibility page...) must use to
         # decide whether ZFS can be offered to the user.
-        "zfs_disponible": zfs_installe and zfs_module_charge,
-        "blocs": None,
+        "zfs_available": zfs_installed and zfs_module_loaded,
+        "blocks": None,
     }
     try:
         proc = subprocess.run(
@@ -108,7 +108,7 @@ def _storage_capabilities_local():
             timeout=5,
         )
         if proc.returncode == 0:
-            result["blocs"] = json.loads(proc.stdout).get("blockdevices")
+            result["blocks"] = json.loads(proc.stdout).get("blockdevices")
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         logger.debug("Ignored exception in _storage_capabilities_local()", exc_info=True)
 
@@ -118,11 +118,11 @@ def _storage_capabilities_local():
         import shutil as _shutil
 
         usage = _shutil.disk_usage(probe_path)
-        result["pool_defaut_total_go"] = round(usage.total / (1024**3), 1)
-        result["pool_defaut_disponible_go"] = round(usage.free / (1024**3), 1)
+        result["default_pool_total_gb"] = round(usage.total / (1024**3), 1)
+        result["default_pool_available_gb"] = round(usage.free / (1024**3), 1)
     except OSError:
-        result["pool_defaut_total_go"] = None
-        result["pool_defaut_disponible_go"] = None
+        result["default_pool_total_gb"] = None
+        result["default_pool_available_gb"] = None
     return result
 
 
@@ -134,28 +134,28 @@ def _network_capabilities_local(conn):
                 continue
             path = Path("/sys/class/net") / name
             try:
-                etat = (path / "operstate").read_text().strip()
+                state = (path / "operstate").read_text().strip()
             except OSError:
-                etat = "inconnu"
+                state = "unknown"
             interfaces.append(
                 {
-                    "nom": name,
-                    "pont": (path / "bridge").exists(),
+                    "name": name,
+                    "bridge": (path / "bridge").exists(),
                     "vlan": (path / "phy80211").exists() is False and Path(f"/proc/net/vlan/{name}").exists(),
-                    "etat": etat,
+                    "state": state,
                 }
             )
     except OSError:
         logger.debug("Ignored exception in _network_capabilities_local()", exc_info=True)
 
-    reseaux_libvirt = []
+    libvirt_networks = []
     try:
         for net in conn.listAllNetworks():
-            reseaux_libvirt.append({"nom": net.name(), "actif": bool(net.isActive())})
+            libvirt_networks.append({"name": net.name(), "active": bool(net.isActive())})
     except libvirt.libvirtError:
         logger.debug("Ignored exception in _network_capabilities_local()", exc_info=True)
 
-    return {"interfaces": interfaces, "reseaux_libvirt": reseaux_libvirt}
+    return {"interfaces": interfaces, "libvirt_networks": libvirt_networks}
 
 
 def _secure_boot_state_local():
@@ -167,7 +167,7 @@ def _secure_boot_state_local():
         return "bios_legacy"
     efivars = Path("/sys/firmware/efi/efivars")
     if not efivars.exists():
-        return "uefi_inconnu"
+        return "uefi_unknown"
     for entry in efivars.glob("SecureBoot-*"):
         try:
             data = entry.read_bytes()
@@ -176,7 +176,7 @@ def _secure_boot_state_local():
         except OSError:
             logger.debug("Ignored exception in _secure_boot_state_local()", exc_info=True)
             continue
-    return "uefi_inconnu"
+    return "uefi_unknown"
 
 
 def _software_capabilities_local():
@@ -205,8 +205,8 @@ def _software_capabilities_local():
             logger.debug("Ignored exception in _software_capabilities_local()", exc_info=True)
             continue
     deps["websocket"] = ws is not None
-    result["bibliotheque_websocket"] = ws is not None
-    result["dependances_python"] = deps
+    result["websocket_library"] = ws is not None
+    result["python_dependencies"] = deps
     return result
 
 
@@ -223,10 +223,10 @@ def _lxc_available_local():
 
 def _virt_capabilities_local(conn):
     return {
-        "hyperviseur": conn.getType(),
-        "version_libvirt": conn.getLibVersion(),
-        "version_hyperviseur": conn.getVersion(),
-        "conteneurs_lxc_disponibles": _lxc_available_local(),
+        "hypervisor": conn.getType(),
+        "libvirt_version": conn.getLibVersion(),
+        "hypervisor_version": conn.getVersion(),
+        "lxc_containers_available": _lxc_available_local(),
     }
 
 
@@ -238,12 +238,12 @@ def get_local_capabilities():
     try:
         return {
             "cpu": _cpu_capabilities_local(conn),
-            "memoire": _memory_capabilities_local(),
-            "stockage": _storage_capabilities_local(),
-            "reseau": _network_capabilities_local(conn),
-            "virtualisation": _virt_capabilities_local(conn),
-            "securite": {"secure_boot": _secure_boot_state_local()},
-            "logiciel": _software_capabilities_local(),
+            "memory": _memory_capabilities_local(),
+            "storage": _storage_capabilities_local(),
+            "network": _network_capabilities_local(conn),
+            "virtualization": _virt_capabilities_local(conn),
+            "security": {"secure_boot": _secure_boot_state_local()},
+            "software": _software_capabilities_local(),
         }
     finally:
         conn.close()
@@ -302,9 +302,9 @@ def get_remote_capabilities(node_name):
             "cpu": _cpu_capabilities_local(
                 conn
             ),  # same function: reads ONLY through `conn`, already transparent for remote hosts
-            "virtualisation": _virt_capabilities_local(conn),
-            "reseau": {
-                "reseaux_libvirt": [{"nom": n.name(), "actif": bool(n.isActive())} for n in conn.listAllNetworks()],
+            "virtualization": _virt_capabilities_local(conn),
+            "network": {
+                "libvirt_networks": [{"name": n.name(), "active": bool(n.isActive())} for n in conn.listAllNetworks()],
                 "interfaces": None,
             },  # OS interfaces are not available without SSH, see below
         }
@@ -312,10 +312,10 @@ def get_remote_capabilities(node_name):
         conn.close()
 
     ssh_part = {
-        "memoire": {"totale_mo": None, "disponible_mo": None},
-        "securite": {"secure_boot": None},
-        "logiciel": {},
-        "stockage": {"zfs_installe": None, "zfs_module_charge": None, "zfs_disponible": None, "blocs": None},
+        "memory": {"total_mb": None, "available_mb": None},
+        "security": {"secure_boot": None},
+        "software": {},
+        "storage": {"zfs_installed": None, "zfs_module_loaded": None, "zfs_available": None, "blocks": None},
     }
     try:
         ssh_opts = node_ssh_options()
@@ -331,12 +331,12 @@ def get_remote_capabilities(node_name):
             v = _parse_remote_probe(proc.stdout)
             mem_total = v.get("MEMTOTAL")
             mem_avail = v.get("MEMAVAIL")
-            ssh_part["memoire"] = {
-                "totale_mo": round(int(mem_total) / 1024) if mem_total and mem_total.isdigit() else None,
-                "disponible_mo": round(int(mem_avail) / 1024) if mem_avail and mem_avail.isdigit() else None,
+            ssh_part["memory"] = {
+                "total_mb": round(int(mem_total) / 1024) if mem_total and mem_total.isdigit() else None,
+                "available_mb": round(int(mem_avail) / 1024) if mem_avail and mem_avail.isdigit() else None,
             }
             sb = v.get("SECUREBOOT", "")
-            ssh_part["securite"] = {
+            ssh_part["security"] = {
                 "secure_boot": (
                     "active"
                     if sb == "1"
@@ -344,22 +344,22 @@ def get_remote_capabilities(node_name):
                     if sb == "0"
                     else "bios_legacy"
                     if sb == "bios_legacy"
-                    else "uefi_inconnu"
+                    else "uefi_unknown"
                 )
             }
-            ssh_part["logiciel"] = {
+            ssh_part["software"] = {
                 b: v.get(f"BIN_{b}") == "1"
                 for b in ("qemu-img", "virsh", "zfs", "zpool", "git", "gh", "xorriso", "nginx")
             }
-            zfs_installe = bool(ssh_part["logiciel"].get("zfs") and ssh_part["logiciel"].get("zpool"))
-            zfs_module_charge = v.get("ZFSMODULE") == "1"
-            ssh_part["stockage"]["zfs_installe"] = zfs_installe
-            ssh_part["stockage"]["zfs_module_charge"] = zfs_module_charge
-            ssh_part["stockage"]["zfs_disponible"] = zfs_installe and zfs_module_charge
+            zfs_installed = bool(ssh_part["software"].get("zfs") and ssh_part["software"].get("zpool"))
+            zfs_module_loaded = v.get("ZFSMODULE") == "1"
+            ssh_part["storage"]["zfs_installed"] = zfs_installed
+            ssh_part["storage"]["zfs_module_loaded"] = zfs_module_loaded
+            ssh_part["storage"]["zfs_available"] = zfs_installed and zfs_module_loaded
             disk = v.get("DISKUSAGE", "").split()
             if len(disk) == 2 and disk[0].isdigit() and disk[1].isdigit():
-                ssh_part["stockage"]["pool_defaut_total_go"] = round(int(disk[0]) / (1024**2), 1)
-                ssh_part["stockage"]["pool_defaut_disponible_go"] = round(int(disk[1]) / (1024**2), 1)
+                ssh_part["storage"]["default_pool_total_gb"] = round(int(disk[0]) / (1024**2), 1)
+                ssh_part["storage"]["default_pool_available_gb"] = round(int(disk[1]) / (1024**2), 1)
     except (OSError, subprocess.TimeoutExpired):
         logger.debug(
             "Ignored exception in get_remote_capabilities()", exc_info=True
@@ -367,12 +367,12 @@ def get_remote_capabilities(node_name):
 
     return {
         "cpu": libvirt_part["cpu"],
-        "memoire": ssh_part["memoire"],
-        "stockage": ssh_part["stockage"],
-        "reseau": libvirt_part["reseau"],
-        "virtualisation": libvirt_part["virtualisation"],
-        "securite": ssh_part["securite"],
-        "logiciel": ssh_part["logiciel"],
+        "memory": ssh_part["memory"],
+        "storage": ssh_part["storage"],
+        "network": libvirt_part["network"],
+        "virtualization": libvirt_part["virtualization"],
+        "security": ssh_part["security"],
+        "software": ssh_part["software"],
     }
 
 

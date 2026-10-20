@@ -69,7 +69,7 @@ def test_a_vm_busy_with_a_restore_or_a_copy_is_not_started(client, auth_headers,
     domain = _Domain()
     conn = _Conn(domain, {"default": _Net(True), "lan": _Net(True)})
     monkeypatch.setattr(lifecycle, "open_conn", lambda *a, **k: conn)
-    monkeypatch.setattr(lifecycle, "_domain_summary", lambda domain, *a, **k: {"nom": "web"})
+    monkeypatch.setattr(lifecycle, "_domain_summary", lambda domain, *a, **k: {"name": "web"})
     headers = auth_headers("root")
     held = vm_locks.claim("web", "a backup restore")
     try:
@@ -88,10 +88,10 @@ def test_start_at_boot_skips_a_vm_busy_with_an_operation(monkeypatch, database):
     domain = _Domain()
     conn = _Conn(domain, {})
     monkeypatch.setattr(vm_boot, "open_conn", lambda *a, **k: conn)
-    monkeypatch.setattr(vm_boot, "sequence", lambda node: [{"nom": "web", "ordre": 1, "delai_s": 0}])
+    monkeypatch.setattr(vm_boot, "sequence", lambda node: [{"name": "web", "position": 1, "delay_s": 0}])
     held = vm_locks.claim("web", "a backup restore")
     try:
         results = vm_boot.run_sequence()
     finally:
         held.release()
-    assert results == [("web", "occupee")] and not domain.started
+    assert results == [("web", "busy")] and not domain.started

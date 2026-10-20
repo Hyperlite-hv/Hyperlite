@@ -8,7 +8,7 @@ from app.core.database import get_conn
 from app.repositories.sqlite import schedule_state
 
 KIND = "replication"
-JOB_COLUMNS = ("nom", "selection", "valeur", "exclues", "cible_dir", "intervalle_minutes", "actif")
+JOB_COLUMNS = ("name", "selection", "value", "excluded", "target_dir", "interval_minutes", "active")
 
 
 def _one(sql, params=()):
@@ -31,8 +31,8 @@ def _write(sql, params=()):
 
 def _job(row):
     if row:
-        row["exclues"] = json.loads(row["exclues"] or "[]")
-        row["actif"] = bool(row["actif"])
+        row["excluded"] = json.loads(row["excluded"] or "[]")
+        row["active"] = bool(row["active"])
     return row
 
 
@@ -44,7 +44,7 @@ def _with_own_schedule(sql, params=()):
 
 class SqliteReplicationStore:
     def list_jobs(self):
-        return _with_own_schedule("SELECT * FROM replication_jobs ORDER BY nom")
+        return _with_own_schedule("SELECT * FROM replication_jobs ORDER BY name")
 
     def get_job(self, job_id):
         rows = _with_own_schedule("SELECT * FROM replication_jobs WHERE id = ?", (job_id,))
@@ -53,18 +53,18 @@ class SqliteReplicationStore:
     def create_job(self, values, next_run):
         cols = ", ".join(JOB_COLUMNS)
         marks = ", ".join("?" for _ in JOB_COLUMNS)
-        params = [json.dumps(values[c]) if c == "exclues" else values[c] for c in JOB_COLUMNS]
+        params = [json.dumps(values[c]) if c == "excluded" else values[c] for c in JOB_COLUMNS]
         return _write(
-            f"INSERT INTO replication_jobs ({cols}, prochaine_execution) VALUES ({marks}, ?)",  # noqa: S608 - fixed columns
+            f"INSERT INTO replication_jobs ({cols}, next_run) VALUES ({marks}, ?)",  # noqa: S608 - fixed columns
             (*params, next_run),
         ).lastrowid
 
     def update_job(self, job_id, values, next_run):
         sets = ", ".join(f"{c} = ?" for c in JOB_COLUMNS)
-        params = [json.dumps(values[c]) if c == "exclues" else values[c] for c in JOB_COLUMNS]
+        params = [json.dumps(values[c]) if c == "excluded" else values[c] for c in JOB_COLUMNS]
         return (
             _write(
-                f"UPDATE replication_jobs SET {sets}, prochaine_execution = ? WHERE id = ?",  # noqa: S608 - fixed columns
+                f"UPDATE replication_jobs SET {sets}, next_run = ? WHERE id = ?",  # noqa: S608 - fixed columns
                 (*params, next_run, job_id),
             ).rowcount
             > 0
@@ -78,9 +78,9 @@ class SqliteReplicationStore:
         return deleted
 
     def due_jobs(self, now):
-        """The active jobs due on this node; each carries the shared next run as "prochaine_partagee"."""
+        """The active jobs due on this node; each carries the shared next run as "next_shared"."""
         with get_conn() as db:
-            rows = [dict(r) for r in db.execute("SELECT * FROM replication_jobs WHERE actif = 1").fetchall()]
+            rows = [dict(r) for r in db.execute("SELECT * FROM replication_jobs WHERE active = 1").fetchall()]
             return [_job(r) for r in schedule_state.due(db, KIND, rows, now)]
 
     def record_run(self, job_id, ran_at, next_run, shared_next=None):
@@ -89,11 +89,11 @@ class SqliteReplicationStore:
         with get_conn() as db:
             if shared_next is None:
                 db.execute(
-                    "UPDATE replication_jobs SET derniere_execution = ?, prochaine_execution = ? WHERE id = ?",
+                    "UPDATE replication_jobs SET last_run = ?, next_run = ? WHERE id = ?",
                     (ran_at, next_run, job_id),
                 )
             else:
-                db.execute("UPDATE replication_jobs SET derniere_execution = ? WHERE id = ?", (ran_at, job_id))
+                db.execute("UPDATE replication_jobs SET last_run = ? WHERE id = ?", (ran_at, job_id))
                 schedule_state.record(db, KIND, job_id, shared_next, next_run)
             db.commit()
 
@@ -104,20 +104,20 @@ class SqliteReplicationStore:
         return _all("SELECT * FROM replication_state ORDER BY vm_name")
 
     def save_state(self, vm_name, **fields):
-        current = self.state(vm_name) or {"vm_name": vm_name, "points": 0, "statut": "jamais"}
+        current = self.state(vm_name) or {"vm_name": vm_name, "points": 0, "status": "never"}
         current.update(fields)
         cols = [
             "vm_name",
-            "cible_dir",
-            "chaine",
-            "dernier_point",
+            "target_dir",
+            "chain",
+            "last_point",
             "checkpoint",
             "points",
-            "dernier_ok_le",
-            "mtime_disques",
-            "statut",
-            "erreur",
-            "maj_le",
+            "last_success_at",
+            "disks_mtime",
+            "status",
+            "error",
+            "updated_at",
         ]
         _write(
             f"INSERT OR REPLACE INTO replication_state ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",  # noqa: S608 - fixed columns

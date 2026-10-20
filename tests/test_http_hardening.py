@@ -82,27 +82,27 @@ def test_api_documentation_is_off_by_default(client):
 
 
 def test_health_tells_an_anonymous_caller_nothing_about_the_host(client, libvirt_up):
-    r = client.get("/health")
+    r = client.get("http://testserver/health")
     assert r.status_code == 200
-    assert set(r.json()) == {"status", "environment"}
+    assert set(r.json()) == {"status", "environment", "api"}
 
 
 def test_health_gives_the_details_to_a_signed_in_caller(client, auth_headers, libvirt_up):
-    r = client.get("/health", headers=auth_headers("alice"))
+    r = client.get("http://testserver/health", headers=auth_headers("alice"))
     body = r.json()
     assert body["hostname"] == "hv-01"
     assert body["hyperlite_version"] and body["kernel"] and body["python_version"]
 
 
 def test_health_ignores_an_invalid_token(client, libvirt_up):
-    r = client.get("/health", headers={"Authorization": "Bearer not-a-token"})
-    assert set(r.json()) == {"status", "environment"}
+    r = client.get("http://testserver/health", headers={"Authorization": "Bearer not-a-token"})
+    assert set(r.json()) == {"status", "environment", "api"}
 
 
 def test_health_gives_the_running_version_to_the_host_itself(libvirt_up):
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
     body = main.health(request)
-    assert set(body) == {"status", "environment", "hyperlite_version"}
+    assert set(body) == {"status", "environment", "api", "hyperlite_version"}
 
 
 def test_an_unknown_api_path_is_a_json_404_and_a_page_is_the_dashboard(client, monkeypatch, tmp_path):
@@ -112,7 +112,7 @@ def test_an_unknown_api_path_is_a_json_404_and_a_page_is_the_dashboard(client, m
     (tmp_path / "index.html").write_text("<!doctype html><title>Hyperlite</title>")
     monkeypatch.setattr(main, "DASHBOARD_DIST", str(tmp_path))
     r = client.get("/kubernetes", headers={"Accept": "application/json"})
-    assert r.status_code == 404 and r.json() == {"detail": "Not Found"}
+    assert r.status_code == 404 and r.json() == {"detail": "Not Found", "code": "not_found"}
     assert client.get("/no/such/route").status_code == 404
     page = client.get("/vm/web", headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
     assert page.status_code == 200 and "<title>Hyperlite</title>" in page.text

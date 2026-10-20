@@ -6,7 +6,7 @@ This is a reference of what Hyperlite does today and where its scope stops. For 
 
 - Lifecycle: create, start, stop (graceful or forced), restart, delete.
 - Hyperlite Tools (the standard QEMU guest agent, `qemu-guest-agent`): when it runs in a VM, shutdowns and reboots go through it, the VM's IP address comes from the guest (also with a static IP or on a bridge), and hot backups freeze the guest file systems for a consistent copy. Cloud-image VMs install it at first boot; without it everything works as before (ACPI, DHCP lease, crash-consistent snapshot).
-- Creation from a preinstalled cloud image (Debian 12, configured through cloud-init) or from an ISO. Unattended installation is supported for Debian-family (preseed), Ubuntu (autoinstall) and RHEL-family (kickstart) media; other ISOs boot for a manual installation through the VNC console.
+- Creation from a preinstalled cloud image (Debian 12, configured through cloud-init) or from an ISO, installed by hand through the console as on Proxmox VE, whatever the system.
 - Import an existing disk (qcow2, raw, vmdk, vdi, vhd) and export a VM disk.
 - Snapshots (libvirt internal snapshots; native ZFS snapshots for VMs on ZFS pools, disk only), cloning, conversion to template and deployment from a template.
 - Resource limits and priorities through cgroups; live disk and network interface hot-plug.
@@ -85,4 +85,4 @@ At start-up and on demand Hyperlite detects the capabilities of the host (CPU, R
 - VMs on ZFS pools are not live-migratable.
 - ZFS pools created from the interface use loopback files and are local to one node.
 - Ceph is not supported.
-- Windows unattended installation is not supported.
+- Unattended installation from an ISO is not offered (since 1.0), for any system: the cloud image and templates are the prepared paths.

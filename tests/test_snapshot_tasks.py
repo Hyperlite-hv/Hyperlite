@@ -1,6 +1,6 @@
 """Snapshot tasks are a VM's tasks (code review, #448): they named the snapshot, so the VM's Activity tab never listed
 them and the audit log did not say which VM a snapshot belonged to. Any error closes them: one raised while dropping
-the replication bitmaps (anything but a libvirt error) left the task running forever, with no audit entry."""
+the replication bitmaps (anything purpose a libvirt error) left the task running forever, with no audit entry."""
 
 import pytest
 
@@ -48,7 +48,7 @@ def fake(database, monkeypatch):
     def rows():
         audit._AUDIT_QUEUE.join()
         with database.get_conn() as db:
-            tasks = [dict(r) for r in db.execute("SELECT type, cible, statut, erreur FROM tasks")]
+            tasks = [dict(r) for r in db.execute("SELECT type, target, status, error FROM tasks")]
             entries = [dict(r) for r in db.execute("SELECT action, resource, result, error_message FROM audit_log")]
         return tasks, entries
 
@@ -71,8 +71,8 @@ def test_an_error_dropping_the_bitmaps_closes_the_task(fake, monkeypatch, job, a
     task_id = create_task(action, "web", username="admin")
     job(task_id, "admin", *args)
     tasks, entries = fake()
-    assert tasks[0]["statut"] == "echec" and "replication bitmap" in tasks[0]["erreur"]
-    assert entries[0]["resource"] == "web" and entries[0]["result"] == "echec"
+    assert tasks[0]["status"] == "failed" and "replication bitmap" in tasks[0]["error"]
+    assert entries[0]["resource"] == "web" and entries[0]["result"] == "failed"
     assert "before-update" in entries[0]["error_message"]
 
 
@@ -81,7 +81,7 @@ def test_a_snapshot_task_and_its_audit_entry_name_the_vm(fake, monkeypatch, clie
     r = client.delete("/vms/web/snapshots/before-update", headers=auth_headers("root"))
     assert r.status_code == 200 and FakeSnapshot.deleted
     tasks, entries = fake()
-    assert tasks == [{"type": "delete_snapshot", "cible": "web", "statut": "termine", "erreur": None}]
+    assert tasks == [{"type": "delete_snapshot", "target": "web", "status": "succeeded", "error": None}]
     entry = next(e for e in entries if e["action"] == "delete_snapshot")
     assert entry["resource"] == "web" and entry["error_message"] == "Snapshot 'before-update'"
 
@@ -94,4 +94,4 @@ def test_an_unexpected_error_in_a_deletion_closes_its_task(fake, monkeypatch, cl
     with pytest.raises(OSError):
         client.delete("/vms/web/snapshots/before-update", headers=auth_headers("root"))
     tasks, _ = fake()
-    assert tasks[0]["statut"] == "echec" and "command not found" in tasks[0]["erreur"]
+    assert tasks[0]["status"] == "failed" and "command not found" in tasks[0]["error"]

@@ -44,10 +44,10 @@ def delete(backup_id):
     if not row:
         raise BackupNotFound(backup_id)
     backup_use.refuse_if_in_use(backup_id)
-    shutil.rmtree(row["chemin"], ignore_errors=True)
+    shutil.rmtree(row["path"], ignore_errors=True)
     # <target>/<vm>/<timestamp>: the VM's directory goes with its last backup (rmdir leaves a non-empty one).
     with contextlib.suppress(OSError):
-        Path(row["chemin"]).parent.rmdir()
+        Path(row["path"]).parent.rmdir()
     store.delete(backup_id)
     return row
 
@@ -60,9 +60,9 @@ async def get_schedule(vm_name):
     return await registry.backups().get_schedule(vm_name)
 
 
-def set_schedule(vm_name, frequence, heure, cible_dir, retention_count, jours, semaines, mois, next_run):
+def set_schedule(vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run):
     registry.backups().sync.upsert_schedule(
-        vm_name, frequence, heure, cible_dir, retention_count, jours, semaines, mois, next_run
+        vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run
     )
 
 
@@ -91,6 +91,6 @@ def delete_container_backup(backup_id):
     store = registry.backups().sync
     row = store.get_container_backup(backup_id)
     if row:
-        Path(row["chemin"]).unlink(missing_ok=True)
+        Path(row["path"]).unlink(missing_ok=True)
         store.delete_container_backup(backup_id)
     return row

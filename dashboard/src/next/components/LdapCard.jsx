@@ -50,7 +50,7 @@ export default function LdapCard() {
   const input = (k, label, extra = {}) => (
     <Field label={label} help={extra.help} hint={extra.hint} error={bad[k] ? t(`ldap.bad.${k}`) : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form[k]} onChange={set(k)} placeholder={extra.ph} type={extra.type} autoComplete="off" />}</Field>
   );
-  const user = result?.utilisateur;
+  const user = result?.user;
   return (
     <Card title={t("ldap.title")}>
       <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("ldap.help")}</p>
@@ -91,9 +91,9 @@ export default function LdapCard() {
           <Field label={t("ldap.testPw")}>{(p) => <input {...p} type="password" className="nx-inp" value={probe.password} onChange={(e) => setProbe((x) => ({ ...x, password: e.target.value }))} autoComplete="new-password" />}</Field>
         </div>
         {result && (
-          <div className="nx-bn" data-tone={result.ok && (!user || user.accepte) ? "success" : "danger"} role="status">
+          <div className="nx-bn" data-tone={result.ok && (!user || user.accepted) ? "success" : "danger"} role="status">
             <span className="nx-bn-t">{!result.ok ? t("ldap.testKo", { error: result.detail })
-              : !user ? t("ldap.testOk") : user.accepte ? t(user.role ? "ldap.userOk" : "ldap.userNotAllowed", { dn: user.dn, role: user.role ? t(`ldap.role.${user.role}`) : "" }) : t("ldap.userKo")}</span>
+              : !user ? t("ldap.testOk") : user.accepted ? t(user.role ? "ldap.userOk" : "ldap.userNotAllowed", { dn: user.dn, role: user.role ? t(`ldap.role.${user.role}`) : "" }) : t("ldap.userKo")}</span>
           </div>
         )}
       </fieldset>

@@ -8,11 +8,11 @@ export const openShell = (name) => window.open(`/container-terminal/${encodeURIC
 
 // Asks for the new name of a stopped container and renames it; resolves to the new name, or null.
 export async function renameContainerFlow(ct, t, pushToast) {
-  const name = await promptText({ title: t("ct.renameTitle", { name: ct.nom }), message: t("ct.renameMsg"), label: t("ct.renameName"), defaultValue: ct.nom, confirmLabel: t("vx.rename"), validate: (v) => (!NAME_RE.test(v) ? t("ct.nameRule") : v === ct.nom ? t("vx.renameSame") : "") });
+  const name = await promptText({ title: t("ct.renameTitle", { name: ct.name }), message: t("ct.renameMsg"), label: t("ct.renameName"), defaultValue: ct.name, confirmLabel: t("vx.rename"), validate: (v) => (!NAME_RE.test(v) ? t("ct.nameRule") : v === ct.name ? t("vx.renameSame") : "") });
   if (!name) return null;
   try {
-    await renameContainer(ct.nom, name.trim());
-    pushToast({ kind: "success", title: t("ct.renamed"), message: `${ct.nom} → ${name.trim()}` });
+    await renameContainer(ct.name, name.trim());
+    pushToast({ kind: "success", title: t("ct.renamed"), message: `${ct.name} → ${name.trim()}` });
     return name.trim();
   } catch (e) { pushToast({ kind: "error", title: t("ct.renameFailed"), message: errorMessage(e) }); return null; }
 }

@@ -41,7 +41,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
             except libvirt.libvirtError:
                 raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
             set_vm_os_label(name, payload.os_label.strip())
-            log_action(user["username"], "update_vm", name, "succes", f"OS label: {payload.os_label.strip()}")
+            log_action(user["username"], "update_vm", name, "success", f"OS label: {payload.os_label.strip()}")
             return _domain_summary(domain)
         finally:
             conn.close()
@@ -54,11 +54,11 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "update_vm", name, "echec", "VM not found")
+            log_action(user["username"], "update_vm", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         if domain.isActive():
-            log_action(user["username"], "update_vm", name, "echec", "VM active")
+            log_action(user["username"], "update_vm", name, "failed", "VM active")
             raise HTTPException(status_code=409, detail="Stop the VM before changing its resources")
 
         try:
@@ -73,14 +73,14 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
                 domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "update_vm", name, "echec", msg)
+            log_action(user["username"], "update_vm", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Resource update error: {msg}") from e
 
         if payload.os_label is not None:
             set_vm_os_label(name, payload.os_label.strip())
         domain = conn.lookupByName(name)
         result = _domain_summary(domain)
-        log_action(user["username"], "update_vm", name, "succes")
+        log_action(user["username"], "update_vm", name, "success")
         return result
     finally:
         conn.close()
@@ -102,7 +102,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
 #   vCPUs and a 50% limit can consume at most the equivalent of 1 full core,
 #   never more, even if the host is idle.
 # - RAM: NO real "guaranteed reservation" here. libvirt does expose
-#   <memtune><min_guarantee> in its XML schema, but that field is only honoured by
+#   <memtune><min_guarantee> in its XML schema, purpose that field is only honoured by
 #   the Xen hypervisor and is a no-op on QEMU/KVM (checked in the libvirt
 #   documentation). The only real RAM reservation on KVM is not to over-allocate
 #   the host (check the available RAM before raising memory_mb, already done by
@@ -163,7 +163,7 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_limits", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_limits", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         nvcpu = domain.info()[3] or 1
@@ -183,10 +183,10 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
             domain.setMemoryParameters({"hard_limit": hard_limit_kb}, flags)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "set_vm_limits", name, "echec", msg)
+            log_action(user["username"], "set_vm_limits", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Error applying the limits: {msg}") from e
 
-        log_action(user["username"], "set_vm_limits", name, "succes")
+        log_action(user["username"], "set_vm_limits", name, "success")
         return _limits_summary(domain)
     finally:
         conn.close()
@@ -203,7 +203,7 @@ class CpuPinning(BaseModel):
 
 def _pinning_summary(conn, domain):
     summary = cpu_pinning.read(domain)
-    summary["topologie"] = cpu_pinning.host_topology(conn)
+    summary["topology"] = cpu_pinning.host_topology(conn)
     return summary
 
 
@@ -227,7 +227,7 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_cpu_pinning", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_cpu_pinning", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
@@ -236,7 +236,7 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
         try:
             how = cpu_pinning.plan(cpu_pinning.host_topology(conn), nvcpu, payload.cpuset, payload.strict)
         except cpu_pinning.PinningError as e:
-            log_action(user["username"], "set_vm_cpu_pinning", name, "echec", e.message)
+            log_action(user["username"], "set_vm_cpu_pinning", name, "failed", e.message)
             raise HTTPException(status_code=e.status, detail=e.message) from e
 
         cpu_pinning.apply_to_xml(root, nvcpu, how)
@@ -246,7 +246,7 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
                 cpu_pinning.apply_live(domain, conn, domain.info()[3] or nvcpu, how)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "set_vm_cpu_pinning", name, "echec", msg)
+            log_action(user["username"], "set_vm_cpu_pinning", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"CPU pinning error: {msg}") from e
 
         detail = (
@@ -254,21 +254,21 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
             if how["cpus"]
             else "unpinned"
         )
-        log_action(user["username"], "set_vm_cpu_pinning", name, "succes", detail)
+        log_action(user["username"], "set_vm_cpu_pinning", name, "success", detail)
         result = _pinning_summary(conn, domain)
         # The CPUs move at once; a new NUMA memory placement only applies when the guest's RAM is allocated again.
-        result["redemarrage_requis"] = bool(domain.isActive()) and before["numa_cellule"] != how["numa_cellule"]
+        result["restart_required"] = bool(domain.isActive()) and before["numa_cell"] != how["numa_cell"]
         return result
     finally:
         conn.close()
 
 
 class BootSetting(BaseModel):
-    demarrage_auto: bool
+    autostart: bool
     # Position in the node's start sequence; none: after the numbered VMs, by name.
-    ordre: int | None = Field(default=None, ge=0, le=vm_boot.MAX_ORDER)
+    position: int | None = Field(default=None, ge=0, le=vm_boot.MAX_ORDER)
     # Wait after this VM has started, before the next one (a database before its applications).
-    delai_s: int = Field(default=0, ge=0, le=vm_boot.MAX_DELAY_S)
+    delay_s: int = Field(default=0, ge=0, le=vm_boot.MAX_DELAY_S)
 
 
 def _lookup(conn, name):
@@ -296,32 +296,32 @@ def set_vm_boot(
     conn = open_conn(node)
     try:
         domain = _lookup(conn, name)
-        vm_boot.set_setting(name, payload.demarrage_auto, payload.ordre, payload.delai_s, node)
-        if payload.demarrage_auto and domain.autostart():
+        vm_boot.set_setting(name, payload.autostart, payload.position, payload.delay_s, node)
+        if payload.autostart and domain.autostart():
             # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over.
             domain.setAutostart(0)
         detail = (
-            f"on, order {payload.ordre if payload.ordre is not None else '-'}, delay {payload.delai_s} s"
-            if payload.demarrage_auto
+            f"on, order {payload.position if payload.position is not None else '-'}, delay {payload.delay_s} s"
+            if payload.autostart
             else "off"
         )
-        log_action(user["username"], "set_vm_boot", name, "succes", f"Start at boot {detail}")
+        log_action(user["username"], "set_vm_boot", name, "success", f"Start at boot {detail}")
         return {**vm_boot.get_setting(name, node), "autostart_libvirt": bool(domain.autostart())}
     finally:
         conn.close()
 
 
 class CloudInitUpdate(BaseModel):
-    utilisateur: str = Field(min_length=1, max_length=32)
+    user: str = Field(min_length=1, max_length=32)
     # None: the password is left as it is (Hyperlite never stores it, so it cannot be shown or kept otherwise).
-    mot_de_passe: str | None = Field(default=None, max_length=256)
-    cles_ssh: list[str] = Field(default_factory=list, max_length=50)
+    password: str | None = Field(default=None, max_length=256)
+    ssh_keys: list[str] = Field(default_factory=list, max_length=50)
 
 
 def _cloudinit_view(name, domain):
     drive = cloudinit_edit.drive_path(domain, name)
-    state = cloudinit_edit.get_state(name) or {"utilisateur": get_vm_ssh_user(name), "cles_ssh": [], "modifie_le": None}
-    return {"disponible": drive is not None, "en_marche": bool(domain.isActive()), **state}
+    state = cloudinit_edit.get_state(name) or {"user": get_vm_ssh_user(name), "ssh_keys": [], "modified_at": None}
+    return {"available": drive is not None, "running": bool(domain.isActive()), **state}
 
 
 @router.get("/{name}/cloud-init")
@@ -347,10 +347,10 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
                 detail="This VM has no cloud-init drive: it was installed from an ISO image, not made from a cloud image",
             )
         try:
-            keys = cloudinit_edit.validate(payload.utilisateur, payload.mot_de_passe, payload.cles_ssh)
-            cloudinit_edit.rewrite_drive(name, drive, payload.utilisateur, payload.mot_de_passe, keys)
+            keys = cloudinit_edit.validate(payload.user, payload.password, payload.ssh_keys)
+            cloudinit_edit.rewrite_drive(name, drive, payload.user, payload.password, keys)
         except cloudinit_edit.CloudInitError as e:
-            log_action(user["username"], "update_vm_cloudinit", name, "echec", str(e))
+            log_action(user["username"], "update_vm_cloudinit", name, "failed", str(e))
             raise HTTPException(status_code=422, detail=str(e)) from e
         reloaded = False
         try:
@@ -358,15 +358,15 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
         except libvirt.libvirtError as e:
             # The file is written: the change applies anyway once the VM is powered off and on again.
             logger.warning("Could not reload the cloud-init drive of %s live: %s", name, e)
-        set_vm_ssh_user(name, payload.utilisateur)
+        set_vm_ssh_user(name, payload.user)
         log_action(
             user["username"],
             "update_vm_cloudinit",
             name,
-            "succes",
-            f"user {payload.utilisateur}, {len(keys)} key(s), password {'changed' if payload.mot_de_passe else 'kept'}",
+            "success",
+            f"user {payload.user}, {len(keys)} key(s), password {'changed' if payload.password else 'kept'}",
         )
-        return {**_cloudinit_view(name, domain), "recharge_a_chaud": reloaded}
+        return {**_cloudinit_view(name, domain), "hot_reload": reloaded}
     finally:
         conn.close()
 
@@ -379,7 +379,7 @@ def get_vm_pending_changes(name: str, node: str | None = None, user: dict = Depe
         domain = _lookup(conn, name)
         try:
             running = bool(domain.isActive())
-            return {"en_marche": running, "changements": vm_pending.pending_changes(domain)}
+            return {"running": running, "changes": vm_pending.pending_changes(domain)}
         except libvirt.libvirtError as e:
             raise HTTPException(status_code=500, detail=describe_exception(e)) from e
     finally:

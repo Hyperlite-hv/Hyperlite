@@ -37,7 +37,7 @@ export default function SecurityKeysSection({ open }) {
       const options = await securityKeyOptions(password);
       const credential = await createCredential(options);
       const r = await registerSecurityKey(credential, name.trim());
-      setKeys(r.cles); setName("");
+      setKeys(r.keys); setName("");
       pushToast({ kind: "success", title: t("sk.added"), message: t("sk.addedMsg") });
       await refreshMe();
     } catch (er) {
@@ -45,9 +45,9 @@ export default function SecurityKeysSection({ open }) {
     } finally { setBusy(false); }
   }
   async function remove(k) {
-    const password = await promptText({ title: t("sk.removeTitle", { name: k.nom }), label: t("sk.password"), type: "password", confirmLabel: t("sk.remove"), validate: (v) => (v ? "" : t("sk.passwordRequired")) });
+    const password = await promptText({ title: t("sk.removeTitle", { name: k.name }), label: t("sk.password"), type: "password", confirmLabel: t("sk.remove"), validate: (v) => (v ? "" : t("sk.passwordRequired")) });
     if (!password) return;
-    try { const r = await deleteSecurityKey(k.id, password); setKeys(r.cles); pushToast({ kind: "success", title: t("sk.removed"), message: k.nom }); await refreshMe(); }
+    try { const r = await deleteSecurityKey(k.id, password); setKeys(r.keys); pushToast({ kind: "success", title: t("sk.removed"), message: k.name }); await refreshMe(); }
     catch (er) { pushToast({ kind: "error", title: t("sk.removeFailed"), message: errorMessage(er) }); }
   }
 
@@ -67,10 +67,10 @@ export default function SecurityKeysSection({ open }) {
         {keys && keys.map((k) => (
           <div key={k.id} className="nx-sk-row">
             <div className="nx-sk-main">
-              <div className="nx-sk-name">{k.nom}</div>
-              <div className="nx-f-h">{k.rp_id} · {t("sk.added_on", { date: formatDateTime(k.cree_le, lang) })} · {k.utilise_le ? t("sk.used_on", { date: formatDateTime(k.utilise_le, lang) }) : t("sk.never")}</div>
+              <div className="nx-sk-name">{k.name}</div>
+              <div className="nx-f-h">{k.rp_id} · {t("sk.added_on", { date: formatDateTime(k.created_at, lang) })} · {k.used_at ? t("sk.used_on", { date: formatDateTime(k.used_at, lang) }) : t("sk.never")}</div>
             </div>
-            <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("sk.removeAria", { name: k.nom })} onClick={() => remove(k)}><Trash2 size={14} aria-hidden="true" /></button>
+            <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("sk.removeAria", { name: k.name })} onClick={() => remove(k)}><Trash2 size={14} aria-hidden="true" /></button>
           </div>
         ))}
       </div>

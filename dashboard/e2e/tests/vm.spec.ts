@@ -25,7 +25,7 @@ test.afterAll(async ({ request }) => {
 
 const state = async (request: import("@playwright/test").APIRequestContext) => {
   const r = await request.get(`/vms/${NAME}`, { headers: auth() });
-  return r.ok() ? ((await r.json()) as { etat: string }).etat : "missing";
+  return r.ok() ? ((await r.json()) as { state: string }).state : "missing";
 };
 
 async function openWizard(page: Page) {
@@ -82,7 +82,7 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
 
     await goTo(page, "Virtual Machines");
     await expect(page.getByRole("main").getByText(NAME).first()).toBeVisible({ timeout: 90_000 });
-    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("arrete");
+    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("stopped");
     expect(existsSync(DISK), "disk file exists on the host").toBe(true);
 
     await page.reload();
@@ -106,7 +106,7 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await uiLogin(page);
     await openVm(page);
     await head(page).getByRole("button", { name: "Start", exact: true }).click();
-    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("actif");
+    await expect.poll(() => state(request), { timeout: 60_000 }).toBe("active");
     await expect(page.getByText("Running").first()).toBeVisible({ timeout: 30_000 });
     await expect(head(page).getByRole("button", { name: "Start", exact: true })).toHaveCount(0);
     await page.reload();
@@ -144,10 +144,10 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     const dlg = page.getByRole("alertdialog");
     await expect(dlg).toContainText(NAME);
     await dlg.getByRole("button", { name: "Cancel" }).click();
-    expect(await state(request)).toBe("actif");
+    expect(await state(request)).toBe("active");
     await forceStop();
     await page.getByRole("alertdialog").getByRole("button", { name: "Force stop" }).click();
-    await expect.poll(() => state(request), { timeout: 30_000 }).toBe("arrete");
+    await expect.poll(() => state(request), { timeout: 30_000 }).toBe("stopped");
     // Stopping an already stopped VM is refused.
     const again = await request.post(`/vms/${NAME}/stop`, { headers: auth() });
     expect(again.status()).toBe(409);
@@ -160,13 +160,13 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await expect(compute.getByRole("spinbutton", { name: "Memory in MB" })).toBeEnabled({ timeout: 20_000 });
     await compute.getByRole("spinbutton", { name: "Memory in MB" }).fill("384");
     await compute.getByRole("button", { name: "Save", exact: true }).click();
-    await expect.poll(async () => ((await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { memoire_mo: number }).memoire_mo).toBe(384);
+    await expect.poll(async () => ((await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { memory_mb: number }).memory_mb).toBe(384);
     await page.reload();
     await expect(page.getByRole("main").getByRole("region", { name: "Processor and memory" }).getByRole("spinbutton", { name: "Memory in MB" })).toHaveValue("384");
   });
 
   test("creates one snapshot even when the button is double-clicked, then deletes it", async ({ page, request }) => {
-    const snapshots = async () => ((await (await request.get(`/vms/${NAME}/snapshots`, { headers: auth() })).json()) as Array<{ nom: string }>).map((s) => s.nom);
+    const snapshots = async () => ((await (await request.get(`/vms/${NAME}/snapshots`, { headers: auth() })).json()) as Array<{ name: string }>).map((s) => s.name);
     await uiLogin(page);
     await openVm(page, "snapshots");
     await page.getByRole("main").getByRole("button", { name: "Create a snapshot" }).click();
@@ -193,7 +193,7 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     const dlg = page.getByRole("alertdialog");
     await expect(dlg).toContainText(NAME);
     await dlg.getByRole("button", { name: "Cancel" }).click();
-    expect(await state(request)).toBe("arrete");
+    expect(await state(request)).toBe("stopped");
     await remove();
     await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
     await expect.poll(() => state(request), { timeout: 30_000 }).toBe("missing");

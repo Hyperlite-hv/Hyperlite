@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.core import renaming
 from app.core.audit import log_action
 from app.core.jobs import JobRunRefused, start_job_run
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.services import automation_service as automation
 
@@ -15,11 +16,11 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 class JobStep(BaseModel):
-    cible_type: str = Field(description="'vm' | 'host' | 'chaque_cible' (one target per VM supplied to the run)")
-    cible: str | None = None
-    commande: str
+    target_type: str = Field(description="'vm' | 'host' | 'each_target' (one target per VM supplied to the run)")
+    target: str | None = None
+    command: str
     condition_type: str = "exit_code"
-    condition_valeur: str | None = "0"
+    condition_value: str | None = "0"
 
 
 class JobCreate(BaseModel):
@@ -30,7 +31,7 @@ class JobCreate(BaseModel):
 
 @router.get("")
 async def list_jobs(user: dict = Depends(get_current_user)):
-    return await automation.list_jobs()
+    return listing(await automation.list_jobs())
 
 
 @router.get("/{job_id}")
@@ -51,7 +52,7 @@ async def create_job(payload: JobCreate, user: dict = Depends(require_role("admi
         raise HTTPException(status_code=422, detail=str(e)) from None
     except automation.JobExists as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
-    log_action(user["username"], "create_job", payload.name, "succes")
+    log_action(user["username"], "create_job", payload.name, "success")
     return job
 
 
@@ -71,7 +72,7 @@ def rename_job(job_id: int, payload: JobRename, user: dict = Depends(require_rol
         raise HTTPException(status_code=409, detail=str(e)) from e
     if old is None:
         raise HTTPException(status_code=404, detail="Not found")
-    log_action(user["username"], "rename_job", old, "succes", f"-> {name}")
+    log_action(user["username"], "rename_job", old, "success", f"-> {name}")
     return {"id": job_id, "name": name}
 
 
@@ -83,7 +84,7 @@ async def delete_job(job_id: int, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=404, detail="Job not found") from None
     except automation.JobProtected as e:
         raise HTTPException(status_code=403, detail=str(e)) from None
-    log_action(user["username"], "delete_job", name, "succes")
+    log_action(user["username"], "delete_job", name, "success")
     return {"message": "Job deleted"}
 
 
@@ -99,30 +100,30 @@ async def run_job_endpoint(job_id: int, payload: RunRequest, user: dict = Depend
     except automation.JobNotFound:
         raise HTTPException(status_code=404, detail="Job not found") from None
 
-    details = f"cibles={payload.targets} dry_run={payload.dry_run}"
+    details = f"targets={payload.targets} dry_run={payload.dry_run}"
     try:
         run_id = await run_in_threadpool(start_job_run, job_id, payload.targets, payload.dry_run, user["username"])
     except LookupError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except JobRunRefused as e:
-        log_action(user["username"], "run_job_requested", job["name"], "echec", f"{details} : {e}")
+        log_action(user["username"], "run_job_requested", job["name"], "failed", f"{details} : {e}")
         raise HTTPException(status_code=422, detail=str(e)) from None
     # Audited only now that the run exists: its outcome is audited separately
     # ("run_job") when it ends.
-    log_action(user["username"], "run_job_requested", job["name"], "succes", f"{details} run={run_id}")
+    log_action(user["username"], "run_job_requested", job["name"], "success", f"{details} run={run_id}")
     return {"message": f"Run of '{job['name']}' started in the background", "run_id": run_id}
 
 
 @router.get("/{job_id}/runs")
 async def list_job_runs(job_id: int, user: dict = Depends(get_current_user)):
-    return await automation.list_runs(job_id)
+    return listing(await automation.list_runs(job_id))
 
 
 @router.get("/runs/{run_id}")
 async def get_job_run(run_id: str, user: dict = Depends(get_current_user)):
     """What a run printed is for administrators: the commands run as root on the host or in VMs, and their output
     may carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,
-    as the notification channels show them their name but not their configuration."""
+    as the notification channels show them their name purpose not their configuration."""
     try:
         run = await automation.get_run(run_id)
     except automation.RunNotFound:

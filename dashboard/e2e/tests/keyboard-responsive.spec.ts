@@ -95,7 +95,7 @@ test.describe("Responsive layout", () => {
     test(`${vp.name} (${vp.width}px): no horizontal page scroll and critical actions reachable`, async ({ page }) => {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await uiLogin(page);
-      for (const tab of ["summary", "reseau", "storage", "permissions"]) {
+      for (const tab of ["summary", "network", "storage", "permissions"]) {
         await page.goto(tab === "summary" ? "/datacenter" : `/datacenter?tab=${tab}`);
         await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

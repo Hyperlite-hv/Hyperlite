@@ -174,12 +174,12 @@ def test_the_api(node, client, auth_headers, monkeypatch):
     with open(_build(tmp, env), "rb") as f:
         r = client.post("/update/offline?lang=fr", files={"file": ("u.tar", f)}, headers=admin)
     assert r.status_code == 200, r.text
-    assert r.json() == {"version": "1.0.1", "debian": "13", "taille_mo": r.json()["taille_mo"], "installee": "1.0.0",
-                        "plus_ancienne": False, "notes": "Nouveautés"}  # fmt: skip
+    assert r.json() == {"version": "1.0.1", "debian": "13", "size_mb": r.json()["size_mb"], "installed": "1.0.0",
+                        "oldest": False, "notes": "Nouveautés"}  # fmt: skip
     assert client.get("/update/offline", headers=admin).json()["version"] == "1.0.1"
-    eve = auth_headers("eve", role="observateur")
+    eve = auth_headers("eve", role="viewer")
     assert client.post("/update/offline/apply", json={}, headers=eve).status_code == 403
-    r = client.post("/update/offline/apply", json={"systeme": True}, headers=admin)
+    r = client.post("/update/offline/apply", json={"system": True}, headers=admin)
     assert r.status_code == 202 and r.json()["version"] == "1.0.1"
     assert started[0][1:] == ("root", True, True)  # (task, user, system, offline)
     # A refused file leaves the node as it was, and says why.
@@ -220,7 +220,7 @@ def test_the_update_uses_the_file_packages_only(node, database, monkeypatch):
     task_id = create_task("hyperlite_update", "hyperlite", username="alice")
     update._run_update_job_apt(task_id, "alice", True, True)
     with database.get_conn() as conn:
-        assert conn.execute("SELECT statut FROM tasks WHERE id = ?", (task_id,)).fetchone()[0] == "termine"
+        assert conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()[0] == "succeeded"
     local = f"Dir::Etc::sourcelist={offline_update.WORK_DIR / 'local.list'}"
     assert local in apt_runs[0] and apt_runs[0][-1] == "update"
     full, install = commands

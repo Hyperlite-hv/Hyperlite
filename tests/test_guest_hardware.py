@@ -8,8 +8,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.core.guest_hardware import guest_profile
-from app.core.unattended_install import detect_windows
+from app.core.guest_hardware import detect_windows, guest_profile
 
 devices = importlib.import_module("app.routers.vms.devices")
 creation = importlib.import_module("app.routers.vms.create")

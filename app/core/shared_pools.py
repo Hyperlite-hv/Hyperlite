@@ -2,7 +2,7 @@
 
 An NFS export or an iSCSI target reachable from every node is the same storage for all of them: it is created on
 each chosen node under the same name and mount point, which live migration and HA need. The definition is kept here
-so that a pool declared for every node ("tous") is also created on the nodes registered later. A CHAP password is
+so that a pool declared for every node ("all") is also created on the nodes registered later. A CHAP password is
 kept encrypted (app/core/secrets_crypto.py), never returned by the API.
 """
 
@@ -54,10 +54,10 @@ def _row(row, with_secret=False):
     if with_secret and secret:
         definition["chap_password"] = secrets_crypto.decrypt(secret)
     return {
-        "nom": row["nom"],
+        "name": row["name"],
         "type": definition.get("type"),
-        "tous_les_noeuds": bool(row["tous_les_noeuds"]),
-        "noeuds": json.loads(row["noeuds"] or "[]"),
+        "all_nodes": bool(row["all_nodes"]),
+        "nodes": json.loads(row["nodes"] or "[]"),
         "definition": definition,
     }
 
@@ -80,8 +80,8 @@ def for_every_node(with_secret=True):
 def add_node(name, node):
     """Record that the pool now also exists on `node`."""
     entry = get(name)
-    if entry and node not in entry["noeuds"]:
-        _store().set_shared_pool_nodes(name, json.dumps(sorted([*entry["noeuds"], node])))
+    if entry and node not in entry["nodes"]:
+        _store().set_shared_pool_nodes(name, json.dumps(sorted([*entry["nodes"], node])))
 
 
 def rename(old, new):

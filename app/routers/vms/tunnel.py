@@ -54,7 +54,7 @@ def create_tunnel_ticket(
 ):
     allowed = workstation.tunnel_ports()
     if port not in allowed:
-        log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "echec", "port not allowed")
+        log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "failed", "port not allowed")
         detail = (
             "Tunnels are disabled on this server."
             if not allowed
@@ -62,27 +62,27 @@ def create_tunnel_ticket(
         )
         raise HTTPException(status_code=403, detail=detail)
     if workstation.open_tunnel_count(user["username"]) >= workstation.tunnel_max_per_user():
-        log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "echec", "too many open tunnels")
+        log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "failed", "too many open tunnels")
         raise HTTPException(status_code=429, detail="Too many open tunnels for this account: close some first.")
     conn = open_conn()
     try:
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "echec", "VM not found")
+            log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found on this node") from None
         if not domain.isActive():
-            log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "echec", "VM stopped")
+            log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "failed", "VM stopped")
             raise HTTPException(status_code=409, detail="The VM must be running.")
         ip = _guest_ip(domain)
     finally:
         conn.close()
     if not ip:
-        log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "echec", "IP unknown")
+        log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "failed", "IP unknown")
         raise HTTPException(status_code=409, detail="The VM has no known IP address yet (still booting?).")
     ticket = workstation.issue_tunnel_ticket(name, ip, port, user["username"])
-    log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "succes")
-    return {"ticket": ticket, "expire_dans_s": workstation.TUNNEL_TICKET_TTL}
+    log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "success")
+    return {"ticket": ticket, "expires_in_s": workstation.TUNNEL_TICKET_TTL}
 
 
 @router.websocket("/{name}/tunnel")
@@ -100,7 +100,7 @@ async def vm_tunnel(websocket: WebSocket, name: str):
     ip_token = request_ip.set(websocket.client.host if websocket.client else None)
     try:
         if not workstation.tunnel_opened(username):
-            log_action(username, "tunnel", target, "echec", "too many open tunnels")
+            log_action(username, "tunnel", target, "failed", "too many open tunnels")
             await websocket.close(code=4429, reason="too many open tunnels")
             return
         try:
@@ -115,7 +115,7 @@ async def _relay(websocket, entry, username, target):
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(entry["ip"], entry["port"]), CONNECT_TIMEOUT_S)
     except (TimeoutError, OSError) as e:
-        log_action(username, "tunnel", target, "echec", f"connection to the VM failed: {type(e).__name__}")
+        log_action(username, "tunnel", target, "failed", f"connection to the VM failed: {type(e).__name__}")
         await websocket.close(code=4502, reason=f"the VM does not answer on port {entry['port']}")
         return
     started = time.monotonic()
@@ -146,7 +146,7 @@ async def _relay(websocket, entry, username, target):
         while time.monotonic() - last_activity[0] < idle_timeout:
             await asyncio.sleep(min(30, idle_timeout))
 
-    log_action(username, "tunnel_open", target, "succes")
+    log_action(username, "tunnel_open", target, "success")
     tasks = {asyncio.ensure_future(ws_to_vm()), asyncio.ensure_future(vm_to_ws()), asyncio.ensure_future(idle_watch())}
     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     for task in pending:
@@ -165,7 +165,7 @@ async def _relay(websocket, entry, username, target):
         username,
         "tunnel_close",
         target,
-        "succes",
+        "success",
         f"{duration} s, {sent[0]} bytes sent, {sent[1]} bytes received" + (", closed after inactivity" if idle else ""),
     )
 

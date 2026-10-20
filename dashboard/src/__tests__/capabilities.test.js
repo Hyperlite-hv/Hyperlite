@@ -9,9 +9,9 @@ describe("capabilities view", () => {
     expect(rows.find((r) => r.key === "cpu.cores").value).toBe(NA);
   });
   it("reports ZFS as limited when the module is not loaded", () => {
-    const features = deriveFeatures({ stockage: { zfs_disponible: false, zfs_installe: true }, securite: {} });
+    const features = deriveFeatures({ storage: { zfs_available: false, zfs_installed: true }, security: {} });
     const zfs = features.find((f) => f.id === "zfs");
-    expect(zfs.etat).toBe("limite");
+    expect(zfs.state).toBe("limite");
     expect(zfs.detail).toMatch(/Kernel module not loaded/);
   });
 });

@@ -59,17 +59,17 @@ def _read(path):
 
 
 def iommu_state():
-    """{"actif": bool, "raison": str|None}. The kernel creates /sys/kernel/iommu_groups/* only when the IOMMU is on."""
+    """{"active": bool, "reason": str|None}. The kernel creates /sys/kernel/iommu_groups/* only when the IOMMU is on."""
     groups = SYS / "kernel" / "iommu_groups"
     try:
         active = groups.is_dir() and any(groups.iterdir())
     except OSError:
         active = False
     if active:
-        return {"actif": True, "raison": None}
+        return {"active": True, "reason": None}
     return {
-        "actif": False,
-        "raison": "The IOMMU is off: enable VT-d (Intel) or AMD-Vi/IOMMU (AMD) in the server's firmware, add "
+        "active": False,
+        "reason": "The IOMMU is off: enable VT-d (Intel) or AMD-Vi/IOMMU (AMD) in the server's firmware, add "
         "intel_iommu=on iommu=pt (Intel) or amd_iommu=on iommu=pt (AMD) to the kernel command line, then reboot",
     }
 
@@ -201,15 +201,15 @@ def _parse(dev_xml):
         return {
             "id": name,
             "type": "pci",
-            "adresse": _pci_address(pci),
-            "classe": _text(pci, "class"),
-            "fabricant": _text(pci, "vendor") or pci.find("vendor").get("id"),
-            "produit": _text(pci, "product") or pci.find("product").get("id"),
+            "address": _pci_address(pci),
+            "class": _text(pci, "class"),
+            "vendor": _text(pci, "vendor") or pci.find("vendor").get("id"),
+            "product": _text(pci, "product") or pci.find("product").get("id"),
             "ids": f"{_hex(pci.find('vendor').get('id'))}:{_hex(pci.find('product').get('id'))}",
-            "pilote": driver,
-            "groupe_iommu": int(group.get("number")) if group is not None else None,
-            "groupe": members,
-            "chemin": path,
+            "driver": driver,
+            "iommu_group": int(group.get("number")) if group is not None else None,
+            "group": members,
+            "path": path,
         }
     usb = root.find("capability[@type='usb_device']")
     if usb is not None:
@@ -217,16 +217,16 @@ def _parse(dev_xml):
         return {
             "id": name,
             "type": "usb",
-            "adresse": f"{int(_text(usb, 'bus') or 0):03d}:{int(_text(usb, 'device') or 0):03d}",
+            "address": f"{int(_text(usb, 'bus') or 0):03d}:{int(_text(usb, 'device') or 0):03d}",
             "bus": int(_text(usb, "bus") or 0),
-            "numero": int(_text(usb, "device") or 0),
-            "fabricant": _text(usb, "vendor") or vendor.get("id"),
-            "produit": _text(usb, "product") or product.get("id"),
+            "number": int(_text(usb, "device") or 0),
+            "vendor": _text(usb, "vendor") or vendor.get("id"),
+            "product": _text(usb, "product") or product.get("id"),
             "vendor_id": vendor.get("id"),
             "product_id": product.get("id"),
             "ids": f"{_hex(vendor.get('id'))}:{_hex(product.get('id'))}",
-            "pilote": driver,
-            "chemin": path,
+            "driver": driver,
+            "path": path,
         }
     return None
 
@@ -274,13 +274,13 @@ def _hostdev_keys(hostdev):
 def _usb_keys(dev):
     return [
         f"ids:{int(dev['vendor_id'], 16):04x}:{int(dev['product_id'], 16):04x}",
-        f"addr:{dev['bus']}:{dev['numero']}",
+        f"addr:{dev['bus']}:{dev['number']}",
     ]
 
 
 def list_devices(conn):
     """{"iommu": iommu_state(), "pci": [...], "usb": [...]}; each device says who uses it: "vm" (a VM's name) and
-    "hote" (why the host needs it), both None when it is free."""
+    "host" (why the host needs it), both None when it is free."""
     flags = libvirt.VIR_CONNECT_LIST_NODE_DEVICES_CAP_PCI_DEV | libvirt.VIR_CONNECT_LIST_NODE_DEVICES_CAP_USB_DEV
     devices = []
     for nodedev in conn.listAllDevices(flags):
@@ -296,12 +296,12 @@ def list_devices(conn):
     for dev in devices:
         keys = [dev["id"]] if dev["type"] == "pci" else _usb_keys(dev)
         dev["vm"] = next((taken[k] for k in keys if k in taken), None)
-        dev["hote"] = host_use(dev["type"], dev.get("classe"), dev.get("chemin"))
-        dev.pop("chemin", None)
+        dev["host"] = host_use(dev["type"], dev.get("class"), dev.get("path"))
+        dev.pop("path", None)
     return {
         "iommu": iommu_state(),
-        "pci": sorted((d for d in devices if d["type"] == "pci"), key=lambda d: d["adresse"]),
-        "usb": sorted((d for d in devices if d["type"] == "usb"), key=lambda d: d["adresse"]),
+        "pci": sorted((d for d in devices if d["type"] == "pci"), key=lambda d: d["address"]),
+        "usb": sorted((d for d in devices if d["type"] == "usb"), key=lambda d: d["address"]),
     }
 
 
@@ -319,7 +319,7 @@ def _pci_hostdev_xml(device_id):
 
 def _usb_hostdev_xml(dev, by_address):
     if by_address:
-        source = f"<address bus='{dev['bus']}' device='{dev['numero']}'/>"
+        source = f"<address bus='{dev['bus']}' device='{dev['number']}'/>"
     else:
         source = f"<vendor id='{dev['vendor_id']}'/><product id='{dev['product_id']}'/>"
     return f"<hostdev mode='subsystem' type='usb' managed='yes'><source>{source}</source></hostdev>"
@@ -336,8 +336,8 @@ def plan_attach(conn, vm_name, device_id, running):
         raise PassthroughError(f"Device '{device_id}' not found on this host", 404)
 
     if dev["type"] == "usb":
-        if dev["hote"]:
-            raise PassthroughError(f"The host uses this device: {dev['hote']}", 409)
+        if dev["host"]:
+            raise PassthroughError(f"The host uses this device: {dev['host']}", 409)
         if dev["vm"]:
             raise PassthroughError(f"This device is already given to VM '{dev['vm']}'", 409)
         twins = [d for d in inventory["usb"] if d["ids"] == dev["ids"]]
@@ -345,35 +345,35 @@ def plan_attach(conn, vm_name, device_id, running):
 
     if running:
         raise PassthroughError("Shut down the VM before giving it a PCI device", 409)
-    if not inventory["iommu"]["actif"]:
-        raise PassthroughError(inventory["iommu"]["raison"], 409)
-    if dev["hote"]:
+    if not inventory["iommu"]["active"]:
+        raise PassthroughError(inventory["iommu"]["reason"], 409)
+    if dev["host"]:
         # Checked on the device asked for first: a bridge is left out of its group's endpoints below, and must
         # still be refused rather than give an empty attach.
-        raise PassthroughError(f"This device is needed by the host: {dev['hote']}", 409)
-    members = [by_id[m] for m in dev["groupe"] if m in by_id] or [dev]
-    endpoints = [m for m in members if not (m.get("classe") or "").startswith("0x06")]
+        raise PassthroughError(f"This device is needed by the host: {dev['host']}", 409)
+    members = [by_id[m] for m in dev["group"] if m in by_id] or [dev]
+    endpoints = [m for m in members if not (m.get("class") or "").startswith("0x06")]
     for member in endpoints:
-        if member["hote"]:
-            what = "This device" if member["id"] == device_id else f"{member['adresse']} (same IOMMU group)"
-            raise PassthroughError(f"{what} is needed by the host: {member['hote']}", 409)
+        if member["host"]:
+            what = "This device" if member["id"] == device_id else f"{member['address']} (same IOMMU group)"
+            raise PassthroughError(f"{what} is needed by the host: {member['host']}", 409)
         if member["vm"] and member["vm"] != vm_name:
-            what = "This device" if member["id"] == device_id else f"{member['adresse']} (same IOMMU group)"
+            what = "This device" if member["id"] == device_id else f"{member['address']} (same IOMMU group)"
             raise PassthroughError(f"{what} is already given to VM '{member['vm']}'", 409)
         if member["vm"] == vm_name:
-            raise PassthroughError(f"{member['adresse']} is already given to this VM", 409)
+            raise PassthroughError(f"{member['address']} is already given to this VM", 409)
     return [(m, _pci_hostdev_xml(m["id"])) for m in endpoints]
 
 
 def attached(domain):
-    """The host devices in a VM's persistent definition: [{"id", "type", "cle", "xml"}]."""
+    """The host devices in a VM's persistent definition: [{"id", "type", "key", "xml"}]."""
     root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
     out = []
     for hostdev in root.findall("./devices/hostdev"):
         keys = _hostdev_keys(hostdev)
         if not keys:
             continue
-        out.append({"type": hostdev.get("type"), "cles": keys, "xml": ET.tostring(hostdev, encoding="unicode")})
+        out.append({"type": hostdev.get("type"), "keys": keys, "xml": ET.tostring(hostdev, encoding="unicode")})
     return out
 
 

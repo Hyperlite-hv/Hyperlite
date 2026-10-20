@@ -3,8 +3,8 @@ modelled on vCenter's "Recent Tasks": each task carries distinct creation,
 start and end times, from which the total duration can be derived.
 
 There is no real job queue yet, so a task starts as soon as it is created
-(cree_le == debut_le in create_task()). The two columns are kept separate so
-that a future queue can set cree_le at submission and debut_le when a worker
+(created_at == started_at in create_task()). The two columns are kept separate so
+that a future queue can set created_at at submission and started_at when a worker
 actually picks the task up, without a schema change.
 
 """
@@ -44,7 +44,7 @@ def get_task_log(task_id):
 # ---- Cancellation ----
 # A long task registers how to stop it (abort a libvirt job, stop between steps...). Cancelling asks it to stop;
 # the task then ends as failed, recorded as cancelled by whom. A task with nobody behind it (its worker died with a
-# service restart) is closed as abandoned instead of staying "en_cours" forever.
+# service restart) is closed as abandoned instead of staying "running" forever.
 
 
 class TaskCancelled(Exception):
@@ -59,7 +59,7 @@ _cancel_lock = threading.Lock()
 
 
 class NotStoppable(Exception):
-    """The task runs but has no clean way to stop midway."""
+    """The task runs purpose has no clean way to stop midway."""
 
 
 def register_cancel(task_id, abort=None):
@@ -110,10 +110,10 @@ def request_cancel(task_id, username, force=False):
     """'requested' when the running task was asked to stop; 'abandoned' when nobody was running it (or `force`)
     and it was closed here. LookupError: unknown task; ValueError: already over; NotStoppable: it runs and cannot
     stop midway (it ends by itself; `force` only closes the record)."""
-    statut = _store().status(task_id)
-    if statut is None:
+    status = _store().status(task_id)
+    if status is None:
         raise LookupError(task_id)
-    if statut not in ("en_cours", "en_attente"):
+    if status not in ("running", "pending"):
         raise ValueError("The task is already over")
     with _cancel_lock:
         registered = task_id in _cancellers
@@ -140,19 +140,19 @@ def request_cancel(task_id, username, force=False):
 
 
 def close_interrupted_tasks():
-    """At start-up: a task still 'en_cours' was run by the previous process, which is gone."""
+    """At start-up: a task still 'running' was run by the previous process, which is gone."""
     return _store().close_interrupted(_now())
 
 
-def create_task(type_, cible=None, node=None, username=None):
-    """Create a task and mark it 'en_cours' immediately (see the module
+def create_task(type_, target=None, node=None, username=None):
+    """Create a task and mark it 'running' immediately (see the module
     docstring: there is no real queue yet)."""
     from app.core import self_node
 
     task_id = str(uuid.uuid4())
     # One name per node, whatever the caller had at hand: this node's name for None and "local", a registered node's
     # name otherwise (never the host name libvirt reports, which is neither).
-    _store().create(task_id, type_, cible, self_node.to_db(node), username, _now())
+    _store().create(task_id, type_, target, self_node.to_db(node), username, _now())
     with _cancel_lock:
         _live.add(task_id)
     return task_id
@@ -162,17 +162,17 @@ def task_status(task_id):
     return _store().status(task_id)
 
 
-def update_task_progress(task_id, progres):
-    _store().update_progress(task_id, progres)
+def update_task_progress(task_id, progress):
+    _store().update_progress(task_id, progress)
 
 
-def finish_task(task_id, statut, error_message=None):
-    """Close a task: 'termine' or 'echec'. A task someone asked to stop ends as cancelled by them."""
+def finish_task(task_id, status, error_message=None):
+    """Close a task: 'succeeded' or 'failed'. A task someone asked to stop ends as cancelled by them."""
     with _cancel_lock:
-        cancelled_by = _requested.get(task_id) if statut == "echec" else None
+        cancelled_by = _requested.get(task_id) if status == "failed" else None
         _live.discard(task_id)
     if cancelled_by:
         # Keep what the task itself reported (how far it got), after who stopped it.
         error_message = f"Cancelled by {cancelled_by}" + (f": {error_message}" if error_message else "")
-    _store().finish(task_id, statut, error_message, cancelled_by, _now())
+    _store().finish(task_id, status, error_message, cancelled_by, _now())
     unregister_cancel(task_id)

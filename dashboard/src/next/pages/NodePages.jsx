@@ -24,7 +24,7 @@ const isLocal = (node) => node?.id === "local";
 // the API does not provide it: say so instead of showing the local host's values under another name.
 function RemoteNotice({ node }) {
   const t = useT();
-  return <EmptyState title={t("nn.remoteTitle", { name: node.nom })} help={t("nn.remoteHelp")} />;
+  return <EmptyState title={t("nn.remoteTitle", { name: node.name })} help={t("nn.remoteHelp")} />;
 }
 
 // Hardware inventory of a node (interfaces, disks, CPU topology), read on demand; "Refresh capabilities" in
@@ -61,17 +61,17 @@ export function NodeSystemPage({ resource: node }) {
   if (!node) return null;
   const cpu = hw?.cpu || {};
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
-  const qemu = formatVersionInt(node.version_hyperviseur);
-  const lv = formatVersionInt(node.version_libvirt);
-  const flags = [cpu.virtualisation, caps?.cpu?.virtualisation_materielle ? "KVM" : null, caps?.virtualisation?.conteneurs_lxc_disponibles ? "LXC" : null].filter(Boolean);
+  const qemu = formatVersionInt(node.hypervisor_version);
+  const lv = formatVersionInt(node.libvirt_version);
+  const flags = [cpu.virtualization, caps?.cpu?.hardware_virtualization ? "KVM" : null, caps?.virtualization?.lxc_containers_available ? "LXC" : null].filter(Boolean);
   return (
     <>
       {error && !hw && <ErrorState message={error} onRetry={load} />}
       <div className="nx-cols2 nx-cols2--even">
         <Card title={t("nn.hardware")}>
           <dl className="nx-dl2">
-            <dt>{t("ns.cpuModel")}</dt><dd>{cpu.modele || node.cpu_modele || na}</dd>
-            <dt>{t("nn.topology")}</dt><dd className="nx-mono">{cpu.sockets ? t("nn.topologyVal", { s: cpu.sockets, c: cpu.coeurs_par_socket ?? "?", th: cpu.threads ?? node.cpu_coeurs ?? "?" }) : node.cpu_coeurs ? t("nd.cores", { n: node.cpu_coeurs }) : na}</dd>
+            <dt>{t("ns.cpuModel")}</dt><dd>{cpu.model || node.cpu_modele || na}</dd>
+            <dt>{t("nn.topology")}</dt><dd className="nx-mono">{cpu.sockets ? t("nn.topologyVal", { s: cpu.sockets, c: cpu.cores_per_socket ?? "?", th: cpu.threads ?? node.cpu_coeurs ?? "?" }) : node.cpu_coeurs ? t("nd.cores", { n: node.cpu_coeurs }) : na}</dd>
             <dt>{t("ns.memory")}</dt><dd className="nx-mono">{node.memoire_totale_mo ? formatSizeMb(node.memoire_totale_mo, lang) : na}</dd>
             <dt>{t("nn.virt")}</dt><dd>{flags.length ? <span className="nx-chips">{flags.map((f) => <Chip key={f} tone="info">{f}</Chip>)}</span> : na}</dd>
             <dt>{t("nn.arch")}</dt><dd className="nx-mono">{caps?.cpu?.architecture || na}</dd>
@@ -83,7 +83,7 @@ export function NodeSystemPage({ resource: node }) {
             <dt>{t("nn.kernel")}</dt><dd className="nx-mono">{node.noyau || health?.kernel || na}</dd>
             <dt>QEMU</dt><dd className="nx-mono">{qemu || na}</dd>
             <dt>libvirt</dt><dd className="nx-mono">{lv || na}</dd>
-            <dt>{t("nn.hostname")}</dt><dd className="nx-mono">{local ? health?.hostname || node.nom : node.nom}</dd>
+            <dt>{t("nn.hostname")}</dt><dd className="nx-mono">{local ? health?.hostname || node.name : node.name}</dd>
             {local && <><dt>Hyperlite</dt><dd className="nx-mono">{health?.hyperlite_version || na}</dd></>}
             {local && health && <><dt>Python / FastAPI</dt><dd className="nx-mono">{health.python_version} / {health.fastapi_version}</dd></>}
           </dl>
@@ -110,15 +110,15 @@ export function NodeNetworkPage({ resource: node }) {
             <thead><tr><th scope="col">{t("nn.link")}</th><th scope="col">{t("nn.iface")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("nn.addresses")}</th><th scope="col">MAC</th><th scope="col">{t("nn.speed")}</th><th scope="col" className="nx-num">MTU</th></tr></thead>
             <tbody>
               {list.map((i) => {
-                const up = i.etat === "up" || i.etat === "unknown";
+                const up = i.state === "up" || i.state === "unknown";
                 return (
-                  <tr key={i.nom}>
-                    <td><span className="nx-st" data-tone={up ? undefined : "offline"}><span className="nx-dot" data-tone={i.etat === "up" ? "success" : up ? "info" : "offline"} aria-hidden="true" />{t(i.etat === "up" ? "nn.up" : up ? "nn.unknown" : "nn.down")}</span></td>
-                    <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{i.nom}</th>
+                  <tr key={i.name}>
+                    <td><span className="nx-st" data-tone={up ? undefined : "offline"}><span className="nx-dot" data-tone={i.state === "up" ? "success" : up ? "info" : "offline"} aria-hidden="true" />{t(i.state === "up" ? "nn.up" : up ? "nn.unknown" : "nn.down")}</span></td>
+                    <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{i.name}</th>
                     <td><Chip>{t(`nn.type.${i.type}`)}</Chip></td>
-                    <td className="nx-mono nx-wrapcell">{i.adresses.length ? i.adresses.join(", ") : <span className="nx-muted">—</span>}</td>
+                    <td className="nx-mono nx-wrapcell">{i.addresses.length ? i.addresses.join(", ") : <span className="nx-muted">—</span>}</td>
                     <td className="nx-mono nx-muted">{i.mac || "—"}</td>
-                    <td className="nx-mono">{i.debit_mbps ? (i.debit_mbps >= 1000 ? `${i.debit_mbps / 1000} Gb/s` : `${i.debit_mbps} Mb/s`) : "—"}</td>
+                    <td className="nx-mono">{i.throughput_mbps ? (i.throughput_mbps >= 1000 ? `${i.throughput_mbps / 1000} Gb/s` : `${i.throughput_mbps} Mb/s`) : "—"}</td>
                     <td className="nx-num nx-mono">{i.mtu ?? "—"}</td>
                   </tr>
                 );
@@ -138,20 +138,20 @@ export function NodeDiskPage({ resource: node }) {
   const { hw, error, load } = useHardware(node);
   if (!node) return null;
   const pools = storagePools.filter((p) => p.node === node.id);
-  const disks = hw?.disques || [];
+  const disks = hw?.disks || [];
   const usedBy = (d) => {
-    const names = pools.filter((p) => p.chemin && d.points_montage.some((m) => m === "/" || p.chemin.startsWith(m))).map((p) => p.nom);
-    return [...d.points_montage.slice(0, 3), ...names].join(", ") || "—";
+    const names = pools.filter((p) => p.path && d.mount_points.some((m) => m === "/" || p.path.startsWith(m))).map((p) => p.name);
+    return [...d.mount_points.slice(0, 3), ...names].join(", ") || "—";
   };
   return (
     <>
       <Card title={t("ov.pools")}>
         {pools.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("nn.noPools")}</p> : pools.map((p) => {
-          const r = p.capacite_go ? ((p.capacite_go - (p.disponible_go ?? p.capacite_go)) / p.capacite_go) * 100 : null;
+          const r = p.capacity_gb ? ((p.capacity_gb - (p.available_gb ?? p.capacity_gb)) / p.capacity_gb) * 100 : null;
           return (
-            <div key={p.nom} className="nx-cap nx-cap--3">
-              <div className="nx-cap-nm"><b>{p.nom}</b><small>{[p.type === "netfs" ? "NFS" : p.type, p.chemin, formatSizeGb(p.capacite_go, lang)].filter(Boolean).join(" · ")}</small></div>
-              <span className="nx-track nx-track--wide" role="meter" aria-label={`${p.nom} ${t("stor.usage")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r == null ? undefined : Math.round(r)}><span data-tone={r >= 90 ? "danger" : r >= 80 ? "warning" : "info"} style={{ width: `${Math.round(r || 0)}%` }} /></span>
+            <div key={p.name} className="nx-cap nx-cap--3">
+              <div className="nx-cap-nm"><b>{p.name}</b><small>{[p.type === "netfs" ? "NFS" : p.type, p.path, formatSizeGb(p.capacity_gb, lang)].filter(Boolean).join(" · ")}</small></div>
+              <span className="nx-track nx-track--wide" role="meter" aria-label={`${p.name} ${t("stor.usage")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r == null ? undefined : Math.round(r)}><span data-tone={r >= 90 ? "danger" : r >= 80 ? "warning" : "info"} style={{ width: `${Math.round(r || 0)}%` }} /></span>
               <span className="nx-cap-pct">{r == null ? "—" : `${Math.round(r)} %`}</span>
             </div>
           );
@@ -164,12 +164,12 @@ export function NodeDiskPage({ resource: node }) {
               <thead><tr><th scope="col">{t("nn.device")}</th><th scope="col">{t("nn.model")}</th><th scope="col">{t("stor.type")}</th><th scope="col" className="nx-num">{t("lib.size")}</th><th scope="col">SMART</th><th scope="col">{t("nn.usedBy")}</th></tr></thead>
               <tbody>
                 {disks.map((d) => (
-                  <tr key={d.nom}>
-                    <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{d.nom}</th>
-                    <td>{d.modele || <span className="nx-muted">—</span>}</td>
+                  <tr key={d.name}>
+                    <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{d.name}</th>
+                    <td>{d.model || <span className="nx-muted">—</span>}</td>
                     <td><Chip>{d.type}</Chip></td>
-                    <td className="nx-num nx-mono">{d.taille_go != null ? formatSizeGb(d.taille_go, lang) : "—"}</td>
-                    <td>{d.sante === "ok" ? <span className="nx-st nx-tone-success"><span className="nx-dot" data-tone="success" aria-hidden="true" />{t("nn.healthy")}</span> : d.sante === "echec" ? <span className="nx-st" data-tone="danger"><span className="nx-dot" data-tone="danger" aria-hidden="true" />{t("nn.failing")}</span> : <span className="nx-muted" title={t("nn.smartNa")}>—</span>}</td>
+                    <td className="nx-num nx-mono">{d.size_gb != null ? formatSizeGb(d.size_gb, lang) : "—"}</td>
+                    <td>{d.health === "ok" ? <span className="nx-st nx-tone-success"><span className="nx-dot" data-tone="success" aria-hidden="true" />{t("nn.healthy")}</span> : d.health === "failed" ? <span className="nx-st" data-tone="danger"><span className="nx-dot" data-tone="danger" aria-hidden="true" />{t("nn.failing")}</span> : <span className="nx-muted" title={t("nn.smartNa")}>—</span>}</td>
                     <td className="nx-mono nx-wrapcell">{usedBy(d)}</td>
                   </tr>
                 ))}
@@ -237,11 +237,11 @@ export function NodeShellPage({ resource: node }) {
   const connected = status === "connected";
   return (
     <>
-      <div className="nx-bn" data-tone="warning" role="note"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t"><b>{t("nn.shellWarn")}</b> {t("nn.shellHelp", { name: node.nom })}</span></div>
+      <div className="nx-bn" data-tone="warning" role="note"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t"><b>{t("nn.shellWarn")}</b> {t("nn.shellHelp", { name: node.name })}</span></div>
       <div>
         <div className="nx-termbar">
           <span className="nx-st" data-tone={connected ? undefined : "offline"}><span className="nx-dot" data-tone={connected ? "success" : "offline"} aria-hidden="true" />{t(connected ? "nn.connected" : status === "connecting" ? "nn.connecting" : "nn.notConnected")}</span>
-          <span className="nx-mono nx-muted" style={{ fontSize: "var(--fs-12)" }}>root@{node.nom}</span>
+          <span className="nx-mono nx-muted" style={{ fontSize: "var(--fs-12)" }}>root@{node.name}</span>
           <span className="nx-sp" />
           {connected
             ? <button type="button" className="nx-btn nx-btn--sm" onClick={cleanup}><Unplug size={14} aria-hidden="true" />{t("nn.disconnect")}</button>
@@ -260,9 +260,9 @@ export function NodeShellPage({ resource: node }) {
 }
 
 const FEATURE = {
-  actif: { key: "state.active", shape: "dot", tone: "success" },
+  active: { key: "state.active", shape: "dot", tone: "success" },
   limite: { key: "state.limited", shape: "triangle", tone: "warning" },
-  inconnu: { key: "state.unknown", shape: "ring", tone: "unknown" },
+  unknown: { key: "state.unknown", shape: "ring", tone: "unknown" },
 };
 const CHECK = {
   ok: { key: "cp.ok", shape: "check", tone: "success" },
@@ -274,13 +274,13 @@ const CHECK = {
 function Checks({ list, t }) {
   // warnings and blockers first, then what passed
   const order = { blocking: 0, disabled: 1, warning: 2, ok: 3 };
-  const rows = [...list].sort((a, b) => (order[a.statut] ?? 2) - (order[b.statut] ?? 2));
+  const rows = [...list].sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2));
   return (
     <ul className="nx-list2">
       {rows.map((c, i) => (
         <li key={`${c.id}-${i}`}>
-          <StatusIndicator override={CHECK[c.statut] || CHECK.warning} compact />
-          <div className="nx-list2-main"><b>{c.message}</b>{(c.fonctionnalite || c.action) && <div className="nx-list2-sub">{c.fonctionnalite && `${t("cp.impact")}: ${c.fonctionnalite}`}{c.fonctionnalite && c.action ? " · " : ""}{c.action && `${t("cp.action")}: ${c.action}`}</div>}</div>
+          <StatusIndicator override={CHECK[c.status] || CHECK.warning} compact />
+          <div className="nx-list2-main"><b>{c.message}</b>{(c.feature || c.action) && <div className="nx-list2-sub">{c.feature && `${t("cp.impact")}: ${c.feature}`}{c.feature && c.action ? " · " : ""}{c.action && `${t("cp.action")}: ${c.action}`}</div>}</div>
         </li>
       ))}
     </ul>
@@ -318,9 +318,9 @@ export function NodeCompatPage({ resource: node }) {
   const rows = flattenCapabilities(caps).map((r) => capRow(t, r));
   const sections = [...new Set(rows.map((r) => r.section))];
   const features = deriveFeatures(caps).map((f) => featureRow(t, f));
-  const checks = (preflight || pair)?.controles || [];
-  const bad = checks.filter((c) => c.statut !== "ok");
-  const blocking = checks.filter((c) => c.statut === "blocking").length;
+  const checks = (preflight || pair)?.checks || [];
+  const bad = checks.filter((c) => c.status !== "ok");
+  const blocking = checks.filter((c) => c.status === "blocking").length;
 
   return (
     <>
@@ -334,11 +334,11 @@ export function NodeCompatPage({ resource: node }) {
         </div>
       )}
       <div className="nx-cols2 nx-cols2--even">
-        {(preflight || pair) && <Card title={pair ? t("nc.pair") : t("nc.preflight")} note={preflight ? t("nc.preflightCount", preflight.resume.compte) : null}><Checks list={checks} t={t} /></Card>}
+        {(preflight || pair) && <Card title={pair ? t("nc.pair") : t("nc.preflight")} note={preflight ? t("nc.preflightCount", preflight.summary.account) : null}><Checks list={checks} t={t} /></Card>}
         {features.length > 0 && (
           <Card title={t("nc.features")}>
             <div className="nx-chips">
-              {features.map((f) => <Chip key={f.id} tone={f.etat === "actif" ? "info" : f.etat === "limite" ? "warning" : undefined} title={f.detail || undefined}>{f.etat === "actif" ? <Check size={13} aria-hidden="true" /> : null}{f.label}{f.etat !== "actif" && <span className="nx-sr"> — {t(FEATURE[f.etat]?.key || "state.unknown")}</span>}</Chip>)}
+              {features.map((f) => <Chip key={f.id} tone={f.state === "active" ? "info" : f.state === "limite" ? "warning" : undefined} title={f.detail || undefined}>{f.state === "active" ? <Check size={13} aria-hidden="true" /> : null}{f.label}{f.state !== "active" && <span className="nx-sr"> — {t(FEATURE[f.state]?.key || "state.unknown")}</span>}</Chip>)}
             </div>
             {features.filter((f) => f.detail).map((f) => <p key={f.id} className="nx-f-h" style={{ margin: "var(--space-2) 0 0" }}>{f.label} : {f.detail}</p>)}
           </Card>

@@ -62,7 +62,7 @@ def test_directory_users_sign_in_with_their_role(client, directory):
     assert r.status_code == 200
     from app.core.security import get_user
 
-    assert get_user("bob")["role"] == "observateur" and get_user("bob")["ldap_dn"] == f"uid=bob,ou=people,{BASE}"
+    assert get_user("bob")["role"] == "viewer" and get_user("bob")["ldap_dn"] == f"uid=bob,ou=people,{BASE}"
 
 
 @pytest.mark.parametrize(
@@ -85,7 +85,7 @@ def test_role_follows_the_directory_at_each_sign_in(client, directory):
     assert client.post("/auth/login", data={"username": "alice", "password": "alicepw"}).status_code == 200
     from app.core.security import get_user
 
-    assert get_user("alice")["role"] == "observateur"
+    assert get_user("alice")["role"] == "viewer"
     ldap_auth.set_config({**ldap_auth.public_config(), "enabled": False})
     assert client.post("/auth/login", data={"username": "alice", "password": "alicepw"}).status_code == 401
 
@@ -105,10 +105,10 @@ def test_settings_api(client, auth_headers, directory):
     cfg = client.get("/ldap/config", headers=admin).json()
     assert cfg["bind_password_set"] is True and "bind_password" not in cfg
     r = client.post("/ldap/test", json={"username": "alice", "password": "alicepw"}, headers=admin)
-    assert r.status_code == 200 and r.json()["utilisateur"]["role"] == "admin"
-    assert client.post("/ldap/test", json={"username": "alice", "password": "no"}, headers=admin).json()[
-        "utilisateur"
-    ] == {"accepte": False}
+    assert r.status_code == 200 and r.json()["user"]["role"] == "admin"
+    assert client.post("/ldap/test", json={"username": "alice", "password": "no"}, headers=admin).json()["user"] == {
+        "accepted": False
+    }
     for bad, message in [
         ({"url": "http://x", "base_dn": BASE}, "ldap://"),
         ({"url": "ldaps://x", "starttls": True, "base_dn": BASE}, "StartTLS"),
@@ -118,4 +118,4 @@ def test_settings_api(client, auth_headers, directory):
     ]:
         r = client.put("/ldap/config", json=bad, headers=admin)
         assert r.status_code == 422 and message in r.json()["detail"], bad
-    assert client.get("/ldap/config", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.get("/ldap/config", headers=auth_headers("watcher", "viewer")).status_code == 403

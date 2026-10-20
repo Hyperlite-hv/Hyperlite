@@ -95,7 +95,7 @@ def test_peer_api_uses_https_and_falls_back_to_ssh(server, monkeypatch):
 
     monkeypatch.setattr(rolling_update, "_ssh", fake_ssh)
     status, body = rolling_update.peer_api(server["node"], "ana", "GET", "/vms")
-    assert status == 200 and body["path"] == "/vms" and ssh == []
+    assert status == 200 and body["path"] == "/api/v1/vms" and ssh == []  # the members' API prefix
     server["published"].clear()  # no fingerprint: SSH, as before
     assert rolling_update.peer_api(server["node"], "ana", "GET", "/vms") == (200, []) and ssh == ["pve-a"]
 

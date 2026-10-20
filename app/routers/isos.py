@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
+from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
@@ -45,7 +46,7 @@ def _iso_in_use(conn, iso_path: str) -> bool:
 def list_isos(user: dict = Depends(get_current_user)):
     from app.core.iso_share import local_isos
 
-    return local_isos()
+    return listing(local_isos())
 
 
 @router.get("/cluster")
@@ -57,9 +58,9 @@ def list_cluster_isos(user: dict = Depends(get_current_user)):
 
 
 class IsoCopy(BaseModel):
-    nom: str
+    name: str
     source: str = "local"
-    cibles: list[str]
+    targets: list[str]
 
 
 @router.post("/copy", status_code=202)
@@ -68,14 +69,14 @@ def copy_iso(payload: IsoCopy, user: dict = Depends(require_role("admin"))):
     from app.core.iso_share import start_copy
 
     try:
-        tasks = start_copy(payload.nom, payload.source, payload.cibles, user["username"])
+        tasks = start_copy(payload.name, payload.source, payload.targets, user["username"])
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return {"nom": payload.nom, "taches": tasks}
+    return {"name": payload.name, "tasks": tasks}
 
 
 def _refresh_iso_pool(path):
@@ -106,13 +107,13 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
     task_id = create_task("upload_iso", filename, username=user["username"])
 
     if not filename.lower().endswith(".iso"):
-        finish_task(task_id, "echec", "The file must have the .iso extension")
+        finish_task(task_id, "failed", "The file must have the .iso extension")
         raise HTTPException(status_code=422, detail="The file must have the .iso extension")
     # Not the VM name rule: distribution ISOs are named with dots and underscores
     # (debian-13.1.0-amd64-netinst.iso, ubuntu-24.04.3-live-server-amd64.iso).
     if not ISO_NAME_RE.fullmatch(filename[:-4]):
         msg = "Invalid ISO file name (letters, digits, dots, dashes, underscores and +, starting with a letter or a digit)"
-        finish_task(task_id, "echec", msg)
+        finish_task(task_id, "failed", msg)
         raise HTTPException(status_code=422, detail=msg)
 
     dest = safe_child(ISOS_DIR, filename)
@@ -120,7 +121,7 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
     if dest.exists():
         await file.close()
         msg = f"An ISO named '{filename}' already exists: rename or delete it first"
-        finish_task(task_id, "echec", msg)
+        finish_task(task_id, "failed", msg)
         raise HTTPException(status_code=409, detail=msg)
     # Written under a temporary name, then renamed: an interrupted upload left a truncated ISO in the library. The
     # copy (gigabytes) runs in a worker thread: in this coroutine it held up every other request meanwhile.
@@ -133,10 +134,10 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
     except BaseException as e:
         partial.unlink(missing_ok=True)
         # Safety net: without it, a failing write (disk full, permissions...) would
-        # leave the task stuck in "en_cours" forever in the task list, never
-        # "termine" and never "echec".
+        # leave the task stuck in "running" forever in the task list, never
+        # "succeeded" and never "failed".
         msg = describe_exception(e) if isinstance(e, OSError) else "upload interrupted"
-        finish_task(task_id, "echec", msg)
+        finish_task(task_id, "failed", msg)
         if isinstance(e, FileExistsError):
             raise HTTPException(status_code=409, detail=str(e)) from e
         if isinstance(e, OSError):
@@ -144,8 +145,8 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
         raise
 
     _refresh_iso_pool(dest)
-    log_action(user["username"], "upload_iso", filename, "succes", task_id=task_id)
-    return {"nom": filename, "taille_mo": round(dest.stat().st_size / (1024 * 1024), 1)}
+    log_action(user["username"], "upload_iso", filename, "success", task_id=task_id)
+    return {"name": filename, "size_mb": round(dest.stat().st_size / (1024 * 1024), 1)}
 
 
 class IsoRename(BaseModel):
@@ -186,8 +187,8 @@ def rename_iso(filename: str, payload: IsoRename, user: dict = Depends(require_r
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Rename failed: {describe_exception(e)}") from e
     _refresh_iso_pool(target)
-    log_action(user["username"], "rename_iso", old, "succes", f"-> {new}")
-    return {"nom": new, "ancien": old}
+    log_action(user["username"], "rename_iso", old, "success", f"-> {new}")
+    return {"name": new, "old": old}
 
 
 @router.delete("/{filename}")
@@ -226,5 +227,5 @@ def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: 
         except (RuntimeError, OSError) as e:
             raise HTTPException(status_code=502, detail=f"Deletion on {node} failed: {e}") from e
     target = filename if remote is None else f"{filename} ({node})"
-    log_action(user["username"], "delete_iso", target, "succes")
-    return {"nom": filename, "node": node, "supprime": True}
+    log_action(user["username"], "delete_iso", target, "success")
+    return {"name": filename, "node": node, "deleted": True}
