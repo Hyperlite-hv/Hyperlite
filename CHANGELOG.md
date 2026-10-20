@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-20
+
 ### Fixed
 
 - A dashboard tab left open over an update that moves the API reloads itself, instead of staying blank (at most once a minute).
