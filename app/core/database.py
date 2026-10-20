@@ -332,10 +332,9 @@ def init_db():
                 username TEXT NOT NULL
             )
         """)
-        # Tracking of an unattended installation (Kickstart/autoinstall) in progress:
-        # created when the VM is created and deleted as soon as the web SSH terminal
-        # answers. It only feeds a progress bar on the dashboard (see
-        # GET /vms/{name}/provisioning).
+        # The tracking of an unattended installation (Kickstart/autoinstall), which Hyperlite no longer does since
+        # 1.0 (an ISO is installed by hand, as on Proxmox VE): nothing writes it any more; the table stays so that
+        # the databases of earlier versions open and migrate unchanged.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_provisioning (
                 vm_name TEXT PRIMARY KEY,

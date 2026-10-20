@@ -3,7 +3,7 @@ on this host and is meant for local restoration; an export instead produces a
 downloadable qcow2 file meant to LEAVE the host (migration to another server,
 external archive, sharing). Symmetrically, an imported disk (see
 app/routers/vm_disks.py) is a file that came from elsewhere and is used to
-create a new VM directly, without going through ISO + kickstart.
+create a new VM directly, without installing it from an ISO.
 
 It reuses the building blocks of the backup module (domain_disk_paths,
 qemu_img_convert_with_progress, backup_cold/backup_hot with their tested

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createVM, fetchClusterIsos, fetchHostFirmware, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
-import { installationFamily, isWindowsInstall, guestProfile, diskController, vmFirmware } from "../../utils/osFamily";
+import { isWindowsInstall, guestProfile, diskController, vmFirmware } from "../../utils/osFamily";
 import { useHostLimits } from "../../hooks/useHostLimits";
 import OverallocationNote from "../../components/OverallocationNote";
 import IsoUploadDropzone from "../../components/IsoUploadDropzone";
@@ -110,7 +110,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   }, [nodes, networks]);
 
   const importMode = form.importDisk != null;
-  const manual = Boolean(form.iso) && !installationFamily(form);
+  // An installation ISO is installed by hand from the console, whatever the system: the account is made there.
+  const manual = Boolean(form.iso);
   const needsAccount = !importMode && !manual;
   const taken = useMemo(() => new Set(vms.map((v) => v.name)), [vms]);
   const vMin = limits?.vcpu.min ?? 1, vMax = limits?.vcpu.max, mMin = limits?.memory_mb.min ?? 256, mMax = limits?.memory_mb.max, dMax = limits?.disk_gb.max, dCount = limits?.disks.max;
@@ -201,7 +202,6 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   }
 
   const selectable = pools.filter((p) => ["dir", "netfs", "zfs", "iscsi"].includes(p.type) && p.state === "active");
-  const family = installationFamily(form);
   const profile = guestProfile(form);
   const radio = (checked, on, title, sub, name, extra = null, disabled = false) => (
     <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`} aria-disabled={disabled || undefined} style={disabled ? { opacity: 0.55 } : undefined}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} disabled={disabled} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
@@ -210,7 +210,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   // What the guest will see as its first, second... disk; the libvirt name (sda) follows in grey for administrators.
   const diskLabel = (i) => (i === 0 ? t("wz.diskSystem") : t("wz.diskN", { n: i + 1 }));
 
-  const sourceNote = importMode ? t("wz.src.import") : !form.iso ? t("wz.src.cloud") : isWindowsInstall(form) ? t("wz.src.windows") : family === "kickstart" ? t("wz.src.kickstart") : family === "autoinstall" ? t("wz.src.autoinstall") : t("wz.src.manual");
+  const sourceNote = importMode ? t("wz.src.import") : !form.iso ? t("wz.src.cloud") : isWindowsInstall(form) ? t("wz.src.windows") : t("wz.src.manual");
 
   const review = [
     [0, t("wz.step.source"), [[t("wz.r.source"), importMode ? `${t("wz.r.imported")} (${form.importDisk || "—"})` : form.iso || t("wz.r.debian")], [t("wz.r.profile"), importMode ? "—" : { windows: "Windows", linux: "Linux", other: t("wz.os.other") }[profile]]]],

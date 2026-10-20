@@ -56,21 +56,6 @@ def rename_vm_os_label(old_name, new_name):
         set_vm_os_label(new_name, label)
 
 
-# ---- Progress tracking of an unattended installation (recognized ISO) ----
-
-
-def mark_provisioning(vm_name, os_family, task_id=None):
-    _store().mark_provisioning(vm_name, os_family, datetime.now(UTC).isoformat(), task_id)
-
-
-def get_provisioning(vm_name):
-    return _store().provisioning(vm_name)
-
-
-def clear_provisioning(vm_name):
-    _store().clear_provisioning(vm_name)
-
-
 # ---- Automatic deletion of inactive VMs ----
 
 

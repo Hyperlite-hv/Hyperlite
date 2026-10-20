@@ -28,6 +28,7 @@ from app.routers.vms._shared import _domain_summary, router
 
 logger = logging.getLogger(__name__)
 
+# -oemdrv and -autoinstall: the Kickstart/autoinstall answers of VMs created before 1.0.
 GENERATED_ISO_SUFFIXES = ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso")
 NVRAM_DIR = "/var/lib/libvirt/qemu/nvram"
 

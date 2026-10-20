@@ -2,7 +2,15 @@
 
 import re
 
-from app.core.unattended_install import detect_windows
+
+def detect_windows(iso_filename):
+    """Return whether an ISO is a Windows installer handled with native SATA devices."""
+    if not iso_filename:
+        return False
+    name = iso_filename.lower()
+    return bool(
+        re.search(r"windows|(?:^|[^a-z0-9])(?:win|server)[-_ ]?(?:10|11|2016|2019|2022|2025)(?:[^0-9]|$)", name)
+    )
 
 
 def guest_profile(iso_filename, requested="auto"):

@@ -131,17 +131,6 @@
     @apply bg-anthracite-400;
   }
 }
-
-/* Indeterminate progress bar (unattended ISO installation in progress, see
-   components/ProvisioningBar.jsx): no real percentage is available, just a
-   movement to indicate "still running". */
-.provisioning-indeterminate {
-  animation: provisioning-slide 1.4s ease-in-out infinite;
-}
-@keyframes provisioning-slide {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(300%); }
-}
 /*
   ---break---
 */

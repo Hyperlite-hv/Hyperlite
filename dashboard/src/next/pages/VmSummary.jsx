@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Archive, Camera, Eraser, Heart, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Archive, Camera, Eraser, Heart, TriangleAlert } from "lucide-react";
 import { fetchSnapshots, fetchVMBackups, fetchHaProtected, fetchTasks, fetchVMDisks, fetchVMNetwork, fetchBackupSchedule, fetchVMAutoCleanup } from "../../api/client";
-import { useProvisioningStatus } from "../../hooks/useProvisioningStatus";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { isRemoteVm, vmKey } from "../lib/vmId";
@@ -21,17 +20,15 @@ const base = (p) => (p ? String(p).split("/").pop() : "");
 const pct = (u, tot) => (u != null && tot ? (u / tot) * 100 : null);
 
 // VM summary: four KPI tiles (last hour, opening Performance), the real configuration, the protection state
-// with direct links, the unattended-installation progress while it runs, and the VM's recent activity.
+// with direct links, and the VM's recent activity.
 // Every operation lives in the header (primary, Stop, Actions menu): nothing is repeated here.
 export default function VmSummary({ resource: vm }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
   const lang = useLangStore((s) => s.lang);
-  const { nodes, navigateTo, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, navigateTo: s.navigateTo, pushToast: s.pushToast, refreshAll: s.refreshAll })));
+  const { nodes, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, navigateTo: s.navigateTo })));
   const hist = useVmHistory(vm, "1h");
   const running = vm?.state === "active";
-  const local = vm?.node === "local";
-  const { status: prov, justFinished } = useProvisioningStatus(local ? vm?.name : null, running && local);
   const [snaps, setSnaps] = useState(null);
   const [backups, setBackups] = useState(null);
   const [schedule, setSchedule] = useState(undefined);
@@ -61,10 +58,6 @@ export default function VmSummary({ resource: vm }) {
   usePolling(loadRecent, 10000, { enabled: !!name });
   useEffect(() => { loadRecent().catch(() => setRecent([])); }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The unattended installation reports its end (or its failure) once, as before.
-  useEffect(() => { if (justFinished) { pushToast({ kind: "success", title: t("vm.installDone"), message: t("vm.installDoneMsg", { name }) }); refreshAll?.(); } }, [justFinished]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (prov?.failed) pushToast({ kind: "error", title: t("vm.installFailed"), message: prov.error || t("err.unknown") }); }, [prov?.failed]); // eslint-disable-line react-hooks/exhaustive-deps
-
   if (!vm) return null;
   const nodeName = nodes.find((n) => n.id === vm.node)?.name || vm.node;
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
@@ -83,18 +76,12 @@ export default function VmSummary({ resource: vm }) {
   const goPerf = () => navigateTo("vm", vmKey(vm), "perf");
   const problem = vm.state === "crashed" || vm.state === "blocked";
   const today = new Date().toDateString();
-  const phase = prov?.phase ? t(`vm.phase.${prov.phase}`) : "";
 
   return (
     <>
       {problem && (
         <div className="nx-bn" data-tone={vm.state === "crashed" ? "danger" : "warning"} role="status"><TriangleAlert size={16} aria-hidden="true" />
           <span className="nx-bn-t">{t(vm.state === "crashed" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>
-      )}
-      {prov?.provisioning && (
-        <div className="nx-bn" data-tone="info" role="status"><LoaderCircle size={16} className="nx-spin" aria-hidden="true" />
-          <span className="nx-bn-t"><b>{t("vm.installing")}</b> {phase.startsWith("vm.phase.") ? "" : phase}{prov.elapsed_s != null ? ` (${Math.floor(prov.elapsed_s / 60)}:${String(prov.elapsed_s % 60).padStart(2, "0")})` : ""}<br /><span className="nx-muted">{t("vm.installHint")}</span></span>
-          <span className="nx-progress nx-progress--indeterminate" style={{ width: "8rem" }} role="progressbar" aria-label={t("vm.installing")}><span /></span></div>
       )}
 
       <KpiStrip label={t("ns.resources")} items={[

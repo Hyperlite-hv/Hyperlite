@@ -24,7 +24,7 @@ ISO images are per node: a VM boots only from an image in its own host's library
 
 - `app/main.py` creates the FastAPI application, registers the routers, serves the built dashboard (`dashboard/dist`) and starts the background loops (metrics collection, node poller, scheduled backups, inactive-VM cleanup, update check).
 - `app/routers/` contains one module per API area (`vms`, `containers`, `storage`, `network`, `nodes`, `ha`, `backups`, `auth`, `sso`, `acl`, `groups`, `pools`, `notifications`, `jobs`, `metrics`, `tasks`, `audit`, `update`, `host`, ...).
-- `app/core/` contains the logic shared by the routers: libvirt helpers, VM and container builders, unattended installation, ZFS, cluster and compatibility checks, permissions, security, notifications, backups, HA, metrics, preflight checks and host capability detection.
+- `app/core/` contains the logic shared by the routers: libvirt helpers, VM and container builders, ZFS, cluster and compatibility checks, permissions, security, notifications, backups, HA, metrics, preflight checks and host capability detection.
 - `app/core/database.py` creates the schema at start-up (`CREATE TABLE IF NOT EXISTS` plus small in-place migrations). SQLite runs in WAL mode with a 30 second timeout.
 - `app/core/audit.py` owns a dedicated writer thread for the audit log so that request handlers never wait on a SQLite write for it.
 

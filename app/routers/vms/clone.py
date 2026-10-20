@@ -64,7 +64,7 @@ def _clone_vm(name, payload, user):
     #    password, which Hyperlite never keeps anywhere and could not reinject) is
     #    given to the clone: cloud-init detects a "new instance" at first boot and
     #    regenerates the hostname and SSH host keys by itself. For VMs installed from
-    #    an ISO (kickstart/autoinstall or manual), no guest customization is possible,
+    #    an ISO, no guest customization is possible,
     #    the same limit as a hypervisor without a guest agent, documented in the
     #    response rather than silently ignored.
     conn = open_conn()

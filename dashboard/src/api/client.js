@@ -1007,9 +1007,6 @@ export function saveRetention(payload) {
 export async function fetchAuditCount(filters = {}) {
   return realFetch(`/audit/count?${clusterQuery(filters)}`);
 }
-export async function fetchProvisioningStatus(name) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/provisioning`);
-}
 const nodeQs = (node) => (node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "");
 export async function fetchVMDisks(name, node = null) {
   return realList(`/vms/${encodeURIComponent(name)}/disks${nodeQs(node)}`);

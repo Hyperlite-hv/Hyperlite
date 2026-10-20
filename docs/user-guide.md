@@ -74,8 +74,8 @@ Advanced, Review**. The right-hand column sums up the choices.
 - **Source**:
   - *Debian 12 cloud image*: preinstalled, ready in a minute with the user and password (and SSH keys) you set. The
     guest agent is installed at first boot.
-  - *ISO*: Debian family, Ubuntu and RHEL family ISOs install unattended with your account; other ISOs (Windows
-    included) boot for a manual installation through the console. An ISO stored on another node can be used.
+  - *ISO*: the VM boots from it and you install the system through the console, as on Proxmox VE, creating its
+    account there. An ISO stored on another node can be used.
   - *Import a disk*: boot from an existing qcow2, raw, vmdk, vdi or vhd disk (uploaded in the Library).
 - **Placement**: the node and the storage pool (a shared NFS pool is needed for HA and migration without copying the
   disk).

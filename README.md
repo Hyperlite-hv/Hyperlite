@@ -6,7 +6,7 @@ Hyperlite is a self-hosted virtualization manager: a FastAPI backend that drives
 
 ## Features
 
-- **Virtual machines**: create, start/stop, delete, clone, snapshots, templates, cloud-init, resource limits (cgroups), unattended installation of Debian/Ubuntu/RHEL-family ISOs, disk import/export, UEFI with Secure Boot and TPM 2.0, USB and PCI passthrough, CPU pinning.
+- **Virtual machines**: create, start/stop, delete, clone, snapshots, templates, cloud-init, resource limits (cgroups), installation from any ISO through the console, disk import/export, UEFI with Secure Boot and TPM 2.0, USB and PCI passthrough, CPU pinning.
 - **Containers**: LXC containers built from a Debian base or from any Docker Hub / OCI image (no Docker daemon needed), with a web SSH terminal; Kubernetes (k3s) clusters on Hyperlite VMs.
 - **Storage**: local directory pools, shared NFS pools (with the NFS version chosen at creation), ZFS pools (VMs on zvols, native ZFS snapshots), iSCSI targets.
 - **Networking**: virtual networks (NAT, isolated, bridge on a host bridge, NIC, bond or VLAN interface), per-VM firewall (libvirt nwfilter) and per-network firewall (iptables on the bridge). A VLAN tag on a VM interface is accepted only on a network that can carry it (Open vSwitch, SR-IOV).
